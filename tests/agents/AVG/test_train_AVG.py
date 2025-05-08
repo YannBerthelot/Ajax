@@ -576,6 +576,7 @@ def test_training_iteration_with_scan(env_config, avg_state):
         agent_args=agent_args,
         action_dim=action_dim,
         log_frequency=log_frequency,
+        total_timesteps=5,
     )
 
     # Run multiple training iterations using jax.lax.scan

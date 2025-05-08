@@ -685,6 +685,7 @@ def no_op_none(agent_state, index, timestep):
         "agent_args",
         "chunk_size",
         "horizon",
+        "total_timesteps",
     ],
 )
 def training_iteration(
@@ -696,6 +697,7 @@ def training_iteration(
     buffer: BufferType,
     agent_args: SACConfig,
     action_dim: int,
+    total_timesteps: int,
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
     chunk_size: int = 1000,
@@ -824,7 +826,10 @@ def training_iteration(
     if log:
         _, eval_rng = jax.random.split(agent_state.eval_rng)
         agent_state = agent_state.replace(eval_rng=eval_rng)
-        flag = jnp.logical_and((timestep % log_frequency) == 1, timestep > 1)
+        flag = jnp.logical_or(
+            jnp.logical_and((timestep % log_frequency) == 1, timestep > 1),
+            timestep >= (total_timesteps - env_args.num_envs),
+        )
         jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
         del aux
 
@@ -919,6 +924,7 @@ def make_train(
             log_fn=log_fn,
             index=index,
             log=log,
+            total_timesteps=total_timesteps,
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),

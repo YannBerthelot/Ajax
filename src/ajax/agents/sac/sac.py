@@ -16,6 +16,7 @@ from ajax.environments.utils import (
 )
 from ajax.logging.wandb_logging import (
     LoggingConfig,
+    init_logging,
     stop_async_logging,
     with_wandb_silent,
 )
@@ -150,14 +151,7 @@ class SAC:
             logging_config.config.update(self.config)
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
             for index, run_id in enumerate(run_ids):
-                wandb.init(
-                    project=logging_config.project_name,
-                    name=f"{logging_config.run_name}  {index}",
-                    id=run_id,
-                    resume="never",
-                    reinit=True,
-                    config=logging_config.config,
-                )
+                init_logging(run_id, index, logging_config)
         else:
             run_ids = None
 
@@ -188,7 +182,7 @@ class SAC:
 
 
 if __name__ == "__main__":
-    n_seeds = 1
+    n_seeds = 2
     log_frequency = 5_000
     chunk_size = 1000
     logging_config = LoggingConfig(
@@ -203,11 +197,13 @@ if __name__ == "__main__":
         log_frequency=log_frequency,
         chunk_size=chunk_size,
         horizon=10_000,
+        use_tensorboard=False,
+        use_wandb=True,
     )
     env_id = "halfcheetah"
     sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
     sac_agent.train(
         seed=list(range(n_seeds)),
-        num_timesteps=int(1e6),
+        num_timesteps=int(1e5),
         logging_config=logging_config,
     )

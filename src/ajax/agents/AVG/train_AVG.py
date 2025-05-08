@@ -71,7 +71,6 @@ class ValueAuxiliaries:
 
 @struct.dataclass
 class AuxiliaryLogs:
-    temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
 
@@ -137,6 +136,8 @@ def init_AVG(
         action_value=True,
         squash=True,
         num_critics=1,
+        encoder_bias_init="constant(0)",
+        encoder_kernel_init="orthogonal",
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
 
@@ -578,18 +579,7 @@ def update_agent(
         recurrent=recurrent,
     )
 
-    # Adjust temperature
-    target_entropy = -action_dim
-    agent_state, aux_temperature = update_temperature(
-        agent_state,
-        observations=transition.obs,  # type: ignore[union-attr]
-        target_entropy=target_entropy,
-        recurrent=recurrent,
-        dones=done,  # type: ignore[union-attr]
-    )
-
     aux = AuxiliaryLogs(
-        temperature=aux_temperature,
         policy=aux_policy,
         value=ValueAuxiliaries(
             **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}

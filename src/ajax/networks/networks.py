@@ -1,30 +1,31 @@
 from collections.abc import Sequence
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax.core import FrozenDict
-from flax.linen.initializers import (
-    constant,
-    xavier_normal,
-    xavier_uniform,
-)
+from flax.linen.initializers import constant, orthogonal
 from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.networks.scanned_rnn import ScannedRNN
-from ajax.networks.utils import get_adam_tx, parse_architecture, uniform_init
+from ajax.networks.utils import (
+    get_adam_tx,
+    parse_architecture,
+    parse_initialization,
+)
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import ActivationFunction, HiddenState
+from ajax.types import ActivationFunction, HiddenState, InitializationFunction
 
 """
 Heavy inspiration from https://github.com/Howuhh/sac-n-jax/blob/main/sac_n_jax_flax.py
@@ -34,9 +35,13 @@ Heavy inspiration from https://github.com/Howuhh/sac-n-jax/blob/main/sac_n_jax_f
 class Encoder(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     penultimate_normalization: bool = False
+    kernel_init: Optional[str] = None
+    bias_init: Optional[str] = None
 
     def setup(self):
-        layers = parse_architecture(self.input_architecture)
+        layers = parse_architecture(
+            self.input_architecture, self.kernel_init, self.bias_init
+        )
         self.encoder = nn.Sequential(layers)
 
     @nn.compact
@@ -53,32 +58,46 @@ class Actor(nn.Module):
     continuous: bool = False
     squash: bool = False
     penultimate_normalization: bool = False
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    bias_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         # Initialize the Encoder as a submodule
         self.encoder = Encoder(
             input_architecture=self.input_architecture,
             penultimate_normalization=self.penultimate_normalization,
+            kernel_init=self.encoder_kernel_init,
+            bias_init=self.encoder_bias_init,
         )
+        if self.kernel_init is None:
+            kernel_init = orthogonal(np.sqrt(2))
+        else:
+            kernel_init = parse_initialization(self.kernel_init)
+        if self.bias_init is None:
+            bias_init = constant(0.0)
+        else:
+            bias_init = parse_initialization(self.kernel_init)
 
         if self.continuous:
             self.mean = nn.Dense(
                 self.action_dim,
-                kernel_init=xavier_normal(),
-                bias_init=constant(0.0),
+                kernel_init=kernel_init,
+                bias_init=bias_init,
             )
             self.log_std = nn.Dense(
                 self.action_dim,
-                kernel_init=xavier_uniform(),
-                bias_init=constant(0.0),
+                kernel_init=kernel_init,
+                bias_init=bias_init,
             )
         else:
             self.model = nn.Sequential(
                 [
                     nn.Dense(
                         self.action_dim,
-                        kernel_init=uniform_init(1e-3),
-                        bias_init=uniform_init(1e-3),
+                        kernel_init=kernel_init,
+                        bias_init=bias_init,
                     ),
                     distrax.Categorical,
                 ],
@@ -104,16 +123,29 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     penultimate_normalization: bool = False
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    bias_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         self.encoder = Encoder(
             input_architecture=self.input_architecture,
             penultimate_normalization=self.penultimate_normalization,
         )
+        if self.kernel_init is None:
+            kernel_init = orthogonal()
+        else:
+            kernel_init = parse_initialization(self.kernel_init)
+        if self.bias_init is None:
+            bias_init = constant(0.1)
+        else:
+            bias_init = parse_initialization(self.kernel_init)
+
         self.model = nn.Dense(
             1,
-            kernel_init=uniform_init(3e-3),
-            bias_init=constant(0.1),
+            kernel_init=kernel_init,
+            bias_init=bias_init,
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -125,6 +157,10 @@ class MultiCritic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     num: int = 1
     penultimate_normalization: bool = False
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    bias_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
 
     @nn.compact
     def __call__(self, *args, **kwargs):
@@ -137,9 +173,14 @@ class MultiCritic(nn.Module):
             axis_size=self.num,
         )
 
-        return ensemble(self.input_architecture, self.penultimate_normalization)(
-            *args, **kwargs
-        )
+        return ensemble(
+            self.input_architecture,
+            self.penultimate_normalization,
+            self.kernel_init,
+            self.bias_init,
+            self.encoder_kernel_init,
+            self.encoder_bias_init,
+        )(*args, **kwargs)
 
 
 def get_initialized_actor_critic(
@@ -152,6 +193,12 @@ def get_initialized_actor_critic(
     action_value: bool = False,
     squash: bool = False,
     num_critics: int = 1,
+    actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+    actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
+    critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+    critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
+    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """Create actor and critic adapted to the environment and following the\
           given architectures
@@ -163,11 +210,19 @@ def get_initialized_actor_critic(
         continuous=continuous,
         squash=squash,
         penultimate_normalization=network_config.penultimate_normalization,
+        kernel_init=actor_kernel_init,
+        bias_init=actor_bias_init,
+        encoder_kernel_init=encoder_kernel_init,
+        encoder_bias_init=encoder_bias_init,
     )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
         num=num_critics,
+        kernel_init=critic_kernel_init,
+        bias_init=critic_bias_init,
+        encoder_kernel_init=encoder_kernel_init,
+        encoder_bias_init=encoder_bias_init,
     )
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
     critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))

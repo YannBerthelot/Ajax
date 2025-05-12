@@ -92,9 +92,8 @@ def evaluate(
         still_running = 1 - done  # only count unfinished envs
         step_count += still_running.mean()
         entropy_sum += (entropy.mean() * still_running).mean()
+        rewards += new_rewards * still_running
         done = done | jnp.int8(new_done)
-
-        rewards += new_rewards * (1 - done)
         return rewards, rng, obs, done, state, entropy_sum, step_count
 
     def env_not_done(carry):

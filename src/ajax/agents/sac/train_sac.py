@@ -217,7 +217,7 @@ def value_loss_function(
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_params,
-        x=jnp.concatenate((observations, actions), axis=-1),
+        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
     )
     # Target Q-values using target networks
     q_targets = predict_value(

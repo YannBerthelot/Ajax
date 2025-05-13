@@ -5,13 +5,12 @@ import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import numpy as np
 from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
 from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
-from ajax.agents.sac.utils import SquashedNormal
+from ajax.agents.AVG.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.networks.scanned_rnn import ScannedRNN
 from ajax.networks.utils import (
@@ -72,13 +71,13 @@ class Actor(nn.Module):
             bias_init=self.encoder_bias_init,
         )
         if self.kernel_init is None:
-            kernel_init = orthogonal(np.sqrt(2))
+            kernel_init = orthogonal(1.0)
         else:
             kernel_init = parse_initialization(self.kernel_init)
         if self.bias_init is None:
             bias_init = constant(0.0)
         else:
-            bias_init = parse_initialization(self.kernel_init)
+            bias_init = parse_initialization(self.bias_init)
 
         if self.continuous:
             self.mean = nn.Dense(
@@ -134,13 +133,13 @@ class Critic(nn.Module):
             penultimate_normalization=self.penultimate_normalization,
         )
         if self.kernel_init is None:
-            kernel_init = orthogonal()
+            kernel_init = orthogonal(1.0)
         else:
             kernel_init = parse_initialization(self.kernel_init)
         if self.bias_init is None:
-            bias_init = constant(0.1)
+            bias_init = constant(0.0)
         else:
-            bias_init = parse_initialization(self.kernel_init)
+            bias_init = parse_initialization(self.bias_init)
 
         self.model = nn.Dense(
             1,
@@ -226,6 +225,7 @@ def get_initialized_actor_critic(
     )
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
     critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
+
     actor_key, critic_key = jax.random.split(key)
     observation_shape, action_shape = get_state_action_shapes(
         env_config.env,

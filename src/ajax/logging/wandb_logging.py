@@ -166,7 +166,9 @@ def vmap_log(
     run_id = run_ids[index]
 
     metrics_np = {
-        k: jax.device_get(v) for k, v in log_metrics.items() if not jnp.isnan(v)
+        k: jax.device_get(v)
+        for k, v in log_metrics.items()
+        if not jnp.any(jnp.isnan(v))
     }
 
     step = log_metrics["timestep"]

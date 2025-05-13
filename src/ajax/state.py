@@ -34,6 +34,8 @@ class CollectorState:
     average_reward: float = 0.0
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
     rollout: Optional[jnp.ndarray] = None
+    last_return: jnp.ndarray = jnp.nan
+    cumulative_reward: jnp.ndarray = None
 
 
 @struct.dataclass
@@ -93,6 +95,8 @@ class OptimizerConfig:
     learning_rate: float | Callable[[int], float]
     max_grad_norm: Optional[float] = 0.5
     clipped: bool = True
+    beta_1: float = 0.9
+    beta_2: float = 0.999
 
 
 @struct.dataclass

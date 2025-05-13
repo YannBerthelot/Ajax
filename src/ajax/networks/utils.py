@@ -19,6 +19,8 @@ def get_adam_tx(
     max_grad_norm: Optional[float] = 0.5,
     eps: float = 1e-5,
     clipped=True,
+    beta_1: float = 0.9,
+    beta_2: float = 0.999,
 ) -> GradientTransformationExtraArgs:
     """Return an Adam optimizer with optional gradient clipping.
 
@@ -37,9 +39,9 @@ def get_adam_tx(
             raise ValueError("Gradient clipping requested but no norm provided.")
         return optax.chain(
             optax.clip_by_global_norm(max_grad_norm),
-            optax.adam(learning_rate=learning_rate, eps=eps),
+            optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2),
         )
-    return optax.adam(learning_rate=learning_rate, eps=eps)
+    return optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2)
 
 
 def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFunction:  # type: ignore[return]
@@ -118,7 +120,7 @@ def parse_layer(
 ) -> Union[nn.Dense, ActivationFunction]:
     """Parse a layer representation into either a Dense or an activation function"""
     if kernel_init is None:
-        kernel_init = orthogonal(np.sqrt(2))
+        kernel_init = orthogonal(1.0)
     elif isinstance(kernel_init, str):
         kernel_init = parse_initialization(kernel_init)
     if bias_init is None:

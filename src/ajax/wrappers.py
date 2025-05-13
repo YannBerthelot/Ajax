@@ -230,108 +230,177 @@ class VecEnv(GymnaxWrapper):
 #     info: Dict[str, Any] = struct.field(default_factory=dict)
 
 
+@struct.dataclass
+class NormalizationInfo:
+    var: jnp.array
+    count: jnp.array
+    mean: jnp.array
+    mean_2: jnp.array
+
+
 class NormalizeVecObservationBrax(BraxWrapper):
     """Wrapper for online normalization of observations"""
 
-    def __init__(self, env: BraxEnv):
+    def __init__(
+        self,
+        env: BraxEnv,
+        train: bool = True,
+        norm_info: Optional[NormalizationInfo] = None,
+    ):
         super().__init__(env)
+        rng = jax.random.PRNGKey(0)
+        self.batch_size = env.reset(rng).obs.shape[0]
+        self.obs_shape = env.reset(rng).obs.shape[1:]
+        self.train = train
+        self.norm_info = norm_info
 
     def reset(self, key):
         state = self.env.reset(key)
 
         # Initialize normalization stats
-        count = jnp.zeros((state.obs.shape[0], 1))
-        mean = jnp.zeros_like(state.obs)
-        mean_2 = jnp.zeros_like(state.obs)
+        if self.norm_info is None:
+            count = jnp.zeros((self.batch_size, 1))
+            mean = jnp.zeros((self.batch_size, *self.obs_shape))
+            mean_2 = jnp.zeros((self.batch_size, *self.obs_shape))
+            var = jnp.zeros((self.batch_size, *self.obs_shape))
+        else:
+            count = self.norm_info.count
+            mean = self.norm_info.mean
+            mean_2 = self.norm_info.mean_2
+            var = self.norm_info.var
 
         # Normalize
-        obs, count, mean, mean_2, std = online_normalize(state.obs, count, mean, mean_2)
 
+        obs, count, mean, mean_2, std = online_normalize(
+            state.obs, count, mean, mean_2, train=self.train
+        )
+
+        normalization_info = NormalizationInfo(
+            count=count,
+            mean=mean,
+            mean_2=mean_2,
+            var=var,
+        )
         # Replace state immutably
         state = state.replace(
             obs=obs,
             info={
-                "count": count,
-                "mean": mean,
-                "mean_2": mean_2,
-                "std": std,
+                "obs_normalization_info": normalization_info,
                 **state.info,
             },
         )
         return state
 
     def step(self, state, action):
-        count = state.info["count"]
-        mean = state.info["mean"]
-        mean_2 = state.info["mean_2"]
+        normalization_info = state.info["obs_normalization_info"]
+        count = normalization_info.count
+        mean = normalization_info.mean
+        mean_2 = normalization_info.mean_2
+        var = normalization_info.var
 
         state = self.env.step(state, action)
 
-        obs, count, mean, mean_2, std = online_normalize(state.obs, count, mean, mean_2)
+        obs, count, mean, mean_2, var = online_normalize(
+            state.obs, count, mean, mean_2, train=self.train
+        )
 
         # Replace the whole info dict immutably
+        normalization_info = NormalizationInfo(
+            count=count,
+            mean=mean,
+            mean_2=mean_2,
+            var=var,
+        )
+        # Replace state immutably
         state = state.replace(
             obs=obs,
             info={
-                "count": count,
-                "mean": mean,
-                "mean_2": mean_2,
-                "std": std,
                 **state.info,
+                "obs_normalization_info": normalization_info,
             },
         )
         return state
 
 
 class NormalizeVecObservation(GymnaxWrapper):
-    def __init__(self, env):
+    def __init__(self, env, train=True, norm_info: Optional[NormalizationInfo] = None):
         """Set gamma"""
         super().__init__(env)
         BaseState = env.reset(key=jax.random.PRNGKey(0))[1].__class__
+        rng = jax.random.PRNGKey(0)
+        obs, _ = env.reset(rng)
+        self.batch_size = obs.shape[0] if jnp.ndim(obs) > 1 else ()
+        self.obs_shape = obs.shape[1:] if jnp.ndim(obs) > 1 else obs.shape
+        self.train = train
+        self.norm_info = norm_info
 
         @struct.dataclass
-        class NormalizedEnvState(BaseState):  # Inherit from the actual env_state class
-            count: jnp.ndarray
-            mean: jnp.ndarray
-            mean_2: jnp.ndarray
-            std: jnp.ndarray
+        class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
+            # Inherit from the actual env_state class
+            normalization_info: NormalizationInfo
 
         self.state_class = NormalizedEnvState
 
     def reset(self, key, params=None):
         obs, env_state = self._env.reset(key, params)
 
-        # Initialize normalization state
-        count = jnp.array(0)
-        mean = jnp.zeros_like(obs)
-        mean_2 = jnp.zeros_like(obs)
-        std = jnp.ones_like(obs)
+        if self.norm_info is None:
+            # Initialize normalization state
+            count = jnp.zeros((*self.batch_size, 1))
+            mean = jnp.zeros((*self.batch_size, *self.obs_shape))
+            mean_2 = jnp.zeros((*self.batch_size, *self.obs_shape))
+            var = jnp.zeros((*self.batch_size, *self.obs_shape))
+
+        else:
+            count = self.norm_info.count
+            mean = self.norm_info.mean
+            mean_2 = self.norm_info.mean_2
+            var = self.norm_info.var
 
         # Normalize obs
-        obs, count, mean, mean_2, std = online_normalize(obs, count, mean, mean_2)
-        state = self.state_class(
-            **to_state_dict(env_state),
+        obs, count, mean, mean_2, var = online_normalize(
+            obs, count, mean, mean_2, train=self.train
+        )
+
+        normalization_info = NormalizationInfo(
             count=count,
             mean=mean,
             mean_2=mean_2,
-            std=std,
+            var=var,
+        )
+        state = self.state_class(
+            **to_state_dict(env_state), normalization_info=normalization_info
         )
 
         return obs, state
 
     def step(self, key, state, action, params=None):
         # Extract normalization state
-        count, mean, mean_2 = state.count, state.mean, state.mean_2
+        normalization_info = state.normalization_info
+        count, mean, mean_2, var = (
+            normalization_info.count,
+            normalization_info.mean,
+            normalization_info.mean_2,
+            normalization_info.var,
+        )
 
         # Step through env
         obs, env_state, reward, done, info = self._env.step(key, state, action, params)
 
         # Normalize observation
-        obs, count, mean, mean_2, std = online_normalize(obs, count, mean, mean_2)
+        obs, count, mean, mean_2, var = online_normalize(
+            obs, count, mean, mean_2, train=self.train
+        )
 
         # Repack new state
+        normalization_info = NormalizationInfo(
+            count=count,
+            mean=mean,
+            mean_2=mean_2,
+            var=var,
+        )
         state = self.state_class(
-            **to_state_dict(env_state), count=count, mean=mean, mean_2=mean_2, std=std
+            **to_state_dict(env_state), normalization_info=normalization_info
         )
         return obs, state, reward, done, info
 

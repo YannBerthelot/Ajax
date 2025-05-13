@@ -9,14 +9,24 @@ from ajax.utils import online_normalize
 class SquashedNormal(distrax.Transformed):
     def __init__(self, loc, scale):
         normal_dist = distrax.Normal(loc, scale)
-        self.tanh_bijector = distrax.Tanh()
-        super().__init__(distribution=normal_dist, bijector=self.tanh_bijector)
+        tanh_bijector = distrax.Tanh()
+        super().__init__(distribution=normal_dist, bijector=tanh_bijector)
 
     def mean(self):
         return self.bijector.forward(self.distribution.mean())
 
     def entropy(self):
         return self.distribution.entropy()
+
+    # def sample_and_log_prob(self, *, seed, sample_shape=()):
+    #     action_pre, log_prob_pre = self.distribution.sample_and_log_prob(
+    #         seed=seed, sample_shape=sample_shape
+    #     )
+    #     log_prob = log_prob_pre - (
+    #         2 * (jnp.log(2) - action_pre - jax.nn.softplus(-2 * action_pre))
+    #     ).sum(axis=1)
+    #     action = self.bijector.forward(action_pre)
+    #     return action, log_prob
 
 
 def no_op(x, *args):
@@ -36,11 +46,11 @@ def _normalize_and_update(
         no_op,
         operand=info.value,
     )
-    _, count, mean, mean_2, sigma = online_normalize(
+    _, count, mean, mean_2, var = online_normalize(
         value, info.count, info.mean, info.mean_2
     )
     updated_info = info.replace(count=count, mean=mean, mean_2=mean_2)
-    return updated_info, sigma
+    return updated_info, var
 
 
 def compute_td_error_scaling(
@@ -48,8 +58,9 @@ def compute_td_error_scaling(
     gamma: NormalizationInfo,
     G_return: NormalizationInfo,
 ) -> tuple[jnp.array, NormalizationInfo, NormalizationInfo, NormalizationInfo]:
-    reward, sigma_reward = _normalize_and_update(reward, square_value=False)
-    gamma, sigma_gamma = _normalize_and_update(gamma, square_value=False)
+    new_reward, variance_reward = _normalize_and_update(reward, square_value=False)
+    reward = new_reward
+    gamma, variance_gamma = _normalize_and_update(gamma, square_value=False)
     if_nan = jnp.all(jnp.isnan(G_return.value))
 
     def conditional_replace(new_info, old_info, mask):
@@ -61,12 +72,14 @@ def compute_td_error_scaling(
         )
 
     # Always compute updated G_return
-    G_return_norm, _ = _normalize_and_update(G_return, True)
+    G_return_norm, _ = _normalize_and_update(G_return, square_value=True)
 
     # Conditionally replace using where
-    G_return = conditional_replace(G_return_norm, G_return, if_nan)
+    new_G_return = conditional_replace(G_return_norm, G_return, if_nan)
 
-    scaling = jnp.sqrt(sigma_reward**2 + G_return.mean * sigma_gamma**2)
+    G_return = new_G_return
+
+    scaling = jnp.sqrt(variance_reward + G_return.mean * variance_gamma)
 
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
 

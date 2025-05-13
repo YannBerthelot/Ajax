@@ -30,19 +30,21 @@ class AVG:
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         num_envs: int = 1,
-        actor_learning_rate: float = 3e-4,
-        critic_learning_rate: float = 8.7e-4,
+        actor_learning_rate: float = 6.3e-3,
+        critic_learning_rate: float = 8.7e-3,
         alpha_learning_rate: float = 3e-4,
         actor_architecture=("256", "leaky_relu", "256", "leaky_relu"),
         critic_architecture=("256", "leaky_relu", "256", "leaky_relu"),
-        gamma: float = 0.95,
+        gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = 0.5,
-        learning_starts: int = int(1e4),
+        max_grad_norm: Optional[float] = None,
+        learning_starts: int = 0,
         reward_scale: float = 1.0,
-        alpha_init: float = 0.05,
+        alpha_init: float = 0.07,
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
+        beta_1: float = 0,
+        beta_2: float = 0.999,
     ) -> None:
         """
         Initialize the AVG agent.
@@ -100,11 +102,15 @@ class AVG:
             learning_rate=actor_learning_rate,
             max_grad_norm=max_grad_norm,
             clipped=max_grad_norm is not None,
+            beta_1=beta_1,
+            beta_2=beta_2,
         )
         self.critic_optimizer_args = OptimizerConfig(
             learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
             clipped=max_grad_norm is not None,
+            beta_1=beta_1,
+            beta_2=beta_2,
         )
         action_dim = get_action_dim(env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
@@ -171,9 +177,9 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     chunk_size = 1000
-    num_envs = 1
+    num_envs = 4
     logging_config = LoggingConfig(
-        "AVG_tests",
+        "AVG_tests_multi_env",
         "test",
         config={
             "debug": False,
@@ -184,12 +190,15 @@ if __name__ == "__main__":
         log_frequency=int(log_frequency / num_envs),
         chunk_size=int(chunk_size / num_envs),
         horizon=10_000,
-        use_tensorboard=True,
+        use_tensorboard=False,
     )
     env_id = "halfcheetah"
-    sac_agent = AVG(env_id=env_id, learning_starts=int(1e4), num_envs=num_envs)
+    sac_agent = AVG(
+        env_id=env_id,
+        num_envs=num_envs,
+    )
     sac_agent.train(
         seed=list(range(n_seeds)),
-        num_timesteps=int(1e7) * num_envs,
+        num_timesteps=int(2e6) * num_envs,
         logging_config=logging_config,
     )

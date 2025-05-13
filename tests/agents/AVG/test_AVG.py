@@ -4,9 +4,16 @@ from ajax.agents.AVG.AVG import AVG
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 
-def test_sac_initialization():
+@pytest.mark.parametrize(
+    "env_id",
+    [
+        "Pendulum-v1",
+        "fast",
+    ],
+)
+def test_sac_initialization(env_id):
     """Test AVG agent initialization with default parameters."""
-    env_id = "Pendulum-v1"
+
     sac_agent = AVG(env_id=env_id)
 
     for expected_attr, expected_type in zip(
@@ -36,9 +43,15 @@ def test_sac_initialization_with_discrete_env():
         AVG(env_id=env_id)
 
 
-def test_sac_train_single_seed():
+@pytest.mark.parametrize(
+    "env_id",
+    [
+        "Pendulum-v1",
+        "fast",
+    ],
+)
+def test_sac_train_single_seed(env_id):
     """Test AVG agent's train method with a single seed."""
-    env_id = "Pendulum-v1"
     sac_agent = AVG(env_id=env_id, learning_starts=10)
     sac_agent.train(seed=42, num_timesteps=100)
     # try:
@@ -50,9 +63,15 @@ def test_sac_train_single_seed():
     # assert success, "Training failed for the single seed"
 
 
-def test_sac_train_multiple_seeds():
+@pytest.mark.parametrize(
+    "env_id",
+    [
+        "Pendulum-v1",
+        "fast",
+    ],
+)
+def test_sac_train_multiple_seeds(env_id):
     """Test AVG agent's train method with multiple seeds using jax.vmap."""
-    env_id = "Pendulum-v1"
     sac_agent = AVG(env_id=env_id, learning_starts=10)
     seeds = [42, 43, 44]
     num_timesteps = 100

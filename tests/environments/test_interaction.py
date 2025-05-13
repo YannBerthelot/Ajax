@@ -239,16 +239,17 @@ def test_get_action_and_new_agent_state(
         collector_state=collector_state,
     )
 
-    action, new_agent_state = get_action_and_new_agent_state(
-        agent_state, obs, done=jnp.zeros((NUM_ENVS,)), recurrent=recurrent
+    action, log_probs, new_agent_state = get_action_and_new_agent_state(
+        rng, agent_state, obs, done=jnp.zeros((NUM_ENVS,)), recurrent=recurrent
     )
 
     assert action.shape[0] == obs.shape[0]
+    assert action.shape[0] == log_probs.shape[0]
 
     if recurrent:
         assert new_agent_state.actor_state.hidden_state.shape == (NUM_ENVS, 2)
 
-    assert not jnp.array_equal(new_agent_state.rng, agent_state.rng)
+    # assert not jnp.array_equal(new_agent_state.rng, agent_state.rng)
     assert jnp.array_equal(new_agent_state.eval_rng, agent_state.eval_rng)
 
 
@@ -357,7 +358,7 @@ def test_get_action_and_new_agent_state_recurrent_without_done(
     )
 
     with pytest.raises(AssertionError):
-        get_action_and_new_agent_state(agent_state, obs, recurrent=True)
+        get_action_and_new_agent_state(rng, agent_state, obs, recurrent=True)
 
 
 @pytest.mark.skip

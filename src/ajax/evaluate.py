@@ -10,6 +10,11 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import get_pi, reset_env, step_env
 from ajax.environments.utils import check_env_is_gymnax
+from ajax.wrappers import NormalizationInfo, NormalizeVecObservationBrax
+
+
+def repeat_first_entry(tree, num_repeats: int):
+    return jax.tree_map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
 
 
 @partial(
@@ -31,13 +36,21 @@ def evaluate(
     recurrent: bool = False,
     lstm_hidden_size: Optional[int] = None,
     gamma: float = 0.99,  # TODO : propagate
+    obs_norm_info: Optional[NormalizationInfo] = None,
 ) -> jax.Array:
     mode = "gymnax" if check_env_is_gymnax(env) else "brax"
+
     if mode == "brax":
         env_name = type(env.unwrapped).__name__.lower()
         env = create(
             env_name=env_name, batch_size=num_episodes
-        )  # no need for autoreset with random init as we only done one episode
+        )  # no need for autoreset with random init as we only done one episode, still need for normalization though
+        env = NormalizeVecObservationBrax(
+            env,
+            train=False,
+            norm_info=repeat_first_entry(obs_norm_info, num_repeats=num_episodes),
+        )
+
     key, reset_key = jax.random.split(rng, 2)
     reset_keys = (
         jax.random.split(reset_key, num_episodes) if mode == "gymnax" else reset_key

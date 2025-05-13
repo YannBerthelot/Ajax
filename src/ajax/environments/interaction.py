@@ -29,6 +29,7 @@ class Transition:
     terminated: jnp.ndarray
     truncated: jnp.ndarray
     next_obs: jnp.ndarray
+    log_prob: Optional[jnp.ndarray] = None
 
 
 @partial(jax.jit, static_argnames=["mode", "env", "env_params"])
@@ -169,6 +170,7 @@ def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
 
 @partial(jax.jit, static_argnames=["recurrent"])
 def get_action_and_new_agent_state(
+    rng,
     agent_state: BaseAgentState,
     obs: jnp.ndarray,
     done: Optional[jax.Array] = None,
@@ -197,14 +199,12 @@ def get_action_and_new_agent_state(
         done=done,
         recurrent=recurrent,
     )
-
-    rng, action_key = jax.random.split(agent_state.rng)
-
-    action = pi.sample(seed=action_key)
+    action, log_probs = pi.sample_and_log_prob(seed=rng)
 
     return (
         action,
-        agent_state.replace(rng=rng, actor_state=new_actor_state),
+        log_probs,
+        agent_state.replace(actor_state=new_actor_state),
     )
 
 
@@ -242,9 +242,10 @@ def collect_experience(
         Tuple[BaseAgentState, None]: Updated agent state and None.
 
     """
-    rng, uniform_key = jax.random.split(agent_state.rng)
+    rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
-    agent_action, agent_state = get_action_and_new_agent_state(
+    agent_action, log_probs, agent_state = get_action_and_new_agent_state(
+        action_key,
         agent_state,
         agent_state.collector_state.last_obs,
         jnp.logical_or(
@@ -254,7 +255,7 @@ def collect_experience(
         recurrent=recurrent,
     )
     uniform_action = jax.random.uniform(
-        uniform_key,
+        action_key,
         shape=agent_action.shape,
         minval=-1.0,
         maxval=1.0,
@@ -271,25 +272,25 @@ def collect_experience(
         agent_action,
     )
 
-    rng, step_key = jax.random.split(agent_state.rng)
-
     rng_step = (
         jax.random.split(step_key, env_args.num_envs) if mode == "gymnax" else step_key
     )
-    obsv, env_state, reward, terminated, truncated, info = step_env(
-        rng_step,
-        agent_state.collector_state.env_state,
-        action,
-        env_args.env,
-        mode,
-        env_args.env_params,
+    obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
+        step_env(
+            rng_step,
+            agent_state.collector_state.env_state,
+            action,
+            env_args.env,
+            mode,
+            env_args.env_params,
+        )
     )
     _transition = {
         "obs": agent_state.collector_state.last_obs,
         "action": action,  # if action.ndim == 2 else action[:, None]
         "reward": reward[:, None],
-        "terminated": agent_state.collector_state.last_terminated[:, None],
-        "truncated": agent_state.collector_state.last_truncated[:, None],
+        "terminated": terminated[:, None],
+        "truncated": truncated[:, None],
     }
     if buffer is not None:
         buffer_state = buffer.add(
@@ -298,9 +299,18 @@ def collect_experience(
         )
     else:
         _transition.update(
-            {"next_obs": obsv}
+            {"next_obs": obsv, "log_prob": log_probs}
         )  # not included if using buffer to reduce weight, as flashbax can rebuild it.
         transition = Transition(**_transition)
+    done = jnp.logical_or(terminated, truncated)
+    new_cumulative_reward = agent_state.collector_state.cumulative_reward + jnp.mean(
+        reward
+    )
+    last_return = jax.lax.select(
+        done,
+        new_cumulative_reward,
+        agent_state.collector_state.last_return,
+    )
 
     new_collector_state = agent_state.collector_state.replace(
         rng=rng,
@@ -310,6 +320,8 @@ def collect_experience(
         timestep=agent_state.collector_state.timestep + 1,
         last_terminated=terminated,
         last_truncated=truncated,
+        cumulative_reward=new_cumulative_reward * (1 - done),
+        last_return=last_return,
     )
     agent_state = agent_state.replace(collector_state=new_collector_state)
 
@@ -340,6 +352,7 @@ def init_collector_state(
         reward=jnp.ones((env_args.num_envs, 1)),
         terminated=jnp.ones((env_args.num_envs, 1)),
         truncated=jnp.ones((env_args.num_envs, 1)),
+        log_prob=jnp.ones((env_args.num_envs, *action_shape)),
     )
     return CollectorState(
         rng=rng,
@@ -350,6 +363,8 @@ def init_collector_state(
         last_terminated=last_done,
         last_truncated=last_done,
         rollout=transition,
+        cumulative_reward=jnp.zeros_like(last_done),
+        last_return=jnp.nan * jnp.zeros_like(last_done),
     )
 
 

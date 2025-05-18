@@ -20,8 +20,8 @@ def online_normalize(
 ) -> tuple[jnp.array, int, float, float, float]:
     if train:
         batch_size = x.shape[0]
-        batch_mean = jnp.mean(x, axis=0)  # (D,)
-        batch_mean_2 = jnp.mean((x - batch_mean) ** 2, axis=0)  # (D,)
+        batch_mean = jnp.nanmean(x, axis=0)  # (D,)
+        batch_mean_2 = jnp.nanmean((x - batch_mean) ** 2, axis=0)  # (D,)
 
         total_count = count + batch_size
         delta = batch_mean - mean

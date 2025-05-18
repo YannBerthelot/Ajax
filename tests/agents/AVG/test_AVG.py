@@ -11,10 +11,10 @@ from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerC
         "fast",
     ],
 )
-def test_sac_initialization(env_id):
+def test_avg_initialization(env_id):
     """Test AVG agent initialization with default parameters."""
 
-    sac_agent = AVG(env_id=env_id)
+    avg_agent = AVG(env_id=env_id)
 
     for expected_attr, expected_type in zip(
         (
@@ -32,11 +32,11 @@ def test_sac_initialization(env_id):
             AlphaConfig,
         ),
     ):
-        assert hasattr(sac_agent, expected_attr)
-        assert isinstance(getattr(sac_agent, expected_attr), expected_type)
+        assert hasattr(avg_agent, expected_attr)
+        assert isinstance(getattr(avg_agent, expected_attr), expected_type)
 
 
-def test_sac_initialization_with_discrete_env():
+def test_avg_initialization_with_discrete_env():
     """Test AVG agent initialization fails with a discrete environment."""
     env_id = "CartPole-v1"
     with pytest.raises(ValueError, match="AVG only supports continuous action spaces."):
@@ -50,17 +50,10 @@ def test_sac_initialization_with_discrete_env():
         "fast",
     ],
 )
-def test_sac_train_single_seed(env_id):
+def test_avg_train_single_seed(env_id):
     """Test AVG agent's train method with a single seed."""
-    sac_agent = AVG(env_id=env_id, learning_starts=10)
-    sac_agent.train(seed=42, num_timesteps=100)
-    # try:
-    #     sac_agent.train(seed=42, num_timesteps=1000)
-    #     success = True  # Placeholder: Add assertions or checks as needed
-    # except Exception as e:
-    #     success = False
-    #     print(f"Training failed with single seed: {e}")
-    # assert success, "Training failed for the single seed"
+    avg_agent = AVG(env_id=env_id, learning_starts=10)
+    avg_agent.train(seed=42, num_timesteps=100)
 
 
 @pytest.mark.parametrize(
@@ -70,16 +63,24 @@ def test_sac_train_single_seed(env_id):
         "fast",
     ],
 )
-def test_sac_train_multiple_seeds(env_id):
+def test_avg_train_multiple_seeds(env_id):
     """Test AVG agent's train method with multiple seeds using jax.vmap."""
-    sac_agent = AVG(env_id=env_id, learning_starts=10)
+    avg_agent = AVG(env_id=env_id, learning_starts=10)
     seeds = [42, 43, 44]
     num_timesteps = 100
-    sac_agent.train(seed=seeds, num_timesteps=num_timesteps)
-    # try:
-    #     sac_agent.train(seed=seeds, num_timesteps=1000)
-    #     success = True  # Placeholder: Add assertions or checks as needed
-    # except Exception as e:
-    #     success = False
-    #     print(f"Training failed with multiple seeds: {e}")
-    # assert success, "Training failed for one or more seeds"
+    avg_agent.train(seed=seeds, num_timesteps=num_timesteps)
+
+
+@pytest.mark.parametrize(
+    "env_id",
+    [
+        "Pendulum-v1",
+        "fast",
+    ],
+)
+def test_avg_train_multiple_envs(env_id):
+    """Test AVG agent's train method with multiple seeds using jax.vmap."""
+    avg_agent = AVG(env_id=env_id, learning_starts=10, num_envs=2)
+    seeds = [42]
+    num_timesteps = 100
+    avg_agent.train(seed=seeds, num_timesteps=num_timesteps)

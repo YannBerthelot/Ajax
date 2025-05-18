@@ -308,7 +308,6 @@ def test_normalize_vec_observation(wrapper, env_fixture, mode, request):
                 key, state, action, env_params
             )
         else:  # Brax
-            print(state.info)
             state = wrapped_env.step(state, action)
             obs = state.obs
         observations.append(obs)

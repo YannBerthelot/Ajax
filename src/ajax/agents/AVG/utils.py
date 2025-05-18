@@ -82,7 +82,6 @@ def compute_td_error_scaling(
     scaling = jnp.sqrt(variance_reward + G_return.mean * variance_gamma)
 
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
-
     return td_error_scaling, reward, gamma, G_return
 
 

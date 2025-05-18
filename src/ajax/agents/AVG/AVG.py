@@ -45,6 +45,7 @@ class AVG:
         lstm_hidden_size: Optional[int] = None,
         beta_1: float = 0,
         beta_2: float = 0.999,
+        num_critics: int = 1,
     ) -> None:
         """
         Initialize the AVG agent.
@@ -119,6 +120,7 @@ class AVG:
             learning_starts=learning_starts,
             target_entropy=target_entropy,
             reward_scale=reward_scale,
+            num_critics=num_critics,
         )
 
     @with_wandb_silent
@@ -176,29 +178,23 @@ class AVG:
 if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
-    chunk_size = 1000
-    num_envs = 4
+    num_envs = 2
     logging_config = LoggingConfig(
-        "AVG_tests_multi_env",
+        "AVG_tests_humanoid",
         "test",
         config={
             "debug": False,
             "log_frequency": log_frequency,
             "n_seeds": n_seeds,
-            "chunk_size": chunk_size,
         },
         log_frequency=int(log_frequency / num_envs),
-        chunk_size=int(chunk_size / num_envs),
         horizon=10_000,
         use_tensorboard=False,
     )
-    env_id = "halfcheetah"
-    sac_agent = AVG(
-        env_id=env_id,
-        num_envs=num_envs,
-    )
+    env_id = "humanoid"
+    sac_agent = AVG(env_id=env_id, num_envs=num_envs, num_critics=1)
     sac_agent.train(
         seed=list(range(n_seeds)),
-        num_timesteps=int(2e6) * num_envs,
+        num_timesteps=int(1e7) * num_envs,
         logging_config=logging_config,
     )

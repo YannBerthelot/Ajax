@@ -13,6 +13,7 @@ from ajax.environments.interaction import (
     get_action_and_new_agent_state,
     get_pi,
     init_collector_state,
+    init_rolling_mean,
     reset_env,
     step_env,
 )
@@ -224,6 +225,11 @@ def test_get_action_and_new_agent_state(
         last_obs=obs,
         last_terminated=jnp.zeros((NUM_ENVS,)),
         last_truncated=jnp.zeros((NUM_ENVS,)),
+        episodic_return_state=init_rolling_mean(
+            10,
+            last_return=jnp.zeros((NUM_ENVS,)),
+            cumulative_reward=jnp.zeros((NUM_ENVS,)),
+        ),
     )
 
     if recurrent:
@@ -347,6 +353,11 @@ def test_get_action_and_new_agent_state_recurrent_without_done(
         last_obs=obs,
         last_terminated=jnp.zeros((NUM_ENVS,)),
         last_truncated=jnp.zeros((NUM_ENVS,)),
+        episodic_return_state=init_rolling_mean(
+            10,
+            last_return=jnp.zeros((NUM_ENVS,)),
+            cumulative_reward=jnp.zeros((NUM_ENVS,)),
+        ),
     )
 
     agent_state = BaseAgentState(

@@ -5,7 +5,6 @@ import distrax
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
-from flax import struct
 from flax.core import FrozenDict
 from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
@@ -17,19 +16,50 @@ from ajax.state import (
     CollectorState,
     EnvironmentConfig,
     LoadedTrainState,
+    RollinEpisodicMeanRewardState,
+    Transition,
 )
 from ajax.types import BufferType
 
 
-@struct.dataclass
-class Transition:
-    obs: jnp.ndarray
-    action: jnp.ndarray
-    reward: jnp.ndarray
-    terminated: jnp.ndarray
-    truncated: jnp.ndarray
-    next_obs: jnp.ndarray
-    log_prob: Optional[jnp.ndarray] = None
+@partial(jax.jit, static_argnames=["window_size"])
+def init_rolling_mean(
+    window_size: int, last_return: jnp.ndarray, cumulative_reward: jnp.ndarray
+) -> RollinEpisodicMeanRewardState:
+    return RollinEpisodicMeanRewardState(
+        buffer=jnp.zeros((window_size, cumulative_reward.shape[0], 1)),
+        index=jnp.zeros_like(cumulative_reward).astype("int8"),
+        count=jnp.zeros_like(cumulative_reward).astype("int8"),
+        sum=jnp.zeros_like(cumulative_reward),
+        cumulative_reward=cumulative_reward,
+        last_return=last_return,
+    )
+
+
+def update_rolling_mean(
+    state: RollinEpisodicMeanRewardState, new_value: float
+) -> tuple[RollinEpisodicMeanRewardState, float]:
+    rows = state.index.flatten()  # [2, 3]
+    cols = jnp.array(range(new_value.shape[0]))  # column indices
+
+    old_value = state.buffer[rows, cols]
+
+    new_sum = state.sum - old_value + new_value
+    buffer = state.buffer.at[rows, cols].set(new_value)
+    new_index = (state.index + 1) % buffer.shape[0]
+    new_count = jnp.minimum(state.count + 1, buffer.shape[0])
+
+    new_state = RollinEpisodicMeanRewardState(
+        buffer=buffer,
+        index=new_index,
+        count=new_count,
+        sum=new_sum,
+        cumulative_reward=state.cumulative_reward,
+        last_return=state.last_return,
+    )
+    mean = new_sum / new_count
+
+    return new_state, mean
 
 
 @partial(jax.jit, static_argnames=["mode", "env", "env_params"])
@@ -214,6 +244,61 @@ def assert_shape(x, expected_shape, name="tensor"):
     ), f"{name} has shape {x.shape}, expected {expected_shape}"
 
 
+def compute_episodic_reward_mean(
+    agent_state: BaseAgentState, reward: jnp.ndarray, done: jnp.ndarray
+) -> tuple[RollinEpisodicMeanRewardState, jnp.ndarray]:
+    new_cumulative_reward = (
+        agent_state.collector_state.episodic_return_state.cumulative_reward
+        + reward.reshape(reward.shape[0], 1)
+    )
+
+    last_return = jax.lax.select(
+        done.reshape(done.shape[0], 1),
+        new_cumulative_reward,
+        agent_state.collector_state.episodic_return_state.last_return,
+    )
+    updated_episodic_return_state, updated_episodic_mean_return = update_rolling_mean(
+        agent_state.collector_state.episodic_return_state,
+        last_return,
+    )
+    previous_episodic_mean_return = (
+        agent_state.collector_state.episodic_return_state.sum
+        / agent_state.collector_state.episodic_return_state.count
+    )
+
+    episodic_mean_return = jax.lax.select(
+        done.reshape(done.shape[0], 1),
+        updated_episodic_mean_return,
+        previous_episodic_mean_return,
+    )
+
+    def broadcast_and_select(done, new_val, old_val):
+        # Compute broadcastable shape
+        # `done` is (2,1) — reshape to [2, 1, 1, ..., 1] to match new_val.ndim
+        extra_dims = new_val.ndim - done.ndim
+        broadcast_shape = (1,) * extra_dims + done.shape
+        done_broadcasted = jnp.reshape(done, broadcast_shape)
+        # Broadcast done to new_val's shape (safely)
+        done_broadcasted = jnp.broadcast_to(done_broadcasted, new_val.shape)
+
+        return jax.lax.select(done_broadcasted, new_val, old_val)
+
+    new_episodic_return_state = jax.tree_util.tree_map(
+        lambda new_val, old_val: broadcast_and_select(
+            done.reshape(done.shape[0], 1), new_val, old_val
+        ),
+        updated_episodic_return_state,
+        agent_state.collector_state.episodic_return_state,
+    )
+
+    new_episodic_return_state = new_episodic_return_state.replace(
+        cumulative_reward=new_cumulative_reward * (1 - done.reshape(done.shape[0], 1)),
+        last_return=last_return,
+    )
+
+    return new_episodic_return_state, jnp.mean(episodic_mean_return)
+
+
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
@@ -303,13 +388,9 @@ def collect_experience(
         )  # not included if using buffer to reduce weight, as flashbax can rebuild it.
         transition = Transition(**_transition)
     done = jnp.logical_or(terminated, truncated)
-    new_cumulative_reward = agent_state.collector_state.cumulative_reward + jnp.mean(
-        reward
-    )
-    last_return = jax.lax.select(
-        done,
-        new_cumulative_reward,
-        agent_state.collector_state.last_return,
+
+    new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
+        agent_state, reward, done
     )
 
     new_collector_state = agent_state.collector_state.replace(
@@ -320,20 +401,20 @@ def collect_experience(
         timestep=agent_state.collector_state.timestep + 1,
         last_terminated=terminated,
         last_truncated=truncated,
-        cumulative_reward=new_cumulative_reward * (1 - done),
-        last_return=last_return,
+        episodic_return_state=new_episodic_return_state,
+        episodic_mean_return=episodic_mean_return,
     )
     agent_state = agent_state.replace(collector_state=new_collector_state)
-
     return agent_state, transition if buffer is None else None
 
 
-@partial(jax.jit, static_argnames=["mode", "env_args", "buffer"])
+@partial(jax.jit, static_argnames=["mode", "env_args", "buffer", "window_size"])
 def init_collector_state(
     rng: jax.Array,
     env_args: EnvironmentConfig,
     mode: str,
     buffer: Optional[fbx.flat_buffer.TrajectoryBuffer] = None,
+    window_size: int = 10,
 ):
     last_done = jnp.zeros(env_args.num_envs)
 
@@ -354,6 +435,11 @@ def init_collector_state(
         truncated=jnp.ones((env_args.num_envs, 1)),
         log_prob=jnp.ones((env_args.num_envs, *action_shape)),
     )
+    episodic_return_state = init_rolling_mean(
+        window_size=window_size,
+        cumulative_reward=jnp.zeros((env_args.num_envs, 1)),
+        last_return=jnp.nan * jnp.zeros((env_args.num_envs, 1)),
+    )
     return CollectorState(
         rng=rng,
         env_state=env_state,
@@ -363,8 +449,7 @@ def init_collector_state(
         last_terminated=last_done,
         last_truncated=last_done,
         rollout=transition,
-        cumulative_reward=jnp.zeros_like(last_done),
-        last_return=jnp.nan * jnp.zeros_like(last_done),
+        episodic_return_state=episodic_return_state,
     )
 
 

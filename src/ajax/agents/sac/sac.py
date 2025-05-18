@@ -182,9 +182,8 @@ class SAC:
 
 
 if __name__ == "__main__":
-    n_seeds = 2
+    n_seeds = 1
     log_frequency = 5_000
-    chunk_size = 1000
     logging_config = LoggingConfig(
         "match_SAC_reproducibility_truncated",
         "test",
@@ -192,10 +191,8 @@ if __name__ == "__main__":
             "debug": False,
             "log_frequency": log_frequency,
             "n_seeds": n_seeds,
-            "chunk_size": chunk_size,
         },
         log_frequency=log_frequency,
-        chunk_size=chunk_size,
         horizon=10_000,
         use_tensorboard=False,
         use_wandb=True,

@@ -108,6 +108,8 @@ def init_AVG(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     alpha_args: AlphaConfig,
+    num_critics: int = 1,
+    window_size: int = 10,
 ) -> AVGState:
     """
     Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
@@ -137,11 +139,13 @@ def init_AVG(
         continuous=True,
         action_value=True,
         squash=True,
-        num_critics=1,
+        num_critics=num_critics,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
 
-    collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)
+    collector_state = init_collector_state(
+        collector_key, env_args=env_args, mode=mode, window_size=window_size
+    )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
 
@@ -208,11 +212,14 @@ def value_loss_function(
 
     # Sample next actions from policy π(a|s_{t+1})
     # Predict Q-values from critics
-    q_pred = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_params,
-        x=jnp.concatenate((observations, actions), axis=-1),
-    ).squeeze(0)
+    q_pred = jnp.min(
+        predict_value(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, actions), axis=-1),
+        ),
+        axis=0,
+    )
 
     next_pi, _ = get_pi(
         actor_state=actor_state,
@@ -225,11 +232,14 @@ def value_loss_function(
     next_actions, next_log_probs = next_pi.sample_and_log_prob(seed=sample_key)
 
     # Target Q-values using target networks
-    q_target = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_params,
-        x=jnp.concatenate((next_observations, next_actions), axis=-1),
-    ).squeeze(0)
+    q_target = jnp.min(
+        predict_value(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=jnp.concatenate((next_observations, next_actions), axis=-1),
+        ),
+        axis=0,
+    )
 
     # Bellman target and losses
     next_log_probs = next_log_probs.sum(-1, keepdims=True)
@@ -241,8 +251,8 @@ def value_loss_function(
     assert target_q.shape == q_pred.shape, f"{target_q.shape} != {q_pred.shape}"
     assert q_target.shape == next_log_probs.shape
 
-    # total_loss = jnp.square(q_preds - target_q[None, ...]).mean()
     delta = q_pred - target_q
+
     assert scaling_coef.shape == delta.shape, f"{scaling_coef.shape} != {delta.shape}"
     scaled_delta = delta / scaling_coef
     total_loss = jnp.mean(
@@ -299,11 +309,15 @@ def policy_loss_function(
     )
     actions, log_probs = pi.sample_and_log_prob(seed=rng)
     # Predict Q-values from critics
-    q_pred = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.params,
-        x=jnp.hstack((observations, actions)),
-    ).squeeze(0)
+    q_pred = jnp.min(
+        predict_value(
+            critic_state=critic_states,
+            critic_params=critic_states.params,
+            x=jnp.hstack((observations, actions)),
+        ),
+        axis=0,
+    )
+
     # q_pred: shape(n_envs,1) , squeeze is to remove the leading dimension of ensemble-critic
 
     log_probs = log_probs.sum(
@@ -385,7 +399,7 @@ def update_value_functions(
     Returns:
         Tuple[AVGState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    value_loss_key, rng = jax.random.split(agent_state.rng, 2)
+    value_loss_key, _ = jax.random.split(agent_state.rng, 2)
     value_and_grad_fn = jax.value_and_grad(value_loss_function, has_aux=True)
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
@@ -410,7 +424,8 @@ def update_value_functions(
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
-        # rng=rng,
+        # rng=rng, need to keep the same RNG to keep the same action sampled, \
+        # next actions are still used with a different seed than action
         critic_state=updated_critic_state,
     )
     return agent_state, aux
@@ -583,14 +598,17 @@ def update_agent(
         actions=transition.action,  # type: ignore[union-attr]
         log_probs=transition.log_prob,  # type: ignore[union-attr]
         observations=transition.obs,  # type: ignore[union-attr]
-        done=done,  # type: ignore[union-attr]
+        done=done,
         recurrent=recurrent,
     )
-
+    collector_state = agent_state.collector_state.replace(
+        num_update=agent_state.collector_state.num_update + 1
+    )
     agent_state = agent_state.replace(
         actor_state=agent_state_policy.actor_state,
         critic_state=agent_state_critic.critic_state,
         rng=agent_state_policy.rng,
+        collector_state=collector_state,
     )
 
     aux = AuxiliaryLogs(
@@ -642,14 +660,12 @@ def get_nan(x):
 def update_AVG_values(
     agent_state: AVGState, rollout: Transition, agent_args: AVGConfig
 ) -> AVGState:
-    done = jnp.logical_or(rollout.terminated, rollout.truncated)
-
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
 
-    r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(-1)
-
-    # r_ent = rollout.reward
+    r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(
+        -1, keepdims=True
+    )
 
     reward = agent_state.reward.replace(value=r_ent)
 
@@ -657,18 +673,13 @@ def update_AVG_values(
 
     new_G = agent_state.G_return.value + r_ent
 
-    jax.lax.cond(
-        jnp.any(done), lambda x: jax.debug.print("{x}", x=x), lambda x: None, new_G
-    )
-
     temp_G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
         rollout.terminated.astype("int8").squeeze(-1), no_op, get_nan, new_G
     )  # set G_return.value to nan if not terminal, for compute_td_error_scaling
+
     scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
         reward, gamma, G_return=agent_state.G_return.replace(value=temp_G_value)
     )
-
-    # jax.debug.print("{x} {y} {z}", x=done, y=scaling_coef, z=G_return)
 
     G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
         rollout.terminated.astype("int8").squeeze(-1), jnp.zeros_like, no_op, new_G
@@ -695,8 +706,6 @@ def update_AVG_values(
         "action_dim",
         "lstm_hidden_size",
         "agent_args",
-        "chunk_size",
-        "horizon",
         "total_timesteps",
     ],
 )
@@ -711,8 +720,6 @@ def training_iteration(
     total_timesteps: int,
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
-    chunk_size: int = 1000,
-    horizon: int = 10000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
@@ -756,9 +763,7 @@ def training_iteration(
     )  # Remove first dim as we only have one transition
     collector_state = agent_state.collector_state.replace(rollout=rollout)
     agent_state = agent_state.replace(collector_state=collector_state)
-
-    # agent_state = update_AVG_values(agent_state, rollout, agent_args)
-
+    agent_state = update_AVG_values(agent_state, rollout, agent_args)
     timestep = agent_state.collector_state.timestep
     agent_state = agent_state.replace(rng=rng)
 
@@ -803,6 +808,7 @@ def training_iteration(
         skip_update,
         operand=agent_state,
     )
+    num_updates = agent_state.collector_state.num_update
 
     def run_and_log(agent_state: AVGState, aux, index):
         eval_key = agent_state.eval_rng
@@ -829,18 +835,14 @@ def training_iteration(
         )
 
         if log:
-            # episodic_mean_reward = compute_episodic_mean_reward(
-            #     agent_state, chunk_size=chunk_size, horizon=horizon
-            # )
-
             metrics_to_log = {
                 "timestep": timestep * env_args.num_envs,
+                "num_update": num_updates,
                 "Eval/episodic mean reward": eval_rewards,
                 "Eval/episodic entropy": eval_entropy,
-                "Train/episodic reward": jnp.mean(
-                    agent_state.collector_state.last_return
+                "Train/episodic reward": (
+                    agent_state.collector_state.episodic_mean_return
                 ),
-                # "Train/episodic mean reward": episodic_mean_reward,
             }
 
             metrics_to_log.update(flatten_dict(to_state_dict(aux)))
@@ -868,7 +870,6 @@ def training_iteration(
         del aux
 
     jax.clear_caches()
-    # gc.collect()
     return agent_state, None
 
 
@@ -939,6 +940,7 @@ def make_train(
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             alpha_args=alpha_args,
+            num_critics=agent_args.num_critics,
         )
 
         num_updates = total_timesteps // env_args.num_envs
@@ -959,10 +961,6 @@ def make_train(
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),
-            chunk_size=(
-                logging_config.chunk_size if logging_config is not None else None
-            ),
-            horizon=(logging_config.horizon if logging_config is not None else None),
         )
 
         agent_state, _ = jax.lax.scan(

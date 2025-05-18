@@ -13,11 +13,36 @@ from ajax.types import EnvStateType, EnvType
 
 
 @struct.dataclass
+class Transition:
+    obs: jnp.ndarray
+    action: jnp.ndarray
+    reward: jnp.ndarray
+    terminated: jnp.ndarray
+    truncated: jnp.ndarray
+    next_obs: jnp.ndarray
+    log_prob: Optional[jnp.ndarray] = None
+
+
+@struct.dataclass
 class EnvironmentConfig:
     env: EnvType
     env_params: EnvParams
     num_envs: int
     continuous: bool
+
+
+@struct.dataclass
+class RollingMeanState:
+    buffer: jnp.ndarray  # shape (window_size,n_envs)
+    index: jnp.ndarray  # shape (1,n_envs)
+    count: jnp.ndarray  # shape (1,n_envs)
+    sum: jnp.ndarray  # shape (1,n_envs)
+
+
+@struct.dataclass
+class RollinEpisodicMeanRewardState(RollingMeanState):
+    last_return: jnp.ndarray
+    cumulative_reward: jnp.ndarray
 
 
 @struct.dataclass
@@ -29,13 +54,13 @@ class CollectorState:
     last_obs: jnp.ndarray
     last_terminated: jnp.ndarray
     last_truncated: jnp.ndarray
+    episodic_return_state: RollinEpisodicMeanRewardState
+    episodic_mean_return: float = jnp.nan
     num_update: int = 0
     timestep: int = 0
     average_reward: float = 0.0
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
-    rollout: Optional[jnp.ndarray] = None
-    last_return: jnp.ndarray = jnp.nan
-    cumulative_reward: jnp.ndarray = None
+    rollout: Optional[Transition] = None
 
 
 @struct.dataclass

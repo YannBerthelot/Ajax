@@ -27,7 +27,6 @@ class LoggingConfig:
     log_frequency: int = 1000
     mode: str = "online"
     group_name: Optional[str] = None
-    chunk_size: int = 1000
     horizon: int = 10_000
     folder: Optional[str] = None
     use_tensorboard: bool = False

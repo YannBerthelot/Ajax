@@ -20,7 +20,9 @@ def online_normalize(
 ) -> tuple[jnp.array, int, float, float, float]:
     if train:
         batch_size = x.shape[0]
-        batch_mean = jnp.nanmean(x, axis=0)  # (D,)
+        batch_mean = jnp.nanmean(
+            x, axis=0
+        )  # (D,) nanmean to handle possible means in G_return, as expected for AVG
         batch_mean_2 = jnp.nanmean((x - batch_mean) ** 2, axis=0)  # (D,)
 
         total_count = count + batch_size

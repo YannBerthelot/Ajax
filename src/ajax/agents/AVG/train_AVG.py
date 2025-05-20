@@ -255,9 +255,7 @@ def value_loss_function(
 
     assert scaling_coef.shape == delta.shape, f"{scaling_coef.shape} != {delta.shape}"
     scaled_delta = delta / scaling_coef
-    total_loss = jnp.mean(
-        scaled_delta**2
-    )  # TODO : make sure scaling coef is properly computed for parallel environments, that it has proper mean count etc
+    total_loss = jnp.mean(scaled_delta**2)
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
         q_pred=q_pred.mean().flatten(),
@@ -725,7 +723,7 @@ def training_iteration(
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
-):
+) -> tuple[AVGState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
 

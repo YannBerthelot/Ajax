@@ -6,8 +6,8 @@ import jax.numpy as jnp
 import wandb
 from gymnax import EnvParams
 
-from ajax.agents.sac.state import SACConfig
-from ajax.agents.sac.train_sac import make_train
+from ajax.agents.DynaSAC.state import AVGConfig, DynaSACConfig, SACConfig
+from ajax.agents.DynaSAC.train_dyna_sac import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
@@ -24,8 +24,8 @@ from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerC
 from ajax.types import EnvType
 
 
-class SAC:
-    """Soft Actor-Critic (SAC) agent for training and testing in continuous action spaces."""
+class DynaSAC:
+    """DynaSAC agent: combines Dyna and SAC algorithms for training and testing in continuous action spaces. Uses AVG for imagination part"""
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -47,6 +47,8 @@ class SAC:
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
+        avg_length: int = 4,
+        sac_length: int = 4,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -70,7 +72,7 @@ class SAC:
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
-        self.config.update({"algo_name": "SAC"})
+        self.config.update({"algo_name": "DynaSAC"})
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
@@ -115,12 +117,25 @@ class SAC:
         )
         action_dim = get_action_dim(env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
-        self.agent_args = SACConfig(
+        sac_config = SACConfig(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,
             target_entropy=target_entropy,
             reward_scale=reward_scale,
+        )
+        avg_config = AVGConfig(
+            gamma=gamma,
+            target_entropy=target_entropy,
+            learning_starts=learning_starts,
+            reward_scale=reward_scale,
+            num_critics=2,
+        )
+        self.agent_args = DynaSACConfig(
+            primary=sac_config,
+            secondary=avg_config,
+            avg_length=avg_length,
+            sac_length=sac_length,
         )
 
         self.buffer = get_buffer(
@@ -171,6 +186,8 @@ class SAC:
                 num_episode_test=num_episode_test,
                 run_ids=run_ids,
                 logging_config=logging_config,
+                sac_length=self.agent_args.sac_length,
+                avg_length=self.agent_args.avg_length,
             )
 
             agent_state = train_jit(key, index)
@@ -187,7 +204,7 @@ if __name__ == "__main__":
     log_frequency = 5_000
     logging_config = LoggingConfig(
         "dyna_sac_tests_hector",
-        "sac",
+        "primary_training_iteration_scan_fn_unroll_4",
         config={
             "debug": False,
             "log_frequency": log_frequency,
@@ -199,7 +216,13 @@ if __name__ == "__main__":
         use_wandb=True,
     )
     env_id = "halfcheetah"
-    sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
+    sac_agent = DynaSAC(
+        env_id=env_id,
+        learning_starts=int(1e4),
+        batch_size=256,
+        avg_length=0,
+        sac_length=1,
+    )
     sac_agent.train(
         seed=list(range(n_seeds)),
         num_timesteps=int(1e6),

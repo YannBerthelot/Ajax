@@ -180,7 +180,7 @@ if __name__ == "__main__":
     log_frequency = 5_000
     num_envs = 2
     logging_config = LoggingConfig(
-        "AVG_tests_humanoid",
+        "dyna_sac_tests_hector",
         "test",
         config={
             "debug": False,
@@ -192,7 +192,17 @@ if __name__ == "__main__":
         use_tensorboard=False,
     )
     env_id = "humanoid"
-    sac_agent = AVG(env_id=env_id, num_envs=num_envs, num_critics=1)
+    sac_agent = AVG(
+        env_id=env_id,
+        num_envs=num_envs,
+        num_critics=2,
+        actor_learning_rate=3e-4,
+        critic_learning_rate=3e-4,
+        beta_1=0.9,
+        actor_architecture=("256", "relu", "256", "relu"),
+        critic_architecture=("256", "relu", "256", "relu"),
+        learning_starts=int(1e4),
+    )
     sac_agent.train(
         seed=list(range(n_seeds)),
         num_timesteps=int(1e7) * num_envs,

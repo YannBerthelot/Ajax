@@ -703,7 +703,7 @@ def training_iteration(
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
-):
+) -> tuple[SACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
 

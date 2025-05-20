@@ -18,16 +18,6 @@ class SquashedNormal(distrax.Transformed):
     def entropy(self):
         return self.distribution.entropy()
 
-    # def sample_and_log_prob(self, *, seed, sample_shape=()):
-    #     action_pre, log_prob_pre = self.distribution.sample_and_log_prob(
-    #         seed=seed, sample_shape=sample_shape
-    #     )
-    #     log_prob = log_prob_pre - (
-    #         2 * (jnp.log(2) - action_pre - jax.nn.softplus(-2 * action_pre))
-    #     ).sum(axis=1)
-    #     action = self.bijector.forward(action_pre)
-    #     return action, log_prob
-
 
 def no_op(x, *args):
     return x
@@ -83,7 +73,3 @@ def compute_td_error_scaling(
 
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
     return td_error_scaling, reward, gamma, G_return
-
-
-def scale_td_error(td_error: jnp.array, scaling_coef: jnp.array) -> jnp.array:
-    return td_error / scaling_coef

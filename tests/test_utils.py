@@ -1,10 +1,12 @@
 import jax.numpy as jnp
+from flax.linen.normalization import _l2_normalize
+from jax import random
 
 from ajax.utils import online_normalize
 
 
 def test_online_normalize_initial():
-    x = jnp.array([1.0, 2.0, 3.0])
+    x = jnp.array([[1.0, 2.0, 3.0]])
     count = 0
     mean = 0.0
     mean_2 = 0.0
@@ -21,7 +23,7 @@ def test_online_normalize_initial():
 
 
 def test_online_normalize_update():
-    x = jnp.array([4.0, 5.0, 6.0])
+    x = jnp.array([[4.0, 5.0, 6.0]])
     count = 1
     mean = jnp.array([1.0, 2.0, 3.0])
     mean_2 = jnp.array([0.0, 0.0, 0.0])
@@ -44,7 +46,7 @@ def test_online_normalize_update():
 
 
 def test_online_normalize_multiple_updates():
-    x = jnp.array([7.0, 8.0, 9.0])
+    x = jnp.array([[7.0, 8.0, 9.0]])
     count = 2
     mean = jnp.array([2.5, 3.5, 4.5])
     mean_2 = jnp.array([4.5, 4.5, 4.5])
@@ -64,3 +66,32 @@ def test_online_normalize_multiple_updates():
     assert jnp.allclose(new_mean_2, expected_mean_2)
     assert jnp.allclose(sigma, expected_sigma)
     assert jnp.allclose(x_norm, expected_x_norm)
+
+
+def test_single_vector_normalization():
+    x = jnp.array([3.0, 4.0])
+    x_normed = _l2_normalize(x, axis=0)
+    norm = jnp.linalg.norm(x_normed, ord=2)
+    assert jnp.allclose(norm, 1.0, atol=1e-6), f"Norm was {norm}"
+
+
+def test_batch_vector_normalization_axis1():
+    x = jnp.array([[3.0, 4.0], [0.0, 5.0]])
+    x_normed = _l2_normalize(x, axis=1)
+    norms = jnp.linalg.norm(x_normed, ord=2, axis=1)
+    assert jnp.allclose(norms, 1.0, atol=1e-6).all(), f"Norms were {norms}"
+
+
+def test_random_batch_normalization():
+    key = random.PRNGKey(0)
+    x = random.normal(key, (10, 128))
+    x_normed = _l2_normalize(x, axis=1)
+    norms = jnp.linalg.norm(x_normed, ord=2, axis=1)
+    assert jnp.allclose(norms, 1.0, atol=1e-6).all(), f"Norms were {norms}"
+
+
+def test_axis0_normalization():
+    x = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    x_normed = _l2_normalize(x, axis=0)
+    norms = jnp.linalg.norm(x_normed, ord=2, axis=0)
+    assert jnp.allclose(norms, 1.0, atol=1e-6).all(), f"Norms were {norms}"

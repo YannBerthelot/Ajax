@@ -1,4 +1,4 @@
-from typing import TypeAlias, Union
+from typing import Callable, TypeAlias, Union
 
 import flashbax as fbx
 import jax
@@ -26,3 +26,4 @@ BufferTypeState: TypeAlias = Union[
     fbx.flat_buffer.TrajectoryBufferState,
     fbx.trajectory_buffer.TrajectoryBufferState,
 ]
+InitializationFunction: TypeAlias = Callable

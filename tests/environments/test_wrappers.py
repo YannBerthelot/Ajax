@@ -14,6 +14,7 @@ from ajax.wrappers import (
     ClipActionBrax,
     FlattenObservationWrapper,
     LogWrapper,
+    NormalizationInfo,
     NormalizeVecObservation,
     NormalizeVecObservationBrax,
     NormalizeVecReward,
@@ -34,7 +35,7 @@ class MockGymnaxEnv:
         return obs, state
 
     def step(self, key, state, action, params=None):
-        obs = jnp.array([1.0, -1.0])
+        obs = jnp.array([1.0, -1.0]) * state.step_count
         reward = 2.0
         done = state.step_count >= 5
         info = {}
@@ -88,6 +89,78 @@ class MockBraxState:
     info: dict
 
 
+class BatchedMockGymnaxEnv:
+    """Mock Gymnax environment for batched testing."""
+
+    def __init__(self, batch_size=2):
+        self.batch_size = batch_size
+        self.observation_space = jnp.array([0.0, 0.0])
+        self.action_space = jnp.array([-1.0, 1.0])
+
+    def reset(self, key, params=None):
+        obs = jnp.tile(jnp.array([1.0, -1.0]), (self.batch_size, 1))
+        state = BatchedMockGymnaxState(step_count=jnp.zeros(self.batch_size))
+        return obs, state
+
+    def step(self, key, state, action, params=None):
+        obs = jnp.tile(jnp.array([1.0, -1.0]) * action, (self.batch_size, 1))
+        reward = jnp.ones(self.batch_size) * 2.0
+        done = state.step_count >= 5
+        info = {}
+        state = BatchedMockGymnaxState(step_count=state.step_count + 1)
+        return obs, state, reward, done, info
+
+
+class BatchedMockBraxEnv:
+    """Mock Brax environment for batched testing."""
+
+    def __init__(self, batch_size=2):
+        self.batch_size = batch_size
+
+    def reset(self, key):
+        obs = jnp.tile(jnp.array([1.0, -1.0]), (self.batch_size, 1))
+        return BatchedMockBraxState(
+            obs=obs,
+            reward=jnp.zeros(self.batch_size),
+            done=jnp.zeros(self.batch_size, dtype=bool),
+            metrics={},
+            pipeline_state=None,
+            info={},
+        )
+
+    def step(self, state, action):
+        obs = jnp.tile(jnp.array([1.0, -1.0]), (self.batch_size, 1)) * action
+        reward = jnp.ones(self.batch_size)
+        done = reward >= 5.0
+        return BatchedMockBraxState(
+            obs=obs,
+            reward=reward,
+            done=done,
+            metrics={},
+            pipeline_state=None,
+            info={},
+        )
+
+
+@struct.dataclass
+class BatchedMockGymnaxState:
+    """Mock Gymnax state for batched testing."""
+
+    step_count: jnp.ndarray
+
+
+@struct.dataclass
+class BatchedMockBraxState:
+    """Mock Brax state for batched testing."""
+
+    obs: jnp.ndarray
+    reward: jnp.ndarray
+    done: jnp.ndarray
+    metrics: dict
+    pipeline_state: Any
+    info: dict
+
+
 @pytest.fixture
 def gymnax_env():
     return MockGymnaxEnv(), None
@@ -96,6 +169,16 @@ def gymnax_env():
 @pytest.fixture
 def brax_env():
     return MockBraxEnv()
+
+
+@pytest.fixture
+def batched_gymnax_env():
+    return BatchedMockGymnaxEnv(), None
+
+
+@pytest.fixture
+def batched_brax_env():
+    return BatchedMockBraxEnv()
 
 
 def extract_obs(state, mode):
@@ -225,7 +308,6 @@ def test_normalize_vec_observation(wrapper, env_fixture, mode, request):
                 key, state, action, env_params
             )
         else:  # Brax
-            print(state.info)
             state = wrapped_env.step(state, action)
             obs = state.obs
         observations.append(obs)
@@ -395,8 +477,8 @@ class DummyEnv:
         return SimpleNamespace(obs=obs, info=state.info)
 
 
-def test_normalize_vec_observation_2(brax_env):
-    dummy_env = brax_env
+def test_normalize_vec_observation_2(batched_brax_env):
+    dummy_env = batched_brax_env
     wrapper = NormalizeVecObservationBrax(dummy_env)
 
     # Initial reset
@@ -404,30 +486,279 @@ def test_normalize_vec_observation_2(brax_env):
     state = wrapper.reset(key)
 
     # Check initial normalization
-    assert jnp.all(state.info["count"] == 1)
+    assert jnp.all(state.info["obs_normalization_info"].count == 2)  # batch size
 
-    assert jnp.allclose(state.info["mean"], jnp.array([1.0, -1.0]))
+    assert jnp.allclose(
+        state.info["obs_normalization_info"].mean, jnp.array([[1.0, -1.0], [1.0, -1.0]])
+    )
     assert jnp.allclose(state.obs, jnp.zeros(2))  # normalized should be 0
 
     # Step 1
-    action = None  # dummy action
+    action = 1  # dummy action
     state = wrapper.step(state, action)
-    expected_mean = jnp.array([1.0, -1.0])
-    expected_mean_2 = jnp.array([0.0, 0.0])
-    expected_obs = jnp.array([0.0, 0.0])
+    expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
+    expected_mean_2 = jnp.array([[0.0, 0.0], [0.0, 0.0]])
+    expected_obs = jnp.array([[0.0, 0.0], [0.0, 0.0]])
 
-    assert jnp.all(state.info["count"] == 2)
-    assert jnp.allclose(state.info["mean"], expected_mean)
-    assert jnp.allclose(state.info["mean_2"], expected_mean_2)
+    assert jnp.all(state.info["obs_normalization_info"].count == 4)  # batch size x 2
+    assert jnp.allclose(state.info["obs_normalization_info"].mean, expected_mean)
+    assert jnp.allclose(state.info["obs_normalization_info"].mean_2, expected_mean_2)
     assert jnp.allclose(state.obs, expected_obs)
 
     # Step 2
     state = wrapper.step(state, action)
-    expected_mean = jnp.array([1.0, -1.0])
-    expected_mean_2 = jnp.array([0.0, 0.0])
-    expected_obs = jnp.array([0.0, 0.0])
+    expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
+    expected_mean_2 = jnp.array([[0.0, 0.0], [0.0, 0.0]])
+    expected_obs = jnp.array([[0.0, 0.0], [0.0, 0.0]])
 
-    assert jnp.all(state.info["count"] == 3)
-    assert jnp.allclose(state.info["mean"], expected_mean)
-    assert jnp.allclose(state.info["mean_2"], expected_mean_2)
+    assert jnp.all(state.info["obs_normalization_info"].count == 6)  # batch size x3
+    assert jnp.allclose(state.info["obs_normalization_info"].mean, expected_mean)
+    assert jnp.allclose(state.info["obs_normalization_info"].mean_2, expected_mean_2)
     assert jnp.allclose(state.obs, expected_obs)
+
+
+@pytest.mark.parametrize(
+    "wrapper,env_fixture,mode",
+    [
+        (NormalizeVecObservation, "gymnax_env", "gymnax"),
+        (NormalizeVecObservationBrax, "brax_env", "brax"),
+    ],
+)
+def test_normalize_vec_observation_with_norm_info(wrapper, env_fixture, mode, request):
+    env_data = request.getfixturevalue(env_fixture)
+    key = jax.random.PRNGKey(0)
+    if mode == "gymnax":
+        env, env_params = env_data
+    else:  # Brax
+        env = env_data
+        env_params = None
+
+    if mode == "gymnax":
+        raw_obs, state = env.reset(key, env_params)
+    else:  # Brax
+        state = env.reset(key)
+        raw_obs = state.obs
+
+    # Provide initial normalization info
+    count = jnp.array([[10]])
+    mean_2 = jnp.array([[0.5, 0.5]])
+    norm_info = NormalizationInfo(
+        count=count,
+        mean=jnp.array([1.0, -1.0]),
+        mean_2=mean_2,
+        var=mean_2 / count,
+    )
+
+    wrapped_env = wrapper(env, norm_info=norm_info, train=False)
+
+    if mode == "gymnax":
+        obs, state = wrapped_env.reset(key, env_params)
+    else:  # Brax
+        state = wrapped_env.reset(key)
+        obs = state.obs
+
+    # Validate that the normalization info is used
+    if mode == "brax":
+        assert jnp.allclose(
+            state.info["obs_normalization_info"].mean, norm_info.mean
+        ), "Mean should match provided norm_info."
+        assert jnp.allclose(
+            state.info["obs_normalization_info"].var, norm_info.var
+        ), "Variance should match provided norm_info."
+    else:
+        assert jnp.allclose(
+            state.normalization_info.mean, norm_info.mean
+        ), "Mean should match provided norm_info."
+        assert jnp.allclose(
+            state.normalization_info.var, norm_info.var
+        ), "Variance should match provided norm_info."
+
+    # Validate normalized observation
+    expected_obs = (raw_obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
+    assert jnp.allclose(obs, expected_obs), "Observation is not normalized correctly."
+
+
+@pytest.mark.parametrize(
+    "wrapper,env_fixture,mode",
+    [
+        (NormalizeVecObservation, "batched_gymnax_env", "gymnax"),
+        (NormalizeVecObservationBrax, "batched_brax_env", "brax"),
+    ],
+)
+def test_normalize_vec_observation_batched(wrapper, env_fixture, mode, request):
+    env_data = request.getfixturevalue(env_fixture)
+    key = jax.random.PRNGKey(0)
+    if mode == "gymnax":
+        env, env_params = env_data
+    else:  # Brax
+        env = env_data
+        env_params = None
+
+    # Mock batched observations
+    if mode == "gymnax":
+        raw_obs, state = env.reset(key, env_params)
+        # raw_obs = jnp.stack([raw_obs, raw_obs * 2])  # Create batched observations
+    else:  # Brax
+        state = env.reset(key)
+        raw_obs = state.obs
+        # raw_obs = jnp.stack([state.obs, state.obs * 2])  # Create batched observations
+
+    # Provide initial normalization info
+    mean_2 = jnp.array([[0.5, 0.5], [1.0, 1.0]])
+    count = jnp.array([[10], [20]])
+    norm_info = NormalizationInfo(
+        count=count,
+        mean=jnp.array([[1.0, -1.0], [2.0, -2.0]]),
+        mean_2=mean_2,
+        var=mean_2 / count,
+    )
+
+    wrapped_env = wrapper(env, norm_info=norm_info, train=False)
+
+    if mode == "gymnax":
+        obs, state = wrapped_env.reset(key, env_params)
+    else:  # Brax
+        state = wrapped_env.reset(key)
+        obs = state.obs
+
+    # Validate that the normalization info is used for each batch
+    if mode == "brax":
+        assert jnp.allclose(
+            state.info["obs_normalization_info"].mean, norm_info.mean
+        ), "Mean should match provided norm_info for each batch."
+        assert jnp.allclose(
+            state.info["obs_normalization_info"].var, norm_info.var
+        ), "Variance should match provided norm_info for each batch."
+    else:
+        assert jnp.allclose(
+            state.normalization_info.mean, norm_info.mean
+        ), "Mean should match provided norm_info for each batch."
+        assert jnp.allclose(
+            state.normalization_info.var, norm_info.var
+        ), "Variance should match provided norm_info for each batch."
+
+    # Validate normalized observations for each batch
+
+    expected_obs = (raw_obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
+
+    assert jnp.allclose(
+        obs, expected_obs
+    ), "Batched observations are not normalized correctly."
+
+
+@pytest.mark.parametrize(
+    "wrapper,env_fixture,mode",
+    [
+        (NormalizeVecObservation, "batched_gymnax_env", "gymnax"),
+        (NormalizeVecObservationBrax, "batched_brax_env", "brax"),
+    ],
+)
+def test_normalize_vec_observation_batched_shared(wrapper, env_fixture, mode, request):
+    env_data = request.getfixturevalue(env_fixture)
+    key = jax.random.PRNGKey(0)
+    if mode == "gymnax":
+        env, env_params = env_data
+    else:  # Brax
+        env = env_data
+        env_params = None
+
+    # Mock batched observations
+    if mode == "gymnax":
+        raw_obs, state = env.reset(key, env_params)
+    else:  # Brax
+        state = env.reset(key)
+        raw_obs = state.obs
+    batch_size = raw_obs.shape[0]
+    obs_shape = raw_obs.shape[1]
+    # Provide initial shared normalization info
+    mean_2 = jnp.tile(jnp.array([0.5, 0.5]), reps=(batch_size, 1))
+    count = jnp.tile(jnp.ones(1), reps=(batch_size, 1))
+    norm_info = NormalizationInfo(
+        count=count,
+        mean=jnp.tile(jnp.array([1.0, -1.0]), reps=(batch_size, 1)),
+        mean_2=mean_2,
+        var=mean_2 / count,
+    )
+
+    wrapped_env = wrapper(env, norm_info=norm_info, train=False)
+
+    if mode == "gymnax":
+        obs, state = wrapped_env.reset(key, env_params)
+    else:  # Brax
+        state = wrapped_env.reset(key)
+        obs = state.obs
+
+    _norm_info = (
+        state.info["obs_normalization_info"]
+        if mode == "brax"
+        else state.normalization_info
+    )
+    assert _norm_info.count.shape == (batch_size, 1)
+    assert _norm_info.mean.shape == (batch_size, obs_shape)
+    assert _norm_info.mean_2.shape == (batch_size, obs_shape)
+    assert _norm_info.var.shape == (batch_size, obs_shape)
+
+    # Validate that the normalization info is shared across the batch
+    if mode == "brax":
+        assert jnp.allclose(
+            state.info["obs_normalization_info"].mean, norm_info.mean
+        ), "Mean should match provided norm_info."
+        assert jnp.allclose(
+            state.info["obs_normalization_info"].var, norm_info.var
+        ), "Variance should match provided norm_info."
+    else:
+        assert jnp.allclose(
+            state.normalization_info.mean, norm_info.mean
+        ), "Mean should match provided norm_info."
+        assert jnp.allclose(
+            state.normalization_info.var, norm_info.var
+        ), "Variance should match provided norm_info."
+
+    # Validate normalized observations
+    expected_obs = (raw_obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
+    assert jnp.allclose(
+        obs, expected_obs
+    ), "Batched observations are not normalized correctly."
+
+    # Step through the environment and validate normalization info updates
+    wrapped_env = wrapper(env, norm_info=norm_info, train=True)
+    if mode == "gymnax":
+        obs, state = wrapped_env.reset(key, env_params)
+    else:  # Brax
+        state = wrapped_env.reset(key)
+        obs = state.obs
+
+    _norm_info = (
+        state.info["obs_normalization_info"]
+        if mode == "brax"
+        else state.normalization_info
+    )
+    assert _norm_info.count.shape == (batch_size, 1)
+    assert _norm_info.mean.shape == (batch_size, obs_shape)
+    assert _norm_info.mean_2.shape == (batch_size, obs_shape)
+    assert _norm_info.var.shape == (batch_size, obs_shape)
+    if mode == "gymnax":
+        obs, state, reward, done, info = wrapped_env.step(key, state, 7, env_params)
+    else:  # Brax
+        action = jnp.ones_like(raw_obs) * 7
+        state = wrapped_env.step(state, action)
+        obs = state.obs
+
+    updated_norm_info = (
+        state.info["obs_normalization_info"]
+        if mode == "brax"
+        else state.normalization_info
+    )
+    assert updated_norm_info.count.shape == (batch_size, 1)
+    assert updated_norm_info.mean.shape == (batch_size, obs_shape)
+    assert updated_norm_info.mean_2.shape == (batch_size, obs_shape)
+    assert updated_norm_info.var.shape == (batch_size, obs_shape)
+    assert jnp.any(
+        updated_norm_info.count > norm_info.count
+    ), "Count should have been incremented."
+    assert not jnp.allclose(
+        updated_norm_info.mean, norm_info.mean
+    ), "Mean should have been updated."
+    assert not jnp.allclose(
+        updated_norm_info.var, norm_info.var
+    ), "Variance should have been updated."

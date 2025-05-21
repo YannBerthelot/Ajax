@@ -31,5 +31,6 @@ class AVGConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 
     target_entropy: float
-    learning_starts: int = 100
-    reward_scale: float = 5.0
+    learning_starts: int = 0
+    reward_scale: float = 1
+    num_critics: int = 1  # to switch from single to double-q (or more if you want)

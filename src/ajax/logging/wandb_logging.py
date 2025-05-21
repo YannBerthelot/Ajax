@@ -27,7 +27,6 @@ class LoggingConfig:
     log_frequency: int = 1000
     mode: str = "online"
     group_name: Optional[str] = None
-    chunk_size: int = 1000
     horizon: int = 10_000
     folder: Optional[str] = None
     use_tensorboard: bool = False
@@ -166,7 +165,9 @@ def vmap_log(
     run_id = run_ids[index]
 
     metrics_np = {
-        k: jax.device_get(v) for k, v in log_metrics.items() if not jnp.isnan(v)
+        k: jax.device_get(v)
+        for k, v in log_metrics.items()
+        if not jnp.any(jnp.isnan(v))
     }
 
     step = log_metrics["timestep"]

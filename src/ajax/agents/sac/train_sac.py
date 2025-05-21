@@ -20,7 +20,7 @@ from ajax.environments.interaction import (
     should_use_uniform_sampling,
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
-from ajax.evaluate import compute_episodic_mean_reward, evaluate
+from ajax.evaluate import evaluate
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -109,6 +109,7 @@ def init_sac(
     network_args: NetworkConfig,
     alpha_args: AlphaConfig,
     buffer: BufferType,
+    window_size: int = 10,
 ) -> SACState:
     """
     Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
@@ -147,6 +148,7 @@ def init_sac(
         env_args=env_args,
         mode=mode,
         buffer=buffer,
+        window_size=window_size,
     )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
@@ -217,7 +219,7 @@ def value_loss_function(
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_params,
-        x=jnp.concatenate((observations, actions), axis=-1),
+        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
     )
     # Target Q-values using target networks
     q_targets = predict_value(
@@ -240,7 +242,6 @@ def value_loss_function(
 
     assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
     assert min_q_target.shape == log_probs.shape
-    # total_loss = jnp.square(q_preds - target_q[None, ...]).mean()
 
     loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
     loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
@@ -319,7 +320,7 @@ def policy_loss_function(
     jax.jit,
     static_argnames=["target_entropy"],
 )
-def alpha_loss_function(
+def temperature_loss_function(
     log_alpha_params: FrozenDict,
     corrected_log_probs: jax.Array,
     target_entropy: float,
@@ -387,7 +388,6 @@ def update_value_functions(
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
 
-    # Call the value loss function with reward scaling applied
     (loss, aux), grads = value_and_grad_fn(
         agent_state.critic_state.params,
         agent_state.critic_state,
@@ -401,7 +401,7 @@ def update_value_functions(
         gamma,
         alpha,
         recurrent,
-        reward_scale,  # Pass reward scaling factor here
+        reward_scale,
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -438,8 +438,6 @@ def update_policy(
     value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
-    # alpha_min = 0.1
-    # alpha = jnp.maximum(jnp.exp(log_alpha), alpha_min)
     (loss, aux), grads = value_and_grad_fn(
         agent_state.actor_state.params,
         agent_state.actor_state,
@@ -483,7 +481,7 @@ def update_temperature(
     Returns:
         Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    loss_fn = jax.value_and_grad(alpha_loss_function, has_aux=True)
+    loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
 
     pi, _ = get_pi(
         actor_state=agent_state.actor_state,
@@ -683,7 +681,6 @@ def no_op_none(agent_state, index, timestep):
         "action_dim",
         "lstm_hidden_size",
         "agent_args",
-        "chunk_size",
         "horizon",
         "total_timesteps",
     ],
@@ -700,14 +697,13 @@ def training_iteration(
     total_timesteps: int,
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
-    chunk_size: int = 1000,
     horizon: int = 10000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
-):
+) -> tuple[SACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
 
@@ -787,7 +783,7 @@ def training_iteration(
         operand=agent_state,
     )
 
-    def run_and_log(agent_state, aux, index):
+    def run_and_log(agent_state: SACState, aux: AuxiliaryLogs, index: int):
         eval_key = agent_state.eval_rng
         eval_rewards, eval_entropy = evaluate(
             env_args.env,
@@ -800,14 +796,13 @@ def training_iteration(
         )
 
         if log:
-            episodic_mean_reward = compute_episodic_mean_reward(
-                agent_state, chunk_size=chunk_size, horizon=horizon
-            )
             metrics_to_log = {
                 "timestep": timestep,
                 "Eval/episodic mean reward": eval_rewards,
                 "Eval/episodic entropy": eval_entropy,
-                "Train/episodic mean reward": episodic_mean_reward,
+                "Train/episodic mean reward": (
+                    agent_state.collector_state.episodic_mean_return
+                ),
             }
             metrics_to_log.update(flatten_dict(to_state_dict(aux)))
             jax.debug.callback(log_fn, metrics_to_log, index)
@@ -927,9 +922,6 @@ def make_train(
             total_timesteps=total_timesteps,
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
-            ),
-            chunk_size=(
-                logging_config.chunk_size if logging_config is not None else None
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
         )

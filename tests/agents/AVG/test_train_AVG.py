@@ -10,11 +10,11 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.state import AVGConfig, AVGState
 from ajax.agents.AVG.train_AVG import (
-    alpha_loss_function,
     create_alpha_train_state,
     init_AVG,
     make_train,
     policy_loss_function,
+    temperature_loss_function,
     training_iteration,
     update_agent,
     update_AVG_values,
@@ -297,11 +297,11 @@ def test_policy_loss_function_with_value_and_grad(env_config, avg_state):
         (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
     ],
 )
-def test_alpha_loss_function(log_alpha_init, target_entropy, corrected_log_probs):
+def test_temperature_loss_function(log_alpha_init, target_entropy, corrected_log_probs):
     log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
 
     # Call the alpha loss function
-    loss, aux = alpha_loss_function(
+    loss, aux = temperature_loss_function(
         log_alpha_params=log_alpha_params,
         corrected_log_probs=corrected_log_probs,
         target_entropy=target_entropy,
@@ -322,14 +322,14 @@ def test_alpha_loss_function(log_alpha_init, target_entropy, corrected_log_probs
         (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
     ],
 )
-def test_alpha_loss_function_with_value_and_grad(
+def test_temperature_loss_function_with_value_and_grad(
     log_alpha_init, target_entropy, corrected_log_probs
 ):
     log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
 
-    # Define a wrapper for alpha_loss_function
+    # Define a wrapper for temperature_loss_function
     def loss_fn(log_alpha_params):
-        loss, _ = alpha_loss_function(
+        loss, _ = temperature_loss_function(
             log_alpha_params=log_alpha_params,
             corrected_log_probs=corrected_log_probs,
             target_entropy=target_entropy,

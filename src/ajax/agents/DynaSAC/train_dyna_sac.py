@@ -60,8 +60,10 @@ def get_agent_state_from_agent_state(
 
 def make_train(
     env_args: EnvironmentConfig,
-    actor_optimizer_args: OptimizerConfig,
-    critic_optimizer_args: OptimizerConfig,
+    primary_actor_optimizer_args: OptimizerConfig,
+    primary_critic_optimizer_args: OptimizerConfig,
+    secondary_actor_optimizer_args: OptimizerConfig,
+    secondary_critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     buffer: BufferType,
     agent_args: DynaSACConfig,
@@ -103,8 +105,8 @@ def make_train(
         primary_agent_state = init_sac(
             key=key,
             env_args=env_args,
-            actor_optimizer_args=actor_optimizer_args,
-            critic_optimizer_args=critic_optimizer_args,
+            actor_optimizer_args=primary_actor_optimizer_args,
+            critic_optimizer_args=primary_critic_optimizer_args,
             network_args=network_args,
             alpha_args=alpha_args,
             buffer=buffer,
@@ -113,8 +115,8 @@ def make_train(
         secondary_agent_state = init_AVG(
             key=key,
             env_args=env_args,
-            actor_optimizer_args=actor_optimizer_args,
-            critic_optimizer_args=critic_optimizer_args,
+            actor_optimizer_args=secondary_actor_optimizer_args,
+            critic_optimizer_args=secondary_critic_optimizer_args,
             network_args=network_args,
             alpha_args=alpha_args,
             num_critics=2,
@@ -164,6 +166,7 @@ def make_train(
         )
         # unroll_length = 4  # IMPORTANT: has to match between loops for reproducibility, otherwise a N x 1 loop might not yield the same results as a N loop. has to be >1 as well for some reason to be reproducible
         inner_length = sac_length + avg_length
+        print(sac_length, avg_length)
 
         def dyna_train_loop(
             carry: tuple[SACState, AVGState], _: Any
@@ -173,7 +176,7 @@ def make_train(
                 f=primary_training_iteration_scan_fn,
                 init=primary_agent_state,
                 xs=None,
-                length=1,
+                length=sac_length,
                 unroll=1,
             )
 
@@ -184,7 +187,7 @@ def make_train(
                 f=secondary_training_iteration_scan_fn,
                 init=transfered_secondary_agent_state,
                 xs=None,
-                length=1,
+                length=avg_length,
                 unroll=1,
             )
             transfered_primary_agent_state = get_agent_state_from_agent_state(
@@ -192,7 +195,7 @@ def make_train(
             )
             assert isinstance(
                 transfered_primary_agent_state, SACState
-            ), "transfered_primary_agent_state is not a SACState"
+            ), "transfered_primary_agent_state is not a SACState"  # to make mypy happy
             return (
                 transfered_primary_agent_state,
                 new_secondary_agent_state,

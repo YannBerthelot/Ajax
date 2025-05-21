@@ -105,15 +105,28 @@ class DynaSAC:
             penultimate_normalization=True,
         )
 
-        self.actor_optimizer_args = OptimizerConfig(
+        self.primary_actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
             max_grad_norm=max_grad_norm,
             clipped=max_grad_norm is not None,
         )
-        self.critic_optimizer_args = OptimizerConfig(
+        self.primary_critic_optimizer_args = OptimizerConfig(
             learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
             clipped=max_grad_norm is not None,
+        )
+
+        self.secondary_actor_optimizer_args = OptimizerConfig(
+            learning_rate=6.3e-3,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+            beta_1=0,
+        )
+        self.secondary_critic_optimizer_args = OptimizerConfig(
+            learning_rate=8.7e-3,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+            beta_1=0,
         )
         action_dim = get_action_dim(env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
@@ -176,8 +189,10 @@ class DynaSAC:
 
             train_jit = make_train(
                 env_args=self.env_args,
-                actor_optimizer_args=self.actor_optimizer_args,
-                critic_optimizer_args=self.critic_optimizer_args,
+                primary_actor_optimizer_args=self.primary_actor_optimizer_args,
+                primary_critic_optimizer_args=self.primary_critic_optimizer_args,
+                secondary_actor_optimizer_args=self.secondary_actor_optimizer_args,
+                secondary_critic_optimizer_args=self.secondary_critic_optimizer_args,
                 network_args=self.network_args,
                 buffer=self.buffer,
                 agent_args=self.agent_args,
@@ -220,8 +235,8 @@ if __name__ == "__main__":
         env_id=env_id,
         learning_starts=int(1e4),
         batch_size=256,
-        avg_length=0,
-        sac_length=1,
+        avg_length=100,
+        sac_length=100,
     )
     sac_agent.train(
         seed=list(range(n_seeds)),

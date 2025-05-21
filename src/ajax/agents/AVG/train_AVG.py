@@ -838,7 +838,7 @@ def training_iteration(
                 "num_update": num_updates,
                 "Eval/episodic mean reward": eval_rewards,
                 "Eval/episodic entropy": eval_entropy,
-                "Train/episodic reward": (
+                "Train/episodic mean reward": (
                     agent_state.collector_state.episodic_mean_return
                 ),
             }

@@ -320,7 +320,7 @@ def policy_loss_function(
     jax.jit,
     static_argnames=["target_entropy"],
 )
-def alpha_loss_function(
+def temperature_loss_function(
     log_alpha_params: FrozenDict,
     corrected_log_probs: jax.Array,
     target_entropy: float,
@@ -481,7 +481,7 @@ def update_temperature(
     Returns:
         Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    loss_fn = jax.value_and_grad(alpha_loss_function, has_aux=True)
+    loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
 
     pi, _ = get_pi(
         actor_state=agent_state.actor_state,

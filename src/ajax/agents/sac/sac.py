@@ -47,6 +47,8 @@ class SAC:
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
+        init_evarest_alpha: Optional[float] = None,
+        evarest_alpha_learning_rate: Optional[float] = None,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -74,7 +76,7 @@ class SAC:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=True,
+            normalize_obs=False,
             normalize_reward=False,
             num_envs=num_envs,
             gamma=gamma,
@@ -100,7 +102,7 @@ class SAC:
             critic_architecture=critic_architecture,
             lstm_hidden_size=lstm_hidden_size,
             squash=True,
-            penultimate_normalization=True,
+            penultimate_normalization=False,
         )
 
         self.actor_optimizer_args = OptimizerConfig(
@@ -121,6 +123,8 @@ class SAC:
             learning_starts=learning_starts,
             target_entropy=target_entropy,
             reward_scale=reward_scale,
+            init_evarest_alpha=init_evarest_alpha,
+            evarest_alpha_learning_rate=evarest_alpha_learning_rate,
         )
 
         self.buffer = get_buffer(
@@ -183,10 +187,10 @@ class SAC:
 
 
 if __name__ == "__main__":
-    n_seeds = 1
+    n_seeds = 10
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        "sac_evarest",
+        "sac_evarest_tests_weird",
         "sac_with_evarest",
         config={
             "debug": False,
@@ -199,7 +203,13 @@ if __name__ == "__main__":
         use_wandb=True,
     )
     env_id = "halfcheetah"
-    sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
+    sac_agent = SAC(
+        env_id=env_id,
+        learning_starts=int(1e4),
+        batch_size=256,
+        init_evarest_alpha=0.5,
+        evarest_alpha_learning_rate=1e-5,
+    )
     sac_agent.train(
         seed=list(range(n_seeds)),
         num_timesteps=int(1e6),

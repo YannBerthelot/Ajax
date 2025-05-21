@@ -120,6 +120,8 @@ def init_sac(
     alpha_args: AlphaConfig,
     buffer: BufferType,
     window_size: int = 10,
+    init_evarest_alpha: Optional[float] = 0.5,
+    evarest_alpha_learning_rate: Optional[float] = 3e-4,
 ) -> SACState:
     """
     Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
@@ -162,7 +164,14 @@ def init_sac(
     )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
-    evarest_alpha = create_alpha_train_state(learning_rate=1e-3, alpha_init=0.5)
+    evarest_alpha = create_alpha_train_state(
+        learning_rate=(
+            evarest_alpha_learning_rate
+            if evarest_alpha_learning_rate is not None
+            else 0
+        ),
+        alpha_init=init_evarest_alpha if init_evarest_alpha is not None else 0.5,
+    )
 
     return SACState(
         rng=rng,
@@ -255,7 +264,7 @@ def value_loss_function(
 
     assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
     assert min_q_target.shape == log_probs.shape
-    evarest_alpha = jnp.maximum(evarest_alpha, 1e-7)
+    evarest_alpha = jnp.clip(evarest_alpha, 1e-3, 1.0)
     loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2) + (
         (1 - 2 * evarest_alpha) / evarest_alpha
     ) * jnp.var(q1_pred.squeeze(0) - target_q)
@@ -387,7 +396,11 @@ def alpha_loss_function(
     alpha = jnp.exp(log_alpha)
 
     loss = (
-        -alpha * jax.lax.stop_gradient(bias - variance).mean()
+        -1
+        * (
+            jax.lax.stop_gradient(alpha * bias)
+            + (1 - alpha) * jax.lax.stop_gradient(variance)
+        ).mean()
     )  # Bias > Variance, alpha should increase, Variance > Bias, alpha should decrease.
     return loss, EvarestAuxiliaries(
         evarest_alpha_loss=loss,
@@ -610,7 +623,6 @@ def update_evarest(
     )
 
     # Unpack and unsqueeze if needed
-    q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
 
     min_q_target = jnp.min(q_targets, axis=0)
     log_probs = log_probs.sum(-1, keepdims=True)
@@ -1046,6 +1058,8 @@ def make_train(
             network_args=network_args,
             alpha_args=alpha_args,
             buffer=buffer,
+            init_evarest_alpha=agent_args.init_evarest_alpha,
+            evarest_alpha_learning_rate=agent_args.evarest_alpha_learning_rate,
         )
 
         num_updates = total_timesteps // env_args.num_envs

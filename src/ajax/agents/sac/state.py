@@ -1,3 +1,5 @@
+from typing import Optional
+
 from flax import struct
 
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
@@ -19,3 +21,5 @@ class SACConfig(BaseAgentConfig):
     tau: float = 0.005
     learning_starts: int = 100
     reward_scale: float = 5.0
+    init_evarest_alpha: Optional[float] = None
+    evarest_alpha_learning_rate: Optional[float] = None

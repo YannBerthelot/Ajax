@@ -55,6 +55,15 @@ class TemperatureAuxiliaries:
 
 
 @struct.dataclass
+class EvarestAuxiliaries:
+    evarest_alpha_loss: jax.Array
+    evarest_alpha: jax.Array
+    log_evarest_alpha: jax.Array
+    bias: jax.Array
+    variance: jax.Array
+
+
+@struct.dataclass
 class PolicyAuxiliaries:
     policy_loss: jax.Array
     log_pi: jax.Array
@@ -75,6 +84,7 @@ class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    evarest: EvarestAuxiliaries
 
 
 def create_alpha_train_state(
@@ -152,6 +162,7 @@ def init_sac(
     )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
+    evarest_alpha = create_alpha_train_state(learning_rate=1e-3, alpha_init=0.5)
 
     return SACState(
         rng=rng,
@@ -160,6 +171,7 @@ def init_sac(
         critic_state=critic_state,
         alpha=alpha,
         collector_state=collector_state,
+        evarest_alpha=evarest_alpha,
     )
 
 
@@ -178,6 +190,7 @@ def value_loss_function(
     alpha: jax.Array,
     recurrent: bool,
     reward_scale: float = 5.0,  # Add reward scaling factor here
+    evarest_alpha: jax.Array = 0.5,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -242,9 +255,13 @@ def value_loss_function(
 
     assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
     assert min_q_target.shape == log_probs.shape
-
-    loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
-    loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
+    evarest_alpha = jnp.maximum(evarest_alpha, 1e-7)
+    loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2) + (
+        (1 - 2 * evarest_alpha) / evarest_alpha
+    ) * jnp.var(q1_pred.squeeze(0) - target_q)
+    loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2) + (
+        (1 - 2 * evarest_alpha) / evarest_alpha
+    ) * jnp.var(q2_pred.squeeze(0) - target_q)
     total_loss = loss_q1 + loss_q2
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
@@ -351,6 +368,36 @@ def temperature_loss_function(
     )
 
 
+# @partial(
+#     jax.jit,
+#     static_argnames=["target_ratio"],
+# )
+def alpha_loss_function(
+    log_alpha_params: FrozenDict,
+    bias: jax.Array,
+    variance: jax.Array,
+) -> Tuple[jax.Array, EvarestAuxiliaries]:
+    """
+    Compute the loss for the evarest parameter (alpha).
+
+    Returns:
+        Tuple[jax.Array, Dict[str, Any]]: Loss and auxiliary metrics.
+    """
+    log_alpha = log_alpha_params["log_alpha"]
+    alpha = jnp.exp(log_alpha)
+
+    loss = (
+        -alpha * jax.lax.stop_gradient(bias - variance).mean()
+    )  # Bias > Variance, alpha should increase, Variance > Bias, alpha should decrease.
+    return loss, EvarestAuxiliaries(
+        evarest_alpha_loss=loss,
+        evarest_alpha=alpha,
+        log_evarest_alpha=log_alpha,
+        bias=bias,
+        variance=variance,
+    )
+
+
 @partial(
     jax.jit,
     static_argnames=["recurrent", "gamma", "reward_scale"],
@@ -402,6 +449,9 @@ def update_value_functions(
         alpha,
         recurrent,
         reward_scale,
+        evarest_alpha=jax.lax.stop_gradient(
+            jnp.exp(agent_state.evarest_alpha.params["log_alpha"])
+        ),
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -503,6 +553,88 @@ def update_temperature(
     agent_state = agent_state.replace(
         rng=rng,
         alpha=new_alpha_state,
+    )
+    return agent_state, jax.lax.stop_gradient(aux)
+
+
+@partial(
+    jax.jit,
+    static_argnames=["recurrent", "gamma"],
+)
+def update_evarest(
+    agent_state: SACState,
+    actions: jax.Array,
+    observations: jax.Array,
+    next_observations: jax.Array,
+    rewards: jax.Array,
+    dones: jax.Array,
+    gamma: float,
+    recurrent: bool,
+) -> Tuple[SACState, Dict[str, Any]]:
+    """
+    Update the temperature parameter (alpha) using the alpha loss.
+
+    Args:
+        agent_state (SACState): Current SAC agent state.
+        observations (jax.Array): Current observations.
+        dones (Optional[jax.Array]): Done flags.
+        target_entropy (float): Target entropy value.
+        recurrent (bool): Whether the model is recurrent.
+
+    Returns:
+        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+    """
+    loss_fn = jax.value_and_grad(alpha_loss_function, has_aux=True)
+
+    next_pi, _ = get_pi(
+        actor_state=agent_state.actor_state,
+        actor_params=agent_state.actor_state.params,
+        obs=next_observations,
+        done=dones,
+        recurrent=recurrent,
+    )
+    sample_key, rng = jax.random.split(agent_state.rng)
+    next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
+
+    # Predict Q-values from critics
+    q_preds = predict_value(
+        critic_state=agent_state.critic_state,
+        critic_params=agent_state.critic_state.params,
+        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+    )
+    # Target Q-values using target networks
+    q_targets = predict_value(
+        critic_state=agent_state.critic_state,
+        critic_params=agent_state.critic_state.params,
+        x=jnp.concatenate((next_observations, next_actions), axis=-1),
+    )
+
+    # Unpack and unsqueeze if needed
+    q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
+
+    min_q_target = jnp.min(q_targets, axis=0)
+    log_probs = log_probs.sum(-1, keepdims=True)
+
+    log_alpha_params = agent_state.alpha.params
+    log_alpha = log_alpha_params["log_alpha"]
+    alpha = jnp.exp(log_alpha)
+
+    target_q = jax.lax.stop_gradient(
+        rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs),
+    )
+    bias = jnp.mean(q_preds - target_q) ** 2
+    variance = jnp.var(q_preds - target_q)
+
+    (loss, aux), grads = loss_fn(
+        agent_state.evarest_alpha.params,
+        bias,
+        variance,
+    )
+
+    new_evarest_alpha_state = agent_state.evarest_alpha.apply_gradients(grads=grads)
+    agent_state = agent_state.replace(
+        rng=rng,
+        evarest_alpha=new_evarest_alpha_state,
     )
     return agent_state, jax.lax.stop_gradient(aux)
 
@@ -629,6 +761,17 @@ def update_agent(
         dones=dones,
     )
 
+    agent_state, aux_evarest = update_evarest(
+        agent_state,
+        observations=observations,
+        next_observations=next_observations,
+        actions=actions,
+        rewards=rewards,
+        recurrent=recurrent,
+        dones=dones,
+        gamma=gamma,
+    )
+
     # Update target networks
     # TODO : Only update every update_target_network steps
     agent_state = update_target_networks(agent_state, tau=tau)
@@ -638,6 +781,7 @@ def update_agent(
         value=ValueAuxiliaries(
             **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
         ),
+        evarest=aux_evarest,
     )
     return agent_state, aux
 

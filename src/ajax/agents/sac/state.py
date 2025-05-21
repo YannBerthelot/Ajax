@@ -8,6 +8,7 @@ class SACState(BaseAgentState):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 
     alpha: LoadedTrainState  # Temperature parameter
+    evarest_alpha: LoadedTrainState  # Evarest parameter
 
 
 @struct.dataclass

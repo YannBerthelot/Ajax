@@ -186,8 +186,8 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        "dyna_sac_tests_hector",
-        "sac",
+        "sac_evarest",
+        "sac_with_evarest",
         config={
             "debug": False,
             "log_frequency": log_frequency,

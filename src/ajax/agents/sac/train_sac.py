@@ -271,6 +271,7 @@ def value_loss_function(
     loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2) + (
         (1 - 2 * evarest_alpha) / evarest_alpha
     ) * jnp.var(q2_pred.squeeze(0) - target_q)
+
     total_loss = loss_q1 + loss_q2
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
@@ -398,10 +399,11 @@ def alpha_loss_function(
     loss = (
         -1
         * (
-            jax.lax.stop_gradient(alpha * bias)
+            alpha * jax.lax.stop_gradient(bias)
             + (1 - alpha) * jax.lax.stop_gradient(variance)
         ).mean()
     )  # Bias > Variance, alpha should increase, Variance > Bias, alpha should decrease.
+
     return loss, EvarestAuxiliaries(
         evarest_alpha_loss=loss,
         evarest_alpha=alpha,

@@ -29,7 +29,7 @@ class AVG:
     def __init__(  # pylint: disable=W0102, R0913
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
-        num_envs: int = 1,
+        n_envs: int = 1,
         actor_learning_rate: float = 6.3e-3,
         critic_learning_rate: float = 8.7e-3,
         alpha_learning_rate: float = 3e-4,
@@ -52,7 +52,7 @@ class AVG:
 
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
-            num_envs (int): Number of parallel environments.
+            n_envs (int): Number of parallel environments.
             learning_rate (float): Learning rate for optimizers.
             actor_architecture (tuple): Architecture of the actor network.
             critic_architecture (tuple): Architecture of the critic network.
@@ -72,7 +72,7 @@ class AVG:
             env_params=env_params,
             normalize_obs=True,
             normalize_reward=False,
-            num_envs=num_envs,
+            n_envs=n_envs,
             gamma=gamma,
         )
 
@@ -82,7 +82,7 @@ class AVG:
         self.env_args = EnvironmentConfig(
             env=env,
             env_params=env_params,
-            num_envs=num_envs,
+            n_envs=n_envs,
             continuous=continuous,
         )
 
@@ -115,7 +115,7 @@ class AVG:
         )
         action_dim = get_action_dim(env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
-        self.agent_args = AVGConfig(
+        self.agent_config = AVGConfig(
             gamma=gamma,
             learning_starts=learning_starts,
             target_entropy=target_entropy,
@@ -127,7 +127,7 @@ class AVG:
     def train(
         self,
         seed: int | Sequence[int] = 42,
-        num_timesteps: int = int(1e6),
+        n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
     ) -> None:
@@ -136,7 +136,7 @@ class AVG:
 
         Args:
             seed (int | Sequence[int]): Random seed(s) for training.
-            num_timesteps (int): Total number of timesteps for training.
+            n_timesteps (int): Total number of timesteps for training.
             num_episode_test (int): Number of episodes for evaluation during training.
         """
         if isinstance(seed, int):
@@ -158,8 +158,8 @@ class AVG:
                 actor_optimizer_args=self.actor_optimizer_args,
                 critic_optimizer_args=self.critic_optimizer_args,
                 network_args=self.network_args,
-                agent_args=self.agent_args,
-                total_timesteps=num_timesteps,
+                agent_config=self.agent_config,
+                total_timesteps=n_timesteps,
                 alpha_args=self.alpha_args,
                 num_episode_test=num_episode_test,
                 run_ids=run_ids,
@@ -178,23 +178,23 @@ class AVG:
 if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
-    num_envs = 2
+    n_envs = 2
     logging_config = LoggingConfig(
-        "dyna_sac_tests_hector",
-        "test",
+        project_name="dyna_sac_tests_hector",
+        run_name="test",
         config={
             "debug": False,
             "log_frequency": log_frequency,
             "n_seeds": n_seeds,
         },
-        log_frequency=int(log_frequency / num_envs),
+        log_frequency=int(log_frequency / n_envs),
         horizon=10_000,
         use_tensorboard=False,
     )
     env_id = "humanoid"
     sac_agent = AVG(
         env_id=env_id,
-        num_envs=num_envs,
+        n_envs=n_envs,
         num_critics=2,
         actor_learning_rate=3e-4,
         critic_learning_rate=3e-4,
@@ -205,6 +205,6 @@ if __name__ == "__main__":
     )
     sac_agent.train(
         seed=list(range(n_seeds)),
-        num_timesteps=int(1e7) * num_envs,
+        n_timesteps=int(1e7) * n_envs,
         logging_config=logging_config,
     )

@@ -1,9 +1,10 @@
 from flax import struct
+from jax.tree_util import Partial as partial
 
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class SACState(BaseAgentState):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

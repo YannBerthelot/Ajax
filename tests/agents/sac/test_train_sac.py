@@ -40,7 +40,7 @@ def fast_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=None,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -51,7 +51,7 @@ def gymnax_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=env_params,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -65,7 +65,7 @@ def env_config(request, fast_env_config, gymnax_env_config):
 def buffer(env_config):
     return get_buffer(
         **to_state_dict(
-            BufferConfig(buffer_size=1000, batch_size=32, num_envs=env_config.num_envs)
+            BufferConfig(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
         )
     )
 
@@ -125,17 +125,15 @@ def test_init_sac(sac_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_value_loss_function(env_config, sac_state):
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    next_observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    actions = jnp.zeros((env_config.num_envs, *action_shape))
-    rewards = jnp.ones((env_config.num_envs, 1))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    next_observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    actions = jnp.zeros((env_config.n_envs, *action_shape))
+    rewards = jnp.ones((env_config.n_envs, 1))
+    dones = jnp.zeros((env_config.n_envs, 1))
     gamma = 0.99
     alpha = jnp.array(0.1)
 
@@ -166,17 +164,15 @@ def test_value_loss_function(env_config, sac_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_value_loss_function_with_value_and_grad(env_config, sac_state):
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    next_observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    actions = jnp.zeros((env_config.num_envs, *action_shape))
-    rewards = jnp.ones((env_config.num_envs, 1))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    next_observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    actions = jnp.zeros((env_config.n_envs, *action_shape))
+    rewards = jnp.ones((env_config.n_envs, 1))
+    dones = jnp.zeros((env_config.n_envs, 1))
     gamma = 0.99
     alpha = jnp.array(0.1)
 
@@ -214,14 +210,12 @@ def test_value_loss_function_with_value_and_grad(env_config, sac_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_policy_loss_function(env_config, sac_state):
-    observation_shape, _ = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the policy loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
     alpha = jnp.array(0.1)
 
     # Call the policy loss function
@@ -248,14 +242,12 @@ def test_policy_loss_function(env_config, sac_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_policy_loss_function_with_value_and_grad(env_config, sac_state):
-    observation_shape, _ = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the policy loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
     alpha = jnp.array(0.1)
 
     # Define a wrapper for policy_loss_function
@@ -367,16 +359,14 @@ def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_value_functions(env_config, sac_state):
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_value_functions function
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    next_observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    actions = jnp.zeros((env_config.num_envs, *action_shape))
-    rewards = jnp.ones((env_config.num_envs, 1))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    next_observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    actions = jnp.zeros((env_config.n_envs, *action_shape))
+    rewards = jnp.ones((env_config.n_envs, 1))
+    dones = jnp.zeros((env_config.n_envs, 1))
     gamma = 0.99
     reward_scale = 1.0
 
@@ -413,13 +403,11 @@ def test_update_value_functions(env_config, sac_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_policy(env_config, sac_state):
-    observation_shape, _ = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_policy function
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
 
     # Save the original actor params for comparison
     original_actor_params = sac_state.actor_state.params
@@ -446,13 +434,11 @@ def test_update_policy(env_config, sac_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_temperature(env_config, sac_state):
-    observation_shape, _ = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_temperature function
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
     target_entropy = -1.0
 
     # Save the original alpha params for comparison
@@ -541,7 +527,7 @@ def test_update_target_networks(env_config, sac_state):
 )
 def test_update_agent(env_config, sac_state):
     # Mock inputs for the update_agent function
-    buffer = get_buffer(buffer_size=100, batch_size=32, num_envs=env_config.num_envs)
+    buffer = get_buffer(buffer_size=100, batch_size=32, n_envs=env_config.n_envs)
     gamma = 0.99
     tau = 0.005
     action_dim = 1  # Example action dimension
@@ -574,7 +560,7 @@ def test_update_agent(env_config, sac_state):
 )
 def test_update_agent_with_scan(env_config, sac_state):
     # Mock inputs for the update_agent function
-    buffer = get_buffer(buffer_size=100, batch_size=32, num_envs=env_config.num_envs)
+    buffer = get_buffer(buffer_size=100, batch_size=32, n_envs=env_config.n_envs)
     gamma = 0.99
     tau = 0.005
     action_dim = 1  # Example action dimension
@@ -607,12 +593,14 @@ def test_update_agent_with_scan(env_config, sac_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_training_iteration_with_scan(env_config, sac_state):
-    buffer = get_buffer(buffer_size=100, batch_size=32, num_envs=env_config.num_envs)
+    buffer = get_buffer(buffer_size=100, batch_size=32, n_envs=env_config.n_envs)
     gamma = 0.99
     tau = 0.005
     action_dim = 1
     recurrent = False
-    agent_args = SACConfig(gamma=gamma, tau=tau, target_entropy=-1.0, learning_starts=5)
+    agent_config = SACConfig(
+        gamma=gamma, tau=tau, target_entropy=-1.0, learning_starts=5
+    )
     log_frequency = 10
 
     # Initialize buffer state
@@ -628,7 +616,7 @@ def test_training_iteration_with_scan(env_config, sac_state):
         mode="gymnax" if env_config.env_params else "brax",
         recurrent=recurrent,
         buffer=buffer,
-        agent_args=agent_args,
+        agent_config=agent_config,
         action_dim=action_dim,
         log_frequency=log_frequency,
         total_timesteps=5,
@@ -658,10 +646,10 @@ def test_make_train(env_config):
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     buffer = get_buffer(
         **to_state_dict(
-            BufferConfig(buffer_size=1000, batch_size=32, num_envs=env_config.num_envs)
+            BufferConfig(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
         )
     )
-    agent_args = SACConfig(gamma=0.99, tau=0.005, target_entropy=-1.0)
+    agent_config = SACConfig(gamma=0.99, tau=0.005, target_entropy=-1.0)
     total_timesteps = 1000
 
     # Create the train function
@@ -671,7 +659,7 @@ def test_make_train(env_config):
         critic_optimizer_args=optimizer_args,
         network_args=network_args,
         buffer=buffer,
-        agent_args=agent_args,
+        agent_config=agent_config,
         total_timesteps=total_timesteps,
         alpha_args=alpha_args,
         num_episode_test=2,

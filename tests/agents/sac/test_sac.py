@@ -43,9 +43,9 @@ def test_sac_train_single_seed():
     """Test SAC agent's train method with a single seed."""
     env_id = "Pendulum-v1"
     sac_agent = SAC(env_id=env_id, learning_starts=10)
-    sac_agent.train(seed=42, num_timesteps=100)
+    sac_agent.train(seed=42, n_timesteps=100)
     # try:
-    #     sac_agent.train(seed=42, num_timesteps=1000)
+    #     sac_agent.train(seed=42, n_timesteps=1000)
     #     success = True  # Placeholder: Add assertions or checks as needed
     # except Exception as e:
     #     success = False
@@ -58,10 +58,10 @@ def test_sac_train_multiple_seeds():
     env_id = "Pendulum-v1"
     sac_agent = SAC(env_id=env_id, learning_starts=10)
     seeds = [42, 43, 44]
-    num_timesteps = 100
-    sac_agent.train(seed=seeds, num_timesteps=num_timesteps)
+    n_timesteps = 100
+    sac_agent.train(seed=seeds, n_timesteps=n_timesteps)
     # try:
-    #     sac_agent.train(seed=seeds, num_timesteps=1000)
+    #     sac_agent.train(seed=seeds, n_timesteps=1000)
     #     success = True  # Placeholder: Add assertions or checks as needed
     # except Exception as e:
     #     success = False

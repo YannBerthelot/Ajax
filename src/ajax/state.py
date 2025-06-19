@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple, Union
 
 import flashbax as fbx
 import flax
@@ -8,8 +8,9 @@ import optax
 from flax import struct
 from flax.training.train_state import TrainState
 from gymnax import EnvParams
+from jax.tree_util import Partial as partial
 
-from ajax.types import EnvStateType, EnvType
+from ajax.types import EnvStateType, EnvType, InitializationFunction
 
 
 @struct.dataclass
@@ -27,7 +28,7 @@ class Transition:
 class EnvironmentConfig:
     env: EnvType
     env_params: EnvParams
-    num_envs: int
+    n_envs: int
     continuous: bool
 
 
@@ -63,7 +64,7 @@ class CollectorState:
     rollout: Optional[Transition] = None
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class LoadedTrainState(TrainState):
     hidden_state: Optional[Any] = None
     recurrent: bool = False
@@ -98,6 +99,8 @@ class BaseAgentState:
     critic_state: LoadedTrainState
     collector_state: CollectorState
     eval_rng: jax.Array
+    n_updates: int = 0
+    n_logs: int = 0
 
 
 @struct.dataclass
@@ -113,6 +116,12 @@ class NetworkConfig:
     lstm_hidden_size: Optional[int] = None
     squash: bool = False
     penultimate_normalization: bool = False
+    actor_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    actor_bias_init: Optional[Union[str, InitializationFunction]] = None
+    critic_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    critic_bias_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
 
 
 @struct.dataclass
@@ -134,7 +143,7 @@ class AlphaConfig:
 class BufferConfig:
     buffer_size: int
     batch_size: int
-    num_envs: int
+    n_envs: int
 
 
 @struct.dataclass

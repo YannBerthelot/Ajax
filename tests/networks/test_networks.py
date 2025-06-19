@@ -121,7 +121,7 @@ def real_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=env_params,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -144,7 +144,7 @@ def mock_env_config():
     return EnvironmentConfig(
         env=mock_env,
         env_params=mock_env_params,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -155,7 +155,7 @@ def fast_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=None,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -190,17 +190,15 @@ def test_get_initialized_actor_critic(
     assert isinstance(actor_state, LoadedTrainState)
     assert isinstance(critic_state, LoadedTrainState)
 
-    observation_shape, action_shape = get_state_action_shapes(
-        real_env_config.env, real_env_config.env_params
-    )
-    init_obs = jnp.zeros((real_env_config.num_envs, *observation_shape))
-    init_action = jnp.zeros((real_env_config.num_envs, *action_shape))
+    observation_shape, action_shape = get_state_action_shapes(real_env_config.env)
+    init_obs = jnp.zeros((real_env_config.n_envs, *observation_shape))
+    init_action = jnp.zeros((real_env_config.n_envs, *action_shape))
 
     # Validate actor state
     actor_output = actor_state.apply_fn(actor_state.params, init_obs)
 
     assert actor_output.mode().shape == (
-        real_env_config.num_envs,
+        real_env_config.n_envs,
     )  # Ensure mean shape matches action_dim
 
     # Validate critic state
@@ -209,7 +207,7 @@ def test_get_initialized_actor_critic(
     )
     assert critic_output.shape == (
         num_critics,
-        real_env_config.num_envs,
+        real_env_config.n_envs,
         1,
     )  # Ensure output shape matches (num, batch_size, 1)
 
@@ -244,20 +242,18 @@ def test_get_initialized_actor_critic_continuous(
     assert isinstance(actor_state, LoadedTrainState)
     assert isinstance(critic_state, LoadedTrainState)
 
-    observation_shape, action_shape = get_state_action_shapes(
-        fast_env_config.env, fast_env_config.env_params
-    )
-    init_obs = jnp.zeros((fast_env_config.num_envs, *observation_shape))
+    observation_shape, action_shape = get_state_action_shapes(fast_env_config.env)
+    init_obs = jnp.zeros((fast_env_config.n_envs, *observation_shape))
 
     # Validate actor state
     actor_output = actor_state.apply_fn(actor_state.params, init_obs)
 
     assert actor_output.mean().shape == (
-        fast_env_config.num_envs,
+        fast_env_config.n_envs,
         *action_shape,
     )  # Ensure mean shape matches action_dim
     assert actor_output.stddev().shape == (
-        fast_env_config.num_envs,
+        fast_env_config.n_envs,
         *action_shape,
     )  # Ensure stddev shape matches action_dim
 
@@ -266,7 +262,7 @@ def test_get_initialized_actor_critic_continuous(
 
     assert critic_output.shape == (
         num_critics,
-        fast_env_config.num_envs,
+        fast_env_config.n_envs,
         1,
     )  # Ensure output shape matches (num, batch_size, 1)
 
@@ -291,11 +287,9 @@ def test_predict_value(real_env_config, actor_architecture, critic_architecture)
         num_critics=num_critics,
     )
 
-    observation_shape, action_shape = get_state_action_shapes(
-        real_env_config.env, real_env_config.env_params
-    )
-    init_obs = jnp.ones((real_env_config.num_envs, *observation_shape))
-    init_action = jnp.ones((real_env_config.num_envs, *action_shape))
+    observation_shape, action_shape = get_state_action_shapes(real_env_config.env)
+    init_obs = jnp.ones((real_env_config.n_envs, *observation_shape))
+    init_action = jnp.ones((real_env_config.n_envs, *action_shape))
     input_data = jnp.hstack([init_obs, init_action])
 
     # Predict value using the critic
@@ -303,7 +297,7 @@ def test_predict_value(real_env_config, actor_architecture, critic_architecture)
 
     assert predicted_value.shape == (
         num_critics,
-        real_env_config.num_envs,
+        real_env_config.n_envs,
         1,
     ), "Shape mismatch in predicted value."
     assert jnp.all(

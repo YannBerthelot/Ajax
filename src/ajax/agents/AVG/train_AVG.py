@@ -149,10 +149,15 @@ def init_AVG(
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
 
-    init_val = jnp.zeros((env_args.num_envs, 1))
+    init_val = jnp.zeros(
+        (env_args.n_envs, 1)
+    )  # a single dim as we are normalizing scalars (gamma, reward, G_return) (1 scalar for all envs)
 
     init_norm_info = NormalizationInfo(
-        value=init_val, count=init_val, mean=init_val, mean_2=init_val
+        value=init_val,
+        count=jnp.zeros((1,)),
+        mean=jnp.zeros((1, 1)),
+        mean_2=jnp.zeros((1, 1)),
     )
 
     return AVGState(
@@ -165,7 +170,7 @@ def init_AVG(
         reward=init_norm_info,
         gamma=init_norm_info,
         G_return=init_norm_info,
-        scaling_coef=jnp.ones((env_args.num_envs, 1)),
+        scaling_coef=jnp.ones((1, 1)),
     )
 
 
@@ -252,9 +257,8 @@ def value_loss_function(
     assert q_target.shape == next_log_probs.shape
 
     delta = q_pred - target_q
-
-    assert scaling_coef.shape == delta.shape, f"{scaling_coef.shape} != {delta.shape}"
     scaled_delta = delta / scaling_coef
+    assert scaled_delta.shape == delta.shape, f"{scaled_delta.shape} != {delta.shape}"
     total_loss = jnp.mean(scaled_delta**2)
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
@@ -419,7 +423,6 @@ def update_value_functions(
         agent_state.scaling_coef,
         reward_scale,  # Pass reward scaling factor here
     )
-
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
         # rng=rng, need to keep the same RNG to keep the same action sampled, \
@@ -656,7 +659,7 @@ def get_nan(x):
 
 
 def update_AVG_values(
-    agent_state: AVGState, rollout: Transition, agent_args: AVGConfig
+    agent_state: AVGState, rollout: Transition, agent_config: AVGConfig
 ) -> AVGState:
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
@@ -667,7 +670,9 @@ def update_AVG_values(
 
     reward = agent_state.reward.replace(value=r_ent)
 
-    gamma = agent_state.gamma.replace(value=agent_args.gamma * (1 - rollout.terminated))
+    gamma = agent_state.gamma.replace(
+        value=agent_config.gamma * (1 - rollout.terminated)
+    )
 
     new_G = agent_state.G_return.value + r_ent
 
@@ -703,7 +708,7 @@ def update_AVG_values(
         "verbose",
         "action_dim",
         "lstm_hidden_size",
-        "agent_args",
+        "agent_config",
         "total_timesteps",
     ],
 )
@@ -713,7 +718,7 @@ def training_iteration(
     env_args: EnvironmentConfig,
     mode: str,
     recurrent: bool,
-    agent_args: AVGConfig,
+    agent_config: AVGConfig,
     action_dim: int,
     total_timesteps: int,
     lstm_hidden_size: Optional[int] = None,
@@ -733,7 +738,7 @@ def training_iteration(
         env_args (EnvironmentConfig): Environment configuration.
         mode (str): Environment mode ("gymnax" or "brax").
         recurrent (bool): Whether the model is recurrent.
-        agent_args (SACConfig): SAC agent configuration.
+        agent_config (SACConfig): SAC agent configuration.
         action_dim (int): Action dimensionality.
         lstm_hidden_size (Optional[int]): LSTM hidden size for recurrent models.
         log_frequency (int): Frequency of logging and evaluation.
@@ -744,7 +749,7 @@ def training_iteration(
     """
 
     timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_args.learning_starts)
+    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
 
     collect_scan_fn = partial(
         collect_experience,
@@ -761,7 +766,7 @@ def training_iteration(
     )  # Remove first dim as we only have one transition
     collector_state = agent_state.collector_state.replace(rollout=rollout)
     agent_state = agent_state.replace(collector_state=collector_state)
-    agent_state = update_AVG_values(agent_state, rollout, agent_args)
+    agent_state = update_AVG_values(agent_state, rollout, agent_config)
     timestep = agent_state.collector_state.timestep
     agent_state = agent_state.replace(rng=rng)
 
@@ -769,9 +774,9 @@ def training_iteration(
         update_scan_fn = partial(
             update_agent,
             recurrent=recurrent,
-            gamma=agent_args.gamma,
+            gamma=agent_config.gamma,
             action_dim=action_dim,
-            reward_scale=agent_args.reward_scale,
+            reward_scale=agent_config.reward_scale,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
         aux = aux.replace(
@@ -801,7 +806,7 @@ def training_iteration(
         return agent_state, fill_with_nan(AuxiliaryLogs)
 
     agent_state, aux = jax.lax.cond(
-        timestep >= agent_args.learning_starts,
+        timestep >= agent_config.learning_starts,
         do_update,
         skip_update,
         operand=agent_state,
@@ -832,19 +837,18 @@ def training_iteration(
             ),
         )
 
-        if log:
-            metrics_to_log = {
-                "timestep": timestep * env_args.num_envs,
-                "num_update": num_updates,
-                "Eval/episodic mean reward": eval_rewards,
-                "Eval/episodic entropy": eval_entropy,
-                "Train/episodic mean reward": (
-                    agent_state.collector_state.episodic_mean_return
-                ),
-            }
+        metrics_to_log = {
+            "timestep": timestep * env_args.n_envs,
+            "num_update": num_updates,
+            "Eval/episodic mean reward": eval_rewards,
+            "Eval/episodic entropy": eval_entropy,
+            "Train/episodic mean reward": (
+                agent_state.collector_state.episodic_mean_return
+            ),
+        }
 
-            metrics_to_log.update(flatten_dict(to_state_dict(aux)))
-            jax.debug.callback(log_fn, metrics_to_log, index)
+        metrics_to_log.update(flatten_dict(to_state_dict(aux)))
+        jax.debug.callback(log_fn, metrics_to_log, index)
 
         if verbose:
             jax.debug.print(
@@ -897,7 +901,7 @@ def make_train(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    agent_args: AVGConfig,
+    agent_config: AVGConfig,
     alpha_args: AlphaConfig,
     total_timesteps: int,
     num_episode_test: int,
@@ -911,7 +915,7 @@ def make_train(
         env_args (EnvironmentConfig): Environment configuration.
         optimizer_args (OptimizerConfig): Optimizer configuration.
         network_args (NetworkConfig): Network configuration.
-        agent_args (SACConfig): SAC agent configuration.
+        agent_config (SACConfig): SAC agent configuration.
         alpha_args (AlphaConfig): Alpha configuration.
         total_timesteps (int): Total timesteps for training.
         num_episode_test (int): Number of episodes for evaluation during training.
@@ -938,17 +942,17 @@ def make_train(
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             alpha_args=alpha_args,
-            num_critics=agent_args.num_critics,
+            num_critics=agent_config.num_critics,
         )
 
-        num_updates = total_timesteps // env_args.num_envs
-        _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)
+        num_updates = total_timesteps // env_args.n_envs
+        _, action_shape = get_state_action_shapes(env_args.env)
 
         training_iteration_scan_fn = partial(
             training_iteration,
             recurrent=network_args.lstm_hidden_size is not None,
             action_dim=action_shape[0],
-            agent_args=agent_args,
+            agent_config=agent_config,
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,

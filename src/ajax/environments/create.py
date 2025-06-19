@@ -15,7 +15,7 @@ from ajax.wrappers import AutoResetWrapper, get_wrappers
 
 def build_env_from_id(
     env_id: str,
-    num_envs: int = 1,
+    n_envs: int = 1,
     **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     if env_id in gymnax.registered_envs:
@@ -25,9 +25,7 @@ def build_env_from_id(
     if env_id in list(brax.envs._envs.keys()):
         return (
             AutoResetWrapper(
-                brax.envs.create(
-                    env_id, batch_size=num_envs, auto_reset=False, **kwargs
-                )
+                brax.envs.create(env_id, batch_size=n_envs, auto_reset=False, **kwargs)
             ),
             None,
         )
@@ -38,7 +36,7 @@ def prepare_env(
     env_id: Union[str, EnvType],
     episode_length: Optional[int] = None,
     env_params: Optional[EnvParams] = None,
-    num_envs: int = 1,
+    n_envs: int = 1,
     normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,  # Discount factor for reward normalization
@@ -47,7 +45,7 @@ def prepare_env(
         env, env_params = build_env_from_id(
             env_id,
             episode_length=episode_length or 1000,
-            num_envs=num_envs,
+            n_envs=n_envs,
         )
     else:
         env = env_id  # Assume prebuilt env
@@ -55,13 +53,16 @@ def prepare_env(
 
     mode = get_env_type(env)
     if normalize_obs or normalize_reward:
-        ClipAction, NormalizeVecObservation, NormalizeVecReward = get_wrappers(mode)
+        ClipAction, NormalizeVecObservation = get_wrappers(mode)
 
     # Apply wrappers based on flags
-    if normalize_obs:
-        env = NormalizeVecObservation(env)
-    if normalize_reward:
-        assert gamma is not None, "Gamma must be provided for reward normalization."
-        env = NormalizeVecReward(env, gamma=gamma)
-
+    if normalize_obs or normalize_reward:
+        if normalize_reward:
+            assert gamma is not None, "Gamma must be provided for reward normalization."
+        env = NormalizeVecObservation(
+            ClipAction(env),
+            normalize_reward=normalize_reward,
+            normalize_obs=normalize_obs,
+            gamma=gamma if normalize_reward else None,
+        )
     return env, env_params, env_id, continuous

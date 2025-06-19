@@ -30,7 +30,6 @@ def get_action_dim(env: EnvType, env_params: Optional[EnvParams] = None) -> int:
 
 def get_state_action_shapes(
     env: EnvType,
-    env_params: EnvParams = None,
 ) -> Tuple[tuple, tuple]:
     """Returns the (obs_shape, action_shape) of a gymnax, brax, or gymnasium environment.
 
@@ -40,6 +39,7 @@ def get_state_action_shapes(
     """
     # Gymnax
     if check_env_is_gymnax(env):
+        env_params = env.default_params
         obs_space = env.observation_space(env_params)
         act_space = env.action_space(env_params)
         obs_shape = obs_space.shape
@@ -62,7 +62,7 @@ def get_state_action_shapes(
 def get_raw_env(env: EnvType) -> EnvType:
     """Get the raw environment from the given environment."""
     if hasattr(env, "_env"):
-        return env._env
+        return get_raw_env(env._env)
     return env
 
 

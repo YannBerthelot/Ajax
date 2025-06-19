@@ -680,7 +680,7 @@ def no_op_none(agent_state, index, timestep):
         "verbose",
         "action_dim",
         "lstm_hidden_size",
-        "agent_args",
+        "agent_config",
         "horizon",
         "total_timesteps",
     ],
@@ -692,7 +692,7 @@ def training_iteration(
     mode: str,
     recurrent: bool,
     buffer: BufferType,
-    agent_args: SACConfig,
+    agent_config: SACConfig,
     action_dim: int,
     total_timesteps: int,
     lstm_hidden_size: Optional[int] = None,
@@ -714,7 +714,7 @@ def training_iteration(
         mode (str): Environment mode ("gymnax" or "brax").
         recurrent (bool): Whether the model is recurrent.
         buffer (BufferType): Replay buffer.
-        agent_args (SACConfig): SAC agent configuration.
+        agent_config (SACConfig): SAC agent configuration.
         action_dim (int): Action dimensionality.
         lstm_hidden_size (Optional[int]): LSTM hidden size for recurrent models.
         log_frequency (int): Frequency of logging and evaluation.
@@ -726,7 +726,7 @@ def training_iteration(
     # collector_state = agent_state.collector_state
 
     timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_args.learning_starts)
+    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
 
     collect_scan_fn = partial(
         collect_experience,
@@ -744,10 +744,10 @@ def training_iteration(
             update_agent,
             buffer=buffer,
             recurrent=recurrent,
-            gamma=agent_args.gamma,
+            gamma=agent_config.gamma,
             action_dim=action_dim,
-            tau=agent_args.tau,
-            reward_scale=agent_args.reward_scale,
+            tau=agent_config.tau,
+            reward_scale=agent_config.reward_scale,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
         aux = aux.replace(
@@ -777,7 +777,7 @@ def training_iteration(
         return agent_state, fill_with_nan(AuxiliaryLogs)
 
     agent_state, aux = jax.lax.cond(
-        timestep >= agent_args.learning_starts,
+        timestep >= agent_config.learning_starts,
         do_update,
         skip_update,
         operand=agent_state,
@@ -785,6 +785,11 @@ def training_iteration(
 
     def run_and_log(agent_state: SACState, aux: AuxiliaryLogs, index: int):
         eval_key = agent_state.eval_rng
+        obs_normalization = (
+            "obs_normalization_info" in agent_state.collector_state.env_state.info
+            if mode == "brax"
+            else "normalization_info" in dir(agent_state.collector_state.env_state)
+        )
         eval_rewards, eval_entropy = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
@@ -793,6 +798,17 @@ def training_iteration(
             env_params=env_args.env_params,
             recurrent=recurrent,
             lstm_hidden_size=lstm_hidden_size,
+            obs_norm_info=(
+                agent_state.collector_state.env_state.info[
+                    (
+                        "obs_normalization_info"
+                        if mode == "brax"
+                        else agent_state.collector_state.env_state.normalization_info
+                    )
+                ]
+                if obs_normalization
+                else None
+            ),
         )
 
         if log:
@@ -823,7 +839,7 @@ def training_iteration(
         agent_state = agent_state.replace(eval_rng=eval_rng)
         flag = jnp.logical_or(
             jnp.logical_and((timestep % log_frequency) == 1, timestep > 1),
-            timestep >= (total_timesteps - env_args.num_envs),
+            timestep >= (total_timesteps - env_args.n_envs),
         )
         jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
         del aux
@@ -860,7 +876,7 @@ def make_train(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     buffer: BufferType,
-    agent_args: SACConfig,
+    agent_config: SACConfig,
     alpha_args: AlphaConfig,
     total_timesteps: int,
     num_episode_test: int,
@@ -875,7 +891,7 @@ def make_train(
         optimizer_args (OptimizerConfig): Optimizer configuration.
         network_args (NetworkConfig): Network configuration.
         buffer (BufferType): Replay buffer.
-        agent_args (SACConfig): SAC agent configuration.
+        agent_config (SACConfig): SAC agent configuration.
         alpha_args (AlphaConfig): Alpha configuration.
         total_timesteps (int): Total timesteps for training.
         num_episode_test (int): Number of episodes for evaluation during training.
@@ -904,15 +920,15 @@ def make_train(
             buffer=buffer,
         )
 
-        num_updates = total_timesteps // env_args.num_envs
-        _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)
+        num_updates = total_timesteps // env_args.n_envs
+        _, action_shape = get_state_action_shapes(env_args.env)
 
         training_iteration_scan_fn = partial(
             training_iteration,
             buffer=buffer,
             recurrent=network_args.lstm_hidden_size is not None,
             action_dim=action_shape[0],
-            agent_args=agent_args,
+            agent_config=agent_config,
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,

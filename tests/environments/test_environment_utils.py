@@ -113,6 +113,6 @@ def test_action_dim(env, env_params, expected_action_dim):
 def test_get_state_action_shapes(
     env, env_params, expected_obs_shape, expected_action_shape
 ):
-    obs_shape, action_shape = get_state_action_shapes(env, env_params)
+    obs_shape, action_shape = get_state_action_shapes(env)
     assert obs_shape == expected_obs_shape
     assert action_shape == expected_action_shape

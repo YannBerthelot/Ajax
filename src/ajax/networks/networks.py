@@ -116,6 +116,7 @@ class Actor(nn.Module):
                 if not self.squash
                 else SquashedNormal(mean, std)
             )
+
         return self.model(embedding)
 
 
@@ -229,10 +230,9 @@ def get_initialized_actor_critic(
     actor_key, critic_key = jax.random.split(key)
     observation_shape, action_shape = get_state_action_shapes(
         env_config.env,
-        env_config.env_params,
     )
-    init_obs = jnp.zeros((env_config.num_envs, *observation_shape))
-    init_action = jnp.zeros((env_config.num_envs, *action_shape))
+    init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
+    init_action = jnp.zeros((env_config.n_envs, *action_shape))
     actor_state = init_network_state(
         init_x=init_obs,
         network=actor,
@@ -240,7 +240,8 @@ def get_initialized_actor_critic(
         tx=actor_tx,
         recurrent=network_config.lstm_hidden_size is not None,
         lstm_hidden_size=network_config.lstm_hidden_size,
-        num_envs=env_config.num_envs,
+        n_envs=env_config.n_envs,
+        lr_schedule=actor_optimizer_config.learning_rate,
     )
 
     critic_state = init_network_state(
@@ -250,7 +251,8 @@ def get_initialized_actor_critic(
         tx=critic_tx,
         recurrent=network_config.lstm_hidden_size is not None,
         lstm_hidden_size=network_config.lstm_hidden_size,
-        num_envs=env_config.num_envs,
+        n_envs=env_config.n_envs,
+        lr_schedule=critic_optimizer_config.learning_rate,
     )
 
     return actor_state, critic_state
@@ -258,21 +260,24 @@ def get_initialized_actor_critic(
 
 def init_hidden_state(
     lstm_hidden_size: int,
-    num_envs: int,
+    n_envs: int,
     rng: jax.random.PRNGKey,
 ) -> HiddenState:
     """Initialize the hidden state for the recurrent layer of the network."""
     # rng, _rng = jax.random.split(rng)
-    return ScannedRNN(lstm_hidden_size).initialize_carry(rng, num_envs)
+    return ScannedRNN(lstm_hidden_size).initialize_carry(rng, n_envs)
 
 
-def init_network_state(init_x, network, key, tx, recurrent, lstm_hidden_size, num_envs):
+def init_network_state(
+    init_x, network, key, tx, recurrent, lstm_hidden_size, n_envs, lr_schedule
+):
     params = FrozenDict(network.init(key, init_x))
     if recurrent:
         _, hidden_state_key = jax.random.split(key)
-        hidden_state = init_hidden_state(lstm_hidden_size, num_envs, hidden_state_key)
+        hidden_state = init_hidden_state(lstm_hidden_size, n_envs, hidden_state_key)
     else:
         hidden_state = None
+
     return LoadedTrainState.create(
         params=params,
         tx=tx,

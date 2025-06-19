@@ -144,10 +144,3 @@ class BufferConfig:
     buffer_size: int
     batch_size: int
     n_envs: int
-
-
-@struct.dataclass
-class BaseAgentConfig:
-    """The agent properties to be carried over iterations of environment interaction and updates"""
-
-    gamma: float

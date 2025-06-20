@@ -1,12 +1,12 @@
 from flax import struct
 
-from ajax.state import AgentConfig, BaseAgentState
+from ajax.state import BaseAgentConfig, BaseAgentState
 
 PPOState = BaseAgentState
 
 
 @struct.dataclass
-class PPOConfig(AgentConfig):
+class PPOConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 
     ent_coef: float = 0.0

@@ -665,6 +665,15 @@ def training_iteration(
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
         )
+        env_norm_info = (
+            (
+                agent_state.collector_state.env_state.info["normalization_info"]
+                if mode == "brax"
+                else agent_state.collector_state.env_state.normalization_info
+            )
+            if normalization
+            else None
+        )
         eval_rewards, eval_entropy = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
@@ -673,24 +682,20 @@ def training_iteration(
             env_params=env_args.env_params,
             recurrent=recurrent,
             lstm_hidden_size=lstm_hidden_size,
-            norm_info=(
-                (
-                    agent_state.collector_state.env_state.info["normalization_info"]
-                    if mode == "brax"
-                    else agent_state.collector_state.env_state.normalization_info
-                )
-                if normalization
-                else None
-            ),
+            norm_info=env_norm_info,
         )
-
+        mean_return = agent_state.collector_state.episodic_mean_return
+        if env_norm_info is not None:
+            if env_norm_info.reward is not None:
+                mean_return = env_args.env.unnormalize_reward(
+                    agent_state.collector_state.episodic_mean_return,
+                    env_norm_info.reward,
+                )
         metrics_to_log = {
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards,
             "Eval/episodic entropy": eval_entropy,
-            "Train/episodic mean reward": (
-                agent_state.collector_state.episodic_mean_return
-            ),
+            "Train/episodic mean reward": mean_return,
         }
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
         jax.debug.callback(log_fn, metrics_to_log, index)

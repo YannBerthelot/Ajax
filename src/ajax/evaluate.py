@@ -135,6 +135,9 @@ def evaluate(
         sample_action_and_step_env,
         carry,
     )
+    if norm_info is not None:
+        if norm_info.reward is not None:
+            rewards = env.unnormalize_reward(rewards, norm_info.reward)
 
     avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)  # avoid divide by zero
     return rewards.mean(axis=-1), avg_entropy.mean(axis=-1)

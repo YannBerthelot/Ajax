@@ -104,8 +104,7 @@ class BaseAgentState:
 
 
 @struct.dataclass
-class AgentConfig:
-    seed: int
+class BaseAgentConfig:
     gamma: float
 
 

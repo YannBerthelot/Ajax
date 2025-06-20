@@ -13,7 +13,12 @@ from ajax.logging.wandb_logging import (
     stop_async_logging,
     with_wandb_silent,
 )
-from ajax.state import AgentConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
+from ajax.state import (
+    BaseAgentConfig,
+    EnvironmentConfig,
+    NetworkConfig,
+    OptimizerConfig,
+)
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -100,8 +105,7 @@ class ActorCritic:
             clipped=max_grad_norm is not None,
         )
 
-        self.agent_config = AgentConfig(
-            seed=42,
+        self.agent_config = BaseAgentConfig(
             gamma=gamma,
         )
 

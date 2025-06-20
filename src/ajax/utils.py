@@ -9,6 +9,10 @@ import yaml
 from jax.tree_util import Partial as partial
 
 
+def replace_zeros_with_ones(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.where(x == 0, 1, x)
+
+
 @partial(
     jax.jit,
     static_argnames=["train", "eps", "shift"],
@@ -24,11 +28,12 @@ def online_normalize(
     returns: Optional[jax.Array] = None,
 ) -> tuple[jnp.array, int, float, float, float]:
     input_x = x
+
     if train:
         x = x if returns is None else returns
-
-        assert jnp.ndim(mean) == 2, f"Mean must be 2D, got {jnp.ndim(mean)}D"
         x = x.reshape(1, -1) if len(x.shape) < 2 else x
+        assert jnp.ndim(mean) == 2, f"Mean must be 2D, got {jnp.ndim(mean)}D"
+
         batch_size = x.shape[0]
         batch_mean = jnp.nanmean(x, axis=0, keepdims=True)
         batch_mean_2 = jnp.nanmean((x - batch_mean) ** 2, axis=0, keepdims=True)
@@ -42,22 +47,13 @@ def online_normalize(
             + batch_mean_2 * batch_size
             + (delta**2) * count * batch_size / total_count
         )
+        mean_2 = replace_zeros_with_ones(mean_2)
         count = total_count
 
     variance = mean_2 / count
     std = jnp.sqrt(variance + eps)
+    x_norm = (input_x - jnp.nanmean(mean, axis=0) * shift) / jnp.nanmean(std, axis=0)
 
-    # assert (
-    #     variance.shape == input_x.shape
-    # ), f"Variance shape {variance.shape} does not match input_x shape {input_x.shape}"
-    # assert (
-    #     variance.shape == input_x.shape
-    # ), f"Variance shape {variance.shape} does not match input_x shape {input_x.shape}"
-    x_norm = (
-        (input_x - jnp.nanmean(mean, axis=0)) / jnp.nanmean(std, axis=0)
-        if shift
-        else (input_x / jnp.nanmean(std, axis=0))
-    )
     x_norm = x_norm.squeeze() if len(input_x.shape) < 1 else x_norm
     assert (
         x_norm.shape == input_x.shape

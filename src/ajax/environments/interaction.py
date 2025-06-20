@@ -37,14 +37,14 @@ def init_rolling_mean(
 
 
 def update_rolling_mean(
-    state: RollinEpisodicMeanRewardState, new_value: float
-) -> tuple[RollinEpisodicMeanRewardState, float]:
+    state: RollinEpisodicMeanRewardState, new_value: jax.Array
+) -> tuple[RollinEpisodicMeanRewardState, jax.Array]:
     rows = state.index.flatten()  # [2, 3]
     cols = jnp.array(range(new_value.shape[0]))  # column indices
 
     old_value = state.buffer[rows, cols]
 
-    new_sum = state.sum - old_value + new_value
+    new_sum = state.sum - old_value + new_value  # remove oldest value to add new one
     buffer = state.buffer.at[rows, cols].set(new_value)
     new_index = (state.index + 1) % buffer.shape[0]
     new_count = jnp.minimum(state.count + 1, buffer.shape[0])
@@ -58,7 +58,6 @@ def update_rolling_mean(
         last_return=state.last_return,
     )
     mean = new_sum / new_count
-
     return new_state, mean
 
 
@@ -266,7 +265,7 @@ def compute_episodic_reward_mean(
         done.reshape(done.shape[0], 1),
         new_cumulative_reward,
         agent_state.collector_state.episodic_return_state.last_return,
-    )
+    )  # nan if no episode has finished yet
     updated_episodic_return_state, updated_episodic_mean_return = update_rolling_mean(
         agent_state.collector_state.episodic_return_state,
         last_return,

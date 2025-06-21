@@ -22,7 +22,7 @@ def fast_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=None,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -33,7 +33,7 @@ def gymnax_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=env_params,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -56,7 +56,7 @@ def sac_state(env_config):
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     buffer = get_buffer(
         **to_state_dict(
-            BufferConfig(buffer_size=1000, batch_size=32, num_envs=env_config.num_envs)
+            BufferConfig(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
         )
     )
     return init_sac(

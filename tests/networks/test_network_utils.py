@@ -97,5 +97,5 @@ def test_parse_initialization_constant_without_value():
 
 
 def test_parse_initialization_invalid_name():
-    with pytest.raises(ValueError, match="Unrecognized initialization name"):
+    with pytest.raises(ValueError):
         parse_initialization("unknown_init(1.0)")

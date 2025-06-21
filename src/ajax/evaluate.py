@@ -7,8 +7,17 @@ from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import get_pi, reset_env, step_env
-from ajax.environments.utils import check_env_is_gymnax
-from ajax.wrappers import NormalizationInfo, NormalizeVecObservationBrax
+from ajax.environments.utils import (
+    check_env_is_gymnax,
+    check_if_environment_has_continuous_actions,
+)
+from ajax.wrappers import (
+    ClipAction,
+    ClipActionBrax,
+    NormalizationInfo,
+    NormalizeVecObservationBrax,
+    NormalizeVecObservationGymnax,
+)
 
 
 def repeat_first_entry(tree, num_repeats: int):
@@ -34,20 +43,29 @@ def evaluate(
     recurrent: bool = False,
     lstm_hidden_size: Optional[int] = None,
     gamma: float = 0.99,  # TODO : propagate
-    obs_norm_info: Optional[NormalizationInfo] = None,
+    norm_info: Optional[NormalizationInfo] = None,
 ) -> jax.Array:
     mode = "gymnax" if check_env_is_gymnax(env) else "brax"
-
+    if mode == "gymnax":
+        clip_wrapper = ClipAction
+        norm_wrapper = NormalizeVecObservationGymnax
+    else:
+        clip_wrapper = ClipActionBrax
+        norm_wrapper = NormalizeVecObservationBrax
+    continuous = check_if_environment_has_continuous_actions(env, env_params)
     if mode == "brax":
         env_name = type(env.unwrapped).__name__.lower()
-        env = create(
-            env_name=env_name, batch_size=num_episodes
+        env = clip_wrapper(
+            create(env_name=env_name, batch_size=num_episodes)
         )  # no need for autoreset with random init as we only done one episode, still need for normalization though
-        if obs_norm_info is not None:
-            env = NormalizeVecObservationBrax(
+        if norm_info is not None:
+            env = norm_wrapper(
                 env,
                 train=False,
-                norm_info=repeat_first_entry(obs_norm_info, num_repeats=num_episodes),
+                norm_info=repeat_first_entry(norm_info, num_repeats=num_episodes),
+                gamma=gamma,
+                normalize_obs=norm_info.obs is not None,
+                normalize_reward=norm_info.reward is not None,
             )
 
     key, reset_key = jax.random.split(rng, 2)
@@ -69,7 +87,7 @@ def evaluate(
             recurrent,
         )
 
-        action = pi.mean()
+        action = pi.mean() if continuous else pi.mode()
         entropy = pi.entropy()
         return action, entropy
 
@@ -91,7 +109,7 @@ def evaluate(
             obs,
             done if recurrent else None,
         )
-        obs, state, new_rewards, new_terminated, new_truncated, _ = step_env(
+        obs, new_state, new_rewards, new_terminated, new_truncated, _ = step_env(
             step_keys,
             state,
             actions.squeeze(0) if recurrent else actions,
@@ -106,7 +124,7 @@ def evaluate(
         entropy_sum += (entropy.mean() * still_running).mean()
         rewards += new_rewards * still_running
         done = done | jnp.int8(new_done)
-        return rewards, rng, obs, done, state, entropy_sum, step_count
+        return rewards, rng, obs, done, new_state, entropy_sum, step_count
 
     def env_not_done(carry):
         done = carry[3]
@@ -117,6 +135,9 @@ def evaluate(
         sample_action_and_step_env,
         carry,
     )
+    if norm_info is not None:
+        if norm_info.reward is not None:
+            rewards = env.unnormalize_reward(rewards, norm_info.reward)
 
     avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)  # avoid divide by zero
     return rewards.mean(axis=-1), avg_entropy.mean(axis=-1)

@@ -8,7 +8,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from flax.linen.initializers import constant, orthogonal, xavier_uniform
+from flax.linen import initializers as flax_initializers
+from flax.linen.initializers import (
+    constant,
+    orthogonal,
+)
 from optax import GradientTransformationExtraArgs
 
 from ajax.types import ActivationFunction, InitializationFunction
@@ -34,6 +38,10 @@ def get_adam_tx(
         GradientTransformationExtraArgs: The configured optimizer.
 
     """
+    # # if not isinstance(learning_rate, float):
+    # learning_rate = (
+    #     1.0  # deactivate learning_rate here, to handle it custom in the training loop
+    # )
     if clipped:
         if max_grad_norm is None:
             raise ValueError("Gradient clipping requested but no norm provided.")
@@ -87,7 +95,21 @@ def parse_function_string(s, context=None):
         else:
             return name, None
     else:
-        raise ValueError("Input string does not match the expected format")
+        # Try to parse it as a raw value
+        try:
+            value = eval(s, {"__builtins__": {}}, context)
+            return None, value
+        except Exception as e:
+            raise ValueError(f"Invalid input: {s}") from e
+
+
+def get_initializer(name):
+    try:
+        return getattr(flax_initializers, name)
+    except AttributeError as e:
+        raise ValueError(
+            f"Initializer '{name}' not found in flax.linen.initializers"
+        ) from e
 
 
 def parse_initialization(initialization: str) -> InitializationFunction:  # type: ignore[return]
@@ -96,21 +118,28 @@ def parse_initialization(initialization: str) -> InitializationFunction:  # type
     """
 
     initialization_name, number = parse_function_string(initialization)
-    initialization_matching = {
-        "constant": constant,
-        "orthogonal": orthogonal,
-        "xavier_uniform": xavier_uniform,
-    }
-
-    if initialization_name in initialization_matching:
-        init_fn = initialization_matching[initialization_name]
+    # initialization_matching = {
+    #     "constant": constant,
+    #     "orthogonal": orthogonal,
+    #     "xavier_uniform": xavier_uniform,
+    #     "he_normal": he_normal,
+    #     "he_uniform": he_uniform,
+    # }
+    if number is not None and initialization_name is None:
+        return constant(float(number))
+    init_fn = get_initializer(initialization_name)
+    if init_fn is not None:
         return init_fn() if number is None else init_fn(number)
-    raise ValueError(
-        (
-            f"Unrecognized initialization name {initialization}, acceptable"
-            f" initializations names are : {initialization_matching.keys()}"
-        ),
-    )
+    # if initialization_name in initialization_matching:
+    #     init_fn = initialization_matching[initialization_name]
+    #     return init_fn() if number is None else init_fn(number)
+
+    # raise ValueError(
+    #     (
+    #         f"Unrecognized initialization name {initialization}, acceptable"
+    #         f" initializations names are : {initialization_matching.keys()}"
+    #     ),
+    # )
 
 
 def parse_layer(

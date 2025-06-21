@@ -53,7 +53,7 @@ def test_avg_initialization_with_discrete_env():
 def test_avg_train_single_seed(env_id):
     """Test AVG agent's train method with a single seed."""
     avg_agent = AVG(env_id=env_id, learning_starts=10)
-    avg_agent.train(seed=42, num_timesteps=100)
+    avg_agent.train(seed=42, n_timesteps=100)
 
 
 @pytest.mark.parametrize(
@@ -67,8 +67,8 @@ def test_avg_train_multiple_seeds(env_id):
     """Test AVG agent's train method with multiple seeds using jax.vmap."""
     avg_agent = AVG(env_id=env_id, learning_starts=10)
     seeds = [42, 43, 44]
-    num_timesteps = 100
-    avg_agent.train(seed=seeds, num_timesteps=num_timesteps)
+    n_timesteps = 100
+    avg_agent.train(seed=seeds, n_timesteps=n_timesteps)
 
 
 @pytest.mark.parametrize(
@@ -80,7 +80,7 @@ def test_avg_train_multiple_seeds(env_id):
 )
 def test_avg_train_multiple_envs(env_id):
     """Test AVG agent's train method with multiple seeds using jax.vmap."""
-    avg_agent = AVG(env_id=env_id, learning_starts=10, num_envs=2)
+    avg_agent = AVG(env_id=env_id, learning_starts=10, n_envs=2)
     seeds = [42]
-    num_timesteps = 100
-    avg_agent.train(seed=seeds, num_timesteps=num_timesteps)
+    n_timesteps = 100
+    avg_agent.train(seed=seeds, n_timesteps=n_timesteps)

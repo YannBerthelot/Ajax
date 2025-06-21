@@ -66,7 +66,7 @@ def make_train(
     secondary_critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     buffer: BufferType,
-    agent_args: DynaSACConfig,
+    agent_config: DynaSACConfig,
     alpha_args: AlphaConfig,
     total_timesteps: int,
     num_episode_test: int,
@@ -83,7 +83,7 @@ def make_train(
         optimizer_args (OptimizerConfig): Optimizer configuration.
         network_args (NetworkConfig): Network configuration.
         buffer (BufferType): Replay buffer.
-        agent_args (SACConfig): SAC agent configuration.
+        agent_config (SACConfig): SAC agent configuration.
         alpha_args (AlphaConfig): Alpha configuration.
         total_timesteps (int): Total timesteps for training.
         num_episode_test (int): Number of episodes for evaluation during training.
@@ -126,7 +126,7 @@ def make_train(
         #     primary=primary_agent_state, secondary=secondary_agent_state
         # )
 
-        num_updates = total_timesteps // env_args.num_envs
+        num_updates = total_timesteps // env_args.n_envs
         _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)
 
         primary_training_iteration_scan_fn = partial(
@@ -134,7 +134,7 @@ def make_train(
             buffer=buffer,
             recurrent=network_args.lstm_hidden_size is not None,
             action_dim=action_shape[0],
-            agent_args=agent_args.primary,
+            agent_config=agent_config.primary,
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,
@@ -152,7 +152,7 @@ def make_train(
             secondary_training_iteration,
             recurrent=network_args.lstm_hidden_size is not None,
             action_dim=action_shape[0],
-            agent_args=agent_args.secondary,
+            agent_config=agent_config.secondary,
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,

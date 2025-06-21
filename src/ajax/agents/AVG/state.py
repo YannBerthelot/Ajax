@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 from flax import struct
+from jax.tree_util import Partial as partial
 
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
 
@@ -15,7 +16,7 @@ class NormalizationInfo:
 one = jnp.ones(1)
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class AVGState(BaseAgentState):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

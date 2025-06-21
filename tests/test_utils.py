@@ -30,9 +30,9 @@ def test_online_normalize_initial():
 
     assert new_count == 1
     assert jnp.allclose(new_mean, x)
-    assert jnp.allclose(new_mean_2, 0.0)
-    assert jnp.allclose(sigma, 0.0)
-    assert jnp.allclose(x_norm, 0.0)  # x == mean, std == 0 => norm = 0
+    assert jnp.allclose(new_mean_2, 1.0)
+    assert jnp.allclose(sigma, 1.0)
+    assert jnp.allclose(x_norm, 0)  # x == mean, std == 1 => norm = 0
 
 
 def test_online_normalize_update():

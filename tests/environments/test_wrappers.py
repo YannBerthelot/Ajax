@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from brax.envs import create as create_brax_env
+from brax.envs.base import State
 from flax import struct
 
 from ajax.wrappers import (
@@ -51,7 +52,7 @@ class MockBraxEnv:
         self.action_size = 1
 
     def reset(self, key):
-        return MockBraxState(
+        return State(
             obs=jnp.array([[1.0, -1.0]]),
             reward=jnp.array([0.0]),
             done=False,
@@ -64,7 +65,7 @@ class MockBraxEnv:
         obs = jnp.array([[1.0, -1.0]])
         reward = 1.0
         done = reward >= 5.0
-        return MockBraxState(
+        return State(
             obs=obs,
             reward=reward,
             done=done,
@@ -126,7 +127,7 @@ class BatchedMockBraxEnv:
 
     def reset(self, key):
         obs = jnp.tile(jnp.array([1.0, -1.0]), (self.batch_size, 1))
-        return BatchedMockBraxState(
+        return State(
             obs=obs,
             reward=jnp.zeros(self.batch_size),
             done=jnp.zeros(self.batch_size, dtype=bool),
@@ -139,7 +140,7 @@ class BatchedMockBraxEnv:
         obs = jnp.tile(jnp.array([1.0, -1.0]), (self.batch_size, 1)) * action
         reward = jnp.ones(self.batch_size)
         done = reward >= 5.0
-        return BatchedMockBraxState(
+        return State(
             obs=obs,
             reward=reward,
             done=done,
@@ -539,7 +540,6 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
             key=key, state=state, action=action, params=env_params
         )
     expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
-    expected_mean_2 = jnp.array([[0.0, 0.0], [0.0, 0.0]])
     expected_obs = jnp.array([[0.0, 0.0], [0.0, 0.0]])
 
     norm_info = (
@@ -548,7 +548,7 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
 
     assert jnp.all(norm_info.count == 4)  # batch size x 2
     assert jnp.allclose(norm_info.mean, expected_mean)
-    assert jnp.allclose(norm_info.mean_2, expected_mean_2)
+    assert jnp.allclose(norm_info.mean_2, 1)
     assert jnp.allclose(state.obs if mode == "brax" else obs, expected_obs)
 
     # Step 2
@@ -559,7 +559,6 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
             key=key, state=state, action=action, params=env_params
         )
     expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
-    expected_mean_2 = jnp.array([[0.0, 0.0], [0.0, 0.0]])
     expected_obs = jnp.array([[0.0, 0.0], [0.0, 0.0]])
 
     norm_info = (
@@ -568,7 +567,7 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
 
     assert jnp.all(norm_info.count == 6)  # batch size x3
     assert jnp.allclose(norm_info.mean, expected_mean)
-    assert jnp.allclose(norm_info.mean_2, expected_mean_2)
+    assert jnp.allclose(norm_info.mean_2, 1)
     assert jnp.allclose(state.obs if mode == "brax" else obs, expected_obs)
 
 

@@ -1,6 +1,5 @@
 import os
 from collections.abc import Sequence
-from dataclasses import fields
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
@@ -11,15 +10,17 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.agents.sac.state import SACConfig, SACState
-from ajax.buffers.utils import get_batch_from_buffer
+from ajax.agents.PPO.state import PPOConfig, PPOState
+from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
     init_collector_state,
-    should_use_uniform_sampling,
 )
-from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
+from ajax.environments.utils import (
+    check_env_is_gymnax,
+    check_if_environment_has_continuous_actions,
+)
 from ajax.evaluate import evaluate
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -32,13 +33,11 @@ from ajax.networks.networks import (
     predict_value,
 )
 from ajax.state import (
-    AlphaConfig,
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import BufferType
 
 PROFILER_PATH = "./tensorboard"
 
@@ -48,31 +47,23 @@ def get_alpha_from_params(params: FrozenDict) -> float:
 
 
 @struct.dataclass
-class TemperatureAuxiliaries:
-    alpha_loss: jax.Array
-    alpha: jax.Array
-    log_alpha: jax.Array
-
-
-@struct.dataclass
 class PolicyAuxiliaries:
-    policy_loss: jax.Array
-    log_pi: jax.Array
-    q_min: jax.Array
+    policy_loss: float
+    log_probs: float
+    old_log_probs: float
+    clip_fraction: float
+    entropy: float
 
 
 @struct.dataclass
 class ValueAuxiliaries:
-    critic_loss: jax.Array
-    q1_pred: jax.Array
-    q2_pred: jax.Array
-    target_q: jax.Array
-    log_probs: jax.Array
+    critic_loss: float
+    predictions: float
+    targets: float
 
 
 @struct.dataclass
 class AuxiliaryLogs:
-    temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
 
@@ -101,18 +92,16 @@ def create_alpha_train_state(
     )
 
 
-def init_sac(
+def init_PPO(
     key: jax.Array,
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    alpha_args: AlphaConfig,
-    buffer: BufferType,
     window_size: int = 10,
-) -> SACState:
+) -> PPOState:
     """
-    Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
+    Initialize the PPO agent's state, including actor, critic, alpha, and collector states.
 
     Args:
         key (jax.Array): Random number generator key.
@@ -123,7 +112,7 @@ def init_sac(
         buffer (BufferType): Replay buffer.
 
     Returns:
-        SACState: Initialized SAC agent state.
+        PPOState: Initialized PPO agent state.
     """
     (
         rng,
@@ -137,47 +126,39 @@ def init_sac(
         actor_optimizer_config=actor_optimizer_args,
         critic_optimizer_config=critic_optimizer_args,
         network_config=network_args,
-        continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=2,
+        continuous=check_if_environment_has_continuous_actions(
+            env_args.env, env_params=env_args.env_params
+        ),
+        action_value=False,
+        squash=False,
+        num_critics=1,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
-        buffer=buffer,
         window_size=window_size,
     )
 
-    alpha = create_alpha_train_state(**to_state_dict(alpha_args))
-
-    return SACState(
+    return PPOState(
         rng=rng,
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=alpha,
         collector_state=collector_state,
+        n_updates=0,
     )
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale"])
+@partial(jax.jit, static_argnames=["recurrent"])
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
-    actor_state: LoadedTrainState,
-    actions: jax.Array,
     observations: jax.Array,
-    next_observations: jax.Array,
+    value_targets: jax.Array,
     dones: jax.Array,
-    rewards: jax.Array,
-    gamma: float,
-    alpha: jax.Array,
     recurrent: bool,
-    reward_scale: float = 5.0,  # Add reward scaling factor here
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -200,74 +181,41 @@ def value_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
-    # Apply the reward scaling here
-    rewards = rewards * reward_scale
 
-    # Sample next actions from policy π(a|s_{t+1})
-
-    next_pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.params,
-        obs=next_observations,
-        done=dones,
-        recurrent=recurrent,
-    )
-    sample_key, rng = jax.random.split(rng)
-    next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
-
-    # Predict Q-values from critics
-    q_preds = predict_value(
+    # Predict V-values from critics
+    v_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_params,
-        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-    )
-    # Target Q-values using target networks
-    q_targets = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.target_params,
-        x=jnp.concatenate((next_observations, next_actions), axis=-1),
-    )
+        x=observations,
+    ).squeeze(
+        0
+    )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
 
-    # Unpack and unsqueeze if needed
-    q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
-    q1_target, q2_target = jnp.split(q_targets, 2, axis=0)
+    loss = 0.5 * jnp.mean((v_preds - value_targets) ** 2)  # classic MSE
 
-    # Bellman target and losses
-    min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
-    log_probs = log_probs.sum(-1, keepdims=True)
-
-    target_q = jax.lax.stop_gradient(
-        rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs),
-    )
-
-    assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
-    assert min_q_target.shape == log_probs.shape
-
-    loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
-    loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
-    total_loss = loss_q1 + loss_q2
-    return total_loss, ValueAuxiliaries(
-        critic_loss=total_loss,
-        q1_pred=q1_pred.mean().flatten(),
-        q2_pred=q2_pred.mean().flatten(),
-        target_q=target_q.mean().flatten(),
-        log_probs=log_probs.mean().flatten(),
+    return loss, ValueAuxiliaries(
+        critic_loss=loss,
+        predictions=v_preds.mean().flatten(),
+        targets=value_targets.mean().flatten(),
     )
 
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent"],
+    static_argnames=["recurrent", "clip_coef", "ent_coef", "advantage_normalization"],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
-    critic_states: LoadedTrainState,
     observations: jax.Array,
+    actions: jax.Array,
+    log_probs: jax.Array,
+    gae: jax.Array,
     dones: Optional[jax.Array],
     recurrent: bool,
-    alpha: jax.Array,
-    rng: jax.random.PRNGKey,
+    clip_coef: float,
+    ent_coef: float,
+    advantage_normalization: bool,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -292,85 +240,70 @@ def policy_loss_function(
         done=dones,
         recurrent=recurrent,
     )
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
+    new_log_probs = (
+        jnp.expand_dims(pi.log_prob(actions.squeeze()), axis=-1)
+        if jnp.ndim(actions.squeeze()) < 3
+        else pi.log_prob(actions).sum(-1, keepdims=True)
+    )
+    assert new_log_probs.shape == log_probs.shape, (
+        f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
+        f" {log_probs.shape}"
+    )
+    # .sum(
+    #     -1, keepdims=True
+    # )  # sum as the log probs are per-action-dim, squeeze to handle discrete actions without trailing dimension
+    ratio = jnp.exp(
+        new_log_probs - log_probs
+    )  # log_probs are per-action-dim, so we sum them to get the total log prob
+    if advantage_normalization:
+        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
 
-    # Predict Q-values from critics
-    q_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.params,
-        x=jnp.hstack((observations, actions)),
+    assert (
+        ratio.shape[0] == gae.shape[0]
+    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    loss_actor1 = ratio * gae
+    loss_actor2 = (
+        jnp.clip(
+            ratio,
+            1.0 - clip_coef,
+            1.0 + clip_coef,
+        )
+        * gae
     )
 
-    # Unpack and unsqueeze if needed
-    q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
-    q_min = jnp.minimum(q1_pred, q2_pred).squeeze(0)
+    loss_actor = -jnp.minimum(loss_actor1, loss_actor2).mean()
 
-    log_probs = log_probs.sum(-1, keepdims=True)
+    # CALCULATE AUXILIARIES
+    clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
+    entropy = pi.entropy().mean()
 
-    assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
-    loss = (alpha * log_probs - q_min).mean()
+    total_loss = loss_actor - ent_coef * entropy
 
-    return loss, PolicyAuxiliaries(
-        policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
-    )
-
-
-@partial(
-    jax.jit,
-    static_argnames=["target_entropy"],
-)
-def temperature_loss_function(
-    log_alpha_params: FrozenDict,
-    corrected_log_probs: jax.Array,
-    target_entropy: float,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
-    """
-    Compute the loss for the temperature parameter (alpha).
-
-    Args:
-        log_alpha_params (FrozenDict): Logarithm of alpha parameters.
-        corrected_log_probs (jax.Array): Log probabilities of actions.
-        target_entropy (float): Target entropy value.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, Any]]: Loss and auxiliary metrics.
-    """
-    log_alpha = log_alpha_params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-
-    loss = (
-        -1.0
-        * (
-            log_alpha * jax.lax.stop_gradient(corrected_log_probs + target_entropy)
-        ).mean()
-    )
-
-    return loss, TemperatureAuxiliaries(
-        alpha_loss=loss, alpha=alpha, log_alpha=log_alpha
+    return total_loss, PolicyAuxiliaries(
+        policy_loss=total_loss,
+        log_probs=new_log_probs.mean(),
+        old_log_probs=log_probs.mean(),
+        clip_fraction=clip_fraction,
+        entropy=entropy,
     )
 
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "gamma", "reward_scale"],
+    static_argnames=["recurrent"],
 )
 def update_value_functions(
-    agent_state: SACState,
+    agent_state: PPOState,
     observations: jax.Array,
-    actions: jax.Array,
-    next_observations: jax.Array,
+    value_targets: jax.Array,
     dones: Optional[jax.Array],
     recurrent: bool,
-    rewards: jax.Array,
-    gamma: float,
-    reward_scale: float = 1.0,  # Add reward scaling factor here
-) -> Tuple[SACState, Dict[str, Any]]:
+) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (PPOState): Current PPO agent state.
         observations (jax.Array): Current observations.
         actions (jax.Array): Actions taken.
         next_observations (jax.Array): Next observations.
@@ -381,32 +314,20 @@ def update_value_functions(
         reward_scale (float): Reward scaling factor.
 
     Returns:
-        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+        Tuple[PPOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    value_loss_key, rng = jax.random.split(agent_state.rng)
     value_and_grad_fn = jax.value_and_grad(value_loss_function, has_aux=True)
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
 
     (loss, aux), grads = value_and_grad_fn(
         agent_state.critic_state.params,
         agent_state.critic_state,
-        value_loss_key,
-        agent_state.actor_state,
-        actions,
         observations,
-        next_observations,
+        value_targets,
         dones,
-        rewards,
-        gamma,
-        alpha,
         recurrent,
-        reward_scale,
     )
-
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
-        rng=rng,
         critic_state=updated_critic_state,
     )
     return agent_state, aux
@@ -414,44 +335,50 @@ def update_value_functions(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent"],
+    static_argnames=["recurrent", "clip_coef", "ent_coef", "advantage_normalization"],
 )
 def update_policy(
-    agent_state: SACState,
+    agent_state: PPOState,
     observations: jax.Array,
+    actions: jax.Array,
+    gae: jax.Array,
+    log_probs: jax.Array,
     done: Optional[jax.Array],
     recurrent: bool,
-) -> Tuple[SACState, Dict[str, Any]]:
+    clip_coef: float,
+    ent_coef: float,
+    advantage_normalization: bool,
+) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (PPOState): Current PPO agent state.
         observations (jax.Array): Current observations.
         done (Optional[jax.Array]): Done flags.
         recurrent (bool): Whether the model is recurrent.
 
     Returns:
-        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+        Tuple[PPOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    rng, policy_key = jax.random.split(agent_state.rng)
+
     value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
     (loss, aux), grads = value_and_grad_fn(
         agent_state.actor_state.params,
         agent_state.actor_state,
-        agent_state.critic_state,
-        observations,
-        done,
-        recurrent,
-        alpha,
-        policy_key,
+        observations=observations,
+        actions=actions,
+        log_probs=log_probs,
+        gae=gae,
+        dones=done,
+        recurrent=recurrent,
+        clip_coef=clip_coef,
+        ent_coef=ent_coef,
+        advantage_normalization=advantage_normalization,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
-        rng=rng,
         actor_state=updated_actor_state,
     )
     return agent_state, aux
@@ -459,108 +386,23 @@ def update_policy(
 
 @partial(
     jax.jit,
-    static_argnames=["target_entropy", "recurrent"],
-)
-def update_temperature(
-    agent_state: SACState,
-    observations: jax.Array,
-    dones: Optional[jax.Array],
-    target_entropy: float,
-    recurrent: bool,
-) -> Tuple[SACState, Dict[str, Any]]:
-    """
-    Update the temperature parameter (alpha) using the alpha loss.
-
-    Args:
-        agent_state (SACState): Current SAC agent state.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        target_entropy (float): Target entropy value.
-        recurrent (bool): Whether the model is recurrent.
-
-    Returns:
-        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
-
-    pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=observations,
-        done=dones,
-        recurrent=recurrent,
-    )
-    rng, sample_key = jax.random.split(agent_state.rng)
-    _, log_probs = pi.sample_and_log_prob(seed=sample_key)
-
-    (loss, aux), grads = loss_fn(
-        agent_state.alpha.params,
-        log_probs.sum(-1),
-        target_entropy,
-    )
-
-    new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        alpha=new_alpha_state,
-    )
-    return agent_state, jax.lax.stop_gradient(aux)
-
-
-@partial(
-    jax.jit,
-    static_argnames=["tau"],
-)
-def update_target_networks(
-    agent_state: SACState,
-    tau: float,
-) -> SACState:
-    """
-    Perform a soft update of the target networks.
-
-    Args:
-        agent_state (SACState): Current SAC agent state.
-        tau (float): Soft update coefficient.
-
-    Returns:
-        SACState: Updated agent state.
-    """
-    new_critic_state = agent_state.critic_state.soft_update(tau=tau)
-    return agent_state.replace(
-        critic_state=new_critic_state,
-    )
-
-
-@partial(
-    jax.jit,
     static_argnames=[
         "recurrent",
-        "buffer",
-        "gamma",
-        "tau",
-        "action_dim",
-        "num_critic_updates",
-        "reward_scale",
-        "target_update_frequency",
+        "agent_config",
     ],
 )
 def update_agent(
-    agent_state: SACState,
+    agent_state: PPOState,
     _: Any,
-    buffer: BufferType,
+    shuffled_batch: tuple[jax.Array],
+    agent_config: PPOConfig,
     recurrent: bool,
-    gamma: float,
-    action_dim: int,
-    tau: float,
-    num_critic_updates: int = 1,
-    target_update_frequency: int = 1,
-    reward_scale: float = 5.0,
-) -> Tuple[SACState, AuxiliaryLogs]:
+) -> Tuple[PPOState, AuxiliaryLogs]:
     """
-    Update the SAC agent, including critic, actor, and temperature updates.
+    Update the PPO agent, including critic, actor, and temperature updates.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (PPOState): Current PPO agent state.
         _ (Any): Placeholder for scan compatibility.
         buffer (BufferType): Replay buffer.
         recurrent (bool): Whether the model is recurrent.
@@ -572,68 +414,57 @@ def update_agent(
         reward_scale (float): Reward scaling factor.
 
     Returns:
-        Tuple[SACState, None]: Updated agent state.
+        Tuple[PPOState, None]: Updated agent state.
     """
     # Sample buffer
 
-    sample_key, rng = jax.random.split(agent_state.rng)
-    observations, terminated, truncated, next_observations, rewards, actions = (
-        get_batch_from_buffer(
-            buffer,
-            agent_state.collector_state.buffer_state,
-            sample_key,
-        )
+    (
+        observations,
+        actions,
+        terminated,
+        truncated,
+        value_targets,
+        gae,
+        log_probs,
+    ) = shuffled_batch
+
+    assert (
+        observations.shape[:-1] == actions.shape[:-1]
+    ), (  # FIXME : investigate the shape mismatch due to shuffling in batch and shapes shenanigans
+        f"Shape mismatch between observations {observations.shape} and actions"
+        f" {actions.shape}"
     )
-    agent_state = agent_state.replace(rng=rng)
+
     dones = jnp.logical_or(terminated, truncated)
 
-    # Update Q functions
-    def critic_update_step(carry, _):
-        agent_state = carry
-        agent_state, aux_value = update_value_functions(
-            observations=observations,
-            actions=actions,
-            next_observations=next_observations,
-            dones=dones,
-            agent_state=agent_state,
-            recurrent=recurrent,
-            rewards=rewards,
-            gamma=gamma,
-            reward_scale=reward_scale,
-        )
-
-        return agent_state, aux_value
-
-    agent_state, aux_value = jax.lax.scan(
-        critic_update_step,
-        agent_state,
-        None,
-        length=num_critic_updates,
+    # Update critic/V-function
+    agent_state, aux_value = update_value_functions(
+        agent_state=agent_state,
+        observations=observations,
+        value_targets=value_targets,
+        dones=dones,
+        recurrent=recurrent,
     )
 
     # Update policy
+    if callable(agent_config.clip_range):
+        clip_coef = agent_config.clip_range(agent_state.collector_state.timestep)
+    else:
+        clip_coef = agent_config.clip_range
     agent_state, aux_policy = update_policy(
-        observations=observations,
-        done=dones,
         agent_state=agent_state,
-        recurrent=recurrent,
-    )
-
-    # Adjust temperature
-    target_entropy = -action_dim
-    agent_state, aux_temperature = update_temperature(
-        agent_state,
         observations=observations,
-        target_entropy=target_entropy,
+        actions=actions,
+        gae=gae,
+        log_probs=log_probs,
+        done=dones,
         recurrent=recurrent,
-        dones=dones,
+        ent_coef=agent_config.ent_coef,
+        clip_coef=clip_coef,
+        advantage_normalization=agent_config.normalize_advantage,
     )
 
-    # Update target networks
-    # TODO : Only update every update_target_network steps
-    agent_state = update_target_networks(agent_state, tau=tau)
     aux = AuxiliaryLogs(
-        temperature=aux_temperature,
         policy=aux_policy,
         value=ValueAuxiliaries(
             **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
@@ -672,29 +503,28 @@ def no_op_none(agent_state, index, timestep):
         "env_args",
         "mode",
         "recurrent",
-        "buffer",
         "log_frequency",
         "num_episode_test",
         "log_fn",
         "log",
         "verbose",
-        "action_dim",
         "lstm_hidden_size",
         "agent_config",
         "horizon",
         "total_timesteps",
+        "n_steps",
     ],
 )
 def training_iteration(
-    agent_state: SACState,
+    agent_state: PPOState,
     _: Any,
     env_args: EnvironmentConfig,
     mode: str,
     recurrent: bool,
-    buffer: BufferType,
-    agent_config: SACConfig,
-    action_dim: int,
+    agent_config: PPOConfig,
     total_timesteps: int,
+    n_steps: int,
+    total_n_updates: int,
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
     horizon: int = 10000,
@@ -703,92 +533,146 @@ def training_iteration(
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
-) -> tuple[SACState, None]:
+) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (PPOState): Current PPO agent state.
         _ (Any): Placeholder for scan compatibility.
         env_args (EnvironmentConfig): Environment configuration.
         mode (str): Environment mode ("gymnax" or "brax").
         recurrent (bool): Whether the model is recurrent.
         buffer (BufferType): Replay buffer.
-        agent_config (SACConfig): SAC agent configuration.
+        agent_config (PPOConfig): PPO agent configuration.
         action_dim (int): Action dimensionality.
         lstm_hidden_size (Optional[int]): LSTM hidden size for recurrent models.
         log_frequency (int): Frequency of logging and evaluation.
         num_episode_test (int): Number of episodes for evaluation.
 
     Returns:
-        Tuple[SACState, None]: Updated agent state.
+        Tuple[PPOState, None]: Updated agent state.
     """
     # collector_state = agent_state.collector_state
-
-    timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
 
     collect_scan_fn = partial(
         collect_experience,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
-        buffer=buffer,
-        uniform=uniform,
     )
-    agent_state, _ = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
+    agent_state, transition = jax.lax.scan(
+        collect_scan_fn, agent_state, xs=None, length=n_steps
+    )  # transition = s_t, a_t, r_{s_t -> s_{t+1}}, s_{t+1}, d_{s_t -> s_{t+1}}
+
+    values = predict_value(
+        critic_state=agent_state.critic_state,
+        critic_params=agent_state.critic_state.params,
+        x=transition.obs,
+    ).squeeze(0)
+    last_value = (
+        predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=transition.next_obs[-1:],
+        )
+        .squeeze(0)
+        .squeeze(0)  # don't need the first dimension for a single transition
+    )
+    # dones = jnp.vstack([first_done.reshape(1, -1, 1), transition.terminated[:-1]])
+    dones = transition.terminated
+
+    gae, value_targets = _compute_gae(
+        values=values,
+        last_value=last_value,
+        rewards=transition.reward,
+        dones=dones,
+        gamma=agent_config.gamma,
+        gae_lambda=agent_config.gae_lambda,
+    )
+
+    batch = (
+        transition.obs,
+        (
+            jnp.expand_dims(transition.action, axis=-1)
+            if jnp.ndim(transition.action)
+            < 3  # discrete case without trailing dimension
+            else transition.action
+        ),
+        transition.terminated,
+        transition.truncated,
+        value_targets,
+        gae,
+        (
+            jnp.expand_dims(transition.log_prob, axis=-1)
+            if jnp.ndim(transition.log_prob)
+            < 3  # discrete case without trailing dimension
+            else transition.log_prob.sum(-1, keepdims=True)
+        ),
+    )
+
+    shuffle_key, rng = jax.random.split(agent_state.rng)
+    agent_state = agent_state.replace(rng=rng)
+
+    assert (
+        max(agent_config.batch_size, agent_config.n_steps)
+        % min(agent_config.batch_size, agent_config.n_steps)
+        == 0
+    ), (
+        "can't evenly break n_steps into batch size chunks,"
+        f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+    )
+    num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
+        agent_config.batch_size, agent_config.n_steps
+    )
+    shuffled_batch = get_minibatches_from_batch(
+        batch, rng=shuffle_key, num_minibatches=num_minibatches
+    )
+
     timestep = agent_state.collector_state.timestep
 
-    def do_update(agent_state):
+    def do_update(
+        agent_state: PPOState, num_epochs: int
+    ) -> tuple[PPOState, AuxiliaryLogs]:
         update_scan_fn = partial(
             update_agent,
-            buffer=buffer,
+            shuffled_batch=shuffled_batch,
             recurrent=recurrent,
-            gamma=agent_config.gamma,
-            action_dim=action_dim,
-            tau=agent_config.tau,
-            reward_scale=agent_config.reward_scale,
+            agent_config=agent_config,
         )
-        agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
+        agent_state, aux = jax.lax.scan(
+            update_scan_fn, agent_state, xs=None, length=num_epochs
+        )
         aux = aux.replace(
             value=ValueAuxiliaries(
                 **{key: val.flatten() for key, val in to_state_dict(aux.value).items()}
             )
         )
-        return agent_state, aux
+        aux = jax.tree_util.tree_map(
+            lambda x: x.mean(), aux
+        )  # need to aggregate over the n-epochs
+        return (
+            agent_state.replace(n_updates=agent_state.n_updates + 1),
+            aux,
+        )  # aux should be the one from the last epoch
 
-    def fill_with_nan(dataclass):
-        """
-        Recursively fills all fields of a dataclass with jnp.nan.
-        """
-        nan = jnp.ones(1) * jnp.nan
-        dict = {}
-        for field in fields(dataclass):
-            sub_dataclass = field.type
-            if hasattr(
-                sub_dataclass, "__dataclass_fields__"
-            ):  # Check if the field is another dataclass
-                dict[field.name] = fill_with_nan(sub_dataclass)
-            else:
-                dict[field.name] = nan
-        return dataclass(**dict)
+    agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
 
-    def skip_update(agent_state):
-        return agent_state, fill_with_nan(AuxiliaryLogs)
-
-    agent_state, aux = jax.lax.cond(
-        timestep >= agent_config.learning_starts,
-        do_update,
-        skip_update,
-        operand=agent_state,
-    )
-
-    def run_and_log(agent_state: SACState, aux: AuxiliaryLogs, index: int):
+    def run_and_log(agent_state: PPOState, aux: AuxiliaryLogs, index: int):
         eval_key = agent_state.eval_rng
-        obs_normalization = (
-            "obs_normalization_info" in agent_state.collector_state.env_state.info
+        normalization = (
+            "normalization_info" in agent_state.collector_state.env_state.info
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
+        )
+        env_norm_info = (
+            (
+                agent_state.collector_state.env_state.info["normalization_info"]
+                if mode == "brax"
+                else agent_state.collector_state.env_state.normalization_info
+            )
+            if normalization
+            else None
         )
         eval_rewards, eval_entropy = evaluate(
             env_args.env,
@@ -798,30 +682,23 @@ def training_iteration(
             env_params=env_args.env_params,
             recurrent=recurrent,
             lstm_hidden_size=lstm_hidden_size,
-            obs_norm_info=(
-                agent_state.collector_state.env_state.info[
-                    (
-                        "obs_normalization_info"
-                        if mode == "brax"
-                        else agent_state.collector_state.env_state.normalization_info
-                    )
-                ]
-                if obs_normalization
-                else None
-            ),
+            norm_info=env_norm_info,
         )
-
-        if log:
-            metrics_to_log = {
-                "timestep": timestep,
-                "Eval/episodic mean reward": eval_rewards,
-                "Eval/episodic entropy": eval_entropy,
-                "Train/episodic mean reward": (
-                    agent_state.collector_state.episodic_mean_return
-                ),
-            }
-            metrics_to_log.update(flatten_dict(to_state_dict(aux)))
-            jax.debug.callback(log_fn, metrics_to_log, index)
+        mean_return = agent_state.collector_state.episodic_mean_return
+        if env_norm_info is not None:
+            if env_norm_info.reward is not None:
+                mean_return = env_args.env.unnormalize_reward(
+                    agent_state.collector_state.episodic_mean_return,
+                    env_norm_info.reward,
+                )
+        metrics_to_log = {
+            "timestep": timestep,
+            "Eval/episodic mean reward": eval_rewards,
+            "Eval/episodic entropy": eval_entropy,
+            "Train/episodic mean reward": mean_return,
+        }
+        metrics_to_log.update(flatten_dict(to_state_dict(aux)))
+        jax.debug.callback(log_fn, metrics_to_log, index)
 
         if verbose:
             jax.debug.print(
@@ -837,8 +714,13 @@ def training_iteration(
     if log:
         _, eval_rng = jax.random.split(agent_state.eval_rng)
         agent_state = agent_state.replace(eval_rng=eval_rng)
+        log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
+
+        agent_state = agent_state.replace(
+            n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
+        )
         flag = jnp.logical_or(
-            jnp.logical_and((timestep % log_frequency) == 1, timestep > 1),
+            jnp.logical_and(log_flag, timestep > 1),
             timestep >= (total_timesteps - env_args.n_envs),
         )
         jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
@@ -875,23 +757,21 @@ def make_train(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    buffer: BufferType,
-    agent_config: SACConfig,
-    alpha_args: AlphaConfig,
+    agent_config: PPOConfig,
     total_timesteps: int,
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
 ):
     """
-    Create the training function for the SAC agent.
+    Create the training function for the PPO agent.
 
     Args:
         env_args (EnvironmentConfig): Environment configuration.
         optimizer_args (OptimizerConfig): Optimizer configuration.
         network_args (NetworkConfig): Network configuration.
         buffer (BufferType): Replay buffer.
-        agent_config (SACConfig): SAC agent configuration.
+        agent_config (PPOConfig): PPO agent configuration.
         alpha_args (AlphaConfig): Alpha configuration.
         total_timesteps (int): Total timesteps for training.
         num_episode_test (int): Number of episodes for evaluation during training.
@@ -909,26 +789,22 @@ def make_train(
 
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
-        """Train the SAC agent."""
-        agent_state = init_sac(
+        """Train the PPO agent."""
+        agent_state = init_PPO(
             key=key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
-            alpha_args=alpha_args,
-            buffer=buffer,
         )
 
-        num_updates = total_timesteps // env_args.n_envs
-        _, action_shape = get_state_action_shapes(env_args.env)
+        num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 
         training_iteration_scan_fn = partial(
             training_iteration,
-            buffer=buffer,
             recurrent=network_args.lstm_hidden_size is not None,
-            action_dim=action_shape[0],
             agent_config=agent_config,
+            n_steps=agent_config.n_steps,
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,
@@ -940,6 +816,7 @@ def make_train(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
+            total_n_updates=num_updates,
         )
 
         agent_state, _ = jax.lax.scan(

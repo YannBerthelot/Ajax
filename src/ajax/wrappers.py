@@ -1,5 +1,6 @@
 """Wrappers for environment"""
 
+# ruff: noqa: C901
 from functools import partial
 from typing import Any, Dict, Optional, Tuple
 
@@ -16,6 +17,7 @@ from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
+from ajax.environments.utils import check_env_is_brax, get_state_action_shapes
 from ajax.utils import online_normalize
 
 
@@ -205,231 +207,305 @@ class VecEnv(GymnaxWrapper):
         self.step = jax.vmap(self._env.step, in_axes=(0, 0, 0, None))
 
 
-# @struct.dataclass
-# class NormalizeVecObsEnvState:
-#     """Carry variables necessary for online normalization"""
-
-#     mean: jnp.ndarray
-#     var: jnp.ndarray
-#     count: float
-#     env_state: State
-
-
-# @struct.dataclass
-# class NormalizeVecObsEnvStateBrax:
-#     """Carry variables necessary for online normalization"""
-
-#     mean: jnp.ndarray
-#     var: jnp.ndarray
-#     count: float
-#     pipeline_state: Optional[State]
-#     obs: jax.Array
-#     reward: jax.Array
-#     done: jax.Array
-#     metrics: Dict[str, jax.Array] = struct.field(default_factory=dict)
-#     info: Dict[str, Any] = struct.field(default_factory=dict)
-
-
 @struct.dataclass
 class NormalizationInfo:
     var: jnp.array
     count: jnp.array
     mean: jnp.array
     mean_2: jnp.array
-
-
-class NormalizeVecObservationBrax(BraxWrapper):
-    """Wrapper for online normalization of observations"""
-
-    def __init__(
-        self,
-        env: BraxEnv,
-        train: bool = True,
-        norm_info: Optional[NormalizationInfo] = None,
-    ):
-        super().__init__(env)
-        rng = jax.random.PRNGKey(0)
-        self.batch_size = env.reset(rng).obs.shape[0]
-        self.obs_shape = env.reset(rng).obs.shape[1:]
-        self.train = train
-        self.norm_info = norm_info
-
-    def reset(self, key):
-        state = self.env.reset(key)
-
-        # Initialize normalization stats
-        if self.norm_info is None:
-            count = jnp.zeros((self.batch_size, 1))
-            mean = jnp.zeros((self.batch_size, *self.obs_shape))
-            mean_2 = jnp.zeros((self.batch_size, *self.obs_shape))
-            var = jnp.zeros((self.batch_size, *self.obs_shape))
-        else:
-            count = self.norm_info.count
-            mean = self.norm_info.mean
-            mean_2 = self.norm_info.mean_2
-            var = self.norm_info.var
-
-        # Normalize
-
-        obs, count, mean, mean_2, std = online_normalize(
-            state.obs, count, mean, mean_2, train=self.train
-        )
-
-        normalization_info = NormalizationInfo(
-            count=count,
-            mean=mean,
-            mean_2=mean_2,
-            var=var,
-        )
-        # Replace state immutably
-        state = state.replace(
-            obs=obs,
-            info={
-                "obs_normalization_info": normalization_info,
-                **state.info,
-            },
-        )
-        return state
-
-    def step(self, state, action):
-        normalization_info = state.info["obs_normalization_info"]
-        count = normalization_info.count
-        mean = normalization_info.mean
-        mean_2 = normalization_info.mean_2
-        var = normalization_info.var
-
-        state = self.env.step(state, action)
-
-        obs, count, mean, mean_2, var = online_normalize(
-            state.obs, count, mean, mean_2, train=self.train
-        )
-
-        # Replace the whole info dict immutably
-        normalization_info = NormalizationInfo(
-            count=count,
-            mean=mean,
-            mean_2=mean_2,
-            var=var,
-        )
-        # Replace state immutably
-        state = state.replace(
-            obs=obs,
-            info={
-                **state.info,
-                "obs_normalization_info": normalization_info,
-            },
-        )
-        return state
-
-
-class NormalizeVecObservation(GymnaxWrapper):
-    def __init__(self, env, train=True, norm_info: Optional[NormalizationInfo] = None):
-        """Set gamma"""
-        super().__init__(env)
-        BaseState = env.reset(key=jax.random.PRNGKey(0))[1].__class__
-        rng = jax.random.PRNGKey(0)
-        obs, _ = env.reset(rng)
-        self.batch_size = obs.shape[0] if jnp.ndim(obs) > 1 else ()
-        self.obs_shape = obs.shape[1:] if jnp.ndim(obs) > 1 else obs.shape
-        self.train = train
-        self.norm_info = norm_info
-
-        @struct.dataclass
-        class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
-            # Inherit from the actual env_state class
-            normalization_info: NormalizationInfo
-
-        self.state_class = NormalizedEnvState
-
-    def reset(self, key, params=None):
-        obs, env_state = self._env.reset(key, params)
-
-        if self.norm_info is None:
-            # Initialize normalization state
-            count = jnp.zeros((*self.batch_size, 1))
-            mean = jnp.zeros((*self.batch_size, *self.obs_shape))
-            mean_2 = jnp.zeros((*self.batch_size, *self.obs_shape))
-            var = jnp.zeros((*self.batch_size, *self.obs_shape))
-
-        else:
-            count = self.norm_info.count
-            mean = self.norm_info.mean
-            mean_2 = self.norm_info.mean_2
-            var = self.norm_info.var
-
-        # Normalize obs
-        obs, count, mean, mean_2, var = online_normalize(
-            obs, count, mean, mean_2, train=self.train
-        )
-
-        normalization_info = NormalizationInfo(
-            count=count,
-            mean=mean,
-            mean_2=mean_2,
-            var=var,
-        )
-        state = self.state_class(
-            **to_state_dict(env_state), normalization_info=normalization_info
-        )
-
-        return obs, state
-
-    def step(self, key, state, action, params=None):
-        # Extract normalization state
-        normalization_info = state.normalization_info
-        count, mean, mean_2, var = (
-            normalization_info.count,
-            normalization_info.mean,
-            normalization_info.mean_2,
-            normalization_info.var,
-        )
-
-        # Step through env
-        obs, env_state, reward, done, info = self._env.step(key, state, action, params)
-
-        # Normalize observation
-        obs, count, mean, mean_2, var = online_normalize(
-            obs, count, mean, mean_2, train=self.train
-        )
-
-        # Repack new state
-        normalization_info = NormalizationInfo(
-            count=count,
-            mean=mean,
-            mean_2=mean_2,
-            var=var,
-        )
-        state = self.state_class(
-            **to_state_dict(env_state), normalization_info=normalization_info
-        )
-        return obs, state, reward, done, info
+    returns: Optional[jnp.array] = None  # For reward normalization, returns are needed
 
 
 @struct.dataclass
-class NormalizeVecRewEnvState:
-    """Carry variables necessary for online normalization"""
-
-    mean: jnp.ndarray
-    var: jnp.ndarray
-    count: float
-    return_val: float
-    env_state: State
+class EnvNormalizationInfo:
+    reward: Optional[NormalizationInfo] = None
+    obs: Optional[NormalizationInfo] = None
 
 
-@struct.dataclass
-class NormalizeVecRewEnvStateBrax:
-    """Carry variables necessary for online normalization"""
+def init_norm_info(
+    batch_size: int, obs_shape: tuple, returns: bool = False
+) -> NormalizationInfo:
+    count = jnp.zeros((batch_size, 1))
+    mean = jnp.zeros((batch_size, *obs_shape))
+    mean_2 = jnp.zeros((batch_size, *obs_shape))
+    var = jnp.zeros((batch_size, *obs_shape))
+    return NormalizationInfo(
+        var,
+        count,
+        mean,
+        mean_2,
+        returns=jnp.zeros((batch_size, 1)) if returns else None,
+    )
 
-    mean: jnp.ndarray
-    var: jnp.ndarray
-    count: float
-    return_val: float
-    pipeline_state: Optional[State]
-    obs: jax.Array
-    reward: jax.Array
-    done: jax.Array
-    metrics: Dict[str, jax.Array] = struct.field(default_factory=dict)
-    info: Dict[str, Any] = struct.field(default_factory=dict)
+
+@partial(jax.jit, static_argnames="mode")
+def get_obs_from_state(state: State | Tuple, mode: str) -> jax.Array:
+    if mode == "gymnax" and isinstance(state, tuple):
+        match state:
+            case (obs, _):
+                return obs
+            case (obs, _, _, _, _):
+                return obs
+    elif mode == "brax" and isinstance(state, State):
+        return state.obs
+
+
+@partial(jax.jit, static_argnames="mode")
+def get_obs_and_reward_and_done_from_state(
+    state: State | Tuple, mode: str
+) -> jax.Array:
+    if mode == "gymnax" and isinstance(state, tuple):
+        return state[0], state[2], state[3]
+    elif mode == "brax" and isinstance(state, State):
+        return state.obs, state.reward, state.done
+
+
+def normalize_wrapper_factory(
+    mode,
+):
+    Base = BraxWrapper if mode == "brax" else GymnaxWrapper
+
+    class NormalizeVecObservation(Base):
+        """Wrapper for online normalization of observations and rewards"""
+
+        def __init__(
+            self,
+            env: BraxEnv,
+            train: bool = True,
+            norm_info: Optional[EnvNormalizationInfo] = None,
+            normalize_obs: bool = True,
+            normalize_reward: bool = True,
+            gamma: Optional[float] = None,
+        ):
+            self.mode = "brax" if check_env_is_brax(env) else "gymnax"
+            super().__init__(env)
+
+            self.obs_shape, _ = get_state_action_shapes(env)
+
+            self.train = train
+            self.normalize_obs = normalize_obs
+            self.normalize_reward = normalize_reward
+            if self.normalize_reward:
+                assert (
+                    gamma is not None
+                ), "Gamma must be provided for reward normalization."
+            self.norm_info = norm_info
+            self.gamma = gamma
+            rng = jax.random.PRNGKey(0)
+            dummy_obs = get_obs_from_state(env.reset(rng), mode=self.mode)
+
+            self.batch_size = dummy_obs.shape[0] if jnp.ndim(dummy_obs) > 1 else 1
+
+            if mode == "gymnax":
+                # if self.mode == "gymnax":
+                BaseState = env.reset(key=jax.random.PRNGKey(0))[1].__class__
+
+                @struct.dataclass
+                class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
+                    # Inherit from the actual env_state class
+                    normalization_info: NormalizationInfo
+
+                self.state_class = NormalizedEnvState
+
+        @partial(jax.jit, static_argnames=("self", "mode"))
+        def update_state_reset(
+            self, state: State | Tuple, obs: jax.Array, norm_info, mode: str
+        ):
+            """Helper function to update state immutably"""
+            if mode == "brax" and isinstance(state, State):
+                return state.replace(
+                    obs=obs,
+                    info={
+                        **state.info,
+                        "normalization_info": norm_info,
+                    },
+                )
+            else:
+                _, env_state = state
+                env_state = self.state_class(
+                    **to_state_dict(env_state), normalization_info=norm_info
+                )
+                return obs, env_state
+
+        @partial(jax.jit, static_argnames=("mode", "self"))
+        def update_state_step(
+            self,
+            state: State | Tuple,
+            obs: jax.Array,
+            reward: jax.Array,
+            norm_info,
+            mode: str,
+        ):
+            """Helper function to update state immutably"""
+            if mode == "brax" and isinstance(state, State):
+                return state.replace(
+                    obs=obs,
+                    reward=reward,
+                    info={
+                        **state.info,
+                        "normalization_info": norm_info,
+                    },
+                )
+            else:
+                _, env_state, _, done, info = state
+                env_state = self.state_class(
+                    **to_state_dict(env_state), normalization_info=norm_info
+                )
+                return obs, env_state, reward, done, info
+
+        def reset(self, key, params=None):
+            state = (
+                self.env.reset(key)
+                if self.mode == "brax"
+                else self._env.reset(key, params)
+            )
+            rew_norm_info = None
+            obs_norm_info = None
+            if self.norm_info is None:
+                if self.normalize_reward:
+                    rew_norm_info = init_norm_info(
+                        self.batch_size, (1,), returns=self.normalize_reward
+                    )
+                if self.normalize_obs:
+                    obs_norm_info = init_norm_info(self.batch_size, self.obs_shape)
+            else:
+                obs_info = self.norm_info.obs
+                reward_info = self.norm_info.reward
+                if self.normalize_obs:
+                    obs_norm_info = NormalizationInfo(
+                        count=obs_info.count,
+                        mean=obs_info.mean,
+                        mean_2=obs_info.mean_2,
+                        var=obs_info.var,
+                    )
+                if self.normalize_reward:
+                    rew_norm_info = NormalizationInfo(
+                        count=reward_info.count,
+                        mean=reward_info.mean,
+                        mean_2=reward_info.mean_2,
+                        var=reward_info.var,
+                        returns=reward_info.returns if self.normalize_reward else None,
+                    )
+            obs = get_obs_from_state(state, self.mode)
+
+            if self.normalize_obs:
+                obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
+                    obs,
+                    obs_norm_info.count,
+                    obs_norm_info.mean,
+                    obs_norm_info.mean_2,
+                    train=self.train,
+                )
+                obs_norm_info = NormalizationInfo(
+                    count=obs_count,
+                    mean=obs_mean,
+                    mean_2=obs_mean_2,
+                    var=obs_var,
+                )
+
+            norm_info = EnvNormalizationInfo(reward=rew_norm_info, obs=obs_norm_info)
+            state = self.update_state_reset(state, obs, norm_info, self.mode)
+
+            return state
+
+        def unnormalize_reward(self, reward: jax.Array, norm_info: NormalizationInfo):
+            """Unnormalize the reward using the normalization info."""
+            if norm_info is None or norm_info.var is None:
+                return reward
+            return reward * jnp.sqrt(norm_info.var + 1e-8)
+
+        def step(self, *, state, action, params=None, key=None):
+            obs_norm_info = (
+                state.info["normalization_info"].obs
+                if self.mode == "brax"
+                else state.normalization_info.obs
+            )
+            reward_norm_info = (
+                state.info["normalization_info"].reward
+                if self.mode == "brax"
+                else state.normalization_info.reward
+            )
+
+            state = (
+                self.env.step(state, action)
+                if self.mode == "brax"
+                else self._env.step(key, state, action, params=params)
+            )
+
+            obs, reward, done = get_obs_and_reward_and_done_from_state(
+                state, mode=self.mode
+            )
+            if self.normalize_obs:
+                obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
+                    obs,
+                    obs_norm_info.count,
+                    obs_norm_info.mean,
+                    obs_norm_info.mean_2,
+                    train=self.train,
+                )
+                obs_norm_info = NormalizationInfo(
+                    count=obs_count,
+                    mean=obs_mean,
+                    mean_2=obs_mean_2,
+                    var=obs_var,
+                )
+
+            if self.normalize_reward:
+                returns = reward.reshape(
+                    -1, 1
+                ) + reward_norm_info.returns * self.gamma * (1 - done.reshape(-1, 1))
+
+                normed_reward, rew_count, rew_mean, rew_mean_2, rew_var = (
+                    online_normalize(
+                        reward,
+                        reward_norm_info.count,
+                        reward_norm_info.mean,
+                        reward_norm_info.mean_2,
+                        train=self.train,
+                        shift=False,  # Important: rewards shouldn't be mean-shifted
+                        returns=returns,
+                    )
+                )
+                normed_reward = (
+                    normed_reward.squeeze(-1)
+                    if jnp.ndim(normed_reward) > 1 and normed_reward.shape[-1] == 1
+                    else (
+                        normed_reward.squeeze(0)
+                        if np.ndim(normed_reward) > 1 and normed_reward.shape[0] == 1
+                        else normed_reward
+                    )
+                )
+                reward_norm_info = NormalizationInfo(
+                    count=rew_count,
+                    mean=rew_mean,
+                    mean_2=rew_mean_2,
+                    var=rew_var,
+                    returns=returns if self.normalize_reward else None,
+                )
+                reward = normed_reward
+
+            norm_info = EnvNormalizationInfo(reward=reward_norm_info, obs=obs_norm_info)
+
+            state = self.update_state_step(state, obs, reward, norm_info, self.mode)
+
+            return state
+
+    return NormalizeVecObservation
+
+
+NormalizeVecObservationBrax = normalize_wrapper_factory("brax")
+NormalizeVecObservationGymnax = normalize_wrapper_factory("gymnax")
+
+
+def clean_to_state_dict(struct_obj):
+    raw_state_dict = to_state_dict(struct_obj)
+    for key in raw_state_dict.keys():
+        if "__dataclass_fields__" in dir(struct_obj.__dataclass_fields__[key].type):
+            raw_state_dict[key] = struct_obj.__dataclass_fields__[key].type(
+                **raw_state_dict[key]
+            )
+
+    return raw_state_dict
 
 
 @jax.jit
@@ -452,143 +528,10 @@ def normalize_reward(reward, var):
     )
 
 
-class NormalizeVecReward(GymnaxWrapper):
-    """Wrapper for online normalization of rewards"""
-
-    def __init__(self, env, gamma):
-        """Set gamma"""
-        super().__init__(env)
-        self.gamma = gamma
-
-    def reset(self, key, params=None):
-        """Reset the environment and return the normalized reward"""
-        obs, state = self._env.reset(key, params)
-        batch_count = obs.shape[0]
-        state = NormalizeVecRewEnvState(
-            mean=0.0,
-            var=1.0,
-            count=1e-4,
-            return_val=jnp.zeros((batch_count,)),
-            env_state=state,
-        )
-        return obs, state
-
-    def step(self, key, state, action, params=None):
-        """Step the environment and return the normalized reward"""
-        obs, env_state, reward, done, info = self._env.step(
-            key,
-            state.env_state,
-            action,
-            params,
-        )
-        return_val = state.return_val * self.gamma * (1 - done) + reward
-
-        batch_mean = jnp.mean(return_val, axis=0)
-        batch_var = jnp.var(return_val, axis=0)
-        batch_count = obs.shape[0]
-
-        delta = batch_mean - state.mean
-        tot_count = state.count + batch_count
-
-        new_mean = state.mean + delta * batch_count / tot_count
-        m_a = state.var * state.count
-        m_b = batch_var * batch_count
-        M2 = m_a + m_b + jnp.square(delta) * state.count * batch_count / tot_count
-        new_var = M2 / tot_count
-        new_count = tot_count
-        new_reward = normalize_reward(reward, state.var)
-        state = NormalizeVecRewEnvState(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            return_val=return_val,
-            env_state=env_state,
-        )
-        return obs, state, new_reward, done, info
-
-
-class NormalizeVecRewardBrax(BraxWrapper):
-    """Wrapper for online normalization of rewards"""
-
-    def __init__(self, env, gamma):
-        """Set gamma"""
-        super().__init__(env)
-        self.gamma = gamma
-
-    def reset(self, key):
-        """Reset the environment and return the normalized reward"""
-        env_state = self.env.reset(key)
-        batch_count = env_state.obs.shape[0]
-
-        state = NormalizeVecRewEnvStateBrax(
-            mean=0.0,
-            var=1.0,
-            count=1e-4,
-            return_val=jnp.zeros((batch_count,)),
-            reward=env_state.reward,
-            done=env_state.done,
-            metrics=env_state.metrics,
-            pipeline_state=env_state.pipeline_state,
-            info=env_state.info,
-            obs=env_state.obs,
-        )
-        return state
-
-    def step(self, wrapped_state, action):
-        """Step the environment and return the normalized reward"""
-        unwrapped_state = State(
-            wrapped_state.pipeline_state,
-            wrapped_state.obs,
-            wrapped_state.reward,
-            wrapped_state.done,
-            wrapped_state.metrics,
-            wrapped_state.info,
-        )
-        env_state = self.env.step(unwrapped_state, action)
-        obs, reward, done = (
-            env_state.obs,
-            env_state.reward,
-            env_state.done,
-        )
-        return_val = wrapped_state.return_val * self.gamma * (1 - done) + reward
-
-        batch_mean = jnp.mean(return_val, axis=0)
-        batch_var = jnp.var(return_val, axis=0)
-        batch_count = obs.shape[0]
-
-        delta = batch_mean - wrapped_state.mean
-        tot_count = wrapped_state.count + batch_count
-
-        new_mean = wrapped_state.mean + delta * batch_count / tot_count
-        m_a = wrapped_state.var * wrapped_state.count
-        m_b = batch_var * batch_count
-        M2 = (
-            m_a
-            + m_b
-            + jnp.square(delta) * wrapped_state.count * batch_count / tot_count
-        )
-        new_var = M2 / tot_count
-        new_count = tot_count
-        new_reward = normalize_reward(reward, wrapped_state.var)
-        new_wrapped_state = NormalizeVecRewEnvStateBrax(
-            mean=new_mean,
-            var=new_var,
-            count=new_count,
-            return_val=return_val,
-            reward=new_reward,
-            done=env_state.done,
-            metrics=env_state.metrics,
-            pipeline_state=env_state.pipeline_state,
-            info=env_state.info,
-            obs=env_state.obs,
-        )
-        return new_wrapped_state
-
-
 def get_wrappers(mode: str = "gymnax"):
     if mode == "gymnax":
-        return ClipAction, NormalizeVecObservation, NormalizeVecReward
-    return ClipActionBrax, NormalizeVecObservationBrax, NormalizeVecRewardBrax
+        return ClipAction, NormalizeVecObservationGymnax
+    return ClipActionBrax, NormalizeVecObservationBrax
 
 
 def check_wrapped_env_has_autoreset(wrapped_env: BraxWrapper):

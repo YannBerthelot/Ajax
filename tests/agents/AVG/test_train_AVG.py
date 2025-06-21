@@ -39,7 +39,7 @@ def fast_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=None,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -50,7 +50,7 @@ def gymnax_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=env_params,
-        num_envs=1,
+        n_envs=1,
         continuous=True,
     )
 
@@ -81,17 +81,15 @@ def avg_state(env_config):
         network_args=network_args,
         alpha_args=alpha_args,
     )
-    obs_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    obs_shape, action_shape = get_state_action_shapes(env_config.env)
     transition = Transition(
-        obs=jnp.ones((env_config.num_envs, *obs_shape)),
-        action=jnp.ones((env_config.num_envs, *action_shape)),
-        next_obs=jnp.ones((env_config.num_envs, *obs_shape)),
-        reward=jnp.ones((env_config.num_envs, 1)),
-        terminated=jnp.ones((env_config.num_envs, 1)),
-        truncated=jnp.ones((env_config.num_envs, 1)),
-        log_prob=jnp.ones((env_config.num_envs, 1)),
+        obs=jnp.ones((env_config.n_envs, *obs_shape)),
+        action=jnp.ones((env_config.n_envs, *action_shape)),
+        next_obs=jnp.ones((env_config.n_envs, *obs_shape)),
+        reward=jnp.ones((env_config.n_envs, 1)),
+        terminated=jnp.ones((env_config.n_envs, 1)),
+        truncated=jnp.ones((env_config.n_envs, 1)),
+        log_prob=jnp.ones((env_config.n_envs, 1)),
     )
     collector_state = avg_state.collector_state.replace(rollout=transition)
     avg_state = avg_state.replace(collector_state=collector_state)
@@ -130,17 +128,15 @@ def test_init_AVG(avg_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_value_loss_function(env_config, avg_state):
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    next_observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    actions = jnp.zeros((env_config.num_envs, *action_shape))
-    rewards = jnp.ones((env_config.num_envs, 1))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    next_observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    actions = jnp.zeros((env_config.n_envs, *action_shape))
+    rewards = jnp.ones((env_config.n_envs, 1))
+    dones = jnp.zeros((env_config.n_envs, 1))
     gamma = 0.99
     alpha = jnp.array(0.1)
 
@@ -172,17 +168,15 @@ def test_value_loss_function(env_config, avg_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_value_loss_function_with_value_and_grad(env_config, avg_state):
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    next_observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    actions = jnp.zeros((env_config.num_envs, *action_shape))
-    rewards = jnp.ones((env_config.num_envs, 1))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    next_observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    actions = jnp.zeros((env_config.n_envs, *action_shape))
+    rewards = jnp.ones((env_config.n_envs, 1))
+    dones = jnp.zeros((env_config.n_envs, 1))
     gamma = 0.99
     alpha = jnp.array(0.1)
 
@@ -221,15 +215,13 @@ def test_value_loss_function_with_value_and_grad(env_config, avg_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_policy_loss_function(env_config, avg_state):
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the policy loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.ones((env_config.num_envs, *observation_shape))
-    # actions = jnp.ones((env_config.num_envs, *action_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.ones((env_config.n_envs, *observation_shape))
+    # actions = jnp.ones((env_config.n_envs, *action_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
     alpha = jnp.array(0.1)
 
     # Call the policy loss function
@@ -255,14 +247,12 @@ def test_policy_loss_function(env_config, avg_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_policy_loss_function_with_value_and_grad(env_config, avg_state):
-    observation_shape, _ = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the policy loss function
     rng = jax.random.PRNGKey(1)
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
     alpha = jnp.array(0.1)
 
     # Define a wrapper for policy_loss_function
@@ -374,16 +364,14 @@ def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_value_functions(env_config, avg_state):
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_value_functions function
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    next_observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    actions = jnp.zeros((env_config.num_envs, *action_shape))
-    rewards = jnp.ones((env_config.num_envs, 1))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    next_observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    actions = jnp.zeros((env_config.n_envs, *action_shape))
+    rewards = jnp.ones((env_config.n_envs, 1))
+    dones = jnp.zeros((env_config.n_envs, 1))
     gamma = 0.99
     reward_scale = 1.0
 
@@ -420,13 +408,11 @@ def test_update_value_functions(env_config, avg_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_policy(env_config, avg_state):
-    observation_shape, _ = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_policy function
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
     pi, _ = get_pi(
         actor_state=avg_state.actor_state,
         actor_params=avg_state.actor_state.params,
@@ -463,13 +449,11 @@ def test_update_policy(env_config, avg_state):
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_temperature(env_config, avg_state):
-    observation_shape, _ = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_temperature function
-    observations = jnp.zeros((env_config.num_envs, *observation_shape))
-    dones = jnp.zeros((env_config.num_envs, 1))
+    observations = jnp.zeros((env_config.n_envs, *observation_shape))
+    dones = jnp.zeros((env_config.n_envs, 1))
     target_entropy = -1.0
 
     # Save the original alpha params for comparison
@@ -549,7 +533,7 @@ def test_training_iteration_with_scan(env_config, avg_state):
     gamma = 0.99
     action_dim = 1
     recurrent = False
-    agent_args = AVGConfig(gamma=gamma, target_entropy=-1.0, learning_starts=5)
+    agent_config = AVGConfig(gamma=gamma, target_entropy=-1.0, learning_starts=5)
     log_frequency = 10
 
     # Define a partial function for training_iteration
@@ -558,7 +542,7 @@ def test_training_iteration_with_scan(env_config, avg_state):
         env_args=env_config,
         mode="gymnax" if env_config.env_params else "brax",
         recurrent=recurrent,
-        agent_args=agent_args,
+        agent_config=agent_config,
         action_dim=action_dim,
         log_frequency=log_frequency,
         total_timesteps=5,
@@ -586,7 +570,7 @@ def test_make_train(env_config):
         lstm_hidden_size=None,
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
-    agent_args = AVGConfig(gamma=0.99, target_entropy=-1.0)
+    agent_config = AVGConfig(gamma=0.99, target_entropy=-1.0)
     total_timesteps = 1000
     # Create the train function
     train_fn = make_train(
@@ -594,7 +578,7 @@ def test_make_train(env_config):
         actor_optimizer_args=optimizer_args,
         critic_optimizer_args=optimizer_args,
         network_args=network_args,
-        agent_args=agent_args,
+        agent_config=agent_config,
         total_timesteps=total_timesteps,
         alpha_args=alpha_args,
         num_episode_test=2,
@@ -619,22 +603,20 @@ def test_make_train(env_config):
 )
 def test_update_AVG_values(env_config, avg_state):
     # Mock inputs for the update_AVG_values function
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
     rollout = Transition(
-        obs=jnp.ones((env_config.num_envs, *observation_shape)),
-        action=jnp.ones((env_config.num_envs, *action_shape)),
-        next_obs=jnp.ones((env_config.num_envs, *observation_shape)),
+        obs=jnp.ones((env_config.n_envs, *observation_shape)),
+        action=jnp.ones((env_config.n_envs, *action_shape)),
+        next_obs=jnp.ones((env_config.n_envs, *observation_shape)),
         reward=jnp.array([[1.0]]),
         terminated=jnp.array([[0.0]]),
         truncated=jnp.array([[0.0]]),
         log_prob=jnp.array([[-1.0]]),
     )
-    agent_args = AVGConfig(gamma=0.99, target_entropy=-1.0)
+    agent_config = AVGConfig(gamma=0.99, target_entropy=-1.0)
 
     # Call the update_AVG_values function
-    updated_state = update_AVG_values(avg_state, rollout, agent_args)
+    updated_state = update_AVG_values(avg_state, rollout, agent_config)
     log_alpha = updated_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
     # Validate the updated state
@@ -653,7 +635,7 @@ def test_update_AVG_values(env_config, avg_state):
     ), "Reward mean should match the rollout reward."
     assert jnp.allclose(
         updated_state.gamma.mean, jnp.array([[0.99]])
-    ), "Gamma mean should match the agent_args gamma."
+    ), "Gamma mean should match the agent_config gamma."
     # assert jnp.allclose(
     #     updated_state.G_return.value, jnp.array([[1.0]])
     # ), "G_return value should match the cumulative reward."
@@ -668,22 +650,20 @@ def test_update_AVG_values(env_config, avg_state):
 )
 def test_update_AVG_values_terminal(env_config, avg_state):
     # Mock inputs for the update_AVG_values function
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env, env_config.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
     rollout = Transition(
-        obs=jnp.ones((env_config.num_envs, *observation_shape)),
-        action=jnp.ones((env_config.num_envs, *action_shape)),
-        next_obs=jnp.ones((env_config.num_envs, *observation_shape)),
+        obs=jnp.ones((env_config.n_envs, *observation_shape)),
+        action=jnp.ones((env_config.n_envs, *action_shape)),
+        next_obs=jnp.ones((env_config.n_envs, *observation_shape)),
         reward=jnp.array([[1.0]]),
         terminated=jnp.array([[1.0]]),
         truncated=jnp.array([[0.0]]),
         log_prob=jnp.array([[-1.0]]),
     )
-    agent_args = AVGConfig(gamma=0.99, target_entropy=-1.0)
+    agent_config = AVGConfig(gamma=0.99, target_entropy=-1.0)
 
     # Call the update_AVG_values function
-    updated_state = update_AVG_values(avg_state, rollout, agent_args)
+    updated_state = update_AVG_values(avg_state, rollout, agent_config)
     log_alpha = updated_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
     # Validate the updated state
@@ -702,7 +682,7 @@ def test_update_AVG_values_terminal(env_config, avg_state):
     ), "Reward mean should match the rollout reward."
     assert jnp.allclose(
         updated_state.gamma.mean, jnp.array([[0.0]])
-    ), "Gamma mean should match the agent_args gamma."
+    ), "Gamma mean should match the agent_config gamma."
     # assert jnp.allclose(
     #     updated_state.G_return.mean, jnp.array([[1.0]])
     # ), "G_return mean should match the cumulative reward."

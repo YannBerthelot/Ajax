@@ -11,50 +11,48 @@ from ajax.state import EnvironmentConfig
 def buffer_fixture():
     buffer_size = 100
     batch_size = 10
-    num_envs = 2
+    n_envs = 2
 
-    buffer = get_buffer(buffer_size, batch_size, num_envs)
-    return buffer, buffer_size, batch_size, num_envs
+    buffer = get_buffer(buffer_size, batch_size, n_envs)
+    return buffer, buffer_size, batch_size, n_envs
 
 
 @pytest.fixture
 def buffer_state_fixture(buffer_fixture):
-    buffer, buffer_size, batch_size, num_envs = buffer_fixture
+    buffer, buffer_size, batch_size, n_envs = buffer_fixture
 
     # Create a simple environment configuration
     env_name = "CartPole-v1"
     env, env_params = build_env_from_id(env_name)
     env_args = EnvironmentConfig(
-        env=env, env_params=env_params, continuous=False, num_envs=num_envs
+        env=env, env_params=env_params, continuous=False, n_envs=n_envs
     )
 
     buffer_state = init_buffer(buffer, env_args)
-    observation_shape, action_shape = get_state_action_shapes(
-        env_args.env, env_args.env_params
-    )
+    observation_shape, action_shape = get_state_action_shapes(env_args.env)
 
     return buffer_state, buffer, env_args, observation_shape, action_shape, batch_size
 
 
 @pytest.mark.dependency()
 def test_get_buffer(buffer_fixture):
-    buffer, buffer_size, batch_size, num_envs = buffer_fixture
+    buffer, buffer_size, batch_size, n_envs = buffer_fixture
 
-    assert buffer.init.keywords["add_batch_size"] == num_envs
-    assert buffer.init.keywords["max_length_time_axis"] == buffer_size // num_envs
+    assert buffer.init.keywords["add_batch_size"] == n_envs
+    assert buffer.init.keywords["max_length_time_axis"] == buffer_size // n_envs
     assert (
-        buffer.can_sample.keywords["min_length_time_axis"] == batch_size // num_envs + 1
+        buffer.can_sample.keywords["min_length_time_axis"] == batch_size // n_envs + 1
     )
 
 
 @pytest.mark.dependency(depends=["test_get_buffer"])
 def test_init_buffer(buffer_fixture, buffer_state_fixture):
-    buffer, buffer_size, batch_size, num_envs = buffer_fixture
+    buffer, buffer_size, batch_size, n_envs = buffer_fixture
     buffer_state, buffer, env_args, observation_shape, action_shape, _ = (
         buffer_state_fixture
     )
 
-    expected_buffer_size = buffer_size // num_envs
+    expected_buffer_size = buffer_size // n_envs
 
     # Check the buffer state structure
     for key in ["obs", "action", "reward", "terminated", "truncated"]:
@@ -62,27 +60,27 @@ def test_init_buffer(buffer_fixture, buffer_state_fixture):
 
     # Validate shapes
     assert buffer_state.experience["obs"].shape == (
-        env_args.num_envs,
+        env_args.n_envs,
         expected_buffer_size,
         *observation_shape,
     )
     assert buffer_state.experience["action"].shape == (
-        env_args.num_envs,
+        env_args.n_envs,
         expected_buffer_size,
         *action_shape,
     )
     assert buffer_state.experience["reward"].shape == (
-        env_args.num_envs,
+        env_args.n_envs,
         expected_buffer_size,
         1,
     )
     assert buffer_state.experience["terminated"].shape == (
-        env_args.num_envs,
+        env_args.n_envs,
         expected_buffer_size,
         1,
     )
     assert buffer_state.experience["truncated"].shape == (
-        env_args.num_envs,
+        env_args.n_envs,
         expected_buffer_size,
         1,
     )

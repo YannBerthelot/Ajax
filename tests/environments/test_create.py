@@ -2,12 +2,7 @@ import pytest
 from gymnax import make as make_gymnax_env
 
 from ajax.environments.create import build_env_from_id, prepare_env
-from ajax.wrappers import (
-    NormalizeVecObservation,
-    NormalizeVecObservationBrax,
-    NormalizeVecReward,
-    NormalizeVecRewardBrax,
-)
+from ajax.wrappers import NormalizeVecObservationBrax, NormalizeVecObservationGymnax
 
 
 @pytest.mark.parametrize(
@@ -29,20 +24,22 @@ def test_build_env_from_id(env_id, expected_params):
 
 
 @pytest.mark.parametrize(
-    "env_input,normalize_obs,normalize_rew,expected_continuous",
+    "env_input,normalize_obs,normalize_reward,expected_continuous,mode",
     [
-        ("CartPole-v1", True, False, False),  # Gymnax discrete environment
-        ("Pendulum-v1", True, True, True),  # Gymnax continuous environment
-        ("fast", False, True, True),  # Brax environment
+        ("CartPole-v1", True, False, False, "gymnax"),  # Gymnax discrete environment
+        ("Pendulum-v1", True, True, True, "gymnax"),  # Gymnax continuous environment
+        ("fast", False, True, True, "brax"),  # Brax environment
     ],
 )
-def test_prepare_env(env_input, normalize_obs, normalize_rew, expected_continuous):
+def test_prepare_env(
+    env_input, normalize_obs, normalize_reward, expected_continuous, mode
+):
     gamma = 0.99  # Example gamma value for reward normalization
     env, env_params, env_id_out, continuous = prepare_env(
         env_input,
         normalize_obs=normalize_obs,
-        normalize_reward=normalize_rew,
-        gamma=gamma if normalize_rew else None,
+        normalize_reward=normalize_reward,
+        gamma=gamma if normalize_reward else None,
     )
     assert env is not None
     if isinstance(env_input, str):
@@ -62,9 +59,13 @@ def test_prepare_env(env_input, normalize_obs, normalize_rew, expected_continuou
         assert hasattr(env, "step")
 
     # Check if normalization wrappers are applied
-    if normalize_obs:
-        assert isinstance(
-            env, NormalizeVecObservation | NormalizeVecObservationBrax
-        ) or isinstance(env._env, NormalizeVecObservation | NormalizeVecObservationBrax)
-    if normalize_rew:
-        assert isinstance(env, NormalizeVecReward | NormalizeVecRewardBrax)
+    if normalize_obs or normalize_reward:
+        if mode == "gymnax":
+            assert isinstance(env, NormalizeVecObservationGymnax) or isinstance(
+                env._env, NormalizeVecObservationGymnax
+            )
+
+        else:
+            assert isinstance(env, NormalizeVecObservationBrax) or isinstance(
+                env.env, NormalizeVecObservationBrax
+            )

@@ -42,22 +42,22 @@ def test_compute_td_error_scaling_initial():
 
 def test_compute_td_error_scaling_update():
     reward = NormalizationInfo(
-        value=jnp.array([2.0]),
-        count=jnp.array([1]),
-        mean=jnp.array([1.0]),
-        mean_2=jnp.array([0.0]),
+        value=jnp.array([[2.0]]),
+        count=jnp.array([[1]]),
+        mean=jnp.array([[1.0]]),
+        mean_2=jnp.array([[0.0]]),
     )
     gamma = NormalizationInfo(
-        value=jnp.array([0.98]),
-        count=jnp.array([1]),
-        mean=jnp.array([0.99]),
-        mean_2=jnp.array([0.0]),
+        value=jnp.array([[0.98]]),
+        count=jnp.array([[1]]),
+        mean=jnp.array([[0.99]]),
+        mean_2=jnp.array([[0.0]]),
     )
     G_return = NormalizationInfo(
-        value=jnp.array([20.0]),
-        count=jnp.array([1]),
-        mean=jnp.array([10.0]),
-        mean_2=jnp.array([0.0]),
+        value=jnp.array([[20.0]]),
+        count=jnp.array([[1]]),
+        mean=jnp.array([[10.0]]),
+        mean_2=jnp.array([[0.0]]),
     )
 
     td_error_scaling, updated_reward, updated_gamma, updated_G_return = (

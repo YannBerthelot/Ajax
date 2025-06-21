@@ -24,6 +24,8 @@ repos:
     hooks:
       - id: mypy
         name: Mypy type checker
+        additional_dependencies:  
+          - "types-PyYAML>=6.0.0"
         args:
           - "--config-file=pyproject.toml"
           - "--python-version=3.12"

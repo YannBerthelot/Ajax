@@ -50,7 +50,8 @@ def compute_td_error_scaling(
 ) -> tuple[jnp.array, NormalizationInfo, NormalizationInfo, NormalizationInfo]:
     new_reward, variance_reward = _normalize_and_update(reward, square_value=False)
     reward = new_reward
-    gamma, variance_gamma = _normalize_and_update(gamma, square_value=False)
+    new_gamma, variance_gamma = _normalize_and_update(gamma, square_value=False)
+
     if_nan = jnp.all(jnp.isnan(G_return.value))
 
     def conditional_replace(new_info, old_info, mask):
@@ -72,4 +73,4 @@ def compute_td_error_scaling(
     scaling = jnp.sqrt(variance_reward + G_return.mean * variance_gamma)
 
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
-    return td_error_scaling, reward, gamma, G_return
+    return td_error_scaling, reward, new_gamma, G_return

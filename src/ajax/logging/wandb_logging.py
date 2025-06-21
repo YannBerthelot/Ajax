@@ -21,9 +21,9 @@ from torch.utils.tensorboard import SummaryWriter
 class LoggingConfig:
     """Pass along the wandb config cleanly"""
 
-    project_name: str
-    run_name: str
     config: dict
+    project_name: Optional[str] = None
+    run_name: Optional[str] = None
     log_frequency: int = 1000
     mode: str = "online"
     group_name: Optional[str] = None
@@ -106,6 +106,7 @@ def stop_async_logging():
 
 def _logging_worker():
     """Worker thread that processes logging queue"""
+
     while not stop_logging.is_set():
         try:
             item = logging_queue.get(timeout=0.1)
@@ -113,22 +114,22 @@ def _logging_worker():
                 continue
 
             run_id, metrics, step, project, name = item
-            try:
-                run = wandb.init(
-                    project=project,
-                    name=f"{name} {run_id}",
-                    id=run_id,
-                    resume="must",
-                    reinit=True,
-                )
-                run.log(metrics, step=step)
-            except wandb.errors.UsageError:
-                pass
-
+            if project is not None:
+                try:
+                    run = wandb.init(
+                        project=project,
+                        name=f"{name} {run_id}",
+                        id=run_id,
+                        resume="must",
+                        reinit=True,
+                    )
+                    run.log(metrics, step=step)
+                except wandb.errors.UsageError:
+                    pass
             writer = tensorboard_writers.get(run_id)
             if writer:
                 for key, value in metrics.items():
-                    writer.add_scalar(key, value, step)
+                    writer.add_scalar(key, value.item(), step)
 
         except queue.Empty:
             continue
@@ -174,7 +175,6 @@ def vmap_log(
     logging_queue.put(
         (run_id, metrics_np, step, logging_config.project_name, logging_config.run_name)
     )
-
     return None
 
 

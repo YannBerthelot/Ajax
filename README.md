@@ -95,7 +95,7 @@ env_id = "halfcheetah"
 sac_agent = SAC(
         env_id=env_id,
     )
-sac_agent.train(seed=[1,2,3], num_timesteps=int(1e6))
+sac_agent.train(seed=[1,2,3], n_timesteps=int(1e6))
 ```
 Replace `<environment_name>` with the desired environment (e.g., `gymnax.CartPole-v1`).
 

@@ -10,13 +10,13 @@ from ajax.state import EnvironmentConfig
 def get_buffer(
     buffer_size: int,
     batch_size: int,
-    num_envs: int = 1,
+    n_envs: int = 1,
 ):
     return fbx.make_flat_buffer(
         max_length=buffer_size,
         sample_batch_size=batch_size,
         min_length=batch_size,
-        add_batch_size=num_envs,
+        add_batch_size=n_envs,
     )
 
 
@@ -27,7 +27,6 @@ def init_buffer(
     # Get the state and action shapes for the environment
     observation_shape, action_shape = get_state_action_shapes(
         env_args.env,
-        env_args.env_params,
     )
 
     # Initialize the action as a single action for a single timestep (not batched)

@@ -1,28 +1,20 @@
-from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
-import jax
-import jax.numpy as jnp
-import wandb
 from gymnax import EnvParams
 
-from ajax.environments.create import prepare_env
+from ajax.agents.base import ActorCritic
+from ajax.agents.PPO.state import PPOConfig
+from ajax.agents.PPO.train_PPO import make_train
 from ajax.logging.wandb_logging import (
     LoggingConfig,
-    init_logging,
-    stop_async_logging,
-    with_wandb_silent,
-)
-from ajax.state import (
-    BaseAgentConfig,
-    EnvironmentConfig,
-    NetworkConfig,
-    OptimizerConfig,
 )
 from ajax.types import EnvType, InitializationFunction
+from ajax.utils import get_and_prepare_hyperparams
 
 
-class ActorCritic:
+class PPO(ActorCritic):
+    """Soft Actor-Critic (PPO) agent for training and testing in continuous action spaces."""
+
     def __init__(  # pylint: disable=W0102, R0913
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
@@ -34,6 +26,13 @@ class ActorCritic:
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
+        ent_coef: float = 0,
+        clip_range: float = 0.2,
+        n_steps: int = 2048,
+        batch_size: int = 64,
+        n_epochs: int = 10,
+        gae_lambda: float = 0.95,
+        normalize_advantage: bool = True,
         lstm_hidden_size: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
@@ -65,27 +64,21 @@ class ActorCritic:
             target_entropy_per_dim (float): Target entropy per action dimension.
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
+        self.config = {**locals()}
+        self.config.update({"algo_name": "PPO"})
 
-        env, env_params, env_id, continuous = prepare_env(
-            env_id,
-            env_params=env_params,
-            normalize_obs=normalize_observations,
-            normalize_reward=normalize_rewards,
+        super().__init__(
+            env_id=env_id,
             n_envs=n_envs,
-            gamma=gamma,
-        )
-
-        self.env_args = EnvironmentConfig(
-            env=env,
-            env_params=env_params,
-            n_envs=n_envs,
-            continuous=continuous,
-        )
-
-        self.network_args = NetworkConfig(
+            actor_learning_rate=actor_learning_rate,
+            critic_learning_rate=critic_learning_rate,
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
+            env_params=env_params,
+            max_grad_norm=max_grad_norm,
             lstm_hidden_size=lstm_hidden_size,
+            normalize_observations=normalize_observations,
+            normalize_rewards=normalize_rewards,
             actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
             critic_kernel_init=critic_kernel_init,
@@ -94,70 +87,73 @@ class ActorCritic:
             encoder_bias_init=encoder_bias_init,
         )
 
-        self.actor_optimizer_args = OptimizerConfig(
-            learning_rate=actor_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-        )
-        self.critic_optimizer_args = OptimizerConfig(
-            learning_rate=critic_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-        )
-
-        self.agent_config = BaseAgentConfig(
+        self.agent_config = PPOConfig(
             gamma=gamma,
+            ent_coef=ent_coef,
+            clip_range=clip_range,
+            n_steps=n_steps,
+            batch_size=batch_size,
+            n_epochs=n_epochs,
+            gae_lambda=gae_lambda,
+            normalize_advantage=normalize_advantage,
         )
 
     def get_make_train(self) -> Callable:
-        raise NotImplementedError
-
-    @with_wandb_silent
-    def train(
-        self,
-        seed: int | Sequence[int] = 42,
-        n_timesteps: int = int(1e6),
-        num_episode_test: int = 10,
-        logging_config: Optional[LoggingConfig] = None,
-    ) -> None:
         """
-        Train the PPO agent.
+        Create a training function for the PPO agent.
 
-        Args:
-            seed (int | Sequence[int]): Random seed(s) for training.
-            n_timesteps (int): Total number of timesteps for training.
-            num_episode_test (int): Number of episodes for evaluation during training.
+        Returns:
+            Callable: A function that trains the PPO agent.
         """
-        if isinstance(seed, int):
-            seed = [seed]
+        return make_train
 
-        if logging_config is not None:
-            logging_config.config.update(self.config)
-            run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(run_ids):
-                init_logging(run_id, index, logging_config)
-        else:
-            run_ids = None
 
-        def set_key_and_train(seed, index):
-            key = jax.random.PRNGKey(seed)
+if __name__ == "__main__":
+    n_seeds = 1
+    log_frequency = 5000
+    use_wandb = True
+    logging_config = LoggingConfig(
+        project_name="PPO_tests_rlzoo" if use_wandb else None,
+        run_name="PPO",
+        config={
+            "debug": False,
+            "log_frequency": log_frequency,
+            "n_seeds": n_seeds,
+        },
+        log_frequency=log_frequency,
+        horizon=10_000,
+        use_tensorboard=True,
+        use_wandb=use_wandb,
+    )
+    env_id = "HalfCheetah-v4"
+    # env_id = "CartPole-v1"
+    init_hyperparams, train_hyperparams = get_and_prepare_hyperparams(
+        "./hyperparams/ppo.yml", env_id=env_id
+    )
 
-            train_jit = self.get_make_train()(
-                env_args=self.env_args,
-                actor_optimizer_args=self.actor_optimizer_args,
-                critic_optimizer_args=self.critic_optimizer_args,
-                network_args=self.network_args,
-                agent_config=self.agent_config,
-                total_timesteps=n_timesteps,
-                num_episode_test=num_episode_test,
-                run_ids=run_ids,
-                logging_config=logging_config,
-            )
+    def process_brax_env_id(env_id: str) -> str:
+        """Remove version from env_id for brax compatibility."""
+        short_env_id = env_id.split("-")[0].lower()
+        brax_envs = [
+            "ant",
+            "halfcheetah",
+            "hopper",
+            "walker2d",
+            "humanoid",
+            "reacher",
+            "swimmer",
+        ]
+        if short_env_id in brax_envs:
+            return short_env_id
+        return env_id
 
-            agent_state = train_jit(key, index)
-            stop_async_logging()
-            return agent_state
+    env_id = process_brax_env_id(env_id)
 
-        index = jnp.arange(len(seed))
-        seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+    PPO_agent = PPO(
+        env_id=env_id, **init_hyperparams
+    )  # Remove version from env_id for brax compatibility
+    PPO_agent.train(
+        seed=list(range(n_seeds)),
+        logging_config=logging_config,
+        **train_hyperparams,
+    )

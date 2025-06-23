@@ -49,6 +49,8 @@ class DynaSAC:
         lstm_hidden_size: Optional[int] = None,
         avg_length: int = 4,
         sac_length: int = 4,
+        num_envs_AVG: int = 10,
+        num_epochs_distillation: int = 1,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -73,23 +75,35 @@ class DynaSAC:
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "DynaSAC"})
-        env, env_params, env_id, continuous = prepare_env(
+        primary_env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=True,
+            normalize_obs=False,
             normalize_reward=False,
             n_envs=n_envs,
             gamma=gamma,
         )
 
-        if not check_if_environment_has_continuous_actions(env):
-            raise ValueError("SAC only supports continuous action spaces.")
+        secondary_env, env_params, env_id, continuous = prepare_env(
+            env_id,
+            env_params=env_params,
+            normalize_obs=True,
+            normalize_reward=False,
+            n_envs=num_envs_AVG,
+            gamma=gamma,
+        )
 
-        self.env_args = EnvironmentConfig(
-            env=env,
+        if not check_if_environment_has_continuous_actions(primary_env):
+            raise ValueError("SAC only supports continuous action spaces.")
+        self.num_epochs_distillation = num_epochs_distillation
+        self.primary_env_args = EnvironmentConfig(
+            env=primary_env,
             env_params=env_params,
             n_envs=n_envs,
             continuous=continuous,
+        )
+        self.secondary_env_args = self.primary_env_args.replace(
+            env=secondary_env, n_envs=num_envs_AVG
         )
 
         self.alpha_args = AlphaConfig(
@@ -102,7 +116,7 @@ class DynaSAC:
             critic_architecture=critic_architecture,
             lstm_hidden_size=lstm_hidden_size,
             squash=True,
-            penultimate_normalization=True,
+            penultimate_normalization=False,
         )
 
         self.primary_actor_optimizer_args = OptimizerConfig(
@@ -128,7 +142,7 @@ class DynaSAC:
             clipped=max_grad_norm is not None,
             beta_1=0,
         )
-        action_dim = get_action_dim(env, env_params)
+        action_dim = get_action_dim(primary_env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
         sac_config = SACConfig(
             gamma=gamma,
@@ -140,7 +154,7 @@ class DynaSAC:
         avg_config = AVGConfig(
             gamma=gamma,
             target_entropy=target_entropy,
-            learning_starts=learning_starts,
+            learning_starts=learning_starts // num_envs_AVG,
             reward_scale=reward_scale,
             num_critics=2,
         )
@@ -188,7 +202,8 @@ class DynaSAC:
             key = jax.random.PRNGKey(seed)
 
             train_jit = make_train(
-                env_args=self.env_args,
+                primary_env_args=self.primary_env_args,
+                secondary_env_args=self.secondary_env_args,
                 primary_actor_optimizer_args=self.primary_actor_optimizer_args,
                 primary_critic_optimizer_args=self.primary_critic_optimizer_args,
                 secondary_actor_optimizer_args=self.secondary_actor_optimizer_args,
@@ -203,6 +218,7 @@ class DynaSAC:
                 logging_config=logging_config,
                 sac_length=self.agent_config.sac_length,
                 avg_length=self.agent_config.avg_length,
+                num_epochs=self.num_epochs_distillation,
             )
 
             agent_state = train_jit(key, index)
@@ -218,8 +234,8 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        "dyna_sac_tests_hector",
-        "primary_training_iteration_scan_fn_unroll_4",
+        project_name="dyna_sac_tests_hector_debug",
+        run_name="primary_training_iteration_scan_fn_unroll_4",
         config={
             "debug": False,
             "log_frequency": log_frequency,
@@ -235,8 +251,10 @@ if __name__ == "__main__":
         env_id=env_id,
         learning_starts=int(1e4),
         batch_size=256,
-        avg_length=100,
-        sac_length=100,
+        avg_length=1,
+        sac_length=1,
+        num_envs_AVG=1,
+        num_epochs_distillation=10,
     )
     sac_agent.train(
         seed=list(range(n_seeds)),

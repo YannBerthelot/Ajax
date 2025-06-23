@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from typing import Any, Optional, Union
 
 import jax
+import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.train_AVG import init_AVG
@@ -10,6 +11,8 @@ from ajax.agents.AVG.train_AVG import training_iteration as secondary_training_i
 from ajax.agents.DynaSAC.state import AVGState, DynaSACConfig, SACState
 from ajax.agents.sac.train_sac import init_sac
 from ajax.agents.sac.train_sac import training_iteration as primary_training_iteration
+from ajax.buffers.utils import get_batch_from_buffer
+from ajax.distillation import policy_distillation, value_distillation
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -48,18 +51,130 @@ def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[s
     return value
 
 
+def repeat_first_entry(tree, num_repeats: int):
+    return jax.tree_map(lambda x: jnp.tile(x, reps=num_repeats), tree)
+
+
+def tile_to_batch(state, new_batch_size=10):
+    return jax.tree_util.tree_map(
+        lambda x: (
+            jnp.tile(x, (new_batch_size,) + (1,) * (x.ndim - 1)).reshape(
+                new_batch_size, -1
+            )
+            if isinstance(x, jnp.ndarray)
+            else x
+        ),
+        state,
+    )
+
+
+def print_shape_diffs(source_tree, target_tree):
+    def diff(src, tgt):
+        src_shape, tgt_shape = jnp.shape(src), jnp.shape(tgt)
+        if src_shape != tgt_shape:
+            print(f"Shape mismatch: source {src_shape} vs target {tgt_shape}")
+        return None
+
+    jax.tree_util.tree_map(diff, source_tree, target_tree)
+
+
+def broadcast_to_match(source_tree, target_tree):
+    def maybe_broadcast(src, tgt):
+        # Skip broadcasting for None or scalar values
+        if src is None:
+            return None
+        if isinstance(src, (int, float)) and jnp.isscalar(tgt):
+            return src
+
+        # Check if shape matches, or if it needs to be repeated along axis 0
+        src_shape, tgt_shape = jnp.shape(src), jnp.shape(tgt)
+        if src_shape == tgt_shape:
+            return src
+        elif (
+            len(src_shape) == len(tgt_shape) and src_shape[0] == 1 and tgt_shape[0] > 1
+        ):
+            reps = [tgt_shape[0]] + [1] * (len(tgt_shape) - 1)
+            return jnp.tile(src, reps)
+        elif src_shape == ():  # scalar to broadcast
+            return jnp.broadcast_to(src, tgt_shape)
+        else:
+            raise ValueError(f"Cannot broadcast {src_shape} to {tgt_shape}")
+
+    return jax.tree_util.tree_map(maybe_map, maybe_broadcast, source_tree, target_tree)
+
+
+def maybe_map(fn, source_tree, target_tree):
+    return fn(source_tree, target_tree) if source_tree is not None else None
+
+
+def distill_source_to_target(source, target, inputs, num_epochs=1, actor: bool = False):
+    teacher_values = source.apply_fn(source.params, inputs, mutable=False)
+    if actor:
+        student_state = policy_distillation(
+            target,
+            teacher_values,
+            inputs,
+            num_epochs=num_epochs,
+        )
+    else:
+        student_state = value_distillation(
+            target, teacher_values, inputs, num_epochs=num_epochs
+        )
+    return student_state.params
+
+
 def get_agent_state_from_agent_state(
-    target: Union[SACState, AVGState], source: Union[SACState, AVGState]
+    target: Union[SACState, AVGState],
+    source: Union[SACState, AVGState],
+    observations,
+    actions,
+    num_epochs: int = 1,
+    transfer_collector_state: bool = False,
 ) -> Union[SACState, AVGState]:
-    target_actor_state = target.actor_state.replace(params=source.actor_state.params)  # type: ignore[union-attr]
-    target_critic_state = target.critic_state.replace(params=source.critic_state.params)  # type: ignore[union-attr]
+    distilled_actor_params = distill_source_to_target(
+        source.actor_state,
+        target.actor_state,
+        inputs=observations,
+        actor=True,
+        num_epochs=num_epochs,
+    )
+    distilled_critic_params = distill_source_to_target(
+        source.critic_state,
+        target.critic_state,
+        inputs=jnp.hstack([observations, actions]),
+        num_epochs=num_epochs,
+    )
+    target_actor_state = target.actor_state.replace(params=distilled_actor_params)  # type: ignore[union-attr]
+    target_critic_state = target.critic_state.replace(params=distilled_critic_params)  # type: ignore[union-attr]
+    if transfer_collector_state:
+        target_collector_state = target.collector_state.replace(
+            env_state=source.collector_state.env_state,
+            last_obs=source.collector_state.last_obs,
+            last_terminated=source.collector_state.last_terminated,
+            last_truncated=source.collector_state.last_truncated,
+        )  # type: ignore[union-attr]
+
+        new_collector_state = broadcast_to_match(
+            target.collector_state, target_collector_state
+        )
+
+        new_target_state = target.replace(  # type: ignore[union-attr]
+            actor_state=target_actor_state,
+            critic_state=target_critic_state,
+            collector_state=new_collector_state,
+        )
+
+        return new_target_state
+
     return target.replace(  # type: ignore[union-attr]
-        actor_state=target_actor_state, critic_state=target_critic_state
+        actor_state=target_actor_state,
+        critic_state=target_critic_state,
     )
 
 
 def make_train(
-    env_args: EnvironmentConfig,
+    primary_env_args: EnvironmentConfig,
+    secondary_env_args: EnvironmentConfig,
     primary_actor_optimizer_args: OptimizerConfig,
     primary_critic_optimizer_args: OptimizerConfig,
     secondary_actor_optimizer_args: OptimizerConfig,
@@ -74,6 +189,7 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     sac_length: int = 1,
     avg_length: int = 1,
+    num_epochs: int = 10,
 ):
     """
     Create the training function for the SAC agent.
@@ -91,7 +207,7 @@ def make_train(
     Returns:
         Callable: JIT-compiled training function.
     """
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = "gymnax" if check_env_is_gymnax(primary_env_args.env) else "brax"
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
@@ -104,7 +220,7 @@ def make_train(
         """Train the SAC agent."""
         primary_agent_state = init_sac(
             key=key,
-            env_args=env_args,
+            env_args=primary_env_args,
             actor_optimizer_args=primary_actor_optimizer_args,
             critic_optimizer_args=primary_critic_optimizer_args,
             network_args=network_args,
@@ -114,10 +230,10 @@ def make_train(
 
         secondary_agent_state = init_AVG(
             key=key,
-            env_args=env_args,
+            env_args=secondary_env_args,
             actor_optimizer_args=secondary_actor_optimizer_args,
             critic_optimizer_args=secondary_critic_optimizer_args,
-            network_args=network_args,
+            network_args=network_args.replace(penultimate_normalization=True),
             alpha_args=alpha_args,
             num_critics=2,
         )
@@ -125,9 +241,10 @@ def make_train(
         # agent_state = DynaSACState(
         #     primary=primary_agent_state, secondary=secondary_agent_state
         # )
+        n_unroll = 2
 
-        num_updates = total_timesteps // env_args.n_envs
-        _, action_shape = get_state_action_shapes(env_args.env, env_args.env_params)
+        num_updates = total_timesteps // primary_env_args.n_envs
+        _, action_shape = get_state_action_shapes(primary_env_args.env)
 
         primary_training_iteration_scan_fn = partial(
             primary_training_iteration,
@@ -136,7 +253,7 @@ def make_train(
             action_dim=action_shape[0],
             agent_config=agent_config.primary,
             mode=mode,
-            env_args=env_args,
+            env_args=primary_env_args,
             num_episode_test=num_episode_test,
             log_fn=log_fn,
             index=index,
@@ -154,19 +271,16 @@ def make_train(
             action_dim=action_shape[0],
             agent_config=agent_config.secondary,
             mode=mode,
-            env_args=env_args,
+            env_args=secondary_env_args,
             num_episode_test=num_episode_test,
             log_fn=log_fn,
             index=index,
-            log=log,
+            log=False,
             total_timesteps=total_timesteps,
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),
         )
-        # unroll_length = 4  # IMPORTANT: has to match between loops for reproducibility, otherwise a N x 1 loop might not yield the same results as a N loop. has to be >1 as well for some reason to be reproducible
-        inner_length = sac_length + avg_length
-        print(sac_length, avg_length)
 
         def dyna_train_loop(
             carry: tuple[SACState, AVGState], _: Any
@@ -177,22 +291,93 @@ def make_train(
                 init=primary_agent_state,
                 xs=None,
                 length=sac_length,
-                unroll=1,
+                unroll=n_unroll,
             )
 
-            transfered_secondary_agent_state = get_agent_state_from_agent_state(
-                source=new_primary_agent_state, target=secondary_agent_state
+            def do_training(_):
+                key = jax.random.PRNGKey(0)
+                (
+                    observations,
+                    terminated,
+                    truncated,
+                    next_observations,
+                    rewards,
+                    actions,
+                ) = get_batch_from_buffer(
+                    buffer,
+                    new_primary_agent_state.collector_state.buffer_state,
+                    key,
+                )
+                env_norm_info = (
+                    secondary_agent_state.collector_state.env_state.info[
+                        "normalization_info"
+                    ]
+                    if mode == "brax"
+                    else secondary_agent_state.collector_state.env_state.normalization_info
+                )
+
+                normalized_obs = secondary_env_args.env.normalize_observation(
+                    observations,
+                    env_norm_info.reward,
+                )
+                transfered_secondary_agent_state = get_agent_state_from_agent_state(
+                    source=new_primary_agent_state,
+                    target=secondary_agent_state,
+                    observations=normalized_obs,  # have to normalize those for AVG
+                    actions=actions,
+                    transfer_collector_state=True,
+                    num_epochs=num_epochs,
+                )
+
+                new_secondary_agent_state, _ = jax.lax.scan(
+                    f=secondary_training_iteration_scan_fn,
+                    init=transfered_secondary_agent_state,
+                    xs=None,
+                    length=avg_length,
+                    unroll=n_unroll,
+                )
+
+                transfered_primary_agent_state = get_agent_state_from_agent_state(
+                    target=new_primary_agent_state,
+                    source=new_secondary_agent_state,
+                    observations=observations,
+                    actions=actions,
+                    num_epochs=num_epochs,
+                )
+
+                return transfered_primary_agent_state, new_secondary_agent_state
+
+            def skip_training(_):
+                return new_primary_agent_state, secondary_agent_state
+
+            cond_pred = new_primary_agent_state.collector_state.timestep > 10_000
+
+            transfered_primary_agent_state, new_secondary_agent_state = jax.lax.cond(
+                cond_pred, do_training, skip_training, operand=None
             )
-            new_secondary_agent_state, _ = jax.lax.scan(
-                f=secondary_training_iteration_scan_fn,
-                init=transfered_secondary_agent_state,
-                xs=None,
-                length=avg_length,
-                unroll=1,
+
+            # assert , (
+            #     "transfered_primary_agent_state and new_primary_agent_state are not"
+            #     " equal"
+            # )
+            assert jax.tree_map(
+                lambda x, y: jnp.allclose(x, y),
+                transfered_primary_agent_state.actor_state.params,
+                new_primary_agent_state.actor_state.params,
+            ), (
+                "transfered_primary_agent_state and new_primary_agent_state are not"
+                " equal"
             )
-            transfered_primary_agent_state = get_agent_state_from_agent_state(
-                target=new_primary_agent_state, source=new_secondary_agent_state
+
+            assert jax.tree_map(
+                lambda x, y: jnp.allclose(x, y),
+                transfered_primary_agent_state.critic_state.params,
+                new_primary_agent_state.critic_state.params,
+            ), (
+                "transfered_primary_agent_state and new_primary_agent_state are not"
+                " equal"
             )
+
             assert isinstance(
                 transfered_primary_agent_state, SACState
             ), "transfered_primary_agent_state is not a SACState"  # to make mypy happy
@@ -201,11 +386,17 @@ def make_train(
                 new_secondary_agent_state,
             ), None
 
+        # primary_agent_state, _ = jax.lax.scan(
+        #     f=primary_training_iteration_scan_fn,
+        #     init=primary_agent_state,
+        #     xs=None,
+        #     length=num_updates,
+        # )
         (primary_agent_state, secondary_agent_state), _ = jax.lax.scan(
             f=dyna_train_loop,
             init=(primary_agent_state, secondary_agent_state),
             xs=None,
-            length=int(num_updates // inner_length),
+            length=num_updates,
         )
         return primary_agent_state
 

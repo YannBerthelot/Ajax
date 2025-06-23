@@ -482,9 +482,7 @@ def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bo
     Returns:
         bool: Whether to use uniform sampling
     """
-    return jax.lax.cond(
-        timestep < learning_starts,
-        _return_true,
-        _return_false,
-        operand=None,
+
+    return jnp.where(
+        timestep < learning_starts, jnp.zeros_like(timestep), jnp.ones_like(timestep)
     )

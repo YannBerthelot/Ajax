@@ -798,10 +798,10 @@ def training_iteration(
             env_params=env_args.env_params,
             recurrent=recurrent,
             lstm_hidden_size=lstm_hidden_size,
-            obs_norm_info=(
+            norm_info=(
                 agent_state.collector_state.env_state.info[
                     (
-                        "obs_normalization_info"
+                        "normalization_info"
                         if mode == "brax"
                         else agent_state.collector_state.env_state.normalization_info
                     )

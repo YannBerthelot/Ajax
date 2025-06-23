@@ -414,6 +414,14 @@ def normalize_wrapper_factory(
                 return reward
             return reward * jnp.sqrt(norm_info.var + 1e-8)
 
+        def normalize_observation(
+            self, obs: jax.Array, norm_info: NormalizationInfo
+        ) -> jax.Array:
+            """Normalize the observation using the normalization info."""
+            if norm_info is None or norm_info.var is None:
+                return obs
+            return (obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
+
         def step(self, *, state, action, params=None, key=None):
             obs_norm_info = (
                 state.info["normalization_info"].obs

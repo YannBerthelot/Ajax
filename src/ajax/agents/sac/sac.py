@@ -186,7 +186,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_hector",
+        project_name="dyna_sac_tests_hector_debug",
         run_name="sac",
         config={
             "debug": False,

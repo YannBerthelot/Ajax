@@ -70,7 +70,7 @@ class AVG:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=True,
+            normalize_obs=False,
             normalize_reward=False,
             n_envs=n_envs,
             gamma=gamma,
@@ -178,7 +178,7 @@ class AVG:
 if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
-    n_envs = 2
+    n_envs = 10
     logging_config = LoggingConfig(
         project_name="dyna_sac_tests_hector",
         run_name="test",

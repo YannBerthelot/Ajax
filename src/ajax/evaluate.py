@@ -58,15 +58,16 @@ def evaluate(
         env = clip_wrapper(
             create(env_name=env_name, batch_size=num_episodes)
         )  # no need for autoreset with random init as we only done one episode, still need for normalization though
-        if norm_info is not None:
-            env = norm_wrapper(
-                env,
-                train=False,
-                norm_info=repeat_first_entry(norm_info, num_repeats=num_episodes),
-                gamma=gamma,
-                normalize_obs=norm_info.obs is not None,
-                normalize_reward=norm_info.reward is not None,
-            )
+    if norm_info is not None:
+        print("normalizing")
+        env = norm_wrapper(
+            env,
+            train=False,
+            norm_info=repeat_first_entry(norm_info, num_repeats=num_episodes),
+            gamma=gamma,
+            normalize_obs=norm_info.obs is not None,
+            normalize_reward=norm_info.reward is not None,
+        )
 
     key, reset_key = jax.random.split(rng, 2)
     reset_keys = (

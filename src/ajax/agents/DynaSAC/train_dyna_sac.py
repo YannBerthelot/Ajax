@@ -107,18 +107,20 @@ def maybe_map(fn, source_tree, target_tree):
     return fn(source_tree, target_tree) if source_tree is not None else None
 
 
-def distill_source_to_target(source, target, inputs, num_epochs=1, actor: bool = False):
-    teacher_values = source.apply_fn(source.params, inputs, mutable=False)
+def distill_source_to_target(
+    source, target, teacher_inputs, student_inputs, num_epochs=1, actor: bool = False
+):
+    teacher_values = source.apply_fn(source.params, teacher_inputs, mutable=False)
     if actor:
         student_state = policy_distillation(
             target,
             teacher_values,
-            inputs,
+            student_inputs,
             num_epochs=num_epochs,
         )
     else:
         student_state = value_distillation(
-            target, teacher_values, inputs, num_epochs=num_epochs
+            target, teacher_values, student_inputs, num_epochs=num_epochs
         )
     return student_state.params
 
@@ -126,7 +128,8 @@ def distill_source_to_target(source, target, inputs, num_epochs=1, actor: bool =
 def get_agent_state_from_agent_state(
     target: Union[SACState, AVGState],
     source: Union[SACState, AVGState],
-    observations,
+    target_observations,
+    source_observations,
     actions,
     num_epochs: int = 1,
     transfer_collector_state: bool = False,
@@ -134,14 +137,18 @@ def get_agent_state_from_agent_state(
     distilled_actor_params = distill_source_to_target(
         source.actor_state,
         target.actor_state,
-        inputs=observations,
+        student_inputs=target_observations,
+        teacher_inputs=source_observations,
         actor=True,
         num_epochs=num_epochs,
     )
     distilled_critic_params = distill_source_to_target(
         source.critic_state,
         target.critic_state,
-        inputs=jnp.hstack([observations, actions]),
+        student_inputs=jnp.hstack([target_observations, actions]),
+        teacher_inputs=jnp.hstack(
+            [source_observations, actions]
+        ),  # actions are not normalized, so we can use them directly
         num_epochs=num_epochs,
     )
     target_actor_state = target.actor_state.replace(params=distilled_actor_params)  # type: ignore[union-attr]
@@ -323,7 +330,8 @@ def make_train(
                 transfered_secondary_agent_state = get_agent_state_from_agent_state(
                     source=new_primary_agent_state,
                     target=secondary_agent_state,
-                    observations=normalized_obs,  # have to normalize those for AVG
+                    target_observations=normalized_obs,  # have to normalize those for AVG
+                    source_observations=observations,
                     actions=actions,
                     transfer_collector_state=True,
                     num_epochs=num_epochs,
@@ -340,7 +348,8 @@ def make_train(
                 transfered_primary_agent_state = get_agent_state_from_agent_state(
                     target=new_primary_agent_state,
                     source=new_secondary_agent_state,
-                    observations=observations,
+                    source_observations=normalized_obs,
+                    target_observations=observations,
                     actions=actions,
                     num_epochs=num_epochs,
                 )

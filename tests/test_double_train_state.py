@@ -3,7 +3,6 @@ import jax
 import jax.numpy as jnp
 import optax
 import pytest
-from flax.training import train_state
 
 from ajax.state import DoubleTrainState, LoadedTrainState
 

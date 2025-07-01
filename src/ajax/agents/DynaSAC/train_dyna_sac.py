@@ -11,7 +11,6 @@ from ajax.agents.AVG.train_AVG import training_iteration as secondary_training_i
 from ajax.agents.DynaSAC.state import AVGState, DynaSACConfig, SACState
 from ajax.agents.sac.train_sac import init_sac
 from ajax.agents.sac.train_sac import training_iteration as primary_training_iteration
-from ajax.buffers.utils import get_batch_from_buffer
 from ajax.distillation import policy_distillation, value_distillation
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.logging.wandb_logging import (
@@ -300,7 +299,9 @@ def make_train(
             critic_state=fix_target_params(raw_secondary_agent_state.critic_state)
         )
 
-        DoubleTrainStateAVG = get_double_train_state("avg", dyna_factor=agent_config.dyna_factor)  # type: ignore[arg-type]
+        DoubleTrainStateAVG = get_double_train_state(
+            "avg", dyna_factor=agent_config.dyna_factor
+        )  # type: ignore[arg-type]
         DoubleTrainStateSAC = get_double_train_state(
             "sac", dyna_factor=agent_config.dyna_factor
         )

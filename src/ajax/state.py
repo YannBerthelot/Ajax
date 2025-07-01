@@ -11,6 +11,7 @@ from gymnax import EnvParams
 from jax.tree_util import Partial as partial
 
 from ajax.types import EnvStateType, EnvType, InitializationFunction
+from ajax.wrappers import NormalizationInfo
 
 
 @struct.dataclass
@@ -90,6 +91,134 @@ class LoadedTrainState(TrainState):
     def apply(self, params, *args, **kwargs):
         """Call the apply_fn with the given parameters and arguments."""
         return self.apply_fn(params, *args, **kwargs)
+
+
+def normalize_observation(obs: jax.Array, norm_info: NormalizationInfo) -> jax.Array:
+    """Normalize the observation using the normalization info."""
+    if norm_info is None or norm_info.var is None:
+        return obs
+    return (obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
+
+
+def unnormalize_observation(obs: jax.Array, norm_info: NormalizationInfo) -> jax.Array:
+    """Unnormalize the observation using the normalization info."""
+    if norm_info is None or norm_info.var is None:
+        return obs
+    return obs * jnp.sqrt(norm_info.var + 1e-8) + norm_info.mean
+
+
+def simplex(a, b, dyna_factor):
+    # Use a fused multiply-add to minimize rounding errors:
+    return jnp.add(a, dyna_factor * (b - a))
+
+
+def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
+    assert second_state_type in [
+        "avg",
+        "sac",
+    ], f"Invalid second_state_type: {second_state_type}. Expected 'avg' or 'sac'."
+
+    @struct.dataclass
+    class DoubleTrainState(LoadedTrainState):
+        second_state: LoadedTrainState = struct.field(pytree_node=False, default=None)
+        norm_info: Optional[NormalizationInfo] = struct.field(
+            pytree_node=False, default=None
+        )
+        hidden_state: Optional[Any] = struct.field(pytree_node=False, default=None)
+
+        @classmethod
+        def from_LoadedTrainState(
+            cls,
+            lts: LoadedTrainState,
+            second_state: LoadedTrainState,
+            norm_info: Optional[NormalizationInfo] = None,
+        ):
+            return cls(
+                step=lts.step,
+                apply_fn=lts.apply_fn,
+                params=lts.params,
+                tx=lts.tx,
+                opt_state=lts.opt_state,
+                target_params=lts.target_params,
+                hidden_state=lts.hidden_state,
+                recurrent=lts.recurrent,
+                second_state=second_state,
+                norm_info=norm_info,
+            )
+
+        def apply(self, params, obs, *args, **kwargs):
+            """Call the apply_fn with the given parameters and arguments."""
+            if (
+                second_state_type == "avg"
+            ):  # This means first state is SAC, so we need to normalize the raw obs
+                if self.norm_info is None:
+                    processed_obs = obs
+                    print(
+                        "Warning: norm_info or env is None, not normalizing"
+                        " observations."
+                    )
+                else:
+                    processed_obs = normalize_observation(
+                        obs,
+                        norm_info=jax.tree.map(
+                            lambda x: x[0].reshape(1, -1), self.norm_info.obs
+                        ),
+                    )
+            elif (
+                second_state_type == "sac"
+            ):  # This means first state is AVG, so we need to unnormalize the obs
+                if self.norm_info is None:
+                    processed_obs = obs
+                    print(
+                        "Warning: norm_info or env is None, not unnormalizing"
+                        " observations."
+                    )
+                else:
+                    processed_obs = unnormalize_observation(
+                        obs,
+                        norm_info=jax.tree.map(
+                            lambda x: x[0].reshape(1, -1), self.norm_info.obs
+                        ),  # as the dimensions are only repeats, keep only the first one to prevent messy broadcasting
+                    )
+            else:
+                raise ValueError(
+                    f"Invalid second_state_type: {second_state_type}. Expected"
+                    " 0:'avg' or 1: 'sac'."
+                )
+            assert (
+                obs.shape == processed_obs.shape
+            ), f"{obs.shape} != {processed_obs.shape}"
+
+            raw_output = self.apply_fn(params, obs, *args, **kwargs)
+            second_output = self.second_state.apply_fn(
+                self.second_state.target_params,
+                processed_obs,
+                *args,
+                **kwargs,
+            )
+            if isinstance(second_output, jnp.ndarray):
+                assert jnp.all(
+                    jnp.isfinite(second_output)
+                ), "second_output has NaN or Inf!"
+
+            # _dyna_factor = dyna_factor(self.step).astype(jnp.float32)
+            _dyna_factor = 0.0
+            if not isinstance(raw_output, jnp.ndarray):
+                # assume raw_output is a SquashedNormal distribution TODO : Make this for any distrax distributon?
+                complete_output = raw_output.mix_distributions(
+                    jax.lax.stop_gradient(second_output),
+                    dyna_factor=jax.lax.stop_gradient(_dyna_factor),
+                )
+            else:
+                complete_output = simplex(
+                    raw_output,
+                    jax.last.stop_gradient(second_output),
+                    jax.lax_stop_gradient(_dyna_factor),
+                )
+
+            return complete_output
+
+    return DoubleTrainState
 
 
 @struct.dataclass

@@ -21,9 +21,11 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.state import (
     AlphaConfig,
+    # DoubleTrainState,
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
+    get_double_train_state,
 )
 from ajax.types import BufferType
 
@@ -179,6 +181,54 @@ def get_agent_state_from_agent_state(
     )
 
 
+def fix_target_params(state):
+    if state.target_params is not None:
+        # If target_params are already set, return the state as is
+        return state
+    return state.replace(target_params=state.params)
+
+
+def copy_state_to_state(
+    source: Union[SACState, AVGState],
+    target: Union[SACState, AVGState],
+    tau: float,
+    transfer_collector_state: bool = False,
+):
+    if transfer_collector_state:
+        new_collector_state = target.collector_state.replace(
+            env_state=source.collector_state.env_state,
+            last_obs=source.collector_state.last_obs,
+            last_terminated=source.collector_state.last_terminated,
+            last_truncated=source.collector_state.last_truncated,
+        )
+    else:
+        new_collector_state = target.collector_state
+
+    # new_primary_agent_state = new_primary_agent_state.replace(
+    #     critic_state=new_primary_agent_state.critic_state.soft_update(tau=tau),
+    #     actor_state=new_primary_agent_state.actor_state.soft_update(tau=tau),
+    # )
+
+    new_actor_second_state = target.actor_state.second_state.replace(
+        params=source.actor_state.params,
+    ).soft_update(tau=tau)
+
+    new_actor_state = target.actor_state.replace(second_state=new_actor_second_state)
+    # new_source_critic_state = fix_target_params(
+    #     source.critic_state
+    # )  # to handle avg not having target params
+
+    new_critic_second_state = target.critic_state.second_state.replace(
+        params=source.critic_state.params,
+    ).soft_update(tau=tau)
+    new_critic_state = target.critic_state.replace(second_state=new_critic_second_state)
+    return target.replace(
+        actor_state=new_actor_state,
+        critic_state=new_critic_state,
+        collector_state=new_collector_state,
+    )
+
+
 def make_train(
     primary_env_args: EnvironmentConfig,
     secondary_env_args: EnvironmentConfig,
@@ -197,6 +247,7 @@ def make_train(
     sac_length: int = 1,
     avg_length: int = 1,
     num_epochs: int = 10,
+    n_epochs_sac: int = 10,
 ):
     """
     Create the training function for the SAC agent.
@@ -225,7 +276,7 @@ def make_train(
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the SAC agent."""
-        primary_agent_state = init_sac(
+        raw_primary_agent_state = init_sac(
             key=key,
             env_args=primary_env_args,
             actor_optimizer_args=primary_actor_optimizer_args,
@@ -235,15 +286,84 @@ def make_train(
             buffer=buffer,
         )
 
-        secondary_agent_state = init_AVG(
+        raw_secondary_agent_state = init_AVG(
             key=key,
             env_args=secondary_env_args,
             actor_optimizer_args=secondary_actor_optimizer_args,
             critic_optimizer_args=secondary_critic_optimizer_args,
             network_args=network_args.replace(penultimate_normalization=True),
             alpha_args=alpha_args,
-            num_critics=2,
+            num_critics=1,
         )
+
+        raw_secondary_agent_state = raw_secondary_agent_state.replace(
+            critic_state=fix_target_params(raw_secondary_agent_state.critic_state)
+        )
+
+        DoubleTrainStateAVG = get_double_train_state("avg", dyna_factor=agent_config.dyna_factor)  # type: ignore[arg-type]
+        DoubleTrainStateSAC = get_double_train_state(
+            "sac", dyna_factor=agent_config.dyna_factor
+        )
+
+        def build_states_from_states_env_and_mode(
+            raw_primary_agent_state, raw_secondary_agent_state, mode
+        ):
+            env_norm_info = (
+                raw_secondary_agent_state.collector_state.env_state.info[
+                    "normalization_info"
+                ]
+                if mode == "brax"
+                else raw_secondary_agent_state.collector_state.env_state.normalization_info
+            )
+            primary_agent_actor_state = DoubleTrainStateSAC.from_LoadedTrainState(
+                raw_primary_agent_state.actor_state,
+                second_state=raw_secondary_agent_state.actor_state,
+                norm_info=env_norm_info,
+            )
+
+            primary_agent_critic_state = DoubleTrainStateSAC.from_LoadedTrainState(
+                raw_primary_agent_state.critic_state,
+                second_state=raw_secondary_agent_state.critic_state,
+                norm_info=env_norm_info,
+            )
+
+            primary_agent_state = raw_primary_agent_state.replace(
+                actor_state=primary_agent_actor_state,
+                critic_state=primary_agent_critic_state,
+            )
+
+            secondary_agent_actor_state = DoubleTrainStateAVG.from_LoadedTrainState(
+                raw_secondary_agent_state.actor_state,
+                second_state=raw_primary_agent_state.actor_state,
+                norm_info=env_norm_info,
+            )
+            secondary_agent_critic_state = DoubleTrainStateAVG.from_LoadedTrainState(
+                raw_secondary_agent_state.critic_state,
+                second_state=raw_primary_agent_state.critic_state,
+                norm_info=env_norm_info,
+            )
+
+            secondary_agent_state = raw_secondary_agent_state.replace(
+                actor_state=secondary_agent_actor_state,
+                critic_state=secondary_agent_critic_state,
+            )
+
+            return primary_agent_state, secondary_agent_state
+
+        primary_agent_state, secondary_agent_state = (
+            build_states_from_states_env_and_mode(
+                raw_primary_agent_state, raw_secondary_agent_state, mode=mode
+            )
+        )
+
+        # primary_agent_state = DoubleTrainState.from_LoadedTrainState(
+        #     raw_primary_agent_state
+        # )
+        # secondary_agent_state = DoubleTrainState.from_LoadedTrainState(
+        #     raw_secondary_agent_state
+        # )
+
+        # primary_agent_state = raw_primary_agent_state
 
         # agent_state = DynaSACState(
         #     primary=primary_agent_state, secondary=secondary_agent_state
@@ -270,6 +390,7 @@ def make_train(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
+            n_epochs=n_epochs_sac,
         )
 
         secondary_training_iteration_scan_fn = partial(
@@ -293,6 +414,7 @@ def make_train(
             carry: tuple[SACState, AVGState], _: Any
         ) -> tuple[tuple[SACState, AVGState], None]:
             primary_agent_state, secondary_agent_state = carry
+
             new_primary_agent_state, _ = jax.lax.scan(
                 f=primary_training_iteration_scan_fn,
                 init=primary_agent_state,
@@ -300,61 +422,80 @@ def make_train(
                 length=sac_length,
                 unroll=n_unroll,
             )
+            timestep = new_primary_agent_state.collector_state.timestep
 
             def do_training(_):
-                key = jax.random.PRNGKey(0)
-                (
-                    observations,
-                    terminated,
-                    truncated,
-                    next_observations,
-                    rewards,
-                    actions,
-                ) = get_batch_from_buffer(
-                    buffer,
-                    new_primary_agent_state.collector_state.buffer_state,
-                    key,
-                )
-                env_norm_info = (
-                    secondary_agent_state.collector_state.env_state.info[
-                        "normalization_info"
-                    ]
-                    if mode == "brax"
-                    else secondary_agent_state.collector_state.env_state.normalization_info
-                )
+                # key = jax.random.PRNGKey(0)
+                # (
+                #     observations,
+                #     terminated,
+                #     truncated,
+                #     next_observations,
+                #     rewards,
+                #     actions,
+                # ) = get_batch_from_buffer(
+                #     buffer,
+                #     new_primary_agent_state.collector_state.buffer_state,
+                #     key,
+                # )
+                # env_norm_info = (
+                #     secondary_agent_state.collector_state.env_state.info[
+                #         "normalization_info"
+                #     ]
+                #     if mode == "brax"
+                #     else secondary_agent_state.collector_state.env_state.normalization_info
+                # )
 
-                normalized_obs = secondary_env_args.env.normalize_observation(
-                    observations,
-                    env_norm_info.reward,
-                )
-                transfered_secondary_agent_state = get_agent_state_from_agent_state(
-                    source=new_primary_agent_state,
-                    target=secondary_agent_state,
-                    target_observations=normalized_obs,  # have to normalize those for AVG
-                    source_observations=observations,
-                    actions=actions,
-                    transfer_collector_state=True,
-                    num_epochs=num_epochs,
-                )
+                # normalized_obs = secondary_env_args.env.normalize_observation(
+                #     observations,
+                #     env_norm_info.reward,
+                # )
+                # transfered_secondary_agent_state = copy_state_to_state(
+                #     source=new_primary_agent_state,
+                #     target=secondary_agent_state,
+                #     tau=agent_config.dyna_tau(timestep),  # type: ignore[arg-type]
+                # )
+                # transfered_secondary_agent_state = get_agent_state_from_agent_state(
+                #     source=new_primary_agent_state,
+                #     target=secondary_agent_state,
+                #     target_observations=normalized_obs,  # have to normalize those for AVG
+                #     source_observations=observations,
+                #     actions=actions,
+                #     transfer_collector_state=True,
+                #     num_epochs=num_epochs,
+                # )
+                # transfered_secondary_agent_state = secondary_agent_state
 
-                new_secondary_agent_state, _ = jax.lax.scan(
-                    f=secondary_training_iteration_scan_fn,
-                    init=transfered_secondary_agent_state,
-                    xs=None,
-                    length=avg_length,
-                    unroll=n_unroll,
-                )
+                # new_secondary_agent_state, _ = jax.lax.scan(
+                #     f=secondary_training_iteration_scan_fn,
+                #     init=transfered_secondary_agent_state,
+                #     xs=None,
+                #     length=avg_length,
+                #     unroll=n_unroll,
+                # )
+                # jax.debug.breakpoint()
 
-                transfered_primary_agent_state = get_agent_state_from_agent_state(
-                    target=new_primary_agent_state,
-                    source=new_secondary_agent_state,
-                    source_observations=normalized_obs,
-                    target_observations=observations,
-                    actions=actions,
-                    num_epochs=num_epochs,
-                )
+                # new_secondary_agent_state = new_secondary_agent_state.replace(
+                #     critic_state=fix_target_params(
+                #         new_secondary_agent_state.critic_state
+                #     )
+                # )
 
-                return transfered_primary_agent_state, new_secondary_agent_state
+                # transfered_primary_agent_state = copy_state_to_state(
+                #     source=new_secondary_agent_state, target=new_primary_agent_state, tau=agent_config.dyna_tau(timestep)  # type: ignore[arg-type]
+                # )
+                # jax.debug.print("{x}", x=agent_config.dyna_tau(timestep))
+                # transfered_primary_agent_state = new_primary_agent_state
+                # transfered_primary_agent_state = get_agent_state_from_agent_state(
+                #     target=new_primary_agent_state,
+                #     source=new_secondary_agent_state,
+                #     source_observations=normalized_obs,
+                #     target_observations=observations,
+                #     actions=actions,
+                #     num_epochs=num_epochs,
+                # )
+                new_secondary_agent_state = secondary_agent_state
+                return new_primary_agent_state, new_secondary_agent_state
 
             def skip_training(_):
                 return new_primary_agent_state, secondary_agent_state

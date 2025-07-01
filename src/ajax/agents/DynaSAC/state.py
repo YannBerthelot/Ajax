@@ -20,3 +20,5 @@ class DynaSACConfig:
     secondary: AVGConfig
     sac_length: int
     avg_length: int
+    dyna_tau: float
+    dyna_factor: float

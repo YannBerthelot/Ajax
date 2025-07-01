@@ -6,19 +6,6 @@ from ajax.agents.AVG.state import NormalizationInfo
 from ajax.utils import online_normalize
 
 
-class SquashedNormal(distrax.Transformed):
-    def __init__(self, loc, scale):
-        normal_dist = distrax.Normal(loc, scale)
-        tanh_bijector = distrax.Tanh()
-        super().__init__(distribution=normal_dist, bijector=tanh_bijector)
-
-    def mean(self):
-        return self.bijector.forward(self.distribution.mean())
-
-    def entropy(self):
-        return self.distribution.entropy()
-
-
 def no_op(x, *args):
     return x
 

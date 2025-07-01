@@ -51,6 +51,9 @@ class DynaSAC:
         sac_length: int = 4,
         num_envs_AVG: int = 10,
         num_epochs_distillation: int = 1,
+        num_epochs_sac: int = 1,
+        dyna_tau: float = 0.005,
+        dyna_factor: float = 0.5,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -96,6 +99,7 @@ class DynaSAC:
         if not check_if_environment_has_continuous_actions(primary_env):
             raise ValueError("SAC only supports continuous action spaces.")
         self.num_epochs_distillation = num_epochs_distillation
+        self.num_epochs_sac = num_epochs_sac
         self.primary_env_args = EnvironmentConfig(
             env=primary_env,
             env_params=env_params,
@@ -154,15 +158,17 @@ class DynaSAC:
         avg_config = AVGConfig(
             gamma=gamma,
             target_entropy=target_entropy,
-            learning_starts=learning_starts // num_envs_AVG,
+            learning_starts=learning_starts,  # learning_starts // num_envs_AVG,
             reward_scale=reward_scale,
-            num_critics=2,
+            num_critics=1,
         )
         self.agent_config = DynaSACConfig(
             primary=sac_config,
             secondary=avg_config,
             avg_length=avg_length,
             sac_length=sac_length,
+            dyna_tau=dyna_tau,
+            dyna_factor=dyna_factor,
         )
 
         self.buffer = get_buffer(
@@ -219,6 +225,7 @@ class DynaSAC:
                 sac_length=self.agent_config.sac_length,
                 avg_length=self.agent_config.avg_length,
                 num_epochs=self.num_epochs_distillation,
+                n_epochs_sac=self.num_epochs_sac,
             )
 
             agent_state = train_jit(key, index)
@@ -230,11 +237,25 @@ class DynaSAC:
         jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
+def create_linear_schedule(init_x: float, final_x: float, max_t: int) -> callable:
+    """
+    Create a linear schedule for a value that decreases over time.
+
+    Args:
+        init_x (int): Initial value of the schedule.
+        max_t (int): Maximum time step for the schedule.
+
+    Returns:
+        jax.Array: A JAX array representing the linear schedule.
+    """
+    return lambda t: init_x + (t / max_t) * (final_x - init_x)
+
+
 if __name__ == "__main__":
-    n_seeds = 1
+    n_seeds = 10
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_hector_debug",
+        project_name="dyna_sac_tests_riad_style_debug_3",
         run_name="primary_training_iteration_scan_fn_unroll_4",
         config={
             "debug": False,
@@ -246,15 +267,23 @@ if __name__ == "__main__":
         use_tensorboard=False,
         use_wandb=True,
     )
+
     env_id = "halfcheetah"
     sac_agent = DynaSAC(
         env_id=env_id,
         learning_starts=int(1e4),
         batch_size=256,
-        avg_length=1,
+        avg_length=0,
         sac_length=1,
         num_envs_AVG=1,
-        num_epochs_distillation=10,
+        num_epochs_distillation=1,
+        num_epochs_sac=1,
+        dyna_tau=create_linear_schedule(
+            init_x=1.0, final_x=1.0, max_t=int(1e6) + int(1e4)
+        ),
+        dyna_factor=create_linear_schedule(
+            init_x=0, final_x=0, max_t=int(1e6) + int(1e4)
+        ),
     )
     sac_agent.train(
         seed=list(range(n_seeds)),

@@ -222,6 +222,9 @@ def value_loss_function(
         x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
     )
     # Target Q-values using target networks
+    assert (
+        critic_states.target_params is not None
+    ), "Target parameters are not set in critic states."
     q_targets = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.target_params,
@@ -683,6 +686,7 @@ def no_op_none(agent_state, index, timestep):
         "agent_config",
         "horizon",
         "total_timesteps",
+        "n_epochs",
     ],
 )
 def training_iteration(
@@ -703,6 +707,7 @@ def training_iteration(
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
+    n_epochs: int = 1,
 ) -> tuple[SACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -749,7 +754,12 @@ def training_iteration(
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
         )
-        agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
+        agent_state, aux = jax.lax.scan(
+            update_scan_fn, agent_state, xs=None, length=n_epochs
+        )
+        aux = jax.tree.map(
+            lambda x: x[-1].reshape((1,)), aux
+        )  # keep only the final state across epochs
         aux = aux.replace(
             value=ValueAuxiliaries(
                 **{key: val.flatten() for key, val in to_state_dict(aux.value).items()}

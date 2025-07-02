@@ -31,9 +31,9 @@ class DynaSAC:
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         n_envs: int = 1,
-        actor_learning_rate: FloatOrCallable = 3e-4,
-        critic_learning_rate: FloatOrCallable = 3e-4,
-        alpha_learning_rate: FloatOrCallable = 3e-4,
+        actor_learning_rate: float = 3e-4,
+        critic_learning_rate: float = 3e-4,
+        alpha_learning_rate: float = 3e-4,
         actor_architecture=("256", "relu", "256", "relu"),
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,

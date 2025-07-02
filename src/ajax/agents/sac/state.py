@@ -10,10 +10,6 @@ class SACState(BaseAgentState):
 
     alpha: LoadedTrainState  # Temperature parameter
 
-    def replace(self, **changes):
-        """Replace the state with new values"""
-        return struct.replace(self, **changes)
-
 
 @struct.dataclass
 class SACConfig(BaseAgentConfig):

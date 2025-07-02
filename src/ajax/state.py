@@ -120,11 +120,9 @@ def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
 
     @struct.dataclass
     class DoubleTrainState(LoadedTrainState):
-        second_state: LoadedTrainState = struct.field(pytree_node=False, default=None)
-        norm_info: Optional[NormalizationInfo] = struct.field(
-            pytree_node=False, default=None
-        )
-        hidden_state: Optional[Any] = struct.field(pytree_node=False, default=None)
+        second_state: Optional[LoadedTrainState] = None
+        norm_info: Optional[NormalizationInfo] = None
+        hidden_state: Optional[Any] = None
 
         @classmethod
         def from_LoadedTrainState(
@@ -210,18 +208,14 @@ def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
                     jax.lax.stop_gradient(second_output),
                     dyna_factor=jax.lax.stop_gradient(_dyna_factor),
                 )
-                # jax.debug.print(
-                #     "difference mean: {x}", x=raw_output.mean() - complete_output.mean()
-                # )
-                # complete_output = raw_output
+
             else:
                 complete_output = simplex(
                     raw_output,
                     jax.last.stop_gradient(second_output),
                     jax.lax_stop_gradient(_dyna_factor),
                 )
-                # complete_output = raw_output
-                # jax.debug.print("difference: {x}", x=raw_output - complete_output)
+
             return complete_output
 
     return DoubleTrainState
@@ -237,9 +231,9 @@ class BaseAgentState:
     n_updates: int = 0
     n_logs: int = 0
 
-    def replace(self, **changes):
-        """Replace the state with new values"""
-        return struct.replace(self, **changes)
+    def replace(self, *args, **kwargs):  # To make mypy happy
+        """Replace fields in the dataclass with new values."""
+        return struct.replace(self, *args, **kwargs)
 
 
 @struct.dataclass

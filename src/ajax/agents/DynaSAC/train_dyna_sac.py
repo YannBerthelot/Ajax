@@ -445,8 +445,7 @@ def make_train(
                     target=new_primary_agent_state,
                     tau=agent_config.dyna_tau(timestep),  # type: ignore[arg-type]
                 )
-                # jax.debug.print("{x}", x=agent_config.dyna_tau(timestep))
-                # transfered_primary_agent_state = new_primary_agent_state
+
                 # transfered_primary_agent_state = get_agent_state_from_agent_state(
                 #     target=new_primary_agent_state,
                 #     source=new_secondary_agent_state,
@@ -455,7 +454,7 @@ def make_train(
                 #     actions=actions,
                 #     num_epochs=num_epochs,
                 # )
-                new_secondary_agent_state = secondary_agent_state
+
                 return transfered_primary_agent_state, new_secondary_agent_state
 
             def skip_training(_):
@@ -467,10 +466,6 @@ def make_train(
                 cond_pred, do_training, skip_training, operand=None
             )
 
-            # assert , (
-            #     "transfered_primary_agent_state and new_primary_agent_state are not"
-            #     " equal"
-            # )
             assert jax.tree.map(
                 lambda x, y: jnp.allclose(x, y),
                 transfered_primary_agent_state.actor_state.params,

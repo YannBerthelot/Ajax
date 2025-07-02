@@ -203,11 +203,6 @@ def copy_state_to_state(
     else:
         new_collector_state = target.collector_state
 
-    # new_primary_agent_state = new_primary_agent_state.replace(
-    #     critic_state=new_primary_agent_state.critic_state.soft_update(tau=tau),
-    #     actor_state=new_primary_agent_state.actor_state.soft_update(tau=tau),
-    # )
-
     new_actor_second_state = target.actor_state.second_state.replace(
         params=source.actor_state.params,
     ).soft_update(tau=tau)

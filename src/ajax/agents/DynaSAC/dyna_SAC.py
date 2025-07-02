@@ -158,7 +158,7 @@ class DynaSAC:
         avg_config = AVGConfig(
             gamma=gamma,
             target_entropy=target_entropy,
-            learning_starts=learning_starts,  # learning_starts // num_envs_AVG,
+            learning_starts=0,  # learning_starts // num_envs_AVG,
             reward_scale=reward_scale,
             num_critics=1,
         )
@@ -250,7 +250,7 @@ def create_linear_schedule(
     Returns:
         jax.Array: A JAX array representing the linear schedule.
     """
-    return lambda t: init_x + (t / max_t) * (final_x - init_x)
+    return lambda t: init_x + jnp.minimum((t / max_t), 1) * (final_x - init_x)
 
 
 if __name__ == "__main__":
@@ -275,16 +275,16 @@ if __name__ == "__main__":
         env_id=env_id,
         learning_starts=int(1e4),
         batch_size=256,
-        avg_length=0,
+        avg_length=1,
         sac_length=1,
         num_envs_AVG=1,
         num_epochs_distillation=1,
         num_epochs_sac=1,
         dyna_tau=create_linear_schedule(
-            init_x=1.0, final_x=1.0, max_t=int(1e6) + int(1e4)
+            init_x=0.5, final_x=0.5, max_t=int(1e6) + int(1e4)
         ),
         dyna_factor=create_linear_schedule(
-            init_x=0, final_x=0, max_t=int(1e6) + int(1e4)
+            init_x=0.5, final_x=0.5, max_t=int(1e6) + int(1e4)
         ),
     )
     sac_agent.train(

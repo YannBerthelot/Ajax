@@ -200,7 +200,6 @@ def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
                 ), "second_output has NaN or Inf!"
 
             _dyna_factor = dyna_factor(self.step).astype(jnp.float32)
-            _dyna_factor = 0.0
 
             if not isinstance(raw_output, jnp.ndarray):
                 # assume raw_output is a SquashedNormal distribution TODO : Make this for any distrax distributon?

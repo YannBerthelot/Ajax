@@ -53,7 +53,7 @@ def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[s
 
 
 def repeat_first_entry(tree, num_repeats: int):
-    return jax.tree_map(lambda x: jnp.tile(x, reps=num_repeats), tree)
+    return jax.tree.map(lambda x: jnp.tile(x, reps=num_repeats), tree)
 
 
 def tile_to_batch(state, new_batch_size=10):
@@ -426,65 +426,25 @@ def make_train(
             timestep = new_primary_agent_state.collector_state.timestep
 
             def do_training(_):
-                # key = jax.random.PRNGKey(0)
-                # (
-                #     observations,
-                #     terminated,
-                #     truncated,
-                #     next_observations,
-                #     rewards,
-                #     actions,
-                # ) = get_batch_from_buffer(
-                #     buffer,
-                #     new_primary_agent_state.collector_state.buffer_state,
-                #     key,
-                # )
-                # env_norm_info = (
-                #     secondary_agent_state.collector_state.env_state.info[
-                #         "normalization_info"
-                #     ]
-                #     if mode == "brax"
-                #     else secondary_agent_state.collector_state.env_state.normalization_info
-                # )
+                transfered_secondary_agent_state = copy_state_to_state(
+                    source=new_primary_agent_state,
+                    target=secondary_agent_state,
+                    tau=agent_config.dyna_tau(timestep),  # type: ignore[arg-type]
+                )
 
-                # normalized_obs = secondary_env_args.env.normalize_observation(
-                #     observations,
-                #     env_norm_info.reward,
-                # )
-                # transfered_secondary_agent_state = copy_state_to_state(
-                #     source=new_primary_agent_state,
-                #     target=secondary_agent_state,
-                #     tau=agent_config.dyna_tau(timestep),  # type: ignore[arg-type]
-                # )
-                # transfered_secondary_agent_state = get_agent_state_from_agent_state(
-                #     source=new_primary_agent_state,
-                #     target=secondary_agent_state,
-                #     target_observations=normalized_obs,  # have to normalize those for AVG
-                #     source_observations=observations,
-                #     actions=actions,
-                #     transfer_collector_state=True,
-                #     num_epochs=num_epochs,
-                # )
-                # transfered_secondary_agent_state = secondary_agent_state
+                new_secondary_agent_state, _ = jax.lax.scan(
+                    f=secondary_training_iteration_scan_fn,
+                    init=transfered_secondary_agent_state,
+                    xs=None,
+                    length=avg_length,
+                    unroll=n_unroll,
+                )
 
-                # new_secondary_agent_state, _ = jax.lax.scan(
-                #     f=secondary_training_iteration_scan_fn,
-                #     init=transfered_secondary_agent_state,
-                #     xs=None,
-                #     length=avg_length,
-                #     unroll=n_unroll,
-                # )
-                # jax.debug.breakpoint()
-
-                # new_secondary_agent_state = new_secondary_agent_state.replace(
-                #     critic_state=fix_target_params(
-                #         new_secondary_agent_state.critic_state
-                #     )
-                # )
-
-                # transfered_primary_agent_state = copy_state_to_state(
-                #     source=new_secondary_agent_state, target=new_primary_agent_state, tau=agent_config.dyna_tau(timestep)  # type: ignore[arg-type]
-                # )
+                transfered_primary_agent_state = copy_state_to_state(
+                    source=new_secondary_agent_state,
+                    target=new_primary_agent_state,
+                    tau=agent_config.dyna_tau(timestep),  # type: ignore[arg-type]
+                )
                 # jax.debug.print("{x}", x=agent_config.dyna_tau(timestep))
                 # transfered_primary_agent_state = new_primary_agent_state
                 # transfered_primary_agent_state = get_agent_state_from_agent_state(
@@ -496,7 +456,7 @@ def make_train(
                 #     num_epochs=num_epochs,
                 # )
                 new_secondary_agent_state = secondary_agent_state
-                return new_primary_agent_state, new_secondary_agent_state
+                return transfered_primary_agent_state, new_secondary_agent_state
 
             def skip_training(_):
                 return new_primary_agent_state, secondary_agent_state
@@ -511,7 +471,7 @@ def make_train(
             #     "transfered_primary_agent_state and new_primary_agent_state are not"
             #     " equal"
             # )
-            assert jax.tree_map(
+            assert jax.tree.map(
                 lambda x, y: jnp.allclose(x, y),
                 transfered_primary_agent_state.actor_state.params,
                 new_primary_agent_state.actor_state.params,
@@ -520,7 +480,7 @@ def make_train(
                 " equal"
             )
 
-            assert jax.tree_map(
+            assert jax.tree.map(
                 lambda x, y: jnp.allclose(x, y),
                 transfered_primary_agent_state.critic_state.params,
                 new_primary_agent_state.critic_state.params,
@@ -537,12 +497,6 @@ def make_train(
                 new_secondary_agent_state,
             ), None
 
-        # primary_agent_state, _ = jax.lax.scan(
-        #     f=primary_training_iteration_scan_fn,
-        #     init=primary_agent_state,
-        #     xs=None,
-        #     length=num_updates,
-        # )
         (primary_agent_state, secondary_agent_state), _ = jax.lax.scan(
             f=dyna_train_loop,
             init=(primary_agent_state, secondary_agent_state),

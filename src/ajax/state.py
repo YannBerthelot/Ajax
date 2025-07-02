@@ -192,7 +192,7 @@ def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
             raw_output = self.apply_fn(params, obs, *args, **kwargs)
             second_output = self.second_state.apply_fn(
                 self.second_state.target_params,
-                processed_obs,
+                obs,
                 *args,
                 **kwargs,
             )
@@ -201,21 +201,27 @@ def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
                     jnp.isfinite(second_output)
                 ), "second_output has NaN or Inf!"
 
-            # _dyna_factor = dyna_factor(self.step).astype(jnp.float32)
+            _dyna_factor = dyna_factor(self.step).astype(jnp.float32)
             _dyna_factor = 0.0
+
             if not isinstance(raw_output, jnp.ndarray):
                 # assume raw_output is a SquashedNormal distribution TODO : Make this for any distrax distributon?
                 complete_output = raw_output.mix_distributions(
                     jax.lax.stop_gradient(second_output),
                     dyna_factor=jax.lax.stop_gradient(_dyna_factor),
                 )
+                # jax.debug.print(
+                #     "difference mean: {x}", x=raw_output.mean() - complete_output.mean()
+                # )
+                # complete_output = raw_output
             else:
                 complete_output = simplex(
                     raw_output,
                     jax.last.stop_gradient(second_output),
                     jax.lax_stop_gradient(_dyna_factor),
                 )
-
+                # complete_output = raw_output
+                # jax.debug.print("difference: {x}", x=raw_output - complete_output)
             return complete_output
 
     return DoubleTrainState
@@ -230,6 +236,10 @@ class BaseAgentState:
     eval_rng: jax.Array
     n_updates: int = 0
     n_logs: int = 0
+
+    def replace(self, **changes):
+        """Replace the state with new values"""
+        return struct.replace(self, **changes)
 
 
 @struct.dataclass

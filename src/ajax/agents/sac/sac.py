@@ -183,10 +183,10 @@ class SAC:
 
 
 if __name__ == "__main__":
-    n_seeds = 10
+    n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_riad_style_debug_3",
+        project_name="dyna_sac_tests_riad_style_debug_5",
         run_name="sac",
         config={
             "debug": False,

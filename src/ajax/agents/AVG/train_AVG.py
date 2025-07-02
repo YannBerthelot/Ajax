@@ -761,7 +761,7 @@ def training_iteration(
     rng = agent_state.rng
     agent_state, rollout = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
 
-    rollout = jax.tree_map(
+    rollout = jax.tree.map(
         squeeze_dim_0, rollout
     )  # Remove first dim as we only have one transition
     collector_state = agent_state.collector_state.replace(rollout=rollout)

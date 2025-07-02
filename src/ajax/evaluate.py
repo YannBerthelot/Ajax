@@ -21,7 +21,7 @@ from ajax.wrappers import (
 
 
 def repeat_first_entry(tree, num_repeats: int):
-    return jax.tree_map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
+    return jax.tree.map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
 
 
 @partial(

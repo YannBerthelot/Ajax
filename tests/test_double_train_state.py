@@ -169,7 +169,7 @@ def test_from_states_preserves_attributes():
     assert double_state.tx == base_state.tx
     assert double_state.opt_state == base_state.opt_state
     assert jax.tree_util.tree_all(
-        jax.tree_map(
+        jax.tree.map(
             lambda x, y: (x == y).all(), double_state.params, base_state.params
         )
     )

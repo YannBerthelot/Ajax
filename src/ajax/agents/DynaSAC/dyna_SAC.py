@@ -21,7 +21,7 @@ from ajax.logging.wandb_logging import (
     with_wandb_silent,
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
-from ajax.types import EnvType
+from ajax.types import EnvType, FloatOrCallable
 
 
 class DynaSAC:
@@ -31,9 +31,9 @@ class DynaSAC:
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         n_envs: int = 1,
-        actor_learning_rate: float = 3e-4,
-        critic_learning_rate: float = 3e-4,
-        alpha_learning_rate: float = 3e-4,
+        actor_learning_rate: FloatOrCallable = 3e-4,
+        critic_learning_rate: FloatOrCallable = 3e-4,
+        alpha_learning_rate: FloatOrCallable = 3e-4,
         actor_architecture=("256", "relu", "256", "relu"),
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
@@ -52,8 +52,8 @@ class DynaSAC:
         num_envs_AVG: int = 10,
         num_epochs_distillation: int = 1,
         num_epochs_sac: int = 1,
-        dyna_tau: float = 0.005,
-        dyna_factor: float = 0.5,
+        dyna_tau: FloatOrCallable = 0.005,
+        dyna_factor: FloatOrCallable = 0.5,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -237,7 +237,9 @@ class DynaSAC:
         jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
-def create_linear_schedule(init_x: float, final_x: float, max_t: int) -> callable:
+def create_linear_schedule(
+    init_x: float, final_x: float, max_t: int
+) -> FloatOrCallable:
     """
     Create a linear schedule for a value that decreases over time.
 
@@ -252,10 +254,10 @@ def create_linear_schedule(init_x: float, final_x: float, max_t: int) -> callabl
 
 
 if __name__ == "__main__":
-    n_seeds = 10
+    n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_riad_style_debug_3",
+        project_name="dyna_sac_tests_riad_style_debug_5",
         run_name="primary_training_iteration_scan_fn_unroll_4",
         config={
             "debug": False,

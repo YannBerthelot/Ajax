@@ -15,16 +15,9 @@ appdirs = "1.4.3"
 pydantic = "^2.0.2"
 pandas = "^2.1.1"
 matplotlib = "^3.8.0"
-jax = [
-    { version = "0.4.25", extras = ["cuda-12"], platform = "linux" },
-    { version = "0.4.25", platform = "darwin" }
-]
-jaxlib = [
-    { version = "0.4.25",  platform = "darwin"  },
-    { version = "0.4.25", extras = ["with-cuda"], platform = "linux" }
-]
+jax = "^0.6.2"
 distrax = "^0.1.5"
-flax = ">=0.8"
+flax = "^0.10.7"
 scipy = "<1.13"
 probing-environments = {git = "https://github.com/YannBerthelot/ProbingEnvironments.git"}
 flashbax = "^0.1.3"

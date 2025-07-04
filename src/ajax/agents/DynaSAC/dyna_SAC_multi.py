@@ -292,7 +292,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_multi",
+        project_name="dyna_sac_tests_multi_GPU",
         run_name="run",
         config={
             "debug": False,

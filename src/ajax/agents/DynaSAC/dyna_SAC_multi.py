@@ -1,3 +1,4 @@
+import argparse
 from collections.abc import Sequence
 from typing import Optional
 
@@ -7,7 +8,7 @@ import wandb
 from gymnax import EnvParams
 
 from ajax.agents.DynaSAC.state import AVGConfig, DynaSACConfig, SACConfig
-from ajax.agents.DynaSAC.train_dyna_sac import make_train
+from ajax.agents.DynaSAC.train_dyna_sac_multi import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
@@ -52,8 +53,10 @@ class DynaSAC:
         num_envs_AVG: int = 10,
         num_epochs_distillation: int = 1,
         num_epochs_sac: int = 1,
-        dyna_tau: FloatOrCallable = 0.005,
-        dyna_factor: FloatOrCallable = 0.5,
+        dyna_tau: FloatOrCallable = 0.005,  # FIXME : deprecated
+        dyna_factor: FloatOrCallable = 0.5,  # FIXME : deprecated
+        n_avg_agents: int = 1,
+        distillation_lr: float = 1e-4,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -169,6 +172,8 @@ class DynaSAC:
             sac_length=sac_length,
             dyna_tau=dyna_tau,
             dyna_factor=dyna_factor,
+            n_avg_agents=n_avg_agents,
+            distillation_lr=distillation_lr,
         )
 
         self.buffer = get_buffer(
@@ -226,6 +231,8 @@ class DynaSAC:
                 avg_length=self.agent_config.avg_length,
                 num_epochs=self.num_epochs_distillation,
                 n_epochs_sac=self.num_epochs_sac,
+                n_avg_agents=self.agent_config.n_avg_agents,
+                distillation_lr=self.agent_config.distillation_lr,
             )
 
             agent_state = train_jit(key, index)
@@ -254,11 +261,33 @@ def create_linear_schedule(
 
 
 if __name__ == "__main__":
-    dyna_tau_init = 0.0
-    dyna_tau_final = 0.01
-    dyna_factor_init = 0.0
-    dyna_factor_final = 0.5
-    max_t = int(1e6)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--distillation_lr",
+        type=float,
+        default=1e-4,
+        help="Override learning rate for distillation.",
+    )
+    parser.add_argument(
+        "--n_avg_agents",
+        type=int,
+        default=1,
+        help="Override number of agents to average.",
+    )
+    parser.add_argument(
+        "--n_envs_AVG",
+        type=int,
+        default=1,
+        help="Override number of agents to average.",
+    )
+    parser.add_argument(
+        "--n_epochs_distillation",
+        type=int,
+        default=1,
+        help="Override number of agents to average.",
+    )
+
+    args = parser.parse_args()
 
     n_seeds = 1
     log_frequency = 5_000
@@ -269,11 +298,7 @@ if __name__ == "__main__":
             "debug": False,
             "log_frequency": log_frequency,
             "n_seeds": n_seeds,
-            "dyna_tau_init": dyna_tau_init,
-            "dyna_tau_final": dyna_tau_final,
-            "dyna_factor_init": dyna_factor_init,
-            "dyna_factor_final": dyna_factor_final,
-            "max_t": max_t,
+            **vars(args),
         },
         log_frequency=log_frequency,
         horizon=10_000,
@@ -288,15 +313,11 @@ if __name__ == "__main__":
         batch_size=256,
         avg_length=1,
         sac_length=1,
-        num_envs_AVG=1,
-        num_epochs_distillation=1,
+        num_envs_AVG=args.n_envs_AVG,
+        num_epochs_distillation=args.n_epochs_distillation,
         num_epochs_sac=1,
-        dyna_tau=create_linear_schedule(
-            init_x=dyna_tau_init, final_x=dyna_tau_final, max_t=max_t + int(1e4)
-        ),
-        dyna_factor=create_linear_schedule(
-            init_x=dyna_factor_init, final_x=dyna_factor_final, max_t=max_t + int(1e4)
-        ),
+        n_avg_agents=args.n_avg_agents,
+        distillation_lr=args.distillation_lr,
     )
     sac_agent.train(
         seed=list(range(n_seeds)),

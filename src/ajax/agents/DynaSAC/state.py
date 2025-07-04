@@ -22,3 +22,5 @@ class DynaSACConfig:
     avg_length: int
     dyna_tau: float
     dyna_factor: float
+    n_avg_agents: int
+    distillation_lr: float

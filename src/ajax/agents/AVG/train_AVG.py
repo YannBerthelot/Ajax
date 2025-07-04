@@ -101,6 +101,18 @@ def create_alpha_train_state(
     )
 
 
+@partial(
+    jax.jit,
+    static_argnames=[
+        "num_critics",
+        "window_size",
+        "alpha_args",
+        "network_args",
+        "actor_optimizer_args",
+        "critic_optimizer_args",
+        "env_args",
+    ],
+)
 def init_AVG(
     key: jax.Array,
     env_args: EnvironmentConfig,
@@ -696,6 +708,37 @@ def update_AVG_values(
 
 
 @partial(
+    jax.jit, static_argnames=["run_and_log", "no_op_none", "log_frequency", "env_args"]
+)
+def log_function(
+    agent_state,
+    log_frequency,
+    timestep,
+    total_timesteps,
+    aux,
+    run_and_log,
+    no_op_none,
+    env_args,
+    index,
+):
+    _, eval_rng = jax.random.split(agent_state.eval_rng)
+    agent_state = agent_state.replace(eval_rng=eval_rng)
+    log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
+
+    agent_state = agent_state.replace(
+        n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
+    )
+    flag = jnp.logical_or(
+        jnp.logical_and(log_flag, timestep > 1),
+        timestep >= (total_timesteps - env_args.n_envs),
+    )
+
+    jax.lax.cond(flag, run_and_log, no_op_none, agent_state, aux, index)
+    del aux
+    return agent_state
+
+
+@partial(
     jax.jit,
     static_argnames=[
         "env_args",
@@ -764,10 +807,12 @@ def training_iteration(
     rollout = jax.tree.map(
         squeeze_dim_0, rollout
     )  # Remove first dim as we only have one transition
+    # jax.debug.print("before {x}", x=timestep)
     collector_state = agent_state.collector_state.replace(rollout=rollout)
     agent_state = agent_state.replace(collector_state=collector_state)
     agent_state = update_AVG_values(agent_state, rollout, agent_config)
     timestep = agent_state.collector_state.timestep
+    # jax.debug.print("after {x}", x=timestep)
     agent_state = agent_state.replace(rng=rng)
 
     def do_update(agent_state):
@@ -811,9 +856,9 @@ def training_iteration(
         skip_update,
         operand=agent_state,
     )
-    num_updates = agent_state.collector_state.num_update
 
     def run_and_log(agent_state: AVGState, aux, index):
+        num_updates = agent_state.collector_state.num_update
         eval_key = agent_state.eval_rng
         obs_normalization = True  # TODO : infer from env
         eval_rewards, eval_entropy = evaluate(
@@ -838,7 +883,7 @@ def training_iteration(
         )
 
         metrics_to_log = {
-            "timestep": timestep * env_args.n_envs,
+            "timestep": timestep,
             "num_update": num_updates,
             "Eval/episodic mean reward": eval_rewards,
             "Eval/episodic entropy": eval_entropy,
@@ -862,14 +907,17 @@ def training_iteration(
             )
 
     if log:
-        _, eval_rng = jax.random.split(agent_state.eval_rng)
-        agent_state = agent_state.replace(eval_rng=eval_rng)
-        flag = jnp.logical_or(
-            jnp.logical_and((timestep % log_frequency) == 1, timestep > 1),
-            timestep == total_timesteps,
+        agent_state = log_function(
+            agent_state,
+            log_frequency,
+            timestep,
+            total_timesteps,
+            aux,
+            run_and_log,
+            no_op_none,
+            env_args,
+            index,
         )
-        jax.lax.cond(flag, run_and_log, no_op_none, agent_state, aux, index)
-        del aux
 
     jax.clear_caches()
     return agent_state, None
@@ -945,7 +993,7 @@ def make_train(
             num_critics=agent_config.num_critics,
         )
 
-        num_updates = total_timesteps // env_args.n_envs
+        num_updates = total_timesteps  # // env_args.n_envs
         _, action_shape = get_state_action_shapes(env_args.env)
 
         training_iteration_scan_fn = partial(

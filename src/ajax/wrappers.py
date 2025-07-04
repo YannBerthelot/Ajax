@@ -18,6 +18,7 @@ from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
 from ajax.environments.utils import check_env_is_brax, get_state_action_shapes
+from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
 
@@ -205,21 +206,6 @@ class VecEnv(GymnaxWrapper):
         super().__init__(env)
         self.reset = jax.vmap(self._env.reset, in_axes=(0, None))
         self.step = jax.vmap(self._env.step, in_axes=(0, 0, 0, None))
-
-
-@struct.dataclass
-class NormalizationInfo:
-    var: jnp.array
-    count: jnp.array
-    mean: jnp.array
-    mean_2: jnp.array
-    returns: Optional[jnp.array] = None  # For reward normalization, returns are needed
-
-
-@struct.dataclass
-class EnvNormalizationInfo:
-    reward: Optional[NormalizationInfo] = None
-    obs: Optional[NormalizationInfo] = None
 
 
 def init_norm_info(

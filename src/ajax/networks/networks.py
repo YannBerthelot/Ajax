@@ -31,21 +31,39 @@ Heavy inspiration from https://github.com/Howuhh/sac-n-jax/blob/main/sac_n_jax_f
 """
 
 
+# class Encoder(nn.Module):
+#     input_architecture: Sequence[Union[str, ActivationFunction]]
+#     penultimate_normalization: bool = False
+#     kernel_init: Optional[str] = None
+#     bias_init: Optional[str] = None
+
+#     def setup(self):
+#         layers = parse_architecture(
+#             self.input_architecture, self.kernel_init, self.bias_init
+#         )
+#         self.encoder = nn.Sequential(layers)
+
+#     @nn.compact
+#     def __call__(self, input):
+#         features = self.encoder(input)
+#         if self.penultimate_normalization:
+#             return _l2_normalize(features, axis=1)
+#         return features
+
+
 class Encoder(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     penultimate_normalization: bool = False
     kernel_init: Optional[str] = None
     bias_init: Optional[str] = None
 
-    def setup(self):
+    @nn.compact
+    def __call__(self, input):
         layers = parse_architecture(
             self.input_architecture, self.kernel_init, self.bias_init
         )
-        self.encoder = nn.Sequential(layers)
-
-    @nn.compact
-    def __call__(self, input):
-        features = self.encoder(input)
+        encoder = nn.Sequential(layers)
+        features = encoder(input)
         if self.penultimate_normalization:
             return _l2_normalize(features, axis=1)
         return features

@@ -398,7 +398,7 @@ def collect_experience(
         env_state=env_state,
         last_obs=obsv,
         buffer_state=buffer_state if buffer is not None else None,
-        timestep=agent_state.collector_state.timestep + env_args.n_envs,
+        timestep=agent_state.collector_state.timestep + 1,  # + env_args.n_envs,
         last_terminated=terminated,
         last_truncated=truncated,
         episodic_return_state=new_episodic_return_state,

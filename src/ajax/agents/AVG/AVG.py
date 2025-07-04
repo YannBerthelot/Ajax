@@ -70,7 +70,7 @@ class AVG:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=False,
+            normalize_obs=True,
             normalize_reward=False,
             n_envs=n_envs,
             gamma=gamma,
@@ -177,34 +177,28 @@ class AVG:
 
 if __name__ == "__main__":
     n_seeds = 1
-    log_frequency = 5_000
-    n_envs = 10
+    log_frequency = 5000
+    n_envs = 128
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_hector",
+        project_name="avg_multi_env",
         run_name="test",
         config={
             "debug": False,
             "log_frequency": log_frequency,
             "n_seeds": n_seeds,
+            "num_envs": n_envs,
         },
-        log_frequency=int(log_frequency / n_envs),
+        log_frequency=log_frequency,
         horizon=10_000,
         use_tensorboard=False,
     )
-    env_id = "humanoid"
-    sac_agent = AVG(
+    env_id = "halfcheetah"
+    avg_agent = AVG(
         env_id=env_id,
         n_envs=n_envs,
-        num_critics=2,
-        actor_learning_rate=3e-4,
-        critic_learning_rate=3e-4,
-        beta_1=0.9,
-        actor_architecture=("256", "relu", "256", "relu"),
-        critic_architecture=("256", "relu", "256", "relu"),
-        learning_starts=int(1e4),
     )
-    sac_agent.train(
+    avg_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(1e7) * n_envs,
+        n_timesteps=int(1e6),
         logging_config=logging_config,
     )

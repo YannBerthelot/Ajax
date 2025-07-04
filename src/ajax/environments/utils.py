@@ -1,8 +1,15 @@
 from typing import Optional, Tuple
 
+import jax
+import jax.numpy as jnp
 from gymnax import EnvParams
 
-from ajax.types import BraxEnv, EnvType, GymnaxEnv
+from ajax.types import (
+    BraxEnv,
+    EnvType,
+    GymnaxEnv,
+    NormalizationInfo,
+)
 
 
 def check_if_environment_has_continuous_actions(
@@ -83,3 +90,10 @@ def get_env_type(env: EnvType) -> str:
     if check_env_is_gymnax(env):
         return "gymnax"
     raise ValueError(f"Unsupported env type: {type(env)}")
+
+
+def unnormalize_observation(obs: jax.Array, norm_info: NormalizationInfo) -> jax.Array:
+    """Unnormalize the observation using the normalization info."""
+    if norm_info is None or norm_info.var is None:
+        return obs
+    return obs * jnp.sqrt(norm_info.var + 1e-8) + norm_info.mean

@@ -662,7 +662,7 @@ def prepare_metrics(aux):
 
 
 def no_op(agent_state, *args):
-    return None
+    return jnp.nan
 
 
 def no_op_none(agent_state, index, timestep):
@@ -843,20 +843,21 @@ def training_iteration(
                 rewards_val=eval_rewards,
                 entropy_val=eval_entropy,
             )
+        return eval_rewards
 
-    if log:
-        _, eval_rng = jax.random.split(agent_state.eval_rng)
-        agent_state = agent_state.replace(eval_rng=eval_rng)
-        flag = jnp.logical_or(
-            jnp.logical_and((timestep % log_frequency) == 1, timestep > 1),
-            timestep >= (total_timesteps - env_args.n_envs),
-        )
-        jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
-        del aux
+    # if log:
+    _, eval_rng = jax.random.split(agent_state.eval_rng)
+    agent_state = agent_state.replace(eval_rng=eval_rng)
+    flag = jnp.logical_or(
+        jnp.logical_and((timestep % log_frequency) == 1, timestep > 1),
+        timestep >= (total_timesteps - env_args.n_envs),
+    )
+    eval_rewards = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
+
+    del aux
 
     jax.clear_caches()
-    # gc.collect()
-    return agent_state, None
+    return agent_state, eval_rewards
 
 
 def profile_memory(timestep):
@@ -910,7 +911,7 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
+    log = logging_config is not None  # and not (sweep)
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
     # Start async logging if logging is enabled
@@ -952,7 +953,7 @@ def make_train(
             horizon=(logging_config.horizon if logging_config is not None else None),
         )
 
-        agent_state, _ = jax.lax.scan(
+        agent_state, eval_rewards = jax.lax.scan(
             f=training_iteration_scan_fn,
             init=agent_state,
             xs=None,
@@ -962,7 +963,10 @@ def make_train(
         # Stop async logging if it was started
         # if logging_config is not None:
         #     stop_async_logging()
+        window_size = int(0.1 * total_timesteps)
+        import pdb
 
-        return agent_state
+        pdb.set_trace()
+        return agent_state, jnp.nanmean(eval_rewards[-window_size:])
 
     return train

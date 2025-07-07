@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 from typing import Optional
 
@@ -22,6 +23,21 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
+
+
+def make_json_serializable(d):
+    """
+    Return a new dict where all values that are not JSON-serializable
+    are converted to strings.
+    """
+    serializable_dict = {}
+    for k, v in d.items():
+        try:
+            json.dumps(v)  # attempt to serialize
+            serializable_dict[k] = v
+        except (TypeError, OverflowError):
+            serializable_dict[k] = str(v)
+    return serializable_dict
 
 
 class SAC:
@@ -149,7 +165,7 @@ class SAC:
             seed = [seed]
 
         if logging_config is not None:
-            logging_config.config.update(self.config)
+            logging_config.config.update(make_json_serializable(self.config))
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
             for index, run_id in enumerate(run_ids):
                 init_logging(run_id, index, logging_config)
@@ -173,35 +189,57 @@ class SAC:
                 logging_config=logging_config,
             )
 
-            agent_state = train_jit(key, index)
+            agent_state, eval_rewards = train_jit(key, index)
             stop_async_logging()
-            return agent_state
+            return agent_state, eval_rewards
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
 if __name__ == "__main__":
-    n_seeds = 1
-    log_frequency = 5_000
-    logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_multi",
-        run_name="sac",
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
+
+    def main():
+        n_seeds = 1
+        log_frequency = 1000
+        logging_config = LoggingConfig(
+            project_name="dyna_sac_tests_sweep",
+            run_name="sac",
+            config={
+                "debug": False,
+                "log_frequency": log_frequency,
+                "n_seeds": n_seeds,
+            },
+            log_frequency=log_frequency,
+            horizon=10_000,
+            use_tensorboard=False,
+            use_wandb=False,
+        )
+        env_id = "halfcheetah"
+
+        def init_and_train(config):
+            sac_agent = SAC(env_id=env_id, **config)
+            _, score = sac_agent.train(
+                seed=list(range(n_seeds)),
+                n_timesteps=int(1e4),
+                logging_config=logging_config,
+            )
+            return score
+
+        wandb.init(project="my-first-sweep")
+        score = init_and_train(wandb.config)
+
+        wandb.log({"score": score})
+
+    sweep_configuration = {
+        "method": "random",
+        "metric": {"goal": "maximize", "name": "score"},
+        "parameters": {
+            "actor_learning_rate": {"max": 0.1, "min": 0.01},
+            "n_envs": {"values": [1, 3, 7]},
         },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=False,
-        use_wandb=True,
-    )
-    env_id = "halfcheetah"
-    sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), batch_size=256)
-    sac_agent.train(
-        seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
-        logging_config=logging_config,
-    )
+    }
+    sweep_id = wandb.sweep(sweep=sweep_configuration, project="my-first-sweep")
+
+    wandb.agent(sweep_id, function=main, count=10)

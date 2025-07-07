@@ -53,7 +53,7 @@ def init_logging(
             project=logging_config.project_name,
             name=f"{logging_config.run_name}  {index}",
             id=run_id,
-            resume="never",
+            resume="allow",
             reinit=True,
             config=logging_config.config,
         )
@@ -193,6 +193,8 @@ def with_wandb_silent(func: Callable) -> Callable:
             os.environ["WANDB_SILENT"] = "true"
             return func(*args, **kwargs)
         finally:
-            os.environ["WANDB_SILENT"] = initial_wandb_silent
+            os.environ["WANDB_SILENT"] = (
+                initial_wandb_silent if initial_wandb_silent != "" else "false"
+            )
 
     return wrapper

@@ -17,6 +17,7 @@ from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
+    stop_async_logging,
     vmap_log,
 )
 from ajax.state import (
@@ -247,10 +248,11 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     sac_length: int = 1,
     avg_length: int = 1,
-    num_epochs: int = 10,
-    n_epochs_sac: int = 10,
-    n_avg_agents: int = 8,
+    num_epochs: int = 1,
+    n_epochs_sac: int = 1,
+    n_avg_agents: int = 1,
     distillation_lr: float = 1e-4,
+    sweep: bool = False,
 ):
     """
     Create the training function for the SAC agent.
@@ -269,7 +271,7 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(primary_env_args.env) else "brax"
-    log = logging_config is not None
+    log = logging_config is not None  # and not (sweep)
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
     # Start async logging if logging is enabled
@@ -318,7 +320,7 @@ def make_train(
         # )
         n_unroll = 2
 
-        num_updates = total_timesteps // primary_env_args.n_envs
+        num_updates = total_timesteps // (primary_env_args.n_envs * sac_length)
         _, action_shape = get_state_action_shapes(primary_env_args.env)
 
         primary_training_iteration_scan_fn = partial(
@@ -365,13 +367,20 @@ def make_train(
         ) -> tuple[tuple[SACState, AVGState], None]:
             primary_agent_state, secondary_agent_state = carry
 
-            new_primary_agent_state, _ = jax.lax.scan(
+            new_primary_agent_state, score = jax.lax.scan(
                 f=primary_training_iteration_scan_fn,
                 init=primary_agent_state,
                 xs=None,
                 length=sac_length,
                 unroll=n_unroll,
             )
+            # jax.debug.print(
+            #     "{x}/{y} n_updates:{z} n_envs:{a}",
+            #     x=new_primary_agent_state.collector_state.timestep,
+            #     y=total_timesteps,
+            #     z=num_updates,
+            #     a=primary_env_args.n_envs,
+            # )
 
             def do_training(_):
                 def get_obs_normed_obs_action(agent_state, secondary_agent_state, key):
@@ -457,7 +466,9 @@ def make_train(
             def skip_training(_):
                 return new_primary_agent_state, secondary_agent_state
 
-            cond_pred = new_primary_agent_state.collector_state.timestep > 10_000
+            cond_pred = (
+                new_primary_agent_state.collector_state.timestep > 10_000
+            )  # TODO : investigate
 
             transfered_primary_agent_state, new_secondary_agent_state = jax.lax.cond(
                 cond_pred, do_training, skip_training, operand=None
@@ -487,14 +498,17 @@ def make_train(
             return (
                 transfered_primary_agent_state,
                 new_secondary_agent_state,
-            ), None
+            ), score
 
-        (primary_agent_state, secondary_agent_state), _ = jax.lax.scan(
+        (primary_agent_state, secondary_agent_state), score = jax.lax.scan(
             f=dyna_train_loop,
             init=(primary_agent_state, secondary_agent_state),
             xs=None,
             length=num_updates,
         )
-        return primary_agent_state
+
+        stop_async_logging()
+        window_size = int(0.1 * total_timesteps)
+        return primary_agent_state, jnp.nanmean(score[-window_size:])
 
     return train

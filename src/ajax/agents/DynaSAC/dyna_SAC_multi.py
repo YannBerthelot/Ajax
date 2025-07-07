@@ -18,7 +18,6 @@ from ajax.environments.utils import (
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
-    stop_async_logging,
     with_wandb_silent,
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
@@ -48,8 +47,8 @@ class DynaSAC:
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
-        avg_length: int = 4,
-        sac_length: int = 4,
+        avg_length: int = 1,
+        sac_length: int = 1,
         num_envs_AVG: int = 10,
         num_epochs_distillation: int = 1,
         num_epochs_sac: int = 1,
@@ -235,13 +234,15 @@ class DynaSAC:
                 distillation_lr=self.agent_config.distillation_lr,
             )
 
-            agent_state = train_jit(key, index)
-            stop_async_logging()
-            return agent_state
+            agent_state, score = train_jit(key, index)
+
+            # stop_async_logging()
+            print("should be finished")
+            return agent_state, score
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
 def create_linear_schedule(
@@ -292,7 +293,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_multi_GPU",
+        project_name="dyna_sac_tests_multi_CPU",
         run_name="run",
         config={
             "debug": False,
@@ -321,6 +322,6 @@ if __name__ == "__main__":
     )
     sac_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
+        n_timesteps=int(1e4),
         logging_config=logging_config,
     )

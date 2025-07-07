@@ -404,6 +404,7 @@ def collect_experience(
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
     )
+
     agent_state = agent_state.replace(collector_state=new_collector_state)
     return agent_state, transition
 

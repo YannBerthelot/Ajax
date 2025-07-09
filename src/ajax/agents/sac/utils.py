@@ -25,7 +25,16 @@ class SquashedNormal(distrax.Transformed):
     def mean(self):
         return self.bijector.forward(self.distribution.mean())
 
-    def entropy(self):
+    def unsquashed_mean(self):
+        return self.distribution.mean()
+
+    def unsquashed_stddev(self):
+        return self.distribution.stddev()
+
+    def unsquashed_variance(self):
+        return self.distribution.variance()
+
+    def unsquashed_entropy(self):
         return self.distribution.entropy()
 
     def mix_distributions(self, other, dyna_factor: float):

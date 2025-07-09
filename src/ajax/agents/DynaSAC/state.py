@@ -23,4 +23,8 @@ class DynaSACConfig:
     dyna_tau: float
     dyna_factor: float
     n_avg_agents: int
-    distillation_lr: float
+    actor_distillation_lr: float
+    critic_distillation_lr: float
+    n_distillation_samples: int
+    alpha_polyak_primary_to_secondary: float = 1e-3
+    alpha_polyak_secondary_to_primary: float = 1e-3

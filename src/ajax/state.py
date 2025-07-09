@@ -229,6 +229,7 @@ class BaseAgentState:
     eval_rng: jax.Array
     n_updates: int = 0
     n_logs: int = 0
+    index: Optional[int] = None
 
     def replace(self, *args, **kwargs):  # To make mypy happy
         """Replace fields in the dataclass with new values."""

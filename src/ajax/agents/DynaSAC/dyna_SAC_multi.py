@@ -55,7 +55,11 @@ class DynaSAC:
         dyna_tau: FloatOrCallable = 0.005,  # FIXME : deprecated
         dyna_factor: FloatOrCallable = 0.5,  # FIXME : deprecated
         n_avg_agents: int = 1,
-        distillation_lr: float = 1e-4,
+        actor_distillation_lr: float = 1e-4,
+        critic_distillation_lr: float = 1e-4,
+        n_distillation_samples: int = 1_000,
+        alpha_polyak_primary_to_secondary: float = 1e-3,
+        alpha_polyak_secondary_to_primary: float = 1e-3,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -172,7 +176,11 @@ class DynaSAC:
             dyna_tau=dyna_tau,
             dyna_factor=dyna_factor,
             n_avg_agents=n_avg_agents,
-            distillation_lr=distillation_lr,
+            actor_distillation_lr=actor_distillation_lr,
+            critic_distillation_lr=critic_distillation_lr,
+            n_distillation_samples=n_distillation_samples,
+            alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
+            alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
         )
 
         self.buffer = get_buffer(
@@ -188,6 +196,7 @@ class DynaSAC:
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
+        sweep: bool = False,
     ) -> None:
         """
         Train the SAC agent.
@@ -203,8 +212,9 @@ class DynaSAC:
         if logging_config is not None:
             logging_config.config.update(self.config)
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(run_ids):
-                init_logging(run_id, index, logging_config)
+            if not sweep:
+                for index, run_id in enumerate(run_ids):
+                    init_logging(run_id, index, logging_config)
         else:
             run_ids = None
 
@@ -231,7 +241,12 @@ class DynaSAC:
                 num_epochs=self.num_epochs_distillation,
                 n_epochs_sac=self.num_epochs_sac,
                 n_avg_agents=self.agent_config.n_avg_agents,
-                distillation_lr=self.agent_config.distillation_lr,
+                actor_distillation_lr=self.agent_config.actor_distillation_lr,
+                critic_distillation_lr=self.agent_config.critic_distillation_lr,
+                n_distillation_samples=self.agent_config.n_distillation_samples,
+                alpha_polyak_secondary_to_primary=self.agent_config.alpha_polyak_secondary_to_primary,
+                alpha_polyak_primary_to_secondary=self.agent_config.alpha_polyak_primary_to_secondary,
+                sweep=sweep,
             )
 
             agent_state, score = train_jit(key, index)
@@ -264,7 +279,13 @@ def create_linear_schedule(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--distillation_lr",
+        "--actor_distillation_lr",
+        type=float,
+        default=1e-4,
+        help="Override learning rate for distillation.",
+    )
+    parser.add_argument(
+        "--critic_distillation_lr",
         type=float,
         default=1e-4,
         help="Override learning rate for distillation.",
@@ -287,13 +308,33 @@ if __name__ == "__main__":
         default=1,
         help="Override number of agents to average.",
     )
+    parser.add_argument(
+        "--n_distillation_samples",
+        type=int,
+        default=1_000,
+        help="Override number of agents to average.",
+    )
+
+    parser.add_argument(
+        "--alpha_polyak_secondary_to_primary",
+        type=int,
+        default=1e-4,
+        help="Override number of agents to average.",
+    )
+
+    parser.add_argument(
+        "--alpha_polyak_primary_to_secondary",
+        type=int,
+        default=1e-4,
+        help="Override number of agents to average.",
+    )
 
     args = parser.parse_args()
 
     n_seeds = 1
-    log_frequency = 5_000
+    log_frequency = 5000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_multi_CPU",
+        project_name="dyna_sac_distillation_losses",
         run_name="run",
         config={
             "debug": False,
@@ -307,7 +348,7 @@ if __name__ == "__main__":
         use_wandb=True,
     )
 
-    env_id = "halfcheetah"
+    env_id = "hopper"
     sac_agent = DynaSAC(
         env_id=env_id,
         learning_starts=int(1e4),
@@ -318,10 +359,14 @@ if __name__ == "__main__":
         num_epochs_distillation=args.n_epochs_distillation,
         num_epochs_sac=1,
         n_avg_agents=args.n_avg_agents,
-        distillation_lr=args.distillation_lr,
+        actor_distillation_lr=args.actor_distillation_lr,
+        critic_distillation_lr=args.critic_distillation_lr,
+        n_distillation_samples=args.n_distillation_samples,
+        alpha_polyak_primary_to_secondary=args.alpha_polyak_primary_to_secondary,
+        alpha_polyak_secondary_to_primary=args.alpha_polyak_secondary_to_primary,
     )
     sac_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(1e4),
+        n_timesteps=int(5e4),
         logging_config=logging_config,
     )

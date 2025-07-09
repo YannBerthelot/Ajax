@@ -106,7 +106,7 @@ def stop_async_logging():
 
 def _logging_worker():
     """Worker thread that processes logging queue"""
-
+    print("logging worker started")
     while not stop_logging.is_set():
         try:
             item = logging_queue.get(timeout=0.1)
@@ -114,6 +114,7 @@ def _logging_worker():
                 continue
 
             run_id, metrics, step, project, name = item
+
             if project is not None:
                 try:
                     run = wandb.init(
@@ -124,6 +125,7 @@ def _logging_worker():
                         reinit=True,
                     )
                     run.log(metrics, step=step)
+
                 except wandb.errors.UsageError:
                     pass
             writer = tensorboard_writers.get(run_id)
@@ -172,9 +174,11 @@ def vmap_log(
     }
 
     step = log_metrics["timestep"]
+
     logging_queue.put(
         (run_id, metrics_np, step, logging_config.project_name, logging_config.run_name)
     )
+
     return None
 
 

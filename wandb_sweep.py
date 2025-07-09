@@ -15,8 +15,10 @@ project_name = "dyna_sac_tests_sweep"
 def main():
     import wandb
 
-    n_seeds = 5
-    log_frequency = 5000
+    run = wandb.init(project=project_name)
+    n_seeds = 2
+    log_frequency = 1000
+    logging_config = None
     logging_config = LoggingConfig(
         project_name=project_name,
         run_name="run",
@@ -30,21 +32,25 @@ def main():
         use_tensorboard=False,
         use_wandb=False,
     )
-    env_id = "halfcheetah"
+    env_id = "hopper"
 
     def init_and_train(config):
-        sac_agent = agent(env_id=env_id, **config)
+        sac_agent = agent(
+            env_id=env_id,
+            **config,
+            actor_architecture=("64", "relu", "64", "relu"),
+            critic_architecture=("64", "relu", "64", "relu"),
+        )
         _, score = sac_agent.train(
             seed=list(range(n_seeds)),
-            n_timesteps=int(2e5),
+            n_timesteps=int(1e5),
             logging_config=logging_config,
+            sweep=True,
         )
         return score.mean()
 
-    wandb.init(project=project_name)
     score = init_and_train(wandb.config)
-    wandb.log({"score": score})
-    wandb.finish()
+    run.log({"score": score})
 
 
 def run_wandb_agent(sweep_id):
@@ -95,10 +101,14 @@ if __name__ == "__main__":
         "method": "random",
         "metric": {"goal": "maximize", "name": "score"},
         "parameters": {
-            "distillation_lr": {"max": 1e-3, "min": 1e-5},
-            "n_avg_agents": {"values": [1, 2, 4]},
-            "num_envs_AVG": {"values": [1, 2, 4]},
-            "num_epochs_distillation": {"values": [1, 2, 5]},
+            "actor_distillation_lr": {"max": 1e-3, "min": 1e-5},
+            "critic_distillation_lr": {"max": 1e-3, "min": 1e-5},
+            "n_avg_agents": {"values": [1]},
+            "num_envs_AVG": {"values": [1]},
+            "num_epochs_distillation": {"values": [1, 2, 3]},
+            "n_distillation_samples": {"values": [128, 256, 512]},
+            "alpha_polyak_primary_to_secondary": {"max": 1e-1, "min": 1e-3},
+            "alpha_polyak_secondary_to_primary": {"max": 1e-1, "min": 1e-3},
         },
     }
 

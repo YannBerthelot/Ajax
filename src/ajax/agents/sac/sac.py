@@ -18,7 +18,6 @@ from ajax.environments.utils import (
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
-    stop_async_logging,
     with_wandb_silent,
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
@@ -190,7 +189,7 @@ class SAC:
             )
 
             agent_state, eval_rewards = train_jit(key, index)
-            stop_async_logging()
+            # stop_async_logging()
             return agent_state, eval_rewards
 
         index = jnp.arange(len(seed))

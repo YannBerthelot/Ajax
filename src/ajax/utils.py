@@ -1,4 +1,6 @@
 import ast
+import inspect
+from dataclasses import fields
 from types import MappingProxyType
 from typing import Any, Callable, Optional
 
@@ -6,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import optax
 import yaml
+from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
 
@@ -382,3 +385,49 @@ def get_and_prepare_hyperparams(
     )
 
     return init_kwargs, train_kwargs
+
+
+def fill_with_nan(dataclass):
+    """
+    Recursively fills all fields of a dataclass with jnp.nan.
+    """
+    nan = jnp.ones(1) * jnp.nan
+    dict = {}
+    for field in fields(dataclass):
+        sub_dataclass = field.type
+        if hasattr(
+            sub_dataclass, "__dataclass_fields__"
+        ):  # Check if the field is another dataclass
+            dict[field.name] = fill_with_nan(sub_dataclass)
+        else:
+            dict[field.name] = nan
+    return dataclass(**dict)
+
+
+def get_update_kwargs(config, update_fn, **kwargs):
+    sig = inspect.signature(update_fn)
+    arg_names = [
+        param.name for param in sig.parameters.values()
+    ]  # remove agent_state and _
+    kwargs = {key: val for key, val in kwargs.items() if key in arg_names}
+
+    values_to_remove = ["agent_state", "_", "buffer", "recurrent", "action_dim"]
+    arg_names = [
+        param.name
+        for param in sig.parameters.values()
+        if param.name not in values_to_remove
+    ]
+    update_kwargs = {
+        key: config.__dict__[key] for key in arg_names if key in config.__dict__
+    }
+
+    update_kwargs.update(kwargs)
+    return FrozenDict(update_kwargs)
+
+
+def get_update_scan_fn(static_kwargs, config, update_agent):
+    static_kwargs = get_update_kwargs(config, update_agent, **static_kwargs)
+    return partial(
+        update_agent,
+        **static_kwargs,
+    )

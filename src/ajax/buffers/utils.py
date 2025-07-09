@@ -69,6 +69,10 @@ def assert_shape(x, expected_shape, name="tensor"):
 def get_batch_from_buffer(buffer, buffer_state, key):
     batch = buffer.sample(buffer_state, key).experience
 
+    # keys = jax.random.split(key, n_batches)
+    # batches = jax.vmap(buffer.sample, in_axes=(None, 0))(buffer_state, keys).experience
+    # batch = jax.tree.map(lambda x: x.reshape((x.shape[0] * x.shape[1], -1)), batches)
+
     obs = batch.first["obs"]
     act = batch.first["action"]
     rew = batch.first["reward"]

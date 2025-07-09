@@ -89,7 +89,7 @@ def evaluate(
         )
 
         action = pi.mean() if continuous else pi.mode()
-        entropy = pi.entropy()
+        entropy = pi.unsquashed_entropy()
         return action, entropy
 
     obs, state = reset_env(reset_keys, env, mode, env_params)

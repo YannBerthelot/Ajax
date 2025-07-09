@@ -11,13 +11,12 @@ from ajax.agents.AVG.train_AVG import training_iteration as secondary_training_i
 from ajax.agents.DynaSAC.state import AVGState, DynaSACConfig, SACState
 from ajax.agents.sac.train_sac import init_sac
 from ajax.agents.sac.train_sac import training_iteration as primary_training_iteration
-from ajax.buffers.utils import get_batch_from_buffer
+from ajax.buffers.utils import get_batch_from_buffer, get_buffer
 from ajax.distillation import distillation
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
-    stop_async_logging,
     vmap_log,
 )
 from ajax.state import (
@@ -110,97 +109,128 @@ def maybe_map(fn, source_tree, target_tree):
     return fn(source_tree, target_tree) if source_tree is not None else None
 
 
+def polyak_average_params(old_params, new_params, alpha: float):
+    """Performs Polyak averaging of parameters."""
+    return jax.tree_util.tree_map(
+        lambda p_old, p_new: (1 - alpha) * p_old + alpha * p_new, old_params, new_params
+    )
+
+
+def polyak_average_trainstates(state_old, state_new, alpha: float):
+    """Returns a new TrainState with params averaged between two TrainStates."""
+    mixed_params = polyak_average_params(state_old.params, state_new.params, alpha)
+    return state_old.replace(params=mixed_params)
+
+
 def distill_source_to_target(
-    source,
-    target,
+    teacher,
+    student,
     teacher_inputs,
     student_inputs,
     num_epochs=1,
     actor: bool = False,
     vmap: bool = False,
     distillation_lr: float = 1e-4,
+    alpha_polyak_primary_to_secondary: float = 1e-3,
+    alpha_polyak_secondary_to_primary: float = 1e-3,
 ):
     mode = "actor" if actor else "critic"
     if vmap:
-        teacher_values = jax.vmap(source.apply_fn, in_axes=(0, None))(
-            source.params, teacher_inputs
+        teacher_values = jax.vmap(teacher.apply_fn, in_axes=(0, None))(
+            teacher.params, teacher_inputs
         )
     else:
-        teacher_values = source.apply_fn(source.params, teacher_inputs)
+        teacher_values = teacher.apply_fn(teacher.params, teacher_inputs)
     if vmap:
-        student_state = distillation(
-            target,
-            teacher_values,
-            student_inputs,
+        new_student_state, loss = distillation(
+            student,
+            teacher_values=teacher_values,
+            student_inputs=student_inputs,
             num_epochs=num_epochs,
             distillation_lr=distillation_lr,
             mode=mode,
+            vmap=vmap,
         )
     else:
-        student_state = jax.vmap(
+        new_student_state, loss = jax.vmap(
             distillation, in_axes=(0, None, None, None, None, None)
-        )(target, teacher_values, student_inputs, mode, num_epochs, distillation_lr)
-    return student_state.params
+        )(student, teacher_values, student_inputs, mode, num_epochs, distillation_lr)
+        loss = loss.reshape(-1)
+    alpha = (
+        alpha_polyak_secondary_to_primary if vmap else alpha_polyak_primary_to_secondary
+    )
+    student_state = polyak_average_trainstates(
+        student, new_student_state, alpha=alpha
+    )  # TODO : parameterize
+    return student_state, loss
 
 
 def get_agent_state_from_agent_state(
-    target: Union[SACState, AVGState],
-    source: Union[SACState, AVGState],
-    target_observations,
-    source_observations,
+    student: Union[SACState, AVGState],
+    teacher: Union[SACState, AVGState],
+    student_observations,
+    teacher_observations,
     actions,
     num_epochs: int = 1,
     transfer_collector_state: bool = False,
     vmap: bool = False,
-    distillation_lr: float = 1e-4,
-) -> Union[SACState, AVGState]:
-    distilled_actor_params = distill_source_to_target(
-        source.actor_state,
-        target.actor_state,
-        student_inputs=target_observations,
-        teacher_inputs=source_observations,
+    actor_distillation_lr: float = 1e-4,
+    critic_distillation_lr: float = 1e-4,
+    alpha_polyak_primary_to_secondary: float = 1e-3,
+    alpha_polyak_secondary_to_primary: float = 1e-3,
+) -> tuple[Union[SACState, AVGState], tuple[jnp.ndarray, jnp.ndarray]]:
+    distilled_actor, actor_distillation_loss = distill_source_to_target(
+        teacher=teacher.actor_state,
+        teacher_inputs=teacher_observations,
+        student=student.actor_state,
+        student_inputs=student_observations,
         actor=True,
         num_epochs=num_epochs,
         vmap=vmap,
-        distillation_lr=distillation_lr,
+        distillation_lr=actor_distillation_lr,
+        alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
+        alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
     )
-    distilled_critic_params = distill_source_to_target(
-        source.critic_state,
-        target.critic_state,
-        student_inputs=jnp.hstack([target_observations, actions]),
+    distilled_critic, critic_distillation_loss = distill_source_to_target(
+        teacher=teacher.critic_state,
         teacher_inputs=jnp.hstack(
-            [source_observations, actions]
+            [teacher_observations, actions]
         ),  # actions are not normalized, so we can use them directly
+        student=student.critic_state,
+        student_inputs=jnp.hstack([student_observations, actions]),
         num_epochs=num_epochs,
         vmap=vmap,
-        distillation_lr=distillation_lr,
+        distillation_lr=critic_distillation_lr,
     )
-    target_actor_state = target.actor_state.replace(params=distilled_actor_params)  # type: ignore[union-attr]
-    target_critic_state = target.critic_state.replace(params=distilled_critic_params)  # type: ignore[union-attr]
+
+    distilled_critic = distilled_critic.soft_update(tau=0.01)  # TODO : parameterize
+    # student_actor_state = student.actor_state.replace(params=distilled_actor_params)  # type: ignore[union-attr]
+    # student_critic_state = student.critic_state.replace(params=distilled_critic_params)  # type: ignore[union-attr]
+    # student_critic_state = student_critic_state.soft_update(tau=0.5)
     if transfer_collector_state:
-        target_collector_state = target.collector_state.replace(
-            env_state=source.collector_state.env_state,
-            last_obs=source.collector_state.last_obs,
-            last_terminated=source.collector_state.last_terminated,
-            last_truncated=source.collector_state.last_truncated,
+        target_collector_state = student.collector_state.replace(
+            env_state=teacher.collector_state.env_state,
+            last_obs=teacher.collector_state.last_obs,
+            last_terminated=teacher.collector_state.last_terminated,
+            last_truncated=teacher.collector_state.last_truncated,
         )  # type: ignore[union-attr]
 
         new_collector_state = broadcast_to_match(
-            target.collector_state, target_collector_state
+            student.collector_state, target_collector_state
         )
 
-        new_target_state = target.replace(  # type: ignore[union-attr]
-            actor_state=target_actor_state,
-            critic_state=target_critic_state,
+        new_target_state = student.replace(  # type: ignore[union-attr]
+            actor_state=distilled_actor,
+            critic_state=distilled_critic,
             collector_state=new_collector_state,
         )
 
         return new_target_state
 
-    return target.replace(  # type: ignore[union-attr]
-        actor_state=target_actor_state,
-        critic_state=target_critic_state,
-    )
+    return student.replace(  # type: ignore[union-attr]
+        actor_state=distilled_actor,
+        critic_state=distilled_critic,
+    ), (actor_distillation_loss, critic_distillation_loss)
 
 
 def fix_target_params(state):
@@ -251,7 +281,11 @@ def make_train(
     num_epochs: int = 1,
     n_epochs_sac: int = 1,
     n_avg_agents: int = 1,
-    distillation_lr: float = 1e-4,
+    actor_distillation_lr: float = 1e-4,
+    critic_distillation_lr: float = 1e-4,
+    n_distillation_samples: int = 1_000,
+    alpha_polyak_primary_to_secondary: float = 1e-3,
+    alpha_polyak_secondary_to_primary: float = 1e-3,
     sweep: bool = False,
 ):
     """
@@ -271,11 +305,11 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(primary_env_args.env) else "brax"
-    log = logging_config is not None  # and not (sweep)
+    log = (logging_config is not None) and (not sweep)
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
     # Start async logging if logging is enabled
-    if logging_config is not None:
+    if logging_config is not None and not sweep:
         start_async_logging()
 
     @partial(jax.jit)
@@ -301,7 +335,15 @@ def make_train(
             num_critics=1,
         )
         secondary_agent_state = jax.vmap(partial_init_AVG)(avg_keys)
-
+        if primary_agent_state.collector_state.buffer_state is not None:
+            buffer_size = primary_agent_state.collector_state.buffer_state.experience[
+                "obs"
+            ].shape[1]
+        distillation_buffer = get_buffer(
+            buffer_size=buffer_size,
+            batch_size=n_distillation_samples,
+            n_envs=primary_env_args.n_envs,
+        )
         # raw_secondary_agent_state = raw_secondary_agent_state.replace(
         #     critic_state=fix_target_params(raw_secondary_agent_state.critic_state)
         # )
@@ -334,7 +376,7 @@ def make_train(
             num_episode_test=num_episode_test,
             log_fn=log_fn,
             index=index,
-            log=log,
+            log=False,
             total_timesteps=total_timesteps,
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
@@ -367,13 +409,18 @@ def make_train(
         ) -> tuple[tuple[SACState, AVGState], None]:
             primary_agent_state, secondary_agent_state = carry
 
-            new_primary_agent_state, score = jax.lax.scan(
+            new_primary_agent_state, metrics_to_log = jax.lax.scan(
                 f=primary_training_iteration_scan_fn,
                 init=primary_agent_state,
                 xs=None,
                 length=sac_length,
                 unroll=n_unroll,
             )
+            # new_primary_agent_state = new_primary_agent_state.replace(
+            #     critic_state=primary_agent_state.critic_state,
+            #     actor_state=primary_agent_state.actor_state,
+            #     # collector_state=primary_agent_state.collector_state,
+            # )
             # jax.debug.print(
             #     "{x}/{y} n_updates:{z} n_envs:{a}",
             #     x=new_primary_agent_state.collector_state.timestep,
@@ -382,7 +429,7 @@ def make_train(
             #     a=primary_env_args.n_envs,
             # )
 
-            def do_training(_):
+            def do_training(new_primary_agent_state, secondary_agent_state):
                 def get_obs_normed_obs_action(agent_state, secondary_agent_state, key):
                     (
                         observations,
@@ -392,7 +439,7 @@ def make_train(
                         _,
                         actions,
                     ) = get_batch_from_buffer(
-                        buffer,
+                        distillation_buffer,
                         agent_state.collector_state.buffer_state,
                         key,  # TODO : change
                     )
@@ -424,15 +471,24 @@ def make_train(
                 #     target=secondary_agent_state,
                 #     tau=agent_config.dyna_tau(timestep),  # type: ignore[arg-type]
                 # )
-                transfered_secondary_agent_state = get_agent_state_from_agent_state(
-                    target=secondary_agent_state,
-                    source=new_primary_agent_state,
-                    source_observations=normalized_obs,
-                    target_observations=observations,
+                (
+                    transfered_secondary_agent_state,
+                    (
+                        sac_to_avg_actor_distillation_loss,
+                        sac_to_avg_critic_distillation_loss,
+                    ),
+                ) = get_agent_state_from_agent_state(
+                    student=secondary_agent_state,
+                    student_observations=normalized_obs,
+                    teacher=new_primary_agent_state,
+                    teacher_observations=observations,
                     actions=actions,
                     num_epochs=num_epochs,
                     vmap=False,
-                    distillation_lr=distillation_lr,
+                    actor_distillation_lr=actor_distillation_lr,
+                    critic_distillation_lr=critic_distillation_lr,
+                    alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
+                    alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
                 )
 
                 new_secondary_agent_state, _ = jax.lax.scan(
@@ -450,29 +506,106 @@ def make_train(
                     f"actions shape {actions.shape}"
                 )
 
-                transfered_primary_agent_state = get_agent_state_from_agent_state(
-                    target=new_primary_agent_state,
-                    source=new_secondary_agent_state,
-                    source_observations=normalized_obs,
-                    target_observations=observations,
+                (
+                    transfered_primary_agent_state,
+                    (
+                        avg_to_sac_actor_distillation_loss,
+                        avg_to_sac_critic_distillation_loss,
+                    ),
+                ) = get_agent_state_from_agent_state(
+                    student=new_primary_agent_state,
+                    student_observations=observations,
+                    teacher=new_secondary_agent_state,
+                    teacher_observations=normalized_obs,
                     actions=actions,
                     num_epochs=num_epochs,
                     vmap=True,
-                    distillation_lr=distillation_lr,
+                    actor_distillation_lr=actor_distillation_lr,
+                    critic_distillation_lr=critic_distillation_lr,
+                    alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
+                    alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
+                )
+                losses = (
+                    sac_to_avg_actor_distillation_loss,
+                    sac_to_avg_critic_distillation_loss,
+                    avg_to_sac_actor_distillation_loss,
+                    avg_to_sac_critic_distillation_loss,
+                )
+                return transfered_primary_agent_state, new_secondary_agent_state, losses
+
+            def skip_training(new_primary_agent_state, secondary_agent_state):
+                return (
+                    new_primary_agent_state,
+                    secondary_agent_state,
+                    (jnp.zeros(1) * jnp.nan, jnp.zeros(1) * jnp.nan, jnp.nan, jnp.nan),
                 )
 
-                return transfered_primary_agent_state, new_secondary_agent_state
-
-            def skip_training(_):
-                return new_primary_agent_state, secondary_agent_state
-
             cond_pred = (
-                new_primary_agent_state.collector_state.timestep > 10_000
+                new_primary_agent_state.collector_state.timestep
+                >= 0  # FIXME : add learning starts here
             )  # TODO : investigate
 
-            transfered_primary_agent_state, new_secondary_agent_state = jax.lax.cond(
-                cond_pred, do_training, skip_training, operand=None
+            (
+                transfered_primary_agent_state,
+                new_secondary_agent_state,
+                distillation_losses,
+            ) = jax.lax.cond(
+                cond_pred,
+                do_training,
+                skip_training,
+                new_primary_agent_state,
+                secondary_agent_state,
             )
+            # (
+            #     transfered_primary_agent_state,
+            #     new_secondary_agent_state,
+            #     distillation_losses,
+            # ) = do_training()
+            timestep = new_primary_agent_state.collector_state.timestep
+
+            def wandb_log_fn(agent_state):
+                metrics_to_log.update(
+                    {
+                        "timestep": timestep,
+                        "Distillation/sac_to_avg_actor_distillation_loss": (
+                            distillation_losses[0]
+                        ),
+                        "Distillation/sac_to_avg_critic_distillation_loss": (
+                            distillation_losses[1]
+                        ),
+                        "Distillation/avg_to_sac_actor_distillation_loss": (
+                            distillation_losses[2]
+                        ),
+                        "Distillation/avg_to_sac_critic_distillation_loss": (
+                            distillation_losses[3]
+                        ),
+                    }
+                )
+                jax.debug.callback(log_fn, metrics_to_log, index)
+                return agent_state.replace(n_logs=agent_state.n_logs + 1)
+
+            def no_op_none(agent_state):
+                return agent_state
+
+            score = metrics_to_log["Eval/episodic mean reward"]
+            if logging_config is not None:
+                log_flag = jnp.logical_and(
+                    (
+                        timestep
+                        - (primary_agent_state.n_logs * logging_config.log_frequency)
+                        >= logging_config.log_frequency
+                    ),
+                    log,
+                )
+
+                flag = jnp.logical_or(
+                    jnp.logical_and(log_flag, timestep > 1),
+                    timestep >= (total_timesteps - primary_env_args.n_envs),
+                )
+
+                transfered_primary_agent_state = jax.lax.cond(
+                    flag, wandb_log_fn, no_op_none, transfered_primary_agent_state
+                )
 
             assert jax.tree.map(
                 lambda x, y: jnp.allclose(x, y),
@@ -507,7 +640,7 @@ def make_train(
             length=num_updates,
         )
 
-        stop_async_logging()
+        # stop_async_logging()
         window_size = int(0.1 * total_timesteps)
         return primary_agent_state, jnp.nanmean(score[-window_size:])
 

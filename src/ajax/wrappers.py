@@ -647,6 +647,8 @@ class AutoResetWrapper(BraxWrapper):
         new_rng = jax.lax.cond(
             state.done.any(), split, identity, rng
         )  # Only generate a new seed when at least one env is done
+
+        # Should generate as much new states as finished environments, so that each one has a different seed.
         new_init_state = self.reset(
             new_rng
         )  # If I am correct, as long as the seed is the same jax will use the cached result and not recompute reset, only recomputing for a new seed.

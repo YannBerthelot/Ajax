@@ -1,3 +1,5 @@
+from typing import Optional
+
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
@@ -5,6 +7,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import EnvironmentConfig
+from ajax.types import BufferType
 
 
 def get_buffer(
@@ -66,8 +69,15 @@ def assert_shape(x, expected_shape, name="tensor"):
     jax.jit,
     static_argnames=["buffer"],
 )
-def get_batch_from_buffer(buffer, buffer_state, key):
-    batch = buffer.sample(buffer_state, key).experience
+def get_batch_from_buffer(
+    buffer: BufferType,
+    buffer_state,
+    key,
+    alternate_buffer: Optional[BufferType] = None,
+    mix_fraction=0.5,
+):
+    normal_key, alt_key = jax.random.split(key, 2)
+    batch = buffer.sample(buffer_state, normal_key).experience
 
     # keys = jax.random.split(key, n_batches)
     # batches = jax.vmap(buffer.sample, in_axes=(None, 0))(buffer_state, keys).experience
@@ -79,5 +89,43 @@ def get_batch_from_buffer(buffer, buffer_state, key):
     next_obs = batch.second["obs"]
     terminated = batch.first["terminated"]
     truncated = batch.first["truncated"]
+
+    # if alternate_buffer is not None:
+    #     len_normal = len(obs)
+    #     alt_batch = alternate_buffer.sample(buffer_state, alt_key).experience
+    #     alt_obs = alt_batch.first["obs"]
+    #     len_alt = len(alt_obs)
+    #     import pdb
+
+    #     alt_act = alt_batch.first["action"]
+    #     alt_rew = alt_batch.first["reward"]
+    #     alt_next_obs = alt_batch.second["obs"]
+    #     alt_terminated = alt_batch.first["terminated"]
+    #     alt_truncated = alt_batch.first["truncated"]
+
+    #     obs = jnp.concatenate(
+    #         [obs, alt_obs],
+    #         axis=0,
+    #     )
+    #     act = jnp.concatenate(
+    #         [act, alt_act],
+    #         axis=0,
+    #     )
+    #     rew = jnp.concatenate(
+    #         [rew, alt_rew],
+    #         axis=0,
+    #     )
+    #     next_obs = jnp.concatenate(
+    #         [next_obs, alt_next_obs],
+    #         axis=0,
+    #     )
+    #     terminated = jnp.concatenate(
+    #         [terminated, alt_terminated],
+    #         axis=0,
+    #     )
+    #     truncated = jnp.concatenate(
+    #         [truncated, alt_truncated],
+    #         axis=0,
+    #     )
 
     return obs, terminated, truncated, next_obs, rew, act

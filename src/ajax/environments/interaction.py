@@ -260,7 +260,6 @@ def compute_episodic_reward_mean(
         agent_state.collector_state.episodic_return_state.cumulative_reward
         + reward.reshape(reward.shape[0], 1)
     )
-
     last_return = jax.lax.select(
         done.reshape(done.shape[0], 1),
         new_cumulative_reward,
@@ -369,21 +368,32 @@ def collect_experience(
         "terminated": terminated[:, None],
         "truncated": truncated[:, None],
     }
-    if buffer is not None:
-        buffer_state = buffer.add(
-            agent_state.collector_state.buffer_state,
-            _transition,
-        )
+    # got_buffer = (
+    #     buffer is not None and agent_state.collector_state.buffer_state is not None
+    # )
+    buffer_state = agent_state.collector_state.buffer_state
+    if agent_state.collector_state.buffer_state is not None:
+        if (
+            agent_state.collector_state.buffer_state.experience["obs"].shape[0]
+            == action.shape[
+                0
+            ]  # TODO : change later, this is a hack to not add when using the secondary agent in DynaSAC. This still adds when DynaSAC has a single env
+        ):
+            buffer_state = buffer.add(
+                agent_state.collector_state.buffer_state,
+                _transition,
+            )
         _transition.update(
             {
-                "next_obs": jnp.zeros_like(obsv) * jnp.nan,
-                "log_prob": jnp.zeros_like(log_probs) * jnp.nan,
+                "next_obs": obsv,  # jnp.zeros_like(obsv) * jnp.nan,
+                "log_prob": log_probs,  # jnp.zeros_like(log_probs) * jnp.nan,
             }
         )
     else:
         _transition.update(
             {"next_obs": obsv, "log_prob": log_probs}
         )  # not included if using buffer to reduce memory usage, as flashbax can rebuild it.
+
     transition = Transition(
         **_transition
     )  # TODO: check if the consumes too much memory
@@ -397,12 +407,12 @@ def collect_experience(
         rng=rng,
         env_state=env_state,
         last_obs=obsv,
-        buffer_state=buffer_state if buffer is not None else None,
         timestep=agent_state.collector_state.timestep + 1,  # + env_args.n_envs,
         last_terminated=terminated,
         last_truncated=truncated,
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
+        buffer_state=buffer_state,
     )
 
     agent_state = agent_state.replace(collector_state=new_collector_state)
@@ -439,11 +449,12 @@ def init_collector_state(
         cumulative_reward=jnp.zeros((env_args.n_envs, 1)),
         last_return=jnp.nan * jnp.zeros((env_args.n_envs, 1)),
     )
+    buffer_state = init_buffer(buffer, env_args) if buffer is not None else None
     return CollectorState(
         rng=rng,
         env_state=env_state,
         last_obs=last_obs,
-        buffer_state=init_buffer(buffer, env_args) if buffer is not None else None,
+        buffer_state=buffer_state,
         timestep=0,
         last_terminated=last_done,
         last_truncated=last_done,

@@ -22,6 +22,7 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.evaluate import evaluate
+from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -857,70 +858,24 @@ def training_iteration(
         operand=agent_state,
     )
 
-    def run_and_log(agent_state: AVGState, aux, index):
-        num_updates = agent_state.collector_state.num_update
-        eval_key = agent_state.eval_rng
-        obs_normalization = True  # TODO : infer from env
-        eval_rewards, eval_entropy = evaluate(
-            env_args.env,
-            actor_state=agent_state.actor_state,
-            num_episodes=num_episode_test,
-            rng=eval_key,
-            env_params=env_args.env_params,
-            recurrent=recurrent,
-            lstm_hidden_size=lstm_hidden_size,
-            norm_info=(
-                agent_state.collector_state.env_state.info[
-                    (
-                        "normalization_info"
-                        if mode == "brax"
-                        else agent_state.collector_state.env_state.normalization_info
-                    )
-                ]
-                if obs_normalization
-                else None
-            ),
-        )
-
-        metrics_to_log = {
-            "timestep": timestep,
-            "num_update": num_updates,
-            "Eval/episodic mean reward": eval_rewards,
-            "Eval/episodic entropy": eval_entropy,
-            "Train/episodic mean reward": (
-                agent_state.collector_state.episodic_mean_return
-            ),
-        }
-
-        metrics_to_log.update(flatten_dict(to_state_dict(aux)))
-        jax.debug.callback(log_fn, metrics_to_log, index)
-
-        if verbose:
-            jax.debug.print(
-                (
-                    "[Eval] Step={timestep_val}, Reward={rewards_val},"
-                    " Entropy={entropy_val}"
-                ),
-                timestep_val=timestep,
-                rewards_val=eval_rewards,
-                entropy_val=eval_entropy,
-            )
-
-    if log:
-        agent_state = log_function(
-            agent_state,
-            log_frequency,
-            timestep,
-            total_timesteps,
-            aux,
-            run_and_log,
-            no_op_none,
-            env_args,
-            index,
-        )
+    agent_state, metrics_to_log = evaluate_and_log(
+        agent_state,
+        aux,
+        index,
+        mode,
+        env_args,
+        num_episode_test,
+        recurrent,
+        lstm_hidden_size,
+        log,
+        verbose,
+        log_fn,
+        log_frequency,
+        total_timesteps,
+    )
 
     jax.clear_caches()
-    return agent_state, None
+    return agent_state, metrics_to_log
 
 
 def profile_memory(timestep):

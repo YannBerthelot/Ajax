@@ -2,7 +2,7 @@ import multiprocessing
 import signal
 import sys
 from typing import List
-
+import jax
 from ajax.agents import DynaSACMulti
 from ajax.logging.wandb_logging import LoggingConfig
 
@@ -16,8 +16,8 @@ def main():
     import wandb
 
     run = wandb.init(project=project_name)
-    n_seeds = 2
-    log_frequency = 1000
+    n_seeds = 10
+    log_frequency = 20_000
     logging_config = None
     logging_config = LoggingConfig(
         project_name=project_name,
@@ -30,16 +30,21 @@ def main():
         log_frequency=log_frequency,
         horizon=10_000,
         use_tensorboard=False,
-        use_wandb=False,
+        use_wandb=True,
     )
     env_id = "hopper"
+
+    N_NEURONS = 32
 
     def init_and_train(config):
         sac_agent = agent(
             env_id=env_id,
+            learning_starts=0,
+            sac_length=1,
+            #transition_mix_fraction=0.5,
             **config,
-            actor_architecture=("64", "relu", "64", "relu"),
-            critic_architecture=("64", "relu", "64", "relu"),
+            actor_architecture=(f"{N_NEURONS}", "relu", f"{N_NEURONS}", "relu"),
+            critic_architecture=(f"{N_NEURONS}", "relu", f"{N_NEURONS}", "relu"),
         )
         _, score = sac_agent.train(
             seed=list(range(n_seeds)),
@@ -47,6 +52,7 @@ def main():
             logging_config=logging_config,
             sweep=True,
         )
+        print(score, score.mean())
         return score.mean()
 
     score = init_and_train(wandb.config)
@@ -101,14 +107,17 @@ if __name__ == "__main__":
         "method": "random",
         "metric": {"goal": "maximize", "name": "score"},
         "parameters": {
-            "actor_distillation_lr": {"max": 1e-3, "min": 1e-5},
-            "critic_distillation_lr": {"max": 1e-3, "min": 1e-5},
-            "n_avg_agents": {"values": [1]},
-            "num_envs_AVG": {"values": [1]},
-            "num_epochs_distillation": {"values": [1, 2, 3]},
-            "n_distillation_samples": {"values": [128, 256, 512]},
-            "alpha_polyak_primary_to_secondary": {"max": 1e-1, "min": 1e-3},
-            "alpha_polyak_secondary_to_primary": {"max": 1e-1, "min": 1e-3},
+            # "actor_distillation_lr": {"max": 1e-3, "min": 1e-5},
+            # "critic_distillation_lr": {"max": 1e-3, "min": 1e-5},
+            #"n_avg_agents": {"values": [1]},
+            "num_envs_AVG": {"values": [1, 4, 8]},
+            "avg_length": {"values": [1, 2, 3]},
+            # "num_epochs_distillation": {"values": [3]},
+            # "n_distillation_samples": {"values": [256]},
+            # "alpha_polyak_primary_to_secondary": {"max": 1e-1, "min": 1e-3},
+            # "initial_alpha_polyak_secondary_to_primary": {"max": 1e-3, "min": 1e-5},
+            # "final_alpha_polyak_secondary_to_primary": {"max": 1e-1, "min": 1e-3},
+            "transition_mix_fraction":{"max": 0.99, "min": 0.8},
         },
     }
 
@@ -122,7 +131,7 @@ if __name__ == "__main__":
     sweep_proc.join()
     sweep_id = sweep_id_queue.get()
 
-    num_agents = 2
+    num_agents = 1
     try:
         launch_agents(sweep_id, num_agents)
     except KeyboardInterrupt:

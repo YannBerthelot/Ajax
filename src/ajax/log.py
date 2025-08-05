@@ -9,7 +9,8 @@ from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
 
 
-class AuxiliaryLogsProtocol(Protocol): ...
+class AuxiliaryLogsProtocol(Protocol):
+    ...
 
 
 def flatten_dict(dict: Dict) -> Dict:
@@ -135,8 +136,14 @@ def evaluate_and_log(
 
     _, eval_rng = jax.random.split(agent_state.eval_rng)
     agent_state = agent_state.replace(eval_rng=eval_rng)
+
+    log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
+
+    agent_state = agent_state.replace(
+        n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
+    )
     flag = jnp.logical_or(
-        jnp.logical_and((timestep % log_frequency) == 1, timestep > 1),
+        jnp.logical_and(log_flag, timestep > 1),
         timestep >= (total_timesteps - env_args.n_envs),
     )
     metrics_to_log = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)

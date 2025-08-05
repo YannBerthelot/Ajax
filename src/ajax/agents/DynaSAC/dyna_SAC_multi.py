@@ -59,7 +59,10 @@ class DynaSAC:
         critic_distillation_lr: float = 1e-4,
         n_distillation_samples: int = 1_000,
         alpha_polyak_primary_to_secondary: float = 1e-3,
-        alpha_polyak_secondary_to_primary: float = 1e-3,
+        initial_alpha_polyak_secondary_to_primary: float = 1e-3,
+        final_alpha_polyak_secondary_to_primary: float = 1e-3,
+        transition_mix_fraction: float = 0.5,
+        transfer_mode="copy",
     ) -> None:
         """
         Initialize the SAC agent.
@@ -92,29 +95,33 @@ class DynaSAC:
             n_envs=n_envs,
             gamma=gamma,
         )
-
-        secondary_env, env_params, env_id, continuous = prepare_env(
-            env_id,
-            env_params=env_params,
-            normalize_obs=True,
-            normalize_reward=False,
-            n_envs=num_envs_AVG,
-            gamma=gamma,
-        )
-
-        if not check_if_environment_has_continuous_actions(primary_env):
-            raise ValueError("SAC only supports continuous action spaces.")
-        self.num_epochs_distillation = num_epochs_distillation
-        self.num_epochs_sac = num_epochs_sac
         self.primary_env_args = EnvironmentConfig(
             env=primary_env,
             env_params=env_params,
             n_envs=n_envs,
             continuous=continuous,
         )
-        self.secondary_env_args = self.primary_env_args.replace(
-            env=secondary_env, n_envs=num_envs_AVG
+
+        secondary_env, env_params, env_id, continuous = prepare_env(
+            env_id,
+            env_params=env_params,
+            normalize_obs=False,
+            normalize_reward=False,
+            n_envs=num_envs_AVG,
+            gamma=gamma,
         )
+
+        self.secondary_env_args = EnvironmentConfig(
+            env=secondary_env,
+            env_params=env_params,
+            n_envs=num_envs_AVG,
+            continuous=continuous,
+        )
+
+        if not check_if_environment_has_continuous_actions(primary_env):
+            raise ValueError("SAC only supports continuous action spaces.")
+        self.num_epochs_distillation = num_epochs_distillation
+        self.num_epochs_sac = num_epochs_sac
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,
@@ -180,13 +187,22 @@ class DynaSAC:
             critic_distillation_lr=critic_distillation_lr,
             n_distillation_samples=n_distillation_samples,
             alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
-            alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
+            initial_alpha_polyak_secondary_to_primary=initial_alpha_polyak_secondary_to_primary,
+            final_alpha_polyak_secondary_to_primary=final_alpha_polyak_secondary_to_primary,
+            transition_mix_fraction=transition_mix_fraction,
+            transfer_mode=transfer_mode,
         )
 
         self.buffer = get_buffer(
             buffer_size=buffer_size,
             batch_size=batch_size,
             n_envs=n_envs,
+        )
+
+        self.alt_buffer = get_buffer(
+            buffer_size=buffer_size,
+            batch_size=batch_size,
+            n_envs=num_envs_AVG,
         )
 
     @with_wandb_silent
@@ -230,6 +246,7 @@ class DynaSAC:
                 secondary_critic_optimizer_args=self.secondary_critic_optimizer_args,
                 network_args=self.network_args,
                 buffer=self.buffer,
+                alt_buffer=self.alt_buffer,
                 agent_config=self.agent_config,
                 total_timesteps=n_timesteps,
                 alpha_args=self.alpha_args,
@@ -244,15 +261,16 @@ class DynaSAC:
                 actor_distillation_lr=self.agent_config.actor_distillation_lr,
                 critic_distillation_lr=self.agent_config.critic_distillation_lr,
                 n_distillation_samples=self.agent_config.n_distillation_samples,
-                alpha_polyak_secondary_to_primary=self.agent_config.alpha_polyak_secondary_to_primary,
+                initial_alpha_polyak_secondary_to_primary=self.agent_config.initial_alpha_polyak_secondary_to_primary,
+                final_alpha_polyak_secondary_to_primary=self.agent_config.final_alpha_polyak_secondary_to_primary,
                 alpha_polyak_primary_to_secondary=self.agent_config.alpha_polyak_primary_to_secondary,
                 sweep=sweep,
+                transition_mix_fraction=self.agent_config.transition_mix_fraction,
+                transfer_mode=self.agent_config.transfer_mode,
             )
 
             agent_state, score = train_jit(key, index)
 
-            # stop_async_logging()
-            print("should be finished")
             return agent_state, score
 
         index = jnp.arange(len(seed))
@@ -316,7 +334,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--alpha_polyak_secondary_to_primary",
+        "--initial_alpha_polyak_secondary_to_primary",
+        type=int,
+        default=1e-6,
+        help="Override number of agents to average.",
+    )
+
+    parser.add_argument(
+        "--final_alpha_polyak_secondary_to_primary",
         type=int,
         default=1e-4,
         help="Override number of agents to average.",
@@ -329,13 +354,23 @@ if __name__ == "__main__":
         help="Override number of agents to average.",
     )
 
+    parser.add_argument(
+        "--transition_mix_fraction",
+        type=int,
+        default=0.5,
+        help=(
+            "The fraction of on-policy (model) transitions to mix with off-policy"
+            " (real) transitions in imagination."
+        ),
+    )
+
     args = parser.parse_args()
 
     n_seeds = 1
-    log_frequency = 5000
+    log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_distillation_losses",
-        run_name="run",
+        project_name="dyna_sac_mix_3",
+        run_name="baseline",
         config={
             "debug": False,
             "log_frequency": log_frequency,
@@ -351,7 +386,7 @@ if __name__ == "__main__":
     env_id = "hopper"
     sac_agent = DynaSAC(
         env_id=env_id,
-        learning_starts=int(1e4),
+        learning_starts=0,
         batch_size=256,
         avg_length=1,
         sac_length=1,
@@ -363,10 +398,15 @@ if __name__ == "__main__":
         critic_distillation_lr=args.critic_distillation_lr,
         n_distillation_samples=args.n_distillation_samples,
         alpha_polyak_primary_to_secondary=args.alpha_polyak_primary_to_secondary,
-        alpha_polyak_secondary_to_primary=args.alpha_polyak_secondary_to_primary,
+        initial_alpha_polyak_secondary_to_primary=args.initial_alpha_polyak_secondary_to_primary,
+        final_alpha_polyak_secondary_to_primary=args.final_alpha_polyak_secondary_to_primary,
+        n_envs=1,
+        transition_mix_fraction=0.5,
+        transfer_mode="copy",
     )
-    sac_agent.train(
+    _, score = sac_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(5e4),
+        n_timesteps=int(2e4),
         logging_config=logging_config,
     )
+    print(score)

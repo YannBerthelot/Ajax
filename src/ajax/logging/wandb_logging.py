@@ -106,7 +106,6 @@ def stop_async_logging():
 
 def _logging_worker():
     """Worker thread that processes logging queue"""
-    print("logging worker started")
     while not stop_logging.is_set():
         try:
             item = logging_queue.get(timeout=0.1)

@@ -1,6 +1,7 @@
 import os
 from collections.abc import Sequence
 from dataclasses import fields
+from math import ceil, floor
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
@@ -37,6 +38,7 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    Transition,
 )
 from ajax.types import BufferType
 
@@ -545,6 +547,7 @@ def update_target_networks(
         "num_critic_updates",
         "reward_scale",
         "target_update_frequency",
+        "transition_mix_fraction",
     ],
 )
 def update_agent(
@@ -558,6 +561,8 @@ def update_agent(
     num_critic_updates: int = 1,
     target_update_frequency: int = 1,
     reward_scale: float = 5.0,
+    additional_transition: Optional[Any] = None,
+    transition_mix_fraction: float = 1.0,  # part of original buffer sample to keep TODO : add control over this hyperparameter
 ) -> Tuple[SACState, AuxiliaryLogs]:
     """
     Update the SAC agent, including critic, actor, and temperature updates.
@@ -580,27 +585,69 @@ def update_agent(
     # Sample buffer
 
     sample_key, rng = jax.random.split(agent_state.rng)
-    observations, terminated, truncated, next_observations, rewards, actions = (
-        get_batch_from_buffer(
-            buffer,
-            agent_state.collector_state.buffer_state,
-            sample_key,
+    if buffer is not None and agent_state.collector_state.buffer_state is not None:
+        observations, terminated, truncated, next_observations, rewards, actions = (
+            get_batch_from_buffer(
+                buffer,
+                agent_state.collector_state.buffer_state,
+                sample_key,
+            )
         )
-    )
+        original_transition = Transition(
+            observations, actions, rewards, terminated, truncated, next_observations
+        )
+
+        if additional_transition is not None and transition_mix_fraction < 1.0:
+            assert transition_mix_fraction >= 0 and transition_mix_fraction <= 1.0, (
+                "transition_mix_fraction should be between 0 and 1, got",
+                transition_mix_fraction,
+            )
+            len_original = len(observations)
+            n_samples_from_original = floor(transition_mix_fraction * len_original)
+            n_samples_from_transition = len_original - n_samples_from_original
+            print(
+                f"samples from buffer:{n_samples_from_original} online"
+                f" samples:{n_samples_from_transition}"
+            )
+            additional_transition = jax.tree.map(
+                lambda x: jax.random.choice(
+                    sample_key, x, shape=(n_samples_from_transition,)
+                ),
+                additional_transition,
+            )
+
+            transition = jax.tree.map(
+                lambda x, y: (
+                    None
+                    if (x is None or y is None)
+                    else jnp.concatenate([x[:n_samples_from_original], y], axis=0)
+                ),
+                original_transition,
+                additional_transition,
+                is_leaf=lambda x: x is None,
+            )
+        else:
+            transition = original_transition
+    else:
+        # If no buffer is provided, use the collector state to get the latest transition
+        transition = additional_transition
+        terminated = additional_transition.terminated
+        truncated = additional_transition.truncated
+
     agent_state = agent_state.replace(rng=rng)
-    dones = jnp.logical_or(terminated, truncated)
+    dones = jnp.logical_or(transition.terminated, transition.truncated)
 
     # Update Q functions
     def critic_update_step(carry, _):
         agent_state = carry
         agent_state, aux_value = update_value_functions(
-            observations=observations,
-            actions=actions,
-            next_observations=next_observations,
+            observations=transition.obs,
+            actions=transition.action,
+            next_observations=transition.next_obs,
+            rewards=transition.reward,
             dones=dones,
             agent_state=agent_state,
             recurrent=recurrent,
-            rewards=rewards,
             gamma=gamma,
             reward_scale=reward_scale,
         )
@@ -616,7 +663,7 @@ def update_agent(
 
     # Update policy
     agent_state, aux_policy = update_policy(
-        observations=observations,
+        observations=transition.obs,
         done=dones,
         agent_state=agent_state,
         recurrent=recurrent,
@@ -626,7 +673,7 @@ def update_agent(
     target_entropy = -action_dim
     agent_state, aux_temperature = update_temperature(
         agent_state,
-        observations=observations,
+        observations=transition.obs,
         target_entropy=target_entropy,
         recurrent=recurrent,
         dones=dones,
@@ -663,6 +710,7 @@ def update_agent(
         "horizon",
         "total_timesteps",
         "n_epochs",
+        "transition_mix_fraction",
     ],
 )
 def training_iteration(
@@ -684,6 +732,7 @@ def training_iteration(
     log: bool = False,
     verbose: bool = False,
     n_epochs: int = 1,
+    transition_mix_fraction: float = 1.0,
 ) -> tuple[SACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -717,7 +766,9 @@ def training_iteration(
         buffer=buffer,
         uniform=uniform,
     )
-    agent_state, _ = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
+    agent_state, transition = jax.lax.scan(
+        collect_scan_fn, agent_state, xs=None, length=1
+    )
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
@@ -729,6 +780,12 @@ def training_iteration(
             action_dim=action_dim,
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
+            additional_transition=(
+                jax.tree.map(lambda x: x.squeeze(0), transition)
+                if transition_mix_fraction < 1.0
+                else None
+            ),
+            transition_mix_fraction=transition_mix_fraction,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -893,6 +950,8 @@ def make_train(
         #     stop_async_logging()
         window_size = int(0.1 * total_timesteps)
 
-        return agent_state, jnp.nanmean(eval_rewards[-window_size:])
+        return agent_state, jnp.nanmean(
+            eval_rewards["Eval/episodic mean reward"][-window_size:]
+        )
 
     return train

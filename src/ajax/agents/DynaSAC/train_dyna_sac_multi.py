@@ -4,16 +4,18 @@ from typing import Any, Optional, Union
 
 import jax
 import jax.numpy as jnp
+from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.train_AVG import init_AVG
-from ajax.agents.AVG.train_AVG import training_iteration as secondary_training_iteration
+from ajax.agents.AVG.train_AVG import training_iteration as training_iteration_AVG
 from ajax.agents.DynaSAC.state import AVGState, DynaSACConfig, SACState
 from ajax.agents.sac.train_sac import init_sac
-from ajax.agents.sac.train_sac import training_iteration as primary_training_iteration
+from ajax.agents.sac.train_sac import training_iteration as training_iteration_SAC
 from ajax.buffers.utils import get_batch_from_buffer, get_buffer
 from ajax.distillation import distillation
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
+from ajax.log import flatten_dict
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -30,6 +32,7 @@ from ajax.state import (
 from ajax.types import BufferType
 
 PROFILER_PATH = "./tensorboard"
+DEBUG = False
 
 
 def profile_memory(timestep):
@@ -261,6 +264,34 @@ def copy_state_to_state(
     )
 
 
+def replace_with_nan(metrics_dict):
+    new_metrics = {}
+    for key, value in metrics_dict.items():
+        # Extract the shape from the traced value
+        shape = value.aval.shape  # Get shape from abstract value
+        dtype = (
+            value.aval.dtype
+        )  # Preserve dtype (usually float32, but could be int32 etc.)
+        if jnp.issubdtype(dtype, jnp.floating):
+            new_metrics[key] = jnp.full(shape, jnp.nan, dtype=dtype)
+        else:
+            # For integer types, use a placeholder like -1 or similar (NaN is not valid for int)
+            new_metrics[key] = jnp.full(shape, -1, dtype=dtype)
+    return new_metrics
+
+
+def frozen_dict_equal(x, y):
+    return jax.tree.all(jax.tree.map(lambda x, y: (x == y).all(), x, y))
+
+
+def check_equality(x, y, msg: str):
+    assert frozen_dict_equal(x, y), msg
+
+
+def check_inequality(x, y, msg: str):
+    assert not frozen_dict_equal(x, y), f"{msg}"
+
+
 def make_train(
     primary_env_args: EnvironmentConfig,
     secondary_env_args: EnvironmentConfig,
@@ -270,6 +301,7 @@ def make_train(
     secondary_critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     buffer: BufferType,
+    alt_buffer: BufferType,
     agent_config: DynaSACConfig,
     alpha_args: AlphaConfig,
     total_timesteps: int,
@@ -285,8 +317,11 @@ def make_train(
     critic_distillation_lr: float = 1e-4,
     n_distillation_samples: int = 1_000,
     alpha_polyak_primary_to_secondary: float = 1e-3,
-    alpha_polyak_secondary_to_primary: float = 1e-3,
+    initial_alpha_polyak_secondary_to_primary: float = 1e-3,
+    final_alpha_polyak_secondary_to_primary: float = 1e-3,
     sweep: bool = False,
+    transition_mix_fraction: float = 0.5,
+    transfer_mode: str = "copy",
 ):
     """
     Create the training function for the SAC agent.
@@ -308,9 +343,40 @@ def make_train(
     log = (logging_config is not None) and (not sweep)
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    def alpha_polyak_schedule(t: int):
+        return initial_alpha_polyak_secondary_to_primary + (t / total_timesteps) * (
+            final_alpha_polyak_secondary_to_primary
+            - initial_alpha_polyak_secondary_to_primary
+        )
+
     # Start async logging if logging is enabled
     if logging_config is not None and not sweep:
         start_async_logging()
+    secondary_mode = "sac"
+    init_secondary = init_sac if secondary_mode == "sac" else init_AVG
+    init_secondary_args = (
+        {
+            "env_args": secondary_env_args,
+            "actor_optimizer_args": secondary_actor_optimizer_args,
+            "critic_optimizer_args": secondary_critic_optimizer_args,
+            "network_args": network_args.replace(penultimate_normalization=True),
+            "alpha_args": alpha_args,
+            "num_critics": 1,
+        }
+        if secondary_mode == "avg"
+        else {
+            "env_args": secondary_env_args,
+            "actor_optimizer_args": primary_actor_optimizer_args,
+            "critic_optimizer_args": primary_critic_optimizer_args,
+            "network_args": network_args,
+            "alpha_args": alpha_args,
+            "buffer": None,
+        }
+    )
+    primary_training_iteration = training_iteration_SAC
+    secondary_training_iteration = (
+        training_iteration_SAC if secondary_mode == "sac" else training_iteration_AVG
+    )
 
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
@@ -324,17 +390,26 @@ def make_train(
             alpha_args=alpha_args,
             buffer=buffer,
         )
-        avg_keys = jax.random.split(key, n_avg_agents)
-        partial_init_AVG = partial(
-            init_AVG,
-            env_args=secondary_env_args,
-            actor_optimizer_args=secondary_actor_optimizer_args,
-            critic_optimizer_args=secondary_critic_optimizer_args,
-            network_args=network_args.replace(penultimate_normalization=True),
-            alpha_args=alpha_args,
-            num_critics=1,
+
+        partial_init_secondary = partial(
+            init_secondary,
+            **init_secondary_args,
         )
-        secondary_agent_state = jax.vmap(partial_init_AVG)(avg_keys)
+        avg_keys = jax.random.split(key, n_avg_agents)
+        # secondary_agent_state = (
+        #     jax.vmap(partial_init_secondary)(avg_keys)
+        #     if secondary_mode == "avg"
+        #     else partial_init_secondary(key)
+        # )
+        secondary_agent_state = init_sac(
+            key=key,
+            env_args=secondary_env_args,
+            actor_optimizer_args=primary_actor_optimizer_args,
+            critic_optimizer_args=primary_critic_optimizer_args,
+            network_args=network_args,
+            alpha_args=alpha_args,
+            buffer=None,
+        )
         if primary_agent_state.collector_state.buffer_state is not None:
             buffer_size = primary_agent_state.collector_state.buffer_state.experience[
                 "obs"
@@ -344,22 +419,7 @@ def make_train(
             batch_size=n_distillation_samples,
             n_envs=primary_env_args.n_envs,
         )
-        # raw_secondary_agent_state = raw_secondary_agent_state.replace(
-        #     critic_state=fix_target_params(raw_secondary_agent_state.critic_state)
-        # )
 
-        # primary_agent_state = DoubleTrainState.from_LoadedTrainState(
-        #     raw_primary_agent_state
-        # )
-        # secondary_agent_state = DoubleTrainState.from_LoadedTrainState(
-        #     raw_secondary_agent_state
-        # )
-
-        # primary_agent_state = raw_primary_agent_state
-
-        # agent_state = DynaSACState(
-        #     primary=primary_agent_state, secondary=secondary_agent_state
-        # )
         n_unroll = 2
 
         num_updates = total_timesteps // (primary_env_args.n_envs * sac_length)
@@ -383,39 +443,81 @@ def make_train(
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
             n_epochs=n_epochs_sac,
+            transition_mix_fraction=1.0,
         )
 
-        secondary_training_iteration_scan_fn = jax.vmap(
-            partial(
-                secondary_training_iteration,
-                recurrent=network_args.lstm_hidden_size is not None,
-                action_dim=action_shape[0],
-                agent_config=agent_config.secondary,
-                mode=mode,
-                env_args=secondary_env_args,
-                num_episode_test=num_episode_test,
-                log_fn=log_fn,
-                index=index,
-                log=False,
-                total_timesteps=total_timesteps,
-                log_frequency=(
+        training_secondary_args = (
+            {
+                "recurrent": network_args.lstm_hidden_size is not None,
+                "action_dim": action_shape[0],
+                "agent_config": agent_config.secondary,
+                "mode": mode,
+                "env_args": secondary_env_args,
+                "num_episode_test": num_episode_test,
+                "log_fn": log_fn,
+                "index": index,
+                "log": False,
+                "total_timesteps": total_timesteps,
+                "log_frequency": (
                     logging_config.log_frequency if logging_config is not None else None
                 ),
-            )
+            }
+            if secondary_mode == "avg"
+            else {
+                "buffer": buffer,
+                "recurrent": network_args.lstm_hidden_size is not None,
+                "action_dim": action_shape[0],
+                "agent_config": agent_config.primary,
+                "mode": mode,
+                "env_args": secondary_env_args,
+                "num_episode_test": num_episode_test,
+                "log_fn": log_fn,
+                "index": index,
+                "log": False,
+                "total_timesteps": total_timesteps,
+                "log_frequency": (
+                    logging_config.log_frequency if logging_config is not None else None
+                ),
+                "horizon": (
+                    logging_config.horizon if logging_config is not None else None
+                ),
+                "n_epochs": n_epochs_sac,
+                "transition_mix_fraction": transition_mix_fraction,
+            }
         )
+
+        secondary_training_iteration_scan_fn = (
+            jax.vmap(partial(secondary_training_iteration, **training_secondary_args))
+            if secondary_mode == "avg"
+            else partial(secondary_training_iteration, **training_secondary_args)
+        )
+
+        _, init_metrics_to_log = jax.lax.scan(
+            f=secondary_training_iteration_scan_fn,
+            init=secondary_agent_state,
+            xs=None,
+            length=avg_length,
+            unroll=n_unroll,
+        )
+        assert secondary_agent_state.collector_state.buffer_state is None
 
         def dyna_train_loop(
             carry: tuple[SACState, AVGState], _: Any
         ) -> tuple[tuple[SACState, AVGState], None]:
             primary_agent_state, secondary_agent_state = carry
 
-            new_primary_agent_state, metrics_to_log = jax.lax.scan(
+            timestep = primary_agent_state.collector_state.timestep
+
+            alpha_polyak_secondary_to_primary = alpha_polyak_schedule(timestep)
+
+            new_primary_agent_state, metrics_to_log_primary = jax.lax.scan(
                 f=primary_training_iteration_scan_fn,
                 init=primary_agent_state,
                 xs=None,
                 length=sac_length,
                 unroll=n_unroll,
             )
+            assert secondary_agent_state.collector_state.buffer_state is None
             # new_primary_agent_state = new_primary_agent_state.replace(
             #     critic_state=primary_agent_state.critic_state,
             #     actor_state=primary_agent_state.actor_state,
@@ -443,6 +545,8 @@ def make_train(
                         agent_state.collector_state.buffer_state,
                         key,  # TODO : change
                     )
+                    if secondary_mode == "sac":
+                        return observations, actions, observations
 
                     env_norm_info = (
                         secondary_agent_state.collector_state.env_state.info[
@@ -471,33 +575,137 @@ def make_train(
                 #     target=secondary_agent_state,
                 #     tau=agent_config.dyna_tau(timestep),  # type: ignore[arg-type]
                 # )
-                (
-                    transfered_secondary_agent_state,
-                    (
-                        sac_to_avg_actor_distillation_loss,
-                        sac_to_avg_critic_distillation_loss,
-                    ),
-                ) = get_agent_state_from_agent_state(
-                    student=secondary_agent_state,
-                    student_observations=normalized_obs,
-                    teacher=new_primary_agent_state,
-                    teacher_observations=observations,
-                    actions=actions,
-                    num_epochs=num_epochs,
-                    vmap=False,
-                    actor_distillation_lr=actor_distillation_lr,
-                    critic_distillation_lr=critic_distillation_lr,
-                    alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
-                    alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
-                )
 
-                new_secondary_agent_state, _ = jax.lax.scan(
+                def transfer_agent_state(
+                    source_state,
+                    target_state,
+                    transfer_mode: str,
+                    teacher_observations,
+                    student_observations,
+                    buffer_transfer: bool = False,
+                ):
+                    if transfer_mode == "distillation":
+                        (
+                            new_state,
+                            (
+                                actor_distillation_loss,
+                                critic_distillation_loss,
+                            ),
+                        ) = get_agent_state_from_agent_state(
+                            student=target_state,
+                            student_observations=student_observations,
+                            teacher=source_state,
+                            teacher_observations=teacher_observations,
+                            actions=actions,
+                            num_epochs=num_epochs,
+                            vmap=True,
+                            actor_distillation_lr=actor_distillation_lr,
+                            critic_distillation_lr=critic_distillation_lr,
+                            alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
+                            alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
+                        )
+                        losses = (
+                            actor_distillation_loss,
+                            critic_distillation_loss,
+                        )
+                    elif transfer_mode == "copy":
+                        if buffer_transfer:
+                            n_envs = secondary_env_args.n_envs
+                            new_env_state = jax.tree.map(
+                                lambda x: jnp.tile(
+                                    x,
+                                    (n_envs,) + (1,) * (x.ndim - 1),
+                                ),
+                                source_state.collector_state.env_state,
+                            )
+                            new_collector_state = target_state.collector_state.replace(
+                                env_state=new_env_state,
+                                last_obs=jnp.tile(
+                                    source_state.collector_state.last_obs,
+                                    reps=(n_envs,)
+                                    + (1,)
+                                    * (source_state.collector_state.last_obs.ndim - 1),
+                                ),
+                                buffer_state=source_state.collector_state.buffer_state,
+                            )
+                        else:
+                            new_collector_state = target_state.collector_state
+
+                        new_state = target_state.replace(
+                            actor_state=source_state.actor_state,
+                            critic_state=source_state.critic_state,
+                            collector_state=new_collector_state,
+                        )
+                        losses = (
+                            jnp.nan,
+                            jnp.nan,
+                        )
+                    else:  # None
+                        new_state = target_state
+                        losses = (
+                            jnp.nan,
+                            jnp.nan,
+                        )
+                    return new_state, losses
+
+                transfered_secondary_agent_state, losses_1 = transfer_agent_state(
+                    source_state=new_primary_agent_state,
+                    target_state=secondary_agent_state,
+                    transfer_mode=transfer_mode,
+                    teacher_observations=observations,
+                    student_observations=normalized_obs,
+                    buffer_transfer=True,
+                )
+                if DEBUG:
+                    jax.debug.callback(
+                        check_inequality,
+                        secondary_agent_state.actor_state.params,
+                        transfered_secondary_agent_state.actor_state.params,
+                        msg="Actor params should have changed after update 1",
+                    )
+                    jax.debug.callback(
+                        check_equality,
+                        new_primary_agent_state.actor_state.params,
+                        transfered_secondary_agent_state.actor_state.params,
+                        msg=(
+                            "Actor params should NOT have changed between copy and"
+                            " update"
+                        ),
+                    )
+                new_secondary_agent_state, metrics_to_log_secondary = jax.lax.scan(
                     f=secondary_training_iteration_scan_fn,
                     init=transfered_secondary_agent_state,
                     xs=None,
                     length=avg_length,
                     unroll=n_unroll,
                 )
+                if avg_length == 0:
+                    jax.debug.callback(
+                        check_equality,
+                        new_secondary_agent_state.actor_state.params,
+                        transfered_secondary_agent_state.actor_state.params,
+                        msg=(
+                            "Actor params should NOT have changed between copy and"
+                            " update"
+                        ),
+                    )
+                if DEBUG:
+                    jax.debug.callback(
+                        check_inequality,
+                        new_secondary_agent_state.actor_state.params,
+                        transfered_secondary_agent_state.actor_state.params,
+                        msg="Actor params should have changed after update 2",
+                    )
+                    jax.debug.callback(
+                        check_equality,
+                        new_primary_agent_state.actor_state.params,
+                        transfered_secondary_agent_state.actor_state.params,
+                        msg=(
+                            "Actor params should NOT have changed between copy and"
+                            " update"
+                        ),
+                    )
+
                 assert (
                     observations.shape[0] == normalized_obs.shape[0] == actions.shape[0]
                 ), (
@@ -506,38 +714,51 @@ def make_train(
                     f"actions shape {actions.shape}"
                 )
 
-                (
-                    transfered_primary_agent_state,
-                    (
-                        avg_to_sac_actor_distillation_loss,
-                        avg_to_sac_critic_distillation_loss,
-                    ),
-                ) = get_agent_state_from_agent_state(
-                    student=new_primary_agent_state,
+                transfered_primary_agent_state, losses_2 = transfer_agent_state(
+                    source_state=new_secondary_agent_state,
+                    target_state=new_primary_agent_state,
+                    transfer_mode=transfer_mode,
                     student_observations=observations,
-                    teacher=new_secondary_agent_state,
                     teacher_observations=normalized_obs,
-                    actions=actions,
-                    num_epochs=num_epochs,
-                    vmap=True,
-                    actor_distillation_lr=actor_distillation_lr,
-                    critic_distillation_lr=critic_distillation_lr,
-                    alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
-                    alpha_polyak_secondary_to_primary=alpha_polyak_secondary_to_primary,
+                    buffer_transfer=False,
                 )
-                losses = (
-                    sac_to_avg_actor_distillation_loss,
-                    sac_to_avg_critic_distillation_loss,
-                    avg_to_sac_actor_distillation_loss,
-                    avg_to_sac_critic_distillation_loss,
+                if DEBUG:
+                    jax.debug.callback(
+                        check_inequality,
+                        transfered_primary_agent_state.actor_state.params,
+                        new_primary_agent_state.actor_state.params,
+                        msg="Actor params should have changed after update 3",
+                    )
+
+                    jax.debug.callback(
+                        check_equality,
+                        transfered_primary_agent_state.actor_state.params,
+                        new_secondary_agent_state.actor_state.params,
+                        msg=(
+                            "Actor params should NOT have changed between copy and"
+                            " update"
+                        ),
+                    )
+
+                return (
+                    transfered_primary_agent_state,
+                    secondary_agent_state,
+                    (*losses_1, *losses_2),
+                    metrics_to_log_secondary,
                 )
-                return transfered_primary_agent_state, new_secondary_agent_state, losses
 
             def skip_training(new_primary_agent_state, secondary_agent_state):
+                nan_metrics = replace_with_nan(init_metrics_to_log)
                 return (
                     new_primary_agent_state,
                     secondary_agent_state,
-                    (jnp.zeros(1) * jnp.nan, jnp.zeros(1) * jnp.nan, jnp.nan, jnp.nan),
+                    (
+                        jnp.nan,
+                        jnp.nan,
+                        jnp.nan,
+                        jnp.nan,
+                    ),
+                    nan_metrics,
                 )
 
             cond_pred = (
@@ -549,6 +770,7 @@ def make_train(
                 transfered_primary_agent_state,
                 new_secondary_agent_state,
                 distillation_losses,
+                metrics_to_log_secondary,
             ) = jax.lax.cond(
                 cond_pred,
                 do_training,
@@ -556,6 +778,19 @@ def make_train(
                 new_primary_agent_state,
                 secondary_agent_state,
             )
+            metrics_to_log_primary = {
+                f"{key} primary": val for key, val in metrics_to_log_primary.items()
+            }
+            metrics_to_log_secondary = {
+                f"{key} secondary": val for key, val in metrics_to_log_secondary.items()
+            }
+            full_metrics_to_log = dict(
+                **metrics_to_log_primary, **metrics_to_log_secondary
+            )
+
+            # metrics_to_log.update(metrics_to_log_secondary)
+            # metrics_to_log = metrics_to_log_primary
+
             # (
             #     transfered_primary_agent_state,
             #     new_secondary_agent_state,
@@ -563,8 +798,8 @@ def make_train(
             # ) = do_training()
             timestep = new_primary_agent_state.collector_state.timestep
 
-            def wandb_log_fn(agent_state):
-                metrics_to_log.update(
+            def wandb_log_fn(agent_state, _metrics_to_log):
+                _metrics_to_log.update(
                     {
                         "timestep": timestep,
                         "Distillation/sac_to_avg_actor_distillation_loss": (
@@ -581,30 +816,47 @@ def make_train(
                         ),
                     }
                 )
-                jax.debug.callback(log_fn, metrics_to_log, index)
-                return agent_state.replace(n_logs=agent_state.n_logs + 1)
+                # _metrics_to_log = jax.tree.map(lambda x: x.squeeze(), _metrics_to_log)
+                # jax.debug.breakpoint()
+                jax.debug.callback(log_fn, _metrics_to_log, index)
+                return agent_state  # .replace(n_logs=agent_state.n_logs + 1)
 
-            def no_op_none(agent_state):
+            def no_op_none(agent_state, _metrics_to_log):
                 return agent_state
 
-            score = metrics_to_log["Eval/episodic mean reward"]
+            score = full_metrics_to_log["Eval/episodic mean reward primary"]
             if logging_config is not None:
-                log_flag = jnp.logical_and(
-                    (
-                        timestep
-                        - (primary_agent_state.n_logs * logging_config.log_frequency)
-                        >= logging_config.log_frequency
-                    ),
-                    log,
+                # log_flag = jnp.logical_and(
+                #     (
+                #         timestep
+                #         - (primary_agent_state.n_logs * logging_config.log_frequency)
+                #         >= logging_config.log_frequency
+                #     ),
+                #     log,
+                # )
+
+                # flag = jnp.logical_or(
+                #     jnp.logical_and(log_flag, timestep > 1),
+                #     timestep >= (total_timesteps - primary_env_args.n_envs),
+                # )
+
+                #####
+                log_frequency = logging_config.log_frequency
+                log_flag = (
+                    timestep - ((primary_agent_state.n_logs) * log_frequency)
+                    >= log_frequency
                 )
 
                 flag = jnp.logical_or(
                     jnp.logical_and(log_flag, timestep > 1),
                     timestep >= (total_timesteps - primary_env_args.n_envs),
                 )
-
                 transfered_primary_agent_state = jax.lax.cond(
-                    flag, wandb_log_fn, no_op_none, transfered_primary_agent_state
+                    flag,
+                    wandb_log_fn,
+                    no_op_none,
+                    transfered_primary_agent_state,
+                    full_metrics_to_log,
                 )
 
             assert jax.tree.map(
@@ -635,13 +887,18 @@ def make_train(
 
         (primary_agent_state, secondary_agent_state), score = jax.lax.scan(
             f=dyna_train_loop,
-            init=(primary_agent_state, secondary_agent_state),
+            init=(
+                primary_agent_state,
+                secondary_agent_state,
+            ),
             xs=None,
             length=num_updates,
         )
 
         # stop_async_logging()
         window_size = int(0.1 * total_timesteps)
-        return primary_agent_state, jnp.nanmean(score[-window_size:])
+
+        average_score = jnp.nanmean(score[-window_size:])
+        return primary_agent_state, average_score
 
     return train

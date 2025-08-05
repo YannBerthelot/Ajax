@@ -24,6 +24,9 @@ class Transition:
     next_obs: jnp.ndarray
     log_prob: Optional[jnp.ndarray] = None
 
+    def __len__(self):
+        return self.obs.shape[0] if self.obs.ndim > 0 else 1
+
 
 @struct.dataclass
 class EnvironmentConfig:
@@ -91,6 +94,16 @@ class LoadedTrainState(TrainState):
     def apply(self, params, *args, **kwargs):
         """Call the apply_fn with the given parameters and arguments."""
         return self.apply_fn(params, *args, **kwargs)
+
+    def __eq__(self, value):
+        return (
+            self.params.values == value.params.values
+            and self.opt_state == value.opt_state
+        )
+
+    def params_equal(self, value):
+        """Check if the parameters are equal."""
+        return self.params.values == value.params.values
 
 
 def normalize_observation(obs: jax.Array, norm_info: NormalizationInfo) -> jax.Array:

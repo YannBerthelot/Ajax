@@ -672,3 +672,54 @@ class AutoResetWrapper(BraxWrapper):
         obs = where_done(new_init_state.info["first_obs"], state.obs)
         state = state.replace(pipeline_state=pipeline_state, obs=obs)
         return state
+
+
+def add_gaussian_noise(x, key, scale: float):
+    return x + jax.random.normal(key, x.shape) * scale
+
+
+class NoiseWrapper(BraxWrapper):
+    """
+    Add gaussian noise to observations and rewards during transitions.
+    """
+
+    def __init__(self, env, scale: float = 1.0):
+        super().__init__(env)
+        self.scale = scale
+        self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
+        self.single_env = self.n_envs == 1
+
+    def step(self, state: State, action: jax.Array) -> State:
+        """Step environment, follow new step API."""
+        key = state.info["rng"][0]
+        state = self.env.step(state, action)  # type: ignore[has-type]
+        obsv, reward, done, info = (
+            state.obs,
+            state.reward,
+            state.done,
+            state.info,
+        )
+        # key = info["rng"][0]
+
+        obs_key, reward_key = jax.random.split(key, 2)
+        noisy_obs = add_gaussian_noise(obsv, obs_key, scale=self.scale)
+        noisy_reward = add_gaussian_noise(reward, reward_key, scale=self.scale)
+        # TODO : find how to infer done from the noisy obs?
+        state = state.replace(
+            pipeline_state=state.pipeline_state, obs=noisy_obs, reward=noisy_reward
+        )
+        print("noising output")
+
+        return state
+
+    def reset(self, rng: jax.Array) -> State:
+        state = self.env.reset(rng)
+        state.info["rng"] = (
+            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
+        )
+        info = state.info
+        info["rng"] = (
+            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
+        )
+        state = state.replace(info=info)
+        return state

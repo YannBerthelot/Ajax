@@ -2,7 +2,7 @@ import multiprocessing
 import signal
 import sys
 from typing import List
-import jax
+
 from ajax.agents import DynaSACMulti
 from ajax.logging.wandb_logging import LoggingConfig
 
@@ -41,10 +41,11 @@ def main():
             env_id=env_id,
             learning_starts=0,
             sac_length=1,
-            #transition_mix_fraction=0.5,
+            # transition_mix_fraction=0.5,
             **config,
             actor_architecture=(f"{N_NEURONS}", "relu", f"{N_NEURONS}", "relu"),
             critic_architecture=(f"{N_NEURONS}", "relu", f"{N_NEURONS}", "relu"),
+            model_noise=1.0
         )
         _, score = sac_agent.train(
             seed=list(range(n_seeds)),
@@ -109,15 +110,15 @@ if __name__ == "__main__":
         "parameters": {
             # "actor_distillation_lr": {"max": 1e-3, "min": 1e-5},
             # "critic_distillation_lr": {"max": 1e-3, "min": 1e-5},
-            #"n_avg_agents": {"values": [1]},
-            "num_envs_AVG": {"values": [1, 4, 8]},
-            "avg_length": {"values": [1, 2, 3]},
+            # "n_avg_agents": {"values": [1]},
+            "num_envs_AVG": {"values": [1, 8, 32, 128]},
+            "avg_length": {"values": [1]},
             # "num_epochs_distillation": {"values": [3]},
             # "n_distillation_samples": {"values": [256]},
             # "alpha_polyak_primary_to_secondary": {"max": 1e-1, "min": 1e-3},
             # "initial_alpha_polyak_secondary_to_primary": {"max": 1e-3, "min": 1e-5},
             # "final_alpha_polyak_secondary_to_primary": {"max": 1e-1, "min": 1e-3},
-            "transition_mix_fraction":{"max": 0.99, "min": 0.8},
+            "transition_mix_fraction": {"max": 0.99, "min": 0.8},
         },
     }
 

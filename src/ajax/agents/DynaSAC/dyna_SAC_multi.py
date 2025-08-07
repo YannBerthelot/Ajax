@@ -63,6 +63,7 @@ class DynaSAC:
         final_alpha_polyak_secondary_to_primary: float = 1e-3,
         transition_mix_fraction: float = 0.5,
         transfer_mode="copy",
+        model_noise=1.0,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -109,6 +110,7 @@ class DynaSAC:
             normalize_reward=False,
             n_envs=num_envs_AVG,
             gamma=gamma,
+            noise_scale=model_noise,
         )
 
         self.secondary_env_args = EnvironmentConfig(
@@ -386,7 +388,7 @@ if __name__ == "__main__":
     env_id = "hopper"
     sac_agent = DynaSAC(
         env_id=env_id,
-        learning_starts=0,
+        learning_starts=1e4,
         batch_size=256,
         avg_length=1,
         sac_length=1,
@@ -401,12 +403,13 @@ if __name__ == "__main__":
         initial_alpha_polyak_secondary_to_primary=args.initial_alpha_polyak_secondary_to_primary,
         final_alpha_polyak_secondary_to_primary=args.final_alpha_polyak_secondary_to_primary,
         n_envs=1,
-        transition_mix_fraction=0.5,
+        transition_mix_fraction=0.9,
         transfer_mode="copy",
+        model_noise=1,
     )
     _, score = sac_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(2e4),
+        n_timesteps=int(3e5),
         logging_config=logging_config,
     )
     print(score)

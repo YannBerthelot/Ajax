@@ -1,3 +1,5 @@
+from typing import Optional
+
 from flax import struct
 
 from ajax.agents.AVG.state import AVGConfig, AVGState

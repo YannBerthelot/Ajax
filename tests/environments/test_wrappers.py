@@ -16,6 +16,7 @@ from ajax.wrappers import (
     EnvNormalizationInfo,
     FlattenObservationWrapper,
     LogWrapper,
+    NoiseWrapper,
     NormalizationInfo,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
@@ -843,3 +844,44 @@ def test_normalize_vec_observation_batched_shared(wrapper, env_fixture, mode, re
     assert not jnp.allclose(
         updated_norm_info.var, norm_info.obs.var
     ), "Variance should have been updated."
+
+
+@pytest.mark.parametrize(
+    "wrapper,env_fixture,mode",
+    [
+        (NoiseWrapper, "batched_brax_env", "brax"),
+    ],
+)
+def test_noise_wrapper(wrapper, env_fixture, mode, request):
+    env_data = request.getfixturevalue(env_fixture)
+    key = jax.random.PRNGKey(0)
+    if mode == "gymnax":
+        env, env_params = env_data
+    else:  # Brax
+        env = env_data
+        env_params = None
+    """Test that NoiseWrapper adds noise to observations and rewards"""
+
+    scale = 0.1
+    wrapped_env = wrapper(env, scale=scale)
+    rng = jax.random.PRNGKey(0)
+    state = wrapped_env.reset(rng)
+    clean_state = env.reset(rng)
+
+    # Test step
+    action = jnp.zeros((wrapped_env.action_size,))
+
+    noisy_state = wrapped_env.step(state, action)
+    clean_state = env.step(clean_state, action)
+
+    # Check that observations and rewards are different due to noise
+    assert not jnp.allclose(noisy_state.obs, clean_state.obs)
+    assert not jnp.allclose(noisy_state.reward, clean_state.reward)
+
+    # Check that the difference is within expected range for Gaussian noise
+    obs_diff = jnp.abs(noisy_state.obs - clean_state.obs)
+    reward_diff = jnp.abs(noisy_state.reward - clean_state.reward)
+
+    # 99.7% of values should be within 3 standard deviations
+    assert jnp.all(obs_diff <= 3 * scale)
+    assert jnp.all(reward_diff <= 3 * scale)

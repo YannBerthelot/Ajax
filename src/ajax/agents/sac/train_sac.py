@@ -1,7 +1,7 @@
 import os
 from collections.abc import Sequence
 from dataclasses import fields
-from math import ceil, floor
+from math import floor
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax

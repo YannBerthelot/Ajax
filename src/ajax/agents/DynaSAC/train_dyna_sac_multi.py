@@ -4,7 +4,6 @@ from typing import Any, Optional, Union
 
 import jax
 import jax.numpy as jnp
-from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.train_AVG import init_AVG
@@ -15,7 +14,6 @@ from ajax.agents.sac.train_sac import training_iteration as training_iteration_S
 from ajax.buffers.utils import get_batch_from_buffer, get_buffer
 from ajax.distillation import distillation
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
-from ajax.log import flatten_dict
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -467,7 +465,7 @@ def make_train(
                 "buffer": buffer,
                 "recurrent": network_args.lstm_hidden_size is not None,
                 "action_dim": action_shape[0],
-                "agent_config": agent_config.primary,
+                "agent_config": agent_config.primary.replace(learning_starts=0),
                 "mode": mode,
                 "env_args": secondary_env_args,
                 "num_episode_test": num_episode_test,
@@ -763,7 +761,7 @@ def make_train(
 
             cond_pred = (
                 new_primary_agent_state.collector_state.timestep
-                >= 0  # FIXME : add learning starts here
+                >= 1e4  # FIXME : add learning starts here
             )  # TODO : investigate
 
             (

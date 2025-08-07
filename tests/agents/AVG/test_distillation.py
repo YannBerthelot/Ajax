@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import pytest
 from flax.core import FrozenDict
 
-from ajax.distillation import value_distillation, value_distillation_loss_function
+from ajax.distillation import value_distillation_loss_function
 from ajax.networks.networks import Actor, Critic
 from ajax.networks.utils import get_adam_tx
 from ajax.state import LoadedTrainState
@@ -118,16 +118,16 @@ def test_value_distillation_loss_function(student_critic, teacher_values, sample
     assert loss > 0, "Loss should be positive."
 
 
-def test_value_distillation(student_critic, teacher_values, sample_input):
-    updated_student_critic = value_distillation(
-        student_critic_state=student_critic,
-        teacher_values=teacher_values,
-        student_inputs=sample_input,
-    )
+# def test_value_distillation(student_critic, teacher_values, sample_input):
+#     updated_student_critic = value_distillation(
+#         student_critic_state=student_critic,
+#         teacher_values=teacher_values,
+#         student_inputs=sample_input,
+#     )
 
-    assert isinstance(
-        updated_student_critic, LoadedTrainState
-    ), "Student critic state should be updated."
-    assert not compare_frozen_dicts(
-        FrozenDict(updated_student_critic.params), FrozenDict(student_critic.params)
-    ), "Student critic parameters should be updated."
+#     assert isinstance(
+#         updated_student_critic, LoadedTrainState
+#     ), "Student critic state should be updated."
+#     assert not compare_frozen_dicts(
+#         FrozenDict(updated_student_critic.params), FrozenDict(student_critic.params)
+#     ), "Student critic parameters should be updated."

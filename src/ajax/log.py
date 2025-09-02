@@ -9,8 +9,7 @@ from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
 
 
-class AuxiliaryLogsProtocol(Protocol):
-    ...
+class AuxiliaryLogsProtocol(Protocol): ...
 
 
 def flatten_dict(dict: Dict) -> Dict:
@@ -97,13 +96,11 @@ def evaluate_and_log(
             recurrent=recurrent,
             lstm_hidden_size=lstm_hidden_size,
             norm_info=(
-                agent_state.collector_state.env_state.info[
-                    (
-                        "normalization_info"
-                        if mode == "brax"
-                        else agent_state.collector_state.env_state.normalization_info
-                    )
-                ]
+                (
+                    agent_state.collector_state.env_state.info["normalization_info"]
+                    if mode == "brax"
+                    else agent_state.collector_state.env_state.normalization_info
+                )
                 if obs_normalization
                 else None
             ),
@@ -137,7 +134,11 @@ def evaluate_and_log(
     _, eval_rng = jax.random.split(agent_state.eval_rng)
     agent_state = agent_state.replace(eval_rng=eval_rng)
 
-    log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
+    log_flag = (
+        timestep - (agent_state.n_logs * log_frequency) >= log_frequency
+        if log
+        else False
+    )
 
     agent_state = agent_state.replace(
         n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)

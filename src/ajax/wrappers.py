@@ -56,7 +56,7 @@ class FlattenObservationWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState]:
         """Reset the environment and flatten the observation"""
-        obs, state = self._env.reset(key, params)
+        obs, state = self._env.reset_env(key, params)
         obs = jnp.reshape(obs, (-1,))
         return obs, state
 
@@ -69,7 +69,7 @@ class FlattenObservationWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         """Step the environment and flatten the observation"""
-        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        obs, state, reward, done, info = self._env.step_env(key, state, action, params)
         obs = jnp.reshape(obs, (-1,))
         return obs, state, reward, done, info
 
@@ -96,7 +96,7 @@ class LogWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState]:
         """Reset the environment and log the state of the env"""
-        obs, env_state = self._env.reset(key, params)
+        obs, env_state = self._env.reset_env(key, params)
         state = LogEnvState(env_state, 0, 0, 0, 0, 0)  # type: ignore[call-arg]
         return obs, state
 
@@ -109,7 +109,7 @@ class LogWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         """Step the environment and log the env state, episode return, episode length and timestep"""
-        obs, env_state, reward, done, info = self._env.step(
+        obs, env_state, reward, done, info = self._env.step_env(
             key,
             state.env_state,
             action,
@@ -147,7 +147,7 @@ class ClipAction(GymnaxWrapper):
         """Step the environment while clipping the action first"""
         # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
-        return self._env.step(key, state, action, params)
+        return self._env.step_env(key, state, action, params)
 
 
 class ClipActionBrax(BraxWrapper):
@@ -278,13 +278,22 @@ def normalize_wrapper_factory(
             self.norm_info = norm_info
             self.gamma = gamma
             rng = jax.random.PRNGKey(0)
-            dummy_obs = get_obs_from_state(env.reset(rng), mode=self.mode)
+            dummy_obs = get_obs_from_state(
+                (
+                    env.reset(rng)
+                    if self.mode == "brax"
+                    else env.reset_env(rng, params=env.default_params)
+                ),
+                mode=self.mode,
+            )
 
             self.batch_size = dummy_obs.shape[0] if jnp.ndim(dummy_obs) > 1 else 1
 
             if mode == "gymnax":
                 # if self.mode == "gymnax":
-                BaseState = env.reset(key=jax.random.PRNGKey(0))[1].__class__
+                BaseState = env.reset_env(
+                    key=jax.random.PRNGKey(0), params=env.default_params
+                )[1].__class__
 
                 @struct.dataclass
                 class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
@@ -308,9 +317,9 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state = state
-                env_state = self.state_class(
-                    **to_state_dict(env_state), normalization_info=norm_info
-                )
+                state_dict = to_state_dict(env_state)
+                state_dict["normalization_info"] = norm_info
+                env_state = self.state_class(**state_dict)
                 return obs, env_state
 
         @partial(jax.jit, static_argnames=("mode", "self"))
@@ -334,16 +343,16 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state, _, done, info = state
-                env_state = self.state_class(
-                    **to_state_dict(env_state), normalization_info=norm_info
-                )
+                state_dict = to_state_dict(env_state)
+                state_dict["normalization_info"] = norm_info
+                env_state = self.state_class(**state_dict)
                 return obs, env_state, reward, done, info
 
         def reset(self, key, params=None):
             state = (
                 self.env.reset(key)
                 if self.mode == "brax"
-                else self._env.reset(key, params)
+                else self._env.reset_env(key, params)
             )
             rew_norm_info = None
             obs_norm_info = None
@@ -423,7 +432,9 @@ def normalize_wrapper_factory(
             state = (
                 self.env.step(state, action)
                 if self.mode == "brax"
-                else self._env.step(key, state, action, params=params)
+                else self._env.step_env(
+                    key=key, state=state, action=action, params=params
+                )
             )
 
             obs, reward, done = get_obs_and_reward_and_done_from_state(
@@ -483,6 +494,12 @@ def normalize_wrapper_factory(
             state = self.update_state_step(state, obs, reward, norm_info, self.mode)
 
             return state
+
+        def step_env(self, *, state, action, params=None, key=None):
+            return self.step(state=state, action=action, params=params, key=key)
+
+        def reset_env(self, key, params=None):
+            return self.reset(key=key, params=params)
 
     return NormalizeVecObservation
 
@@ -693,7 +710,7 @@ class NoiseWrapper(BraxWrapper):
         """Step environment, follow new step API."""
         key = state.info["rng"][0]
         state = self.env.step(state, action)  # type: ignore[has-type]
-        obsv, reward, done, info = (
+        obsv, reward, _, _ = (
             state.obs,
             state.reward,
             state.done,

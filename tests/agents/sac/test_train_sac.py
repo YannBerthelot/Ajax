@@ -666,7 +666,7 @@ def test_make_train(env_config):
     )
 
     # Run the train function
-    final_state = train_fn(key)
+    final_state, _ = train_fn(key)
 
     # Validate the final state
     assert isinstance(final_state, SACState), "Final state should be of type SACState."

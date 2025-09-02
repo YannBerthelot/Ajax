@@ -101,18 +101,18 @@ def create_alpha_train_state(
     )
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "num_critics",
-        "window_size",
-        "alpha_args",
-        "network_args",
-        "actor_optimizer_args",
-        "critic_optimizer_args",
-        "env_args",
-    ],
-)
+# @partial(
+#     jax.jit,
+#     static_argnames=[
+#         "num_critics",
+#         "window_size",
+#         "alpha_args",
+#         "network_args",
+#         "actor_optimizer_args",
+#         "critic_optimizer_args",
+#         "env_args",
+#     ],
+# )
 def init_AVG(
     key: jax.Array,
     env_args: EnvironmentConfig,

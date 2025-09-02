@@ -35,7 +35,7 @@ def online_normalize(
     if train:
         x = x if returns is None else returns
         x = x.reshape(1, -1) if len(x.shape) < 2 else x
-        assert jnp.ndim(mean) == 2, f"Mean must be 2D, got {jnp.ndim(mean)}D"
+        # assert jnp.ndim(mean) == 2, f"Mean must be 2D, got {jnp.ndim(mean)}D"
 
         batch_size = x.shape[0]
         batch_mean = jnp.nanmean(x, axis=0, keepdims=True)
@@ -57,7 +57,7 @@ def online_normalize(
     std = jnp.sqrt(variance + eps)
     x_norm = (input_x - jnp.nanmean(mean, axis=0) * shift) / jnp.nanmean(std, axis=0)
 
-    x_norm = x_norm.squeeze() if len(input_x.shape) < 1 else x_norm
+    x_norm = x_norm.reshape(input_x.shape)  # Ensure output shape matches input shape
     assert (
         x_norm.shape == input_x.shape
     ), f"x_norm shape {x_norm.shape} does not match input_x shape {input_x.shape}"

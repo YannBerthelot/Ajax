@@ -31,12 +31,12 @@ class MockGymnaxEnv:
         self.action_space = lambda params: jnp.array([-1.0, 1.0])
         self.default_params = None  # Mock params, can be set as needed
 
-    def reset(self, key, params=None):
+    def reset_env(self, key, params=None):
         obs = jnp.array([1.0, -1.0])
         state = MockGymnaxState(step_count=0)
         return obs, state
 
-    def step(self, key, state, action, params=None):
+    def step_env(self, key, state, action, params=None):
         obs = jnp.array([1.0, -1.0]) * state.step_count
         reward = jnp.array([2.0])
         done = state.step_count >= 5
@@ -104,12 +104,12 @@ class BatchedMockGymnaxEnv:
         self.action_space = lambda params: jnp.array([-1.0, 1.0])
         self.default_params = None  # Mock params, can be set as needed
 
-    def reset(self, key, params=None):
+    def reset_env(self, key, params=None):
         obs = jnp.tile(jnp.array([1.0, -1.0]), (self.batch_size, 1))
         state = BatchedMockGymnaxState(step_count=jnp.zeros(self.batch_size))
         return obs, state
 
-    def step(self, key, state, action, params=None):
+    def step_env(self, key, state, action, params=None):
         obs = jnp.tile(jnp.array([1.0, -1.0]) * action, (self.batch_size, 1))
         reward = jnp.ones(self.batch_size) * 2.0
         done = state.step_count >= 5
@@ -256,13 +256,13 @@ def test_clip_action(wrapper, env_fixture, low, high, mode, request):
     key = jax.random.PRNGKey(0)
 
     if mode == "gymnax":
-        _, state = wrapped_env.reset(key, env_params)
+        _, state = wrapped_env.reset_env(key, env_params)
     else:  # Brax
         state = wrapped_env.reset(key)
 
     out_of_bound_action = jnp.array(1.0)
     if mode == "gymnax":
-        obs_out, state_out, reward_out, done_out, info_out = wrapped_env.step(
+        obs_out, state_out, reward_out, done_out, info_out = wrapped_env.step_env(
             key, state, out_of_bound_action, env_params
         )
     else:  # Brax
@@ -590,7 +590,7 @@ def test_normalize_vec_observation_with_norm_info(wrapper, env_fixture, mode, re
         env_params = None
 
     if mode == "gymnax":
-        raw_obs, state = env.reset(key, env_params)
+        raw_obs, state = env.reset_env(key, env_params)
     else:  # Brax
         state = env.reset(key)
         raw_obs = state.obs
@@ -616,7 +616,7 @@ def test_normalize_vec_observation_with_norm_info(wrapper, env_fixture, mode, re
     wrapped_env = wrapper(env, norm_info=norm_info, train=False, gamma=0.99)
 
     if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
+        obs, state = wrapped_env.reset_env(key, env_params)
     else:  # Brax
         state = wrapped_env.reset(key)
         obs = state.obs
@@ -660,7 +660,7 @@ def test_normalize_vec_observation_batched(wrapper, env_fixture, mode, request):
 
     # Mock batched observations
     if mode == "gymnax":
-        raw_obs, state = env.reset(key, env_params)
+        raw_obs, state = env.reset_env(key, env_params)
         # raw_obs = jnp.stack([raw_obs, raw_obs * 2])  # Create batched observations
     else:  # Brax
         state = env.reset(key)
@@ -688,7 +688,7 @@ def test_normalize_vec_observation_batched(wrapper, env_fixture, mode, request):
     wrapped_env = wrapper(env, norm_info=norm_info, train=False, gamma=0.99)
 
     if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
+        obs, state = wrapped_env.reset_env(key, env_params)
     else:  # Brax
         state = wrapped_env.reset(key)
         obs = state.obs
@@ -736,7 +736,7 @@ def test_normalize_vec_observation_batched_shared(wrapper, env_fixture, mode, re
 
     # Mock batched observations
     if mode == "gymnax":
-        raw_obs, state = env.reset(key, env_params)
+        raw_obs, state = env.reset_env(key, env_params)
     else:  # Brax
         state = env.reset(key)
         raw_obs = state.obs
@@ -854,12 +854,10 @@ def test_normalize_vec_observation_batched_shared(wrapper, env_fixture, mode, re
 )
 def test_noise_wrapper(wrapper, env_fixture, mode, request):
     env_data = request.getfixturevalue(env_fixture)
-    key = jax.random.PRNGKey(0)
     if mode == "gymnax":
-        env, env_params = env_data
+        env, _ = env_data
     else:  # Brax
         env = env_data
-        env_params = None
     """Test that NoiseWrapper adds noise to observations and rewards"""
 
     scale = 0.1

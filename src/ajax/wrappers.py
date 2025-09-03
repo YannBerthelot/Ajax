@@ -17,7 +17,8 @@ from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
-from ajax.environments.utils import check_env_is_brax, get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes
+from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
 
@@ -30,6 +31,12 @@ class GymnaxWrapper:
     # provide proxy access to regular attributes of wrapped object
     def __getattr__(self, name):
         return getattr(self._env, name)
+
+    @property
+    def unwrapped(self) -> environment.Environment:
+        if "unwrapped" not in dir(self._env):
+            return self._env
+        return self._env.unwrapped
 
 
 class FlattenObservationWrapper(GymnaxWrapper):
@@ -207,21 +214,6 @@ class VecEnv(GymnaxWrapper):
         self.step = jax.vmap(self._env.step, in_axes=(0, 0, 0, None))
 
 
-@struct.dataclass
-class NormalizationInfo:
-    var: jnp.array
-    count: jnp.array
-    mean: jnp.array
-    mean_2: jnp.array
-    returns: Optional[jnp.array] = None  # For reward normalization, returns are needed
-
-
-@struct.dataclass
-class EnvNormalizationInfo:
-    reward: Optional[NormalizationInfo] = None
-    obs: Optional[NormalizationInfo] = None
-
-
 def init_norm_info(
     batch_size: int, obs_shape: tuple, returns: bool = False
 ) -> NormalizationInfo:
@@ -277,7 +269,7 @@ def normalize_wrapper_factory(
             normalize_reward: bool = True,
             gamma: Optional[float] = None,
         ):
-            self.mode = "brax" if check_env_is_brax(env) else "gymnax"
+            self.mode = mode
             super().__init__(env)
 
             self.obs_shape, _ = get_state_action_shapes(env)
@@ -292,13 +284,22 @@ def normalize_wrapper_factory(
             self.norm_info = norm_info
             self.gamma = gamma
             rng = jax.random.PRNGKey(0)
-            dummy_obs = get_obs_from_state(env.reset(rng), mode=self.mode)
+            dummy_obs = get_obs_from_state(
+                (
+                    env.reset(rng)
+                    if self.mode == "brax"
+                    else env.reset(rng, params=env.default_params)
+                ),
+                mode=self.mode,
+            )
 
             self.batch_size = dummy_obs.shape[0] if jnp.ndim(dummy_obs) > 1 else 1
 
             if mode == "gymnax":
                 # if self.mode == "gymnax":
-                BaseState = env.reset(key=jax.random.PRNGKey(0))[1].__class__
+                BaseState = env.reset(
+                    key=jax.random.PRNGKey(0), params=env.default_params
+                )[1].__class__
 
                 @struct.dataclass
                 class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
@@ -322,9 +323,9 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state = state
-                env_state = self.state_class(
-                    **to_state_dict(env_state), normalization_info=norm_info
-                )
+                state_dict = to_state_dict(env_state)
+                state_dict["normalization_info"] = norm_info
+                env_state = self.state_class(**state_dict)
                 return obs, env_state
 
         @partial(jax.jit, static_argnames=("mode", "self"))
@@ -348,9 +349,9 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state, _, done, info = state
-                env_state = self.state_class(
-                    **to_state_dict(env_state), normalization_info=norm_info
-                )
+                state_dict = to_state_dict(env_state)
+                state_dict["normalization_info"] = norm_info
+                env_state = self.state_class(**state_dict)
                 return obs, env_state, reward, done, info
 
         def reset(self, key, params=None):
@@ -412,9 +413,19 @@ def normalize_wrapper_factory(
             """Unnormalize the reward using the normalization info."""
             if norm_info is None or norm_info.var is None:
                 return reward
-            return reward * jnp.sqrt(norm_info.var + 1e-8)
+            return reward * jnp.sqrt(norm_info.var.squeeze() + 1e-8)
+
+        def normalize_observation(
+            self, obs: jax.Array, norm_info: NormalizationInfo
+        ) -> jax.Array:
+            """Normalize the observation using the normalization info."""
+            if norm_info is None or norm_info.var is None:
+                return obs
+            return (obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
 
         def step(self, *, state, action, params=None, key=None):
+            if params is None and self.mode == "gymnax":
+                params = self._env.default_params
             obs_norm_info = (
                 state.info["normalization_info"].obs
                 if self.mode == "brax"
@@ -429,7 +440,7 @@ def normalize_wrapper_factory(
             state = (
                 self.env.step(state, action)
                 if self.mode == "brax"
-                else self._env.step(key, state, action, params=params)
+                else self._env.step(key=key, state=state, action=action, params=params)
             )
 
             obs, reward, done = get_obs_and_reward_and_done_from_state(
@@ -489,6 +500,12 @@ def normalize_wrapper_factory(
             state = self.update_state_step(state, obs, reward, norm_info, self.mode)
 
             return state
+
+        # def step(self, *, state, action, params=None, key=None):
+        #     return self.step(state=state, action=action, params=params, key=key)
+
+        # def reset(self, key, params=None):
+        #     return self.reset(key=key, params=params)
 
     return NormalizeVecObservation
 
@@ -653,6 +670,8 @@ class AutoResetWrapper(BraxWrapper):
         new_rng = jax.lax.cond(
             state.done.any(), split, identity, rng
         )  # Only generate a new seed when at least one env is done
+
+        # Should generate as much new states as finished environments, so that each one has a different seed.
         new_init_state = self.reset(
             new_rng
         )  # If I am correct, as long as the seed is the same jax will use the cached result and not recompute reset, only recomputing for a new seed.
@@ -675,4 +694,55 @@ class AutoResetWrapper(BraxWrapper):
         )
         obs = where_done(new_init_state.info["first_obs"], state.obs)
         state = state.replace(pipeline_state=pipeline_state, obs=obs)
+        return state
+
+
+def add_gaussian_noise(x, key, scale: float):
+    return x + jax.random.normal(key, x.shape) * scale
+
+
+class NoiseWrapper(BraxWrapper):
+    """
+    Add gaussian noise to observations and rewards during transitions.
+    """
+
+    def __init__(self, env, scale: float = 1.0):
+        super().__init__(env)
+        self.scale = scale
+        self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
+        self.single_env = self.n_envs == 1
+
+    def step(self, state: State, action: jax.Array) -> State:
+        """Step environment, follow new step API."""
+        key = state.info["rng"][0]
+        state = self.env.step(state, action)  # type: ignore[has-type]
+        obsv, reward, _, _ = (
+            state.obs,
+            state.reward,
+            state.done,
+            state.info,
+        )
+        # key = info["rng"][0]
+
+        obs_key, reward_key = jax.random.split(key, 2)
+        noisy_obs = add_gaussian_noise(obsv, obs_key, scale=self.scale)
+        noisy_reward = add_gaussian_noise(reward, reward_key, scale=self.scale)
+        # TODO : find how to infer done from the noisy obs?
+        state = state.replace(
+            pipeline_state=state.pipeline_state, obs=noisy_obs, reward=noisy_reward
+        )
+        print("noising output")
+
+        return state
+
+    def reset(self, rng: jax.Array) -> State:
+        state = self.env.reset(rng)
+        state.info["rng"] = (
+            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
+        )
+        info = state.info
+        info["rng"] = (
+            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
+        )
+        state = state.replace(info=info)
         return state

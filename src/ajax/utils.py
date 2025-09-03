@@ -1,4 +1,6 @@
 import ast
+import inspect
+from dataclasses import fields
 from types import MappingProxyType
 from typing import Any, Callable, Optional
 
@@ -6,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import optax
 import yaml
+from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
 
@@ -32,7 +35,7 @@ def online_normalize(
     if train:
         x = x if returns is None else returns
         x = x.reshape(1, -1) if len(x.shape) < 2 else x
-        assert jnp.ndim(mean) == 2, f"Mean must be 2D, got {jnp.ndim(mean)}D"
+        # assert jnp.ndim(mean) == 2, f"Mean must be 2D, got {jnp.ndim(mean)}D"
 
         batch_size = x.shape[0]
         batch_mean = jnp.nanmean(x, axis=0, keepdims=True)
@@ -54,7 +57,7 @@ def online_normalize(
     std = jnp.sqrt(variance + eps)
     x_norm = (input_x - jnp.nanmean(mean, axis=0) * shift) / jnp.nanmean(std, axis=0)
 
-    x_norm = x_norm.squeeze() if len(input_x.shape) < 1 else x_norm
+    x_norm = x_norm.reshape(input_x.shape)  # Ensure output shape matches input shape
     assert (
         x_norm.shape == input_x.shape
     ), f"x_norm shape {x_norm.shape} does not match input_x shape {input_x.shape}"
@@ -338,7 +341,12 @@ def get_and_prepare_hyperparams(
     filename: str,
     env_id: str,
     train_keys: tuple[str, ...] = ("n_timesteps",),
-    keys_to_remove: tuple[str, ...] = ("policy", "vf_coef"),
+    keys_to_remove: tuple[str, ...] = (
+        "policy",
+        "vf_coef",
+        "use_sde",
+        "sde_sample_freq",
+    ),
     translate_dict: dict = MappingProxyType(  # type: ignore[assignment]
         {"log_std_init": "actor_bias_init"}
     ),
@@ -372,9 +380,9 @@ def get_and_prepare_hyperparams(
             "orthogonal" if env_hyperparams.pop("ortho_init") else "he_uniform"
         )
         env_hyperparams["critic_kernel_init"] = env_hyperparams["actor_kernel_init"]
-
-    env_hyperparams["actor_learning_rate"] = env_hyperparams.pop("learning_rate")
-    env_hyperparams["critic_learning_rate"] = env_hyperparams["actor_learning_rate"]
+    if "learning_rate" in env_hyperparams.keys():
+        env_hyperparams["actor_learning_rate"] = env_hyperparams.pop("learning_rate")
+        env_hyperparams["critic_learning_rate"] = env_hyperparams["actor_learning_rate"]
     env_hyperparams = rename_dict_keys(env_hyperparams, translate_dict=translate_dict)
 
     init_kwargs, train_kwargs = split_train_init_kwargs(
@@ -382,3 +390,72 @@ def get_and_prepare_hyperparams(
     )
 
     return init_kwargs, train_kwargs
+
+
+def fill_with_nan(dataclass):
+    """
+    Recursively fills all fields of a dataclass with jnp.nan.
+    """
+    nan = jnp.ones(1) * jnp.nan
+    dict = {}
+    for field in fields(dataclass):
+        sub_dataclass = field.type
+        if hasattr(
+            sub_dataclass, "__dataclass_fields__"
+        ):  # Check if the field is another dataclass
+            dict[field.name] = fill_with_nan(sub_dataclass)
+        else:
+            dict[field.name] = nan
+    return dataclass(**dict)
+
+
+def get_update_kwargs(config, update_fn, **kwargs):
+    sig = inspect.signature(update_fn)
+    arg_names = [
+        param.name for param in sig.parameters.values()
+    ]  # remove agent_state and _
+    kwargs = {key: val for key, val in kwargs.items() if key in arg_names}
+
+    values_to_remove = ["agent_state", "_", "buffer", "recurrent", "action_dim"]
+    arg_names = [
+        param.name
+        for param in sig.parameters.values()
+        if param.name not in values_to_remove
+    ]
+    update_kwargs = {
+        key: config.__dict__[key] for key in arg_names if key in config.__dict__
+    }
+
+    update_kwargs.update(kwargs)
+    return FrozenDict(update_kwargs)
+
+
+def get_update_scan_fn(static_kwargs, config, update_agent):
+    static_kwargs = get_update_kwargs(config, update_agent, **static_kwargs)
+    return partial(
+        update_agent,
+        **static_kwargs,
+    )
+
+
+def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
+    """
+    Compares two FrozenDicts to check if they are equal.
+
+    Args:
+        dict1 (FrozenDict): The first FrozenDict.
+        dict2 (FrozenDict): The second FrozenDict.
+
+    Returns:
+        bool: True if the FrozenDicts are equal, False otherwise.
+    """
+    for key in dict1.keys():
+        if key not in dict2:
+            return False
+        value1, value2 = dict1[key], dict2[key]
+        if isinstance(value1, FrozenDict) and isinstance(value2, FrozenDict):
+            if not compare_frozen_dicts(value1, value2):
+                return False
+        elif not jnp.allclose(value1, value2):
+            return False
+    return True

@@ -2,19 +2,18 @@
 
 import functools
 from collections.abc import Sequence
-from typing import Optional, TypeAlias, Union, cast, get_args
+from typing import Any, Optional, TypeAlias, Union, cast, get_args
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import jaxlib
 import numpy as np
 from flax.linen.initializers import constant, orthogonal
 
-ActivationFunction: TypeAlias = Union[
-    jax._src.custom_derivatives.custom_jvp,
-    jaxlib.xla_extension.PjitFunction,
-]
+ActivationFunction: TypeAlias = Any  # Union[
+#     jax._src.custom_derivatives.custom_jvp,
+#     jaxlib.xla_extension.PjitFunction,
+# ]
 
 
 def check_architecture(actor: bool, num_of_actions: Optional[int]) -> None:

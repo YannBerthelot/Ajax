@@ -20,3 +20,14 @@ class DynaSACConfig:
     secondary: AVGConfig
     sac_length: int
     avg_length: int
+    dyna_tau: float
+    dyna_factor: float
+    n_avg_agents: int
+    actor_distillation_lr: float
+    critic_distillation_lr: float
+    n_distillation_samples: int
+    alpha_polyak_primary_to_secondary: float = 1e-3
+    initial_alpha_polyak_secondary_to_primary: float = 1e-3
+    final_alpha_polyak_secondary_to_primary: float = 1e-3
+    transition_mix_fraction: float = 0.5
+    transfer_mode: str = "copy"

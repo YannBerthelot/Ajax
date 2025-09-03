@@ -61,8 +61,8 @@ def update_rolling_mean(
     return new_state, mean
 
 
-@partial(jax.jit, static_argnames=["mode", "env", "env_params"])
-def reset_env(
+@partial(jax.jit, static_argnames=["mode", "env"])
+def reset(
     rng: jax.Array,
     env: Environment,
     mode: str,
@@ -90,9 +90,9 @@ def reset_env(
 
 @partial(
     jax.jit,
-    static_argnames=["mode", "env", "env_params"],
+    static_argnames=["mode", "env"],
 )
-def step_env(
+def step(
     rng: jax.Array,
     state: jax.Array,
     action: jax.Array,
@@ -114,6 +114,9 @@ def step_env(
     Returns:
         Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]: Observation, new state, reward, done flag, and info.
     """
+    if env_params is None and mode == "gymnax":
+        env_params = env.default_params
+
     if mode == "gymnax":
 
         def step_wrapper(
@@ -144,7 +147,7 @@ def step_env(
         terminated = done * (1 - truncated)
 
     else:
-        raise ValueError(f"Unrecognized mode for step_env {mode}")
+        raise ValueError(f"Unrecognized mode for step {mode}")
 
     return obsv, env_state, reward, terminated, truncated, info
 
@@ -260,7 +263,6 @@ def compute_episodic_reward_mean(
         agent_state.collector_state.episodic_return_state.cumulative_reward
         + reward.reshape(reward.shape[0], 1)
     )
-
     last_return = jax.lax.select(
         done.reshape(done.shape[0], 1),
         new_cumulative_reward,
@@ -353,7 +355,7 @@ def collect_experience(
     )
 
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
-        step_env(
+        step(
             rng_step,
             agent_state.collector_state.env_state,
             action,
@@ -369,21 +371,33 @@ def collect_experience(
         "terminated": terminated[:, None],
         "truncated": truncated[:, None],
     }
-    if buffer is not None:
-        buffer_state = buffer.add(
-            agent_state.collector_state.buffer_state,
-            _transition,
-        )
+
+    # got_buffer = (
+    #     buffer is not None and agent_state.collector_state.buffer_state is not None
+    # )
+    buffer_state = agent_state.collector_state.buffer_state
+    if agent_state.collector_state.buffer_state is not None and buffer is not None:
+        if (
+            agent_state.collector_state.buffer_state.experience["obs"].shape[0]
+            == action.shape[
+                0
+            ]  # TODO : change later, this is a hack to not add when using the secondary agent in DynaSAC. This still adds when DynaSAC has a single env
+        ):
+            buffer_state = buffer.add(
+                agent_state.collector_state.buffer_state,
+                _transition,
+            )
         _transition.update(
             {
-                "next_obs": jnp.zeros_like(obsv) * jnp.nan,
-                "log_prob": jnp.zeros_like(log_probs) * jnp.nan,
+                "next_obs": obsv,  # jnp.zeros_like(obsv) * jnp.nan,
+                "log_prob": log_probs,  # jnp.zeros_like(log_probs) * jnp.nan,
             }
         )
     else:
         _transition.update(
             {"next_obs": obsv, "log_prob": log_probs}
         )  # not included if using buffer to reduce memory usage, as flashbax can rebuild it.
+
     transition = Transition(
         **_transition
     )  # TODO: check if the consumes too much memory
@@ -397,18 +411,19 @@ def collect_experience(
         rng=rng,
         env_state=env_state,
         last_obs=obsv,
-        buffer_state=buffer_state if buffer is not None else None,
         timestep=agent_state.collector_state.timestep + env_args.n_envs,
         last_terminated=terminated,
         last_truncated=truncated,
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
+        buffer_state=buffer_state,
     )
+
     agent_state = agent_state.replace(collector_state=new_collector_state)
     return agent_state, transition
 
 
-@partial(jax.jit, static_argnames=["mode", "env_args", "buffer", "window_size"])
+# @partial(jax.jit, static_argnames=["mode", "env_args", "buffer", "window_size"])
 def init_collector_state(
     rng: jax.Array,
     env_args: EnvironmentConfig,
@@ -422,7 +437,7 @@ def init_collector_state(
     reset_keys = (
         jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
     )
-    last_obs, env_state = reset_env(reset_keys, env_args.env, mode, env_args.env_params)
+    last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
@@ -438,11 +453,12 @@ def init_collector_state(
         cumulative_reward=jnp.zeros((env_args.n_envs, 1)),
         last_return=jnp.nan * jnp.zeros((env_args.n_envs, 1)),
     )
+    buffer_state = init_buffer(buffer, env_args) if buffer is not None else None
     return CollectorState(
         rng=rng,
         env_state=env_state,
         last_obs=last_obs,
-        buffer_state=init_buffer(buffer, env_args) if buffer is not None else None,
+        buffer_state=buffer_state,
         timestep=0,
         last_terminated=last_done,
         last_truncated=last_done,
@@ -482,9 +498,7 @@ def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bo
     Returns:
         bool: Whether to use uniform sampling
     """
-    return jax.lax.cond(
-        timestep < learning_starts,
-        _return_true,
-        _return_false,
-        operand=None,
+
+    return jnp.where(
+        timestep < learning_starts, jnp.zeros_like(timestep), jnp.ones_like(timestep)
     )

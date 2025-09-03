@@ -1,6 +1,7 @@
 """Helpers for Weights & Biases and TensorBoard logging"""
 
 import functools
+import glob
 import json
 import os
 import queue
@@ -10,6 +11,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import tensorflow as tf
 import wandb
 import wandb.errors
 from flax import struct
@@ -53,7 +55,7 @@ def init_logging(
             project=logging_config.project_name,
             name=f"{logging_config.run_name}  {index}",
             id=run_id,
-            resume="never",
+            resume="allow",
             reinit=True,
             config=logging_config.config,
         )
@@ -106,7 +108,6 @@ def stop_async_logging():
 
 def _logging_worker():
     """Worker thread that processes logging queue"""
-
     while not stop_logging.is_set():
         try:
             item = logging_queue.get(timeout=0.1)
@@ -114,18 +115,24 @@ def _logging_worker():
                 continue
 
             run_id, metrics, step, project, name = item
-            if project is not None:
-                try:
-                    run = wandb.init(
-                        project=project,
-                        name=f"{name} {run_id}",
-                        id=run_id,
-                        resume="must",
-                        reinit=True,
-                    )
-                    run.log(metrics, step=step)
-                except wandb.errors.UsageError:
-                    pass
+
+            # if project is not None:
+            #     while True:
+            #         try:
+            #             run = wandb.init(
+            #                 project=project,
+            #                 name=f"{name} {run_id}",
+            #                 id=run_id,
+            #                 resume="must",
+            #                 reinit=True,
+            #             )
+            #             run.log(metrics, step=step)
+            #             time.sleep(1.0)
+            #             break  # success → exit retry loop
+            #         except (wandb.errors.UsageError, OSError) as e:
+            #             print(f"W&B log failed, retrying: {e}")
+            #             time.sleep(30.0)  # wait before retrying
+
             writer = tensorboard_writers.get(run_id)
             if writer:
                 for key, value in metrics.items():
@@ -172,9 +179,11 @@ def vmap_log(
     }
 
     step = log_metrics["timestep"]
+
     logging_queue.put(
         (run_id, metrics_np, step, logging_config.project_name, logging_config.run_name)
     )
+
     return None
 
 
@@ -193,6 +202,50 @@ def with_wandb_silent(func: Callable) -> Callable:
             os.environ["WANDB_SILENT"] = "true"
             return func(*args, **kwargs)
         finally:
-            os.environ["WANDB_SILENT"] = initial_wandb_silent
+            os.environ["WANDB_SILENT"] = (
+                initial_wandb_silent if initial_wandb_silent != "" else "false"
+            )
 
     return wrapper
+
+
+def upload_tensorboard_to_wandb(
+    run_ids: list[str], logging_config: LoggingConfig, base_folder: Optional[str] = None
+):
+    """
+    Upload existing TensorBoard log directories to W&B for the given run_ids,
+    then optionally clean up.
+
+    Args:
+        run_ids: List of run IDs corresponding to TensorBoard runs.
+        logging_config: LoggingConfig object.
+        base_folder: Base folder where TensorBoard logs are stored. Defaults to logging_config.folder.
+    """
+    base_folder = base_folder or logging_config.folder or "."
+
+    for run_id in run_ids:
+        log_dir = os.path.join(base_folder, "tensorboard", run_id)
+        if not os.path.exists(log_dir):
+            print(f"TensorBoard log directory not found for run {run_id}: {log_dir}")
+            continue
+
+        try:
+            print(f"Uploading TensorBoard logs for run {run_id} to W&B from {log_dir}")
+            wandb.init(
+                project=logging_config.project_name,
+                name=f"{logging_config.run_name}_{run_id}",
+                config=logging_config.config,
+            )
+            # Find all event files
+            event_files = glob.glob(
+                os.path.join(log_dir, "**", "events*"), recursive=True
+            )
+
+            for event_file in event_files:
+                for e in tf.compat.v1.train.summary_iterator(event_file):
+                    if e.summary is not None:
+                        wandb.tensorboard._log(e.summary, step=e.step)
+
+            wandb.finish()
+        except Exception as e:
+            print(f"Failed to upload TensorBoard logs for run {run_id} to W&B: {e}")

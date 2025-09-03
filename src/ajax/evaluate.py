@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -6,7 +6,8 @@ from brax.envs import create
 from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
-from ajax.environments.interaction import get_pi, reset_env, step_env
+from ajax.agents.sac.utils import SquashedNormal
+from ajax.environments.interaction import get_pi, reset, step
 from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
@@ -19,9 +20,11 @@ from ajax.wrappers import (
     NormalizeVecObservationGymnax,
 )
 
+T = TypeVar("T")  # generic type for pytrees
 
-def repeat_first_entry(tree, num_repeats: int):
-    return jax.tree_map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
+
+def repeat_first_entry(tree: T, num_repeats: int) -> T:
+    return jax.tree.map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
 
 
 @partial(
@@ -53,20 +56,29 @@ def evaluate(
         clip_wrapper = ClipActionBrax
         norm_wrapper = NormalizeVecObservationBrax
     continuous = check_if_environment_has_continuous_actions(env, env_params)
+
+    env_name = (
+        type(env.unwrapped).__name__.lower()
+        if "unwrapped" in dir(env)
+        else type(env).__name__.lower()
+    )
     if mode == "brax":
-        env_name = type(env.unwrapped).__name__.lower()
         env = clip_wrapper(
             create(env_name=env_name, batch_size=num_episodes)
         )  # no need for autoreset with random init as we only done one episode, still need for normalization though
-        if norm_info is not None:
-            env = norm_wrapper(
-                env,
-                train=False,
-                norm_info=repeat_first_entry(norm_info, num_repeats=num_episodes),
-                gamma=gamma,
-                normalize_obs=norm_info.obs is not None,
-                normalize_reward=norm_info.reward is not None,
-            )
+    else:
+        env = env.unwrapped if "unwrapped" in dir(env) else env
+        env = clip_wrapper(env)
+    if norm_info is not None:
+        norm_info = repeat_first_entry(norm_info, num_repeats=num_episodes)
+        env = norm_wrapper(
+            env,
+            train=False,
+            norm_info=norm_info,
+            gamma=gamma,
+            normalize_obs=norm_info.obs is not None,
+            normalize_reward=norm_info.reward is not None,
+        )
 
     key, reset_key = jax.random.split(rng, 2)
     reset_keys = (
@@ -88,10 +100,13 @@ def evaluate(
         )
 
         action = pi.mean() if continuous else pi.mode()
-        entropy = pi.entropy()
+        entropy = (
+            pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
+        )
         return action, entropy
 
-    obs, state = reset_env(reset_keys, env, mode, env_params)
+    obs, state = reset(reset_keys, env, mode, env_params)
+
     done = jnp.zeros(num_episodes, dtype=jnp.int8)
     rewards = jnp.zeros(num_episodes)
     entropy_sum = jnp.zeros(1)
@@ -99,7 +114,7 @@ def evaluate(
 
     carry = (rewards, key, obs, done, state, entropy_sum, step_count)
 
-    def sample_action_and_step_env(carry):
+    def sample_action_and_step(carry):
         rewards, rng, obs, done, state, entropy_sum, step_count = carry
         rng, step_key = jax.random.split(rng)
         step_keys = (
@@ -109,7 +124,7 @@ def evaluate(
             obs,
             done if recurrent else None,
         )
-        obs, new_state, new_rewards, new_terminated, new_truncated, _ = step_env(
+        obs, new_state, new_rewards, new_terminated, new_truncated, _ = step(
             step_keys,
             state,
             actions.squeeze(0) if recurrent else actions,
@@ -124,6 +139,7 @@ def evaluate(
         entropy_sum += (entropy.mean() * still_running).mean()
         rewards += new_rewards * still_running
         done = done | jnp.int8(new_done)
+
         return rewards, rng, obs, done, new_state, entropy_sum, step_count
 
     def env_not_done(carry):
@@ -132,9 +148,10 @@ def evaluate(
 
     rewards, _, _, _, _, entropy_sum, step_count = jax.lax.while_loop(
         env_not_done,
-        sample_action_and_step_env,
+        sample_action_and_step,
         carry,
     )
+
     if norm_info is not None:
         if norm_info.reward is not None:
             rewards = env.unnormalize_reward(rewards, norm_info.reward)

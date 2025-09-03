@@ -10,7 +10,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_env_type,
 )
-from ajax.wrappers import AutoResetWrapper, get_wrappers
+from ajax.wrappers import AutoResetWrapper, NoiseWrapper, get_wrappers
 
 
 def build_env_from_id(
@@ -20,7 +20,7 @@ def build_env_from_id(
 ) -> tuple[EnvType, Optional[EnvParams]]:
     if env_id in gymnax.registered_envs:
         env, env_params = gymnax.make(env_id)
-        return env, env_params
+        return env, env_params  # TODO : see how to have env_params not mess up the rest
 
     if env_id in list(brax.envs._envs.keys()):
         return (
@@ -40,6 +40,7 @@ def prepare_env(
     normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,  # Discount factor for reward normalization
+    noise_scale: Optional[float] = None,
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
     if isinstance(env_id, str):
         env, env_params = build_env_from_id(
@@ -65,4 +66,7 @@ def prepare_env(
             normalize_obs=normalize_obs,
             gamma=gamma if normalize_reward else None,
         )
+    if noise_scale is not None:
+        print("noise wrapper")
+        env = NoiseWrapper(env, scale=noise_scale)
     return env, env_params, env_id, continuous

@@ -1,5 +1,6 @@
 from typing import Callable, Optional, Union
 
+import gymnax
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
@@ -7,6 +8,7 @@ from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train
 from ajax.logging.wandb_logging import (
     LoggingConfig,
+    upload_tensorboard_to_wandb,
 )
 from ajax.types import EnvType, InitializationFunction
 from ajax.utils import get_and_prepare_hyperparams
@@ -111,9 +113,9 @@ class PPO(ActorCritic):
 if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5000
-    use_wandb = True
+    use_wandb = False
     logging_config = LoggingConfig(
-        project_name="PPO_tests_rlzoo" if use_wandb else None,
+        project_name="PPO_tests_rlzoo",
         run_name="PPO",
         config={
             "debug": False,
@@ -125,11 +127,14 @@ if __name__ == "__main__":
         use_tensorboard=True,
         use_wandb=use_wandb,
     )
-    env_id = "HalfCheetah-v4"
+    # env_id = "HalfCheetah-v4"
     # env_id = "CartPole-v1"
+    env_id = "Pendulum-v1"
     init_hyperparams, train_hyperparams = get_and_prepare_hyperparams(
         "./hyperparams/ppo.yml", env_id=env_id
     )
+
+    print(train_hyperparams)
 
     def process_brax_env_id(env_id: str) -> str:
         """Remove version from env_id for brax compatibility."""
@@ -149,11 +154,15 @@ if __name__ == "__main__":
 
     env_id = process_brax_env_id(env_id)
 
+    env, env_params = gymnax.make(env_id)
+
     PPO_agent = PPO(
-        env_id=env_id, **init_hyperparams
+        env_id=env,
+        env_params=env_params,  # **init_hyperparams
     )  # Remove version from env_id for brax compatibility
     PPO_agent.train(
         seed=list(range(n_seeds)),
         logging_config=logging_config,
         **train_hyperparams,
     )
+    upload_tensorboard_to_wandb(PPO_agent.run_ids, logging_config)

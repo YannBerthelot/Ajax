@@ -11,7 +11,6 @@ from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
     stop_async_logging,
-    with_wandb_silent,
 )
 from ajax.state import (
     BaseAgentConfig,
@@ -112,7 +111,7 @@ class ActorCritic:
     def get_make_train(self) -> Callable:
         raise NotImplementedError
 
-    @with_wandb_silent
+    # @with_wandb_silent
     def train(
         self,
         seed: int | Sequence[int] = 42,
@@ -133,11 +132,11 @@ class ActorCritic:
 
         if logging_config is not None:
             logging_config.config.update(self.config)
-            run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(run_ids):
+            self.run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
+            for index, run_id in enumerate(self.run_ids):
                 init_logging(run_id, index, logging_config)
         else:
-            run_ids = None
+            self.run_ids = []
 
         def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
@@ -150,7 +149,7 @@ class ActorCritic:
                 agent_config=self.agent_config,
                 total_timesteps=n_timesteps,
                 num_episode_test=num_episode_test,
-                run_ids=run_ids,
+                run_ids=self.run_ids,
                 logging_config=logging_config,
             )
 

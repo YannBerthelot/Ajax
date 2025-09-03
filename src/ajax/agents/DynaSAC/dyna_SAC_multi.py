@@ -1,3 +1,4 @@
+import argparse
 from collections.abc import Sequence
 from typing import Optional
 
@@ -7,7 +8,7 @@ import wandb
 from gymnax import EnvParams
 
 from ajax.agents.DynaSAC.state import AVGConfig, DynaSACConfig, SACConfig
-from ajax.agents.DynaSAC.train_dyna_sac import make_train
+from ajax.agents.DynaSAC.train_dyna_sac_multi import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
@@ -17,7 +18,6 @@ from ajax.environments.utils import (
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
-    stop_async_logging,
     with_wandb_silent,
 )
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
@@ -47,13 +47,23 @@ class DynaSAC:
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
-        avg_length: int = 4,
-        sac_length: int = 4,
+        avg_length: int = 1,
+        sac_length: int = 1,
         num_envs_AVG: int = 10,
         num_epochs_distillation: int = 1,
         num_epochs_sac: int = 1,
-        dyna_tau: FloatOrCallable = 0.005,
-        dyna_factor: FloatOrCallable = 0.5,
+        dyna_tau: FloatOrCallable = 0.005,  # FIXME : deprecated
+        dyna_factor: FloatOrCallable = 0.5,  # FIXME : deprecated
+        n_avg_agents: int = 1,
+        actor_distillation_lr: float = 1e-4,
+        critic_distillation_lr: float = 1e-4,
+        n_distillation_samples: int = 1_000,
+        alpha_polyak_primary_to_secondary: float = 1e-3,
+        initial_alpha_polyak_secondary_to_primary: float = 1e-3,
+        final_alpha_polyak_secondary_to_primary: float = 1e-3,
+        transition_mix_fraction: float = 0.5,
+        transfer_mode="copy",
+        model_noise=1.0,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -86,29 +96,34 @@ class DynaSAC:
             n_envs=n_envs,
             gamma=gamma,
         )
-
-        secondary_env, env_params, env_id, continuous = prepare_env(
-            env_id,
-            env_params=env_params,
-            normalize_obs=True,
-            normalize_reward=False,
-            n_envs=num_envs_AVG,
-            gamma=gamma,
-        )
-
-        if not check_if_environment_has_continuous_actions(primary_env):
-            raise ValueError("SAC only supports continuous action spaces.")
-        self.num_epochs_distillation = num_epochs_distillation
-        self.num_epochs_sac = num_epochs_sac
         self.primary_env_args = EnvironmentConfig(
             env=primary_env,
             env_params=env_params,
             n_envs=n_envs,
             continuous=continuous,
         )
-        self.secondary_env_args = self.primary_env_args.replace(
-            env=secondary_env, n_envs=num_envs_AVG
+
+        secondary_env, env_params, env_id, continuous = prepare_env(
+            env_id,
+            env_params=env_params,
+            normalize_obs=False,
+            normalize_reward=False,
+            n_envs=num_envs_AVG,
+            gamma=gamma,
+            noise_scale=model_noise,
         )
+
+        self.secondary_env_args = EnvironmentConfig(
+            env=secondary_env,
+            env_params=env_params,
+            n_envs=num_envs_AVG,
+            continuous=continuous,
+        )
+
+        if not check_if_environment_has_continuous_actions(primary_env):
+            raise ValueError("SAC only supports continuous action spaces.")
+        self.num_epochs_distillation = num_epochs_distillation
+        self.num_epochs_sac = num_epochs_sac
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,
@@ -169,12 +184,27 @@ class DynaSAC:
             sac_length=sac_length,
             dyna_tau=dyna_tau,
             dyna_factor=dyna_factor,
+            n_avg_agents=n_avg_agents,
+            actor_distillation_lr=actor_distillation_lr,
+            critic_distillation_lr=critic_distillation_lr,
+            n_distillation_samples=n_distillation_samples,
+            alpha_polyak_primary_to_secondary=alpha_polyak_primary_to_secondary,
+            initial_alpha_polyak_secondary_to_primary=initial_alpha_polyak_secondary_to_primary,
+            final_alpha_polyak_secondary_to_primary=final_alpha_polyak_secondary_to_primary,
+            transition_mix_fraction=transition_mix_fraction,
+            transfer_mode=transfer_mode,
         )
 
         self.buffer = get_buffer(
             buffer_size=buffer_size,
             batch_size=batch_size,
             n_envs=n_envs,
+        )
+
+        self.alt_buffer = get_buffer(
+            buffer_size=buffer_size,
+            batch_size=batch_size,
+            n_envs=num_envs_AVG,
         )
 
     @with_wandb_silent
@@ -184,6 +214,7 @@ class DynaSAC:
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
+        sweep: bool = False,
     ) -> None:
         """
         Train the SAC agent.
@@ -199,8 +230,9 @@ class DynaSAC:
         if logging_config is not None:
             logging_config.config.update(self.config)
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(run_ids):
-                init_logging(run_id, index, logging_config)
+            if not sweep:
+                for index, run_id in enumerate(run_ids):
+                    init_logging(run_id, index, logging_config)
         else:
             run_ids = None
 
@@ -216,6 +248,7 @@ class DynaSAC:
                 secondary_critic_optimizer_args=self.secondary_critic_optimizer_args,
                 network_args=self.network_args,
                 buffer=self.buffer,
+                alt_buffer=self.alt_buffer,
                 agent_config=self.agent_config,
                 total_timesteps=n_timesteps,
                 alpha_args=self.alpha_args,
@@ -226,15 +259,25 @@ class DynaSAC:
                 avg_length=self.agent_config.avg_length,
                 num_epochs=self.num_epochs_distillation,
                 n_epochs_sac=self.num_epochs_sac,
+                n_avg_agents=self.agent_config.n_avg_agents,
+                actor_distillation_lr=self.agent_config.actor_distillation_lr,
+                critic_distillation_lr=self.agent_config.critic_distillation_lr,
+                n_distillation_samples=self.agent_config.n_distillation_samples,
+                initial_alpha_polyak_secondary_to_primary=self.agent_config.initial_alpha_polyak_secondary_to_primary,
+                final_alpha_polyak_secondary_to_primary=self.agent_config.final_alpha_polyak_secondary_to_primary,
+                alpha_polyak_primary_to_secondary=self.agent_config.alpha_polyak_primary_to_secondary,
+                sweep=sweep,
+                transition_mix_fraction=self.agent_config.transition_mix_fraction,
+                transfer_mode=self.agent_config.transfer_mode,
             )
 
-            agent_state = train_jit(key, index)
-            stop_async_logging()
-            return agent_state
+            agent_state, score = train_jit(key, index)
+
+            return agent_state, score
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
 def create_linear_schedule(
@@ -254,26 +297,87 @@ def create_linear_schedule(
 
 
 if __name__ == "__main__":
-    dyna_tau_init = 0.0
-    dyna_tau_final = 0.01
-    dyna_factor_init = 0.0
-    dyna_factor_final = 0.5
-    max_t = int(1e6)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--actor_distillation_lr",
+        type=float,
+        default=1e-4,
+        help="Override learning rate for distillation.",
+    )
+    parser.add_argument(
+        "--critic_distillation_lr",
+        type=float,
+        default=1e-4,
+        help="Override learning rate for distillation.",
+    )
+    parser.add_argument(
+        "--n_avg_agents",
+        type=int,
+        default=1,
+        help="Override number of agents to average.",
+    )
+    parser.add_argument(
+        "--n_envs_AVG",
+        type=int,
+        default=1,
+        help="Override number of agents to average.",
+    )
+    parser.add_argument(
+        "--n_epochs_distillation",
+        type=int,
+        default=1,
+        help="Override number of agents to average.",
+    )
+    parser.add_argument(
+        "--n_distillation_samples",
+        type=int,
+        default=1_000,
+        help="Override number of agents to average.",
+    )
+
+    parser.add_argument(
+        "--initial_alpha_polyak_secondary_to_primary",
+        type=int,
+        default=1e-6,
+        help="Override number of agents to average.",
+    )
+
+    parser.add_argument(
+        "--final_alpha_polyak_secondary_to_primary",
+        type=int,
+        default=1e-4,
+        help="Override number of agents to average.",
+    )
+
+    parser.add_argument(
+        "--alpha_polyak_primary_to_secondary",
+        type=int,
+        default=1e-4,
+        help="Override number of agents to average.",
+    )
+
+    parser.add_argument(
+        "--transition_mix_fraction",
+        type=int,
+        default=0.5,
+        help=(
+            "The fraction of on-policy (model) transitions to mix with off-policy"
+            " (real) transitions in imagination."
+        ),
+    )
+
+    args = parser.parse_args()
 
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_multi",
-        run_name="run",
+        project_name="dyna_sac_mix_3",
+        run_name="baseline",
         config={
             "debug": False,
             "log_frequency": log_frequency,
             "n_seeds": n_seeds,
-            "dyna_tau_init": dyna_tau_init,
-            "dyna_tau_final": dyna_tau_final,
-            "dyna_factor_init": dyna_factor_init,
-            "dyna_factor_final": dyna_factor_final,
-            "max_t": max_t,
+            **vars(args),
         },
         log_frequency=log_frequency,
         horizon=10_000,
@@ -281,25 +385,31 @@ if __name__ == "__main__":
         use_wandb=True,
     )
 
-    env_id = "halfcheetah"
+    env_id = "hopper"
     sac_agent = DynaSAC(
         env_id=env_id,
         learning_starts=int(1e4),
         batch_size=256,
         avg_length=1,
         sac_length=1,
-        num_envs_AVG=1,
-        num_epochs_distillation=1,
+        num_envs_AVG=args.n_envs_AVG,
+        num_epochs_distillation=args.n_epochs_distillation,
         num_epochs_sac=1,
-        dyna_tau=create_linear_schedule(
-            init_x=dyna_tau_init, final_x=dyna_tau_final, max_t=max_t + int(1e4)
-        ),
-        dyna_factor=create_linear_schedule(
-            init_x=dyna_factor_init, final_x=dyna_factor_final, max_t=max_t + int(1e4)
-        ),
+        n_avg_agents=args.n_avg_agents,
+        actor_distillation_lr=args.actor_distillation_lr,
+        critic_distillation_lr=args.critic_distillation_lr,
+        n_distillation_samples=args.n_distillation_samples,
+        alpha_polyak_primary_to_secondary=args.alpha_polyak_primary_to_secondary,
+        initial_alpha_polyak_secondary_to_primary=args.initial_alpha_polyak_secondary_to_primary,
+        final_alpha_polyak_secondary_to_primary=args.final_alpha_polyak_secondary_to_primary,
+        n_envs=1,
+        transition_mix_fraction=0.9,
+        transfer_mode="copy",
+        model_noise=1,
     )
-    sac_agent.train(
+    _, score = sac_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
+        n_timesteps=int(3e5),
         logging_config=logging_config,
     )
+    print(score)

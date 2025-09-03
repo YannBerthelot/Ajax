@@ -20,7 +20,7 @@ def build_env_from_id(
 ) -> tuple[EnvType, Optional[EnvParams]]:
     if env_id in gymnax.registered_envs:
         env, env_params = gymnax.make(env_id)
-        return env, env_params
+        return env, env_params  # TODO : see how to have env_params not mess up the rest
 
     if env_id in list(brax.envs._envs.keys()):
         return (

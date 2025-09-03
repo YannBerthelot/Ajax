@@ -61,8 +61,8 @@ def update_rolling_mean(
     return new_state, mean
 
 
-@partial(jax.jit, static_argnames=["mode", "env", "env_params"])
-def reset_env(
+@partial(jax.jit, static_argnames=["mode", "env"])
+def reset(
     rng: jax.Array,
     env: Environment,
     mode: str,
@@ -90,9 +90,9 @@ def reset_env(
 
 @partial(
     jax.jit,
-    static_argnames=["mode", "env", "env_params"],
+    static_argnames=["mode", "env"],
 )
-def step_env(
+def step(
     rng: jax.Array,
     state: jax.Array,
     action: jax.Array,
@@ -114,6 +114,9 @@ def step_env(
     Returns:
         Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]: Observation, new state, reward, done flag, and info.
     """
+    if env_params is None and mode == "gymnax":
+        env_params = env.default_params
+
     if mode == "gymnax":
 
         def step_wrapper(
@@ -144,7 +147,7 @@ def step_env(
         terminated = done * (1 - truncated)
 
     else:
-        raise ValueError(f"Unrecognized mode for step_env {mode}")
+        raise ValueError(f"Unrecognized mode for step {mode}")
 
     return obsv, env_state, reward, terminated, truncated, info
 
@@ -352,7 +355,7 @@ def collect_experience(
     )
 
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
-        step_env(
+        step(
             rng_step,
             agent_state.collector_state.env_state,
             action,
@@ -368,11 +371,12 @@ def collect_experience(
         "terminated": terminated[:, None],
         "truncated": truncated[:, None],
     }
+
     # got_buffer = (
     #     buffer is not None and agent_state.collector_state.buffer_state is not None
     # )
     buffer_state = agent_state.collector_state.buffer_state
-    if agent_state.collector_state.buffer_state is not None:
+    if agent_state.collector_state.buffer_state is not None and buffer is not None:
         if (
             agent_state.collector_state.buffer_state.experience["obs"].shape[0]
             == action.shape[
@@ -407,7 +411,7 @@ def collect_experience(
         rng=rng,
         env_state=env_state,
         last_obs=obsv,
-        timestep=agent_state.collector_state.timestep + 1,  # + env_args.n_envs,
+        timestep=agent_state.collector_state.timestep + env_args.n_envs,
         last_terminated=terminated,
         last_truncated=truncated,
         episodic_return_state=new_episodic_return_state,
@@ -419,7 +423,7 @@ def collect_experience(
     return agent_state, transition
 
 
-@partial(jax.jit, static_argnames=["mode", "env_args", "buffer", "window_size"])
+# @partial(jax.jit, static_argnames=["mode", "env_args", "buffer", "window_size"])
 def init_collector_state(
     rng: jax.Array,
     env_args: EnvironmentConfig,
@@ -433,7 +437,7 @@ def init_collector_state(
     reset_keys = (
         jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
     )
-    last_obs, env_state = reset_env(reset_keys, env_args.env, mode, env_args.env_params)
+    last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),

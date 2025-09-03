@@ -2,6 +2,7 @@ import os
 from collections.abc import Sequence
 from typing import Any, Callable, Dict, Optional, Tuple
 
+import distrax
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -22,6 +23,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
 )
 from ajax.evaluate import evaluate
+from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -202,7 +204,7 @@ def value_loss_function(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "clip_coef", "ent_coef", "advantage_normalization"],
+    static_argnames=["recurrent", "advantage_normalization"],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
@@ -240,11 +242,16 @@ def policy_loss_function(
         done=dones,
         recurrent=recurrent,
     )
-    new_log_probs = (
-        jnp.expand_dims(pi.log_prob(actions.squeeze()), axis=-1)
-        if jnp.ndim(actions.squeeze()) < 3
-        else pi.log_prob(actions).sum(-1, keepdims=True)
-    )
+
+    # Need to deal with various shapes depending on brax vs gymnax and discrete vs continuous
+
+    if isinstance(pi, distrax.Categorical):
+        new_log_probs = jnp.expand_dims(
+            pi.log_prob(actions.squeeze(-1)), -1
+        )  # .sum(-1, keepdims=True)
+    else:
+        new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
+
     assert new_log_probs.shape == log_probs.shape, (
         f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
         f" {log_probs.shape}"
@@ -335,7 +342,7 @@ def update_value_functions(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "clip_coef", "ent_coef", "advantage_normalization"],
+    static_argnames=["recurrent", "advantage_normalization"],
 )
 def update_policy(
     agent_state: PPOState,
@@ -451,6 +458,7 @@ def update_agent(
         clip_coef = agent_config.clip_range(agent_state.collector_state.timestep)
     else:
         clip_coef = agent_config.clip_range
+
     agent_state, aux_policy = update_policy(
         agent_state=agent_state,
         observations=observations,
@@ -711,24 +719,49 @@ def training_iteration(
                 entropy_val=eval_entropy,
             )
 
-    if log:
-        _, eval_rng = jax.random.split(agent_state.eval_rng)
-        agent_state = agent_state.replace(eval_rng=eval_rng)
-        log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
+    # if log:
+    #     _, eval_rng = jax.random.split(agent_state.eval_rng)
+    #     agent_state = agent_state.replace(eval_rng=eval_rng)
+    #     log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
 
-        agent_state = agent_state.replace(
-            n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
-        )
-        flag = jnp.logical_or(
-            jnp.logical_and(log_flag, timestep > 1),
-            timestep >= (total_timesteps - env_args.n_envs),
-        )
-        jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
-        del aux
+    #     agent_state = agent_state.replace(
+    #         n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
+    #     )
+    #     flag = jnp.logical_or(
+    #         jnp.logical_and(log_flag, timestep > 1),
+    #         timestep >= (total_timesteps - env_args.n_envs),
+    #     )
+    #     jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
+    #     del aux
+
+    # jax.debug.print(
+    #     (
+    #         "Completed training iteration at timestep {timestep_val},"
+    #         " {n_updates}/{total_n_updates} updates"
+    #     ),
+    #     timestep_val=timestep,
+    #     n_updates=agent_state.n_updates,
+    #     total_n_updates=total_n_updates,
+    # )
+    agent_state, metrics_to_log = evaluate_and_log(
+        agent_state,
+        aux,
+        index,
+        mode,
+        env_args,
+        num_episode_test,
+        recurrent,
+        lstm_hidden_size,
+        log,
+        verbose,
+        log_fn,
+        log_frequency,
+        total_timesteps,
+    )
 
     jax.clear_caches()
     # gc.collect()
-    return agent_state, None
+    return agent_state, metrics_to_log
 
 
 def profile_memory(timestep):
@@ -819,7 +852,7 @@ def make_train(
             total_n_updates=num_updates,
         )
 
-        agent_state, _ = jax.lax.scan(
+        agent_state, out = jax.lax.scan(
             f=training_iteration_scan_fn,
             init=agent_state,
             xs=None,
@@ -830,6 +863,6 @@ def make_train(
         # if logging_config is not None:
         #     stop_async_logging()
 
-        return agent_state
+        return agent_state, out
 
     return train

@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Protocol
+from typing import Any, Callable, Dict, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -12,16 +12,23 @@ from ajax.state import BaseAgentState
 class AuxiliaryLogsProtocol(Protocol): ...
 
 
-def flatten_dict(dict: Dict) -> Dict:
+def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
     return_dict = {}
-    for key, val in dict.items():
-        if isinstance(val, Dict):
+    for key, val in d.items():
+        if isinstance(val, dict):
             for subkey, subval in val.items():
-                return_dict[f"{key}/{subkey}"] = (
-                    subval[0] if isinstance(subval, jax.Array) else subval
-                )
+                if isinstance(subval, jax.Array):
+                    # convert 0-d array to Python scalar
+                    return_dict[f"{key}/{subkey}"] = (
+                        subval[0] if jnp.ndim(subval) > 0 else subval
+                    )
+                else:
+                    return_dict[f"{key}/{subkey}"] = subval
         else:
-            return_dict[key] = val[0] if isinstance(subval, jax.Array) else val
+            if isinstance(val, jax.Array):
+                return_dict[key] = val.item() if val.ndim == 0 else val
+            else:
+                return_dict[key] = val
     return return_dict
 
 
@@ -106,6 +113,8 @@ def evaluate_and_log(
             ),
         )
 
+        eval_rewards = eval_rewards.mean()
+
         metrics_to_log = {
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards,
@@ -114,9 +123,8 @@ def evaluate_and_log(
                 agent_state.collector_state.episodic_mean_return
             ),
         }
+
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
-        if log:
-            jax.debug.callback(log_fn, metrics_to_log, index)
 
         if verbose:
             jax.debug.print(
@@ -129,6 +137,11 @@ def evaluate_and_log(
                 entropy_val=eval_entropy,
             )
 
+        if log:
+            # jax.debug.print(
+            #     "Calling log function {metrics_to_log}", metrics_to_log=metrics_to_log
+            # )
+            jax.debug.callback(log_fn, metrics_to_log, index)
         return metrics_to_log
 
     _, eval_rng = jax.random.split(agent_state.eval_rng)

@@ -17,7 +17,7 @@ from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
-from ajax.environments.utils import check_env_is_brax, get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
@@ -31,6 +31,12 @@ class GymnaxWrapper:
     # provide proxy access to regular attributes of wrapped object
     def __getattr__(self, name):
         return getattr(self._env, name)
+
+    @property
+    def unwrapped(self) -> environment.Environment:
+        if "unwrapped" not in dir(self._env):
+            return self._env
+        return self._env.unwrapped
 
 
 class FlattenObservationWrapper(GymnaxWrapper):
@@ -56,7 +62,7 @@ class FlattenObservationWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState]:
         """Reset the environment and flatten the observation"""
-        obs, state = self._env.reset_env(key, params)
+        obs, state = self._env.reset(key, params)
         obs = jnp.reshape(obs, (-1,))
         return obs, state
 
@@ -69,7 +75,7 @@ class FlattenObservationWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         """Step the environment and flatten the observation"""
-        obs, state, reward, done, info = self._env.step_env(key, state, action, params)
+        obs, state, reward, done, info = self._env.step(key, state, action, params)
         obs = jnp.reshape(obs, (-1,))
         return obs, state, reward, done, info
 
@@ -96,7 +102,7 @@ class LogWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState]:
         """Reset the environment and log the state of the env"""
-        obs, env_state = self._env.reset_env(key, params)
+        obs, env_state = self._env.reset(key, params)
         state = LogEnvState(env_state, 0, 0, 0, 0, 0)  # type: ignore[call-arg]
         return obs, state
 
@@ -109,7 +115,7 @@ class LogWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
         """Step the environment and log the env state, episode return, episode length and timestep"""
-        obs, env_state, reward, done, info = self._env.step_env(
+        obs, env_state, reward, done, info = self._env.step(
             key,
             state.env_state,
             action,
@@ -147,7 +153,7 @@ class ClipAction(GymnaxWrapper):
         """Step the environment while clipping the action first"""
         # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
-        return self._env.step_env(key, state, action, params)
+        return self._env.step(key, state, action, params)
 
 
 class ClipActionBrax(BraxWrapper):
@@ -263,7 +269,7 @@ def normalize_wrapper_factory(
             normalize_reward: bool = True,
             gamma: Optional[float] = None,
         ):
-            self.mode = "brax" if check_env_is_brax(env) else "gymnax"
+            self.mode = mode
             super().__init__(env)
 
             self.obs_shape, _ = get_state_action_shapes(env)
@@ -282,7 +288,7 @@ def normalize_wrapper_factory(
                 (
                     env.reset(rng)
                     if self.mode == "brax"
-                    else env.reset_env(rng, params=env.default_params)
+                    else env.reset(rng, params=env.default_params)
                 ),
                 mode=self.mode,
             )
@@ -291,7 +297,7 @@ def normalize_wrapper_factory(
 
             if mode == "gymnax":
                 # if self.mode == "gymnax":
-                BaseState = env.reset_env(
+                BaseState = env.reset(
                     key=jax.random.PRNGKey(0), params=env.default_params
                 )[1].__class__
 
@@ -352,7 +358,7 @@ def normalize_wrapper_factory(
             state = (
                 self.env.reset(key)
                 if self.mode == "brax"
-                else self._env.reset_env(key, params)
+                else self._env.reset(key, params)
             )
             rew_norm_info = None
             obs_norm_info = None
@@ -407,7 +413,7 @@ def normalize_wrapper_factory(
             """Unnormalize the reward using the normalization info."""
             if norm_info is None or norm_info.var is None:
                 return reward
-            return reward * jnp.sqrt(norm_info.var + 1e-8)
+            return reward * jnp.sqrt(norm_info.var.squeeze() + 1e-8)
 
         def normalize_observation(
             self, obs: jax.Array, norm_info: NormalizationInfo
@@ -418,6 +424,8 @@ def normalize_wrapper_factory(
             return (obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
 
         def step(self, *, state, action, params=None, key=None):
+            if params is None and self.mode == "gymnax":
+                params = self._env.default_params
             obs_norm_info = (
                 state.info["normalization_info"].obs
                 if self.mode == "brax"
@@ -432,9 +440,7 @@ def normalize_wrapper_factory(
             state = (
                 self.env.step(state, action)
                 if self.mode == "brax"
-                else self._env.step_env(
-                    key=key, state=state, action=action, params=params
-                )
+                else self._env.step(key=key, state=state, action=action, params=params)
             )
 
             obs, reward, done = get_obs_and_reward_and_done_from_state(
@@ -495,11 +501,11 @@ def normalize_wrapper_factory(
 
             return state
 
-        def step_env(self, *, state, action, params=None, key=None):
-            return self.step(state=state, action=action, params=params, key=key)
+        # def step(self, *, state, action, params=None, key=None):
+        #     return self.step(state=state, action=action, params=params, key=key)
 
-        def reset_env(self, key, params=None):
-            return self.reset(key=key, params=params)
+        # def reset(self, key, params=None):
+        #     return self.reset(key=key, params=params)
 
     return NormalizeVecObservation
 

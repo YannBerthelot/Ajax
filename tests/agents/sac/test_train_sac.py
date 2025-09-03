@@ -32,6 +32,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+from ajax.utils import compare_frozen_dicts
 
 
 @pytest.fixture
@@ -332,27 +333,27 @@ def test_temperature_loss_function_with_value_and_grad(
     ), "Gradients contain invalid values."
 
 
-def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
-    """
-    Compares two FrozenDicts to check if they are equal.
+# def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
+#     """
+#     Compares two FrozenDicts to check if they are equal.
 
-    Args:
-        dict1 (FrozenDict): The first FrozenDict.
-        dict2 (FrozenDict): The second FrozenDict.
+#     Args:
+#         dict1 (FrozenDict): The first FrozenDict.
+#         dict2 (FrozenDict): The second FrozenDict.
 
-    Returns:
-        bool: True if the FrozenDicts are equal, False otherwise.
-    """
-    for key in dict1.keys():
-        if key not in dict2:
-            return False
-        value1, value2 = dict1[key], dict2[key]
-        if isinstance(value1, FrozenDict) and isinstance(value2, FrozenDict):
-            if not compare_frozen_dicts(value1, value2):
-                return False
-        elif not jnp.allclose(value1, value2):
-            return False
-    return True
+#     Returns:
+#         bool: True if the FrozenDicts are equal, False otherwise.
+#     """
+#     for key in dict1.keys():
+#         if key not in dict2:
+#             return False
+#         value1, value2 = dict1[key], dict2[key]
+#         if isinstance(value1, FrozenDict) and isinstance(value2, FrozenDict):
+#             if not compare_frozen_dicts(value1, value2):
+#                 return False
+#         elif not jnp.allclose(value1, value2):
+#             return False
+#     return True
 
 
 @pytest.mark.parametrize(

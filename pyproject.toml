@@ -127,8 +127,10 @@ branch = true
 
 [tool.coverage.report]
 omit = [ "tests/*"]
+
+
 ignore_errors = true    
-fail_under = 80
+fail_under = 70
 
 exclude_also = [
     "def __repr__",

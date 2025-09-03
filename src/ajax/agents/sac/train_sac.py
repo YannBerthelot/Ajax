@@ -628,7 +628,7 @@ def update_agent(
             )
         else:
             transition = original_transition
-    else:
+    elif additional_transition is not None:
         # If no buffer is provided, use the collector state to get the latest transition
         transition = additional_transition
         terminated = additional_transition.terminated

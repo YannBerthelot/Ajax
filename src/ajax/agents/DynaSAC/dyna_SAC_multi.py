@@ -388,7 +388,7 @@ if __name__ == "__main__":
     env_id = "hopper"
     sac_agent = DynaSAC(
         env_id=env_id,
-        learning_starts=1e4,
+        learning_starts=int(1e4),
         batch_size=256,
         avg_length=1,
         sac_length=1,

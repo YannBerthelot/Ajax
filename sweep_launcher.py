@@ -5,16 +5,20 @@ import os
 import signal
 import subprocess
 import sys
-import threading
 from time import sleep
 
 from dotenv import load_dotenv
+
 load_dotenv()  # If you still want to load .env variables
 
 # Parse command line args
 parser = argparse.ArgumentParser(description="Launcher for DynaSAC sweep")
-parser.add_argument("--GPU", type=int, default=0, help="Which GPU device ID to use (default=0)")
-parser.add_argument("--n_exps", type=int, default=10, help="Number of parallel experiments")
+parser.add_argument(
+    "--GPU", type=int, default=0, help="Which GPU device ID to use (default=0)"
+)
+parser.add_argument(
+    "--n_exps", type=int, default=10, help="Number of parallel experiments"
+)
 args = parser.parse_args()
 
 N_MAX_RUNS = args.n_exps
@@ -35,9 +39,11 @@ else:
         "src/ajax/agents/DynaSAC/dyna_SAC_multi.py",
     ]
 
+
 def load_sweep_params():
     with open(SWEEP_PARAMS_FILE) as f:
         return json.load(f)
+
 
 def generate_combinations(sweep_params):
     keys = list(sweep_params.keys())
@@ -47,15 +53,18 @@ def generate_combinations(sweep_params):
         combos.append(dict(zip(keys, vals)))
     return combos
 
+
 def load_pending_runs():
     if os.path.exists(PENDING_RUNS_FILE):
         with open(PENDING_RUNS_FILE) as f:
             return json.load(f)
     return None
 
+
 def save_pending_runs(pending):
     with open(PENDING_RUNS_FILE, "w") as f:
         json.dump(pending, f, indent=2)
+
 
 def build_cmd_from_config(config):
     flags = []
@@ -64,12 +73,14 @@ def build_cmd_from_config(config):
         flags.append(str(v))
     return base_cmd + flags
 
+
 def force_kill_all(procs):
     for p in procs:
         try:
             p.kill()
         except Exception:
             pass
+
 
 def main():
     sweep_params = load_sweep_params()
@@ -107,7 +118,7 @@ def main():
             cmd = " ".join(build_cmd_from_config(config))
             print(f"Launching ({len(running_processes)+1}/{N_MAX_RUNS}): {cmd}")
             # Use shell=False to avoid issues with env vars split
-            p = subprocess.Popen(cmd, shell =True)
+            p = subprocess.Popen(cmd, shell=True)
             running_processes.append(p)
             running_configs.append(config)
             save_pending_runs(pending_runs)
@@ -125,7 +136,6 @@ def main():
 
         sys.exit(1)
 
-
     signal.signal(signal.SIGINT, signal_handler)
 
     # Main loop
@@ -139,6 +149,6 @@ def main():
 
     print("All runs completed!")
 
+
 if __name__ == "__main__":
-    
     main()

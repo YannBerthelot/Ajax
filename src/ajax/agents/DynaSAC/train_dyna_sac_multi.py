@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
-from ajax.agents.AVG.train_AVG import init_AVG
 from ajax.agents.AVG.train_AVG import training_iteration as training_iteration_AVG
 from ajax.agents.DynaSAC.state import AVGState, DynaSACConfig, SACState
 from ajax.agents.sac.train_sac import init_sac
@@ -290,7 +289,7 @@ def check_inequality(x, y, msg: str):
     assert not frozen_dict_equal(x, y), f"{msg}"
 
 
-def make_train(
+def make_train(  # noqa: C901
     primary_env_args: EnvironmentConfig,
     secondary_env_args: EnvironmentConfig,
     primary_actor_optimizer_args: OptimizerConfig,
@@ -338,7 +337,7 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(primary_env_args.env) else "brax"
-    log = (logging_config is not None) and (not sweep)
+    # log = (logging_config is not None) and (not sweep)
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
     def alpha_polyak_schedule(t: int):
@@ -351,33 +350,33 @@ def make_train(
     if logging_config is not None and not sweep:
         start_async_logging()
     secondary_mode = "sac"
-    init_secondary = init_sac if secondary_mode == "sac" else init_AVG
-    init_secondary_args = (
-        {
-            "env_args": secondary_env_args,
-            "actor_optimizer_args": secondary_actor_optimizer_args,
-            "critic_optimizer_args": secondary_critic_optimizer_args,
-            "network_args": network_args.replace(penultimate_normalization=True),
-            "alpha_args": alpha_args,
-            "num_critics": 1,
-        }
-        if secondary_mode == "avg"
-        else {
-            "env_args": secondary_env_args,
-            "actor_optimizer_args": primary_actor_optimizer_args,
-            "critic_optimizer_args": primary_critic_optimizer_args,
-            "network_args": network_args,
-            "alpha_args": alpha_args,
-            "buffer": None,
-        }
-    )
+    # init_secondary = init_sac if secondary_mode == "sac" else init_AVG
+    # init_secondary_args = (
+    #     {
+    #         "env_args": secondary_env_args,
+    #         "actor_optimizer_args": secondary_actor_optimizer_args,
+    #         "critic_optimizer_args": secondary_critic_optimizer_args,
+    #         "network_args": network_args.replace(penultimate_normalization=True),
+    #         "alpha_args": alpha_args,
+    #         "num_critics": 1,
+    #     }
+    #     if secondary_mode == "avg"
+    #     else {
+    #         "env_args": secondary_env_args,
+    #         "actor_optimizer_args": primary_actor_optimizer_args,
+    #         "critic_optimizer_args": primary_critic_optimizer_args,
+    #         "network_args": network_args,
+    #         "alpha_args": alpha_args,
+    #         "buffer": None,
+    #     }
+    # )
     primary_training_iteration = training_iteration_SAC
     secondary_training_iteration = (
         training_iteration_SAC if secondary_mode == "sac" else training_iteration_AVG
     )
 
     @partial(jax.jit)
-    def train(key, index: Optional[int] = None):
+    def train(key, index: Optional[int] = None):  # noqa: C901
         """Train the SAC agent."""
         primary_agent_state = init_sac(
             key=key,
@@ -389,11 +388,11 @@ def make_train(
             buffer=buffer,
         )
 
-        partial_init_secondary = partial(
-            init_secondary,
-            **init_secondary_args,
-        )
-        avg_keys = jax.random.split(key, n_avg_agents)
+        # partial_init_secondary = partial(
+        #     init_secondary,
+        #     **init_secondary_args,
+        # )
+        # avg_keys = jax.random.split(key, n_avg_agents)
         # secondary_agent_state = (
         #     jax.vmap(partial_init_secondary)(avg_keys)
         #     if secondary_mode == "avg"
@@ -499,7 +498,7 @@ def make_train(
         )
         assert secondary_agent_state.collector_state.buffer_state is None
 
-        def dyna_train_loop(
+        def dyna_train_loop(  # noqa: C901
             carry: tuple[SACState, AVGState], _: Any
         ) -> tuple[tuple[SACState, AVGState], None]:
             primary_agent_state, secondary_agent_state = carry

@@ -45,7 +45,7 @@ def main():
             **config,
             actor_architecture=(f"{N_NEURONS}", "relu", f"{N_NEURONS}", "relu"),
             critic_architecture=(f"{N_NEURONS}", "relu", f"{N_NEURONS}", "relu"),
-            model_noise=1.0
+            model_noise=1.0,
         )
         _, score = sac_agent.train(
             seed=list(range(n_seeds)),

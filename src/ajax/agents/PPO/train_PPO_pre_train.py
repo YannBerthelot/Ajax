@@ -317,13 +317,17 @@ def policy_loss_function(
 
     if distance_to_stable is not None:
         imitation_coef_offset = 1e-3
-        imitation_coef = (
+        distance = (
             1 / (distance_to_stable(observations) + EPS)
         ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
         # imitation_coef = jnp.max(1e-3, imitation_coef)
-        imitation_coef = jnp.expand_dims(imitation_coef, -1)
+        distance = jnp.expand_dims(distance, -1)
+    else:
+        distance = 1
     total_loss = (
-        loss_actor - ent_coef * entropy + (imitation_coef * imitation_loss).mean()
+        loss_actor
+        - ent_coef * entropy
+        + (imitation_coef * distance * imitation_loss).mean()
     )
 
     return total_loss, PolicyAuxiliaries(
@@ -814,6 +818,7 @@ def training_iteration(
             recurrent=recurrent,
             lstm_hidden_size=lstm_hidden_size,
             norm_info=env_norm_info,
+            avg_reward_mode=True,
         )
         mean_return = agent_state.collector_state.episodic_mean_return
         if env_norm_info is not None:
@@ -880,6 +885,7 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
+        avg_reward_mode=True,
     )
 
     jax.clear_caches()
@@ -1141,20 +1147,23 @@ def make_train(
 
         return imitation_coef
 
-    if "auto" not in imitation_coef:
+    # if "auto" not in str(imitation_coef):
+    if "lin" in str(imitation_coef):
         imitation_coef = (
             imitation_coef_schedule(float(imitation_coef.split("_")[1]))
             if isinstance(imitation_coef, str)
             else imitation_coef
         )
-
         imitation_coef = (
             partial(imitation_coef, total_timesteps=total_timesteps)
             if isinstance(imitation_coef, Callable)
             else imitation_coef
         )
-    else:
-        imitation_coef = jnp.nan
+    if "auto" in str(imitation_coef):
+        imitation_coef = float(imitation_coef.split("_")[1])
+
+    # else:
+    #     imitation_coef = jnp.nan
 
     # @partial(jax.jit, static_argnames=["expert_policy"])
     def train(key, index: Optional[int] = None):

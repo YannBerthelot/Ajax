@@ -2832,14 +2832,14 @@ xmp = ["defusedxml"]
 
 [[package]]
 name = "plane-env"
-version = "0.1.2"
+version = "0.1.3.1"
 description = "A reinforcement learning environment for simulating a plane in 2D available, with gymnasium and gymnax support"
 optional = false
 python-versions = "<3.13,>=3.10"
 groups = ["main"]
 files = [
-    {file = "plane_env-0.1.2-py3-none-any.whl", hash = "sha256:9ad38d1fb7e64e42c1eb47f99644e4ab5e98ed486960561f5621bbe588963ced"},
-    {file = "plane_env-0.1.2.tar.gz", hash = "sha256:3c0c8100738ff72905277bbe3f11375221d9931d711947ae2950655c8ee50f18"},
+    {file = "plane_env-0.1.3.1-py3-none-any.whl", hash = "sha256:7d00c99d1c48fbcfcb4ad925c9c8ebbfb177fc80f6ef4eac435267f1a5abb06d"},
+    {file = "plane_env-0.1.3.1.tar.gz", hash = "sha256:c36190de5a58dda475da740817edd2602e159f6fb4409b4e12d77fa8cc09b23f"},
 ]
 
 [package.dependencies]
@@ -4515,4 +4515,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10, <3.12"
-content-hash = "ab0a534f0942133da0a25bc37b59b42bcdc2f6d6943f328156c92262796b432c"
+content-hash = "aca25a26341a17cdbfdd138c2b72fb189738828af4573eab113361332ff3d573"

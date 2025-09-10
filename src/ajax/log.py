@@ -9,8 +9,7 @@ from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
 
 
-class AuxiliaryLogsProtocol(Protocol):
-    ...
+class AuxiliaryLogsProtocol(Protocol): ...
 
 
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -43,6 +42,8 @@ def no_op(agent_state, aux, *args):  # TODO : build from auxiliary logs?
         "timestep": -1,  # must be int
         "Eval/episodic mean reward": jnp.nan,
         "Eval/episodic entropy": jnp.nan,
+        "Eval/mean average reward": jnp.nan,
+        "Eval/mean bias": jnp.nan,
         "Train/episodic mean reward": jnp.nan,
     }
     aux_keys = flatten_dict(to_state_dict(aux)).keys()
@@ -67,6 +68,7 @@ def no_op_none(agent_state, index, timestep):
         "log_fn",
         "log_frequency",
         "total_timesteps",
+        "avg_reward_mode",
     ],
 )
 def evaluate_and_log(
@@ -83,6 +85,7 @@ def evaluate_and_log(
     log_fn: Callable,
     log_frequency: int,
     total_timesteps: int,
+    avg_reward_mode: bool = False,
 ):
     timestep = agent_state.collector_state.timestep
 
@@ -95,7 +98,7 @@ def evaluate_and_log(
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
         )
-        eval_rewards, eval_entropy = evaluate(
+        eval_rewards, eval_entropy, avg_avg_reward, avg_bias = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
             num_episodes=num_episode_test,
@@ -112,6 +115,7 @@ def evaluate_and_log(
                 if obs_normalization
                 else None
             ),
+            avg_reward_mode=avg_reward_mode,
         )
 
         eval_rewards = eval_rewards.mean()
@@ -119,6 +123,8 @@ def evaluate_and_log(
         metrics_to_log = {
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards,
+            "Eval/mean average reward": avg_avg_reward,
+            "Eval/mean bias": avg_bias,
             "Eval/episodic entropy": eval_entropy,
             "Train/episodic mean reward": (
                 agent_state.collector_state.episodic_mean_return

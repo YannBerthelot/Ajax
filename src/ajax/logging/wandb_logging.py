@@ -53,12 +53,17 @@ def init_logging(
     if logging_config.use_wandb:
         wandb.init(
             project=logging_config.project_name,
-            name=f"{logging_config.run_name}  {index}",
+            name=f"{logging_config.run_name}_{run_id}",
             id=run_id,
-            resume="allow",
-            reinit=True,
+            resume="never",
             config=logging_config.config,
         )
+
+        jax.debug.print(
+            "Init wandb {run}", run=f"{logging_config.run_name}_{run_id}, id={run_id}"
+        )
+        wandb.log({"timestep": 0})
+        wandb.finish()
 
     if logging_config.use_tensorboard:
         log_dir = os.path.join(logging_config.folder or ".", "tensorboard", run_id)
@@ -210,7 +215,10 @@ def with_wandb_silent(func: Callable) -> Callable:
 
 
 def upload_tensorboard_to_wandb(
-    run_ids: list[str], logging_config: LoggingConfig, base_folder: Optional[str] = None
+    run_ids: list[str],
+    logging_config: LoggingConfig,
+    base_folder: Optional[str] = None,
+    use_wandb: bool = False,
 ):
     """
     Upload existing TensorBoard log directories to W&B for the given run_ids,
@@ -235,11 +243,14 @@ def upload_tensorboard_to_wandb(
                 project=logging_config.project_name,
                 name=f"{logging_config.run_name}_{run_id}",
                 config=logging_config.config,
+                resume="must",
+                id=run_id,
             )
             # Find all event files
             event_files = glob.glob(
                 os.path.join(log_dir, "**", "events*"), recursive=True
             )
+            # wandb.log({"empty": 1})
 
             for event_file in event_files:
                 for e in tf.compat.v1.train.summary_iterator(event_file):

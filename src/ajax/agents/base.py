@@ -136,6 +136,7 @@ class ActorCritic:
             self.run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
             for index, run_id in enumerate(self.run_ids):
                 init_logging(run_id, index, logging_config)
+            logging_config = logging_config.replace(use_wandb=False)
         else:
             self.run_ids = []
 

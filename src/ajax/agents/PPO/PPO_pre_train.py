@@ -7,6 +7,7 @@ from flax import struct
 
 # from gymnax import EnvParams
 from plane_env.env_jax import Airplane2D, EnvParams, EnvState
+from plane_env.runner import get_interpolator
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.state import PPOConfig
@@ -149,15 +150,27 @@ class StableState:
 
 if __name__ == "__main__":
     n_timesteps = int(1e7)
-    n_seeds = 5
+    n_seeds = 10
     log_frequency = 5000
-    use_wandb = False
+    use_wandb = True
     target_altitude = 5000  # meters
+    penalize_trunction = 1
 
-    def expert_policy(x):
-        return jnp.array([5, 0])
+    # def expert_policy(x):
+    #     return jnp.array([5, 0])
 
-    def distance_to_stable(
+    def get_expert_policy(target_alt, stick=0):
+        interpolator = get_interpolator(stick=0)
+        power = interpolator(target_alt)
+
+        def expert_policy(x):
+            return jnp.array([power, stick])
+
+        return expert_policy
+
+    expert_policy = get_expert_policy(target_altitude, stick=0)
+
+    def distance_to_stable_fn(
         state: EnvState, stable_state: StableState, modification: Optional[str] = None
     ):
         z = state[..., 2]
@@ -172,42 +185,59 @@ if __name__ == "__main__":
             return (
                 jnp.abs(z - stable_state.z) + jnp.abs(z_dot - stable_state.z_dot)
             ) ** (1 / 2)
+        else:
+            raise ValueError(f"Unrecognized modification {modification}")
 
     imitation_coef_list = []
     # imitation_coef_list += ["auto"]
-    imitation_coef_list += ["auto_squared", "auto_sqrt"]
-    # imitation_coef_list += [
-    #     "lin_1.0",
-    #     "lin_0.1",
-    #     "lin_0.01",
-    #     "lin_0.001",
-    # ]
-    # imitation_coef_list += [
-    #     1.0,
-    #     1e-1,
-    #     1e-2,
-    #     1e-3,
-    # ]
-    # imitation_coef_list += [0.0]
-    for pre_train_n_steps in (0, int(1e5)):
+    # imitation_coef_list += ["auto_squared", "auto_sqrt"]
+    imitation_coef_list += [0.0]
+    imitation_coef_list += [
+        "auto_10.0",
+        "auto_1.0",
+        "auto_0.1",
+        "auto_0.01",
+    ]
+    # # imitation_coef_list += [
+    # #     "lin_1.0",
+    # #     "lin_0.1",
+    # #     "lin_0.01",
+    # #     "lin_0.001",
+    # # ]
+    imitation_coef_list += [
+        # 1.0,
+        1e-1,
+        1e-2,
+        1e-3,
+    ]
+
+    pre_train_step_list = []
+    pre_train_step_list += [0.0]
+    pre_train_step_list += [int(1e5)]
+
+    for pre_train_n_steps in pre_train_step_list:
         for imitation_coef in imitation_coef_list:
-            distance_to_stable = partial(
-                distance_to_stable,
-                stable_state=StableState(z=target_altitude, z_dot=0),
-                modification=(
-                    imitation_coef.split("_")[1]
-                    if len(imitation_coef.split("_")) > 1
-                    else None
-                ),
-            )
+            if "auto" in str(imitation_coef):
+                distance_to_stable = partial(
+                    distance_to_stable_fn,
+                    stable_state=StableState(z=target_altitude, z_dot=0),
+                    modification=(
+                        imitation_coef.split("_")[1]
+                        if len(imitation_coef.split("_")) > 2
+                        else None
+                    ),
+                )
+            else:
+                distance_to_stable = None
             logging_config = LoggingConfig(
-                project_name="plane_pre_train_tests_3",
+                project_name="plane_pre_train_clean_1",
                 run_name="PPO",
                 config={
                     "debug": False,
                     "log_frequency": log_frequency,
                     "n_seeds": n_seeds,
                     "pre_train": pre_train_n_steps > 0,
+                    # "penalize_trunction": penalize_trunction,
                 },
                 log_frequency=log_frequency,
                 horizon=10_000,
@@ -218,7 +248,8 @@ if __name__ == "__main__":
             key = jax.random.PRNGKey(42)
             env = Airplane2D()
             env_params = EnvParams(
-                target_altitude_range=(target_altitude, target_altitude)
+                target_altitude_range=(target_altitude, target_altitude),
+                penalize_truncation=penalize_trunction,
             )
 
             # TODO : have the constant action be infered from the environment
@@ -239,7 +270,9 @@ if __name__ == "__main__":
                 logging_config=logging_config,
                 n_timesteps=n_timesteps,
             )
-            upload_tensorboard_to_wandb(PPO_agent.run_ids, logging_config)
+            upload_tensorboard_to_wandb(
+                PPO_agent.run_ids, logging_config, use_wandb=use_wandb
+            )
 
     # logging_config = LoggingConfig(
     #     project_name="plane_pre_train_tests",

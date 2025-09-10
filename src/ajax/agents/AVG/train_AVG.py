@@ -266,7 +266,9 @@ def value_loss_function(
     )
 
     assert target_q.shape == q_pred.shape, f"{target_q.shape} != {q_pred.shape}"
-    assert q_target.shape == next_log_probs.shape
+    assert (
+        q_target.shape == next_log_probs.shape
+    ), f"{q_target.shape} != {next_log_probs.shape}"
 
     delta = q_pred - target_q
     scaled_delta = delta / scaling_coef

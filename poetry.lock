@@ -192,7 +192,7 @@ version = "2025.1.31"
 description = "Python package for providing Mozilla's CA Bundle."
 optional = false
 python-versions = ">=3.6"
-groups = ["main", "render", "wandb"]
+groups = ["main", "wandb"]
 files = [
     {file = "certifi-2025.1.31-py3-none-any.whl", hash = "sha256:ca78db4565a652026a4db2bcdf68f2fb589ea80d0be70e03929ed730746b84fe"},
     {file = "certifi-2025.1.31.tar.gz", hash = "sha256:3d5da6925056f6f18f119200434a4780a94263f10d1c21d032a6f6b2baa20651"},
@@ -228,7 +228,7 @@ version = "3.4.1"
 description = "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet."
 optional = false
 python-versions = ">=3.7"
-groups = ["main", "render", "wandb"]
+groups = ["main", "wandb"]
 files = [
     {file = "charset_normalizer-3.4.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:91b36a978b5ae0ee86c394f5a54d6ef44db1de0815eb43de826d41d21e4af3de"},
     {file = "charset_normalizer-3.4.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7461baadb4dc00fd9e0acbe254e3d7d2112e7f92ced2adc96e54ef6501c5f176"},
@@ -377,12 +377,12 @@ version = "0.4.6"
 description = "Cross-platform colored terminal text."
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
-groups = ["main", "dev", "render", "wandb"]
+groups = ["main", "dev", "wandb"]
 files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
-markers = {main = "platform_system == \"Windows\"", render = "platform_system == \"Windows\"", wandb = "platform_system == \"Windows\""}
+markers = {main = "platform_system == \"Windows\"", wandb = "platform_system == \"Windows\""}
 
 [[package]]
 name = "contourpy"
@@ -559,7 +559,7 @@ version = "4.4.2"
 description = "Decorators for Humans"
 optional = false
 python-versions = ">=2.6, !=3.0.*, !=3.1.*"
-groups = ["main", "render"]
+groups = ["main"]
 files = [
     {file = "decorator-4.4.2-py2.py3-none-any.whl", hash = "sha256:41fa54c2a0cc4ba648be4fd43cff00aedf5b9465c9bf18d64325bc225f08f760"},
     {file = "decorator-4.4.2.tar.gz", hash = "sha256:e3a62f0520172440ca0dcc823749319382e377f37f140a0b99ef45fecb84bfe7"},
@@ -723,7 +723,7 @@ version = "0.0.4"
 description = "Notifications for all Farama Foundation maintained libraries."
 optional = false
 python-versions = "*"
-groups = ["main", "baseline_comparison"]
+groups = ["main"]
 files = [
     {file = "Farama-Notifications-0.0.4.tar.gz", hash = "sha256:13fceff2d14314cf80703c8266462ebf3733c7d165336eee998fc58e545efd18"},
     {file = "Farama_Notifications-0.0.4-py3-none-any.whl", hash = "sha256:14de931035a41961f7c056361dc7f980762a143d05791ef5794a751a2caf05ae"},
@@ -1120,7 +1120,7 @@ version = "0.26.2"
 description = "Gym: A universal API for reinforcement learning environments"
 optional = false
 python-versions = ">=3.6"
-groups = ["main"]
+groups = ["main", "baseline_comparison"]
 files = [
     {file = "gym-0.26.2.tar.gz", hash = "sha256:e0d882f4b54f0c65f203104c24ab8a38b039f1289986803c7d02cdbe214fbcc4"},
 ]
@@ -1148,7 +1148,7 @@ version = "0.0.8"
 description = "Notices for gym"
 optional = false
 python-versions = "*"
-groups = ["main"]
+groups = ["main", "baseline_comparison"]
 files = [
     {file = "gym-notices-0.0.8.tar.gz", hash = "sha256:ad25e200487cafa369728625fe064e88ada1346618526102659b4640f2b4b911"},
     {file = "gym_notices-0.0.8-py3-none-any.whl", hash = "sha256:e5f82e00823a166747b4c2a07de63b6560b1acb880638547e0cabf825a01e463"},
@@ -1156,35 +1156,34 @@ files = [
 
 [[package]]
 name = "gymnasium"
-version = "0.28.1"
+version = "1.2.0"
 description = "A standard API for reinforcement learning and a diverse set of reference environments (formerly Gym)."
 optional = false
-python-versions = ">=3.7"
-groups = ["main", "baseline_comparison"]
+python-versions = ">=3.10"
+groups = ["main"]
 files = [
-    {file = "gymnasium-0.28.1-py3-none-any.whl", hash = "sha256:7bc9a5bce1022f997d1dbc152fc91d1ac977bad9cc7794cdc25437010867cabf"},
-    {file = "gymnasium-0.28.1.tar.gz", hash = "sha256:4c2c745808792c8f45c6e88ad0a5504774394e0c126f6e3db555e720d3da6f24"},
+    {file = "gymnasium-1.2.0-py3-none-any.whl", hash = "sha256:fc4a1e4121a9464c29b4d7dc6ade3fbeaa36dea448682f5f71a6d2c17489ea76"},
+    {file = "gymnasium-1.2.0.tar.gz", hash = "sha256:344e87561012558f603880baf264ebc97f8a5c997a957b0c9f910281145534b0"},
 ]
 
 [package.dependencies]
 cloudpickle = ">=1.2.0"
 farama-notifications = ">=0.0.1"
-jax-jumpy = ">=1.0.0"
 numpy = ">=1.21.0"
 typing-extensions = ">=4.3.0"
 
 [package.extras]
-accept-rom-license = ["autorom[accept-rom-license] (>=0.4.2,<0.5.0)"]
-all = ["box2d-py (==2.3.5)", "imageio (>=2.14.1)", "jax (==0.3.24)", "jaxlib (==0.3.24)", "lz4 (>=3.1.0)", "matplotlib (>=3.0)", "moviepy (>=1.0.0)", "mujoco (>=2.3.2)", "mujoco-py (>=2.1,<2.2)", "opencv-python (>=3.0)", "pygame (==2.1.3)", "shimmy[atari] (>=0.1.0,<1.0)", "swig (==4.*)", "torch (>=1.0.0)"]
-atari = ["shimmy[atari] (>=0.1.0,<1.0)"]
-box2d = ["box2d-py (==2.3.5)", "pygame (==2.1.3)", "swig (==4.*)"]
-classic-control = ["pygame (==2.1.3)", "pygame (==2.1.3)"]
-jax = ["jax (==0.3.24)", "jaxlib (==0.3.24)"]
-mujoco = ["imageio (>=2.14.1)", "mujoco (>=2.3.2)"]
-mujoco-py = ["mujoco-py (>=2.1,<2.2)", "mujoco-py (>=2.1,<2.2)"]
-other = ["lz4 (>=3.1.0)", "matplotlib (>=3.0)", "moviepy (>=1.0.0)", "opencv-python (>=3.0)", "torch (>=1.0.0)"]
-testing = ["pytest (==7.1.3)", "scipy (==1.7.3)"]
-toy-text = ["pygame (==2.1.3)", "pygame (==2.1.3)"]
+all = ["ale_py (>=0.9)", "array-api-compat (>=1.11.0)", "array-api-compat (>=1.11.0)", "array-api-compat (>=1.11.0)", "box2d-py (==2.3.5)", "flax (>=0.5.0)", "imageio (>=2.14.1)", "jax (>=0.4.16)", "jaxlib (>=0.4.16)", "matplotlib (>=3.0)", "moviepy (>=1.0.0)", "mujoco (>=2.1.5)", "numpy (>=2.1)", "numpy (>=2.1)", "numpy (>=2.1)", "opencv-python (>=3.0)", "packaging (>=23.0)", "pygame (>=2.1.3)", "pygame (>=2.1.3)", "pygame (>=2.1.3)", "swig (==4.*)", "torch (>=1.13.0)"]
+array-api = ["array-api-compat (>=1.11.0)", "numpy (>=2.1)"]
+atari = ["ale_py (>=0.9)"]
+box2d = ["box2d-py (==2.3.5)", "pygame (>=2.1.3)", "swig (==4.*)"]
+classic-control = ["pygame (>=2.1.3)", "pygame (>=2.1.3)"]
+jax = ["array-api-compat (>=1.11.0)", "flax (>=0.5.0)", "jax (>=0.4.16)", "jaxlib (>=0.4.16)", "numpy (>=2.1)"]
+mujoco = ["imageio (>=2.14.1)", "mujoco (>=2.1.5)", "packaging (>=23.0)"]
+other = ["matplotlib (>=3.0)", "moviepy (>=1.0.0)", "opencv-python (>=3.0)", "seaborn (>=0.13)"]
+testing = ["array_api_extra (>=0.7.0)", "dill (>=0.3.7)", "pytest (>=7.1.3)", "scipy (>=1.7.3)"]
+torch = ["array-api-compat (>=1.11.0)", "numpy (>=2.1)", "torch (>=1.13.0)"]
+toy-text = ["pygame (>=2.1.3)", "pygame (>=2.1.3)"]
 
 [[package]]
 name = "gymnax"
@@ -1269,7 +1268,7 @@ version = "3.10"
 description = "Internationalized Domain Names in Applications (IDNA)"
 optional = false
 python-versions = ">=3.6"
-groups = ["main", "render", "wandb"]
+groups = ["main", "wandb"]
 files = [
     {file = "idna-3.10-py3-none-any.whl", hash = "sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3"},
     {file = "idna-3.10.tar.gz", hash = "sha256:12f65c9b470abda6dc35cf8e63cc574b1c52b11df2c86030af0ac09b01b13ea9"},
@@ -1284,7 +1283,7 @@ version = "2.37.0"
 description = "Library for reading and writing a wide range of image, video, scientific, and volumetric data formats."
 optional = false
 python-versions = ">=3.9"
-groups = ["render"]
+groups = ["main", "render"]
 files = [
     {file = "imageio-2.37.0-py3-none-any.whl", hash = "sha256:11efa15b87bc7871b61590326b2d635439acc321cf7f8ce996f812543ce10eed"},
     {file = "imageio-2.37.0.tar.gz", hash = "sha256:71b57b3669666272c818497aebba2b4c5f20d5b37c81720e5e1a56d59c492996"},
@@ -1320,7 +1319,7 @@ version = "0.6.0"
 description = "FFMPEG wrapper for Python"
 optional = false
 python-versions = ">=3.9"
-groups = ["render"]
+groups = ["main", "render"]
 files = [
     {file = "imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl", hash = "sha256:9d2baaf867088508d4a3458e61eeb30e945c4ad8016025545f66c4b5aaef0a61"},
     {file = "imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b1ae3173414b5fc5f538a726c4e48ea97edc0d2cdc11f103afee655c463fa742"},
@@ -1404,25 +1403,6 @@ minimum-jaxlib = ["jaxlib (==0.6.2)"]
 rocm = ["jax-rocm60-plugin (==0.6.2)", "jaxlib (==0.6.2)"]
 tpu = ["jaxlib (==0.6.2)", "libtpu (==0.0.17.*)", "requests"]
 xprof = ["xprof"]
-
-[[package]]
-name = "jax-jumpy"
-version = "1.0.0"
-description = "Common backend for Jax or Numpy."
-optional = false
-python-versions = ">=3.7"
-groups = ["main", "baseline_comparison"]
-files = [
-    {file = "jax-jumpy-1.0.0.tar.gz", hash = "sha256:195fb955cc4c2b7f0b1453e3cb1fb1c414a51a407ffac7a51e69a73cb30d59ad"},
-    {file = "jax_jumpy-1.0.0-py3-none-any.whl", hash = "sha256:ab7e01454bba462de3c4d098e3e585c302a8f06bc36d9182ab4e7e4aa7067c5e"},
-]
-
-[package.dependencies]
-numpy = ">=1.18.0"
-
-[package.extras]
-jax = ["jax (>=0.3.24)", "jaxlib (>=0.3.24)"]
-testing = ["pytest (==7.1.3)"]
 
 [[package]]
 name = "jaxlib"
@@ -1904,28 +1884,29 @@ test = ["pytest", "pytest-cov"]
 
 [[package]]
 name = "moviepy"
-version = "1.0.3"
+version = "2.2.1"
 description = "Video editing with Python"
 optional = false
 python-versions = "*"
-groups = ["render"]
+groups = ["main"]
 files = [
-    {file = "moviepy-1.0.3.tar.gz", hash = "sha256:2884e35d1788077db3ff89e763c5ba7bfddbd7ae9108c9bc809e7ba58fa433f5"},
+    {file = "moviepy-2.2.1-py3-none-any.whl", hash = "sha256:6b56803fec2ac54b557404126ac1160e65448e03798fa282bd23e8fab3795060"},
+    {file = "moviepy-2.2.1.tar.gz", hash = "sha256:c80cb56815ece94e5e3e2d361aa40070eeb30a09d23a24c4e684d03e16deacb1"},
 ]
 
 [package.dependencies]
-decorator = ">=4.0.2,<5.0"
-imageio = {version = ">=2.5,<3.0", markers = "python_version >= \"3.4\""}
-imageio_ffmpeg = {version = ">=0.2.0", markers = "python_version >= \"3.4\""}
-numpy = {version = ">=1.17.3", markers = "python_version > \"2.7\""}
+decorator = ">=4.0.2,<6.0"
+imageio = ">=2.5,<3.0"
+imageio_ffmpeg = ">=0.2.0"
+numpy = ">=1.25.0"
+pillow = ">=9.2.0,<12.0"
 proglog = "<=1.0.0"
-requests = ">=2.8.1,<3.0"
-tqdm = ">=4.11.2,<5.0"
+python-dotenv = ">=0.10"
 
 [package.extras]
-doc = ["Sphinx (>=1.5.2,<2.0)", "numpydoc (>=0.6.0,<1.0)", "pygame (>=1.9.3,<2.0) ; python_version < \"3.8\"", "sphinx_rtd_theme (>=0.1.10b0,<1.0)"]
-optional = ["matplotlib (>=2.0.0,<3.0) ; python_version >= \"3.4\"", "opencv-python (>=3.0,<4.0) ; python_version != \"2.7\"", "scikit-image (>=0.13.0,<1.0) ; python_version >= \"3.4\"", "scikit-learn ; python_version >= \"3.4\"", "scipy (>=0.19.0,<1.5) ; python_version != \"3.3\"", "youtube_dl"]
-test = ["coverage (<5.0)", "coveralls (>=1.1,<2.0)", "pytest (>=3.0.0,<4.0)", "pytest-cov (>=2.5.1,<3.0)", "requests (>=2.8.1,<3.0)"]
+doc = ["Sphinx (==6.*)", "numpydoc (<2.0)", "pydata-sphinx-theme (==0.13)", "sphinx_design"]
+lint = ["black (>=23.7.0)", "flake8 (>=6.0.0)", "flake8-absolute-import (>=1.0)", "flake8-docstrings (>=1.7.0)", "flake8-implicit-str-concat (==0.4.0)", "flake8-rst-docstrings (>=0.3)", "isort (>=5.12)", "pre-commit (>=3.3)"]
+test = ["coveralls (>=3.0,<4.0)", "pytest (>=3.0.0,<7.0.0)", "pytest-cov (>=2.5.1,<3.0)"]
 
 [[package]]
 name = "mpmath"
@@ -2850,6 +2831,29 @@ typing = ["typing-extensions ; python_version < \"3.10\""]
 xmp = ["defusedxml"]
 
 [[package]]
+name = "plane-env"
+version = "0.1.2"
+description = "A reinforcement learning environment for simulating a plane in 2D available, with gymnasium and gymnax support"
+optional = false
+python-versions = "<3.13,>=3.10"
+groups = ["main"]
+files = [
+    {file = "plane_env-0.1.2-py3-none-any.whl", hash = "sha256:9ad38d1fb7e64e42c1eb47f99644e4ab5e98ed486960561f5621bbe588963ced"},
+    {file = "plane_env-0.1.2.tar.gz", hash = "sha256:3c0c8100738ff72905277bbe3f11375221d9931d711947ae2950655c8ee50f18"},
+]
+
+[package.dependencies]
+distrax = ">=0.1.5,<0.2.0"
+gymnasium = ">=1.2.0,<2.0.0"
+gymnax = ">=0.0.9,<0.0.10"
+jax = "<7.0"
+matplotlib = ">=3.8.1,<4.0.0"
+moviepy = ">=2.2.1,<3.0.0"
+numpy = ">=1.26.1,<2.0.0"
+pygame = ">=2.6.1,<3.0.0"
+six = ">=1.16.0,<2.0.0"
+
+[[package]]
 name = "platformdirs"
 version = "4.3.7"
 description = "A small Python package for determining appropriate platform-specific dirs, e.g. a `user data dir`."
@@ -2903,14 +2907,14 @@ virtualenv = ">=20.10.0"
 
 [[package]]
 name = "proglog"
-version = "0.1.11"
+version = "0.1.12"
 description = "Log and progress bar manager for console, notebooks, web..."
 optional = false
 python-versions = "*"
-groups = ["render"]
+groups = ["main"]
 files = [
-    {file = "proglog-0.1.11-py3-none-any.whl", hash = "sha256:1729b829e1e609a3f340d6659fbde401cace9e2feab65647ceaf52ecfccf362d"},
-    {file = "proglog-0.1.11.tar.gz", hash = "sha256:ce35a0f9d1153e69d0063cdae6e6f2d8708fa0a588fc4e089501b77005e72884"},
+    {file = "proglog-0.1.12-py3-none-any.whl", hash = "sha256:ccaafce51e80a81c65dc907a460c07ccb8ec1f78dc660cfd8f9ec3a22f01b84c"},
+    {file = "proglog-0.1.12.tar.gz", hash = "sha256:361ee074721c277b89b75c061336cb8c5f287c92b043efa562ccf7866cda931c"},
 ]
 
 [package.dependencies]
@@ -3102,7 +3106,7 @@ version = "2.6.1"
 description = "Python Game Development"
 optional = false
 python-versions = ">=3.6"
-groups = ["dev"]
+groups = ["main"]
 files = [
     {file = "pygame-2.6.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:9beeb647e555afb5657111fa83acb74b99ad88761108eaea66472e8b8547b55b"},
     {file = "pygame-2.6.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:10e3d2a55f001f6c0a6eb44aa79ea7607091c9352b946692acedb2ac1482f1c9"},
@@ -3400,7 +3404,7 @@ version = "2.32.3"
 description = "Python HTTP for Humans."
 optional = false
 python-versions = ">=3.8"
-groups = ["main", "render", "wandb"]
+groups = ["main", "wandb"]
 files = [
     {file = "requests-2.32.3-py3-none-any.whl", hash = "sha256:70761cfe03c773ceb22aa2f671b4757976145175cdfca038c02654d061d6dcc6"},
     {file = "requests-2.32.3.tar.gz", hash = "sha256:55365417734eb18255590a9ff9eb97e9e1da868d4ccd6402399eaf68af20a760"},
@@ -3732,29 +3736,28 @@ files = [
 
 [[package]]
 name = "stable-baselines3"
-version = "2.3.2"
+version = "1.2.0"
 description = "Pytorch version of Stable Baselines, implementations of reinforcement learning algorithms."
 optional = false
-python-versions = ">=3.8"
+python-versions = "*"
 groups = ["baseline_comparison"]
 files = [
-    {file = "stable_baselines3-2.3.2-py3-none-any.whl", hash = "sha256:a1cafff6ec23bd4e8f4f20dd829008dc1af58ec2d5d8fc0cd0929b4b4544c9b2"},
-    {file = "stable_baselines3-2.3.2.tar.gz", hash = "sha256:2f8188916e607571c4c24f88a9ff6f84edafb2cf22d5d24f9c199563c12ff168"},
+    {file = "stable_baselines3-1.2.0-py3-none-any.whl", hash = "sha256:15769fe983fd0c14067c87294a1f5cd081fdfdb02092bc1277ec3fad45e9bd13"},
+    {file = "stable_baselines3-1.2.0.tar.gz", hash = "sha256:170842f30c00adff0dcccef5be74921cfa0dd2650b3eb8600c62b5d43ff78c67"},
 ]
 
 [package.dependencies]
 cloudpickle = "*"
-gymnasium = ">=0.28.1,<0.30"
+gym = ">=0.17"
 matplotlib = "*"
-numpy = ">=1.20"
+numpy = "*"
 pandas = "*"
-torch = ">=1.13"
+torch = ">=1.8.1"
 
 [package.extras]
-docs = ["sphinx (>=5,<8)", "sphinx-autobuild", "sphinx-copybutton", "sphinx-rtd-theme (>=1.3.0)", "sphinxcontrib.spelling"]
-extra = ["autorom[accept-rom-license] (>=0.6.1,<0.7.0)", "opencv-python", "pillow", "psutil", "pygame", "rich", "shimmy[atari] (>=1.3.0,<1.4.0)", "tensorboard (>=2.9.1)", "tqdm"]
-extra-no-roms = ["opencv-python", "pillow", "psutil", "pygame", "rich", "shimmy[atari] (>=1.3.0,<1.4.0)", "tensorboard (>=2.9.1)", "tqdm"]
-tests = ["black (>=24.2.0,<25)", "mypy", "pytest", "pytest-cov", "pytest-env", "pytest-xdist", "ruff (>=0.3.1)"]
+docs = ["sphinx", "sphinx-autobuild", "sphinx-autodoc-typehints", "sphinx-rtd-theme", "sphinxcontrib.spelling"]
+extra = ["atari-py (>=0.2.0,<0.3.0)", "opencv-python", "pillow", "psutil", "tensorboard (>=2.2.0)"]
+tests = ["black", "flake8 (>=3.8)", "flake8-bugbear", "isort (>=5.0)", "pytest", "pytest-cov", "pytest-env", "pytest-xdist", "pytype", "scipy (>=1.4.1)"]
 
 [[package]]
 name = "sympy"
@@ -4155,7 +4158,7 @@ version = "4.67.1"
 description = "Fast, Extensible Progress Meter"
 optional = false
 python-versions = ">=3.7"
-groups = ["main", "render"]
+groups = ["main"]
 files = [
     {file = "tqdm-4.67.1-py3-none-any.whl", hash = "sha256:26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2"},
     {file = "tqdm-4.67.1.tar.gz", hash = "sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2"},
@@ -4285,7 +4288,7 @@ version = "2.3.0"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
 optional = false
 python-versions = ">=3.9"
-groups = ["main", "render", "wandb"]
+groups = ["main", "wandb"]
 files = [
     {file = "urllib3-2.3.0-py3-none-any.whl", hash = "sha256:1cee9ad369867bfdbbb48b7dd50374c0967a0bb7710050facf0dd6911440e3df"},
     {file = "urllib3-2.3.0.tar.gz", hash = "sha256:f8c5449b3cf0861679ce7e0503c7b44b5ec981bec0d1d3795a07f1ba96f0204d"},
@@ -4512,4 +4515,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10, <3.12"
-content-hash = "4ae666a1d6fd07198aebf109a24e368c9d139201aa4e248fff12f44c88efcb40"
+content-hash = "ab0a534f0942133da0a25bc37b59b42bcdc2f6d6943f328156c92262796b432c"

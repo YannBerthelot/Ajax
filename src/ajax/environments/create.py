@@ -25,7 +25,9 @@ def build_env_from_id(
     if env_id in list(brax.envs._envs.keys()):
         return (
             AutoResetWrapper(
-                brax.envs.create(env_id, batch_size=n_envs, auto_reset=False, **kwargs)
+                brax.envs.create(
+                    env_id, batch_size=n_envs, auto_reset=False, **kwargs
+                )  # native autoreset always re-init to the same state
             ),
             None,
         )

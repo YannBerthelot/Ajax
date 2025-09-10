@@ -159,6 +159,10 @@ if __name__ == "__main__":
     PPO_agent = PPO(
         env_id=env,
         env_params=env_params,  # **init_hyperparams
+        normalize_observations=True,
+        normalize_rewards=True,
+        n_envs=1,
+        n_steps=8,
     )  # Remove version from env_id for brax compatibility
     PPO_agent.train(
         seed=list(range(n_seeds)),

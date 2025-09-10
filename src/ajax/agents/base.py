@@ -118,6 +118,7 @@ class ActorCritic:
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
+        **kwargs,
     ) -> None:
         """
         Train the PPO agent.
@@ -151,6 +152,7 @@ class ActorCritic:
                 num_episode_test=num_episode_test,
                 run_ids=self.run_ids,
                 logging_config=logging_config,
+                **kwargs,
             )
 
             agent_state = train_jit(key, index)

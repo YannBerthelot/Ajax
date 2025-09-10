@@ -1,13 +1,14 @@
 import os
-from collections.abc import Sequence
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import distrax
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
+from flax.training import train_state
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
@@ -16,6 +17,7 @@ from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
+    collect_experience_from_expert_policy,
     get_pi,
     init_collector_state,
 )
@@ -58,6 +60,7 @@ class PolicyAuxiliaries:
     old_log_probs: float
     clip_fraction: float
     entropy: float
+    imitation_coef: float
 
 
 @struct.dataclass
@@ -213,7 +216,12 @@ def value_loss_function(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "advantage_normalization"],
+    static_argnames=[
+        "recurrent",
+        "advantage_normalization",
+        "expert_policy",
+        "distance_to_stable",
+    ],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
@@ -227,6 +235,9 @@ def policy_loss_function(
     clip_coef: float,
     ent_coef: float,
     advantage_normalization: bool,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.01,
+    distance_to_stable: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -251,13 +262,6 @@ def policy_loss_function(
         done=dones,
         recurrent=recurrent,
     )
-
-    # jax.debug.print(
-    #     "log_probs: {log_probs}, pi.mean {pi_mean}, pi.std {pi_std}",
-    #     log_probs=log_probs.mean(),
-    #     pi_mean=pi.mean().mean(),
-    #     pi_std=pi.stddev().mean(),
-    # )
 
     # Need to deal with various shapes depending on brax vs gymnax and discrete vs continuous
 
@@ -307,19 +311,20 @@ def policy_loss_function(
         if isinstance(pi, SquashedNormal)
         else pi.entropy().mean()
     )
+    EPS = 1e-6
+    expert_actions = expert_policy(observations)
+    imitation_loss = -pi.log_prob(expert_actions)
 
-    total_loss = loss_actor - ent_coef * entropy
-
-    # jax.debug.print(
-    #     (
-    #         "total_loss: {loss}, loss_actor1: {loss_actor1}, loss_actor2:"
-    #         " {loss_actor2}, entropy: {entropy}"
-    #     ),
-    #     loss=total_loss,
-    #     loss_actor1=loss_actor1.mean(),
-    #     loss_actor2=loss_actor2.mean(),
-    #     entropy=entropy,
-    # )
+    if distance_to_stable is not None:
+        imitation_coef_offset = 1e-3
+        imitation_coef = (
+            1 / (distance_to_stable(observations) + EPS)
+        ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
+        # imitation_coef = jnp.max(1e-3, imitation_coef)
+        imitation_coef = jnp.expand_dims(imitation_coef, -1)
+    total_loss = (
+        loss_actor - ent_coef * entropy + (imitation_coef * imitation_loss).mean()
+    )
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -327,6 +332,7 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy,
+        imitation_coef=imitation_coef,
     )
 
 
@@ -382,7 +388,12 @@ def check_no_nan(x, id):
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "advantage_normalization"],
+    static_argnames=[
+        "recurrent",
+        "advantage_normalization",
+        "expert_policy",
+        "distance_to_stable",
+    ],
 )
 def update_policy(
     agent_state: PPOState,
@@ -395,6 +406,9 @@ def update_policy(
     clip_coef: float,
     ent_coef: float,
     advantage_normalization: bool,
+    expert_policy: Callable,
+    imitation_coef: float,
+    distance_to_stable: Callable,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -425,7 +439,7 @@ def update_policy(
     # jax.debug.print(
     #     "{log_probs} {entropy}", log_probs=log_probs.sum(-1).mean(), entropy=entropy
     # )
-    if DEBUG:
+    if DEBUG:  # Warning: HUGE PERFORMANCE IMPACT IF SWTICHED ON
         jax.debug.callback(check_no_nan, log_probs, 1)
         jax.debug.callback(check_no_nan, actions, 2)
         jax.debug.callback(check_no_nan, observations, 3)
@@ -443,6 +457,9 @@ def update_policy(
         clip_coef=clip_coef,
         ent_coef=ent_coef,
         advantage_normalization=advantage_normalization,
+        expert_policy=expert_policy,
+        imitation_coef=imitation_coef,
+        distance_to_stable=distance_to_stable,
     )
     # jax.debug.print(
     #     "Policy loss: {loss_val}",
@@ -465,6 +482,8 @@ def update_policy(
     static_argnames=[
         "recurrent",
         "agent_config",
+        "expert_policy",
+        "distance_to_stable",
     ],
 )
 def update_agent(
@@ -473,6 +492,9 @@ def update_agent(
     shuffled_batch: tuple[jax.Array],
     agent_config: PPOConfig,
     recurrent: bool,
+    expert_policy: Callable,
+    imitation_coef: float,
+    distance_to_stable: Callable,
 ) -> Tuple[PPOState, AuxiliaryLogs]:
     """
     Update the PPO agent, including critic, actor, and temperature updates.
@@ -539,6 +561,9 @@ def update_agent(
         ent_coef=agent_config.ent_coef,
         clip_coef=clip_coef,
         advantage_normalization=agent_config.normalize_advantage,
+        expert_policy=expert_policy,
+        imitation_coef=imitation_coef,
+        distance_to_stable=distance_to_stable,
     )
 
     aux = AuxiliaryLogs(
@@ -590,6 +615,9 @@ def no_op_none(agent_state, index, timestep):
         "horizon",
         "total_timesteps",
         "n_steps",
+        "expert_policy",
+        "imitation_coef",
+        "distance_to_stable",
     ],
 )
 def training_iteration(
@@ -610,6 +638,9 @@ def training_iteration(
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 1e-3,
+    distance_to_stable: Optional[Callable] = None,
 ) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -720,6 +751,13 @@ def training_iteration(
     )
 
     timestep = agent_state.collector_state.timestep
+    imitation_coef = (
+        imitation_coef
+        if isinstance(imitation_coef, float)
+        else imitation_coef(timestep)
+    )
+
+    # jax.debug.print("imitation_coef:{imitation_coef}", imitation_coef=imitation_coef)
 
     def do_update(
         agent_state: PPOState, num_epochs: int
@@ -729,6 +767,9 @@ def training_iteration(
             shuffled_batch=shuffled_batch,
             recurrent=recurrent,
             agent_config=agent_config,
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=num_epochs
@@ -867,10 +908,200 @@ def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[s
     return value
 
 
+def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
+    """Reshape x into (num_batches, batch_size, ...) padding last batch if needed."""
+    n = x.shape[0]
+    n_batches = (n + batch_size - 1) // batch_size
+    pad = n_batches * batch_size - n
+    if pad > 0:
+        x = jnp.pad(x, [(0, pad)] + [(0, 0)] * (x.ndim - 1))
+    return x.reshape(n_batches, batch_size, *x.shape[1:])
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        "gamma",
+        "actor_lr",
+        "actor_epochs",
+        "actor_batch_size",
+        "critic_lr",
+        "critic_epochs",
+        "critic_batch_size",
+    ],
+)
+def pre_train(
+    rng: jax.Array,
+    actor_state: train_state.TrainState,
+    critic_state: train_state.TrainState,
+    dataset: Sequence,  # Sequence[Transition]
+    gamma: float = 0.99,
+    # Actor hyperparameters
+    actor_lr: float = 1e-3,
+    actor_epochs: int = 10,
+    actor_batch_size: int = 64,
+    # Critic hyperparameters
+    critic_lr: float = 1e-3,
+    critic_epochs: int = 10,
+    critic_batch_size: int = 64,
+) -> Tuple[train_state.TrainState, train_state.TrainState, Dict[str, jnp.ndarray]]:
+    """
+    Pre-train actor (behavioral cloning) and critic (TD(0)) from a dataset of transitions.
+    Returns trained states and metrics dict with per-epoch actor/critic losses.
+    """
+
+    # Flatten dataset
+    # obs = jnp.concatenate([t.obs for t in dataset], axis=0)
+    # actions = jnp.concatenate([t.action for t in dataset], axis=0)
+    # rewards = jnp.concatenate([t.reward for t in dataset], axis=0)
+    # terminated = jnp.concatenate([t.terminated for t in dataset], axis=0)
+    # next_obs = jnp.concatenate([t.next_obs for t in dataset], axis=0)
+
+    obs = dataset.obs
+    actions = dataset.action
+    rewards = dataset.reward
+    terminated = dataset.terminated
+    next_obs = dataset.next_obs
+
+    metrics = {
+        "actor_loss": jnp.zeros((actor_epochs,)),
+        "critic_loss": jnp.zeros((critic_epochs,)),
+    }
+
+    # --------------------------
+    # Actor pre-training
+    # --------------------------
+    bc_actor_state = train_state.TrainState.create(
+        apply_fn=actor_state.apply_fn,
+        params=actor_state.params,
+        tx=optax.adam(actor_lr),
+    )
+
+    def actor_loss_fn(params, batch_obs, batch_actions):
+        pred_actions = bc_actor_state.apply_fn(
+            params, batch_obs
+        ).mean()  # deterministic prediction
+        return jnp.mean((pred_actions - batch_actions) ** 2)
+
+    def actor_train_step(state, batch_obs, batch_actions):
+        loss, grads = jax.value_and_grad(actor_loss_fn)(
+            state.params, batch_obs, batch_actions
+        )
+        return state.apply_gradients(grads=grads), loss
+
+    def actor_epoch_step(carry, rng_epoch):
+        state = carry
+        perm = jax.random.permutation(rng_epoch, obs.shape[0])
+        obs_shuffled = obs[perm]
+        actions_shuffled = actions[perm]
+
+        obs_batches = batchify(obs_shuffled, actor_batch_size)
+        act_batches = batchify(actions_shuffled, actor_batch_size)
+
+        def batch_step(carry, batch):
+            state = carry
+            b_obs, b_act = batch
+            new_state, loss = actor_train_step(state, b_obs, b_act)
+            return new_state, loss
+
+        state, batch_losses = jax.lax.scan(
+            batch_step, state, (obs_batches, act_batches)
+        )
+        return state, jnp.mean(batch_losses)
+
+    rng, rng_actor = jax.random.split(rng)
+    rng_epochs = jax.random.split(rng_actor, actor_epochs)
+    bc_actor_state, actor_losses = jax.lax.scan(
+        actor_epoch_step, bc_actor_state, rng_epochs
+    )
+    metrics["actor_loss"] = actor_losses
+
+    # --------------------------
+    # Critic pre-training
+    # --------------------------
+    bc_critic_state = train_state.TrainState.create(
+        apply_fn=critic_state.apply_fn,
+        params=critic_state.params,
+        tx=optax.adam(critic_lr),
+    )
+
+    def critic_loss_fn(
+        params, batch_obs, batch_rewards, batch_next_obs, batch_terminated
+    ):
+        v_pred = bc_critic_state.apply_fn(params, batch_obs).squeeze(-1)
+        v_next = bc_critic_state.apply_fn(params, batch_next_obs).squeeze(-1)
+        td_target = batch_rewards.squeeze(-1) + gamma * v_next * (
+            1.0 - batch_terminated.squeeze(-1)
+        )
+        return jnp.mean((v_pred - td_target) ** 2)
+
+    def critic_train_step(
+        state, batch_obs, batch_rewards, batch_next_obs, batch_terminated
+    ):
+        loss, grads = jax.value_and_grad(critic_loss_fn)(
+            state.params, batch_obs, batch_rewards, batch_next_obs, batch_terminated
+        )
+        return state.apply_gradients(grads=grads), loss
+
+    def critic_epoch_step(carry, rng_epoch):
+        state = carry
+        perm = jax.random.permutation(rng_epoch, obs.shape[0])
+        obs_shuffled = obs[perm]
+        rewards_shuffled = rewards[perm]
+        next_obs_shuffled = next_obs[perm]
+        terminated_shuffled = terminated[perm]
+
+        obs_batches = batchify(obs_shuffled, critic_batch_size)
+        rew_batches = batchify(rewards_shuffled, critic_batch_size)
+        next_obs_batches = batchify(next_obs_shuffled, critic_batch_size)
+        term_batches = batchify(terminated_shuffled, critic_batch_size)
+
+        def batch_step(carry, batch):
+            state = carry
+            b_obs, b_rew, b_next_obs, b_term = batch
+            new_state, loss = critic_train_step(state, b_obs, b_rew, b_next_obs, b_term)
+            return new_state, loss
+
+        state, batch_losses = jax.lax.scan(
+            batch_step,
+            state,
+            (obs_batches, rew_batches, next_obs_batches, term_batches),
+        )
+        return state, jnp.mean(batch_losses)
+
+    rng, rng_critic = jax.random.split(rng)
+    rng_epochs = jax.random.split(rng_critic, critic_epochs)
+    bc_critic_state, critic_losses = jax.lax.scan(
+        critic_epoch_step, bc_critic_state, rng_epochs
+    )
+    metrics["critic_loss"] = critic_losses
+
+    # Update original states with trained parameters
+    actor_state = actor_state.replace(params=bc_actor_state.params)
+    critic_state = critic_state.replace(params=bc_critic_state.params)
+
+    return actor_state, critic_state, metrics
+
+
+@struct.dataclass
+class CloningConfig:
+    actor_epochs: int = 10
+    critic_epochs: int = 10
+    actor_lr: float = 1e-3
+    critic_lr: float = 1e-3
+    actor_batch_size: int = 64
+    critic_batch_size: int = 64
+    pre_train_n_steps: int = int(1e5)
+    imitation_coef: float = 1e-3
+    distance_to_stable: Optional[Callable] = None
+
+
 def make_train(
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
+    cloning_args: CloningConfig,
+    expert_policy: Callable,
     network_args: NetworkConfig,
     agent_config: PPOConfig,
     total_timesteps: int,
@@ -902,16 +1133,68 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @partial(jax.jit)
+    imitation_coef = cloning_args.imitation_coef
+
+    def imitation_coef_schedule(init_val):
+        def imitation_coef(t, total_timesteps):
+            return (1 - (t / total_timesteps)) * init_val
+
+        return imitation_coef
+
+    if "auto" not in imitation_coef:
+        imitation_coef = (
+            imitation_coef_schedule(float(imitation_coef.split("_")[1]))
+            if isinstance(imitation_coef, str)
+            else imitation_coef
+        )
+
+        imitation_coef = (
+            partial(imitation_coef, total_timesteps=total_timesteps)
+            if isinstance(imitation_coef, Callable)
+            else imitation_coef
+        )
+    else:
+        imitation_coef = jnp.nan
+
+    # @partial(jax.jit, static_argnames=["expert_policy"])
     def train(key, index: Optional[int] = None):
         """Train the PPO agent."""
+        init_key, expert_key = jax.random.split(key)
         agent_state = init_PPO(
-            key=key,
+            key=init_key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
         )
+
+        # pre-train agent
+        if expert_policy is not None and cloning_args.pre_train_n_steps > 0:
+            # dataset is examples of observations and actions taken
+            dataset = collect_experience_from_expert_policy(
+                expert_policy,
+                rng=expert_key,
+                env_args=env_args,
+                mode=mode,
+                n_timesteps=cloning_args.pre_train_n_steps,
+            )
+            actor_state, critic_state, metrics = pre_train(
+                rng=expert_key,
+                actor_state=agent_state.actor_state,
+                critic_state=agent_state.critic_state,
+                dataset=dataset,
+                gamma=agent_config.gamma,
+                actor_lr=actor_optimizer_args.learning_rate,
+                critic_lr=critic_optimizer_args.learning_rate,
+                actor_epochs=cloning_args.actor_epochs,
+                critic_epochs=cloning_args.critic_epochs,
+                actor_batch_size=cloning_args.actor_batch_size,
+                critic_batch_size=cloning_args.critic_batch_size,
+            )
+            jax.debug.print("{metrics}", metrics=metrics)
+            agent_state = agent_state.replace(
+                actor_state=actor_state, critic_state=critic_state
+            )
 
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 
@@ -932,6 +1215,9 @@ def make_train(
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
             total_n_updates=num_updates,
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=cloning_args.distance_to_stable,
         )
 
         agent_state, out = jax.lax.scan(

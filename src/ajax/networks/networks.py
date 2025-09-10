@@ -79,6 +79,7 @@ class Actor(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+    bounds: Optional[Tuple] = None
 
     def setup(self):
         # Initialize the Encoder as a submodule
@@ -132,7 +133,7 @@ class Actor(nn.Module):
             return (
                 distrax.Normal(mean, std)
                 if not self.squash
-                else SquashedNormal(mean, std)
+                else SquashedNormal(mean, std, self.bounds)
             )
 
         return self.model(embedding)
@@ -222,6 +223,24 @@ def get_initialized_actor_critic(
           given architectures
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
+    # higher_bound = (
+    #     env_config.env.action_space(env_config.env_params).high
+    #     if "action_space" in dir(env_config.env)
+    #     else jnp.inf
+    # )
+    # lower_bound = (
+    #     env_config.env.action_space(env_config.env_params).low
+    #     if "action_space" in dir(env_config.env)
+    #     else -jnp.inf
+    # )
+    # if isinstance(higher_bound, jnp.ndarray):
+    #     bounds = (
+    #         tuple((low, high) for low, high in zip(lower_bound, higher_bound))
+    #         if continuous and squash
+    #         else None
+    #     )
+    # else:
+    #     bounds = ((lower_bound, higher_bound),)
     actor = Actor(
         input_architecture=network_config.actor_architecture,
         action_dim=action_dim,
@@ -232,6 +251,7 @@ def get_initialized_actor_critic(
         bias_init=actor_bias_init,
         encoder_kernel_init=encoder_kernel_init,
         encoder_bias_init=encoder_bias_init,
+        # bounds=bounds,
     )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,

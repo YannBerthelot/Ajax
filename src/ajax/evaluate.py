@@ -100,6 +100,14 @@ def evaluate(
         )
 
         action = pi.mean() if continuous else pi.mode()
+
+        # jax.debug.print(
+        #     "Action: {action} Obs:{obs} State:{state}",
+        #     action=action,
+        #     obs=obs,
+        #     state=actor_state.params,
+        # )
+
         entropy = (
             pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
         )

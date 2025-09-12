@@ -5,7 +5,9 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 import wandb
-from gymnax import EnvParams
+
+# from gymnax import EnvParams
+from plane_env.plane.env_jax import Airplane2D, EnvParams
 
 from ajax.agents.sac.state import SACConfig
 from ajax.agents.sac.train_sac import make_train
@@ -170,6 +172,7 @@ class SAC:
                 init_logging(run_id, index, logging_config)
         else:
             run_ids = None
+        self.run_ids = run_ids
 
         def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
@@ -245,7 +248,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_mix_2",
+        project_name="sac_on_plane",
         run_name="baseline",
         config={
             "debug": False,
@@ -254,14 +257,21 @@ if __name__ == "__main__":
         },
         log_frequency=log_frequency,
         horizon=10_000,
-        use_tensorboard=False,
+        use_tensorboard=True,
         use_wandb=True,
     )
 
-    env_id = "hopper"
-    sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), n_envs=1)
+    target_altitude = 5000
+    env = Airplane2D()
+    # env_params = EnvParams(target_velocity_range=(120, 120))
+    env_params = EnvParams(
+        target_altitude_range=(target_altitude, target_altitude),
+        # initial_altitude_range=(target_altitude, target_altitude),
+    )
+    sac_agent = SAC(env_id=env, learning_starts=int(1e4), n_envs=1)
     sac_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(2e5),
+        n_timesteps=int(1e6),
         logging_config=logging_config,
     )
+    # upload_tensorboard_to_wandb(sac_agent.run_ids, logging_config, use_wandb=True)

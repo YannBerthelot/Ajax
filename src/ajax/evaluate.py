@@ -207,8 +207,8 @@ def evaluate(
         )
     )
     avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)  # avoid divide by zero
-    bias = jnp.nan
-    avg_reward = jnp.nan
+    bias = jnp.nan * jnp.ones(num_episodes)
+    avg_reward = jnp.nan * jnp.ones(num_episodes)
     if avg_reward_mode:
         _, (_rewards, entropies) = jax.lax.scan(
             f=sample_action_and_step_scan,

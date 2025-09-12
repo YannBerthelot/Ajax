@@ -59,6 +59,7 @@ class PPO(ActorCritic):
         expert_policy: Optional[Callable] = None,
         imitation_coef: Union[float, Callable[[int], float]] = 1e-3,
         distance_to_stable: Optional[Callable] = None,
+        imitation_coef_offset: float = 1e-3,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -125,6 +126,7 @@ class PPO(ActorCritic):
             pre_train_n_steps=pre_train_n_steps,
             imitation_coef=imitation_coef,
             distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
         )
         self.expert_policy = expert_policy
 
@@ -146,6 +148,7 @@ class PPO(ActorCritic):
 class StableState:
     z: float
     z_dot: float
+    theta_dot: float
 
 
 if __name__ == "__main__":
@@ -175,8 +178,13 @@ if __name__ == "__main__":
     ):
         z = state[..., 2]
         z_dot = state[..., 3]
+        theta_dot = state[..., 5]
         if modification is None:
-            return jnp.abs(z - stable_state.z) + jnp.abs(z_dot - stable_state.z_dot)
+            return (
+                jnp.abs(z - stable_state.z)
+                + jnp.abs(z_dot - stable_state.z_dot)
+                # + jnp.abs(theta_dot - stable_state.theta_dot)
+            )
         elif modification == "squared":
             return (
                 jnp.abs(z - stable_state.z) + jnp.abs(z_dot - stable_state.z_dot)
@@ -191,12 +199,19 @@ if __name__ == "__main__":
     imitation_coef_list = []
     # imitation_coef_list += ["auto"]
     # imitation_coef_list += ["auto_squared", "auto_sqrt"]
-    imitation_coef_list += [0.0]
+    # imitation_coef_list += [0.0]
     imitation_coef_list += [
         "auto_10.0",
         "auto_1.0",
         "auto_0.1",
-        "auto_0.01",
+        # "auto_0.01",
+    ]
+    # Auto 1 is with imitatation offset at 1e3, auto2 is with no offset, auto3 is with distance on z, z dot and theta dot, auto 4 is z only
+    imitation_coef_offset_list = [
+        # 10,
+        # 1.0,
+        # 0.1,
+        0.001
     ]
     # # imitation_coef_list += [
     # #     "lin_1.0",
@@ -204,75 +219,83 @@ if __name__ == "__main__":
     # #     "lin_0.01",
     # #     "lin_0.001",
     # # ]
-    imitation_coef_list += [
-        # 1.0,
-        1e-1,
-        1e-2,
-        1e-3,
-    ]
+    # imitation_coef_list += [
+    #     # 1.0,
+    #     1e-1,
+    #     1e-2,
+    #     1e-3,
+    # ]
 
     pre_train_step_list = []
     pre_train_step_list += [0.0]
-    pre_train_step_list += [int(1e5)]
+    # pre_train_step_list += [int(1e5)]
 
     for pre_train_n_steps in pre_train_step_list:
         for imitation_coef in imitation_coef_list:
-            if "auto" in str(imitation_coef):
-                distance_to_stable = partial(
-                    distance_to_stable_fn,
-                    stable_state=StableState(z=target_altitude, z_dot=0),
-                    modification=(
-                        imitation_coef.split("_")[1]
-                        if len(imitation_coef.split("_")) > 2
-                        else None
-                    ),
+            # if isinstance(imitation_coef, str):
+            #     if "auto" in imitation_coef:
+            #         pattern = imitation_coef.split("_")[0]
+            #         if pattern == "auto":
+            #             distance_name = ""
+            for imitation_coef_offset in imitation_coef_offset_list:
+                if "auto" in str(imitation_coef):
+                    distance_to_stable = partial(
+                        distance_to_stable_fn,
+                        stable_state=StableState(
+                            z=target_altitude, z_dot=0, theta_dot=0
+                        ),
+                        modification=(
+                            imitation_coef.split("_")[1]
+                            if len(imitation_coef.split("_")) > 2
+                            else None
+                        ),
+                    )
+                else:
+                    distance_to_stable = None
+                logging_config = LoggingConfig(
+                    project_name="plane_pre_train_clean_1_GPU",
+                    run_name="PPO",
+                    config={
+                        "debug": False,
+                        "log_frequency": log_frequency,
+                        "n_seeds": n_seeds,
+                        "pre_train": pre_train_n_steps > 0,
+                        # "penalize_trunction": penalize_trunction,
+                    },
+                    log_frequency=log_frequency,
+                    horizon=10_000,
+                    use_tensorboard=True,
+                    use_wandb=use_wandb,
                 )
-            else:
-                distance_to_stable = None
-            logging_config = LoggingConfig(
-                project_name="plane_pre_train_clean_1",
-                run_name="PPO",
-                config={
-                    "debug": False,
-                    "log_frequency": log_frequency,
-                    "n_seeds": n_seeds,
-                    "pre_train": pre_train_n_steps > 0,
-                    # "penalize_trunction": penalize_trunction,
-                },
-                log_frequency=log_frequency,
-                horizon=10_000,
-                use_tensorboard=True,
-                use_wandb=use_wandb,
-            )
 
-            key = jax.random.PRNGKey(42)
-            env = Airplane2D()
-            env_params = EnvParams(
-                target_altitude_range=(target_altitude, target_altitude),
-                penalize_truncation=penalize_trunction,
-            )
+                key = jax.random.PRNGKey(42)
+                env = Airplane2D()
+                env_params = EnvParams(
+                    target_altitude_range=(target_altitude, target_altitude),
+                )
 
-            # TODO : have the constant action be infered from the environment
-            action = env.action_space(env_params).sample(key)
+                # TODO : have the constant action be infered from the environment
+                action = env.action_space(env_params).sample(key)
 
-            PPO_agent = PPO(
-                env_id=env,
-                env_params=env_params,  # **init_hyperparams
-                normalize_observations=True,
-                normalize_rewards=True,
-                expert_policy=expert_policy,
-                pre_train_n_steps=pre_train_n_steps,
-                imitation_coef=imitation_coef,
-                distance_to_stable=distance_to_stable,
-            )  # Remove version from env_id for brax compatibility
-            PPO_agent.train(
-                seed=list(range(n_seeds)),
-                logging_config=logging_config,
-                n_timesteps=n_timesteps,
-            )
-            upload_tensorboard_to_wandb(
-                PPO_agent.run_ids, logging_config, use_wandb=use_wandb
-            )
+                PPO_agent = PPO(
+                    env_id=env,
+                    env_params=env_params,  # **init_hyperparams
+                    normalize_observations=True,
+                    normalize_rewards=True,
+                    expert_policy=expert_policy,
+                    pre_train_n_steps=pre_train_n_steps,
+                    imitation_coef=imitation_coef,
+                    distance_to_stable=distance_to_stable,
+                    imitation_coef_offset=imitation_coef_offset,
+                )  # Remove version from env_id for brax compatibility
+                PPO_agent.train(
+                    seed=list(range(n_seeds)),
+                    logging_config=logging_config,
+                    n_timesteps=n_timesteps,
+                )
+                upload_tensorboard_to_wandb(
+                    PPO_agent.run_ids, logging_config, use_wandb=use_wandb
+                )
 
     # logging_config = LoggingConfig(
     #     project_name="plane_pre_train_tests",

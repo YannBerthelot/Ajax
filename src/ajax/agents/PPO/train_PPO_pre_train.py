@@ -221,6 +221,7 @@ def value_loss_function(
         "advantage_normalization",
         "expert_policy",
         "distance_to_stable",
+        "imitation_coef_offset",
     ],
 )
 def policy_loss_function(
@@ -238,6 +239,7 @@ def policy_loss_function(
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 0.01,
     distance_to_stable: Optional[Callable] = None,
+    imitation_coef_offset: float = 1e-3,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -316,7 +318,6 @@ def policy_loss_function(
     imitation_loss = -pi.log_prob(expert_actions)
 
     if distance_to_stable is not None:
-        imitation_coef_offset = 1e-3
         distance = (
             1 / (distance_to_stable(observations) + EPS)
         ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
@@ -397,6 +398,7 @@ def check_no_nan(x, id):
         "advantage_normalization",
         "expert_policy",
         "distance_to_stable",
+        "imitation_coef_offset",
     ],
 )
 def update_policy(
@@ -413,6 +415,7 @@ def update_policy(
     expert_policy: Callable,
     imitation_coef: float,
     distance_to_stable: Callable,
+    imitation_coef_offset: float,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -464,6 +467,7 @@ def update_policy(
         expert_policy=expert_policy,
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
+        imitation_coef_offset=imitation_coef_offset,
     )
     # jax.debug.print(
     #     "Policy loss: {loss_val}",
@@ -488,6 +492,7 @@ def update_policy(
         "agent_config",
         "expert_policy",
         "distance_to_stable",
+        "imitation_coef_offset",
     ],
 )
 def update_agent(
@@ -499,6 +504,7 @@ def update_agent(
     expert_policy: Callable,
     imitation_coef: float,
     distance_to_stable: Callable,
+    imitation_coef_offset: float,
 ) -> Tuple[PPOState, AuxiliaryLogs]:
     """
     Update the PPO agent, including critic, actor, and temperature updates.
@@ -568,6 +574,7 @@ def update_agent(
         expert_policy=expert_policy,
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
+        imitation_coef_offset=imitation_coef_offset,
     )
 
     aux = AuxiliaryLogs(
@@ -622,6 +629,7 @@ def no_op_none(agent_state, index, timestep):
         "expert_policy",
         "imitation_coef",
         "distance_to_stable",
+        "imitation_coef_offset",
     ],
 )
 def training_iteration(
@@ -645,6 +653,7 @@ def training_iteration(
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 1e-3,
     distance_to_stable: Optional[Callable] = None,
+    imitation_coef_offset: float = 1e-3,
 ) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -774,6 +783,7 @@ def training_iteration(
             expert_policy=expert_policy,
             imitation_coef=imitation_coef,
             distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=num_epochs
@@ -1100,6 +1110,7 @@ class CloningConfig:
     pre_train_n_steps: int = int(1e5)
     imitation_coef: float = 1e-3
     distance_to_stable: Optional[Callable] = None
+    imitation_coef_offset: float = 1e-3
 
 
 def make_train(
@@ -1227,6 +1238,7 @@ def make_train(
             expert_policy=expert_policy,
             imitation_coef=imitation_coef,
             distance_to_stable=cloning_args.distance_to_stable,
+            imitation_coef_offset=cloning_args.imitation_coef_offset,
         )
 
         agent_state, out = jax.lax.scan(

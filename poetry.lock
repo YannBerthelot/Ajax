@@ -2832,26 +2832,30 @@ xmp = ["defusedxml"]
 
 [[package]]
 name = "plane-env"
-version = "0.1.3.1"
+version = "0.1.0"
 description = "A reinforcement learning environment for simulating a plane in 2D available, with gymnasium and gymnax support"
 optional = false
 python-versions = "<3.13,>=3.10"
 groups = ["main"]
-files = [
-    {file = "plane_env-0.1.3.1-py3-none-any.whl", hash = "sha256:7d00c99d1c48fbcfcb4ad925c9c8ebbfb177fc80f6ef4eac435267f1a5abb06d"},
-    {file = "plane_env-0.1.3.1.tar.gz", hash = "sha256:c36190de5a58dda475da740817edd2602e159f6fb4409b4e12d77fa8cc09b23f"},
-]
+files = []
+develop = false
 
 [package.dependencies]
-distrax = ">=0.1.5,<0.2.0"
-gymnasium = ">=1.2.0,<2.0.0"
-gymnax = ">=0.0.9,<0.0.10"
+distrax = "^0.1.5"
+gymnasium = "^1.2.0"
+gymnax = "^0.0.9"
 jax = "<7.0"
-matplotlib = ">=3.8.1,<4.0.0"
-moviepy = ">=2.2.1,<3.0.0"
-numpy = ">=1.26.1,<2.0.0"
-pygame = ">=2.6.1,<3.0.0"
-six = ">=1.16.0,<2.0.0"
+matplotlib = "^3.8.1"
+moviepy = "^2.2.1"
+numpy = "^1.26.1"
+pygame = "^2.6.1"
+six = "^1.16.0"
+
+[package.source]
+type = "git"
+url = "https://github.com/YannBerthelot/PlaneEnv.git"
+reference = "car"
+resolved_reference = "990f34d94ac0f2287a90717ef08b9aff5acf90d8"
 
 [[package]]
 name = "platformdirs"
@@ -4515,4 +4519,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10, <3.12"
-content-hash = "aca25a26341a17cdbfdd138c2b72fb189738828af4573eab113361332ff3d573"
+content-hash = "0ef78da8056715f658fe113950dd6bdaea45d530e03a23579d65ab3200706544"

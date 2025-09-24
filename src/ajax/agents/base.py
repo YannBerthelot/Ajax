@@ -156,10 +156,10 @@ class ActorCritic:
                 **kwargs,
             )
 
-            agent_state = train_jit(key, index)
+            agent_state, out = train_jit(key, index)
             stop_async_logging()
-            return agent_state
+            return agent_state, out
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)

@@ -126,14 +126,17 @@ class Actor(nn.Module):
         # Use the Encoder submodule
         embedding = self.encoder(obs)
         if self.continuous:
-            mean = self.mean(embedding)
+            # mean = jnp.clip(self.mean(embedding), -1, 1)
+            mean = jnp.clip(
+                self.mean(embedding), -1, 1
+            )  # TODO: generalize to other ranges?
             log_std = jnp.clip(self.log_std(embedding), -20, 2)
             # log_std = self.log_std(embedding)
             std = jnp.exp(log_std)
             return (
                 distrax.Normal(mean, std)
                 if not self.squash
-                else SquashedNormal(mean, std, self.bounds)
+                else SquashedNormal(mean, std)
             )
 
         return self.model(embedding)

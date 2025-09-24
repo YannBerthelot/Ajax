@@ -267,7 +267,8 @@ def policy_loss_function(
         )  # .sum(-1, keepdims=True)
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-
+    # jax.debug.print("log_prob:{x}, action:{y}", x=new_log_probs, y=actions)
+    # jax.debug.breakpoint()
     assert new_log_probs.shape == log_probs.shape, (
         f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
         f" {log_probs.shape}"
@@ -789,7 +790,7 @@ def training_iteration(
         }
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
         jax.debug.callback(log_fn, metrics_to_log, index)
-
+        jax.debug.print("{x}", x=metrics_to_log)
         if verbose:
             jax.debug.print(
                 (
@@ -944,7 +945,6 @@ def make_train(
         # Stop async logging if it was started
         # if logging_config is not None:
         #     stop_async_logging()
-
         return agent_state, out
 
     return train

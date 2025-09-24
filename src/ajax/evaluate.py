@@ -157,6 +157,7 @@ def evaluate(
             obs,
             done if recurrent else None,
         )
+        # jax.debug.print("action:{x}, obs:{y}", x=actions, y=obs)
         obs, new_state, new_rewards, new_terminated, new_truncated, _ = step(
             step_keys,
             state,
@@ -219,6 +220,7 @@ def evaluate(
         avg_reward = _rewards.mean(axis=0)
         bias = jnp.nansum(_rewards - avg_reward, axis=0)
         avg_entropy = entropies.mean(axis=0)
+
     return (
         rewards.mean(axis=-1),
         avg_entropy.mean(axis=-1),

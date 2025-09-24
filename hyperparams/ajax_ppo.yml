@@ -1,12 +1,12 @@
 Plane2D:
-  n_envs: 4
-  actor_learning_rate: 0.00011365408519044832
-  clip_range: 0.0934745280795494
-  critic_learning_rate: 0.005370955596011709
-  ent_coef: 0.25731247985989725
-  gamma: 0.952142364283539
+  n_envs: 8
+  actor_learning_rate: 0.0012924656496251946
+  clip_range: 0.1545045046788158
+  critic_learning_rate: 0.005408081160478636
+  ent_coef: 0.09731811670206549
+  gamma: 0.951732688359834
   n_steps: 4096
   normalize_observations: true
   normalize_rewards: true
-  actor_architecture: "(64, relu, 64, relu)"
-  critic_architecture: "(64, relu, 64, relu)"
+  actor_architecture: "(64, tanh, 64, tanh)"
+  critic_architecture: "(64, tanh, 64, tanh)"

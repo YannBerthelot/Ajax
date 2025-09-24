@@ -1251,7 +1251,7 @@ def make_train(
         # Stop async logging if it was started
         # if logging_config is not None:
         #     stop_async_logging()
-
-        return agent_state, out
+        window_size = int(0.1 * total_timesteps)
+        return agent_state, jnp.nanmean(out["Eval/episodic mean reward"][-window_size:])
 
     return train

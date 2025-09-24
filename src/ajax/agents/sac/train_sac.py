@@ -938,7 +938,7 @@ def make_train(
             horizon=(logging_config.horizon if logging_config is not None else None),
         )
 
-        agent_state, eval_rewards = jax.lax.scan(
+        agent_state, out = jax.lax.scan(
             f=training_iteration_scan_fn,
             init=agent_state,
             xs=None,
@@ -950,8 +950,6 @@ def make_train(
         #     stop_async_logging()
         window_size = int(0.1 * total_timesteps)
 
-        return agent_state, jnp.nanmean(
-            eval_rewards["Eval/episodic mean reward"][-window_size:]
-        )
+        return agent_state, out
 
     return train

@@ -118,9 +118,9 @@ def load_hyperparams(agent: str = "PPO", env_id: str = "Plane2D"):
 
 
 if __name__ == "__main__":
-    project_name = "Plane_sweep"
-    n_timesteps = int(1e6)
-    n_seeds = 10
+    project_name = "Plane_sweep_2"
+    n_timesteps = int(2e6)
+    n_seeds = 100
     log_frequency = 5000
     use_wandb = True
     target_altitude = 5000  # meters

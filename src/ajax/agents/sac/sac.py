@@ -6,8 +6,8 @@ import jax
 import jax.numpy as jnp
 import wandb
 
-# from gymnax import EnvParams
-from plane_env.plane.env_jax import Airplane2D, EnvParams
+# from gymnax import PlaneParams
+from target_gym import Plane, PlaneParams
 
 from ajax.agents.sac.state import SACConfig
 from ajax.agents.sac.train_sac import make_train
@@ -44,6 +44,8 @@ def make_json_serializable(d):
 class SAC:
     """Soft Actor-Critic (SAC) agent for training and testing in continuous action spaces."""
 
+    name: str = "SAC"
+
     def __init__(  # pylint: disable=W0102, R0913
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
@@ -54,7 +56,7 @@ class SAC:
         actor_architecture=("256", "relu", "256", "relu"),
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
-        env_params: Optional[EnvParams] = None,
+        env_params: Optional[PlaneParams] = None,
         max_grad_norm: Optional[float] = 0.5,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
@@ -75,7 +77,7 @@ class SAC:
             actor_architecture (tuple): Architecture of the actor network.
             critic_architecture (tuple): Architecture of the critic network.
             gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
+            env_params (Optional[PlaneParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             buffer_size (int): Size of the replay buffer.
             batch_size (int): Batch size for training.
@@ -191,9 +193,9 @@ class SAC:
                 logging_config=logging_config,
             )
 
-            agent_state, eval_rewards = train_jit(key, index)
+            agent_state, out = train_jit(key, index)
             # stop_async_logging()
-            return agent_state, eval_rewards
+            return agent_state, out
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
@@ -263,8 +265,8 @@ if __name__ == "__main__":
 
     target_altitude = 5000
     env = Airplane2D()
-    # env_params = EnvParams(target_velocity_range=(120, 120))
-    env_params = EnvParams(
+    # env_params = PlaneParams(target_velocity_range=(120, 120))
+    env_params = PlaneParams(
         target_altitude_range=(target_altitude, target_altitude),
         # initial_altitude_range=(target_altitude, target_altitude),
     )

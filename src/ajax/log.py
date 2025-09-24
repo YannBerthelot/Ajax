@@ -9,8 +9,7 @@ from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
 
 
-class AuxiliaryLogsProtocol(Protocol):
-    ...
+class AuxiliaryLogsProtocol(Protocol): ...
 
 
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -131,6 +130,7 @@ def evaluate_and_log(
                 agent_state.collector_state.episodic_mean_return
             ),
         }
+        # jax.debug.print("{x}", x=metrics_to_log)
 
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
 
@@ -168,10 +168,10 @@ def evaluate_and_log(
         jnp.logical_and(log_flag, timestep > 1),
         timestep >= (total_timesteps - env_args.n_envs),
     )
+
     metrics_to_log = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
 
     del aux
-
     jax.clear_caches()
 
     return agent_state, metrics_to_log

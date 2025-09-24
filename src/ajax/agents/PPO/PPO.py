@@ -17,6 +17,8 @@ from ajax.utils import get_and_prepare_hyperparams
 class PPO(ActorCritic):
     """Soft Actor-Critic (PPO) agent for training and testing in continuous action spaces."""
 
+    name: str = "PPO"
+
     def __init__(  # pylint: disable=W0102, R0913
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
@@ -111,12 +113,73 @@ class PPO(ActorCritic):
 
 
 if __name__ == "__main__":
-    n_seeds = 1
-    log_frequency = 5000
-    use_wandb = False
+    # n_seeds = 1
+    # log_frequency = 5000
+    # use_wandb = False
+    # logging_config = LoggingConfig(
+    #     project_name="PPO_tests_rlzoo",
+    #     run_name="PPO",
+    #     config={
+    #         "debug": False,
+    #         "log_frequency": log_frequency,
+    #         "n_seeds": n_seeds,
+    #     },
+    #     log_frequency=log_frequency,
+    #     horizon=10_000,
+    #     use_tensorboard=True,
+    #     use_wandb=use_wandb,
+    # )
+    # # env_id = "HalfCheetah-v4"
+    # # env_id = "CartPole-v1"
+    # env_id = "Pendulum-v1"
+    # init_hyperparams, train_hyperparams = get_and_prepare_hyperparams(
+    #     "./hyperparams/ppo.yml", env_id=env_id
+    # )
+
+    # print(train_hyperparams)
+
+    # def process_brax_env_id(env_id: str) -> str:
+    #     """Remove version from env_id for brax compatibility."""
+    #     short_env_id = env_id.split("-")[0].lower()
+    #     brax_envs = [
+    #         "ant",
+    #         "halfcheetah",
+    #         "hopper",
+    #         "walker2d",
+    #         "humanoid",
+    #         "reacher",
+    #         "swimmer",
+    #     ]
+    #     if short_env_id in brax_envs:
+    #         return short_env_id
+    #     return env_id
+
+    # env_id = process_brax_env_id(env_id)
+
+    # env, env_params = gymnax.make(env_id)
+
+    # PPO_agent = PPO(
+    #     env_id=env,
+    #     env_params=env_params,  # **init_hyperparams
+    #     normalize_observations=True,
+    #     normalize_rewards=True,
+    #     n_envs=1,
+    #     n_steps=8,
+    # )  # Remove version from env_id for brax compatibility
+    # PPO_agent.train(
+    #     seed=list(range(n_seeds)),
+    #     logging_config=logging_config,
+    #     **train_hyperparams,
+    # )
+    # upload_tensorboard_to_wandb(PPO_agent.run_ids, logging_config)
+    from target_gym import Plane, PlaneParams
+
+    n_seeds = 10
+    n_timesteps = int(1e6)
+    log_frequency = 1_000
     logging_config = LoggingConfig(
-        project_name="PPO_tests_rlzoo",
-        run_name="PPO",
+        project_name="test_nan",
+        run_name="run",
         config={
             "debug": False,
             "log_frequency": log_frequency,
@@ -124,49 +187,44 @@ if __name__ == "__main__":
         },
         log_frequency=log_frequency,
         horizon=10_000,
-        use_tensorboard=True,
-        use_wandb=use_wandb,
+        use_tensorboard=False,
+        use_wandb=False,
     )
-    # env_id = "HalfCheetah-v4"
-    # env_id = "CartPole-v1"
-    env_id = "Pendulum-v1"
-    init_hyperparams, train_hyperparams = get_and_prepare_hyperparams(
-        "./hyperparams/ppo.yml", env_id=env_id
+    env_id = Plane(integration_method="rk4_1")
+    env_params = PlaneParams(
+        target_altitude_range=(5000.0, 5000.0),
     )
+    config = {
+        "n_envs": 8,
+        "gamma": 0.9958421994019934,
+        "ent_coef": 0.4924106320493923,
+        "critic_learning_rate": 0.002220963448023115,
+        "clip_range": 0.10865537675700608,
+        "actor_learning_rate": 0.006425002229849839,
+        "n_steps": 2048,
+    }
+    _logging_config = logging_config.replace(log_frequency=config["n_steps"])
 
-    print(train_hyperparams)
-
-    def process_brax_env_id(env_id: str) -> str:
-        """Remove version from env_id for brax compatibility."""
-        short_env_id = env_id.split("-")[0].lower()
-        brax_envs = [
-            "ant",
-            "halfcheetah",
-            "hopper",
-            "walker2d",
-            "humanoid",
-            "reacher",
-            "swimmer",
-        ]
-        if short_env_id in brax_envs:
-            return short_env_id
-        return env_id
-
-    env_id = process_brax_env_id(env_id)
-
-    env, env_params = gymnax.make(env_id)
-
-    PPO_agent = PPO(
-        env_id=env,
-        env_params=env_params,  # **init_hyperparams
-        normalize_observations=True,
-        normalize_rewards=True,
-        n_envs=1,
-        n_steps=8,
-    )  # Remove version from env_id for brax compatibility
-    PPO_agent.train(
-        seed=list(range(n_seeds)),
-        logging_config=logging_config,
-        **train_hyperparams,
+    activation = "relu"
+    N_NEURONS = 128
+    _agent = PPO(
+        env_id=env_id,
+        **config,
+        actor_architecture=(f"{N_NEURONS}", activation, f"{N_NEURONS}", activation),
+        critic_architecture=(
+            f"{N_NEURONS}",
+            activation,
+            f"{N_NEURONS}",
+            activation,
+        ),
+        env_params=env_params,
     )
-    upload_tensorboard_to_wandb(PPO_agent.run_ids, logging_config)
+    seeeeeeds = list(range(n_seeds))
+    _, out = _agent.train(
+        seed=5,
+        n_timesteps=n_timesteps,
+        logging_config=_logging_config,
+    )
+    score = out["Eval/episodic mean reward"]
+    print(score, len(score[0]))
+    print(score[out["timestep"] > 0.9 * n_timesteps])

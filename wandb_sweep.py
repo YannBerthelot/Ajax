@@ -1,12 +1,13 @@
 import multiprocessing
-import signal
 import sys
 from typing import List
-import wandb
-from ajax.agents import SAC, PPO
-from ajax.logging.wandb_logging import LoggingConfig
-from target_gym import Plane, PlaneParams
+
 import numpy as np
+import wandb
+from target_gym import Plane, PlaneParams
+
+from ajax.agents import PPO, SAC
+from ajax.logging.wandb_logging import LoggingConfig
 
 processes: List = []
 
@@ -19,7 +20,7 @@ def main():
 
     run = wandb.init(project=project_name)
     n_seeds = 10
-    n_timesteps = int(1e6) if agent is SAC else int(1e6)
+    n_timesteps = int(1e6)
     log_frequency = 10_000
     logging_config = LoggingConfig(
         project_name=project_name,

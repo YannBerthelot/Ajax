@@ -945,11 +945,6 @@ def make_train(
             length=num_updates,
         )
 
-        # Stop async logging if it was started
-        # if logging_config is not None:
-        #     stop_async_logging()
-        window_size = int(0.1 * total_timesteps)
-
         return agent_state, out
 
     return train

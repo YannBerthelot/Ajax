@@ -128,6 +128,8 @@ def step(
             """Wrapper to step the environment."""
             return env.step(key=rng, state=state, action=action, params=env_params)
 
+        time = state.time if hasattr(state, "time") else state.t
+        truncated = time >= env_params.max_steps_in_episode - 1  # type: ignore[union-attr]
         out = jax.vmap(
             step_wrapper,
             in_axes=(0, 0, 0, None),
@@ -136,8 +138,8 @@ def step(
         # jax.debug.print("Action: {action}", action=action)
         if len(out) == 5:
             obsv, env_state, reward, done, info = out
-            time = env_state.time if hasattr(env_state, "time") else env_state.t
-            truncated = time >= env_params.max_steps_in_episode  # type: ignore[union-attr]
+            truncated = info["truncated"]
+            # type: ignore[union-attr]
             terminated = done * (1 - truncated)
             terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
         else:
@@ -351,10 +353,11 @@ def collect_experience(
 
     """
     rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
+    rng_step = (
+        jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
+    )
     agent_state = agent_state.replace(rng=rng)
-    # jax.debug.print(
-    #     "Obs before action: {obs}", obs=agent_state.collector_state.last_obs
-    # )
+
     action, log_probs, agent_state = get_action_and_new_agent_state(
         action_key,
         agent_state,
@@ -365,25 +368,11 @@ def collect_experience(
         ),
         recurrent=recurrent,
     )
+    uniform_action = jax.random.uniform(
+        key=action_key, minval=-1, maxval=1, shape=action.shape
+    )  # TODO : add actual bounds
+    action = uniform * uniform_action + (1 - uniform) * action
 
-    # jax.debug.print(
-    #     (
-    #         "Timestep: {timestep}, Action: {action}, State:{state}, Obs:{obs},"
-    #         " terminated {terminated}, truncated {truncated}"
-    #     ),
-    #     timestep=agent_state.collector_state.timestep,
-    #     action=action,
-    #     obs=agent_state.collector_state.last_obs,
-    #     state=agent_state.collector_state.env_state,
-    #     terminated=agent_state.collector_state.last_terminated,
-    #     truncated=agent_state.collector_state.last_truncated,
-    # )
-    # jax.debug.print(
-    #     "Timestep: {timestep}", timestep=agent_state.collector_state.timestep
-    # )
-    rng_step = (
-        jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
-    )
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,
@@ -393,8 +382,7 @@ def collect_experience(
             mode,
             env_args.env_params,
         )
-    )
-
+    )  # TODO investigate if I messup by not storing the final obs for truncated episode?
     _transition = {
         "obs": agent_state.collector_state.last_obs,
         "action": action,  # if action.ndim == 2 else action[:, None]
@@ -402,51 +390,39 @@ def collect_experience(
         "terminated": terminated[:, None],
         "truncated": truncated[:, None],
     }
-    # jax.debug.print(
-    #     (
-    #         "Obs: {obs}, action: {action}, reward: {reward}, terminated: {terminated},"
-    #         " truncated: {truncated}"
-    #     ),
-    #     obs=_transition["obs"].mean(),
-    #     action=action.mean(),
-    #     reward=reward.mean(),
-    #     terminated=terminated.mean(),
-    #     truncated=truncated.mean(),
-    # )
 
-    # got_buffer = (
-    #     buffer is not None and agent_state.collector_state.buffer_state is not None
-    # )
     buffer_state = agent_state.collector_state.buffer_state
+    raw_next_obs = (
+        info["obs_st"] if "obs_st" in info else obsv
+    )  # assume autoreset is on if obs_st is found, else assume no autoreset
     if agent_state.collector_state.buffer_state is not None and buffer is not None:
-        if (
-            agent_state.collector_state.buffer_state.experience["obs"].shape[0]
-            == action.shape[
-                0
-            ]  # TODO : change later, this is a hack to not add when using the secondary agent in DynaSAC. This still adds when DynaSAC has a single env
-        ):
-            buffer_state = buffer.add(
-                agent_state.collector_state.buffer_state,
-                _transition,
-            )
         _transition.update(
             {
-                "next_obs": obsv,  # jnp.zeros_like(obsv) * jnp.nan,
+                "next_obs": raw_next_obs,  # jnp.zeros_like(obsv) * jnp.nan,
                 "log_prob": log_probs,  # jnp.zeros_like(log_probs) * jnp.nan,
             }
         )
     else:
         _transition.update(
-            {"next_obs": obsv, "log_prob": log_probs}
+            {"next_obs": raw_next_obs, "log_prob": log_probs}
         )  # not included if using buffer to reduce memory usage, as flashbax can rebuild it.
 
     transition = Transition(
         **_transition
     )  # TODO: check if the consumes too much memory
     done = jnp.logical_or(terminated, truncated)
+    if "unnormalize_reward" in dir(env_args.env):
+        env_norm_info = (
+            agent_state.collector_state.env_state.info["normalization_info"]
+            if mode == "brax"
+            else agent_state.collector_state.env_state.normalization_info
+        )
 
+        raw_reward = env_args.env.unnormalize_reward(reward, env_norm_info.reward)
+    else:
+        raw_reward = reward
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
-        agent_state, reward, done
+        agent_state, raw_reward, done
     )
 
     new_collector_state = agent_state.collector_state.replace(

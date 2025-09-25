@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import wandb
 
 # from gymnax import PlaneParams
-from target_gym import Plane, PlaneParams
+from target_gym import PlaneParams
 
 from ajax.agents.sac.state import SACConfig
 from ajax.agents.sac.train_sac import make_train
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="sac_on_plane",
+        project_name="test_sac",
         run_name="baseline",
         config={
             "debug": False,
@@ -259,18 +259,19 @@ if __name__ == "__main__":
         },
         log_frequency=log_frequency,
         horizon=10_000,
-        use_tensorboard=True,
+        use_tensorboard=False,
         use_wandb=True,
     )
 
-    target_altitude = 5000
-    env = Airplane2D()
-    # env_params = PlaneParams(target_velocity_range=(120, 120))
-    env_params = PlaneParams(
-        target_altitude_range=(target_altitude, target_altitude),
-        # initial_altitude_range=(target_altitude, target_altitude),
-    )
-    sac_agent = SAC(env_id=env, learning_starts=int(1e4), n_envs=1)
+    # target_altitude = 5000
+    # env = Airplane2D()
+    # # env_params = PlaneParams(target_velocity_range=(120, 120))
+    # env_params = PlaneParams(
+    #     target_altitude_range=(target_altitude, target_altitude),
+    #     # initial_altitude_range=(target_altitude, target_altitude),
+    # )
+    env_id = "ant"
+    sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), n_envs=1)
     sac_agent.train(
         seed=list(range(n_seeds)),
         n_timesteps=int(1e6),

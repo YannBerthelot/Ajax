@@ -133,7 +133,6 @@ def evaluate(
         step_count,
         step_count_2,
         rewards,
-        rewards,
     )
 
     def sample_action_and_step(carry):
@@ -146,7 +145,6 @@ def evaluate(
             entropy_sum,
             step_count,
             step_count_2,
-            _,
             _,
         ) = carry
         rng, step_key = jax.random.split(rng)
@@ -177,7 +175,6 @@ def evaluate(
         # reward_buf = reward_buf.at[step_count_2.astype(int)].set(
         #     jnp.where(still_running, new_rewards, jnp.nan)
         # )
-
         return (
             rewards,
             rng,
@@ -188,7 +185,6 @@ def evaluate(
             step_count,
             step_count_2,
             new_rewards,
-            entropy.mean(-1),
         )
 
     def sample_action_and_step_scan(carry, _):
@@ -200,12 +196,10 @@ def evaluate(
         return jnp.logical_not(done.all())
 
     # if not avg_reward_mode:
-    rewards, _, _, _, _, entropy_sum, step_count, step_count_2, _, _ = (
-        jax.lax.while_loop(
-            env_not_done,
-            sample_action_and_step,
-            carry,
-        )
+    rewards, _, _, _, _, entropy_sum, step_count, step_count_2, _ = jax.lax.while_loop(
+        env_not_done,
+        sample_action_and_step,
+        carry,
     )
     avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)  # avoid divide by zero
     bias = jnp.nan * jnp.ones(num_episodes)
@@ -215,15 +209,15 @@ def evaluate(
             f=sample_action_and_step_scan,
             init=carry,
             xs=None,
-            length=env_params.max_steps_in_episode,
+            length=env_params.max_steps_in_episode,  # type: ignore[union-attr]
         )
         avg_reward = _rewards.mean(axis=0)
         bias = jnp.nansum(_rewards - avg_reward, axis=0)
         avg_entropy = entropies.mean(axis=0)
-
     return (
         rewards.mean(axis=-1),
         avg_entropy.mean(axis=-1),
         avg_reward.mean(axis=-1),
         bias.mean(axis=-1),
+        step_count.mean(),
     )

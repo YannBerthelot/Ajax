@@ -104,10 +104,15 @@ class Actor(nn.Module):
                 kernel_init=kernel_init,
                 bias_init=bias_init,
             )
-            self.log_std = nn.Dense(
-                self.action_dim,
-                kernel_init=kernel_init,
-                bias_init=bias_init,
+            # self.log_std = nn.Dense(
+            #     self.action_dim,
+            #     kernel_init=kernel_init,
+            #     bias_init=bias_init,
+            # )
+            self.log_std = self.param(
+                "log_std",
+                nn.initializers.zeros,  # initialize all stds at 0
+                (self.action_dim,),  # shape of the parameter
             )
         else:
             self.model = nn.Sequential(
@@ -127,10 +132,9 @@ class Actor(nn.Module):
         embedding = self.encoder(obs)
         if self.continuous:
             # mean = jnp.clip(self.mean(embedding), -1, 1)
-            mean = jnp.clip(
-                self.mean(embedding), -1, 1
-            )  # TODO: generalize to other ranges?
-            log_std = jnp.clip(self.log_std(embedding), -20, 2)
+            mean = self.mean(embedding)
+            log_std = jnp.clip(self.log_std, -20, 2)
+            # log_std = jnp.clip(self.log_std(embedding), -20, 2)
             # log_std = self.log_std(embedding)
             std = jnp.exp(log_std)
             return (

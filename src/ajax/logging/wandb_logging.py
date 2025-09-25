@@ -6,6 +6,7 @@ import json
 import os
 import queue
 import threading
+import time
 from queue import Queue
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -102,6 +103,8 @@ def stop_async_logging():
     """Stop the async logging thread and close TensorBoard writers"""
     global logging_thread
     if logging_thread is not None:
+        # Wait until all queued logging tasks are marked done
+        logging_queue.join()
         stop_logging.set()
         logging_thread.join()
         logging_thread = None
@@ -121,28 +124,28 @@ def _logging_worker():
 
             run_id, metrics, step, project, name = item
 
-            # if project is not None:
-            #     while True:
-            #         try:
-            #             run = wandb.init(
-            #                 project=project,
-            #                 name=f"{name} {run_id}",
-            #                 id=run_id,
-            #                 resume="must",
-            #                 reinit=True,
-            #             )
-            #             run.log(metrics, step=step)
-            #             time.sleep(1.0)
-            #             break  # success → exit retry loop
-            #         except (wandb.errors.UsageError, OSError) as e:
-            #             print(f"W&B log failed, retrying: {e}")
-            #             time.sleep(30.0)  # wait before retrying
+            if project is not None:
+                while True:
+                    try:
+                        time.sleep(2)
+                        run = wandb.init(
+                            project=project,
+                            name=f"{name} {run_id}",
+                            id=run_id,
+                            resume="must",
+                            reinit=True,
+                        )
+                        run.log(metrics, step=step)
+                        break  # success → exit retry loop
+                    except (wandb.errors.UsageError, OSError) as e:
+                        print(f"W&B log failed, retrying: {e}")
 
             writer = tensorboard_writers.get(run_id)
             if writer:
                 for key, value in metrics.items():
                     writer.add_scalar(key, value.item(), step)
 
+            logging_queue.task_done()
         except queue.Empty:
             continue
         except Exception as e:

@@ -667,6 +667,7 @@ class AutoResetWrapper(BraxWrapper):
         state = self.env.reset(rng)
         state.info["first_pipeline_state"] = state.pipeline_state
         state.info["first_obs"] = state.obs
+        # state.info["obs_st"] = state.obs
         state.info["rng"] = (
             rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
         )
@@ -707,7 +708,9 @@ class AutoResetWrapper(BraxWrapper):
             state.pipeline_state,
         )
         obs = where_done(new_init_state.info["first_obs"], state.obs)
-        state = state.replace(pipeline_state=pipeline_state, obs=obs)
+        info = state.info
+        # info["obs_st"] = state.obs
+        state = state.replace(pipeline_state=pipeline_state, obs=obs, info=info)
         return state
 
 

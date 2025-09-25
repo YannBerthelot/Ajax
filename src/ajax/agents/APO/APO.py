@@ -1,21 +1,23 @@
-from functools import partial
 from typing import Callable, Optional, Union
 
-# from gymnax import EnvParams
-from plane_env.plane.env_jax import EnvParams
+from gymnax import EnvParams
 
+from ajax.agents.APO.state import APOConfig
+from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
-from ajax.agents.PPO.state import PPOConfig
-from ajax.agents.PPO.train_PPO_pre_train import CloningConfig, make_train
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
 from ajax.types import EnvType, InitializationFunction
-from ajax.utils import get_and_prepare_hyperparams
 
 
-class PPO(ActorCritic):
-    """Soft Actor-Critic (PPO) agent for training and testing in continuous action spaces."""
+class APO(ActorCritic):
+    """
+    Average-Policy Optimization (APO, Ma et al. 2021) agent for training and testing in continuous action spaces.
+    See  https://arxiv.org/pdf/2106.03442
+    """
+
+    name: str = "APO"
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -44,20 +46,9 @@ class PPO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        actor_epochs: int = 10,
-        critic_epochs: int = 10,
-        actor_lr: float = 1e-3,
-        critic_lr: float = 1e-3,
-        actor_batch_size: int = 64,
-        critic_batch_size: int = 64,
-        pre_train_n_steps: int = int(1e5),
-        expert_policy: Optional[Callable] = None,
-        imitation_coef: Union[float, Callable[[int], float]] = 1e-3,
-        distance_to_stable: Optional[Callable] = None,
-        imitation_coef_offset: float = 1e-3,
     ) -> None:
         """
-        Initialize the PPO agent.
+        Initialize the APO agent.
 
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
@@ -78,7 +69,7 @@ class PPO(ActorCritic):
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
-        self.config.update({"algo_name": "PPO"})
+        self.config.update({"algo_name": "APO"})
 
         super().__init__(
             env_id=env_id,
@@ -100,7 +91,7 @@ class PPO(ActorCritic):
             encoder_bias_init=encoder_bias_init,
         )
 
-        self.agent_config = PPOConfig(
+        self.agent_config = APOConfig(
             gamma=gamma,
             ent_coef=ent_coef,
             clip_range=clip_range,
@@ -111,41 +102,25 @@ class PPO(ActorCritic):
             normalize_advantage=normalize_advantage,
         )
 
-        self.cloning_confing = CloningConfig(
-            actor_epochs=actor_epochs,
-            critic_epochs=critic_epochs,
-            actor_lr=actor_lr,
-            critic_lr=critic_lr,
-            actor_batch_size=actor_batch_size,
-            critic_batch_size=critic_batch_size,
-            pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
-        )
-        self.expert_policy = expert_policy
-
     def get_make_train(self) -> Callable:
         """
-        Create a training function for the PPO agent.
+        Create a training function for the APO agent.
 
         Returns:
-            Callable: A function that trains the PPO agent.
+            Callable: A function that trains the APO agent.
         """
-        return partial(
-            make_train,
-            cloning_args=self.cloning_confing,
-            expert_policy=self.expert_policy,
-        )
+        return make_train
 
 
 if __name__ == "__main__":
+    from target_gym import Plane, PlaneParams
+
     n_seeds = 1
-    log_frequency = 5000
-    use_wandb = True
+    n_timesteps = int(1e6)
+    log_frequency = 2_048 * 5
     logging_config = LoggingConfig(
-        project_name="PPO_tests_rlzoo_2",
-        run_name="PPO",
+        project_name="test_APO",
+        run_name="run",
         config={
             "debug": False,
             "log_frequency": log_frequency,
@@ -153,48 +128,30 @@ if __name__ == "__main__":
         },
         log_frequency=log_frequency,
         horizon=10_000,
-        use_tensorboard=True,
-        use_wandb=use_wandb,
+        use_tensorboard=False,
+        use_wandb=True,
     )
-    # env_id = "HalfCheetah-v4"
-    # env_id = "CartPole-v1"
-    env_id = "Ant-v4"
-    init_hyperparams, train_hyperparams = get_and_prepare_hyperparams(
-        "./hyperparams/ppo.yml", env_id=env_id
+    env_id = Plane(integration_method="rk4_1")
+    env_params = PlaneParams(
+        target_altitude_range=(5000.0, 5000.0),
     )
-
-    print(train_hyperparams)
-
-    def process_brax_env_id(env_id: str) -> str:
-        """Remove version from env_id for brax compatibility."""
-        short_env_id = env_id.split("-")[0].lower()
-        brax_envs = [
-            "ant",
-            "halfcheetah",
-            "hopper",
-            "walker2d",
-            "humanoid",
-            "reacher",
-            "swimmer",
-        ]
-        if short_env_id in brax_envs:
-            return short_env_id
-        return env_id
-
-    env_id = process_brax_env_id(env_id)
-
-    # env, env_params = gymnax.make(env_id)
-
-    PPO_agent = PPO(
+    env_id = "ant"
+    activation = "relu"
+    N_NEURONS = 128
+    _agent = APO(
         env_id=env_id,
-        **init_hyperparams,
-        # normalize_observations=True,
-        # normalize_rewards=True,
-        # n_envs=1,
-        # n_steps=8,
-    )  # Remove version from env_id for brax compatibility
-    PPO_agent.train(
+        # actor_architecture=(f"{N_NEURONS}", activation, f"{N_NEURONS}", activation),
+        # critic_architecture=(
+        #     f"{N_NEURONS}",
+        #     activation,
+        #     f"{N_NEURONS}",
+        #     activation,
+        # ),
+        # env_params=env_params,
+    )
+    seeeeeeds = list(range(n_seeds))
+    _, out = _agent.train(  # type: ignore[func-returns-value]
         seed=list(range(n_seeds)),
+        n_timesteps=n_timesteps,
         logging_config=logging_config,
-        **train_hyperparams,
     )

@@ -43,6 +43,7 @@ def no_op(agent_state, aux, *args):  # TODO : build from auxiliary logs?
         "Eval/episodic mean reward": jnp.nan,
         "Eval/episodic entropy": jnp.nan,
         "Eval/mean average reward": jnp.nan,
+        "Eval/mean episodic length": jnp.nan,
         "Eval/mean bias": jnp.nan,
         "Train/episodic mean reward": jnp.nan,
     }
@@ -98,7 +99,7 @@ def evaluate_and_log(
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
         )
-        eval_rewards, eval_entropy, avg_avg_reward, avg_bias = evaluate(
+        eval_rewards, eval_entropy, avg_avg_reward, avg_bias, step_count = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
             num_episodes=num_episode_test,
@@ -124,6 +125,7 @@ def evaluate_and_log(
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards,
             "Eval/mean average reward": avg_avg_reward,
+            "Eval/mean episodic length": step_count,
             "Eval/mean bias": avg_bias,
             "Eval/episodic entropy": eval_entropy,
             "Train/episodic mean reward": (

@@ -158,6 +158,7 @@ class ActorCritic:
 
             agent_state, out = train_jit(key, index)
             stop_async_logging()
+
             return agent_state, out
 
         index = jnp.arange(len(seed))

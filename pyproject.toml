@@ -10,7 +10,6 @@ python = ">=3.10, <3.12"
 gymnasium = "^1.2.0"
 numpy = "^1.25.0"
 tqdm = "^4.65.0"
-gymnax = "^0.0.9"
 appdirs = "1.4.3"
 pydantic = "^2.0.2"
 pandas = "^2.1.1"
@@ -27,6 +26,7 @@ tensorflow-probability = {extras = ["jax"], version = "^0.25.0"}
 tf-keras = "^2.19.0"
 python-dotenv = "^1.1.1"
 target-gym = "^0.3.0.1"
+gymnax = {git = "https://github.com/YannBerthelot/gymnax.git", rev = "terminal_state_tracking"}
 
 
 [tool.poetry.group.dev.dependencies]

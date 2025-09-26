@@ -7,7 +7,7 @@ import numpy as np
 import wandb
 from target_gym import Plane, PlaneParams
 
-from ajax.agents import PPO, SAC, APO
+from ajax.agents import APO, PPO, SAC
 from ajax.logging.wandb_logging import LoggingConfig
 
 processes: List = []
@@ -39,7 +39,7 @@ def main(agent, n_seeds=10):
     )
     env_id = Plane(integration_method="rk4_1")
     env_params = PlaneParams(
-        target_altitude_range=(5000.0, 5000.0),
+        target_altitude_range=(8000.0, 8000.0), initial_altitude_range=(1900, 2100)
     )
 
     def init_and_train(config):
@@ -73,8 +73,8 @@ def main(agent, n_seeds=10):
         )
         score = out["Eval/episodic mean reward"]
         print(score, len(score[0]))
-        print(score[out["timestep"] > 0.9 * n_timesteps])
-        score = np.nanmean(score[out["timestep"] > 0.9 * n_timesteps])
+        print(score[out["timestep"] > 0.8 * n_timesteps])
+        score = np.nanmean(score[out["timestep"] > 0.8 * n_timesteps])
         return score
 
     score = init_and_train(wandb.config)
@@ -133,7 +133,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_seeds",
         type=int,
-        required=True,
+        required=False,
+        default=10,
         help="Number of seeds to run per combination",
     )
     args = parser.parse_args()
@@ -147,15 +148,15 @@ if __name__ == "__main__":
             "method": method,
             "metric": {"goal": "maximize", "name": "score"},
             "parameters": {
-                "actor_learning_rate": {"max": 1e-2, "min": 1e-5},
-                "critic_learning_rate": {"max": 1e-2, "min": 1e-5},
+                "actor_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
+                "critic_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
                 "n_envs": {"values": [1, 4, 8]},
                 "activation": {"values": ["relu", "tanh"]},
-                "n_neurons": {"values": [32, 64, 128, 256]},
-                "gamma": {"max": 0.999, "min": 0.9},
-                "ent_coef": {"max": 1e-2, "min": 0.0},
-                "clip_range": {"max": 0.3, "min": 0.0},
-                "n_steps": {"values": [1024, 2048, 4096]},
+                "n_neurons": {"values": [32, 64, 128, 256, 512]},
+                "gamma": {"values": [0.9, 0.99, 0.999]},
+                "ent_coef": {"values": [0, 1e-1, 1e-2, 1e-3, 1e-4]},
+                "clip_range": {"values": [0.1, 0.2, 0.3]},
+                "n_steps": {"values": [1024, 2048, 4096, 8192]},
                 "normalize": {"values": [True, False]},
             },
         }

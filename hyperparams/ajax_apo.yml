@@ -1,0 +1,14 @@
+Plane:
+  n_envs: 4
+  actor_learning_rate: 0.0007459368399027024
+  clip_range: 0.277607167627856
+  critic_learning_rate: 0.005408081160478636
+  ent_coef: 0.00691850007332748
+  gamma: 0.951732688359834
+  n_steps: 1024
+  normalize_observations: true
+  normalize_rewards: true
+  actor_architecture: "(256, tanh, 256, tanh)"
+  critic_architecture: "(256, tanh, 256, tanh)"
+  alpha: 0.3
+  nu : 0.0

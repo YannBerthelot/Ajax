@@ -1,3 +1,4 @@
+import argparse
 import multiprocessing
 import sys
 from typing import List
@@ -6,24 +7,25 @@ import numpy as np
 import wandb
 from target_gym import Plane, PlaneParams
 
-from ajax.agents import PPO, SAC
+from ajax.agents import PPO, SAC, APO
 from ajax.logging.wandb_logging import LoggingConfig
 
 processes: List = []
 
-agent = PPO
-project_name = f"Plane_{agent.name}_sweep_clip"
+# Map string names to agent classes
+AGENT_MAP = {
+    "PPO": PPO,
+    "SAC": SAC,
+    "APO": APO,
+}
 
 
-def main():
-    import wandb
-
-    run = wandb.init(project=project_name)
-    n_seeds = 10
+def main(agent, n_seeds=10):
+    run = wandb.init(project=f"Plane_{agent.__name__}_sweep_norm")
     n_timesteps = int(1e6)
     log_frequency = 10_000
     logging_config = LoggingConfig(
-        project_name=project_name,
+        project_name=f"Plane_{agent.__name__}_sweep_norm",
         run_name="run",
         config={
             "debug": False,
@@ -44,10 +46,9 @@ def main():
         config = config.as_dict()
         N_NEURONS = config.pop("n_neurons")
         activation = config.pop("activation")
+        normalize = config.pop("normalize")
         if "n_steps" in config.keys():
-            _logging_config = logging_config.replace(
-                log_frequency=config["n_steps"]
-            )  # TODO : make sure its a good fit
+            _logging_config = logging_config.replace(log_frequency=config["n_steps"])
         else:
             _logging_config = logging_config
 
@@ -62,6 +63,8 @@ def main():
                 activation,
             ),
             env_params=env_params,
+            normalize_observations=normalize,
+            normalize_rewards=normalize,
         )
         _, out = _agent.train(
             seed=list(range(n_seeds)),
@@ -78,18 +81,18 @@ def main():
     run.log({"score": score})
 
 
-def run_wandb_agent(sweep_id):
-    import wandb
-
+def run_wandb_agent(sweep_id, agent):
     try:
-        wandb.agent(sweep_id, function=main, project=project_name)
+        wandb.agent(
+            sweep_id,
+            function=lambda: main(agent),
+            project=f"Plane_{agent.__name__}_sweep_norm",
+        )
     except Exception as e:
         print(f"Agent for sweep {sweep_id} exited with error: {e}")
 
 
 def create_sweep(queue, sweep_config, project_name):
-    import wandb
-
     sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
     queue.put(sweep_id)
 
@@ -108,9 +111,9 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
-def launch_agents(sweep_id, num_agents):
+def launch_agents(sweep_id, num_agents, agent):
     for _ in range(num_agents):
-        p = multiprocessing.Process(target=run_wandb_agent, args=(sweep_id,))
+        p = multiprocessing.Process(target=run_wandb_agent, args=(sweep_id, agent))
         p.start()
         processes.append(p)
 
@@ -119,8 +122,26 @@ def launch_agents(sweep_id, num_agents):
 
 
 if __name__ == "__main__":
-    # signal.signal(signal.SIGINT, signal_handler)
+    parser = argparse.ArgumentParser(description="Run WandB sweep with a chosen agent.")
+    parser.add_argument(
+        "--agent",
+        type=str,
+        choices=AGENT_MAP.keys(),
+        required=True,
+        help="Which agent to run (PPO, SAC, APO)",
+    )
+    parser.add_argument(
+        "--n_seeds",
+        type=int,
+        required=True,
+        help="Number of seeds to run per combination",
+    )
+    args = parser.parse_args()
+
+    agent = AGENT_MAP[args.agent]
+    project_name = f"Plane_{agent.__name__}_sweep_norm"
     method = "bayes"
+
     if agent is PPO:
         sweep_configuration = {
             "method": method,
@@ -135,6 +156,7 @@ if __name__ == "__main__":
                 "ent_coef": {"max": 1e-2, "min": 0.0},
                 "clip_range": {"max": 0.3, "min": 0.0},
                 "n_steps": {"values": [1024, 2048, 4096]},
+                "normalize": {"values": [True, False]},
             },
         }
     elif agent is SAC:
@@ -151,11 +173,35 @@ if __name__ == "__main__":
                 "target_entropy_per_dim": {"min": -1.0, "max": 1.0},
                 "batch_size": {"values": [128, 256, 512]},
                 "tau": {"min": 1e-3, "max": 1e-2},
+                "normalize": {"values": [True, False]},
+            },
+        }
+    elif agent is APO:
+        sweep_configuration = {
+            "method": method,
+            "metric": {"goal": "maximize", "name": "score"},
+            "parameters": {
+                "actor_learning_rate": {"max": 1e-2, "min": 1e-5},
+                "critic_learning_rate": {"max": 1e-2, "min": 1e-5},
+                "n_envs": {"values": [1, 4, 8]},
+                "activation": {"values": ["relu", "tanh"]},
+                "n_neurons": {"values": [32, 64, 128, 256]},
+                "ent_coef": {"max": 1e-2, "min": 0.0},
+                "clip_range": {"max": 0.3, "min": 0.0},
+                "n_steps": {"values": [1024, 2048, 4096]},
+                "alpha": {"values": [0.03, 0.1, 0.3]},
+                "nu": {"values": [0.0, 0.03, 0.1, 0.3, 1.0]},
+                "normalize": {"values": [True, False]},
             },
         }
 
     try:
         sweep_id = wandb.sweep(sweep=sweep_configuration, project=project_name)
-        wandb.agent(sweep_id, function=main, project=project_name, count=500)
+        wandb.agent(
+            sweep_id,
+            function=lambda: main(agent, n_seeds=args.n_seeds),
+            project=project_name,
+            count=100,
+        )
     except KeyboardInterrupt:
         pass

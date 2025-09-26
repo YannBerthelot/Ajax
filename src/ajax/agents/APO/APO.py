@@ -27,7 +27,6 @@ class APO(ActorCritic):
         critic_learning_rate: float = 3e-4,
         actor_architecture=("128", "tanh", "128", "tanh"),
         critic_architecture=("128", "tanh", "128", "tanh"),
-        gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
         ent_coef: float = 0,
@@ -36,6 +35,8 @@ class APO(ActorCritic):
         batch_size: int = 64,
         n_epochs: int = 10,
         gae_lambda: float = 0.95,
+        alpha: float = 0.1,
+        nu: float = 0.1,
         normalize_advantage: bool = True,
         lstm_hidden_size: Optional[int] = None,
         normalize_observations: bool = False,
@@ -92,7 +93,6 @@ class APO(ActorCritic):
         )
 
         self.agent_config = APOConfig(
-            gamma=gamma,
             ent_coef=ent_coef,
             clip_range=clip_range,
             n_steps=n_steps,
@@ -100,6 +100,8 @@ class APO(ActorCritic):
             n_epochs=n_epochs,
             gae_lambda=gae_lambda,
             normalize_advantage=normalize_advantage,
+            alpha=alpha,
+            nu=nu,
         )
 
     def get_make_train(self) -> Callable:

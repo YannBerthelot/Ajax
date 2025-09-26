@@ -25,8 +25,8 @@ mujoco-mjx = "^3.1.4"
 tensorflow-probability = {extras = ["jax"], version = "^0.25.0"}
 tf-keras = "^2.19.0"
 python-dotenv = "^1.1.1"
-target-gym = "^0.3.0.1"
 gymnax = {git = "https://github.com/YannBerthelot/gymnax.git", rev = "terminal_state_tracking"}
+target-gym = {git = "https://github.com/YannBerthelot/TargetGym"}
 
 
 [tool.poetry.group.dev.dependencies]

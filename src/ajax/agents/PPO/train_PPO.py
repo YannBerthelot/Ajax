@@ -109,7 +109,7 @@ def init_PPO(
         network_config=network_args,
         continuous=continuous,
         action_value=False,
-        squash=continuous,
+        squash=False,
         num_critics=1,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"

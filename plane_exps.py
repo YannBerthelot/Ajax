@@ -5,7 +5,8 @@ import jax
 import jax.numpy as jnp
 import yaml
 from flax import struct
-from plane_env.plane.env_jax import Airplane2D, EnvParams, EnvState
+from target_gym import Plane, PlaneParams
+from target_gym.plane.env import PlaneState
 from tqdm import tqdm
 
 from ajax.agents.PPO.PPO_pre_train import PPO
@@ -23,7 +24,7 @@ class StableState:
     theta_dot: float
 
 
-def distance_to_stable_fn(state: EnvState, stable_state: StableState):
+def distance_to_stable_fn(state: PlaneState, stable_state: StableState):
     z = state[..., 2]
     z_dot = state[..., 3]
     return jnp.abs(z - stable_state.z) + jnp.abs(z_dot - stable_state.z_dot)
@@ -118,8 +119,8 @@ def load_hyperparams(agent: str = "PPO", env_id: str = "Plane2D"):
 
 
 if __name__ == "__main__":
-    project_name = "Plane_sweep_2"
-    n_timesteps = int(2e6)
+    project_name = "Plane_sweep_3"
+    n_timesteps = int(1e6)
     n_seeds = 100
     log_frequency = 5000
     use_wandb = True
@@ -127,12 +128,15 @@ if __name__ == "__main__":
     logging_config = get_log_config(project_name)
 
     key = jax.random.PRNGKey(42)
-    env = Airplane2D()
-    env_params = EnvParams(
+    env = Plane()
+    env_params = PlaneParams(
         target_altitude_range=(target_altitude, target_altitude),
     )
 
-    expert_policy = get_expert_policy(target_altitude, stick=0)
+    expert_policy = get_expert_policy(target_altitude, Plane, env_params)
+    import pdb
+
+    pdb.set_trace()
 
     sweep_values = get_sweep_values(
         baseline=True, auto_imitation=True, constant_imitation=True, pre_train=True

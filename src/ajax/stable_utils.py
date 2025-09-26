@@ -1,12 +1,12 @@
 import jax.numpy as jnp
-from plane_env.runner import get_interpolator
+from target_gym.interpolator import get_interpolator
 
 
-def get_expert_policy(target_alt, stick=0):
-    interpolator = get_interpolator(stick=0)
-    power = interpolator(target_alt)
+def get_expert_policy(target, env, env_params):
+    interpolator = get_interpolator(env, env_params)
+    power = interpolator(target)
 
     def expert_policy(x):
-        return jnp.array([power, stick])
+        return jnp.array([power, 0])
 
     return expert_policy

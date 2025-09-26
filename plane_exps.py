@@ -47,9 +47,9 @@ def get_sweep_values(
 
     if auto_imitation:
         imitation_coef_list += [
-            "auto_10.0",
-            "auto_1.0",
-            "auto_0.1",
+            "auto_10.0",  # type: ignore[list-item]
+            "auto_1.0",  # type: ignore[list-item]
+            "auto_0.1",  # type: ignore[list-item]
         ]
     if constant_imitation:
         imitation_coef_list += [
@@ -105,10 +105,14 @@ def process_hyperparams(hpp: dict):
         hpp["critic_architecture"] = strip_str_seq_to_seq_of_str(
             hpp["critic_architecture"]
         )
+    if "normalize" in hpp.keys():
+        normalize = hpp.pop("normalize")
+        hpp["normalize_observations"] = normalize
+        hpp["normalize_rewards"] = normalize
     return hpp
 
 
-def load_hyperparams(agent: str = "PPO", env_id: str = "Plane2D"):
+def load_hyperparams(agent: str = "PPO", env_id: str = "Plane"):
     file_name = f"hyperparams/ajax_{agent.lower()}.yml"
     with open(file_name) as stream:
         try:
@@ -121,11 +125,12 @@ def load_hyperparams(agent: str = "PPO", env_id: str = "Plane2D"):
 if __name__ == "__main__":
     project_name = "Plane_sweep_3"
     n_timesteps = int(1e6)
-    n_seeds = 100
+    n_seeds = 20
     log_frequency = 5000
     use_wandb = True
     target_altitude = 5000  # meters
     logging_config = get_log_config(project_name)
+    agent = PPO
 
     key = jax.random.PRNGKey(42)
     env = Plane()
@@ -134,15 +139,13 @@ if __name__ == "__main__":
     )
 
     expert_policy = get_expert_policy(target_altitude, Plane, env_params)
-    import pdb
-
-    pdb.set_trace()
 
     sweep_values = get_sweep_values(
-        baseline=True, auto_imitation=True, constant_imitation=True, pre_train=True
+        baseline=True, auto_imitation=False, constant_imitation=False, pre_train=False
     )
+    env_id = "Plane"
 
-    hyperparams = load_hyperparams("PPO")
+    hyperparams = load_hyperparams("PPO", env_id)
 
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(

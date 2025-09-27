@@ -23,7 +23,6 @@ from ajax.environments.interaction import (
 from ajax.environments.utils import (
     check_env_is_gymnax,
 )
-from ajax.evaluate import evaluate
 from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -39,6 +38,8 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+
+DEBUG = False
 
 
 @struct.dataclass
@@ -123,11 +124,11 @@ def policy_loss_function(
         )  # .sum(-1, keepdims=True)
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-
-    assert new_log_probs.shape == log_probs.shape, (
-        f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
-        f" {log_probs.shape}"
-    )
+    if DEBUG:
+        assert new_log_probs.shape == log_probs.shape, (
+            f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
+            f" {log_probs.shape}"
+        )
 
     ratio = jnp.exp(
         new_log_probs - log_probs
@@ -135,10 +136,10 @@ def policy_loss_function(
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-
-    assert (
-        ratio.shape[0] == gae.shape[0]
-    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    if DEBUG:
+        assert (
+            ratio.shape[0] == gae.shape[0]
+        ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     loss_actor1 = ratio * gae
     loss_actor2 = (
         jnp.clip(
@@ -310,13 +311,13 @@ def update_agent(
         gae,
         log_probs,
     ) = shuffled_batch
-
-    assert (
-        observations.shape[:-1] == actions.shape[:-1]
-    ), (  # FIXME : investigate the shape mismatch due to shuffling in batch and shapes shenanigans
-        f"Shape mismatch between observations {observations.shape} and actions"
-        f" {actions.shape}"
-    )
+    if DEBUG:
+        assert (
+            observations.shape[:-1] == actions.shape[:-1]
+        ), (  # FIXME : investigate the shape mismatch due to shuffling in batch and shapes shenanigans
+            f"Shape mismatch between observations {observations.shape} and actions"
+            f" {actions.shape}"
+        )
 
     dones = jnp.logical_or(terminated, truncated)
 
@@ -460,6 +461,7 @@ def training_iteration(
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
     )  # transition = s_t, a_t, r_{s_t -> s_{t+1}}, s_{t+1}, d_{s_t -> s_{t+1}}
+
     values = predict_value(
         critic_state=agent_state.critic_state,
         critic_params=agent_state.critic_state.params,
@@ -503,15 +505,15 @@ def training_iteration(
 
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-
-    assert (
-        max(agent_config.batch_size, agent_config.n_steps)
-        % min(agent_config.batch_size, agent_config.n_steps)
-        == 0
-    ), (
-        "can't evenly break n_steps into batch size chunks,"
-        f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
-    )
+    if DEBUG:
+        assert (
+            max(agent_config.batch_size, agent_config.n_steps)
+            % min(agent_config.batch_size, agent_config.n_steps)
+            == 0
+        ), (
+            "can't evenly break n_steps into batch size chunks,"
+            f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+        )
     num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
         agent_config.batch_size, agent_config.n_steps
     )
@@ -554,60 +556,6 @@ def training_iteration(
         )  # aux should be the one from the last epoch
 
     agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
-
-    def run_and_log(agent_state: PPOState, aux: AuxiliaryLogs, index: int):
-        eval_key = agent_state.eval_rng
-        normalization = (
-            "normalization_info" in agent_state.collector_state.env_state.info
-            if mode == "brax"
-            else "normalization_info" in dir(agent_state.collector_state.env_state)
-        )
-        env_norm_info = (
-            (
-                agent_state.collector_state.env_state.info["normalization_info"]
-                if mode == "brax"
-                else agent_state.collector_state.env_state.normalization_info
-            )
-            if normalization
-            else None
-        )
-        eval_rewards, eval_entropy = evaluate(
-            env_args.env,
-            actor_state=agent_state.actor_state,
-            num_episodes=num_episode_test,
-            rng=eval_key,
-            env_params=env_args.env_params,
-            recurrent=recurrent,
-            lstm_hidden_size=lstm_hidden_size,
-            norm_info=env_norm_info,
-            avg_reward_mode=True,
-        )
-        mean_return = agent_state.collector_state.episodic_mean_return
-        if env_norm_info is not None:
-            if env_norm_info.reward is not None:
-                mean_return = env_args.env.unnormalize_reward(
-                    agent_state.collector_state.episodic_mean_return,
-                    env_norm_info.reward,
-                )
-        metrics_to_log = {
-            "timestep": timestep,
-            "Eval/episodic mean reward": eval_rewards,
-            "Eval/episodic entropy": eval_entropy,
-            "Train/episodic mean reward": mean_return,
-        }
-        metrics_to_log.update(flatten_dict(to_state_dict(aux)))
-        jax.debug.callback(log_fn, metrics_to_log, index)
-
-        if verbose:
-            jax.debug.print(
-                (
-                    "[Eval] Step={timestep_val}, Reward={rewards_val},"
-                    " Entropy={entropy_val}"
-                ),
-                timestep_val=timestep,
-                rewards_val=eval_rewards,
-                entropy_val=eval_entropy,
-            )
 
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,

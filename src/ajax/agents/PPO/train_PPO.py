@@ -130,7 +130,7 @@ def init_PPO(
     )
 
 
-@partial(jax.jit, static_argnames=["recurrent"])
+# @partial(jax.jit, static_argnames=["recurrent"])
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
@@ -184,10 +184,10 @@ def value_loss_function(
     )
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent", "advantage_normalization"],
-)
+# @partial(
+#     jax.jit,
+#     static_argnames=["recurrent", "advantage_normalization"],
+# )
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
@@ -233,20 +233,20 @@ def policy_loss_function(
         )  # .sum(-1, keepdims=True)
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-
-    assert new_log_probs.shape == log_probs.shape, (
-        f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
-        f" {log_probs.shape}"
-    )
+    if DEBUG:
+        assert new_log_probs.shape == log_probs.shape, (
+            f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
+            f" {log_probs.shape}"
+        )
 
     ratio = jnp.exp(new_log_probs - log_probs)
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-
-    assert (
-        ratio.shape[0] == gae.shape[0]
-    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    if DEBUG:
+        assert (
+            ratio.shape[0] == gae.shape[0]
+        ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     loss_actor1 = ratio * gae
     loss_actor2 = (
         jnp.clip(
@@ -279,10 +279,14 @@ def policy_loss_function(
     )
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent"],
-)
+VALUE_AND_GRAD_FN = jax.value_and_grad(value_loss_function, has_aux=True)
+POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
+
+
+# @partial(
+#     jax.jit,
+#     static_argnames=["recurrent"],
+# )
 def update_value_functions(
     agent_state: PPOState,
     observations: jax.Array,
@@ -307,9 +311,8 @@ def update_value_functions(
     Returns:
         Tuple[PPOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    value_and_grad_fn = jax.value_and_grad(value_loss_function, has_aux=True)
 
-    (loss, aux), grads = value_and_grad_fn(
+    (loss, aux), grads = VALUE_AND_GRAD_FN(
         agent_state.critic_state.params,
         agent_state.critic_state,
         observations,
@@ -329,10 +332,10 @@ def check_no_nan(x, id):
     assert not jnp.isnan(x).any(), f"NaN detected {id}"
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent", "advantage_normalization"],
-)
+# @partial(
+#     jax.jit,
+#     static_argnames=["recurrent", "advantage_normalization"],
+# )
 def update_policy(
     agent_state: PPOState,
     observations: jax.Array,
@@ -358,7 +361,7 @@ def update_policy(
         Tuple[PPOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
 
-    value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
+    # value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
     pi, _ = get_pi(
         actor_state=agent_state.actor_state,
         actor_params=agent_state.actor_state.params,
@@ -366,21 +369,12 @@ def update_policy(
         done=done,
         recurrent=recurrent,
     )
-    # entropy = (
-    #     pi.unsquashed_entropy().mean()
-    #     if isinstance(pi, SquashedNormal)
-    #     else pi.entropy().mean()
-    # )
-    # jax.debug.print(
-    #     "{log_probs} {entropy}", log_probs=log_probs.sum(-1).mean(), entropy=entropy
-    # )
     if DEBUG:
         jax.debug.callback(check_no_nan, log_probs, 1)
         jax.debug.callback(check_no_nan, actions, 2)
         jax.debug.callback(check_no_nan, observations, 3)
         jax.debug.callback(check_no_nan, gae, 4)
-    # jax.debug.callback(check_no_nan, agent_state.actor_state.params)
-    (loss, aux), grads = value_and_grad_fn(
+    (loss, aux), grads = POLICY_AND_GRAD_FN(
         agent_state.actor_state.params,
         agent_state.actor_state,
         observations=observations,
@@ -402,6 +396,25 @@ def update_policy(
         actor_state=updated_actor_state,
     )
     return agent_state, aux
+
+
+def compute_log_probs_from_pi(pi, actions):
+    """Utility to compute log_prob with standardized shape.
+
+    Returns a (batch, 1) shaped log_prob array matching the code's expectations.
+    """
+    # distrax.Categorical returns scalar log_prob per sample for discrete
+    if isinstance(pi, distrax.Categorical):
+        lp = pi.log_prob(actions.squeeze(-1))
+        return jnp.expand_dims(lp, axis=-1)
+    # SquashedNormal (or other continuous) often returns vector per action dim
+    lp = pi.log_prob(actions)
+    # Sum over action dims if any, keep batch dim
+    if lp.ndim > 1:
+        lp = lp.sum(axis=-1, keepdims=True)
+    else:
+        lp = jnp.expand_dims(lp, axis=-1)
+    return lp
 
 
 @partial(
@@ -446,13 +459,13 @@ def update_agent(
         gae,
         log_probs,
     ) = shuffled_batch
-
-    assert (
-        observations.shape[:-1] == actions.shape[:-1]
-    ), (  # FIXME : investigate the shape mismatch due to shuffling in batch and shapes shenanigans
-        f"Shape mismatch between observations {observations.shape} and actions"
-        f" {actions.shape}"
-    )
+    if DEBUG:
+        assert (
+            observations.shape[:-1] == actions.shape[:-1]
+        ), (  # FIXME : investigate the shape mismatch due to shuffling in batch and shapes shenanigans
+            f"Shape mismatch between observations {observations.shape} and actions"
+            f" {actions.shape}"
+        )
 
     dones = jnp.logical_or(terminated, truncated)
 
@@ -466,10 +479,11 @@ def update_agent(
     )
 
     # Update policy
-    if callable(agent_config.clip_range):
-        clip_coef = agent_config.clip_range(agent_state.collector_state.timestep)
-    else:
-        clip_coef = agent_config.clip_range
+    clip_coef = (
+        agent_config.clip_range(agent_state.collector_state.timestep)
+        if callable(agent_config.clip_range)
+        else agent_config.clip_range
+    )
 
     agent_state, aux_policy = update_policy(
         agent_state=agent_state,
@@ -627,15 +641,15 @@ def training_iteration(
 
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-
-    assert (
-        max(agent_config.batch_size, agent_config.n_steps)
-        % min(agent_config.batch_size, agent_config.n_steps)
-        == 0
-    ), (
-        "can't evenly break n_steps into batch size chunks,"
-        f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
-    )
+    if DEBUG:
+        assert (
+            max(agent_config.batch_size, agent_config.n_steps)
+            % min(agent_config.batch_size, agent_config.n_steps)
+            == 0
+        ), (
+            "can't evenly break n_steps into batch size chunks,"
+            f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+        )
     num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
         agent_config.batch_size, agent_config.n_steps
     )
@@ -646,14 +660,18 @@ def training_iteration(
     def do_update(
         agent_state: PPOState, num_epochs: int
     ) -> tuple[PPOState, AuxiliaryLogs]:
-        update_scan_fn = partial(
-            update_agent,
-            shuffled_batch=shuffled_batch,
-            recurrent=recurrent,
-            agent_config=agent_config,
-        )
+        def body_fn(agent_state, _):
+            agent_state, aux = update_agent(
+                agent_state,
+                None,
+                shuffled_batch=shuffled_batch,
+                recurrent=recurrent,
+                agent_config=agent_config,
+            )
+            return agent_state, aux  # overwrite aux each time
+
         agent_state, aux = jax.lax.scan(
-            update_scan_fn, agent_state, xs=None, length=num_epochs
+            f=body_fn, init=agent_state, xs=None, length=num_epochs
         )
         aux = aux.replace(
             value=ValueAuxiliaries(
@@ -686,7 +704,7 @@ def training_iteration(
         total_timesteps,
     )
 
-    jax.clear_caches()
+    # jax.clear_caches()
     # gc.collect()
     return agent_state, metrics_to_log
 
@@ -759,7 +777,6 @@ def make_train(
         )
 
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
-
         training_iteration_scan_fn = partial(
             training_iteration,
             recurrent=network_args.lstm_hidden_size is not None,

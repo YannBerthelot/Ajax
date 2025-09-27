@@ -10,6 +10,8 @@ from target_gym.plane.env import PlaneState
 from tqdm import tqdm
 
 from ajax.agents.PPO.PPO_pre_train import PPO
+
+# from ajax.agents.PPO.PPO import PPO
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     upload_tensorboard_to_wandb,
@@ -37,13 +39,12 @@ def get_sweep_values(
     pre_train: bool = True,
 ):
     imitation_coef_list = []
-    imitation_coef_offset_list = []
+    imitation_coef_offset_list = [0.0]
     pre_train_step_list = []
 
     if baseline:
-        imitation_coef_list = [0.0]
-        imitation_coef_offset_list = [0.0]
-        pre_train_step_list = [0]
+        imitation_coef_list += [0.0]
+        pre_train_step_list += [0]
 
     if auto_imitation:
         imitation_coef_list += [
@@ -122,31 +123,71 @@ def load_hyperparams(agent: str = "PPO", env_id: str = "Plane"):
         return process_hyperparams(hyperparams_data[env_id])
 
 
+def get_policy_score(policy, env: Plane, env_params: PlaneParams):
+    key = jax.random.PRNGKey(0)
+
+    def run_episode(key):
+        obs, state = env.reset(key, env_params)
+
+        def step_fn(carry, _):
+            obs, state = carry
+            action = policy(obs)
+            obs, state, reward, done, info = env.step(key, state, action, env_params)
+            return (obs, state), (reward, done)
+
+        _, (rewards, dones) = jax.lax.scan(
+            f=step_fn,
+            init=(obs, state),
+            xs=None,
+            length=env_params.max_steps_in_episode,
+        )
+        rewards_before_done = (rewards * (1 - dones)).sum()
+        rewards_with_last_step = rewards_before_done + rewards[jnp.argmax(dones)]
+        return rewards_with_last_step
+
+    keys = jax.random.split(key, 1000)
+    returns = jax.vmap(run_episode, in_axes=[0])(keys)
+    return returns.mean()
+
+
 if __name__ == "__main__":
-    project_name = "Plane_sweep_3"
-    n_timesteps = int(1e6)
-    n_seeds = 20
-    log_frequency = 5000
+    project_name = "Plane_sweep_long_hard_reward"
+    n_timesteps = int(2e6)
+    n_seeds = 10
+    log_frequency = 4096
     use_wandb = True
-    target_altitude = 5000  # meters
+    target_altitude = 8000  # meters
     logging_config = get_log_config(project_name)
     agent = PPO
 
     key = jax.random.PRNGKey(42)
     env = Plane()
+    max_alt = 8_000
+    min_alt = 3_000
     env_params = PlaneParams(
-        target_altitude_range=(target_altitude, target_altitude),
+        target_altitude_range=(min_alt, max_alt),
+        initial_altitude_range=(min_alt, max_alt),
+        max_steps_in_episode=10_000,
     )
 
-    expert_policy = get_expert_policy(target_altitude, Plane, env_params)
+    expert_policy = get_expert_policy(env, env_params)
+    policy_score = get_policy_score(expert_policy, env, env_params)
+
+    if (
+        jnp.isnan(expert_policy(jnp.array([0, 0, 0, 0, 0, 0, max_alt]))).any()
+        or jnp.isnan(expert_policy(jnp.array([0, 0, 0, 0, 0, 0, min_alt]))).any()
+    ):
+        raise ValueError("No stable policy for {max_alt} or {min_alt}")
+    print(f"Expert policy mean score: {policy_score}")
 
     sweep_values = get_sweep_values(
-        baseline=True, auto_imitation=False, constant_imitation=False, pre_train=False
+        baseline=True, auto_imitation=True, constant_imitation=True, pre_train=True
     )
+    print(f"{sweep_values=}")
     env_id = "Plane"
 
     hyperparams = load_hyperparams("PPO", env_id)
-
+    mode = "CPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],
@@ -165,11 +206,22 @@ if __name__ == "__main__":
             imitation_coef_offset=imitation_coef_offset,
             **hyperparams,
         )
-        PPO_agent.train(
-            seed=list(range(n_seeds)),
-            logging_config=logging_config,
-            n_timesteps=n_timesteps,
-        )
-        upload_tensorboard_to_wandb(
-            PPO_agent.run_ids, logging_config, use_wandb=use_wandb
-        )
+        if mode == "CPU":
+            for seed in tqdm(range(n_seeds)):
+                PPO_agent.train(
+                    seed=[seed],
+                    logging_config=logging_config,
+                    n_timesteps=n_timesteps,
+                )
+                upload_tensorboard_to_wandb(
+                    PPO_agent.run_ids, logging_config, use_wandb=use_wandb
+                )
+        else:
+            PPO_agent.train(
+                seed=list(range(n_seeds)),
+                logging_config=logging_config,
+                n_timesteps=n_timesteps,
+            )
+            upload_tensorboard_to_wandb(
+                PPO_agent.run_ids, logging_config, use_wandb=use_wandb
+            )

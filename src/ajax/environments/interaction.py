@@ -40,7 +40,7 @@ def update_rolling_mean(
     state: RollinEpisodicMeanRewardState, new_value: jax.Array
 ) -> tuple[RollinEpisodicMeanRewardState, jax.Array]:
     rows = state.index.flatten()  # [2, 3]
-    cols = jnp.array(range(new_value.shape[0]))  # column indices
+    cols = jnp.arange(new_value.shape[0])  # column indices
 
     old_value = state.buffer[rows, cols]
 
@@ -88,10 +88,10 @@ def reset(
     return obsv, env_state
 
 
-@partial(
-    jax.jit,
-    static_argnames=["mode", "env"],
-)
+# @partial(
+#     jax.jit,
+#     static_argnames=["mode", "env"],
+# )
 def step(
     rng: jax.Array,
     state: jax.Array,
@@ -166,10 +166,6 @@ def step(
     return obsv, env_state, reward, terminated, truncated, info
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent"],
-)
 def get_pi(
     actor_state: LoadedTrainState,
     actor_params: FrozenDict,
@@ -206,10 +202,6 @@ def get_pi(
     return pi, actor_state.replace(hidden_state=new_actor_hidden_state)
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent"],
-)
 def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
     """
     Add an axis to the array if in recurrent mode.
@@ -372,7 +364,7 @@ def collect_experience(
         key=action_key, minval=-1, maxval=1, shape=action.shape
     )  # TODO : add actual bounds
     action = uniform * uniform_action + (1 - uniform) * action
-
+    print(action.shape)
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,

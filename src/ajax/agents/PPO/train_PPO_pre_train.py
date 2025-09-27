@@ -421,7 +421,7 @@ def training_iteration(
     lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
     horizon: int = 10000,
-    num_episode_test: int = 10,
+    num_episode_test: int = 100,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = False,

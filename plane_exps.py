@@ -1,5 +1,4 @@
 import itertools
-from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -26,10 +25,11 @@ class StableState:
     theta_dot: float
 
 
-def distance_to_stable_fn(state: PlaneState, stable_state: StableState):
+def distance_to_stable_fn(state: PlaneState, target: float):
     z = state[..., 2]
-    z_dot = state[..., 3]
-    return jnp.abs(z - stable_state.z) + jnp.abs(z_dot - stable_state.z_dot)
+    target = state[..., 6]
+    # z_dot = state[..., 3]
+    return jnp.abs(z - target)  # + jnp.abs(z_dot - stable_state.z_dot)
 
 
 def get_sweep_values(
@@ -71,10 +71,7 @@ def get_sweep_values(
 
 def get_distance_fn_from_imitation_coef(imitation_coef):
     if "auto" in str(imitation_coef):
-        return partial(
-            distance_to_stable_fn,
-            stable_state=StableState(z=target_altitude, z_dot=0, theta_dot=0),
-        )
+        return distance_to_stable_fn
 
 
 def get_log_config(project_name):
@@ -151,12 +148,11 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 
 if __name__ == "__main__":
-    project_name = "Plane_sweep_long_hard_reward"
+    project_name = "Plane_sweep_long_hard_reward_to_DEL_3"
     n_timesteps = int(2e6)
-    n_seeds = 10
+    n_seeds = 20
     log_frequency = 4096
     use_wandb = True
-    target_altitude = 8000  # meters
     logging_config = get_log_config(project_name)
     agent = PPO
 
@@ -221,6 +217,7 @@ if __name__ == "__main__":
                 seed=list(range(n_seeds)),
                 logging_config=logging_config,
                 n_timesteps=n_timesteps,
+                num_episode_test=100,
             )
             upload_tensorboard_to_wandb(
                 PPO_agent.run_ids, logging_config, use_wandb=use_wandb

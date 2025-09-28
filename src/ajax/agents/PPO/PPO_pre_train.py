@@ -2,7 +2,7 @@ from functools import partial
 from typing import Callable, Optional, Union
 
 # from gymnax import EnvParams
-from plane_env.plane.env_jax import EnvParams
+from target_gym.base import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.state import PPOConfig

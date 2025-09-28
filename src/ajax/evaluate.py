@@ -189,7 +189,8 @@ def evaluate(
 
     def sample_action_and_step_scan(carry, _):
         carry = sample_action_and_step(carry)
-        return carry, carry[-2:]
+        reward = carry[-1]
+        return carry, reward
 
     def env_not_done(carry):
         done = carry[3]
@@ -205,7 +206,7 @@ def evaluate(
     bias = jnp.nan * jnp.ones(num_episodes)
     avg_reward = jnp.nan * jnp.ones(num_episodes)
     if avg_reward_mode:
-        _, (_rewards, entropies) = jax.lax.scan(
+        _, _rewards = jax.lax.scan(
             f=sample_action_and_step_scan,
             init=carry,
             xs=None,
@@ -213,7 +214,7 @@ def evaluate(
         )
         avg_reward = _rewards.mean(axis=0)
         bias = jnp.nansum(_rewards - avg_reward, axis=0)
-        avg_entropy = entropies.mean(axis=0)
+        # avg_entropy = entropies.mean(axis=0)
     return (
         rewards.mean(axis=-1),
         avg_entropy.mean(axis=-1),

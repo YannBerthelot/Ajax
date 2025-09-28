@@ -3789,8 +3789,8 @@ dev = ["black (>=25.1.0,<26.0.0)", "codecov (>=2.1.13,<3.0.0)", "coverage (>=7.3
 [package.source]
 type = "git"
 url = "https://github.com/YannBerthelot/TargetGym"
-reference = "HEAD"
-resolved_reference = "070d515c48d7f90e3dd62201eb1436e48dd74ed0"
+reference = "interpolator"
+resolved_reference = "d0f6a4f6119db90674b707d109b420e5d02f4904"
 
 [[package]]
 name = "tensorboard"
@@ -4530,4 +4530,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10, <3.12"
-content-hash = "e9e22803f2f295425f6967f0989cda2fabbcd4327136f3433b2a664398008c67"
+content-hash = "db7ae4526a9217c0ea0c800b33dbca14130d14691ebb22d0356f5a0bed44de9b"

@@ -25,11 +25,11 @@ class StableState:
     theta_dot: float
 
 
-def distance_to_stable_fn(state: PlaneState, target: float):
+def distance_to_stable_fn(state: PlaneState):
     z = state[..., 2]
     target = state[..., 6]
-    # z_dot = state[..., 3]
-    return jnp.abs(z - target)  # + jnp.abs(z_dot - stable_state.z_dot)
+    z_dot = state[..., 3]
+    return jnp.abs(z - target) + jnp.abs(z_dot - 0.0)
 
 
 def get_sweep_values(
@@ -40,17 +40,19 @@ def get_sweep_values(
 ):
     imitation_coef_list = []
     imitation_coef_offset_list = [0.0]
-    pre_train_step_list = []
+    if pre_train:
+        pre_train_step_list = [int(1e5)]
+    else:
+        pre_train_step_list = [0]
 
     if baseline:
         imitation_coef_list += [0.0]
-        pre_train_step_list += [0]
 
     if auto_imitation:
         imitation_coef_list += [
+            "auto_100.0",  # type: ignore[list-item]
             "auto_10.0",  # type: ignore[list-item]
             "auto_1.0",  # type: ignore[list-item]
-            "auto_0.1",  # type: ignore[list-item]
         ]
     if constant_imitation:
         imitation_coef_list += [
@@ -59,8 +61,6 @@ def get_sweep_values(
             1e-2,
             1e-3,
         ]
-    if pre_train:
-        pre_train_step_list += [int(1e5)]
 
     return {
         "imitation_coef": imitation_coef_list,
@@ -148,9 +148,9 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 
 if __name__ == "__main__":
-    project_name = "Plane_sweep_long_hard_reward_to_DEL_3"
+    project_name = "Plane_sweep_randomized_start_avg_reward"
     n_timesteps = int(2e6)
-    n_seeds = 20
+    n_seeds = 25
     log_frequency = 4096
     use_wandb = True
     logging_config = get_log_config(project_name)
@@ -183,7 +183,7 @@ if __name__ == "__main__":
     env_id = "Plane"
 
     hyperparams = load_hyperparams("PPO", env_id)
-    mode = "CPU"
+    mode = "GPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],
@@ -217,7 +217,7 @@ if __name__ == "__main__":
                 seed=list(range(n_seeds)),
                 logging_config=logging_config,
                 n_timesteps=n_timesteps,
-                num_episode_test=100,
+                num_episode_test=256,
             )
             upload_tensorboard_to_wandb(
                 PPO_agent.run_ids, logging_config, use_wandb=use_wandb

@@ -166,8 +166,8 @@ def policy_loss_function(
 
     if distance_to_stable is not None:
         distance = (
-            (1 / (distance_to_stable(observations) + EPS)) + imitation_coef_offset
-        )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
+            1 / (distance_to_stable(observations) + EPS)
+        ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
 
         distance = jnp.expand_dims(distance, -1)
     else:
@@ -870,6 +870,7 @@ def make_train(
                 mode=mode,
                 n_timesteps=cloning_args.pre_train_n_steps,
             )
+            jax.clear_caches()
             actor_state, critic_state, metrics = pre_train(
                 rng=expert_key,
                 actor_state=agent_state.actor_state,

@@ -9,6 +9,7 @@ from target_gym.plane.env import PlaneState
 from tqdm import tqdm
 
 from ajax.agents.PPO.PPO_pre_train import PPO
+from ajax.agents.APO.APO import APO
 
 # from ajax.agents.PPO.PPO import PPO
 from ajax.logging.wandb_logging import (
@@ -148,13 +149,14 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 
 if __name__ == "__main__":
-    project_name = "Plane_sweep_randomized_start_avg_reward"
-    n_timesteps = int(2e6)
-    n_seeds = 25
+    project_name = "APO_tests_plane"
+    n_timesteps = int(1e6)
+    n_seeds = 10
+    num_episode_test=10
     log_frequency = 4096
     use_wandb = True
     logging_config = get_log_config(project_name)
-    agent = PPO
+    agent = APO
 
     key = jax.random.PRNGKey(42)
     env = Plane()
@@ -177,13 +179,13 @@ if __name__ == "__main__":
     print(f"Expert policy mean score: {policy_score}")
 
     sweep_values = get_sweep_values(
-        baseline=True, auto_imitation=True, constant_imitation=True, pre_train=True
+        baseline=True, auto_imitation=False, constant_imitation=False, pre_train=False
     )
     print(f"{sweep_values=}")
     env_id = "Plane"
 
-    hyperparams = load_hyperparams("PPO", env_id)
-    mode = "GPU"
+    hyperparams = load_hyperparams(agent.name, env_id)
+    mode = "CPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],
@@ -192,33 +194,35 @@ if __name__ == "__main__":
         )
     ):
         distance_to_stable = get_distance_fn_from_imitation_coef(imitation_coef)
-        PPO_agent = PPO(
+        _agent = agent(
             env_id=env,
             env_params=env_params,
-            expert_policy=expert_policy,
-            pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
+            # expert_policy=expert_policy,
+            # pre_train_n_steps=pre_train_n_steps,
+            # imitation_coef=imitation_coef,
+            # distance_to_stable=distance_to_stable,
+            # imitation_coef_offset=imitation_coef_offset,
             **hyperparams,
         )
         if mode == "CPU":
             for seed in tqdm(range(n_seeds)):
-                PPO_agent.train(
+                _agent.train(
                     seed=[seed],
                     logging_config=logging_config,
                     n_timesteps=n_timesteps,
+                    num_episode_test=num_episode_test
                 )
                 upload_tensorboard_to_wandb(
-                    PPO_agent.run_ids, logging_config, use_wandb=use_wandb
+                    _agent.run_ids, logging_config, use_wandb=use_wandb
                 )
         else:
-            PPO_agent.train(
+            _agent.train(
                 seed=list(range(n_seeds)),
                 logging_config=logging_config,
                 n_timesteps=n_timesteps,
-                num_episode_test=256,
+                num_episode_test=num_episode_test
             )
             upload_tensorboard_to_wandb(
-                PPO_agent.run_ids, logging_config, use_wandb=use_wandb
+                _agent.run_ids, logging_config, use_wandb=use_wandb
             )
+

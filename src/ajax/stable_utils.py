@@ -1,6 +1,6 @@
+import jax
 import jax.numpy as jnp
 from target_gym.interpolator import get_interpolator
-import jax
 
 
 def get_expert_policy(env, env_params):

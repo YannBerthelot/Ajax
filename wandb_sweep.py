@@ -7,7 +7,8 @@ import numpy as np
 import wandb
 from target_gym import Plane, PlaneParams
 
-from ajax.agents import APO, PPO, SAC
+from ajax.agents import APO, SAC
+from ajax.agents.PPO.PPO_pre_train import PPO
 from ajax.logging.wandb_logging import LoggingConfig
 
 processes: List = []
@@ -22,8 +23,9 @@ AGENT_MAP = {
 
 def main(agent, n_seeds=10):
     run = wandb.init(project=f"Plane_{agent.__name__}_sweep_norm")
-    n_timesteps = int(1e6)
+    n_timesteps = int(2e6)
     log_frequency = 10_000
+    num_episode_test = 50
     logging_config = LoggingConfig(
         project_name=f"Plane_{agent.__name__}_sweep_norm",
         run_name="run",
@@ -46,7 +48,8 @@ def main(agent, n_seeds=10):
         config = config.as_dict()
         N_NEURONS = config.pop("n_neurons")
         activation = config.pop("activation")
-        normalize = config.pop("normalize")
+        normalize_observations = config.pop("normalize_observations")
+        normalize_rewards = config.pop("normalize_rewards")
         if "n_steps" in config.keys():
             _logging_config = logging_config.replace(log_frequency=config["n_steps"])
         else:
@@ -63,13 +66,14 @@ def main(agent, n_seeds=10):
                 activation,
             ),
             env_params=env_params,
-            normalize_observations=normalize,
-            normalize_rewards=normalize,
+            normalize_observations=normalize_observations,
+            normalize_rewards=normalize_rewards,
         )
         _, out = _agent.train(
             seed=list(range(n_seeds)),
             n_timesteps=n_timesteps,
             logging_config=_logging_config,
+            num_episode_test=num_episode_test,
         )
         score = out["Eval/episodic mean reward"]
         print(score, len(score[0]))
@@ -157,7 +161,8 @@ if __name__ == "__main__":
                 "ent_coef": {"values": [0, 1e-1, 1e-2, 1e-3, 1e-4]},
                 "clip_range": {"values": [0.1, 0.2, 0.3]},
                 "n_steps": {"values": [1024, 2048, 4096, 8192]},
-                "normalize": {"values": [True, False]},
+                "normalize_observations": {"values": [True, False]},
+                "normalize_rewards": {"values": [True, False]},
             },
         }
     elif agent is SAC:
@@ -174,7 +179,8 @@ if __name__ == "__main__":
                 "target_entropy_per_dim": {"min": -1.0, "max": 1.0},
                 "batch_size": {"values": [128, 256, 512]},
                 "tau": {"min": 1e-3, "max": 1e-2},
-                "normalize": {"values": [True, False]},
+                "normalize_observations": {"values": [True, False]},
+                "normalize_rewards": {"values": [True, False]},
             },
         }
     elif agent is APO:
@@ -182,17 +188,19 @@ if __name__ == "__main__":
             "method": method,
             "metric": {"goal": "maximize", "name": "score"},
             "parameters": {
-                "actor_learning_rate": {"max": 1e-2, "min": 1e-5},
-                "critic_learning_rate": {"max": 1e-2, "min": 1e-5},
+                "actor_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
+                "critic_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
                 "n_envs": {"values": [1, 4, 8]},
                 "activation": {"values": ["relu", "tanh"]},
-                "n_neurons": {"values": [32, 64, 128, 256]},
-                "ent_coef": {"max": 1e-2, "min": 0.0},
-                "clip_range": {"max": 0.3, "min": 0.0},
-                "n_steps": {"values": [1024, 2048, 4096]},
+                "n_neurons": {"values": [32, 64, 128, 256, 512]},
+                "gamma": {"values": [0.9, 0.99, 0.999]},
+                "ent_coef": {"values": [0, 1e-1, 1e-2, 1e-3, 1e-4]},
+                "clip_range": {"values": [0.1, 0.2, 0.3]},
+                "n_steps": {"values": [1024, 2048, 4096, 8192]},
                 "alpha": {"values": [0.03, 0.1, 0.3]},
                 "nu": {"values": [0.0, 0.03, 0.1, 0.3, 1.0]},
-                "normalize": {"values": [True, False]},
+                "normalize_observations": {"values": [True, False]},
+                "normalize_rewards": {"values": [True, False]},
             },
         }
 
@@ -202,7 +210,7 @@ if __name__ == "__main__":
             sweep_id,
             function=lambda: main(agent, n_seeds=args.n_seeds),
             project=project_name,
-            count=100,
+            count=200,
         )
     except KeyboardInterrupt:
         pass

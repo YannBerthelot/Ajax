@@ -8,7 +8,6 @@ from target_gym import Plane, PlaneParams
 from target_gym.plane.env import PlaneState
 from tqdm import tqdm
 
-from ajax.agents.PPO.PPO_pre_train import PPO
 from ajax.agents.APO.APO import APO
 
 # from ajax.agents.PPO.PPO import PPO
@@ -152,7 +151,7 @@ if __name__ == "__main__":
     project_name = "APO_tests_plane"
     n_timesteps = int(1e6)
     n_seeds = 10
-    num_episode_test=10
+    num_episode_test = 10
     log_frequency = 4096
     use_wandb = True
     logging_config = get_log_config(project_name)
@@ -210,7 +209,7 @@ if __name__ == "__main__":
                     seed=[seed],
                     logging_config=logging_config,
                     n_timesteps=n_timesteps,
-                    num_episode_test=num_episode_test
+                    num_episode_test=num_episode_test,
                 )
                 upload_tensorboard_to_wandb(
                     _agent.run_ids, logging_config, use_wandb=use_wandb
@@ -220,9 +219,8 @@ if __name__ == "__main__":
                 seed=list(range(n_seeds)),
                 logging_config=logging_config,
                 n_timesteps=n_timesteps,
-                num_episode_test=num_episode_test
+                num_episode_test=num_episode_test,
             )
             upload_tensorboard_to_wandb(
                 _agent.run_ids, logging_config, use_wandb=use_wandb
             )
-

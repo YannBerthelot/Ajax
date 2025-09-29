@@ -63,8 +63,6 @@ def prepare_env(
 
     # Apply wrappers based on flags
     if normalize_obs or normalize_reward:
-        if normalize_reward:
-            assert gamma is not None, "Gamma must be provided for reward normalization."
         env = NormalizeVecObservation(
             ClipAction(env),
             normalize_reward=normalize_reward,

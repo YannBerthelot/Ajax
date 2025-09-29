@@ -30,7 +30,6 @@ class ActorCritic:
         critic_learning_rate: float = 3e-4,
         actor_architecture=("128", "tanh", "128", "tanh"),
         critic_architecture=("128", "tanh", "128", "tanh"),
-        gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
         lstm_hidden_size: Optional[int] = None,
@@ -71,7 +70,6 @@ class ActorCritic:
             normalize_obs=normalize_observations,
             normalize_reward=normalize_rewards,
             n_envs=n_envs,
-            gamma=gamma,
         )
 
         self.env_args = EnvironmentConfig(
@@ -104,9 +102,7 @@ class ActorCritic:
             clipped=max_grad_norm is not None,
         )
 
-        self.agent_config = BaseAgentConfig(
-            gamma=gamma,
-        )
+        self.agent_config = BaseAgentConfig()
 
     def get_make_train(self) -> Callable:
         raise NotImplementedError

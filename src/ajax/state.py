@@ -251,7 +251,7 @@ class BaseAgentState:
 
 @struct.dataclass
 class BaseAgentConfig:
-    gamma: float
+    pass
 
 
 @struct.dataclass

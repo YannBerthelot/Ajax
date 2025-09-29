@@ -277,10 +277,6 @@ def normalize_wrapper_factory(
             self.train = train
             self.normalize_obs = normalize_obs
             self.normalize_reward = normalize_reward
-            if self.normalize_reward:
-                assert (
-                    gamma is not None
-                ), "Gamma must be provided for reward normalization."
             self.norm_info = norm_info
             self.gamma = gamma
             rng = jax.random.PRNGKey(0)
@@ -476,9 +472,14 @@ def normalize_wrapper_factory(
                 )
 
             if self.normalize_reward:
-                returns = reward.reshape(
-                    -1, 1
-                ) + reward_norm_info.returns * self.gamma * (1 - done.reshape(-1, 1))
+                if self.gamma is None:
+                    returns = reward.reshape(-1, 1)
+                else:
+                    returns = reward.reshape(
+                        -1, 1
+                    ) + reward_norm_info.returns * self.gamma * (
+                        1 - done.reshape(-1, 1)
+                    )
 
                 normed_reward, rew_count, rew_mean, rew_mean_2, rew_var = (
                     online_normalize(

@@ -9,6 +9,7 @@ PPOState = BaseAgentState
 class PPOConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 
+    gamma: float = 0.99
     ent_coef: float = 0.0
     clip_range: float = 0.2
     n_steps: int = 2048

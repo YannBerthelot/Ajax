@@ -23,9 +23,9 @@ AGENT_MAP = {
 
 def main(agent, n_seeds=10):
     run = wandb.init(project=f"Plane_{agent.__name__}_sweep_norm")
-    n_timesteps = int(2e6)
+    n_timesteps = int(1e6)
     log_frequency = 10_000
-    num_episode_test = 50
+    num_episode_test = 25
     logging_config = LoggingConfig(
         project_name=f"Plane_{agent.__name__}_sweep_norm",
         run_name="run",
@@ -146,21 +146,29 @@ if __name__ == "__main__":
     agent = AGENT_MAP[args.agent]
     project_name = f"Plane_{agent.__name__}_sweep_norm"
     method = "bayes"
+    learning_rates = [1e-2, 1e-3, 1e-4, 1e-5]
+    n_envs = [1, 4, 8, 16]
+    n_neurons = [64, 128, 256, 512]
+    gamma = [0.9, 0.99, 0.999]
+    n_steps = [1024, 2048, 4096]
+    activations = ["relu", "tanh"]
+    ent_coef = [0, 1e-1, 1e-2, 1e-3, 1e-4]
+    clip_range = [0.1, 0.2, 0.3]
 
     if agent is PPO:
         sweep_configuration = {
             "method": method,
             "metric": {"goal": "maximize", "name": "score"},
             "parameters": {
-                "actor_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
-                "critic_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
-                "n_envs": {"values": [1, 4, 8]},
-                "activation": {"values": ["relu", "tanh"]},
-                "n_neurons": {"values": [32, 64, 128, 256, 512]},
-                "gamma": {"values": [0.9, 0.99, 0.999]},
-                "ent_coef": {"values": [0, 1e-1, 1e-2, 1e-3, 1e-4]},
-                "clip_range": {"values": [0.1, 0.2, 0.3]},
-                "n_steps": {"values": [1024, 2048, 4096, 8192]},
+                "actor_learning_rate": {"values": learning_rates},
+                "critic_learning_rate": {"values": learning_rates},
+                "n_envs": {"values": n_envs},
+                "activation": {"values": activations},
+                "n_neurons": {"values": n_neurons},
+                "gamma": {"values": gamma},
+                "ent_coef": {"values": ent_coef},
+                "clip_range": {"values": clip_range},
+                "n_steps": {"values": n_steps},
                 "normalize_observations": {"values": [True, False]},
                 "normalize_rewards": {"values": [True, False]},
             },
@@ -188,19 +196,19 @@ if __name__ == "__main__":
             "method": method,
             "metric": {"goal": "maximize", "name": "score"},
             "parameters": {
-                "actor_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
-                "critic_learning_rate": {"values": [1e-2, 1e-3, 1e-4, 1e-5]},
-                "n_envs": {"values": [1, 4, 8]},
-                "activation": {"values": ["relu", "tanh"]},
-                "n_neurons": {"values": [32, 64, 128, 256, 512]},
-                "gamma": {"values": [0.9, 0.99, 0.999]},
-                "ent_coef": {"values": [0, 1e-1, 1e-2, 1e-3, 1e-4]},
-                "clip_range": {"values": [0.1, 0.2, 0.3]},
-                "n_steps": {"values": [1024, 2048, 4096, 8192]},
-                "alpha": {"values": [0.03, 0.1, 0.3]},
-                "nu": {"values": [0.0, 0.03, 0.1, 0.3, 1.0]},
+                "actor_learning_rate": {"values": learning_rates},
+                "critic_learning_rate": {"values": learning_rates},
+                "n_envs": {"values": n_envs},
+                "activation": {"values": activations},
+                "n_neurons": {"values": n_neurons},
+                "gamma": {"values": gamma},
+                "ent_coef": {"values": ent_coef},
+                "clip_range": {"values": clip_range},
+                "n_steps": {"values": n_steps},
                 "normalize_observations": {"values": [True, False]},
                 "normalize_rewards": {"values": [True, False]},
+                "alpha": {"values": [0.03, 0.1, 0.3]},
+                "nu": {"values": [0.0, 0.03, 0.1, 0.3, 1.0]},
             },
         }
 

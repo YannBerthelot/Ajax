@@ -161,8 +161,11 @@ def policy_loss_function(
         else pi.entropy().mean()
     )
     EPS = 1e-6
-    expert_actions = expert_policy(observations)
-    imitation_loss = -pi.log_prob(expert_actions)
+    if expert_policy is not None:
+        expert_actions = expert_policy(observations)
+        imitation_loss = -pi.log_prob(expert_actions)
+    else:
+        imitation_loss = jnp.zeros(1)
 
     if distance_to_stable is not None:
         distance = (

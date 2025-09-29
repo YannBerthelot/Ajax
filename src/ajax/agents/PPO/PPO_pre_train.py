@@ -50,11 +50,11 @@ class PPO(ActorCritic):
         critic_cloning_lr: float = 1e-3,
         actor_cloning_batch_size: int = 64,
         critic_cloning_batch_size: int = 64,
-        pre_train_n_steps: int = int(1e5),
+        pre_train_n_steps: int = 0,
         expert_policy: Optional[Callable] = None,
-        imitation_coef: Union[float, Callable[[int], float]] = 1e-3,
+        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
         distance_to_stable: Optional[Callable] = None,
-        imitation_coef_offset: float = 1e-3,
+        imitation_coef_offset: float = 0.0,
     ) -> None:
         """
         Initialize the PPO agent.

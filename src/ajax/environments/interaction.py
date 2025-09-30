@@ -371,6 +371,20 @@ def get_action_and_log_probs(
     return uniform * uniform_action + (1 - uniform) * action, log_probs
 
 
+def get_raw_obs(
+    agent_state: BaseAgentState, env: Environment, mode: str
+) -> Optional[jax.Array]:
+    if agent_state.collector_state.rollout.raw_obs is not None:  # type: ignore[union-attr]
+        return (
+            jax.vmap(env.get_obs)(agent_state.collector_state.env_state)
+            if mode == "gymnax"
+            else jax.vmap(env._get_obs)(
+                agent_state.collector_state.env_state.pipeline_state
+            )
+        )
+    return None
+
+
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
@@ -424,19 +438,6 @@ def collect_experience(
     raw_next_obs = (
         info["obs_st"] if "obs_st" in info else obsv
     )  # assume autoreset is on if obs_st is found, else assume no autoreset
-    raw_obs = (
-        (
-            jax.vmap(env_args.env.get_obs)(agent_state.collector_state.env_state)
-            if mode == "gymnax"
-            else jax.vmap(env_args.env._get_obs)(
-                agent_state.collector_state.env_state.pipeline_state
-            )
-            # else jnp.zeros_like(obsv)
-            # * jnp.nan  # env_args.env._get_obs(agent_state.collector_state.env_state.pipeline_state) TODO: investigate why this does not work for brax
-        )
-        if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
-        else None
-    )
 
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
@@ -444,7 +445,7 @@ def collect_experience(
         reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
-        raw_obs=raw_obs,
+        raw_obs=get_raw_obs(agent_state=agent_state, env=env_args.env, mode=mode),
         next_obs=raw_next_obs,
         log_prob=log_probs,
     )

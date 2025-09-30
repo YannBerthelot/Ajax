@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -5,6 +6,7 @@ from gymnax import EnvParams
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
+from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
@@ -47,6 +49,17 @@ class APO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        actor_cloning_epochs: int = 10,
+        critic_cloning_epochs: int = 10,
+        actor_cloning_lr: float = 1e-3,
+        critic_cloning_lr: float = 1e-3,
+        actor_cloning_batch_size: int = 64,
+        critic_cloning_batch_size: int = 64,
+        pre_train_n_steps: int = 0,
+        expert_policy: Optional[Callable] = None,
+        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
+        distance_to_stable: Optional[Callable] = None,
+        imitation_coef_offset: float = 0.0,
     ) -> None:
         """
         Initialize the APO agent.
@@ -103,6 +116,19 @@ class APO(ActorCritic):
             alpha=alpha,
             nu=nu,
         )
+        self.cloning_confing = CloningConfig(
+            actor_epochs=actor_cloning_epochs,
+            critic_epochs=critic_cloning_epochs,
+            actor_lr=actor_cloning_lr,
+            critic_lr=critic_cloning_lr,
+            actor_batch_size=actor_cloning_batch_size,
+            critic_batch_size=critic_cloning_batch_size,
+            pre_train_n_steps=pre_train_n_steps,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
+        )
+        self.expert_policy = expert_policy
 
     def get_make_train(self) -> Callable:
         """
@@ -111,7 +137,11 @@ class APO(ActorCritic):
         Returns:
             Callable: A function that trains the APO agent.
         """
-        return make_train
+        return partial(
+            make_train,
+            cloning_args=self.cloning_confing,
+            expert_policy=self.expert_policy,
+        )
 
 
 if __name__ == "__main__":

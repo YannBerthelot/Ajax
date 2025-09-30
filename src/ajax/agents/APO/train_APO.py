@@ -14,6 +14,7 @@ from jax.tree_util import Partial as partial
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
 from ajax.agents.PPO.utils import get_minibatches_from_batch
+from ajax.agents.pre_train import CloningConfig, get_pre_trained_agent
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
@@ -794,6 +795,8 @@ def make_train(
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
+    cloning_args: CloningConfig,
+    expert_policy: Callable,
     network_args: NetworkConfig,
     agent_config: APOConfig,
     total_timesteps: int,
@@ -828,13 +831,27 @@ def make_train(
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the APO agent."""
+        init_key, expert_key = jax.random.split(key)
         agent_state = init_APO(
-            key=key,
+            key=init_key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
         )
+        # pre-train agent
+        if expert_policy is not None and cloning_args.pre_train_n_steps > 0:
+            agent_state = get_pre_trained_agent(
+                agent_state,
+                expert_policy,
+                expert_key,
+                env_args,
+                cloning_args,
+                mode,
+                agent_config,
+                actor_optimizer_args,
+                critic_optimizer_args,
+            )
 
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 

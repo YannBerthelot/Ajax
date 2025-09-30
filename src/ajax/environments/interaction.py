@@ -516,7 +516,7 @@ def collect_experience_from_expert_policy(
             else rng_step
         )
 
-        # Compute action using expert policy
+        # Compute action using expert policy, obs should NOT be normalized (unless expert_policy was designed using normed-obs)
         action = jax.vmap(expert_policy, in_axes=0)(last_obs)
 
         # Step environment and stop gradient to avoid backprop through env

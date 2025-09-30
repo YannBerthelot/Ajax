@@ -361,14 +361,6 @@ def update_policy(
         Tuple[PPOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
 
-    # value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
-    pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=observations,
-        done=done,
-        recurrent=recurrent,
-    )
     if DEBUG:
         jax.debug.callback(check_no_nan, log_probs, 1)
         jax.debug.callback(check_no_nan, actions, 2)
@@ -396,25 +388,6 @@ def update_policy(
         actor_state=updated_actor_state,
     )
     return agent_state, aux
-
-
-def compute_log_probs_from_pi(pi, actions):
-    """Utility to compute log_prob with standardized shape.
-
-    Returns a (batch, 1) shaped log_prob array matching the code's expectations.
-    """
-    # distrax.Categorical returns scalar log_prob per sample for discrete
-    if isinstance(pi, distrax.Categorical):
-        lp = pi.log_prob(actions.squeeze(-1))
-        return jnp.expand_dims(lp, axis=-1)
-    # SquashedNormal (or other continuous) often returns vector per action dim
-    lp = pi.log_prob(actions)
-    # Sum over action dims if any, keep batch dim
-    if lp.ndim > 1:
-        lp = lp.sum(axis=-1, keepdims=True)
-    else:
-        lp = jnp.expand_dims(lp, axis=-1)
-    return lp
 
 
 @partial(

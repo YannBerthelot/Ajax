@@ -15,6 +15,7 @@ class SACState(BaseAgentState):
 class SACConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 
+    gamma: float
     target_entropy: float
     tau: float = 0.005
     learning_starts: int = 100

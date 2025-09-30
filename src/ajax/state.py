@@ -22,7 +22,7 @@ class Transition:
     terminated: jnp.ndarray
     truncated: jnp.ndarray
     next_obs: jnp.ndarray
-    raw_obs: jnp.ndarray
+    raw_obs: Optional[jnp.ndarray] = None
     log_prob: Optional[jnp.ndarray] = None
 
     def __len__(self):

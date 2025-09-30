@@ -349,6 +349,28 @@ def get_raw_reward(reward, env, agent_state, mode):
     return raw_reward
 
 
+def get_action_and_log_probs(
+    action_key: chex.PRNGKey,
+    agent_state: BaseAgentState,
+    recurrent: bool,
+    uniform: bool,
+) -> Tuple[jax.Array, jax.Array]:
+    action, log_probs, agent_state = get_action_and_new_agent_state(
+        action_key,
+        agent_state,
+        agent_state.collector_state.last_obs,
+        jnp.logical_or(
+            agent_state.collector_state.last_terminated,
+            agent_state.collector_state.last_truncated,
+        ),
+        recurrent=recurrent,
+    )
+    uniform_action = jax.random.uniform(
+        key=action_key, minval=-1, maxval=1, shape=action.shape
+    )  # TODO : add actual bounds
+    return uniform * uniform_action + (1 - uniform) * action, log_probs
+
+
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
@@ -381,22 +403,13 @@ def collect_experience(
     rng_step = (
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
-    agent_state = agent_state.replace(rng=rng)
 
-    action, log_probs, agent_state = get_action_and_new_agent_state(
-        action_key,
-        agent_state,
-        agent_state.collector_state.last_obs,
-        jnp.logical_or(
-            agent_state.collector_state.last_terminated,
-            agent_state.collector_state.last_truncated,
-        ),
+    action, log_probs = get_action_and_log_probs(
+        action_key=action_key,
+        agent_state=agent_state,
         recurrent=recurrent,
+        uniform=uniform,
     )
-    uniform_action = jax.random.uniform(
-        key=action_key, minval=-1, maxval=1, shape=action.shape
-    )  # TODO : add actual bounds
-    action = uniform * uniform_action + (1 - uniform) * action
 
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
@@ -411,14 +424,27 @@ def collect_experience(
     raw_next_obs = (
         info["obs_st"] if "obs_st" in info else obsv
     )  # assume autoreset is on if obs_st is found, else assume no autoreset
+    raw_obs = (
+        (
+            jax.vmap(env_args.env.get_obs)(agent_state.collector_state.env_state)
+            if mode == "gymnax"
+            else jax.vmap(env_args.env._get_obs)(
+                agent_state.collector_state.env_state.pipeline_state
+            )
+            # else jnp.zeros_like(obsv)
+            # * jnp.nan  # env_args.env._get_obs(agent_state.collector_state.env_state.pipeline_state) TODO: investigate why this does not work for brax
+        )
+        if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
+        else None
+    )
 
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
-        action=action,  # if action.ndim == 2 else action[:, None]
+        action=action,
         reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
-        raw_obs=env_args.env.get_obs(agent_state.collector_state.env_state),
+        raw_obs=raw_obs,
         next_obs=raw_next_obs,
         log_prob=log_probs,
     )
@@ -539,6 +565,7 @@ def init_collector_state(
     )
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
+
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
         action=jnp.ones((env_args.n_envs, *action_shape)),

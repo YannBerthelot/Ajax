@@ -160,7 +160,9 @@ def evaluate_and_log(
         if log
         else False
     )
-    not_finished_flag = timestep < total_timesteps - log_frequency
+    not_finished_flag = (
+        timestep < total_timesteps - log_frequency if log_frequency else False
+    )
 
     flag = jnp.logical_and(
         jnp.logical_and(log_flag, timestep > 1),

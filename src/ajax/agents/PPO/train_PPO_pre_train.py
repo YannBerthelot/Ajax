@@ -183,6 +183,9 @@ def policy_loss_function(
     )
 
 
+POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -223,16 +226,7 @@ def update_policy(
         Tuple[PPOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
 
-    value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
-    pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=observations,
-        done=done,
-        recurrent=recurrent,
-    )
-
-    (loss, aux), grads = value_and_grad_fn(
+    (loss, aux), grads = POLICY_AND_GRAD_FN(
         agent_state.actor_state.params,
         agent_state.actor_state,
         observations=observations,
@@ -359,30 +353,6 @@ def update_agent(
         ),
     )
     return agent_state, aux
-
-
-def flatten_dict(dict: Dict) -> Dict:
-    return_dict = {}
-    for key, val in dict.items():
-        if isinstance(val, Dict):
-            for subkey, subval in val.items():
-                return_dict[f"{key}/{subkey}"] = subval
-        else:
-            return_dict[key] = val
-    return return_dict
-
-
-def prepare_metrics(aux):
-    log_metrics = flatten_dict(to_state_dict(aux))
-    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
-
-
-def no_op(agent_state, *args):
-    return None
-
-
-def no_op_none(agent_state, index, timestep):
-    pass
 
 
 @partial(

@@ -31,6 +31,7 @@ class AVGState(BaseAgentState):
 class AVGConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 
+    gamma: float
     target_entropy: float
     learning_starts: int = 0
     reward_scale: float = 1

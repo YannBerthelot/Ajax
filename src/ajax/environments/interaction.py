@@ -276,8 +276,13 @@ def assert_shape(x, expected_shape, name="tensor"):
 
 
 def compute_episodic_reward_mean(
-    agent_state: BaseAgentState, reward: jnp.ndarray, done: jnp.ndarray
+    agent_state: BaseAgentState,
+    reward: jnp.ndarray,
+    done: jnp.ndarray,
+    env: Environment,
+    mode: str,
 ) -> tuple[RollinEpisodicMeanRewardState, jnp.ndarray]:
+    reward = get_raw_reward(reward, env, agent_state, mode)
     new_cumulative_reward = (
         agent_state.collector_state.episodic_return_state.cumulative_reward
         + reward.reshape(reward.shape[0], 1)
@@ -329,6 +334,21 @@ def compute_episodic_reward_mean(
     return new_episodic_return_state, jnp.mean(episodic_mean_return)
 
 
+def get_raw_reward(reward, env, agent_state, mode):
+    if "unnormalize_reward" in dir(env):
+        raw_reward = env.unnormalize_reward(
+            reward,
+            (
+                agent_state.collector_state.env_state.norm_info.reward
+                if mode == "gymnax"
+                else agent_state.collector_state.env_state.info["norm_info"]
+            ),
+        )
+    else:
+        raw_reward = reward
+    return raw_reward
+
+
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
@@ -377,7 +397,7 @@ def collect_experience(
         key=action_key, minval=-1, maxval=1, shape=action.shape
     )  # TODO : add actual bounds
     action = uniform * uniform_action + (1 - uniform) * action
-    print(action.shape)
+
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,
@@ -387,47 +407,28 @@ def collect_experience(
             mode,
             env_args.env_params,
         )
-    )  # TODO investigate if I messup by not storing the final obs for truncated episode?
-    _transition = {
-        "obs": agent_state.collector_state.last_obs,
-        "action": action,  # if action.ndim == 2 else action[:, None]
-        "reward": reward[:, None],
-        "terminated": terminated[:, None],
-        "truncated": truncated[:, None],
-    }
-
-    buffer_state = agent_state.collector_state.buffer_state
+    )
     raw_next_obs = (
         info["obs_st"] if "obs_st" in info else obsv
     )  # assume autoreset is on if obs_st is found, else assume no autoreset
-    if agent_state.collector_state.buffer_state is not None and buffer is not None:
-        _transition.update(
-            {
-                "next_obs": raw_next_obs,  # jnp.zeros_like(obsv) * jnp.nan,
-                "log_prob": log_probs,  # jnp.zeros_like(log_probs) * jnp.nan,
-            }
-        )
-    else:
-        _transition.update(
-            {"next_obs": raw_next_obs, "log_prob": log_probs}
-        )  # not included if using buffer to reduce memory usage, as flashbax can rebuild it.
 
     transition = Transition(
-        **_transition
-    )  # TODO: check if the consumes too much memory
-    done = jnp.logical_or(terminated, truncated)
-    if "unnormalize_reward" in dir(env_args.env):
-        env_norm_info = (
-            agent_state.collector_state.env_state.info["normalization_info"]
-            if mode == "brax"
-            else agent_state.collector_state.env_state.normalization_info
-        )
+        obs=agent_state.collector_state.last_obs,
+        action=action,  # if action.ndim == 2 else action[:, None]
+        reward=reward[:, None],
+        terminated=terminated[:, None],
+        truncated=truncated[:, None],
+        raw_obs=env_args.env.get_obs(agent_state.collector_state.env_state),
+        next_obs=raw_next_obs,
+        log_prob=log_probs,
+    )
 
-        raw_reward = env_args.env.unnormalize_reward(reward, env_norm_info.reward)
-    else:
-        raw_reward = reward
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
-        agent_state, raw_reward, done
+        agent_state=agent_state,
+        reward=reward,
+        done=jnp.logical_or(terminated, truncated),
+        env=env_args.env,
+        mode=mode,
     )
 
     new_collector_state = agent_state.collector_state.replace(
@@ -439,10 +440,10 @@ def collect_experience(
         last_truncated=truncated,
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
-        buffer_state=buffer_state,
+        buffer_state=agent_state.collector_state.buffer_state,
     )
 
-    agent_state = agent_state.replace(collector_state=new_collector_state)
+    agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
     return agent_state, transition
 
 
@@ -546,6 +547,7 @@ def init_collector_state(
         terminated=jnp.ones((env_args.n_envs, 1)),
         truncated=jnp.ones((env_args.n_envs, 1)),
         log_prob=jnp.ones((env_args.n_envs, *action_shape)),
+        raw_obs=jnp.ones((env_args.n_envs, *obs_shape)),
     )
     episodic_return_state = init_rolling_mean(
         window_size=window_size,

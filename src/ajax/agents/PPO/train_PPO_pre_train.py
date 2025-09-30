@@ -87,6 +87,7 @@ def policy_loss_function(
     clip_coef: float,
     ent_coef: float,
     advantage_normalization: bool,
+    raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 0.01,
     distance_to_stable: Optional[Callable] = None,
@@ -153,7 +154,7 @@ def policy_loss_function(
     )
 
     imitation_loss = (
-        -pi.log_prob(expert_policy(observations))
+        -pi.log_prob(expert_policy(raw_observations))
         if expert_policy is not None
         else jnp.zeros(1)
     )
@@ -161,8 +162,8 @@ def policy_loss_function(
     EPS = 1e-6
     if distance_to_stable is not None:
         distance = (
-            1 / (distance_to_stable(observations) + EPS)
-        ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
+            (1 / (distance_to_stable(observations) + EPS)) + imitation_coef_offset
+        )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
         distance = jnp.expand_dims(distance, -1)
     else:
         distance = 1
@@ -203,6 +204,7 @@ def update_policy(
     clip_coef: float,
     ent_coef: float,
     advantage_normalization: bool,
+    raw_observations: jax.Array,
     expert_policy: Callable,
     imitation_coef: float,
     distance_to_stable: Callable,
@@ -242,6 +244,7 @@ def update_policy(
         clip_coef=clip_coef,
         ent_coef=ent_coef,
         advantage_normalization=advantage_normalization,
+        raw_observations=raw_observations,
         expert_policy=expert_policy,
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
@@ -304,6 +307,7 @@ def update_agent(
         value_targets,
         gae,
         log_probs,
+        raw_observations,
     ) = shuffled_batch
     if DEBUG:
         assert (
@@ -341,6 +345,7 @@ def update_agent(
         ent_coef=agent_config.ent_coef,
         clip_coef=clip_coef,
         advantage_normalization=agent_config.normalize_advantage,
+        raw_observations=raw_observations,
         expert_policy=expert_policy,
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
@@ -495,6 +500,7 @@ def training_iteration(
             < 3  # discrete case without trailing dimension
             else transition.log_prob.sum(-1, keepdims=True)
         ),
+        transition.raw_obs,
     )
 
     shuffle_key, rng = jax.random.split(agent_state.rng)

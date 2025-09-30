@@ -17,6 +17,8 @@ from ajax.utils import get_and_prepare_hyperparams
 class PPO(ActorCritic):
     """Soft Actor-Critic (PPO) agent for training and testing in continuous action spaces."""
 
+    name: str = "PPO"
+
     def __init__(  # pylint: disable=W0102, R0913
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?

@@ -7,6 +7,6 @@ Plane:
   gamma: 0.99
   n_steps: 1024
   normalize_observations: false
-  normalize_rewards: true
+  normalize_rewards: false
   actor_architecture: "(256, tanh, 256, tanh)"
   critic_architecture: "(256, tanh, 256, tanh)"

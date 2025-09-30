@@ -8,7 +8,7 @@ from target_gym import Plane, PlaneParams
 from target_gym.plane.env import PlaneState
 from tqdm import tqdm
 
-from ajax.agents.APO.APO import APO
+from ajax.agents.PPO.PPO_pre_train import PPO
 
 # from ajax.agents.PPO.PPO import PPO
 from ajax.logging.wandb_logging import (
@@ -148,14 +148,14 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 
 if __name__ == "__main__":
-    project_name = "APO_tests_plane_norm"
+    project_name = "tests_plane_norm_2"
     n_timesteps = int(1e6)
     n_seeds = 10
     num_episode_test = 10
     log_frequency = 4096
     use_wandb = True
     logging_config = get_log_config(project_name)
-    agent = APO
+    agent = PPO
 
     key = jax.random.PRNGKey(42)
     env = Plane()

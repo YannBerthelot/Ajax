@@ -23,7 +23,7 @@ AGENT_MAP = {
 
 def main(agent, n_seeds=10):
     run = wandb.init(project=f"Plane_{agent.__name__}_sweep_norm")
-    n_timesteps = int(1e6)
+    n_timesteps = int(5e5)
     log_frequency = 10_000
     num_episode_test = 25
     logging_config = LoggingConfig(
@@ -151,26 +151,47 @@ if __name__ == "__main__":
     n_neurons = [64, 128, 256, 512]
     gamma = [0.9, 0.99, 0.999]
     n_steps = [1024, 2048, 4096]
-    activations = ["relu", "tanh"]
+    activations = ["tanh"]
     ent_coef = [0, 1e-1, 1e-2, 1e-3, 1e-4]
     clip_range = [0.1, 0.2, 0.3]
+    normalize_observations = [False]
+    normalize_rewards = [True]
 
     if agent is PPO:
         sweep_configuration = {
-            "method": method,
+            "method": "bayes",  # or "random" if you prefer
             "metric": {"goal": "maximize", "name": "score"},
             "parameters": {
-                "actor_learning_rate": {"values": learning_rates},
-                "critic_learning_rate": {"values": learning_rates},
-                "n_envs": {"values": n_envs},
-                "activation": {"values": activations},
-                "n_neurons": {"values": n_neurons},
-                "gamma": {"values": gamma},
-                "ent_coef": {"values": ent_coef},
-                "clip_range": {"values": clip_range},
-                "n_steps": {"values": n_steps},
-                "normalize_observations": {"values": [True, False]},
-                "normalize_rewards": {"values": [True, False]},
+                "actor_learning_rate": {
+                    "distribution": "log_uniform_values",
+                    "min": 1e-5,
+                    "max": 3e-3,
+                },
+                "critic_learning_rate": {
+                    "distribution": "log_uniform_values",
+                    "min": 1e-5,
+                    "max": 3e-3,
+                },
+                "clip_range": {
+                    "values": [0.1, 0.2, 0.3],
+                },
+                "n_steps": {
+                    "values": [256, 512, 1024, 2048],
+                },
+                "gamma": {
+                    "values": [0.95, 0.98, 0.99, 0.995],
+                },
+                "ent_coef": {
+                    "distribution": "log_uniform_values",
+                    "min": 1e-5,
+                    "max": 1e-1,
+                },
+                # Fixed for now
+                "activation": {"value": "tanh"},
+                "n_neurons": {"value": 64},
+                "normalize_observations": {"value": True},
+                "normalize_rewards": {"value": False},
+                "n_envs": {"value": 8},
             },
         }
     elif agent is SAC:
@@ -201,7 +222,6 @@ if __name__ == "__main__":
                 "n_envs": {"values": n_envs},
                 "activation": {"values": activations},
                 "n_neurons": {"values": n_neurons},
-                "gamma": {"values": gamma},
                 "ent_coef": {"values": ent_coef},
                 "clip_range": {"values": clip_range},
                 "n_steps": {"values": n_steps},

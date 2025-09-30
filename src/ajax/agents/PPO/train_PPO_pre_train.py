@@ -124,11 +124,6 @@ def policy_loss_function(
         )  # .sum(-1, keepdims=True)
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-    if DEBUG:
-        assert new_log_probs.shape == log_probs.shape, (
-            f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
-            f" {log_probs.shape}"
-        )
 
     ratio = jnp.exp(
         new_log_probs - log_probs
@@ -136,10 +131,6 @@ def policy_loss_function(
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-    if DEBUG:
-        assert (
-            ratio.shape[0] == gae.shape[0]
-        ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     loss_actor1 = ratio * gae
     loss_actor2 = (
         jnp.clip(
@@ -160,18 +151,18 @@ def policy_loss_function(
         if isinstance(pi, SquashedNormal)
         else pi.entropy().mean()
     )
-    EPS = 1e-6
-    if expert_policy is not None:
-        expert_actions = expert_policy(observations)
-        imitation_loss = -pi.log_prob(expert_actions)
-    else:
-        imitation_loss = jnp.zeros(1)
 
+    imitation_loss = (
+        -pi.log_prob(expert_policy(observations))
+        if expert_policy is not None
+        else jnp.zeros(1)
+    )
+
+    EPS = 1e-6
     if distance_to_stable is not None:
         distance = (
             1 / (distance_to_stable(observations) + EPS)
         ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
-
         distance = jnp.expand_dims(distance, -1)
     else:
         distance = 1

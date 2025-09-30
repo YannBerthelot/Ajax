@@ -24,6 +24,9 @@ T = TypeVar("T")  # generic type for pytrees
 
 
 def repeat_first_entry(tree: T, num_repeats: int) -> T:
+    return jax.tree.map(
+        lambda x: jnp.broadcast_to(x[0], (num_repeats, *x.shape[1:])), tree
+    )
     return jax.tree.map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
 
 

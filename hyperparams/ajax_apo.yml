@@ -5,8 +5,8 @@ Plane:
   critic_learning_rate: 0.005408081160478636
   ent_coef: 0.00691850007332748
   n_steps: 1024
-  normalize_observations: true
-  normalize_rewards: true
+  normalize_observations: false
+  normalize_rewards: false
   actor_architecture: "(256, tanh, 256, tanh)"
   critic_architecture: "(256, tanh, 256, tanh)"
   alpha: 0.3

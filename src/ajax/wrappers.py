@@ -153,7 +153,7 @@ class ClipAction(GymnaxWrapper):
         """Step the environment while clipping the action first"""
         # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
-        return self._env.step(key, state, action, params)
+        return self._env.step(key=key, state=state, action=action, params=params)
 
 
 class ClipActionBrax(BraxWrapper):

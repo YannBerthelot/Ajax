@@ -148,7 +148,7 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 
 if __name__ == "__main__":
-    project_name = "APO_tests_plane"
+    project_name = "APO_tests_plane_norm"
     n_timesteps = int(1e6)
     n_seeds = 10
     num_episode_test = 10

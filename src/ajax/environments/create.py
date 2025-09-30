@@ -63,11 +63,13 @@ def prepare_env(
 
     # Apply wrappers based on flags
     if normalize_obs or normalize_reward:
-        env = NormalizeVecObservation(
-            ClipAction(env),
-            normalize_reward=normalize_reward,
-            normalize_obs=normalize_obs,
-            gamma=gamma if normalize_reward else None,
+        env = ClipAction(
+            NormalizeVecObservation(
+                env,
+                normalize_reward=normalize_reward,
+                normalize_obs=normalize_obs,
+                gamma=gamma if normalize_reward else None,
+            )
         )
     if noise_scale is not None:
         print("noise wrapper")

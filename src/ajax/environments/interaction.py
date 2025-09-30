@@ -145,7 +145,20 @@ def step(
         else:
             obsv, env_state, reward, terminated, truncated, info = out
             terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
-
+        if "normalization_info" in env_state.__dict__:
+            obs_norm_info = jax.tree.map(
+                lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
+                env_state.normalization_info.obs,
+            )
+            reward_norm_info = jax.tree.map(
+                lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
+                env_state.normalization_info.reward,
+            )
+            env_state = env_state.replace(
+                normalization_info=env_state.normalization_info.replace(
+                    obs=obs_norm_info, reward=reward_norm_info
+                )
+            )
     elif mode == "brax":  # ✅ no vmap for brax
         env_state = env.step(state=state, action=action)
         obsv, reward, done, info = (

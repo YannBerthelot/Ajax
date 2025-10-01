@@ -8,10 +8,10 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
+from ajax.agents.cloning import CloningConfig, get_imitation_coef, get_pre_trained_agent
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.train_PPO import init_PPO, update_value_functions
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
-from ajax.agents.pre_train import CloningConfig, get_pre_trained_agent
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
@@ -582,28 +582,9 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    imitation_coef = cloning_args.imitation_coef
-
-    def imitation_coef_schedule(init_val):
-        def imitation_coef(t, total_timesteps):
-            return (1 - (t / total_timesteps)) * init_val
-
-        return imitation_coef
-
-    # if "auto" not in str(imitation_coef):
-    if "lin" in str(imitation_coef):
-        imitation_coef = (
-            imitation_coef_schedule(float(imitation_coef.split("_")[1]))
-            if isinstance(imitation_coef, str)
-            else imitation_coef
-        )
-        imitation_coef = (
-            partial(imitation_coef, total_timesteps=total_timesteps)
-            if callable(imitation_coef)
-            else imitation_coef
-        )
-    if "auto" in str(imitation_coef):
-        imitation_coef = float(imitation_coef.split("_")[1])
+    imitation_coef = get_imitation_coef(
+        cloning_args=cloning_args, total_timesteps=total_timesteps
+    )
 
     def train(key, index: Optional[int] = None):
         """Train the PPO agent."""

@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional, Sequence, Tuple
+from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -25,6 +25,34 @@ class CloningConfig:
     imitation_coef: float = 1e-3
     distance_to_stable: Optional[Callable] = None
     imitation_coef_offset: float = 1e-3
+
+
+def get_imitation_coef(
+    cloning_args: CloningConfig, total_timesteps: int
+) -> Union[float, Callable]:
+    imitation_coef = cloning_args.imitation_coef
+
+    def imitation_coef_schedule(init_val):
+        def imitation_coef(t, total_timesteps):
+            return (1 - (t / total_timesteps)) * init_val
+
+        return imitation_coef
+
+    # if "auto" not in str(imitation_coef):
+    if "lin" in str(imitation_coef):
+        imitation_coef = (
+            imitation_coef_schedule(float(imitation_coef.split("_")[1]))
+            if isinstance(imitation_coef, str)
+            else imitation_coef
+        )
+        imitation_coef = (
+            partial(imitation_coef, total_timesteps=total_timesteps)
+            if callable(imitation_coef)
+            else imitation_coef
+        )
+    if "auto" in str(imitation_coef):
+        imitation_coef = float(imitation_coef.split("_")[1])
+    return imitation_coef
 
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:

@@ -13,8 +13,8 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
+from ajax.agents.cloning import CloningConfig, get_imitation_coef, get_pre_trained_agent
 from ajax.agents.PPO.utils import get_minibatches_from_batch
-from ajax.agents.pre_train import CloningConfig, get_pre_trained_agent
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
@@ -828,6 +828,10 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
+    imitation_coef = get_imitation_coef(
+        cloning_args=cloning_args, total_timesteps=total_timesteps
+    )
+
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the APO agent."""
@@ -872,6 +876,10 @@ def make_train(
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
             total_n_updates=num_updates,
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=cloning_args.distance_to_stable,
+            imitation_coef_offset=cloning_args.imitation_coef_offset,
         )
 
         agent_state, out = jax.lax.scan(

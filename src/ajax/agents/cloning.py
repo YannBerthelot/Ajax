@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -7,7 +7,6 @@ from flax import struct
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
-from ajax.agents.base import BaseAgentConfig
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
@@ -68,7 +67,6 @@ def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
 @partial(
     jax.jit,
     static_argnames=[
-        "agent_config",
         "actor_lr",
         "actor_epochs",
         "actor_batch_size",
@@ -82,7 +80,6 @@ def pre_train(
     actor_state: train_state.TrainState,
     critic_state: train_state.TrainState,
     dataset: Sequence,  # Sequence[Transition]
-    agent_config: BaseAgentConfig,
     # Actor hyperparameters
     actor_lr: float = 1e-3,
     actor_epochs: int = 10,
@@ -101,7 +98,6 @@ def pre_train(
     # rewards = dataset.reward
     # terminated = dataset.terminated
     # next_obs = dataset.next_obs
-
     metrics = {
         "actor_loss": jnp.zeros((actor_epochs,)),
         "critic_loss": jnp.zeros((critic_epochs,)),
@@ -253,7 +249,6 @@ def get_pre_trained_agent(
         actor_state=agent_state.actor_state,
         critic_state=agent_state.critic_state,
         dataset=dataset,
-        agent_config=agent_config,
         actor_lr=actor_optimizer_args.learning_rate,
         critic_lr=critic_optimizer_args.learning_rate,
         actor_epochs=cloning_args.actor_epochs,
@@ -262,3 +257,30 @@ def get_pre_trained_agent(
         critic_batch_size=cloning_args.critic_batch_size,
     )
     return agent_state.replace(actor_state=actor_state, critic_state=critic_state)
+
+
+def get_one(_: Any) -> float:
+    return 1.0
+
+
+def get_cloning_args(
+    cloning_args: Optional[CloningConfig], total_timesteps: int
+) -> Tuple:
+    imitation_coef = 0.0
+    distance_to_stable = get_one
+    imitation_coef_offset = 0.0
+    pre_train_n_steps = 0
+
+    if cloning_args is not None:
+        imitation_coef = get_imitation_coef(  # type: ignore[assignment]
+            cloning_args=cloning_args, total_timesteps=total_timesteps
+        )
+        distance_to_stable = cloning_args.distance_to_stable or get_one
+        imitation_coef_offset = cloning_args.imitation_coef_offset
+        pre_train_n_steps = cloning_args.pre_train_n_steps
+    return (
+        imitation_coef,
+        imitation_coef_offset,
+        distance_to_stable,
+        pre_train_n_steps,
+    )

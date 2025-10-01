@@ -372,17 +372,13 @@ def get_action_and_log_probs(
 
 
 def get_raw_obs(
-    agent_state: BaseAgentState, env: Environment, mode: str
+    env_state: EnvState, env: Environment, mode: str
 ) -> Optional[jax.Array]:
-    if agent_state.collector_state.rollout.raw_obs is not None:  # type: ignore[union-attr]
-        return (
-            jax.vmap(env.get_obs)(agent_state.collector_state.env_state)
-            if mode == "gymnax"
-            else jax.vmap(env._get_obs)(
-                agent_state.collector_state.env_state.pipeline_state
-            )
-        )
-    return None
+    return (
+        jax.vmap(env.get_obs)(env_state)
+        if mode == "gymnax"
+        else jax.vmap(env._get_obs)(env_state.pipeline_state)
+    )
 
 
 @partial(
@@ -445,7 +441,15 @@ def collect_experience(
         reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
-        raw_obs=get_raw_obs(agent_state=agent_state, env=env_args.env, mode=mode),
+        raw_obs=(
+            get_raw_obs(
+                env_state=agent_state.collector_state.env_state,
+                env=env_args.env,
+                mode=mode,
+            )
+            if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
+            else None
+        ),
         next_obs=raw_next_obs,
         log_prob=log_probs,
     )
@@ -517,8 +521,12 @@ def collect_experience_from_expert_policy(
         )
 
         # Compute action using expert policy, obs should NOT be normalized (unless expert_policy was designed using normed-obs)
-        action = jax.vmap(expert_policy, in_axes=0)(last_obs)
-
+        raw_obs = get_raw_obs(
+            env_state=env_state,
+            env=env_args.env,
+            mode=mode,
+        )
+        action = jax.vmap(expert_policy, in_axes=0)(raw_obs)
         # Step environment and stop gradient to avoid backprop through env
         obsv, new_env_state, reward, terminated, truncated, info = (
             jax.lax.stop_gradient(
@@ -527,6 +535,7 @@ def collect_experience_from_expert_policy(
                 )
             )
         )
+
         # Build transition
         transition = Transition(
             obs=last_obs,

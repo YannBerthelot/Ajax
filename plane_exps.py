@@ -150,9 +150,9 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 if __name__ == "__main__":
     agent = APO
     project_name = "tests_APO_expert"
-    n_timesteps = int(2e6)
-    n_seeds = 25
-    num_episode_test = 25
+    n_timesteps = int(5e5)
+    n_seeds = 1
+    num_episode_test = 10
     log_frequency = 4096
     use_wandb = True
     logging_config = get_log_config(project_name, agent.name)
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-    mode = "GPU"
+    mode = "CPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],

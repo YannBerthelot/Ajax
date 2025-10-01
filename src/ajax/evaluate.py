@@ -52,6 +52,7 @@ def evaluate(
     gamma: float = 0.99,  # TODO : propagate
     norm_info: Optional[NormalizationInfo] = None,
     avg_reward_mode: bool = False,
+    num_steps_average_reward: int = int(1e4),
 ) -> jax.Array:
     mode = "gymnax" if check_env_is_gymnax(env) else "brax"
     if mode == "gymnax":
@@ -213,7 +214,7 @@ def evaluate(
             f=sample_action_and_step_scan,
             init=carry,
             xs=None,
-            length=env_params.max_steps_in_episode,  # type: ignore[union-attr]
+            length=num_steps_average_reward,  # type: ignore[union-attr]
         )
         avg_reward = _rewards.mean(axis=0)
         bias = jnp.nansum(_rewards - avg_reward, axis=0)

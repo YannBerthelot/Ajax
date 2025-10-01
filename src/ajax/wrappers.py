@@ -384,11 +384,11 @@ def normalize_wrapper_factory(
                         var=reward_info.var,
                         returns=reward_info.returns if self.normalize_reward else None,
                     )
-            obs = get_obs_from_state(state, self.mode)
+            raw_obs = get_obs_from_state(state, self.mode)
 
             if self.normalize_obs:
                 obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
-                    obs,
+                    raw_obs,
                     obs_norm_info.count,
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,
@@ -440,6 +440,7 @@ def normalize_wrapper_factory(
                 raw_state = self._raw_state(**raw_state_dict)
             else:
                 raw_state = state
+
             raw_state = (
                 self.env.step(raw_state, action)
                 if self.mode == "brax"
@@ -447,18 +448,19 @@ def normalize_wrapper_factory(
                     key=key, state=raw_state, action=action, params=params
                 )
             )
+
             # if mode == "gymnax":
             #     # obs, env_state, reward, done, info = raw_state
             #     # env_state = self.state_class(**to_state_dict(env_state), normalization_info=state.normalization_info)  # type: ignore[call-arg]
             #     # state = obs, env_state, reward, done, info
             # else:
             #     state = raw_state
-            obs, reward, done = get_obs_and_reward_and_done_from_state(
+            raw_obs, reward, done = get_obs_and_reward_and_done_from_state(
                 raw_state, mode=self.mode
             )
             if self.normalize_obs:
                 obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
-                    obs,
+                    raw_obs,
                     obs_norm_info.count,
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,

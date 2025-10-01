@@ -322,6 +322,7 @@ def test_update_policy(env_config, APO_state):
     actions = jnp.ones((env_config.n_envs, *action_shape))
     log_probs = jnp.ones((env_config.n_envs, 1))
     gae = jnp.ones((env_config.n_envs, 1))
+    raw_observations = observations
 
     # Save the original actor params for comparison
     original_actor_params = APO_state.actor_state.params
@@ -338,6 +339,7 @@ def test_update_policy(env_config, APO_state):
         advantage_normalization=True,
         done=dones,
         recurrent=False,
+        raw_observations=raw_observations,
     )
     aux = to_state_dict(aux)
     # Validate that only actor_state.params has changed
@@ -408,6 +410,7 @@ def test_update_agent(env_config, APO_state):
             < 3  # discrete case without trailing dimension
             else transition.log_prob.sum(-1, keepdims=True)
         ),
+        transition.raw_obs,
     )
     shuffle_key = jax.random.PRNGKey(0)
     num_minibatches = agent_config.batch_size // 2
@@ -488,6 +491,7 @@ def test_update_agent_with_scan(env_config, APO_state):
             < 3  # discrete case without trailing dimension
             else transition.log_prob.sum(-1, keepdims=True)
         ),
+        transition.raw_obs,
     )
     shuffle_key = jax.random.PRNGKey(0)
     num_minibatches = agent_config.batch_size // 2

@@ -13,7 +13,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
-from ajax.agents.cloning import CloningConfig, get_imitation_coef, get_pre_trained_agent
+from ajax.agents.cloning import CloningConfig, get_cloning_args, get_pre_trained_agent
 from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.interaction import (
@@ -211,6 +211,10 @@ def value_loss_function(
     )
 
 
+def get_one(_):
+    return 1
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -236,7 +240,7 @@ def policy_loss_function(
     raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 0.01,
-    distance_to_stable: Optional[Callable] = None,
+    distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
@@ -310,13 +314,12 @@ def policy_loss_function(
     )
 
     EPS = 1e-6
-    if distance_to_stable is not None:
-        distance = (
-            (1 / (distance_to_stable(observations) + EPS)) + imitation_coef_offset
-        )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
-        distance = jnp.expand_dims(distance, -1)
-    else:
-        distance = 1
+
+    distance = (
+        (1 / (distance_to_stable(observations) + EPS)) + imitation_coef_offset
+    )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
+    distance = jnp.expand_dims(distance, -1)
+
     total_loss = (
         loss_actor
         - ent_coef * entropy
@@ -407,10 +410,10 @@ def update_policy(
     ent_coef: float,
     advantage_normalization: bool,
     raw_observations: jax.Array,
-    expert_policy: Callable,
-    imitation_coef: float,
-    distance_to_stable: Callable,
-    imitation_coef_offset: float,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.0,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 0.0,
 ) -> Tuple[APOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -469,10 +472,10 @@ def update_agent(
     agent_config: APOConfig,
     recurrent: bool,
     b: float,
-    expert_policy: Callable,
-    imitation_coef: float,
-    distance_to_stable: Callable,
-    imitation_coef_offset: float,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.0,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 0.0,
 ) -> Tuple[APOState, AuxiliaryLogs]:
     """
     Update the APO agent, including critic, actor, and temperature updates.
@@ -624,7 +627,7 @@ def training_iteration(
     verbose: bool = False,
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 1e-3,
-    distance_to_stable: Optional[Callable] = None,
+    distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
 ) -> tuple[APOState, None]:
     """
@@ -814,14 +817,14 @@ def make_train(
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
-    cloning_args: CloningConfig,
-    expert_policy: Callable,
     network_args: NetworkConfig,
     agent_config: APOConfig,
     total_timesteps: int,
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    cloning_args: Optional[CloningConfig] = None,
+    expert_policy: Optional[Callable] = None,
 ):
     """
     Create the training function for the APO agent.
@@ -847,10 +850,6 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    imitation_coef = get_imitation_coef(
-        cloning_args=cloning_args, total_timesteps=total_timesteps
-    )
-
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the APO agent."""
@@ -862,8 +861,17 @@ def make_train(
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
         )
+
         # pre-train agent
-        if expert_policy is not None and cloning_args.pre_train_n_steps > 0:
+
+        (
+            imitation_coef,
+            imitation_coef_offset,
+            distance_to_stable,
+            pre_train_n_steps,
+        ) = get_cloning_args(cloning_args, total_timesteps)
+
+        if pre_train_n_steps > 0:
             agent_state = get_pre_trained_agent(
                 agent_state,
                 expert_policy,
@@ -875,7 +883,6 @@ def make_train(
                 actor_optimizer_args,
                 critic_optimizer_args,
             )
-
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 
         training_iteration_scan_fn = partial(
@@ -897,8 +904,8 @@ def make_train(
             total_n_updates=num_updates,
             expert_policy=expert_policy,
             imitation_coef=imitation_coef,
-            distance_to_stable=cloning_args.distance_to_stable,
-            imitation_coef_offset=cloning_args.imitation_coef_offset,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
         )
 
         agent_state, out = jax.lax.scan(

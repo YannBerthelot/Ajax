@@ -41,7 +41,7 @@ def get_sweep_values(
     imitation_coef_list = []
     imitation_coef_offset_list = [0.0]
     if pre_train:
-        pre_train_step_list = [int(1e5)]
+        pre_train_step_list = [int(1e5), 0]
     else:
         pre_train_step_list = [0]
 
@@ -74,10 +74,10 @@ def get_distance_fn_from_imitation_coef(imitation_coef):
         return distance_to_stable_fn
 
 
-def get_log_config(project_name):
+def get_log_config(project_name, agent_name):
     return LoggingConfig(
         project_name=project_name,
-        run_name="PPO",
+        run_name=agent_name,
         config={
             "debug": False,
             "log_frequency": log_frequency,
@@ -148,14 +148,14 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 
 if __name__ == "__main__":
-    project_name = "tests_plane_norm_2"
-    n_timesteps = int(5e5)
-    n_seeds = 1
-    num_episode_test = 10
+    agent = APO
+    project_name = "tests_APO_expert"
+    n_timesteps = int(2e6)
+    n_seeds = 25
+    num_episode_test = 25
     log_frequency = 4096
     use_wandb = True
-    logging_config = get_log_config(project_name)
-    agent = APO
+    logging_config = get_log_config(project_name, agent.name)
 
     key = jax.random.PRNGKey(42)
     env = Plane()
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-    mode = "CPU"
+    mode = "GPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],

@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import distrax
 import jax
+import jax.extend
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
@@ -296,11 +297,15 @@ def policy_loss_function(
 
     loss_actor = -jnp.minimum(loss_actor1, loss_actor2).mean()
 
+    def get_penalty_weight(improvement_metric, lambda_coef):
+        return jnp.where(improvement_metric < 0, lambda_coef, 0.0)
+
+    improvement_metric = jnp.minimum(loss_actor1, loss_actor2)
+
+    penalty_weight = get_penalty_weight(improvement_metric, imitation_coef)
     # CALCULATE AUXILIARIES
     clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
-    # entropy = (
-    #     pi.entropy().mean() if "entropy" in dir(pi) else pi.unsquashed_entropy().mean()
-    # )
+
     entropy = (
         pi.unsquashed_entropy().mean()
         if isinstance(pi, SquashedNormal)
@@ -323,7 +328,7 @@ def policy_loss_function(
     total_loss = (
         loss_actor
         - ent_coef * entropy
-        + (imitation_coef * distance * imitation_loss).mean()
+        + (penalty_weight * distance * imitation_loss).mean()
     )
 
     return total_loss, PolicyAuxiliaries(

@@ -386,6 +386,7 @@ def normalize_wrapper_factory(
                     )
             raw_obs = get_obs_from_state(state, self.mode)
 
+            obs = raw_obs
             if self.normalize_obs:
                 obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
                     raw_obs,
@@ -458,6 +459,7 @@ def normalize_wrapper_factory(
             raw_obs, reward, done = get_obs_and_reward_and_done_from_state(
                 raw_state, mode=self.mode
             )
+            obs = raw_obs
             if self.normalize_obs:
                 obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
                     raw_obs,

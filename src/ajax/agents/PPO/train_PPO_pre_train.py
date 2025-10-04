@@ -11,7 +11,7 @@ from jax.tree_util import Partial as partial
 from ajax.agents.cloning import (
     CloningConfig,
     compute_imitation_score,
-    get_imitation_coef,
+    get_cloning_args,
     get_pre_trained_agent,
 )
 from ajax.agents.PPO.state import PPOConfig, PPOState
@@ -271,10 +271,10 @@ def update_agent(
     shuffled_batch: tuple[jax.Array],
     agent_config: PPOConfig,
     recurrent: bool,
-    expert_policy: Callable,
-    imitation_coef: float,
-    distance_to_stable: Callable,
-    imitation_coef_offset: float,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.0,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 0.0,
 ) -> Tuple[PPOState, AuxiliaryLogs]:
     """
     Update the PPO agent, including critic, actor, and temperature updates.
@@ -400,7 +400,7 @@ def training_iteration(
     verbose: bool = False,
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 1e-3,
-    distance_to_stable: Optional[Callable] = None,
+    distance_to_stable: Optional[Callable] = get_one,
     imitation_coef_offset: float = 1e-3,
 ) -> tuple[PPOState, None]:
     """
@@ -555,14 +555,14 @@ def make_train(
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
-    cloning_args: CloningConfig,
-    expert_policy: Callable,
     network_args: NetworkConfig,
     agent_config: PPOConfig,
     total_timesteps: int,
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    cloning_args: Optional[CloningConfig] = None,
+    expert_policy: Optional[Callable] = None,
 ):
     """
     Create the training function for the PPO agent.
@@ -584,13 +584,13 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    assert (cloning_args is None) == (
+        expert_policy is None
+    ), "cloning_args and expert_policy must either both be provided or both be None"
+
     # Start async logging if logging is enabled
     if logging_config is not None:
         start_async_logging()
-
-    imitation_coef = get_imitation_coef(
-        cloning_args=cloning_args, total_timesteps=total_timesteps
-    )
 
     def train(key, index: Optional[int] = None):
         """Train the PPO agent."""
@@ -603,8 +603,15 @@ def make_train(
             network_args=network_args,
         )
 
+        (
+            imitation_coef,
+            imitation_coef_offset,
+            distance_to_stable,
+            pre_train_n_steps,
+        ) = get_cloning_args(cloning_args, total_timesteps)
+
         # pre-train agent
-        if expert_policy is not None and cloning_args.pre_train_n_steps > 0:
+        if pre_train_n_steps > 0:
             agent_state = get_pre_trained_agent(
                 agent_state,
                 expert_policy,
@@ -637,8 +644,8 @@ def make_train(
             total_n_updates=num_updates,
             expert_policy=expert_policy,
             imitation_coef=imitation_coef,
-            distance_to_stable=cloning_args.distance_to_stable,
-            imitation_coef_offset=cloning_args.imitation_coef_offset,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
         )
 
         agent_state, out = jax.lax.scan(

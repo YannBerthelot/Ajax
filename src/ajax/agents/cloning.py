@@ -115,9 +115,11 @@ def pre_train(
     )
 
     def actor_loss_fn(params, batch_obs, batch_actions):
-        pred_actions = bc_actor_state.apply_fn(
-            params, batch_obs
-        ).mean()  # deterministic prediction
+        pi = bc_actor_state.apply_fn(params, batch_obs)
+        if isinstance(pi, distrax.Categorical):
+            pred_actions = pi.mode()
+        else:
+            pred_actions = pi.mean()  # deterministic prediction
         return jnp.mean((pred_actions - batch_actions) ** 2)
 
     def actor_train_step(state, batch_obs, batch_actions):

@@ -71,6 +71,19 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
 
 
+def compute_entropy_and_log_probs(pi, actions):
+    """Return new log_probs and entropy with shape normalization."""
+    if isinstance(pi, distrax.Categorical):
+        new_log_probs = jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
+        entropy = jnp.expand_dims(pi.entropy(), -1)
+    else:
+        new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
+        entropy = (
+            pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
+        )
+    return new_log_probs, entropy
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -123,16 +136,7 @@ def policy_loss_function(
         recurrent=recurrent,
     )
 
-    entropy = (
-        pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
-    )
-    if isinstance(pi, distrax.Categorical):
-        new_log_probs = jnp.expand_dims(
-            pi.log_prob(actions.squeeze(-1)), -1
-        )  # .sum(-1, keepdims=True)
-        entropy = jnp.expand_dims(entropy, -1)
-    else:
-        new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
+    new_log_probs, entropy = compute_entropy_and_log_probs(pi, actions)
 
     ratio = jnp.exp(
         new_log_probs - log_probs

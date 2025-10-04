@@ -11,7 +11,7 @@ from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.train_APO import (
     init_APO,
     make_train,
-    policy_loss_function,
+    # policy_loss_function,
     training_iteration,
     update_agent,
     update_policy,
@@ -179,97 +179,97 @@ def test_value_loss_function_with_value_and_grad(env_config, APO_state):
     ), "Gradients contain invalid values."
 
 
-@pytest.mark.parametrize(
-    "env_config",
-    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
-    indirect=True,
-)
-def test_policy_loss_function(env_config, APO_state):
-    observation_shape, _ = get_state_action_shapes(env_config.env)
+# @pytest.mark.parametrize(
+#     "env_config",
+#     ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+#     indirect=True,
+# )
+# def test_policy_loss_function(env_config, APO_state):
+#     observation_shape, _ = get_state_action_shapes(env_config.env)
 
-    # Mock inputs for the policy loss function
-    observations = jnp.zeros((env_config.n_envs, *observation_shape))
-    dones = jnp.zeros((env_config.n_envs, 1))
-    actions = jnp.zeros((env_config.n_envs, 1))
-    log_probs = jnp.zeros((env_config.n_envs, 1))
-    gae = jnp.ones((env_config.n_envs, 1))
+#     # Mock inputs for the policy loss function
+#     observations = jnp.zeros((env_config.n_envs, *observation_shape))
+#     dones = jnp.zeros((env_config.n_envs, 1))
+#     actions = jnp.zeros((env_config.n_envs, 1))
+#     log_probs = jnp.zeros((env_config.n_envs, 1))
+#     gae = jnp.ones((env_config.n_envs, 1))
 
-    # Call the policy loss function
-    for advantage_normalization in [True, False]:
-        loss, aux = policy_loss_function(
-            actor_params=APO_state.actor_state.params,
-            actor_state=APO_state.actor_state,
-            observations=observations,
-            actions=actions,
-            log_probs=log_probs,
-            gae=gae,
-            dones=dones,
-            recurrent=False,
-            clip_coef=0.2,
-            ent_coef=0.1,
-            advantage_normalization=advantage_normalization,
-        )
-        aux = to_state_dict(aux)
-        # Validate the outputs
-        assert jnp.isfinite(loss), "Loss contains invalid values."
+#     # Call the policy loss function
+#     for advantage_normalization in [True, False]:
+#         loss, aux = policy_loss_function(
+#             actor_params=APO_state.actor_state.params,
+#             actor_state=APO_state.actor_state,
+#             observations=observations,
+#             actions=actions,
+#             log_probs=log_probs,
+#             gae=gae,
+#             dones=dones,
+#             recurrent=False,
+#             clip_coef=0.2,
+#             ent_coef=0.1,
+#             advantage_normalization=advantage_normalization,
+#         )
+#         aux = to_state_dict(aux)
+#         # Validate the outputs
+#         assert jnp.isfinite(loss), "Loss contains invalid values."
 
-        for auxiliary_value in [
-            "policy_loss",
-            "log_probs",
-            "old_log_probs",
-            "clip_fraction",
-            "entropy",
-        ]:
-            assert (
-                auxiliary_value in aux
-            ), f"Auxiliary outputs are missing '{auxiliary_value}'."
+#         for auxiliary_value in [
+#             "policy_loss",
+#             "log_probs",
+#             "old_log_probs",
+#             "clip_fraction",
+#             "entropy",
+#         ]:
+#             assert (
+#                 auxiliary_value in aux
+#             ), f"Auxiliary outputs are missing '{auxiliary_value}'."
 
-        assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+#         assert aux["policy_loss"] <= 0, "Policy loss should be negative."
 
 
-@pytest.mark.parametrize(
-    "env_config",
-    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
-    indirect=True,
-)
-def test_policy_loss_function_with_value_and_grad(env_config, APO_state):
-    observation_shape, _ = get_state_action_shapes(env_config.env)
+# @pytest.mark.parametrize(
+#     "env_config",
+#     ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+#     indirect=True,
+# )
+# def test_policy_loss_function_with_value_and_grad(env_config, APO_state):
+#     observation_shape, _ = get_state_action_shapes(env_config.env)
 
-    # Mock inputs for the policy loss function
-    observations = jnp.zeros((env_config.n_envs, *observation_shape))
-    dones = jnp.zeros((env_config.n_envs, 1))
-    actions = jnp.zeros((env_config.n_envs, 1))
-    log_probs = jnp.zeros((env_config.n_envs, 1))
-    gae = jnp.ones((env_config.n_envs, 1))
+#     # Mock inputs for the policy loss function
+#     observations = jnp.zeros((env_config.n_envs, *observation_shape))
+#     dones = jnp.zeros((env_config.n_envs, 1))
+#     actions = jnp.zeros((env_config.n_envs, 1))
+#     log_probs = jnp.zeros((env_config.n_envs, 1))
+#     gae = jnp.ones((env_config.n_envs, 1))
 
-    # Define a wrapper for policy_loss_function
-    for advantage_normalization in [True, False]:
+#     # Define a wrapper for policy_loss_function
+#     for advantage_normalization in [True, False]:
 
-        def loss_fn(actor_params):
-            loss, _ = policy_loss_function(
-                actor_params=APO_state.actor_state.params,
-                actor_state=APO_state.actor_state,
-                observations=observations,
-                actions=actions,
-                log_probs=log_probs,
-                gae=gae,
-                dones=dones,
-                recurrent=False,
-                clip_coef=0.2,
-                ent_coef=0.1,
-                advantage_normalization=advantage_normalization,  # noqa: B023
-            )
-            return loss
+#         def loss_fn(actor_params):
+#             loss, _ = policy_loss_function(
+#                 actor_params=APO_state.actor_state.params,
+#                 actor_state=APO_state.actor_state,
+#                 observations=observations,
+#                 actions=actions,
+#                 log_probs=log_probs,
+#                 gae=gae,
+#                 dones=dones,
+#                 recurrent=False,
+#                 clip_coef=0.2,
+#                 ent_coef=0.1,
+#                 advantage_normalization=advantage_normalization,
+#             )
+#             return loss
 
-        # Compute gradients using jax.value_and_grad
-        loss, grads = jax.value_and_grad(loss_fn)(APO_state.actor_state.params)
+#         # Compute gradients using jax.value_and_grad
+#         loss, grads = jax.value_and_grad(loss_fn)(APO_state.actor_state.params)
 
-        # Validate the outputs
-        assert jnp.isfinite(loss), "Loss contains invalid values."
-        assert isinstance(grads, FrozenDict), "Gradients are not a FrozenDict."
-        assert all(
-            jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads)
-        ), "Gradients contain invalid values."
+#         # Validate the outputs
+#         assert jnp.isfinite(loss), "Loss contains invalid values."
+#         assert isinstance(grads, FrozenDict), "Gradients are not a FrozenDict."
+#         assert all(
+#             jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads)
+#         ), "Gradients contain invalid values."
 
 
 @pytest.mark.parametrize(

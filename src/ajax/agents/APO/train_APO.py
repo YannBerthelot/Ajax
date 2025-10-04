@@ -1,10 +1,7 @@
-import os
 from collections.abc import Sequence
 from typing import Any, Callable, Dict, Optional, Tuple
 
-import distrax
 import jax
-import jax.extend
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
@@ -18,13 +15,11 @@ from ajax.agents.cloning import (
     CloningConfig,
     get_cloning_args,
     get_pre_trained_agent,
-    compute_imitation_loss,
 )
+from ajax.agents.PPO.train_PPO_pre_train import PolicyAuxiliaries, update_policy
 from ajax.agents.PPO.utils import get_minibatches_from_batch
-from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
-    get_pi,
     init_collector_state,
 )
 from ajax.environments.utils import (
@@ -48,6 +43,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+from ajax.utils import get_one
 
 PROFILER_PATH = "./tensorboard"
 
@@ -56,19 +52,6 @@ DEBUG = False
 
 def get_alpha_from_params(params: FrozenDict) -> float:
     return jnp.exp(params["log_alpha"])
-
-
-@struct.dataclass
-class PolicyAuxiliaries:
-    policy_loss: float
-    log_probs: float
-    old_log_probs: float
-    clip_fraction: float
-    entropy: float
-    distance: float
-    imitation_loss: float
-    base_loss: float
-    weighted_imitation_loss: float
 
 
 @struct.dataclass
@@ -221,120 +204,6 @@ def value_loss_function(
     )
 
 
-def get_one(_):
-    return jnp.ones(1)
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        "recurrent",
-        "advantage_normalization",
-        "expert_policy",
-        "distance_to_stable",
-        "imitation_coef_offset",
-    ],
-)
-def policy_loss_function(
-    actor_params: FrozenDict,
-    actor_state: LoadedTrainState,
-    observations: jax.Array,
-    actions: jax.Array,
-    log_probs: jax.Array,
-    gae: jax.Array,
-    dones: Optional[jax.Array],
-    recurrent: bool,
-    clip_coef: float,
-    ent_coef: float,
-    advantage_normalization: bool,
-    raw_observations: Optional[jax.Array] = None,
-    expert_policy: Optional[Callable] = None,
-    imitation_coef: float = 0.01,
-    distance_to_stable: Callable = get_one,
-    imitation_coef_offset: float = 1e-3,
-) -> Tuple[jax.Array, PolicyAuxiliaries]:
-    """
-    Compute the policy loss for the actor network.
-
-    Args:
-        actor_params (FrozenDict): Parameters of the actor network.
-        actor_state (LoadedTrainState): Actor train state.
-        critic_states (LoadedTrainState): Critic train states.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-        alpha (jax.Array): Temperature parameter.
-        rng (jax.random.PRNGKey): Random number generator key.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
-    """
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=observations,
-        done=dones,
-        recurrent=recurrent,
-    )
-
-    if isinstance(pi, distrax.Categorical):
-        new_log_probs = jnp.expand_dims(
-            pi.log_prob(actions.squeeze(-1)), -1
-        )  # .sum(-1, keepdims=True)
-    else:
-        new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-
-    ratio = jnp.exp(
-        new_log_probs - log_probs
-    )  # log_probs are per-action-dim, so we sum them to get the total log prob
-
-    if advantage_normalization:
-        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-
-    assert (
-        ratio.shape[0] == gae.shape[0]
-    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
-    loss_actor1 = ratio * gae
-    loss_actor2 = (
-        jnp.clip(
-            ratio,
-            1.0 - clip_coef,
-            1.0 + clip_coef,
-        )
-        * gae
-    )
-
-    loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
-
-    # CALCULATE AUXILIARIES
-    clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
-
-    entropy = (
-        pi.unsquashed_entropy().sum(-1, keepdims=True)
-        if isinstance(pi, SquashedNormal)
-        else pi.entropy().sum(-1, keepdims=True)
-    )
-
-    imitation_loss = compute_imitation_loss(
-        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset
-    )
-    total_loss = (
-        loss_actor - ent_coef * entropy + imitation_coef * imitation_loss
-    ).mean()
-
-    return total_loss, PolicyAuxiliaries(
-        policy_loss=total_loss,
-        log_probs=new_log_probs.mean(),
-        old_log_probs=log_probs.mean(),
-        clip_fraction=clip_fraction,
-        entropy=entropy,
-        distance=distance_to_stable(raw_observations).mean(),
-        imitation_loss=imitation_loss.mean(),
-        base_loss=(loss_actor - ent_coef * entropy).mean(),
-        weighted_imitation_loss=imitation_coef * imitation_loss.mean(),
-    )
-
-
 @partial(
     jax.jit,
     static_argnames=["recurrent", "nu"],
@@ -381,75 +250,6 @@ def update_value_functions(
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
         critic_state=updated_critic_state,
-    )
-    return agent_state, aux
-
-
-POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        "recurrent",
-        "advantage_normalization",
-        "expert_policy",
-        "distance_to_stable",
-        "imitation_coef_offset",
-    ],
-)
-def update_policy(
-    agent_state: APOState,
-    observations: jax.Array,
-    actions: jax.Array,
-    gae: jax.Array,
-    log_probs: jax.Array,
-    done: Optional[jax.Array],
-    recurrent: bool,
-    clip_coef: float,
-    ent_coef: float,
-    advantage_normalization: bool,
-    raw_observations: jax.Array,
-    expert_policy: Optional[Callable] = None,
-    imitation_coef: float = 0.0,
-    distance_to_stable: Callable = get_one,
-    imitation_coef_offset: float = 0.0,
-) -> Tuple[APOState, Dict[str, Any]]:
-    """
-    Update the actor network using the policy loss.
-
-    Args:
-        agent_state (APOState): Current APO agent state.
-        observations (jax.Array): Current observations.
-        done (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-
-    Returns:
-        Tuple[APOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-
-    (loss, aux), grads = POLICY_AND_GRAD_FN(
-        agent_state.actor_state.params,
-        agent_state.actor_state,
-        observations=observations,
-        actions=actions,
-        log_probs=log_probs,
-        gae=gae,
-        dones=done,
-        recurrent=recurrent,
-        clip_coef=clip_coef,
-        ent_coef=ent_coef,
-        advantage_normalization=advantage_normalization,
-        raw_observations=raw_observations,
-        expert_policy=expert_policy,
-        imitation_coef=imitation_coef,
-        distance_to_stable=distance_to_stable,
-        imitation_coef_offset=imitation_coef_offset,
-    )
-
-    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        actor_state=updated_actor_state,
     )
     return agent_state, aux
 
@@ -561,30 +361,6 @@ def update_agent(
     return agent_state, aux
 
 
-def flatten_dict(dict: Dict) -> Dict:
-    return_dict = {}
-    for key, val in dict.items():
-        if isinstance(val, Dict):
-            for subkey, subval in val.items():
-                return_dict[f"{key}/{subkey}"] = subval
-        else:
-            return_dict[key] = val
-    return return_dict
-
-
-def prepare_metrics(aux):
-    log_metrics = flatten_dict(to_state_dict(aux))
-    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
-
-
-def no_op(agent_state, *args):
-    return None
-
-
-def no_op_none(agent_state, index, timestep):
-    pass
-
-
 @partial(
     jax.jit,
     static_argnames=[
@@ -649,7 +425,6 @@ def training_iteration(
     Returns:
         Tuple[APOState, None]: Updated agent state.
     """
-    # collector_state = agent_state.collector_state
 
     collect_scan_fn = partial(
         collect_experience,
@@ -790,27 +565,6 @@ def training_iteration(
     jax.clear_caches()
     # gc.collect()
     return agent_state, metrics_to_log
-
-
-def profile_memory(timestep):
-    jax.profiler.save_device_memory_profile(f"memory{timestep}.prof")
-
-
-def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[str]:
-    """
-    Safely retrieve an environment variable.
-
-    Args:
-        var_name (str): The name of the environment variable.
-        default (Optional[str]): Default value if the variable is not set.
-
-    Returns:
-        Optional[str]: The value of the environment variable or default.
-    """
-    value = os.environ.get(var_name)
-    if value is None:
-        return default
-    return value
 
 
 def make_train(

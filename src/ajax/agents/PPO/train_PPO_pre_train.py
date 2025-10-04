@@ -8,7 +8,12 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
-from ajax.agents.cloning import CloningConfig, get_imitation_coef, get_pre_trained_agent
+from ajax.agents.cloning import (
+    CloningConfig,
+    compute_imitation_score,
+    get_imitation_coef,
+    get_pre_trained_agent,
+)
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.train_PPO import init_PPO, update_value_functions
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
@@ -35,6 +40,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+from ajax.utils import get_one
 
 DEBUG = False
 
@@ -46,7 +52,10 @@ class PolicyAuxiliaries:
     old_log_probs: float
     clip_fraction: float
     entropy: float
-    imitation_coef: float
+    distance: float
+    imitation_loss: float
+    base_loss: float
+    weighted_imitation_loss: float
 
 
 @struct.dataclass
@@ -87,7 +96,7 @@ def policy_loss_function(
     raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 0.01,
-    distance_to_stable: Optional[Callable] = None,
+    distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
@@ -114,12 +123,14 @@ def policy_loss_function(
         recurrent=recurrent,
     )
 
-    # Need to deal with various shapes depending on brax vs gymnax and discrete vs continuous
-
+    entropy = (
+        pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
+    )
     if isinstance(pi, distrax.Categorical):
         new_log_probs = jnp.expand_dims(
             pi.log_prob(actions.squeeze(-1)), -1
         )  # .sum(-1, keepdims=True)
+        entropy = jnp.expand_dims(entropy, -1)
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
 
@@ -129,6 +140,10 @@ def policy_loss_function(
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
+
+    assert (
+        ratio.shape[0] == gae.shape[0]
+    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     loss_actor1 = ratio * gae
     loss_actor2 = (
         jnp.clip(
@@ -139,36 +154,20 @@ def policy_loss_function(
         * gae
     )
 
-    loss_actor = -jnp.minimum(loss_actor1, loss_actor2).mean()
+    loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
 
     # CALCULATE AUXILIARIES
     clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
 
-    entropy = (
-        pi.unsquashed_entropy().mean()
-        if isinstance(pi, SquashedNormal)
-        else pi.entropy().mean()
-    )
+    imitation_loss = compute_imitation_score(
+        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset
+    ).mean()
 
-    imitation_loss = (
-        -pi.log_prob(expert_policy(raw_observations))
-        if expert_policy is not None
-        else jnp.zeros(1)
-    )
+    entropy_loss = entropy.mean()
 
-    EPS = 1e-6
-    if distance_to_stable is not None:
-        distance = (
-            (1 / (distance_to_stable(observations) + EPS)) + imitation_coef_offset
-        )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
-        distance = jnp.expand_dims(distance, -1)
-    else:
-        distance = 1
     total_loss = (
-        loss_actor
-        - ent_coef * entropy
-        + (imitation_coef * distance * imitation_loss).mean()
-    )
+        loss_actor - ent_coef * entropy_loss + imitation_coef * imitation_loss
+    ).mean()
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -176,7 +175,10 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy,
-        imitation_coef=imitation_coef,
+        distance=distance_to_stable(raw_observations).mean(),
+        imitation_loss=imitation_loss.mean(),
+        base_loss=(loss_actor - ent_coef * entropy).mean(),
+        weighted_imitation_loss=imitation_coef * imitation_loss.mean(),
     )
 
 
@@ -205,10 +207,10 @@ def update_policy(
     ent_coef: float,
     advantage_normalization: bool,
     raw_observations: jax.Array,
-    expert_policy: Callable,
-    imitation_coef: float,
-    distance_to_stable: Callable,
-    imitation_coef_offset: float,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 1e-3,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 1e-3,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.

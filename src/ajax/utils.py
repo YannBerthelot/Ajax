@@ -459,3 +459,7 @@ def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
         elif not jnp.allclose(value1, value2):
             return False
     return True
+
+
+def get_one(_: Any) -> float:
+    return jnp.ones(1)

@@ -1,6 +1,6 @@
-import distrax
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
+import distrax
 import jax
 import jax.numpy as jnp
 import optax
@@ -11,6 +11,7 @@ from jax.tree_util import Partial as partial
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
+from ajax.utils import get_one
 
 
 @struct.dataclass
@@ -260,10 +261,6 @@ def get_pre_trained_agent(
     return agent_state.replace(actor_state=actor_state, critic_state=critic_state)
 
 
-def get_one(_: Any) -> float:
-    return 1.0
-
-
 def get_cloning_args(
     cloning_args: Optional[CloningConfig], total_timesteps: int
 ) -> Tuple:
@@ -295,14 +292,13 @@ def get_cloning_args(
         "imitation_coef_offset",
     ],
 )
-def compute_imitation_loss(
+def compute_imitation_score(
     pi: distrax.Distribution,
     expert_policy: Callable[[jax.Array], float],
     raw_observations: jax.Array,
     distance_to_stable: Callable[[jax.Array], float],
     imitation_coef_offset: float,
 ) -> jax.Array:
-
     imitation_loss = (
         -pi.log_prob(expert_policy(raw_observations)).sum(-1, keepdims=True)
         if expert_policy is not None
@@ -312,7 +308,7 @@ def compute_imitation_loss(
     EPS = 1e-9
 
     distance = (
-        1 / (distance_to_stable(raw_observations) + EPS)
-    ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
+        (1 / (distance_to_stable(raw_observations) + EPS)) + imitation_coef_offset
+    )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
     distance = jnp.expand_dims(distance, -1)
     return distance * imitation_loss

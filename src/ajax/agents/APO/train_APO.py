@@ -14,7 +14,12 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
-from ajax.agents.cloning import CloningConfig, get_cloning_args, get_pre_trained_agent
+from ajax.agents.cloning import (
+    CloningConfig,
+    get_cloning_args,
+    get_pre_trained_agent,
+    compute_imitation_loss,
+)
 from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.sac.utils import SquashedNormal
 from ajax.environments.interaction import (
@@ -60,6 +65,10 @@ class PolicyAuxiliaries:
     old_log_probs: float
     clip_fraction: float
     entropy: float
+    distance: float
+    imitation_loss: float
+    base_loss: float
+    weighted_imitation_loss: float
 
 
 @struct.dataclass
@@ -213,7 +222,7 @@ def value_loss_function(
 
 
 def get_one(_):
-    return 1
+    return jnp.ones(1)
 
 
 @partial(
@@ -295,41 +304,23 @@ def policy_loss_function(
         * gae
     )
 
-    loss_actor = -jnp.minimum(loss_actor1, loss_actor2).mean()
+    loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
 
-    def get_penalty_weight(improvement_metric, lambda_coef):
-        return jnp.where(improvement_metric < 0, lambda_coef, 0.0)
-
-    improvement_metric = jnp.minimum(loss_actor1, loss_actor2)
-
-    penalty_weight = get_penalty_weight(improvement_metric, imitation_coef)
     # CALCULATE AUXILIARIES
     clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
 
     entropy = (
-        pi.unsquashed_entropy().mean()
+        pi.unsquashed_entropy().sum(-1, keepdims=True)
         if isinstance(pi, SquashedNormal)
-        else pi.entropy().mean()
+        else pi.entropy().sum(-1, keepdims=True)
     )
 
-    imitation_loss = (
-        -pi.log_prob(expert_policy(raw_observations))
-        if expert_policy is not None
-        else jnp.zeros(1)
+    imitation_loss = compute_imitation_loss(
+        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset
     )
-
-    EPS = 1e-6
-
-    distance = (
-        (1 / (distance_to_stable(observations) + EPS)) + imitation_coef_offset
-    )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
-    distance = jnp.expand_dims(distance, -1)
-
     total_loss = (
-        loss_actor
-        - ent_coef * entropy
-        + (penalty_weight * distance * imitation_loss).mean()
-    )
+        loss_actor - ent_coef * entropy + imitation_coef * imitation_loss
+    ).mean()
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -337,6 +328,10 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy,
+        distance=distance_to_stable(raw_observations).mean(),
+        imitation_loss=imitation_loss.mean(),
+        base_loss=(loss_actor - ent_coef * entropy).mean(),
+        weighted_imitation_loss=imitation_coef * imitation_loss.mean(),
     )
 
 
@@ -875,7 +870,6 @@ def make_train(
             distance_to_stable,
             pre_train_n_steps,
         ) = get_cloning_args(cloning_args, total_timesteps)
-
         if pre_train_n_steps > 0:
             agent_state = get_pre_trained_agent(
                 agent_state,

@@ -1,3 +1,4 @@
+import distrax
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import jax
@@ -50,7 +51,7 @@ def get_imitation_coef(
             else imitation_coef
         )
     if "auto" in str(imitation_coef):
-        imitation_coef = float(imitation_coef.split("_")[1])
+        imitation_coef = float("".join(imitation_coef.split("_")[1:]))
     return imitation_coef
 
 
@@ -284,3 +285,34 @@ def get_cloning_args(
         distance_to_stable,
         pre_train_n_steps,
     )
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        "expert_policy",
+        "distance_to_stable",
+        "imitation_coef_offset",
+    ],
+)
+def compute_imitation_loss(
+    pi: distrax.Distribution,
+    expert_policy: Callable[[jax.Array], float],
+    raw_observations: jax.Array,
+    distance_to_stable: Callable[[jax.Array], float],
+    imitation_coef_offset: float,
+) -> jax.Array:
+
+    imitation_loss = (
+        -pi.log_prob(expert_policy(raw_observations)).sum(-1, keepdims=True)
+        if expert_policy is not None
+        else jnp.zeros(1)
+    )
+
+    EPS = 1e-9
+
+    distance = (
+        1 / (distance_to_stable(raw_observations) + EPS)
+    ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
+    distance = jnp.expand_dims(distance, -1)
+    return distance * imitation_loss

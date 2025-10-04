@@ -26,10 +26,11 @@ class StableState:
 
 
 def distance_to_stable_fn(state: PlaneState):
-    z = state[..., 2]
+    z = state[..., 1]
     target = state[..., 6]
-    z_dot = state[..., 3]
-    return jnp.abs(z - target) + jnp.abs(z_dot - 0.0)
+    z_dot = state[..., 2]
+    theta_dot = state[..., 4]
+    return jnp.abs(z - target) + jnp.abs(z_dot - 0.0) + jnp.abs(theta_dot - 0.0)
 
 
 def get_sweep_values(
@@ -41,26 +42,25 @@ def get_sweep_values(
     imitation_coef_list = []
     imitation_coef_offset_list = [0.0]
     if pre_train:
-        pre_train_step_list = [int(1e5), 0]
+        pre_train_step_list = [0, int(1e5)]
     else:
         pre_train_step_list = [0]
 
-    if baseline:
-        imitation_coef_list += [0.0]
+    if constant_imitation:
+        imitation_coef_list += [
+            10.0,
+            1.0,
+            1e-1,
+        ]
 
     if auto_imitation:
         imitation_coef_list += [
-            "auto_100.0",  # type: ignore[list-item]
-            "auto_10.0",  # type: ignore[list-item]
-            "auto_1.0",  # type: ignore[list-item]
+            "auto_0.01",  # type: ignore[list-item]
+            "auto_0.001",  # type: ignore[list-item]
         ]
-    if constant_imitation:
-        imitation_coef_list += [
-            1.0,
-            1e-1,
-            1e-2,
-            1e-3,
-        ]
+
+    if baseline:
+        imitation_coef_list += [0.0]
 
     return {
         "imitation_coef": imitation_coef_list,
@@ -149,8 +149,8 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 if __name__ == "__main__":
     agent = APO
-    project_name = "tests_APO_expert"
-    n_timesteps = int(5e5)
+    project_name = "tests_APO_tired_2"
+    n_timesteps = int(1e5)
     n_seeds = 1
     num_episode_test = 10
     log_frequency = 4096
@@ -178,13 +178,13 @@ if __name__ == "__main__":
     print(f"Expert policy mean score: {policy_score}")
 
     sweep_values = get_sweep_values(
-        baseline=True, auto_imitation=True, constant_imitation=True, pre_train=True
+        baseline=True, auto_imitation=True, constant_imitation=False, pre_train=True
     )
     print(f"{sweep_values=}")
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-    mode = "CPU"
+    mode = "GPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],

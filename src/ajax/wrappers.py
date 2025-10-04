@@ -146,14 +146,14 @@ class ClipAction(GymnaxWrapper):
     def __init__(self, env, low=-1.0, high=1.0):
         """Set the high and low bounds"""
         super().__init__(env)
-        self.low = low
-        self.high = high
+        self.low = jnp.array(low)
+        self.high = jnp.array(high)
 
     def step(self, key, state, action, params=None):
         """Step the environment while clipping the action first"""
         # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
-        return self._env.step(key, state, action, params)
+        return self._env.step(key=key, state=state, action=action, params=params)
 
 
 class ClipActionBrax(BraxWrapper):
@@ -169,7 +169,7 @@ class ClipActionBrax(BraxWrapper):
         """Step the environment while clipping the action first"""
         # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
-        return self.env.step(state, action)
+        return self.env.step(state=state, action=action)
 
 
 class TransformObservation(GymnaxWrapper):
@@ -277,10 +277,6 @@ def normalize_wrapper_factory(
             self.train = train
             self.normalize_obs = normalize_obs
             self.normalize_reward = normalize_reward
-            if self.normalize_reward:
-                assert (
-                    gamma is not None
-                ), "Gamma must be provided for reward normalization."
             self.norm_info = norm_info
             self.gamma = gamma
             rng = jax.random.PRNGKey(0)
@@ -300,6 +296,7 @@ def normalize_wrapper_factory(
                 BaseState = env.reset(
                     key=jax.random.PRNGKey(0), params=env.default_params
                 )[1].__class__
+                self._raw_state = BaseState
 
                 @struct.dataclass
                 class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
@@ -387,11 +384,12 @@ def normalize_wrapper_factory(
                         var=reward_info.var,
                         returns=reward_info.returns if self.normalize_reward else None,
                     )
-            obs = get_obs_from_state(state, self.mode)
+            raw_obs = get_obs_from_state(state, self.mode)
 
+            obs = raw_obs
             if self.normalize_obs:
                 obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
-                    obs,
+                    raw_obs,
                     obs_norm_info.count,
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,
@@ -436,19 +434,35 @@ def normalize_wrapper_factory(
                 if self.mode == "brax"
                 else state.normalization_info.reward
             )
+            if mode == "gymnax":
+                raw_state_dict = to_state_dict(state)
+                if "normalization_info" in raw_state_dict:
+                    del raw_state_dict["normalization_info"]
+                raw_state = self._raw_state(**raw_state_dict)
+            else:
+                raw_state = state
 
-            state = (
-                self.env.step(state, action)
+            raw_state = (
+                self.env.step(raw_state, action)
                 if self.mode == "brax"
-                else self._env.step(key=key, state=state, action=action, params=params)
+                else self._env.step(
+                    key=key, state=raw_state, action=action, params=params
+                )
             )
 
-            obs, reward, done = get_obs_and_reward_and_done_from_state(
-                state, mode=self.mode
+            # if mode == "gymnax":
+            #     # obs, env_state, reward, done, info = raw_state
+            #     # env_state = self.state_class(**to_state_dict(env_state), normalization_info=state.normalization_info)  # type: ignore[call-arg]
+            #     # state = obs, env_state, reward, done, info
+            # else:
+            #     state = raw_state
+            raw_obs, reward, done = get_obs_and_reward_and_done_from_state(
+                raw_state, mode=self.mode
             )
+            obs = raw_obs
             if self.normalize_obs:
                 obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
-                    obs,
+                    raw_obs,
                     obs_norm_info.count,
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,
@@ -462,9 +476,14 @@ def normalize_wrapper_factory(
                 )
 
             if self.normalize_reward:
-                returns = reward.reshape(
-                    -1, 1
-                ) + reward_norm_info.returns * self.gamma * (1 - done.reshape(-1, 1))
+                if self.gamma is None:
+                    returns = reward.reshape(-1, 1)
+                else:
+                    returns = reward.reshape(
+                        -1, 1
+                    ) + reward_norm_info.returns * self.gamma * (
+                        1 - done.reshape(-1, 1)
+                    )
 
                 normed_reward, rew_count, rew_mean, rew_mean_2, rew_var = (
                     online_normalize(
@@ -497,7 +516,7 @@ def normalize_wrapper_factory(
 
             norm_info = EnvNormalizationInfo(reward=reward_norm_info, obs=obs_norm_info)
 
-            state = self.update_state_step(state, obs, reward, norm_info, self.mode)
+            state = self.update_state_step(raw_state, obs, reward, norm_info, self.mode)
 
             return state
 
@@ -653,6 +672,7 @@ class AutoResetWrapper(BraxWrapper):
         state = self.env.reset(rng)
         state.info["first_pipeline_state"] = state.pipeline_state
         state.info["first_obs"] = state.obs
+        # state.info["obs_st"] = state.obs
         state.info["rng"] = (
             rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
         )
@@ -693,7 +713,9 @@ class AutoResetWrapper(BraxWrapper):
             state.pipeline_state,
         )
         obs = where_done(new_init_state.info["first_obs"], state.obs)
-        state = state.replace(pipeline_state=pipeline_state, obs=obs)
+        info = state.info
+        # info["obs_st"] = state.obs
+        state = state.replace(pipeline_state=pipeline_state, obs=obs, info=info)
         return state
 
 

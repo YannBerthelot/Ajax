@@ -7,11 +7,11 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
-from ajax.agents.PPO.state import PPOConfig, PPOState
-from ajax.agents.PPO.train_PPO import (
-    init_PPO,
+from ajax.agents.APO.state import APOConfig, APOState
+from ajax.agents.APO.train_APO import (
+    init_APO,
     make_train,
-    policy_loss_function,
+    # policy_loss_function,
     training_iteration,
     update_agent,
     update_policy,
@@ -30,8 +30,10 @@ from ajax.utils import compare_frozen_dicts
 
 
 @pytest.fixture
-def ant_env_config():
-    env = create_brax_env("ant", batch_size=1)
+def fast_env_config():
+    env = create_brax_env(
+        "ant", batch_size=1
+    )  # Fast lacks too much functionalities (i.e. _get_obs)
     return EnvironmentConfig(
         env=env,
         env_params=None,
@@ -63,11 +65,11 @@ def discrete_gymnax_env_config():
 
 
 @pytest.fixture(
-    params=["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"]
+    params=["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"]
 )
-def env_config(request, ant_env_config, gymnax_env_config, discrete_gymnax_env_config):
+def env_config(request, fast_env_config, gymnax_env_config, discrete_gymnax_env_config):
     config_dict = {
-        "ant_env_config": ant_env_config,
+        "fast_env_config": fast_env_config,
         "gymnax_env_config": gymnax_env_config,
         "discrete_gymnax_env_config": discrete_gymnax_env_config,
     }
@@ -75,7 +77,7 @@ def env_config(request, ant_env_config, gymnax_env_config, discrete_gymnax_env_c
 
 
 @pytest.fixture
-def PPO_state(env_config):
+def APO_state(env_config):
     key = jax.random.PRNGKey(0)
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
@@ -85,7 +87,7 @@ def PPO_state(env_config):
         lstm_hidden_size=None,
     )
 
-    return init_PPO(
+    return init_APO(
         key=key,
         env_args=env_config,
         actor_optimizer_args=optimizer_args,
@@ -96,22 +98,22 @@ def PPO_state(env_config):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_init_PPO(PPO_state):
-    assert isinstance(PPO_state, PPOState), "Returned object is not an SACState."
-    assert PPO_state.actor_state is not None, "Actor state is not initialized."
-    assert PPO_state.critic_state is not None, "Critic state is not initialized."
-    assert PPO_state.collector_state is not None, "Collector state is not initialized."
+def test_init_APO(APO_state):
+    assert isinstance(APO_state, APOState), "Returned object is not an SACState."
+    assert APO_state.actor_state is not None, "Actor state is not initialized."
+    assert APO_state.critic_state is not None, "Critic state is not initialized."
+    assert APO_state.collector_state is not None, "Collector state is not initialized."
 
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_value_loss_function(env_config, PPO_state):
+def test_value_loss_function(env_config, APO_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
@@ -122,12 +124,14 @@ def test_value_loss_function(env_config, PPO_state):
 
     # Call the value loss function
     loss, aux = value_loss_function(
-        critic_params=PPO_state.critic_state.params,
-        critic_states=PPO_state.critic_state,
+        critic_params=APO_state.critic_state.params,
+        critic_states=APO_state.critic_state,
         observations=observations,
         dones=dones,
         recurrent=False,
         value_targets=rewards + gamma * jnp.ones((env_config.n_envs, 1)),  # Mock target
+        nu=0.1,
+        b=1.0,
     )
     aux = to_state_dict(aux)
     # Validate the outputs
@@ -138,10 +142,10 @@ def test_value_loss_function(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_value_loss_function_with_value_and_grad(env_config, PPO_state):
+def test_value_loss_function_with_value_and_grad(env_config, APO_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
@@ -154,16 +158,18 @@ def test_value_loss_function_with_value_and_grad(env_config, PPO_state):
     def loss_fn(critic_params):
         loss, _ = value_loss_function(
             critic_params=critic_params,
-            critic_states=PPO_state.critic_state,
+            critic_states=APO_state.critic_state,
             observations=observations,
             dones=dones,
             recurrent=False,
             value_targets=rewards + gamma * jnp.ones((env_config.n_envs, 1)),
+            nu=0.1,
+            b=1.0,
         )
         return loss
 
     # Compute gradients using jax.value_and_grad
-    loss, grads = jax.value_and_grad(loss_fn)(PPO_state.critic_state.params)
+    loss, grads = jax.value_and_grad(loss_fn)(APO_state.critic_state.params)
 
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
@@ -173,105 +179,105 @@ def test_value_loss_function_with_value_and_grad(env_config, PPO_state):
     ), "Gradients contain invalid values."
 
 
+# @pytest.mark.parametrize(
+#     "env_config",
+#     ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+#     indirect=True,
+# )
+# def test_policy_loss_function(env_config, APO_state):
+#     observation_shape, _ = get_state_action_shapes(env_config.env)
+
+#     # Mock inputs for the policy loss function
+#     observations = jnp.zeros((env_config.n_envs, *observation_shape))
+#     dones = jnp.zeros((env_config.n_envs, 1))
+#     actions = jnp.zeros((env_config.n_envs, 1))
+#     log_probs = jnp.zeros((env_config.n_envs, 1))
+#     gae = jnp.ones((env_config.n_envs, 1))
+
+#     # Call the policy loss function
+#     for advantage_normalization in [True, False]:
+#         loss, aux = policy_loss_function(
+#             actor_params=APO_state.actor_state.params,
+#             actor_state=APO_state.actor_state,
+#             observations=observations,
+#             actions=actions,
+#             log_probs=log_probs,
+#             gae=gae,
+#             dones=dones,
+#             recurrent=False,
+#             clip_coef=0.2,
+#             ent_coef=0.1,
+#             advantage_normalization=advantage_normalization,
+#         )
+#         aux = to_state_dict(aux)
+#         # Validate the outputs
+#         assert jnp.isfinite(loss), "Loss contains invalid values."
+
+#         for auxiliary_value in [
+#             "policy_loss",
+#             "log_probs",
+#             "old_log_probs",
+#             "clip_fraction",
+#             "entropy",
+#         ]:
+#             assert (
+#                 auxiliary_value in aux
+#             ), f"Auxiliary outputs are missing '{auxiliary_value}'."
+
+#         assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+
+
+# @pytest.mark.parametrize(
+#     "env_config",
+#     ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+#     indirect=True,
+# )
+# def test_policy_loss_function_with_value_and_grad(env_config, APO_state):
+#     observation_shape, _ = get_state_action_shapes(env_config.env)
+
+#     # Mock inputs for the policy loss function
+#     observations = jnp.zeros((env_config.n_envs, *observation_shape))
+#     dones = jnp.zeros((env_config.n_envs, 1))
+#     actions = jnp.zeros((env_config.n_envs, 1))
+#     log_probs = jnp.zeros((env_config.n_envs, 1))
+#     gae = jnp.ones((env_config.n_envs, 1))
+
+#     # Define a wrapper for policy_loss_function
+#     for advantage_normalization in [True, False]:
+
+#         def loss_fn(actor_params):
+#             loss, _ = policy_loss_function(
+#                 actor_params=APO_state.actor_state.params,
+#                 actor_state=APO_state.actor_state,
+#                 observations=observations,
+#                 actions=actions,
+#                 log_probs=log_probs,
+#                 gae=gae,
+#                 dones=dones,
+#                 recurrent=False,
+#                 clip_coef=0.2,
+#                 ent_coef=0.1,
+#                 advantage_normalization=advantage_normalization,
+#             )
+#             return loss
+
+#         # Compute gradients using jax.value_and_grad
+#         loss, grads = jax.value_and_grad(loss_fn)(APO_state.actor_state.params)
+
+#         # Validate the outputs
+#         assert jnp.isfinite(loss), "Loss contains invalid values."
+#         assert isinstance(grads, FrozenDict), "Gradients are not a FrozenDict."
+#         assert all(
+#             jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads)
+#         ), "Gradients contain invalid values."
+
+
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_policy_loss_function(env_config, PPO_state):
-    observation_shape, _ = get_state_action_shapes(env_config.env)
-
-    # Mock inputs for the policy loss function
-    observations = jnp.zeros((env_config.n_envs, *observation_shape))
-    dones = jnp.zeros((env_config.n_envs, 1))
-    actions = jnp.zeros((env_config.n_envs, 1))
-    log_probs = jnp.zeros((env_config.n_envs, 1))
-    gae = jnp.ones((env_config.n_envs, 1))
-
-    # Call the policy loss function
-    for advantage_normalization in [True, False]:
-        loss, aux = policy_loss_function(
-            actor_params=PPO_state.actor_state.params,
-            actor_state=PPO_state.actor_state,
-            observations=observations,
-            actions=actions,
-            log_probs=log_probs,
-            gae=gae,
-            dones=dones,
-            recurrent=False,
-            clip_coef=0.2,
-            ent_coef=0.1,
-            advantage_normalization=advantage_normalization,
-        )
-        aux = to_state_dict(aux)
-        # Validate the outputs
-        assert jnp.isfinite(loss), "Loss contains invalid values."
-
-        for auxiliary_value in [
-            "policy_loss",
-            "log_probs",
-            "old_log_probs",
-            "clip_fraction",
-            "entropy",
-        ]:
-            assert (
-                auxiliary_value in aux
-            ), f"Auxiliary outputs are missing '{auxiliary_value}'."
-
-        assert aux["policy_loss"] <= 0, "Policy loss should be negative."
-
-
-@pytest.mark.parametrize(
-    "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
-    indirect=True,
-)
-def test_policy_loss_function_with_value_and_grad(env_config, PPO_state):
-    observation_shape, _ = get_state_action_shapes(env_config.env)
-
-    # Mock inputs for the policy loss function
-    observations = jnp.zeros((env_config.n_envs, *observation_shape))
-    dones = jnp.zeros((env_config.n_envs, 1))
-    actions = jnp.zeros((env_config.n_envs, 1))
-    log_probs = jnp.zeros((env_config.n_envs, 1))
-    gae = jnp.ones((env_config.n_envs, 1))
-
-    # Define a wrapper for policy_loss_function
-    for advantage_normalization in [True, False]:
-
-        def loss_fn(actor_params):
-            loss, _ = policy_loss_function(
-                actor_params=PPO_state.actor_state.params,
-                actor_state=PPO_state.actor_state,
-                observations=observations,
-                actions=actions,
-                log_probs=log_probs,
-                gae=gae,
-                dones=dones,
-                recurrent=False,
-                clip_coef=0.2,
-                ent_coef=0.1,
-                advantage_normalization=advantage_normalization,  # noqa: B023
-            )
-            return loss
-
-        # Compute gradients using jax.value_and_grad
-        loss, grads = jax.value_and_grad(loss_fn)(PPO_state.actor_state.params)
-
-        # Validate the outputs
-        assert jnp.isfinite(loss), "Loss contains invalid values."
-        assert isinstance(grads, FrozenDict), "Gradients are not a FrozenDict."
-        assert all(
-            jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads)
-        ), "Gradients contain invalid values."
-
-
-@pytest.mark.parametrize(
-    "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
-    indirect=True,
-)
-def test_update_value_functions(env_config, PPO_state):
+def test_update_value_functions(env_config, APO_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_value_functions function
@@ -286,13 +292,15 @@ def test_update_value_functions(env_config, PPO_state):
         observations=observations,
         value_targets=value_targets,
         dones=dones,
-        agent_state=PPO_state,
+        agent_state=APO_state,
         recurrent=False,
+        nu=0.1,
+        b=1.0,
     )
     aux = to_state_dict(aux)
     # Validate that only critic_state.params has changed
     assert not compare_frozen_dicts(
-        updated_state.critic_state.params, PPO_state.critic_state.params
+        updated_state.critic_state.params, APO_state.critic_state.params
     ), "critic_state.params should have been updated."
 
     # Validate auxiliary outputs
@@ -302,10 +310,10 @@ def test_update_value_functions(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_update_policy(env_config, PPO_state):
+def test_update_policy(env_config, APO_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_policy function
@@ -314,13 +322,14 @@ def test_update_policy(env_config, PPO_state):
     actions = jnp.ones((env_config.n_envs, *action_shape))
     log_probs = jnp.ones((env_config.n_envs, 1))
     gae = jnp.ones((env_config.n_envs, 1))
+    raw_observations = observations
 
     # Save the original actor params for comparison
-    original_actor_params = PPO_state.actor_state.params
+    original_actor_params = APO_state.actor_state.params
 
     # Call the update_policy function
     updated_state, aux = update_policy(
-        agent_state=PPO_state,
+        agent_state=APO_state,
         observations=observations,
         actions=actions,
         log_probs=log_probs,
@@ -330,6 +339,7 @@ def test_update_policy(env_config, PPO_state):
         advantage_normalization=True,
         done=dones,
         recurrent=False,
+        raw_observations=raw_observations,
     )
     aux = to_state_dict(aux)
     # Validate that only actor_state.params has changed
@@ -344,14 +354,14 @@ def test_update_policy(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_update_agent(env_config, PPO_state):
+def test_update_agent(env_config, APO_state):
     # Mock inputs for the update_agent function
     recurrent = False
     n_steps = 32
-    agent_config = PPOConfig(
+    agent_config = APOConfig(
         gamma=0.99,
         clip_range=0.2,
         ent_coef=0.1,
@@ -370,6 +380,7 @@ def test_update_agent(env_config, PPO_state):
     log_probs = jnp.ones((n_steps, env_config.n_envs, 1))
     value_targets = jnp.ones((n_steps, env_config.n_envs, 1))
     gae = jnp.ones((n_steps, env_config.n_envs, 1))
+    b = 1.0
 
     transition = Transition(
         obs=observations,
@@ -399,6 +410,7 @@ def test_update_agent(env_config, PPO_state):
             < 3  # discrete case without trailing dimension
             else transition.log_prob.sum(-1, keepdims=True)
         ),
+        transition.raw_obs,
     )
     shuffle_key = jax.random.PRNGKey(0)
     num_minibatches = agent_config.batch_size // 2
@@ -408,11 +420,12 @@ def test_update_agent(env_config, PPO_state):
 
     # Call the update_agent function
     updated_state, _ = update_agent(
-        agent_state=PPO_state,
+        agent_state=APO_state,
         _=None,
         agent_config=agent_config,
         shuffled_batch=shuffled_batch,
         recurrent=recurrent,
+        b=b,
     )
 
     # Validate that the state has been updated
@@ -422,15 +435,15 @@ def test_update_agent(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_update_agent_with_scan(env_config, PPO_state):
+def test_update_agent_with_scan(env_config, APO_state):
     # Mock inputs for the update_agent function
     recurrent = False
     n_steps = 32
 
-    agent_config = PPOConfig(
+    agent_config = APOConfig(
         gamma=0.99,
         clip_range=0.2,
         ent_coef=0.1,
@@ -478,6 +491,7 @@ def test_update_agent_with_scan(env_config, PPO_state):
             < 3  # discrete case without trailing dimension
             else transition.log_prob.sum(-1, keepdims=True)
         ),
+        transition.raw_obs,
     )
     shuffle_key = jax.random.PRNGKey(0)
     num_minibatches = agent_config.batch_size // 2
@@ -490,10 +504,11 @@ def test_update_agent_with_scan(env_config, PPO_state):
         agent_config=agent_config,
         shuffled_batch=shuffled_batch,
         recurrent=recurrent,
+        b=1.0,
     )
 
     # Run the scan
-    final_state, _ = jax.lax.scan(update_agent_scan, PPO_state, None, length=5)
+    final_state, _ = jax.lax.scan(update_agent_scan, APO_state, None, length=5)
 
     # Validate the final state
     assert final_state is not None, "Final state should not be None."
@@ -502,13 +517,13 @@ def test_update_agent_with_scan(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
-def test_training_iteration_with_scan(env_config, PPO_state):
+def test_training_iteration_with_scan(env_config, APO_state):
     recurrent = False
     n_steps = 32
-    agent_config = PPOConfig(
+    agent_config = APOConfig(
         gamma=0.99,
         clip_range=0.2,
         ent_coef=0.1,
@@ -534,16 +549,16 @@ def test_training_iteration_with_scan(env_config, PPO_state):
     )
 
     # Run multiple training iterations using jax.lax.scan
-    final_state, _ = jax.lax.scan(training_iteration_scan, PPO_state, None, length=5)
+    final_state, _ = jax.lax.scan(training_iteration_scan, APO_state, None, length=5)
 
     # Validate the final state
-    assert isinstance(final_state, PPOState), "Final state should be of type SACState."
+    assert isinstance(final_state, APOState), "Final state should be of type SACState."
     assert final_state.rng is not None, "Final RNG should not be None."
 
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_make_train(env_config):
@@ -557,7 +572,7 @@ def test_make_train(env_config):
         lstm_hidden_size=None,
     )
     n_steps = 32
-    agent_config = PPOConfig(
+    agent_config = APOConfig(
         gamma=0.99,
         clip_range=0.2,
         ent_coef=0.1,
@@ -585,7 +600,7 @@ def test_make_train(env_config):
     final_state, _ = train_fn(key)
 
     # Validate the final state
-    assert isinstance(final_state, PPOState), "Final state should be of type SACState."
+    assert isinstance(final_state, APOState), "Final state should be of type SACState."
     assert final_state.rng is not None, "Final RNG should not be None."
     assert final_state.actor_state is not None, "Actor state should not be None."
     assert final_state.critic_state is not None, "Critic state should not be None."

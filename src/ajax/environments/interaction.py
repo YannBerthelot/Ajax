@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 
 import chex
 import distrax
@@ -40,7 +40,7 @@ def update_rolling_mean(
     state: RollinEpisodicMeanRewardState, new_value: jax.Array
 ) -> tuple[RollinEpisodicMeanRewardState, jax.Array]:
     rows = state.index.flatten()  # [2, 3]
-    cols = jnp.array(range(new_value.shape[0]))  # column indices
+    cols = jnp.arange(new_value.shape[0])  # column indices
 
     old_value = state.buffer[rows, cols]
 
@@ -88,10 +88,10 @@ def reset(
     return obsv, env_state
 
 
-@partial(
-    jax.jit,
-    static_argnames=["mode", "env"],
-)
+# @partial(
+#     jax.jit,
+#     static_argnames=["mode", "env"],
+# )
 def step(
     rng: jax.Array,
     state: jax.Array,
@@ -128,13 +128,37 @@ def step(
             """Wrapper to step the environment."""
             return env.step(key=rng, state=state, action=action, params=env_params)
 
-        obsv, env_state, reward, done, info = jax.vmap(
+        time = state.time if hasattr(state, "time") else state.t
+        truncated = time >= env_params.max_steps_in_episode - 1  # type: ignore[union-attr]
+        out = jax.vmap(
             step_wrapper,
             in_axes=(0, 0, 0, None),
         )(rng, state, action, env_params)
-        truncated = env_state.time >= env_params.max_steps_in_episode  # type: ignore[union-attr]
-        terminated = done * (1 - truncated)
-        terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
+
+        # jax.debug.print("Action: {action}", action=action)
+        if len(out) == 5:
+            obsv, env_state, reward, done, info = out
+            truncated = info["truncated"]
+            # type: ignore[union-attr]
+            terminated = done * (1 - truncated)
+            terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
+        else:
+            obsv, env_state, reward, terminated, truncated, info = out
+            terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
+        if "normalization_info" in env_state.__dict__:
+            obs_norm_info = jax.tree.map(
+                lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
+                env_state.normalization_info.obs,
+            )
+            reward_norm_info = jax.tree.map(
+                lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
+                env_state.normalization_info.reward,
+            )
+            env_state = env_state.replace(
+                normalization_info=env_state.normalization_info.replace(
+                    obs=obs_norm_info, reward=reward_norm_info
+                )
+            )
     elif mode == "brax":  # ✅ no vmap for brax
         env_state = env.step(state=state, action=action)
         obsv, reward, done, info = (
@@ -143,7 +167,10 @@ def step(
             env_state.done,
             env_state.info,
         )
+        # if "truncation" in info:
         truncated = env_state.info["truncation"]
+        # else:
+        #     truncated = jnp.zeros_like(done)
         terminated = done * (1 - truncated)
 
     else:
@@ -152,10 +179,6 @@ def step(
     return obsv, env_state, reward, terminated, truncated, info
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent"],
-)
 def get_pi(
     actor_state: LoadedTrainState,
     actor_params: FrozenDict,
@@ -192,10 +215,6 @@ def get_pi(
     return pi, actor_state.replace(hidden_state=new_actor_hidden_state)
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent"],
-)
 def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
     """
     Add an axis to the array if in recurrent mode.
@@ -257,8 +276,13 @@ def assert_shape(x, expected_shape, name="tensor"):
 
 
 def compute_episodic_reward_mean(
-    agent_state: BaseAgentState, reward: jnp.ndarray, done: jnp.ndarray
+    agent_state: BaseAgentState,
+    reward: jnp.ndarray,
+    done: jnp.ndarray,
+    env: Environment,
+    mode: str,
 ) -> tuple[RollinEpisodicMeanRewardState, jnp.ndarray]:
+    reward = get_raw_reward(reward, env, agent_state, mode)
     new_cumulative_reward = (
         agent_state.collector_state.episodic_return_state.cumulative_reward
         + reward.reshape(reward.shape[0], 1)
@@ -310,6 +334,53 @@ def compute_episodic_reward_mean(
     return new_episodic_return_state, jnp.mean(episodic_mean_return)
 
 
+def get_raw_reward(reward, env, agent_state, mode):
+    if "unnormalize_reward" in dir(env):
+        raw_reward = env.unnormalize_reward(
+            reward,
+            (
+                agent_state.collector_state.env_state.norm_info.reward
+                if mode == "gymnax"
+                else agent_state.collector_state.env_state.info["norm_info"]
+            ),
+        )
+    else:
+        raw_reward = reward
+    return raw_reward
+
+
+def get_action_and_log_probs(
+    action_key: chex.PRNGKey,
+    agent_state: BaseAgentState,
+    recurrent: bool,
+    uniform: bool,
+) -> Tuple[jax.Array, jax.Array]:
+    action, log_probs, agent_state = get_action_and_new_agent_state(
+        action_key,
+        agent_state,
+        agent_state.collector_state.last_obs,
+        jnp.logical_or(
+            agent_state.collector_state.last_terminated,
+            agent_state.collector_state.last_truncated,
+        ),
+        recurrent=recurrent,
+    )
+    uniform_action = jax.random.uniform(
+        key=action_key, minval=-1, maxval=1, shape=action.shape
+    )  # TODO : add actual bounds
+    return uniform * uniform_action + (1 - uniform) * action, log_probs
+
+
+def get_raw_obs(
+    env_state: EnvState, env: Environment, mode: str
+) -> Optional[jax.Array]:
+    return (
+        jax.vmap(env.get_obs)(env_state)
+        if mode == "gymnax"
+        else jax.vmap(env._get_obs)(env_state.pipeline_state)
+    )
+
+
 @partial(
     jax.jit,
     static_argnames=["recurrent", "mode", "env_args", "buffer"],
@@ -339,19 +410,15 @@ def collect_experience(
 
     """
     rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
-    agent_state = agent_state.replace(rng=rng)
-    action, log_probs, agent_state = get_action_and_new_agent_state(
-        action_key,
-        agent_state,
-        agent_state.collector_state.last_obs,
-        jnp.logical_or(
-            agent_state.collector_state.last_terminated,
-            agent_state.collector_state.last_truncated,
-        ),
-        recurrent=recurrent,
-    )
     rng_step = (
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
+    )
+
+    action, log_probs = get_action_and_log_probs(
+        action_key=action_key,
+        agent_state=agent_state,
+        recurrent=recurrent,
+        uniform=uniform,
     )
 
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
@@ -364,47 +431,35 @@ def collect_experience(
             env_args.env_params,
         )
     )
-    _transition = {
-        "obs": agent_state.collector_state.last_obs,
-        "action": action,  # if action.ndim == 2 else action[:, None]
-        "reward": reward[:, None],
-        "terminated": terminated[:, None],
-        "truncated": truncated[:, None],
-    }
-
-    # got_buffer = (
-    #     buffer is not None and agent_state.collector_state.buffer_state is not None
-    # )
-    buffer_state = agent_state.collector_state.buffer_state
-    if agent_state.collector_state.buffer_state is not None and buffer is not None:
-        if (
-            agent_state.collector_state.buffer_state.experience["obs"].shape[0]
-            == action.shape[
-                0
-            ]  # TODO : change later, this is a hack to not add when using the secondary agent in DynaSAC. This still adds when DynaSAC has a single env
-        ):
-            buffer_state = buffer.add(
-                agent_state.collector_state.buffer_state,
-                _transition,
-            )
-        _transition.update(
-            {
-                "next_obs": obsv,  # jnp.zeros_like(obsv) * jnp.nan,
-                "log_prob": log_probs,  # jnp.zeros_like(log_probs) * jnp.nan,
-            }
-        )
-    else:
-        _transition.update(
-            {"next_obs": obsv, "log_prob": log_probs}
-        )  # not included if using buffer to reduce memory usage, as flashbax can rebuild it.
+    raw_next_obs = (
+        info["obs_st"] if "obs_st" in info else obsv
+    )  # assume autoreset is on if obs_st is found, else assume no autoreset
 
     transition = Transition(
-        **_transition
-    )  # TODO: check if the consumes too much memory
-    done = jnp.logical_or(terminated, truncated)
+        obs=agent_state.collector_state.last_obs,
+        action=action,
+        reward=reward[:, None],
+        terminated=terminated[:, None],
+        truncated=truncated[:, None],
+        raw_obs=(
+            get_raw_obs(
+                env_state=agent_state.collector_state.env_state,
+                env=env_args.env,
+                mode=mode,
+            )
+            if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
+            else None
+        ),
+        next_obs=raw_next_obs,
+        log_prob=log_probs,
+    )
 
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
-        agent_state, reward, done
+        agent_state=agent_state,
+        reward=reward,
+        done=jnp.logical_or(terminated, truncated),
+        env=env_args.env,
+        mode=mode,
     )
 
     new_collector_state = agent_state.collector_state.replace(
@@ -416,11 +471,92 @@ def collect_experience(
         last_truncated=truncated,
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
-        buffer_state=buffer_state,
+        buffer_state=agent_state.collector_state.buffer_state,
     )
 
-    agent_state = agent_state.replace(collector_state=new_collector_state)
+    agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
     return agent_state, transition
+
+
+@partial(
+    jax.jit,
+    static_argnames=["expert_policy", "mode", "env_args", "n_timesteps"],
+)
+def collect_experience_from_expert_policy(
+    expert_policy: Callable[[jnp.ndarray], jnp.ndarray],
+    rng: jax.Array,
+    mode: str,
+    env_args: EnvironmentConfig,
+    n_timesteps: int = int(1e5),
+) -> Sequence[Transition]:
+    """Collect experience by running an expert policy in the environment.
+
+    Args:
+        expert_policy: A function mapping observations to actions.
+        rng: JAX random key.
+        mode: Environment type ("gymnax" or "brax").
+        env_args: Environment configuration.
+        n_timesteps: Number of steps to run the policy.
+
+    Returns:
+        transitions: A `Transition` object containing all collected transitions.
+    """
+    # Split RNGs for environment reset and stepping
+    reset_key, step_key, rng = jax.random.split(rng, 3)
+
+    # Reset environment
+    reset_keys = (
+        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
+    )
+    last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
+
+    def step_fn(carry, _):
+        env_state, rng, last_obs = carry
+        # Prepare RNGs for stepping
+        rng_step, new_rng = jax.random.split(rng)
+        rng_step = (
+            jax.random.split(rng_step, env_args.n_envs)
+            if mode == "gymnax"
+            else rng_step
+        )
+
+        # Compute action using expert policy, obs should NOT be normalized (unless expert_policy was designed using normed-obs)
+        raw_obs = get_raw_obs(
+            env_state=env_state,
+            env=env_args.env,
+            mode=mode,
+        )
+        action = jax.vmap(expert_policy, in_axes=0)(raw_obs)
+        # Step environment and stop gradient to avoid backprop through env
+        obsv, new_env_state, reward, terminated, truncated, info = (
+            jax.lax.stop_gradient(
+                step(
+                    rng_step, env_state, action, env_args.env, mode, env_args.env_params
+                )
+            )
+        )
+
+        # Build transition
+        transition = Transition(
+            obs=last_obs,
+            action=action,
+            reward=reward[:, None],
+            terminated=terminated[:, None],
+            truncated=truncated[:, None],
+            next_obs=obsv,
+        )
+
+        # Update carry with new environment state and RNG
+        new_rng, _ = jax.random.split(rng)
+        carry = (new_env_state, new_rng, obsv)
+        return carry, transition
+
+    # Run for n_timesteps and collect transitions
+    _, transitions = jax.lax.scan(
+        step_fn, (env_state, step_key, last_obs), length=n_timesteps
+    )
+
+    return transitions
 
 
 # @partial(jax.jit, static_argnames=["mode", "env_args", "buffer", "window_size"])
@@ -439,6 +575,7 @@ def init_collector_state(
     )
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
+
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
         action=jnp.ones((env_args.n_envs, *action_shape)),
@@ -447,6 +584,7 @@ def init_collector_state(
         terminated=jnp.ones((env_args.n_envs, 1)),
         truncated=jnp.ones((env_args.n_envs, 1)),
         log_prob=jnp.ones((env_args.n_envs, *action_shape)),
+        raw_obs=jnp.ones((env_args.n_envs, *obs_shape)),
     )
     episodic_return_state = init_rolling_mean(
         window_size=window_size,

@@ -61,10 +61,13 @@ def test_compute_gae(
     advantages, returns = _compute_gae(
         rewards=rewards,
         values=values,
-        dones=dones,
+        next_values=jnp.concat(
+            (values[1:], jnp.expand_dims(last_value, axis=0)), axis=0
+        ),
+        terminateds=dones,
+        truncateds=dones,
         gamma=gamma,
         gae_lambda=gae_lambda,
-        last_value=last_value,
     )
 
     assert jnp.allclose(
@@ -81,15 +84,15 @@ def test_compute_gae_with_zeros():
     dones = jnp.zeros(5)
     gamma = 0.99
     gae_lambda = 0.95
-    last_value = jnp.array(0.0)
 
     advantages, returns = _compute_gae(
         rewards=rewards,
         values=values,
-        dones=dones,
+        next_values=values,
+        terminateds=dones,
+        truncateds=dones,
         gamma=gamma,
         gae_lambda=gae_lambda,
-        last_value=last_value,
     )
 
     assert jnp.allclose(advantages, jnp.zeros(5)), "Advantages should be all zeros."
@@ -107,10 +110,13 @@ def test_compute_gae_with_terminal_state():
     advantages, returns = _compute_gae(
         rewards=rewards,
         values=values,
-        dones=dones,
+        next_values=jnp.concat(
+            (values[1:], jnp.expand_dims(last_value, axis=0)), axis=0
+        ),
+        terminateds=dones,
+        truncateds=dones,
         gamma=gamma,
         gae_lambda=gae_lambda,
-        last_value=last_value,
     )
 
     assert advantages.shape == rewards.shape, "Advantages shape mismatch."

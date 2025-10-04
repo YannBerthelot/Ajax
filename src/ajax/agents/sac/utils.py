@@ -14,8 +14,9 @@ def simplex(a, b, dyna_factor):
 
 class SquashedNormal(distrax.Transformed):
     _tanh_bijector = distrax.Tanh()
+    _sigmoid_bijector = distrax.Sigmoid()
 
-    def __init__(self, loc, scale):
+    def __init__(self, loc, scale, squasher="tanh"):
         normal_dist = distrax.Normal(loc, scale)
 
         super().__init__(

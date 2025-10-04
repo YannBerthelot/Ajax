@@ -1,10 +1,12 @@
+from functools import partial
 from typing import Callable, Optional, Union
 
-from gymnax import EnvParams
+# from gymnax import EnvParams
+from target_gym.base import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.state import PPOConfig
-from ajax.agents.PPO.train_PPO import make_train
+from ajax.agents.PPO.train_PPO_pre_train import CloningConfig, make_train
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
@@ -44,6 +46,17 @@ class PPO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        actor_cloning_epochs: int = 10,
+        critic_cloning_epochs: int = 10,
+        actor_cloning_lr: float = 1e-3,
+        critic_cloning_lr: float = 1e-3,
+        actor_cloning_batch_size: int = 64,
+        critic_cloning_batch_size: int = 64,
+        pre_train_n_steps: int = 0,
+        expert_policy: Optional[Callable] = None,
+        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
+        distance_to_stable: Optional[Callable] = None,
+        imitation_coef_offset: float = 0.0,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -100,6 +113,20 @@ class PPO(ActorCritic):
             normalize_advantage=normalize_advantage,
         )
 
+        self.cloning_confing = CloningConfig(
+            actor_epochs=actor_cloning_epochs,
+            critic_epochs=critic_cloning_epochs,
+            actor_lr=actor_cloning_lr,
+            critic_lr=critic_cloning_lr,
+            actor_batch_size=actor_cloning_batch_size,
+            critic_batch_size=critic_cloning_batch_size,
+            pre_train_n_steps=pre_train_n_steps,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
+        )
+        self.expert_policy = expert_policy
+
     def get_make_train(self) -> Callable:
         """
         Create a training function for the PPO agent.
@@ -107,21 +134,24 @@ class PPO(ActorCritic):
         Returns:
             Callable: A function that trains the PPO agent.
         """
-        return make_train
+        return partial(
+            make_train,
+            cloning_args=self.cloning_confing,
+            expert_policy=self.expert_policy,
+        )
 
 
 if __name__ == "__main__":
-    n_seeds = 100
-    log_frequency = 20_000
+    n_seeds = 1
+    log_frequency = 5000
     use_wandb = True
     logging_config = LoggingConfig(
-        project_name="mission_debug_PPO_Ant_3",
+        project_name="PPO_tests_rlzoo_2",
         run_name="PPO",
         config={
             "debug": False,
             "log_frequency": log_frequency,
             "n_seeds": n_seeds,
-            "faulty_boostrap": False,
         },
         log_frequency=log_frequency,
         horizon=10_000,
@@ -155,90 +185,18 @@ if __name__ == "__main__":
 
     env_id = process_brax_env_id(env_id)
 
-    env_id = "CartPole-v1"
-    # env_id = "Pendulum-v1"
-
     # env, env_params = gymnax.make(env_id)
 
     PPO_agent = PPO(
         env_id=env_id,
-        # batch_size=256,
-        # gamma=0.999,
-        # clip_range=0.1,
-        # # n_envs=8,
-        # # n_steps=1024,
-        # actor_learning_rate=3e-4,
-        # critic_learning_rate=1e-3,
-        # # **init_hyperparams,
+        **init_hyperparams,
         # normalize_observations=True,
         # normalize_rewards=True,
-        # ent_coef=1e-7,
-        # n_envs=1,
-        # n_steps=512,
-        # gae_lambda=0.8,
         # n_envs=1,
         # n_steps=8,
     )  # Remove version from env_id for brax compatibility
     PPO_agent.train(
         seed=list(range(n_seeds)),
         logging_config=logging_config,
-        n_timesteps=int(1e6),
-        # **train_hyperparams,
+        **train_hyperparams,
     )
-    # # upload_tensorboard_to_wandb(PPO_agent.run_ids, logging_config)
-    # from target_gym import Plane, PlaneParams
-
-    # n_seeds = 1
-    # n_timesteps = int(1e6)
-    # log_frequency = 2048 * 5
-    # logging_config = LoggingConfig(
-    #     project_name="test_PPO_ant",
-    #     run_name="run",
-    #     config={
-    #         "debug": False,
-    #         "log_frequency": log_frequency,
-    #         "n_seeds": n_seeds,
-    #     },
-    #     log_frequency=log_frequency,
-    #     horizon=10_000,
-    #     use_tensorboard=False,
-    #     use_wandb=True,
-    # )
-    # # env_id = Plane(integration_method="rk4_1")
-    # # env_params = PlaneParams(
-    # #     target_altitude_range=(5000.0, 5000.0),
-    # # )
-    # # config = {
-    # #     "n_envs": 8,
-    # #     "gamma": 0.9958421994019934,
-    # #     "ent_coef": 0.4924106320493923,
-    # #     "critic_learning_rate": 0.002220963448023115,
-    # #     "clip_range": 0.10865537675700608,
-    # #     "actor_learning_rate": 0.006425002229849839,
-    # #     "n_steps": 2048,
-    # # }
-    # # _logging_config = logging_config.replace(log_frequency=config["n_steps"])
-    # env_id = "ant"
-    # N_NEURONS = 128
-    # _agent = PPO(
-    #     env_id=env_id,
-    #     normalize_observations=True,
-    #     normalize_rewards=True,
-    #     # actor_architecture=(f"{N_NEURONS}", activation, f"{N_NEURONS}", activation),
-    #     # critic_architecture=(
-    #     #     f"{N_NEURONS}",
-    #     #     activation,
-    #     #     f"{N_NEURONS}",
-    #     #     activation,
-    #     # ),
-    #     # env_params=env_params,
-    # )
-    # seeeeeeds = list(range(n_seeds))
-    # _, out = _agent.train(
-    #     seed=seeeeeeds,
-    #     n_timesteps=n_timesteps,
-    #     logging_config=logging_config,
-    # )
-    # score = out["Eval/episodic mean reward"]
-    # print(score, len(score[0]))
-    # print(score[out["timestep"] > 0.9 * n_timesteps])

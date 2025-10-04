@@ -25,7 +25,12 @@ def build_env_from_id(
     if env_id in list(brax.envs._envs.keys()):
         return (
             AutoResetWrapper(
-                brax.envs.create(env_id, batch_size=n_envs, auto_reset=False, **kwargs)
+                brax.envs.create(
+                    env_id,
+                    batch_size=n_envs,
+                    auto_reset=False,
+                    **kwargs,
+                )  # native autoreset always re-init to the same state
             ),
             None,
         )
@@ -58,13 +63,13 @@ def prepare_env(
 
     # Apply wrappers based on flags
     if normalize_obs or normalize_reward:
-        if normalize_reward:
-            assert gamma is not None, "Gamma must be provided for reward normalization."
-        env = NormalizeVecObservation(
-            ClipAction(env),
-            normalize_reward=normalize_reward,
-            normalize_obs=normalize_obs,
-            gamma=gamma if normalize_reward else None,
+        env = ClipAction(
+            NormalizeVecObservation(
+                env,
+                normalize_reward=normalize_reward,
+                normalize_obs=normalize_obs,
+                gamma=gamma if normalize_reward else None,
+            )
         )
     if noise_scale is not None:
         print("noise wrapper")

@@ -1,0 +1,12 @@
+Plane:
+  n_envs: 8
+  actor_learning_rate: 0.0017440148235622868
+  clip_range: 0.3
+  critic_learning_rate: 0.0004176815071908064
+  ent_coef: 0.0001652542912658177
+  gamma: 0.98
+  n_steps: 1024
+  normalize_observations: false
+  normalize_rewards: true
+  actor_architecture: "(128, tanh, 128, tanh)"
+  critic_architecture: "(128, tanh, 128, tanh)"

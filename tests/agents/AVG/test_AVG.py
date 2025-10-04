@@ -8,7 +8,7 @@ from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerC
     "env_id",
     [
         "Pendulum-v1",
-        "fast",
+        "ant",
     ],
 )
 def test_avg_initialization(env_id):
@@ -47,7 +47,7 @@ def test_avg_initialization_with_discrete_env():
     "env_id",
     [
         "Pendulum-v1",
-        "fast",
+        "ant",
     ],
 )
 def test_avg_train_single_seed(env_id):
@@ -60,7 +60,7 @@ def test_avg_train_single_seed(env_id):
     "env_id",
     [
         "Pendulum-v1",
-        "fast",
+        "ant",
     ],
 )
 def test_avg_train_multiple_seeds(env_id):
@@ -75,7 +75,7 @@ def test_avg_train_multiple_seeds(env_id):
     "env_id",
     [
         "Pendulum-v1",
-        "fast",
+        "ant",
     ],
 )
 def test_avg_train_multiple_envs(env_id):

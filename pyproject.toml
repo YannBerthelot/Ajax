@@ -7,10 +7,9 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.10, <3.12"
-gymnasium = "^0.28.1"
+gymnasium = "^1.2.0"
 numpy = "^1.25.0"
 tqdm = "^4.65.0"
-gymnax = "^0.0.9"
 appdirs = "1.4.3"
 pydantic = "^2.0.2"
 pandas = "^2.1.1"
@@ -26,6 +25,8 @@ mujoco-mjx = "^3.1.4"
 tensorflow-probability = {extras = ["jax"], version = "^0.25.0"}
 tf-keras = "^2.19.0"
 python-dotenv = "^1.1.1"
+gymnax = {git = "https://github.com/YannBerthelot/gymnax.git", rev = "terminal_state_tracking"}
+target-gym = {git = "https://github.com/YannBerthelot/TargetGym", rev = "interpolator"}
 
 
 [tool.poetry.group.dev.dependencies]
@@ -35,14 +36,12 @@ pre-commit = "^3.3.3"
 pytest = "7.4.0"
 tox = "^4.6.4"
 coverage = {extras = ["toml"], version = "^7.8.0"}
-pygame = "^2.5.2"
 pytest-mock = "^3.14.0"
 mock = "^5.1.0"
 ruff = "^0.11.6"
 
 
 [tool.poetry.group.render.dependencies]
-moviepy = "^1.0.3"
 imageio = {extras = ["ffmpeg"], version = "^2.37.0"}
 
 [tool.poetry.group.wandb.dependencies]

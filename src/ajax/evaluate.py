@@ -24,6 +24,9 @@ T = TypeVar("T")  # generic type for pytrees
 
 
 def repeat_first_entry(tree: T, num_repeats: int) -> T:
+    return jax.tree.map(
+        lambda x: jnp.broadcast_to(x[0], (num_repeats, *x.shape[1:])), tree
+    )
     return jax.tree.map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
 
 
@@ -35,6 +38,7 @@ def repeat_first_entry(tree: T, num_repeats: int) -> T:
         "num_episodes",
         "lstm_hidden_size",
         "env",
+        "avg_reward_mode",
     ],
 )
 def evaluate(
@@ -47,6 +51,8 @@ def evaluate(
     lstm_hidden_size: Optional[int] = None,
     gamma: float = 0.99,  # TODO : propagate
     norm_info: Optional[NormalizationInfo] = None,
+    avg_reward_mode: bool = False,
+    num_steps_average_reward: int = int(1e4),
 ) -> jax.Array:
     mode = "gymnax" if check_env_is_gymnax(env) else "brax"
     if mode == "gymnax":
@@ -77,7 +83,7 @@ def evaluate(
             norm_info=norm_info,
             gamma=gamma,
             normalize_obs=norm_info.obs is not None,
-            normalize_reward=norm_info.reward is not None,
+            normalize_reward=False,
         )
 
     key, reset_key = jax.random.split(rng, 2)
@@ -100,6 +106,14 @@ def evaluate(
         )
 
         action = pi.mean() if continuous else pi.mode()
+
+        # jax.debug.print(
+        #     "Action: {action} Obs:{obs} State:{state}",
+        #     action=action,
+        #     obs=obs,
+        #     state=actor_state.params,
+        # )
+
         entropy = (
             pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
         )
@@ -111,11 +125,32 @@ def evaluate(
     rewards = jnp.zeros(num_episodes)
     entropy_sum = jnp.zeros(1)
     step_count = jnp.zeros(1)
+    step_count_2 = jnp.zeros(1)
 
-    carry = (rewards, key, obs, done, state, entropy_sum, step_count)
+    carry = (
+        rewards,
+        key,
+        obs,
+        done,
+        state,
+        entropy_sum,
+        step_count,
+        step_count_2,
+        rewards,
+    )
 
     def sample_action_and_step(carry):
-        rewards, rng, obs, done, state, entropy_sum, step_count = carry
+        (
+            rewards,
+            rng,
+            obs,
+            done,
+            state,
+            entropy_sum,
+            step_count,
+            step_count_2,
+            _,
+        ) = carry
         rng, step_key = jax.random.split(rng)
         step_keys = (
             jax.random.split(step_key, num_episodes) if mode == "gymnax" else step_key
@@ -124,6 +159,7 @@ def evaluate(
             obs,
             done if recurrent else None,
         )
+        # jax.debug.print("action:{x}, obs:{y}", x=actions, y=obs)
         obs, new_state, new_rewards, new_terminated, new_truncated, _ = step(
             step_keys,
             state,
@@ -136,25 +172,57 @@ def evaluate(
 
         still_running = 1 - done  # only count unfinished envs
         step_count += still_running.mean()
+        step_count_2 += 1
         entropy_sum += (entropy.mean() * still_running).mean()
         rewards += new_rewards * still_running
         done = done | jnp.int8(new_done)
+        # reward_buf = reward_buf.at[step_count_2.astype(int)].set(
+        #     jnp.where(still_running, new_rewards, jnp.nan)
+        # )
+        return (
+            rewards,
+            rng,
+            obs,
+            done,
+            new_state,
+            entropy_sum,
+            step_count,
+            step_count_2,
+            new_rewards,
+        )
 
-        return rewards, rng, obs, done, new_state, entropy_sum, step_count
+    def sample_action_and_step_scan(carry, _):
+        carry = sample_action_and_step(carry)
+        reward = carry[-1]
+        return carry, reward
 
     def env_not_done(carry):
         done = carry[3]
         return jnp.logical_not(done.all())
 
-    rewards, _, _, _, _, entropy_sum, step_count = jax.lax.while_loop(
+    # if not avg_reward_mode:
+    rewards, _, _, _, _, entropy_sum, step_count, step_count_2, _ = jax.lax.while_loop(
         env_not_done,
         sample_action_and_step,
         carry,
     )
-
-    if norm_info is not None:
-        if norm_info.reward is not None:
-            rewards = env.unnormalize_reward(rewards, norm_info.reward)
-
     avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)  # avoid divide by zero
-    return rewards.mean(axis=-1), avg_entropy.mean(axis=-1)
+    bias = jnp.nan * jnp.ones(num_episodes)
+    avg_reward = jnp.nan * jnp.ones(num_episodes)
+    if avg_reward_mode:
+        _, _rewards = jax.lax.scan(
+            f=sample_action_and_step_scan,
+            init=carry,
+            xs=None,
+            length=num_steps_average_reward,  # type: ignore[union-attr]
+        )
+        avg_reward = _rewards.mean(axis=0)
+        bias = jnp.nansum(_rewards - avg_reward, axis=0)
+        # avg_entropy = entropies.mean(axis=0)
+    return (
+        rewards.mean(axis=-1),
+        avg_entropy.mean(axis=-1),
+        avg_reward.mean(axis=-1),
+        bias.mean(axis=-1),
+        step_count.mean(),
+    )

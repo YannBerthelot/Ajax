@@ -42,6 +42,9 @@ def no_op(agent_state, aux, *args):  # TODO : build from auxiliary logs?
         "timestep": -1,  # must be int
         "Eval/episodic mean reward": jnp.nan,
         "Eval/episodic entropy": jnp.nan,
+        "Eval/mean average reward": jnp.nan,
+        "Eval/mean episodic length": jnp.nan,
+        "Eval/mean bias": jnp.nan,
         "Train/episodic mean reward": jnp.nan,
     }
     aux_keys = flatten_dict(to_state_dict(aux)).keys()
@@ -66,6 +69,7 @@ def no_op_none(agent_state, index, timestep):
         "log_fn",
         "log_frequency",
         "total_timesteps",
+        "avg_reward_mode",
     ],
 )
 def evaluate_and_log(
@@ -82,6 +86,7 @@ def evaluate_and_log(
     log_fn: Callable,
     log_frequency: int,
     total_timesteps: int,
+    avg_reward_mode: bool = False,
 ):
     timestep = agent_state.collector_state.timestep
 
@@ -94,7 +99,7 @@ def evaluate_and_log(
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
         )
-        eval_rewards, eval_entropy = evaluate(
+        eval_rewards, eval_entropy, avg_avg_reward, avg_bias, step_count = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
             num_episodes=num_episode_test,
@@ -111,6 +116,7 @@ def evaluate_and_log(
                 if obs_normalization
                 else None
             ),
+            avg_reward_mode=avg_reward_mode,
         )
 
         eval_rewards = eval_rewards.mean()
@@ -118,11 +124,15 @@ def evaluate_and_log(
         metrics_to_log = {
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards,
+            "Eval/mean average reward": avg_avg_reward,
+            "Eval/mean episodic length": step_count,
+            "Eval/mean bias": avg_bias,
             "Eval/episodic entropy": eval_entropy,
             "Train/episodic mean reward": (
                 agent_state.collector_state.episodic_mean_return
             ),
         }
+        # jax.debug.print("metrics_to_log:{x}", x=metrics_to_log)
 
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
 
@@ -138,10 +148,8 @@ def evaluate_and_log(
             )
 
         if log:
-            # jax.debug.print(
-            #     "Calling log function {metrics_to_log}", metrics_to_log=metrics_to_log
-            # )
             jax.debug.callback(log_fn, metrics_to_log, index)
+            jax.clear_caches()
         return metrics_to_log
 
     _, eval_rng = jax.random.split(agent_state.eval_rng)
@@ -152,18 +160,22 @@ def evaluate_and_log(
         if log
         else False
     )
+    not_finished_flag = (
+        timestep < total_timesteps - log_frequency if log_frequency else False
+    )
+
+    flag = jnp.logical_and(
+        jnp.logical_and(log_flag, timestep > 1),
+        not_finished_flag,
+        # timestep >= (total_timesteps - env_args.n_envs),
+    )
+
+    metrics_to_log = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
 
     agent_state = agent_state.replace(
         n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
     )
-    flag = jnp.logical_or(
-        jnp.logical_and(log_flag, timestep > 1),
-        timestep >= (total_timesteps - env_args.n_envs),
-    )
-    metrics_to_log = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
 
     del aux
-
-    jax.clear_caches()
 
     return agent_state, metrics_to_log

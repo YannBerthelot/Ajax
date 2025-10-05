@@ -2,7 +2,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.sac.utils import (  # correct_log_probs,; sample_actions_and_log_prob,
+from ajax.agents.SAC.utils import (  # correct_log_probs,; sample_actions_and_log_prob,
     SquashedNormal,
 )
 

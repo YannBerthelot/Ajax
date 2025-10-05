@@ -9,8 +9,8 @@ import wandb
 # from gymnax import PlaneParams
 from target_gym import PlaneParams
 
-from ajax.agents.sac.state import SACConfig
-from ajax.agents.sac.train_sac import make_train
+from ajax.agents.SAC.state import SACConfig
+from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
@@ -207,8 +207,8 @@ if __name__ == "__main__":
     #     n_seeds = 1
     #     log_frequency = 1000
     #     logging_config = LoggingConfig(
-    #         project_name="dyna_sac_tests_sweep",
-    #         run_name="sac",
+    #         project_name="dyna_SAC_tests_sweep",
+    #         run_name="SAC",
     #         config={
     #             "debug": False,
     #             "log_frequency": log_frequency,
@@ -222,8 +222,8 @@ if __name__ == "__main__":
     #     env_id = "halfcheetah"
 
     #     def init_and_train(config):
-    #         sac_agent = SAC(env_id=env_id, **config)
-    #         _, score = sac_agent.train(
+    #         SAC_agent = SAC(env_id=env_id, **config)
+    #         _, score = SAC_agent.train(
     #             seed=list(range(n_seeds)),
     #             n_timesteps=int(1e4),
     #             logging_config=logging_config,
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="test_sac",
+        project_name="test_SAC",
         run_name="baseline",
         config={
             "debug": False,
@@ -271,10 +271,10 @@ if __name__ == "__main__":
     #     # initial_altitude_range=(target_altitude, target_altitude),
     # )
     env_id = "ant"
-    sac_agent = SAC(env_id=env_id, learning_starts=int(1e4), n_envs=1)
-    sac_agent.train(
+    SAC_agent = SAC(env_id=env_id, learning_starts=int(1e4), n_envs=1)
+    SAC_agent.train(
         seed=list(range(n_seeds)),
         n_timesteps=int(1e6),
         logging_config=logging_config,
     )
-    # upload_tensorboard_to_wandb(sac_agent.run_ids, logging_config, use_wandb=True)
+    # upload_tensorboard_to_wandb(SAC_agent.run_ids, logging_config, use_wandb=True)

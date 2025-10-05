@@ -8,10 +8,10 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.agents.sac.state import SACConfig, SACState
-from ajax.agents.sac.train_sac import (
+from ajax.agents.SAC.state import SACConfig, SACState
+from ajax.agents.SAC.train_SAC import (
     create_alpha_train_state,
-    init_sac,
+    init_SAC,
     make_train,
     policy_loss_function,
     temperature_loss_function,
@@ -72,7 +72,7 @@ def buffer(env_config):
 
 
 @pytest.fixture
-def sac_state(env_config, buffer):
+def SAC_state(env_config, buffer):
     key = jax.random.PRNGKey(0)
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
@@ -83,7 +83,7 @@ def sac_state(env_config, buffer):
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
 
-    return init_sac(
+    return init_SAC(
         key=key,
         env_args=env_config,
         actor_optimizer_args=optimizer_args,
@@ -106,26 +106,26 @@ def test_create_alpha_train_state():
     assert jnp.isclose(
         train_state.params["log_alpha"], jnp.log(alpha_init)
     ), "log_alpha initialization is incorrect."
-    assert train_state.tx is not None, "Optimizer transaction is not initialized."
+    assert train_state.tx is not None, "Optimizer tranSACtion is not initialized."
 
 
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_init_sac(sac_state):
-    assert isinstance(sac_state, SACState), "Returned object is not an SACState."
-    assert sac_state.actor_state is not None, "Actor state is not initialized."
-    assert sac_state.critic_state is not None, "Critic state is not initialized."
+def test_init_SAC(SAC_state):
+    assert isinstance(SAC_state, SACState), "Returned object is not an SACState."
+    assert SAC_state.actor_state is not None, "Actor state is not initialized."
+    assert SAC_state.critic_state is not None, "Critic state is not initialized."
     assert isinstance(
-        sac_state.alpha.params, FrozenDict
+        SAC_state.alpha.params, FrozenDict
     ), "Alpha state is not initialized correctly."
-    assert sac_state.collector_state is not None, "Collector state is not initialized."
+    assert SAC_state.collector_state is not None, "Collector state is not initialized."
 
 
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_value_loss_function(env_config, sac_state):
+def test_value_loss_function(env_config, SAC_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
@@ -140,10 +140,10 @@ def test_value_loss_function(env_config, sac_state):
 
     # Call the value loss function
     loss, aux = value_loss_function(
-        critic_params=sac_state.critic_state.params,
-        critic_states=sac_state.critic_state,
+        critic_params=SAC_state.critic_state.params,
+        critic_states=SAC_state.critic_state,
         rng=rng,
-        actor_state=sac_state.actor_state,
+        actor_state=SAC_state.actor_state,
         actions=actions,
         observations=observations,
         next_observations=next_observations,
@@ -164,7 +164,7 @@ def test_value_loss_function(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_value_loss_function_with_value_and_grad(env_config, sac_state):
+def test_value_loss_function_with_value_and_grad(env_config, SAC_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the value loss function
@@ -181,9 +181,9 @@ def test_value_loss_function_with_value_and_grad(env_config, sac_state):
     def loss_fn(critic_params):
         loss, _ = value_loss_function(
             critic_params=critic_params,
-            critic_states=sac_state.critic_state,
+            critic_states=SAC_state.critic_state,
             rng=rng,
-            actor_state=sac_state.actor_state,
+            actor_state=SAC_state.actor_state,
             actions=actions,
             observations=observations,
             next_observations=next_observations,
@@ -197,7 +197,7 @@ def test_value_loss_function_with_value_and_grad(env_config, sac_state):
         return loss
 
     # Compute gradients using jax.value_and_grad
-    loss, grads = jax.value_and_grad(loss_fn)(sac_state.critic_state.params)
+    loss, grads = jax.value_and_grad(loss_fn)(SAC_state.critic_state.params)
 
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
@@ -210,7 +210,7 @@ def test_value_loss_function_with_value_and_grad(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_policy_loss_function(env_config, sac_state):
+def test_policy_loss_function(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the policy loss function
@@ -221,9 +221,9 @@ def test_policy_loss_function(env_config, sac_state):
 
     # Call the policy loss function
     loss, aux = policy_loss_function(
-        actor_params=sac_state.actor_state.params,
-        actor_state=sac_state.actor_state,
-        critic_states=sac_state.critic_state,
+        actor_params=SAC_state.actor_state.params,
+        actor_state=SAC_state.actor_state,
+        critic_states=SAC_state.critic_state,
         observations=observations,
         dones=dones,
         recurrent=False,
@@ -242,7 +242,7 @@ def test_policy_loss_function(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_policy_loss_function_with_value_and_grad(env_config, sac_state):
+def test_policy_loss_function_with_value_and_grad(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the policy loss function
@@ -255,8 +255,8 @@ def test_policy_loss_function_with_value_and_grad(env_config, sac_state):
     def loss_fn(actor_params):
         loss, _ = policy_loss_function(
             actor_params=actor_params,
-            actor_state=sac_state.actor_state,
-            critic_states=sac_state.critic_state,
+            actor_state=SAC_state.actor_state,
+            critic_states=SAC_state.critic_state,
             observations=observations,
             dones=dones,
             recurrent=False,
@@ -266,7 +266,7 @@ def test_policy_loss_function_with_value_and_grad(env_config, sac_state):
         return loss
 
     # Compute gradients using jax.value_and_grad
-    loss, grads = jax.value_and_grad(loss_fn)(sac_state.actor_state.params)
+    loss, grads = jax.value_and_grad(loss_fn)(SAC_state.actor_state.params)
 
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
@@ -359,7 +359,7 @@ def test_temperature_loss_function_with_value_and_grad(
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_update_value_functions(env_config, sac_state):
+def test_update_value_functions(env_config, SAC_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_value_functions function
@@ -372,7 +372,7 @@ def test_update_value_functions(env_config, sac_state):
     reward_scale = 1.0
 
     # Save the original target_params for comparison
-    original_target_params = sac_state.critic_state.target_params
+    original_target_params = SAC_state.critic_state.target_params
 
     # Call the update_value_functions function
     updated_state, aux = update_value_functions(
@@ -380,7 +380,7 @@ def test_update_value_functions(env_config, sac_state):
         actions=actions,
         next_observations=next_observations,
         dones=dones,
-        agent_state=sac_state,
+        agent_state=SAC_state,
         recurrent=False,
         rewards=rewards,
         gamma=gamma,
@@ -389,7 +389,7 @@ def test_update_value_functions(env_config, sac_state):
     aux = to_state_dict(aux)
     # Validate that only critic_state.params has changed
     assert not compare_frozen_dicts(
-        updated_state.critic_state.params, sac_state.critic_state.params
+        updated_state.critic_state.params, SAC_state.critic_state.params
     ), "critic_state.params should have been updated."
 
     assert compare_frozen_dicts(
@@ -403,7 +403,7 @@ def test_update_value_functions(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_update_policy(env_config, sac_state):
+def test_update_policy(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_policy function
@@ -411,13 +411,13 @@ def test_update_policy(env_config, sac_state):
     dones = jnp.zeros((env_config.n_envs, 1))
 
     # Save the original actor params for comparison
-    original_actor_params = sac_state.actor_state.params
+    original_actor_params = SAC_state.actor_state.params
 
     # Call the update_policy function
     updated_state, aux = update_policy(
         observations=observations,
         done=dones,
-        agent_state=sac_state,
+        agent_state=SAC_state,
         recurrent=False,
     )
     aux = to_state_dict(aux)
@@ -434,7 +434,7 @@ def test_update_policy(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_update_temperature(env_config, sac_state):
+def test_update_temperature(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
 
     # Mock inputs for the update_temperature function
@@ -443,11 +443,11 @@ def test_update_temperature(env_config, sac_state):
     target_entropy = -1.0
 
     # Save the original alpha params for comparison
-    original_alpha_params = sac_state.alpha.params
+    original_alpha_params = SAC_state.alpha.params
 
     # Call the update_temperature function
     updated_state, aux = update_temperature(
-        agent_state=sac_state,
+        agent_state=SAC_state,
         observations=observations,
         dones=dones,
         target_entropy=target_entropy,
@@ -468,10 +468,10 @@ def test_update_temperature(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_update_target_networks(env_config, sac_state):
+def test_update_target_networks(env_config, SAC_state):
     tau = 0.05  # Example soft update factor
 
-    critic_state = sac_state.critic_state
+    critic_state = SAC_state.critic_state
 
     shifted_params = FrozenDict(
         jax.tree_util.tree_map(lambda x: x + 1, critic_state.params)
@@ -479,16 +479,16 @@ def test_update_target_networks(env_config, sac_state):
     critic_state = critic_state.replace(
         params=shifted_params,
     )
-    sac_state = sac_state.replace(
+    SAC_state = SAC_state.replace(
         critic_state=critic_state,
     )
     # Save the original params and target_params for comparison
-    original_params = sac_state.critic_state.params
-    original_target_params = sac_state.critic_state.target_params
+    original_params = SAC_state.critic_state.params
+    original_target_params = SAC_state.critic_state.target_params
 
     # Call the update_target_networks function
 
-    updated_state = update_target_networks(sac_state, tau=tau)
+    updated_state = update_target_networks(SAC_state, tau=tau)
 
     # Validate that only target_params have changed
     assert compare_frozen_dicts(
@@ -526,7 +526,7 @@ def test_update_target_networks(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_update_agent(env_config, sac_state):
+def test_update_agent(env_config, SAC_state):
     # Mock inputs for the update_agent function
     buffer = get_buffer(buffer_size=100, batch_size=32, n_envs=env_config.n_envs)
     gamma = 0.99
@@ -536,13 +536,13 @@ def test_update_agent(env_config, sac_state):
 
     # Initialize buffer state
     buffer_state = init_buffer(buffer, env_config)
-    sac_state = sac_state.replace(
-        collector_state=sac_state.collector_state.replace(buffer_state=buffer_state)
+    SAC_state = SAC_state.replace(
+        collector_state=SAC_state.collector_state.replace(buffer_state=buffer_state)
     )
 
     # Call the update_agent function
     updated_state, _ = update_agent(
-        agent_state=sac_state,
+        agent_state=SAC_state,
         _=None,
         buffer=buffer,
         recurrent=recurrent,
@@ -559,7 +559,7 @@ def test_update_agent(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_update_agent_with_scan(env_config, sac_state):
+def test_update_agent_with_scan(env_config, SAC_state):
     # Mock inputs for the update_agent function
     buffer = get_buffer(buffer_size=100, batch_size=32, n_envs=env_config.n_envs)
     gamma = 0.99
@@ -569,8 +569,8 @@ def test_update_agent_with_scan(env_config, sac_state):
 
     # Initialize buffer state
     buffer_state = init_buffer(buffer, env_config)
-    sac_state = sac_state.replace(
-        collector_state=sac_state.collector_state.replace(buffer_state=buffer_state)
+    SAC_state = SAC_state.replace(
+        collector_state=SAC_state.collector_state.replace(buffer_state=buffer_state)
     )
 
     update_agent_scan = partial(
@@ -583,7 +583,7 @@ def test_update_agent_with_scan(env_config, sac_state):
     )
 
     # Run the scan
-    final_state, _ = jax.lax.scan(update_agent_scan, sac_state, None, length=5)
+    final_state, _ = jax.lax.scan(update_agent_scan, SAC_state, None, length=5)
 
     # Validate the final state
     assert final_state is not None, "Final state should not be None."
@@ -593,7 +593,7 @@ def test_update_agent_with_scan(env_config, sac_state):
 @pytest.mark.parametrize(
     "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
 )
-def test_training_iteration_with_scan(env_config, sac_state):
+def test_training_iteration_with_scan(env_config, SAC_state):
     buffer = get_buffer(buffer_size=100, batch_size=32, n_envs=env_config.n_envs)
     gamma = 0.99
     tau = 0.005
@@ -606,8 +606,8 @@ def test_training_iteration_with_scan(env_config, sac_state):
 
     # Initialize buffer state
     buffer_state = init_buffer(buffer, env_config)
-    sac_state = sac_state.replace(
-        collector_state=sac_state.collector_state.replace(buffer_state=buffer_state)
+    SAC_state = SAC_state.replace(
+        collector_state=SAC_state.collector_state.replace(buffer_state=buffer_state)
     )
 
     # Define a partial function for training_iteration
@@ -624,7 +624,7 @@ def test_training_iteration_with_scan(env_config, sac_state):
     )
 
     # Run multiple training iterations using jax.lax.scan
-    final_state, _ = jax.lax.scan(training_iteration_scan, sac_state, None, length=5)
+    final_state, _ = jax.lax.scan(training_iteration_scan, SAC_state, None, length=5)
 
     # Validate the final state
     assert isinstance(final_state, SACState), "Final state should be of type SACState."

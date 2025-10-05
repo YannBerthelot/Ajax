@@ -12,7 +12,7 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.agents.sac.state import SACConfig, SACState
+from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
@@ -103,7 +103,7 @@ def create_alpha_train_state(
     )
 
 
-def init_sac(
+def init_SAC(
     key: jax.Array,
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
@@ -906,7 +906,7 @@ def make_train(
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the SAC agent."""
-        agent_state = init_sac(
+        agent_state = init_SAC(
             key=key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,

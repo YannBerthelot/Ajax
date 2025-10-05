@@ -10,7 +10,7 @@ from flax.linen.initializers import constant, orthogonal
 from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
-from ajax.agents.sac.utils import SquashedNormal
+from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.networks.scanned_rnn import ScannedRNN
 from ajax.networks.utils import (
@@ -27,7 +27,7 @@ from ajax.state import (
 from ajax.types import ActivationFunction, HiddenState, InitializationFunction
 
 """
-Heavy inspiration from https://github.com/Howuhh/sac-n-jax/blob/main/sac_n_jax_flax.py
+Heavy inspiration from https://github.com/Howuhh/SAC-n-jax/blob/main/SAC_n_jax_flax.py
 """
 
 

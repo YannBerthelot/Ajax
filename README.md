@@ -92,10 +92,10 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 To train an agent using AJAX, run the following command:
 ```python
 env_id = "halfcheetah"
-sac_agent = SAC(
+SAC_agent = SAC(
         env_id=env_id,
     )
-sac_agent.train(seed=[1,2,3], n_timesteps=int(1e6))
+SAC_agent.train(seed=[1,2,3], n_timesteps=int(1e6))
 ```
 Replace `<environment_name>` with the desired environment (e.g., `gymnax.CartPole-v1`).
 

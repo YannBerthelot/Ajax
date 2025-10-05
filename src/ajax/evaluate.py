@@ -6,7 +6,7 @@ from brax.envs import create
 from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
-from ajax.agents.sac.utils import SquashedNormal
+from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import get_pi, reset, step
 from ajax.environments.utils import (
     check_env_is_gymnax,

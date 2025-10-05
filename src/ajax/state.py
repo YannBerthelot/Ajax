@@ -129,8 +129,8 @@ def simplex(a, b, dyna_factor):
 def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
     assert second_state_type in [
         "avg",
-        "sac",
-    ], f"Invalid second_state_type: {second_state_type}. Expected 'avg' or 'sac'."
+        "SAC",
+    ], f"Invalid second_state_type: {second_state_type}. Expected 'avg' or 'SAC'."
 
     @struct.dataclass
     class DoubleTrainState(LoadedTrainState):
@@ -177,7 +177,7 @@ def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
                         ),
                     )
             elif (
-                second_state_type == "sac"
+                second_state_type == "SAC"
             ):  # This means first state is AVG, so we need to unnormalize the obs
                 if self.norm_info is None:
                     processed_obs = obs
@@ -195,7 +195,7 @@ def get_double_train_state(second_state_type: str, dyna_factor: float = 0.5):
             else:
                 raise ValueError(
                     f"Invalid second_state_type: {second_state_type}. Expected"
-                    " 0:'avg' or 1: 'sac'."
+                    " 0:'avg' or 1: 'SAC'."
                 )
             assert (
                 obs.shape == processed_obs.shape

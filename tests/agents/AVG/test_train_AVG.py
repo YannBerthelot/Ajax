@@ -108,7 +108,7 @@ def test_create_alpha_train_state():
     assert jnp.isclose(
         train_state.params["log_alpha"], jnp.log(alpha_init)
     ), "log_alpha initialization is incorrect."
-    assert train_state.tx is not None, "Optimizer transaction is not initialized."
+    assert train_state.tx is not None, "Optimizer tranSACtion is not initialized."
 
 
 @pytest.mark.parametrize(

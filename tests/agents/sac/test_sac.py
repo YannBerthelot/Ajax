@@ -1,14 +1,14 @@
 import pytest
 
-from ajax.agents.sac.sac import SAC
+from ajax.agents.SAC.SAC import SAC
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType
 
 
-def test_sac_initialization():
+def test_SAC_initialization():
     """Test SAC agent initialization with default parameters."""
     env_id = "Pendulum-v1"
-    sac_agent = SAC(env_id=env_id)
+    SAC_agent = SAC(env_id=env_id)
 
     for expected_attr, expected_type in zip(
         (
@@ -28,24 +28,24 @@ def test_sac_initialization():
             BufferType,
         ),
     ):
-        assert hasattr(sac_agent, expected_attr)
-        assert isinstance(getattr(sac_agent, expected_attr), expected_type)
+        assert hasattr(SAC_agent, expected_attr)
+        assert isinstance(getattr(SAC_agent, expected_attr), expected_type)
 
 
-def test_sac_initialization_with_discrete_env():
+def test_SAC_initialization_with_discrete_env():
     """Test SAC agent initialization fails with a discrete environment."""
     env_id = "CartPole-v1"
     with pytest.raises(ValueError, match="SAC only supports continuous action spaces."):
         SAC(env_id=env_id)
 
 
-def test_sac_train_single_seed():
+def test_SAC_train_single_seed():
     """Test SAC agent's train method with a single seed."""
     env_id = "Pendulum-v1"
-    sac_agent = SAC(env_id=env_id, learning_starts=10)
-    sac_agent.train(seed=42, n_timesteps=100)
+    SAC_agent = SAC(env_id=env_id, learning_starts=10)
+    SAC_agent.train(seed=42, n_timesteps=100)
     # try:
-    #     sac_agent.train(seed=42, n_timesteps=1000)
+    #     SAC_agent.train(seed=42, n_timesteps=1000)
     #     success = True  # Placeholder: Add assertions or checks as needed
     # except Exception as e:
     #     success = False
@@ -53,15 +53,15 @@ def test_sac_train_single_seed():
     # assert success, "Training failed for the single seed"
 
 
-def test_sac_train_multiple_seeds():
+def test_SAC_train_multiple_seeds():
     """Test SAC agent's train method with multiple seeds using jax.vmap."""
     env_id = "Pendulum-v1"
-    sac_agent = SAC(env_id=env_id, learning_starts=10)
+    SAC_agent = SAC(env_id=env_id, learning_starts=10)
     seeds = [42, 43, 44]
     n_timesteps = 100
-    sac_agent.train(seed=seeds, n_timesteps=n_timesteps)
+    SAC_agent.train(seed=seeds, n_timesteps=n_timesteps)
     # try:
-    #     sac_agent.train(seed=seeds, n_timesteps=1000)
+    #     SAC_agent.train(seed=seeds, n_timesteps=1000)
     #     success = True  # Placeholder: Add assertions or checks as needed
     # except Exception as e:
     #     success = False

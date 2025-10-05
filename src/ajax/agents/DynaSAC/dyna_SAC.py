@@ -7,7 +7,7 @@ import wandb
 from gymnax import EnvParams
 
 from ajax.agents.DynaSAC.state import AVGConfig, DynaSACConfig, SACConfig
-from ajax.agents.DynaSAC.train_dyna_sac import make_train
+from ajax.agents.DynaSAC.train_dyna_SAC import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
@@ -48,10 +48,10 @@ class DynaSAC:
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
         avg_length: int = 4,
-        sac_length: int = 4,
+        SAC_length: int = 4,
         num_envs_AVG: int = 10,
         num_epochs_distillation: int = 1,
-        num_epochs_sac: int = 1,
+        num_epochs_SAC: int = 1,
         dyna_tau: FloatOrCallable = 0.005,
         dyna_factor: FloatOrCallable = 0.5,
     ) -> None:
@@ -99,7 +99,7 @@ class DynaSAC:
         if not check_if_environment_has_continuous_actions(primary_env):
             raise ValueError("SAC only supports continuous action spaces.")
         self.num_epochs_distillation = num_epochs_distillation
-        self.num_epochs_sac = num_epochs_sac
+        self.num_epochs_SAC = num_epochs_SAC
         self.primary_env_args = EnvironmentConfig(
             env=primary_env,
             env_params=env_params,
@@ -148,7 +148,7 @@ class DynaSAC:
         )
         action_dim = get_action_dim(primary_env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
-        sac_config = SACConfig(
+        SAC_config = SACConfig(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,
@@ -163,10 +163,10 @@ class DynaSAC:
             num_critics=1,
         )
         self.agent_config = DynaSACConfig(
-            primary=sac_config,
+            primary=SAC_config,
             secondary=avg_config,
             avg_length=avg_length,
-            sac_length=sac_length,
+            SAC_length=SAC_length,
             dyna_tau=dyna_tau,
             dyna_factor=dyna_factor,
         )
@@ -222,10 +222,10 @@ class DynaSAC:
                 num_episode_test=num_episode_test,
                 run_ids=run_ids,
                 logging_config=logging_config,
-                sac_length=self.agent_config.sac_length,
+                SAC_length=self.agent_config.SAC_length,
                 avg_length=self.agent_config.avg_length,
                 num_epochs=self.num_epochs_distillation,
-                n_epochs_sac=self.num_epochs_sac,
+                n_epochs_SAC=self.num_epochs_SAC,
             )
 
             agent_state = train_jit(key, index)
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_tests_multi",
+        project_name="dyna_SAC_tests_multi",
         run_name="run",
         config={
             "debug": False,
@@ -282,15 +282,15 @@ if __name__ == "__main__":
     )
 
     env_id = "halfcheetah"
-    sac_agent = DynaSAC(
+    SAC_agent = DynaSAC(
         env_id=env_id,
         learning_starts=int(1e4),
         batch_size=256,
         avg_length=1,
-        sac_length=1,
+        SAC_length=1,
         num_envs_AVG=1,
         num_epochs_distillation=1,
-        num_epochs_sac=1,
+        num_epochs_SAC=1,
         dyna_tau=create_linear_schedule(
             init_x=dyna_tau_init, final_x=dyna_tau_final, max_t=max_t + int(1e4)
         ),
@@ -298,7 +298,7 @@ if __name__ == "__main__":
             init_x=dyna_factor_init, final_x=dyna_factor_final, max_t=max_t + int(1e4)
         ),
     )
-    sac_agent.train(
+    SAC_agent.train(
         seed=list(range(n_seeds)),
         n_timesteps=int(1e6),
         logging_config=logging_config,

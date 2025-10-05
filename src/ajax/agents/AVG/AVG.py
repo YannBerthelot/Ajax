@@ -24,7 +24,7 @@ from ajax.types import EnvType
 
 
 class AVG:
-    """Action Value Gradient (AVG)"""
+    """Action Value Gradient (AVG) from Vasan et al. 2024. See https://arxiv.org/abs/2411.15370"""
 
     def __init__(  # pylint: disable=W0102, R0913
         self,

@@ -6,7 +6,7 @@ import pytest
 from brax.envs import create as create_brax_env
 from gymnax import make as make_gymnax_env
 
-from ajax.agents.sac.utils import SquashedNormal
+from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.environments.interaction import (
     collect_experience,

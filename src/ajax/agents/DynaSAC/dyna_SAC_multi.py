@@ -8,7 +8,7 @@ import wandb
 from gymnax import EnvParams
 
 from ajax.agents.DynaSAC.state import AVGConfig, DynaSACConfig, SACConfig
-from ajax.agents.DynaSAC.train_dyna_sac_multi import make_train
+from ajax.agents.DynaSAC.train_dyna_SAC_multi import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
@@ -48,10 +48,10 @@ class DynaSAC:
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
         avg_length: int = 1,
-        sac_length: int = 1,
+        SAC_length: int = 1,
         num_envs_AVG: int = 10,
         num_epochs_distillation: int = 1,
-        num_epochs_sac: int = 1,
+        num_epochs_SAC: int = 1,
         dyna_tau: FloatOrCallable = 0.005,  # FIXME : deprecated
         dyna_factor: FloatOrCallable = 0.5,  # FIXME : deprecated
         n_avg_agents: int = 1,
@@ -123,7 +123,7 @@ class DynaSAC:
         if not check_if_environment_has_continuous_actions(primary_env):
             raise ValueError("SAC only supports continuous action spaces.")
         self.num_epochs_distillation = num_epochs_distillation
-        self.num_epochs_sac = num_epochs_sac
+        self.num_epochs_SAC = num_epochs_SAC
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,
@@ -163,7 +163,7 @@ class DynaSAC:
         )
         action_dim = get_action_dim(primary_env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
-        sac_config = SACConfig(
+        SAC_config = SACConfig(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,
@@ -178,10 +178,10 @@ class DynaSAC:
             num_critics=1,
         )
         self.agent_config = DynaSACConfig(
-            primary=sac_config,
+            primary=SAC_config,
             secondary=avg_config,
             avg_length=avg_length,
-            sac_length=sac_length,
+            SAC_length=SAC_length,
             dyna_tau=dyna_tau,
             dyna_factor=dyna_factor,
             n_avg_agents=n_avg_agents,
@@ -255,10 +255,10 @@ class DynaSAC:
                 num_episode_test=num_episode_test,
                 run_ids=run_ids,
                 logging_config=logging_config,
-                sac_length=self.agent_config.sac_length,
+                SAC_length=self.agent_config.SAC_length,
                 avg_length=self.agent_config.avg_length,
                 num_epochs=self.num_epochs_distillation,
-                n_epochs_sac=self.num_epochs_sac,
+                n_epochs_SAC=self.num_epochs_SAC,
                 n_avg_agents=self.agent_config.n_avg_agents,
                 actor_distillation_lr=self.agent_config.actor_distillation_lr,
                 critic_distillation_lr=self.agent_config.critic_distillation_lr,
@@ -371,7 +371,7 @@ if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="dyna_sac_mix_3",
+        project_name="dyna_SAC_mix_3",
         run_name="baseline",
         config={
             "debug": False,
@@ -386,15 +386,15 @@ if __name__ == "__main__":
     )
 
     env_id = "hopper"
-    sac_agent = DynaSAC(
+    SAC_agent = DynaSAC(
         env_id=env_id,
         learning_starts=int(1e4),
         batch_size=256,
         avg_length=1,
-        sac_length=1,
+        SAC_length=1,
         num_envs_AVG=args.n_envs_AVG,
         num_epochs_distillation=args.n_epochs_distillation,
-        num_epochs_sac=1,
+        num_epochs_SAC=1,
         n_avg_agents=args.n_avg_agents,
         actor_distillation_lr=args.actor_distillation_lr,
         critic_distillation_lr=args.critic_distillation_lr,
@@ -407,7 +407,7 @@ if __name__ == "__main__":
         transfer_mode="copy",
         model_noise=1,
     )
-    _, score = sac_agent.train(
+    _, score = SAC_agent.train(
         seed=list(range(n_seeds)),
         n_timesteps=int(3e5),
         logging_config=logging_config,

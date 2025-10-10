@@ -1,10 +1,2 @@
-Plane2D:
-  actor_learning_rate: 0.007368325448079563
-  critic_learning_rate: 0.00014985213541715778
-  alpha_learning_rate: 0.00899372351241243
-  batch_size: 512
-  gamma: 0.9607791802285338
-  target_entropy_per_dim: 0.4630852957158582
-  tau: 0.00918765771337338
-  actor_architecture: "(64, relu, 64, relu)"
-  critic_architecture: "(64, relu, 64, relu)"
+Plane:
+  n_envs: 1

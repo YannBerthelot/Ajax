@@ -132,7 +132,6 @@ def evaluate_and_log(
                 agent_state.collector_state.episodic_mean_return
             ),
         }
-        # jax.debug.print("metrics_to_log:{x}", x=metrics_to_log)
 
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
 
@@ -150,6 +149,8 @@ def evaluate_and_log(
         if log:
             jax.debug.callback(log_fn, metrics_to_log, index)
             jax.clear_caches()
+
+        jax.debug.print("metrics_to_log:{x}", x=metrics_to_log)
         return metrics_to_log
 
     _, eval_rng = jax.random.split(agent_state.eval_rng)
@@ -160,9 +161,7 @@ def evaluate_and_log(
         if log
         else False
     )
-    not_finished_flag = (
-        timestep < total_timesteps - log_frequency if log_frequency else False
-    )
+    not_finished_flag = timestep <= total_timesteps if log_frequency else False
 
     flag = jnp.logical_and(
         jnp.logical_and(log_flag, timestep > 1),

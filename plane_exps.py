@@ -8,7 +8,7 @@ from target_gym import Plane, PlaneParams
 from target_gym.plane.env import PlaneState
 from tqdm import tqdm
 
-from ajax.agents.PPO.PPO_pre_train import PPO
+from ajax import SAC
 
 # from ajax.agents.PPO.PPO import PPO
 from ajax.logging.wandb_logging import (
@@ -148,9 +148,9 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 
 if __name__ == "__main__":
-    agent = PPO
-    project_name = "tests_APO_tired_2"
-    n_timesteps = int(1e5)
+    agent = SAC
+    project_name = "tests_SAC_plane_1"
+    n_timesteps = int(1e6)
     n_seeds = 1
     num_episode_test = 10
     log_frequency = 4096
@@ -178,13 +178,13 @@ if __name__ == "__main__":
     print(f"Expert policy mean score: {policy_score}")
 
     sweep_values = get_sweep_values(
-        baseline=True, auto_imitation=True, constant_imitation=False, pre_train=True
+        baseline=True, auto_imitation=True, constant_imitation=True, pre_train=True
     )
     print(f"{sweep_values=}")
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-    mode = "GPU"
+    mode = "CPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],
@@ -196,11 +196,11 @@ if __name__ == "__main__":
         _agent = agent(
             env_id=env,
             env_params=env_params,
-            expert_policy=expert_policy,
-            pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
+            # expert_policy=expert_policy,
+            # pre_train_n_steps=pre_train_n_steps,
+            # imitation_coef=imitation_coef,
+            # distance_to_stable=distance_to_stable,
+            # imitation_coef_offset=imitation_coef_offset,
             **hyperparams,
         )
         if mode == "CPU":

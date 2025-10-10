@@ -1,47 +1,25 @@
-import json
-from collections.abc import Sequence
-from typing import Optional
-
-import jax
-import jax.numpy as jnp
-import wandb
+from functools import partial
+from typing import Callable, Optional
 
 # from gymnax import PlaneParams
 from target_gym import PlaneParams
 
+from ajax.agents.base import ActorCritic
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer
-from ajax.environments.create import prepare_env
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
 from ajax.logging.wandb_logging import (
     LoggingConfig,
-    init_logging,
-    with_wandb_silent,
 )
-from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
+from ajax.state import AlphaConfig, NetworkConfig
 from ajax.types import EnvType
 
 
-def make_json_serializable(d):
-    """
-    Return a new dict where all values that are not JSON-serializable
-    are converted to strings.
-    """
-    serializable_dict = {}
-    for k, v in d.items():
-        try:
-            json.dumps(v)  # attempt to serialize
-            serializable_dict[k] = v
-        except (TypeError, OverflowError):
-            serializable_dict[k] = str(v)
-    return serializable_dict
-
-
-class SAC:
+class SAC(ActorCritic):
     """Soft Actor-Critic (SAC) agent for training and testing in continuous action spaces."""
 
     name: str = "SAC"
@@ -66,6 +44,8 @@ class SAC:
         alpha_init: float = 1.0,  # FIXME: check value
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
+        normalize_observations: bool = False,
+        normalize_rewards: bool = False,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -90,23 +70,19 @@ class SAC:
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
-        env, env_params, env_id, continuous = prepare_env(
-            env_id,
-            env_params=env_params,
-            normalize_obs=False,
-            normalize_reward=False,
-            n_envs=n_envs,
-            gamma=gamma,
-        )
 
-        if not check_if_environment_has_continuous_actions(env):
-            raise ValueError("SAC only supports continuous action spaces.")
-
-        self.env_args = EnvironmentConfig(
-            env=env,
-            env_params=env_params,
+        super().__init__(
+            env_id=env_id,
             n_envs=n_envs,
-            continuous=continuous,
+            actor_learning_rate=actor_learning_rate,
+            critic_learning_rate=critic_learning_rate,
+            actor_architecture=actor_architecture,
+            critic_architecture=critic_architecture,
+            env_params=env_params,
+            max_grad_norm=max_grad_norm,
+            lstm_hidden_size=lstm_hidden_size,
+            normalize_observations=normalize_observations,
+            normalize_rewards=normalize_rewards,
         )
 
         self.alpha_args = AlphaConfig(
@@ -121,18 +97,9 @@ class SAC:
             squash=True,
             penultimate_normalization=False,
         )
-
-        self.actor_optimizer_args = OptimizerConfig(
-            learning_rate=actor_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-        )
-        self.critic_optimizer_args = OptimizerConfig(
-            learning_rate=critic_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-        )
-        action_dim = get_action_dim(env, env_params)
+        if not check_if_environment_has_continuous_actions(self.env_args.env):
+            raise ValueError("SAC only supports continuous action spaces.")
+        action_dim = get_action_dim(self.env_args.env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
         self.agent_config = SACConfig(
             gamma=gamma,
@@ -148,58 +115,67 @@ class SAC:
             n_envs=n_envs,
         )
 
-    @with_wandb_silent
-    def train(
-        self,
-        seed: int | Sequence[int] = 42,
-        n_timesteps: int = int(1e6),
-        num_episode_test: int = 10,
-        logging_config: Optional[LoggingConfig] = None,
-    ) -> None:
+    # @with_wandb_silent
+    # def train(
+    #     self,
+    #     seed: int | Sequence[int] = 42,
+    #     n_timesteps: int = int(1e6),
+    #     num_episode_test: int = 10,
+    #     logging_config: Optional[LoggingConfig] = None,
+    # ) -> None:
+    #     """
+    #     Train the SAC agent.
+
+    #     Args:
+    #         seed (int | Sequence[int]): Random seed(s) for training.
+    #         n_timesteps (int): Total number of timesteps for training.
+    #         num_episode_test (int): Number of episodes for evaluation during training.
+    #     """
+    #     if isinstance(seed, int):
+    #         seed = [seed]
+
+    #     if logging_config is not None:
+    #         logging_config.config.update(make_json_serializable(self.config))
+    #         run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
+    #         for index, run_id in enumerate(run_ids):
+    #             init_logging(run_id, index, logging_config)
+    #     else:
+    #         run_ids = None
+    #     self.run_ids = run_ids
+
+    #     def set_key_and_train(seed, index):
+    #         key = jax.random.PRNGKey(seed)
+
+    #         train_jit = make_train(
+    #             env_args=self.env_args,
+    #             actor_optimizer_args=self.actor_optimizer_args,
+    #             critic_optimizer_args=self.critic_optimizer_args,
+    #             network_args=self.network_args,
+    #             buffer=self.buffer,
+    #             agent_config=self.agent_config,
+    #             total_timesteps=n_timesteps,
+    #             alpha_args=self.alpha_args,
+    #             num_episode_test=num_episode_test,
+    #             run_ids=run_ids,
+    #             logging_config=logging_config,
+    #         )
+
+    #         agent_state, out = train_jit(key, index)
+    #         # stop_async_logging()
+    #         return agent_state, out
+
+    #     index = jnp.arange(len(seed))
+    #     seed = jnp.array(seed)
+    #     return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+
+    def get_make_train(self) -> Callable:
         """
-        Train the SAC agent.
+        Create a training function for the APO agent.
 
-        Args:
-            seed (int | Sequence[int]): Random seed(s) for training.
-            n_timesteps (int): Total number of timesteps for training.
-            num_episode_test (int): Number of episodes for evaluation during training.
+        Returns:
+            Callable: A function that trains the APO agent.
         """
-        if isinstance(seed, int):
-            seed = [seed]
-
-        if logging_config is not None:
-            logging_config.config.update(make_json_serializable(self.config))
-            run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(run_ids):
-                init_logging(run_id, index, logging_config)
-        else:
-            run_ids = None
-        self.run_ids = run_ids
-
-        def set_key_and_train(seed, index):
-            key = jax.random.PRNGKey(seed)
-
-            train_jit = make_train(
-                env_args=self.env_args,
-                actor_optimizer_args=self.actor_optimizer_args,
-                critic_optimizer_args=self.critic_optimizer_args,
-                network_args=self.network_args,
-                buffer=self.buffer,
-                agent_config=self.agent_config,
-                total_timesteps=n_timesteps,
-                alpha_args=self.alpha_args,
-                num_episode_test=num_episode_test,
-                run_ids=run_ids,
-                logging_config=logging_config,
-            )
-
-            agent_state, out = train_jit(key, index)
-            # stop_async_logging()
-            return agent_state, out
-
-        index = jnp.arange(len(seed))
-        seed = jnp.array(seed)
-        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        return partial(make_train, buffer=self.buffer, alpha_args=self.alpha_args)
 
 
 if __name__ == "__main__":

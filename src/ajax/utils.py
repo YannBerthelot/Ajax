@@ -1,5 +1,6 @@
 import ast
 import inspect
+import json
 from dataclasses import fields
 from types import MappingProxyType
 from typing import Any, Callable, Optional
@@ -463,3 +464,18 @@ def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
 
 def get_one(_: Any) -> float:
     return jnp.ones(1)
+
+
+def make_json_serializable(d):
+    """
+    Return a new dict where all values that are not JSON-serializable
+    are converted to strings.
+    """
+    serializable_dict = {}
+    for k, v in d.items():
+        try:
+            json.dumps(v)  # attempt to serialize
+            serializable_dict[k] = v
+        except (TypeError, OverflowError):
+            serializable_dict[k] = str(v)
+    return serializable_dict

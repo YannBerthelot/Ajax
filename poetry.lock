@@ -3945,7 +3945,7 @@ dev = ["black (>=25.1.0)", "codecov (>=2.1.13)", "coverage (>=7.3.2)", "flake8 (
 type = "git"
 url = "https://github.com/YannBerthelot/TargetGym"
 reference = "version_relaxing"
-resolved_reference = "914759e698f5ff1481647e764e3d9df68d66c259"
+resolved_reference = "3f11334890dc891b06e12e58f655655a5494435a"
 
 [[package]]
 name = "tensorboard"

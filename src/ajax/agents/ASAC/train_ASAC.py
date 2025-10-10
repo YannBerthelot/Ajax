@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 from dataclasses import fields
-from math import floor
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
@@ -11,7 +10,11 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.agents.SAC.state import SACConfig, SACState
+from ajax.agents.ASAC.state import ASACConfig, ASACState
+from ajax.agents.ASAC.utils import (
+    compute_episode_termination_penalty,
+    get_episode_termination_penalized_rewards,
+)
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
@@ -72,10 +75,17 @@ class ValueAuxiliaries:
 
 
 @struct.dataclass
+class ThetaAuxiliaries:
+    theta: jax.Array
+    episode_termination_penalty: jax.Array
+
+
+@struct.dataclass
 class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    theta: ThetaAuxiliaries
 
 
 def create_alpha_train_state(
@@ -102,7 +112,7 @@ def create_alpha_train_state(
     )
 
 
-def init_SAC(
+def init_ASAC(
     key: jax.Array,
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
@@ -111,7 +121,7 @@ def init_SAC(
     alpha_args: AlphaConfig,
     buffer: BufferType,
     window_size: int = 10,
-) -> SACState:
+) -> ASACState:
     """
     Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
 
@@ -124,7 +134,7 @@ def init_SAC(
         buffer (BufferType): Replay buffer.
 
     Returns:
-        SACState: Initialized SAC agent state.
+        ASACState: Initialized SAC agent state.
     """
     (
         rng,
@@ -154,17 +164,19 @@ def init_SAC(
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
 
-    return SACState(
+    return ASACState(
         rng=rng,
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=alpha,
         collector_state=collector_state,
+        episode_termination_penalty=jnp.zeros(()),
+        theta=0.0,
     )
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale"])
+@partial(jax.jit, static_argnames=["recurrent", "reward_scale"])
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
@@ -175,7 +187,7 @@ def value_loss_function(
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
-    gamma: float,
+    theta: float,
     alpha: jax.Array,
     recurrent: bool,
     reward_scale: float = 5.0,  # Add reward scaling factor here
@@ -232,16 +244,30 @@ def value_loss_function(
         x=jnp.concatenate((next_observations, next_actions), axis=-1),
     )
 
+    # Target shift to pass through the origin
+    shift_value = predict_value(
+        critic_state=critic_states,
+        critic_params=critic_states.target_params,
+        x=jnp.concatenate(
+            (
+                jnp.zeros_like(next_observations[0, :][None, :]),
+                jnp.zeros_like(next_actions[0, :][None, :]),
+            ),
+            axis=-1,
+        ),
+    )
+    shifted_q_targets = q_targets - jnp.mean(shift_value)
+
     # Unpack and unsqueeze if needed
     q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
-    q1_target, q2_target = jnp.split(q_targets, 2, axis=0)
+    q1_target, q2_target = jnp.split(shifted_q_targets, 2, axis=0)
 
     # Bellman target and losses
     min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
     log_probs = log_probs.sum(-1, keepdims=True)
 
     target_q = jax.lax.stop_gradient(
-        rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs),
+        rewards - theta + (min_q_target - alpha * log_probs),
     )
 
     assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
@@ -357,24 +383,23 @@ def temperature_loss_function(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "gamma", "reward_scale"],
+    static_argnames=["recurrent", "reward_scale"],
 )
 def update_value_functions(
-    agent_state: SACState,
+    agent_state: ASACState,
     observations: jax.Array,
     actions: jax.Array,
     next_observations: jax.Array,
     dones: Optional[jax.Array],
     recurrent: bool,
     rewards: jax.Array,
-    gamma: float,
     reward_scale: float = 1.0,  # Add reward scaling factor here
-) -> Tuple[SACState, Dict[str, Any]]:
+) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (ASACState): Current SAC agent state.
         observations (jax.Array): Current observations.
         actions (jax.Array): Actions taken.
         next_observations (jax.Array): Next observations.
@@ -385,7 +410,7 @@ def update_value_functions(
         reward_scale (float): Reward scaling factor.
 
     Returns:
-        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+        Tuple[ASACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
     value_loss_key, rng = jax.random.split(agent_state.rng)
     value_and_grad_fn = jax.value_and_grad(value_loss_function, has_aux=True)
@@ -402,7 +427,7 @@ def update_value_functions(
         next_observations,
         dones,
         rewards,
-        gamma,
+        agent_state.theta,
         alpha,
         recurrent,
         reward_scale,
@@ -421,22 +446,22 @@ def update_value_functions(
     static_argnames=["recurrent"],
 )
 def update_policy(
-    agent_state: SACState,
+    agent_state: ASACState,
     observations: jax.Array,
     done: Optional[jax.Array],
     recurrent: bool,
-) -> Tuple[SACState, Dict[str, Any]]:
+) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (ASACState): Current SAC agent state.
         observations (jax.Array): Current observations.
         done (Optional[jax.Array]): Done flags.
         recurrent (bool): Whether the model is recurrent.
 
     Returns:
-        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+        Tuple[ASACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
     rng, policy_key = jax.random.split(agent_state.rng)
     value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
@@ -466,24 +491,24 @@ def update_policy(
     static_argnames=["target_entropy", "recurrent"],
 )
 def update_temperature(
-    agent_state: SACState,
+    agent_state: ASACState,
     observations: jax.Array,
     dones: Optional[jax.Array],
     target_entropy: float,
     recurrent: bool,
-) -> Tuple[SACState, Dict[str, Any]]:
+) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the temperature parameter (alpha) using the alpha loss.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (ASACState): Current SAC agent state.
         observations (jax.Array): Current observations.
         dones (Optional[jax.Array]): Done flags.
         target_entropy (float): Target entropy value.
         recurrent (bool): Whether the model is recurrent.
 
     Returns:
-        Tuple[SACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
+        Tuple[ASACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
     loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
 
@@ -516,18 +541,18 @@ def update_temperature(
     static_argnames=["tau"],
 )
 def update_target_networks(
-    agent_state: SACState,
+    agent_state: ASACState,
     tau: float,
-) -> SACState:
+) -> ASACState:
     """
     Perform a soft update of the target networks.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (ASACState): Current SAC agent state.
         tau (float): Soft update coefficient.
 
     Returns:
-        SACState: Updated agent state.
+        ASACState: Updated agent state.
     """
     new_critic_state = agent_state.critic_state.soft_update(tau=tau)
     return agent_state.replace(
@@ -535,39 +560,65 @@ def update_target_networks(
     )
 
 
+def update_theta(
+    agent_state: ASACState,
+    tau: float,
+    rewards: jax.Array,
+    observations: jax.Array,
+    rng: jax.Array,
+    dones: jax.Array,
+    recurrent: bool,
+) -> ASACState:
+    action_key, rng = jax.random.split(rng)
+    pi, _ = get_pi(
+        actor_state=agent_state.actor_state,
+        actor_params=agent_state.actor_state.params,
+        obs=observations,
+        done=dones,
+        recurrent=recurrent,
+    )
+    _, log_probs = pi.sample_and_log_prob(seed=action_key)
+
+    log_alpha = agent_state.alpha.params["log_alpha"]
+    alpha = jnp.exp(log_alpha)
+    new_theta = jnp.mean(rewards - alpha * log_probs.sum(-1, keepdims=True))
+    theta = agent_state.theta * (1 - tau) + tau * new_theta
+    return agent_state.replace(theta=theta, rng=rng)
+
+
 @partial(
     jax.jit,
     static_argnames=[
         "recurrent",
         "buffer",
-        "gamma",
         "tau",
         "action_dim",
         "num_critic_updates",
         "reward_scale",
         "target_update_frequency",
         "transition_mix_fraction",
+        "p_0",
     ],
 )
 def update_agent(
-    agent_state: SACState,
+    agent_state: ASACState,
     _: Any,
     buffer: BufferType,
     recurrent: bool,
-    gamma: float,
     action_dim: int,
     tau: float,
+    p_0: float,
     num_critic_updates: int = 1,
     target_update_frequency: int = 1,
     reward_scale: float = 5.0,
     additional_transition: Optional[Any] = None,
     transition_mix_fraction: float = 1.0,  # part of original buffer sample to keep TODO : add control over this hyperparameter
-) -> Tuple[SACState, AuxiliaryLogs]:
+) -> Tuple[ASACState, AuxiliaryLogs]:
     """
     Update the SAC agent, including critic, actor, and temperature updates.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (ASACState): Current SAC agent state.
         _ (Any): Placeholder for scan compatibility.
         buffer (BufferType): Replay buffer.
         recurrent (bool): Whether the model is recurrent.
@@ -579,7 +630,7 @@ def update_agent(
         reward_scale (float): Reward scaling factor.
 
     Returns:
-        Tuple[SACState, None]: Updated agent state.
+        Tuple[ASACState, None]: Updated agent state.
     """
     # Sample buffer
 
@@ -592,49 +643,65 @@ def update_agent(
                 sample_key,
             )
         )
-        original_transition = Transition(
+        transition = Transition(
             observations, actions, rewards, terminated, truncated, next_observations
         )
 
-        if additional_transition is not None and transition_mix_fraction < 1.0:
-            assert transition_mix_fraction >= 0 and transition_mix_fraction <= 1.0, (
-                "transition_mix_fraction should be between 0 and 1, got",
-                transition_mix_fraction,
-            )
-            len_original = len(observations)
-            n_samples_from_original = floor(transition_mix_fraction * len_original)
-            n_samples_from_transition = len_original - n_samples_from_original
-            print(
-                f"samples from buffer:{n_samples_from_original} online"
-                f" samples:{n_samples_from_transition}"
-            )
-            additional_transition = jax.tree.map(
-                lambda x: jax.random.choice(
-                    sample_key, x, shape=(n_samples_from_transition,)
-                ),
-                additional_transition,
-            )
+        # if additional_transition is not None and transition_mix_fraction < 1.0:
+        #     assert transition_mix_fraction >= 0 and transition_mix_fraction <= 1.0, (
+        #         "transition_mix_fraction should be between 0 and 1, got",
+        #         transition_mix_fraction,
+        #     )
+        #     len_original = len(observations)
+        #     n_samples_from_original = floor(transition_mix_fraction * len_original)
+        #     n_samples_from_transition = len_original - n_samples_from_original
+        #     print(
+        #         f"samples from buffer:{n_samples_from_original} online"
+        #         f" samples:{n_samples_from_transition}"
+        #     )
+        #     additional_transition = jax.tree.map(
+        #         lambda x: jax.random.choice(
+        #             sample_key, x, shape=(n_samples_from_transition,)
+        #         ),
+        #         additional_transition,
+        #     )
 
-            transition = jax.tree.map(
-                lambda x, y: (
-                    None
-                    if (x is None or y is None)
-                    else jnp.concatenate([x[:n_samples_from_original], y], axis=0)
-                ),
-                original_transition,
-                additional_transition,
-                is_leaf=lambda x: x is None,
-            )
-        else:
-            transition = original_transition
-    elif additional_transition is not None:
-        # If no buffer is provided, use the collector state to get the latest transition
-        transition = additional_transition
-        terminated = additional_transition.terminated
-        truncated = additional_transition.truncated
+        #     transition = jax.tree.map(
+        #         lambda x, y: (
+        #             None
+        #             if (x is None or y is None)
+        #             else jnp.concatenate([x[:n_samples_from_original], y], axis=0)
+        #         ),
+        #         original_transition,
+        #         additional_transition,
+        #         is_leaf=lambda x: x is None,
+        #     )
+        # else:
+        #     transition = original_transition
+    # elif additional_transition is not None:
+    #     # If no buffer is provided, use the collector state to get the latest transition
+    #     transition = additional_transition
+    #     terminated = additional_transition.terminated
+    #     truncated = additional_transition.truncated
 
-    agent_state = agent_state.replace(rng=rng)
     dones = jnp.logical_or(transition.terminated, transition.truncated)
+
+    episode_termination_penalty = compute_episode_termination_penalty(
+        agent_state.episode_termination_penalty,
+        transition.reward,
+        transition.terminated,
+        p_0,
+        tau,
+    )
+
+    rewards = get_episode_termination_penalized_rewards(
+        episode_termination_penalty, transition.reward, transition.terminated
+    )
+    # rewards = transition.reward
+
+    agent_state = agent_state.replace(
+        rng=rng, episode_termination_penalty=episode_termination_penalty
+    )
 
     # Update Q functions
     def critic_update_step(carry, _):
@@ -643,11 +710,10 @@ def update_agent(
             observations=transition.obs,
             actions=transition.action,
             next_observations=transition.next_obs,
-            rewards=transition.reward,
+            rewards=rewards,
             dones=dones,
             agent_state=agent_state,
             recurrent=recurrent,
-            gamma=gamma,
             reward_scale=reward_scale,
         )
 
@@ -670,12 +736,16 @@ def update_agent(
 
     # Adjust temperature
     target_entropy = -action_dim
-    agent_state, aux_temperature = update_temperature(
+    _, aux_temperature = update_temperature(
         agent_state,
         observations=transition.obs,
         target_entropy=target_entropy,
         recurrent=recurrent,
         dones=dones,
+    )
+
+    agent_state = update_theta(
+        agent_state, tau, rewards, observations, rng, dones, recurrent
     )
 
     # Update target networks
@@ -686,6 +756,10 @@ def update_agent(
         policy=aux_policy,
         value=ValueAuxiliaries(
             **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
+        ),
+        theta=ThetaAuxiliaries(
+            theta=agent_state.theta,
+            episode_termination_penalty=episode_termination_penalty,
         ),
     )
     return agent_state, aux
@@ -713,13 +787,13 @@ def update_agent(
     ],
 )
 def training_iteration(
-    agent_state: SACState,
+    agent_state: ASACState,
     _: Any,
     env_args: EnvironmentConfig,
     mode: str,
     recurrent: bool,
     buffer: BufferType,
-    agent_config: SACConfig,
+    agent_config: ASACConfig,
     action_dim: int,
     total_timesteps: int,
     lstm_hidden_size: Optional[int] = None,
@@ -732,25 +806,25 @@ def training_iteration(
     verbose: bool = False,
     n_epochs: int = 1,
     transition_mix_fraction: float = 1.0,
-) -> tuple[SACState, None]:
+) -> tuple[ASACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
 
     Args:
-        agent_state (SACState): Current SAC agent state.
+        agent_state (ASACState): Current SAC agent state.
         _ (Any): Placeholder for scan compatibility.
         env_args (EnvironmentConfig): Environment configuration.
         mode (str): Environment mode ("gymnax" or "brax").
         recurrent (bool): Whether the model is recurrent.
         buffer (BufferType): Replay buffer.
-        agent_config (SACConfig): SAC agent configuration.
+        agent_config (ASACConfig): SAC agent configuration.
         action_dim (int): Action dimensionality.
         lstm_hidden_size (Optional[int]): LSTM hidden size for recurrent models.
         log_frequency (int): Frequency of logging and evaluation.
         num_episode_test (int): Number of episodes for evaluation.
 
     Returns:
-        Tuple[SACState, None]: Updated agent state.
+        Tuple[ASACState, None]: Updated agent state.
     """
     # collector_state = agent_state.collector_state
 
@@ -775,10 +849,10 @@ def training_iteration(
             update_agent,
             buffer=buffer,
             recurrent=recurrent,
-            gamma=agent_config.gamma,
             action_dim=action_dim,
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
+            p_0=agent_config.p_0,
             additional_transition=(
                 jax.tree.map(lambda x: x.squeeze(0), transition)
                 if transition_mix_fraction < 1.0
@@ -839,6 +913,7 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
+        avg_reward_mode=True,
     )
     return agent_state, metrics_to_log
 
@@ -849,7 +924,7 @@ def make_train(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     buffer: BufferType,
-    agent_config: SACConfig,
+    agent_config: ASACConfig,
     alpha_args: AlphaConfig,
     total_timesteps: int,
     num_episode_test: int,
@@ -865,7 +940,7 @@ def make_train(
         optimizer_args (OptimizerConfig): Optimizer configuration.
         network_args (NetworkConfig): Network configuration.
         buffer (BufferType): Replay buffer.
-        agent_config (SACConfig): SAC agent configuration.
+        agent_config (ASACConfig): SAC agent configuration.
         alpha_args (AlphaConfig): Alpha configuration.
         total_timesteps (int): Total timesteps for training.
         num_episode_test (int): Number of episodes for evaluation during training.
@@ -884,7 +959,7 @@ def make_train(
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the SAC agent."""
-        agent_state = init_SAC(
+        agent_state = init_ASAC(
             key=key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,

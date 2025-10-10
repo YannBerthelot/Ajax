@@ -7,7 +7,7 @@ import numpy as np
 import wandb
 from target_gym import Plane, PlaneParams
 
-from ajax.agents import APO, SAC
+from ajax import APO, SAC
 from ajax.agents.PPO.PPO_pre_train import PPO
 from ajax.logging.wandb_logging import LoggingConfig
 
@@ -23,7 +23,7 @@ AGENT_MAP = {
 
 def main(agent, n_seeds=10):
     run = wandb.init(project=f"Plane_{agent.__name__}_sweep_norm")
-    n_timesteps = int(5e5)
+    n_timesteps = int(1e5)
     log_frequency = 10_000
     num_episode_test = 25
     logging_config = LoggingConfig(
@@ -48,8 +48,14 @@ def main(agent, n_seeds=10):
         config = config.as_dict()
         N_NEURONS = config.pop("n_neurons")
         activation = config.pop("activation")
-        normalize_observations = config.pop("normalize_observations")
-        normalize_rewards = config.pop("normalize_rewards")
+        if "normalize_observations" in config.keys():
+            normalize_observations = config.pop("normalize_observations")
+        else:
+            normalize_observations = True
+        if "normalize_rewards" in config.keys():
+            normalize_rewards = config.pop("normalize_rewards")
+        else:
+            normalize_rewards = True
         if "n_steps" in config.keys():
             _logging_config = logging_config.replace(log_frequency=config["n_steps"])
         else:
@@ -199,17 +205,31 @@ if __name__ == "__main__":
             "method": method,
             "metric": {"goal": "maximize", "name": "score"},
             "parameters": {
-                "actor_learning_rate": {"max": 1e-2, "min": 1e-5},
-                "critic_learning_rate": {"max": 1e-2, "min": 1e-5},
-                "alpha_learning_rate": {"max": 1e-2, "min": 1e-5},
-                "activation": {"values": ["relu", "tanh"]},
-                "n_neurons": {"values": [64, 128, 256]},
-                "gamma": {"max": 0.999, "min": 0.9},
-                "target_entropy_per_dim": {"min": -1.0, "max": 1.0},
+                "actor_learning_rate": {
+                    "distribution": "log_uniform_values",
+                    "min": 1e-5,
+                    "max": 3e-3,
+                },
+                "critic_learning_rate": {
+                    "distribution": "log_uniform_values",
+                    "min": 1e-5,
+                    "max": 3e-3,
+                },
+                "alpha_learning_rate": {
+                    "distribution": "log_uniform_values",
+                    "min": 1e-5,
+                    "max": 3e-3,
+                },
+                "activation": {"values": ["relu"]},
+                "n_neurons": {"values": [256]},
+                "gamma": {
+                    "values": [0.95, 0.98, 0.99, 0.995],
+                },
+                # "target_entropy_per_dim": {"min": -1.0, "max": 1.0},
                 "batch_size": {"values": [128, 256, 512]},
-                "tau": {"min": 1e-3, "max": 1e-2},
-                "normalize_observations": {"values": [True, False]},
-                "normalize_rewards": {"values": [True, False]},
+                # "tau": {"min": 1e-3, "max": 1e-2},
+                # "normalize_observations": {"values": [True, False]},
+                # "normalize_rewards": {"values": [True, False]},
             },
         }
     elif agent is APO:

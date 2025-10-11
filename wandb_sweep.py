@@ -38,6 +38,7 @@ def main(agent, n_seeds=10):
         horizon=10_000,
         use_tensorboard=False,
         use_wandb=False,
+        sweep=True,
     )
     env_id = Plane(integration_method="rk4_1")
     env_params = PlaneParams(

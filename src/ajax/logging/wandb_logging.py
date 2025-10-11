@@ -34,6 +34,7 @@ class LoggingConfig:
     folder: Optional[str] = None
     use_tensorboard: bool = False
     use_wandb: bool = True
+    sweep: bool = False
 
 
 # Global state for async logging
@@ -122,22 +123,22 @@ def _logging_worker():
             if item is None:
                 continue
 
-            run_id, metrics, step, project, name = item
+            run_id, metrics, step, project, name, sweep = item
 
-            # if project is not None:
-            #     while True:
-            #         try:
-            #             run = wandb.init(
-            #                 project=project,
-            #                 name=f"{name} {run_id}",
-            #                 id=run_id,
-            #                 resume="must",
-            #                 reinit=True,
-            #             )
-            #             run.log(metrics, step=step)
-            #             break  # success → exit retry loop
-            #         except (wandb.errors.UsageError, OSError) as e:
-            #             print(f"W&B log failed, retrying: {e}")
+            if project is not None and not sweep:
+                while True:
+                    try:
+                        run = wandb.init(
+                            project=project,
+                            name=f"{name} {run_id}",
+                            id=run_id,
+                            resume="must",
+                            reinit=True,
+                        )
+                        run.log(metrics, step=step)
+                        break  # success → exit retry loop
+                    except (wandb.errors.UsageError, OSError) as e:
+                        print(f"W&B log failed, retrying: {e}")
 
             writer = tensorboard_writers.get(run_id)
             if writer:
@@ -188,7 +189,14 @@ def vmap_log(
     step = log_metrics["timestep"]
 
     logging_queue.put(
-        (run_id, metrics_np, step, logging_config.project_name, logging_config.run_name)
+        (
+            run_id,
+            metrics_np,
+            step,
+            logging_config.project_name,
+            logging_config.run_name,
+            logging_config.sweep,
+        )
     )
 
     return None

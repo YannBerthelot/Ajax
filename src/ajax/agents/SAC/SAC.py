@@ -223,10 +223,10 @@ if __name__ == "__main__":
 
     # wandb.agent(sweep_id, function=main, count=10)
 
-    n_seeds = 1
+    n_seeds = 25
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="test_SAC",
+        project_name="ASAC_benchmark",
         run_name="baseline",
         config={
             "debug": False,

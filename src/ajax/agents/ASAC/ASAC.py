@@ -119,10 +119,10 @@ class ASAC(ActorCritic):
 
 
 if __name__ == "__main__":
-    n_seeds = 1
+    n_seeds = 25
     log_frequency = 5_000
     logging_config = LoggingConfig(
-        project_name="test_ASAC",
+        project_name="ASAC_benchmark",
         run_name="baseline",
         config={
             "debug": False,
@@ -134,7 +134,7 @@ if __name__ == "__main__":
         use_tensorboard=True,
         use_wandb=True,
     )
-    env_id = "halfcheetah"
+    env_id = "walker2d"
     ASAC_agent = ASAC(
         env_id=env_id, learning_starts=int(1e4), n_envs=1, alpha_init=1 / 5
     )

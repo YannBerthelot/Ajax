@@ -16,7 +16,7 @@ import tensorflow as tf
 import wandb
 from flax import struct
 from flax.serialization import to_state_dict
-from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 from tqdm import tqdm
 
 

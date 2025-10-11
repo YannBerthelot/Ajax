@@ -134,7 +134,7 @@ if __name__ == "__main__":
         use_tensorboard=True,
         use_wandb=True,
     )
-    env_id = "walker2d"
+    env_id = "ant"
     ASAC_agent = ASAC(
         env_id=env_id, learning_starts=int(1e4), n_envs=1, alpha_init=1 / 5
     )

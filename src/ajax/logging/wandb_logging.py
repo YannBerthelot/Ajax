@@ -124,20 +124,20 @@ def _logging_worker():
 
             run_id, metrics, step, project, name = item
 
-            if project is not None:
-                while True:
-                    try:
-                        run = wandb.init(
-                            project=project,
-                            name=f"{name} {run_id}",
-                            id=run_id,
-                            resume="must",
-                            reinit=True,
-                        )
-                        run.log(metrics, step=step)
-                        break  # success → exit retry loop
-                    except (wandb.errors.UsageError, OSError) as e:
-                        print(f"W&B log failed, retrying: {e}")
+            # if project is not None:
+            #     while True:
+            #         try:
+            #             run = wandb.init(
+            #                 project=project,
+            #                 name=f"{name} {run_id}",
+            #                 id=run_id,
+            #                 resume="must",
+            #                 reinit=True,
+            #             )
+            #             run.log(metrics, step=step)
+            #             break  # success → exit retry loop
+            #         except (wandb.errors.UsageError, OSError) as e:
+            #             print(f"W&B log failed, retrying: {e}")
 
             writer = tensorboard_writers.get(run_id)
             if writer:

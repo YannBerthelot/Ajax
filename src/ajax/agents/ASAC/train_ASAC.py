@@ -238,6 +238,7 @@ def value_loss_function(
     assert (
         critic_states.target_params is not None
     ), "Target parameters are not set in critic states."
+
     q_targets = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.target_params,

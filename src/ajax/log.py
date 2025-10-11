@@ -150,7 +150,6 @@ def evaluate_and_log(
             jax.debug.callback(log_fn, metrics_to_log, index)
             jax.clear_caches()
 
-        jax.debug.print("metrics_to_log:{x}", x=metrics_to_log)
         return metrics_to_log
 
     _, eval_rng = jax.random.split(agent_state.eval_rng)

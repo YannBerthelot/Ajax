@@ -116,11 +116,11 @@ def pre_train(
 
     def actor_loss_fn(params, batch_obs, batch_actions):
         pi = bc_actor_state.apply_fn(params, batch_obs)
-        if isinstance(pi, distrax.Categorical):
-            pred_actions = pi.mode()
-        else:
-            pred_actions = pi.mean()  # deterministic prediction
-        return jnp.mean((pred_actions - batch_actions) ** 2)
+        # if isinstance(pi, distrax.Categorical):
+        #     pred_actions = pi.mode()
+        # else:
+        #     pred_actions = pi.mean()  # deterministic prediction
+        return -pi.log_prob(batch_actions).sum(-1, keepdims=True).mean()
 
     def actor_train_step(state, batch_obs, batch_actions):
         loss, grads = jax.value_and_grad(actor_loss_fn)(
@@ -224,7 +224,6 @@ def pre_train(
     # Update original states with trained parameters
     actor_state = actor_state.replace(params=bc_actor_state.params)
     # critic_state = critic_state.replace(params=bc_critic_state.params)
-
     return actor_state, critic_state, metrics
 
 

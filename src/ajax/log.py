@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Protocol
+from typing import Any, Callable, Dict, Optional, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -41,6 +41,8 @@ def no_op(agent_state, aux, *args):  # TODO : build from auxiliary logs?
     fake_metrics_to_log = {
         "timestep": -1,  # must be int
         "Eval/episodic mean reward": jnp.nan,
+        "Eval/episodic mean expert reward": jnp.nan,
+        "Eval/expert bias": jnp.nan,
         "Eval/episodic entropy": jnp.nan,
         "Eval/mean average reward": jnp.nan,
         "Eval/mean episodic length": jnp.nan,
@@ -70,6 +72,7 @@ def no_op_none(agent_state, index, timestep):
         "log_frequency",
         "total_timesteps",
         "avg_reward_mode",
+        "expert_policy",
     ],
 )
 def evaluate_and_log(
@@ -87,6 +90,7 @@ def evaluate_and_log(
     log_frequency: int,
     total_timesteps: int,
     avg_reward_mode: bool = False,
+    expert_policy: Optional[Callable] = None,
 ):
     timestep = agent_state.collector_state.timestep
 
@@ -99,7 +103,14 @@ def evaluate_and_log(
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
         )
-        eval_rewards, eval_entropy, avg_avg_reward, avg_bias, step_count = evaluate(
+        (
+            eval_rewards,
+            eval_entropy,
+            avg_avg_reward,
+            avg_bias,
+            step_count,
+            expert_rewards,
+        ) = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
             num_episodes=num_episode_test,
@@ -117,13 +128,14 @@ def evaluate_and_log(
                 else None
             ),
             avg_reward_mode=avg_reward_mode,
+            expert_policy=expert_policy,
         )
-
-        eval_rewards = eval_rewards.mean()
 
         metrics_to_log = {
             "timestep": timestep,
-            "Eval/episodic mean reward": eval_rewards,
+            "Eval/episodic mean reward": eval_rewards.mean(),
+            "Eval/episodic mean expert reward": expert_rewards.mean(),
+            "Eval/expert bias": eval_rewards.mean() - expert_rewards.mean(),
             "Eval/mean average reward": avg_avg_reward,
             "Eval/mean episodic length": step_count,
             "Eval/mean bias": avg_bias,

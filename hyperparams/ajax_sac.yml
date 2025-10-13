@@ -1,2 +1,5 @@
 Plane:
   n_envs: 1
+  critic_learning_rate: 0.0003
+  actor_learning_rate: 0.00003
+  alpha_learning_rate: 0.00003

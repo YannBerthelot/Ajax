@@ -74,7 +74,7 @@ def test_evaluate_with_fast_env(env_config, SAC_state):
     num_episodes = 5
     rng = jax.random.PRNGKey(0)
 
-    rewards, avg_entropy, avg_reward, bias, avg_length = evaluate(
+    rewards, avg_entropy, avg_reward, bias, avg_length, expert_rewards = evaluate(
         env=env_config.env,
         actor_state=SAC_state.actor_state,
         num_episodes=num_episodes,
@@ -93,7 +93,7 @@ def test_evaluate_with_gymnax_env(env_config, SAC_state):
     num_episodes = 3
     rng = jax.random.PRNGKey(42)
 
-    rewards, avg_entropy, avg_reward, bias, avg_length = evaluate(
+    rewards, avg_entropy, avg_reward, bias, avg_length, expert_rewards = evaluate(
         env=env_config.env,
         actor_state=SAC_state.actor_state,
         num_episodes=num_episodes,

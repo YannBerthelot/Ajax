@@ -11,6 +11,12 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
+from ajax.agents.cloning import (
+    CloningConfig,
+    compute_imitation_score,
+    get_cloning_args,
+    get_pre_trained_agent,
+)
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
@@ -40,6 +46,7 @@ from ajax.state import (
     Transition,
 )
 from ajax.types import BufferType
+from ajax.utils import get_one
 
 PROFILER_PATH = "./tensorboard"
 
@@ -60,6 +67,8 @@ class PolicyAuxiliaries:
     policy_loss: jax.Array
     log_pi: jax.Array
     q_min: jax.Array
+    imitation_loss: jax.Array
+    raw_loss: jax.Array
 
 
 @struct.dataclass
@@ -261,7 +270,12 @@ def value_loss_function(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent"],
+    static_argnames=[
+        "recurrent",
+        "expert_policy",
+        "distance_to_stable",
+        "imitation_coef_offset",
+    ],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
@@ -272,6 +286,11 @@ def policy_loss_function(
     recurrent: bool,
     alpha: jax.Array,
     rng: jax.random.PRNGKey,
+    raw_observations: Optional[jax.Array] = None,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.01,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 1e-3,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -311,12 +330,20 @@ def policy_loss_function(
     q_min = jnp.minimum(q1_pred, q2_pred).squeeze(0)
 
     log_probs = log_probs.sum(-1, keepdims=True)
+    imitation_loss = compute_imitation_score(
+        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset
+    ).mean()
 
     assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
-    loss = (alpha * log_probs - q_min).mean()
+    loss_actor = alpha * log_probs - q_min
+    total_loss = (loss_actor + imitation_coef * imitation_loss).mean()
 
-    return loss, PolicyAuxiliaries(
-        policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
+    return total_loss, PolicyAuxiliaries(
+        policy_loss=total_loss,
+        log_pi=log_probs.mean(),
+        q_min=q_min.mean(),
+        imitation_loss=imitation_loss,
+        raw_loss=loss_actor.mean(),
     )
 
 
@@ -418,13 +445,23 @@ def update_value_functions(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent"],
+    static_argnames=[
+        "recurrent",
+        "expert_policy",
+        "distance_to_stable",
+        "imitation_coef_offset",
+    ],
 )
 def update_policy(
     agent_state: SACState,
     observations: jax.Array,
     done: Optional[jax.Array],
     recurrent: bool,
+    raw_observations: jax.Array,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 1e-3,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 1e-3,
 ) -> Tuple[SACState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -451,6 +488,11 @@ def update_policy(
         recurrent,
         alpha,
         policy_key,
+        raw_observations=raw_observations,
+        expert_policy=expert_policy,
+        imitation_coef=imitation_coef,
+        distance_to_stable=distance_to_stable,
+        imitation_coef_offset=imitation_coef_offset,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -547,6 +589,10 @@ def update_target_networks(
         "reward_scale",
         "target_update_frequency",
         "transition_mix_fraction",
+        "expert_policy",
+        "imitation_coef",
+        "distance_to_stable",
+        "imitation_coef_offset",
     ],
 )
 def update_agent(
@@ -562,6 +608,10 @@ def update_agent(
     reward_scale: float = 5.0,
     additional_transition: Optional[Any] = None,
     transition_mix_fraction: float = 1.0,  # part of original buffer sample to keep TODO : add control over this hyperparameter
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.0,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 0.0,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     """
     Update the SAC agent, including critic, actor, and temperature updates.
@@ -585,12 +635,18 @@ def update_agent(
 
     sample_key, rng = jax.random.split(agent_state.rng)
     if buffer is not None and agent_state.collector_state.buffer_state is not None:
-        observations, terminated, truncated, next_observations, rewards, actions = (
-            get_batch_from_buffer(
-                buffer,
-                agent_state.collector_state.buffer_state,
-                sample_key,
-            )
+        (
+            observations,
+            terminated,
+            truncated,
+            next_observations,
+            rewards,
+            actions,
+            raw_observations,
+        ) = get_batch_from_buffer(
+            buffer,
+            agent_state.collector_state.buffer_state,
+            sample_key,
         )
         original_transition = Transition(
             observations, actions, rewards, terminated, truncated, next_observations
@@ -666,6 +722,11 @@ def update_agent(
         done=dones,
         agent_state=agent_state,
         recurrent=recurrent,
+        raw_observations=raw_observations,
+        expert_policy=expert_policy,
+        imitation_coef=imitation_coef,
+        distance_to_stable=distance_to_stable,
+        imitation_coef_offset=imitation_coef_offset,
     )
 
     # Adjust temperature
@@ -710,6 +771,10 @@ def update_agent(
         "total_timesteps",
         "n_epochs",
         "transition_mix_fraction",
+        "expert_policy",
+        "imitation_coef",
+        "distance_to_stable",
+        "imitation_coef_offset",
     ],
 )
 def training_iteration(
@@ -732,6 +797,10 @@ def training_iteration(
     verbose: bool = False,
     n_epochs: int = 1,
     transition_mix_fraction: float = 1.0,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 1e-3,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 1e-3,
 ) -> tuple[SACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -785,6 +854,10 @@ def training_iteration(
                 else None
             ),
             transition_mix_fraction=transition_mix_fraction,
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -839,6 +912,7 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
+        expert_policy=expert_policy,
     )
     return agent_state, metrics_to_log
 
@@ -855,7 +929,8 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
-    sweep: bool = False,
+    cloning_args: Optional[CloningConfig] = None,
+    expert_policy: Optional[Callable] = None,
 ):
     """
     Create the training function for the SAC agent.
@@ -874,18 +949,19 @@ def make_train(
         Callable: JIT-compiled training function.
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None and not sweep
+    log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
     # Start async logging if logging is enabled
-    if logging_config is not None and not sweep:
+    if logging_config is not None:
         start_async_logging()
 
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the SAC agent."""
+        init_key, expert_key = jax.random.split(key)
         agent_state = init_SAC(
-            key=key,
+            key=init_key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
@@ -893,6 +969,26 @@ def make_train(
             alpha_args=alpha_args,
             buffer=buffer,
         )
+
+        # pre-train agent
+        (
+            imitation_coef,
+            imitation_coef_offset,
+            distance_to_stable,
+            pre_train_n_steps,
+        ) = get_cloning_args(cloning_args, total_timesteps)
+        if pre_train_n_steps > 0:
+            agent_state = get_pre_trained_agent(
+                agent_state,
+                expert_policy,
+                expert_key,
+                env_args,
+                cloning_args,
+                mode,
+                agent_config,
+                actor_optimizer_args,
+                critic_optimizer_args,
+            )
 
         num_updates = total_timesteps // env_args.n_envs
         _, action_shape = get_state_action_shapes(env_args.env)
@@ -914,6 +1010,10 @@ def make_train(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
         )
 
         agent_state, out = jax.lax.scan(

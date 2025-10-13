@@ -1,10 +1,11 @@
 from functools import partial
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 # from gymnax import PlaneParams
 from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
+from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer
@@ -46,6 +47,17 @@ class SAC(ActorCritic):
         lstm_hidden_size: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        actor_cloning_epochs: int = 10,
+        critic_cloning_epochs: int = 10,
+        actor_cloning_lr: float = 1e-3,
+        critic_cloning_lr: float = 1e-3,
+        actor_cloning_batch_size: int = 64,
+        critic_cloning_batch_size: int = 64,
+        pre_train_n_steps: int = 0,
+        expert_policy: Optional[Callable] = None,
+        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
+        distance_to_stable: Optional[Callable] = None,
+        imitation_coef_offset: float = 0.0,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -115,58 +127,19 @@ class SAC(ActorCritic):
             n_envs=n_envs,
         )
 
-    # @with_wandb_silent
-    # def train(
-    #     self,
-    #     seed: int | Sequence[int] = 42,
-    #     n_timesteps: int = int(1e6),
-    #     num_episode_test: int = 10,
-    #     logging_config: Optional[LoggingConfig] = None,
-    # ) -> None:
-    #     """
-    #     Train the SAC agent.
-
-    #     Args:
-    #         seed (int | Sequence[int]): Random seed(s) for training.
-    #         n_timesteps (int): Total number of timesteps for training.
-    #         num_episode_test (int): Number of episodes for evaluation during training.
-    #     """
-    #     if isinstance(seed, int):
-    #         seed = [seed]
-
-    #     if logging_config is not None:
-    #         logging_config.config.update(make_json_serializable(self.config))
-    #         run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-    #         for index, run_id in enumerate(run_ids):
-    #             init_logging(run_id, index, logging_config)
-    #     else:
-    #         run_ids = None
-    #     self.run_ids = run_ids
-
-    #     def set_key_and_train(seed, index):
-    #         key = jax.random.PRNGKey(seed)
-
-    #         train_jit = make_train(
-    #             env_args=self.env_args,
-    #             actor_optimizer_args=self.actor_optimizer_args,
-    #             critic_optimizer_args=self.critic_optimizer_args,
-    #             network_args=self.network_args,
-    #             buffer=self.buffer,
-    #             agent_config=self.agent_config,
-    #             total_timesteps=n_timesteps,
-    #             alpha_args=self.alpha_args,
-    #             num_episode_test=num_episode_test,
-    #             run_ids=run_ids,
-    #             logging_config=logging_config,
-    #         )
-
-    #         agent_state, out = train_jit(key, index)
-    #         # stop_async_logging()
-    #         return agent_state, out
-
-    #     index = jnp.arange(len(seed))
-    #     seed = jnp.array(seed)
-    #     return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        self.cloning_confing = CloningConfig(
+            actor_epochs=actor_cloning_epochs,
+            critic_epochs=critic_cloning_epochs,
+            actor_lr=actor_cloning_lr,
+            critic_lr=critic_cloning_lr,
+            actor_batch_size=actor_cloning_batch_size,
+            critic_batch_size=critic_cloning_batch_size,
+            pre_train_n_steps=pre_train_n_steps,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
+        )
+        self.expert_policy = expert_policy
 
     def get_make_train(self) -> Callable:
         """
@@ -175,7 +148,13 @@ class SAC(ActorCritic):
         Returns:
             Callable: A function that trains the APO agent.
         """
-        return partial(make_train, buffer=self.buffer, alpha_args=self.alpha_args)
+        return partial(
+            make_train,
+            buffer=self.buffer,
+            alpha_args=self.alpha_args,
+            cloning_args=self.cloning_confing,
+            expert_policy=self.expert_policy,
+        )
 
 
 if __name__ == "__main__":

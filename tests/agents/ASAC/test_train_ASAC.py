@@ -417,6 +417,7 @@ def test_update_policy(env_config, ASAC_state):
         done=dones,
         agent_state=ASAC_state,
         recurrent=False,
+        raw_observations=observations,
     )
     aux = to_state_dict(aux)
     # Validate that only actor_state.params has changed

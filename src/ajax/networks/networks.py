@@ -101,7 +101,7 @@ class Actor(nn.Module):
         if self.continuous:
             self.mean = nn.Dense(
                 self.action_dim,
-                kernel_init=kernel_init,
+                kernel_init=orthogonal(0.01),
                 bias_init=bias_init,
             )
             # self.log_std = nn.Dense(
@@ -130,9 +130,10 @@ class Actor(nn.Module):
     def __call__(self, obs) -> distrax.Distribution:
         # Use the Encoder submodule
         embedding = self.encoder(obs)
+        normalized_embedding = nn.LayerNorm()(embedding)
         if self.continuous:
             # mean = jnp.clip(self.mean(embedding), -1, 1)
-            mean = self.mean(embedding)
+            mean = self.mean(normalized_embedding)
             log_std = jnp.clip(self.log_std, -20, 2)
             # log_std = jnp.clip(self.log_std(embedding), -20, 2)
             # log_std = self.log_std(embedding)

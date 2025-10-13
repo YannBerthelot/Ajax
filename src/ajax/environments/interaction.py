@@ -436,6 +436,13 @@ def collect_experience(
     )  # assume autoreset is on if obs_st is found, else assume no autoreset
 
     buffer_state = agent_state.collector_state.buffer_state
+    raw_obs = (
+        get_raw_obs(
+            env_state=agent_state.collector_state.env_state, env=env_args.env, mode=mode
+        )
+        if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
+        else None
+    )
     if agent_state.collector_state.buffer_state is not None and buffer is not None:
         _transition = {
             "obs": agent_state.collector_state.last_obs,
@@ -443,6 +450,7 @@ def collect_experience(
             "reward": reward[:, None],
             "terminated": terminated[:, None],
             "truncated": truncated[:, None],
+            "raw_obs": raw_obs,  # type: ignore[union-attr]
         }
         buffer_state = buffer.add(
             agent_state.collector_state.buffer_state,
@@ -455,15 +463,7 @@ def collect_experience(
         reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
-        raw_obs=(
-            get_raw_obs(
-                env_state=agent_state.collector_state.env_state,
-                env=env_args.env,
-                mode=mode,
-            )
-            if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
-            else None
-        ),
+        raw_obs=raw_obs,
         next_obs=raw_next_obs,
         log_prob=log_probs,
     )

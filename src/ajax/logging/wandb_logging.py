@@ -12,11 +12,11 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import tensorflow as tf
 import wandb
 from flax import struct
 from flax.serialization import to_state_dict
 from tensorboardX import SummaryWriter
+from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
 
 
@@ -222,24 +222,72 @@ def with_wandb_silent(func: Callable) -> Callable:
     return wrapper
 
 
+def iter_tfrecord(path):
+    """
+    Iterate raw record data from a TFRecord-style TensorBoard event file.
+    (Each record = [length][crc_len][data][crc_data])
+    """
+    with open(path, "rb") as f:
+        while True:
+            header = f.read(8)
+            if len(header) < 8:
+                break
+            length = struct.unpack("<Q", header)[0]
+            f.read(4)  # skip CRC of length
+            data = f.read(length)
+            f.read(4)  # skip CRC of data
+            if not data:
+                break
+            yield data
+
+
+def load_scalars_from_tfevents(log_dir):
+    """
+    Reads all scalar summaries from TensorBoard event files
+    using only tensorboardX (no TensorFlow, no tensorboard).
+    """
+    log_dir = Path(log_dir)
+    event_files = list(log_dir.glob("**/events.out.tfevents.*"))
+    all_events = defaultdict(list)
+
+    for event_file in tqdm(event_files, desc="Reading events"):
+        for record in iter_tfrecord(event_file):
+            e = event_pb2.Event()
+            e.ParseFromString(record)
+            if not e.summary:
+                continue
+            for v in e.summary.value:
+                if v.HasField("simple_value"):
+                    all_events[v.tag].append((e.step, v.simple_value))
+
+    # Sort by step
+    for tag in all_events:
+        all_events[tag].sort(key=lambda x: x[0])
+
+    return all_events
+
+
 def merge_and_upload_tensorboard_to_wandb(log_dir: str):
     """
     Merge all TensorBoard event files in `log_dir` and upload to WandB
     with guaranteed step ordering and no duplicates.
     """
-    event_files = list(Path(log_dir).glob("**/events.out.tfevents*"))
-    all_events = defaultdict(list)  # {tag_name: [(step, value), ...]}
 
-    # Step 1: Read all events and collect by tag
-    for event_file in tqdm(event_files, desc="Reading TensorBoard events"):
-        for e in tf.compat.v1.train.summary_iterator(str(event_file)):
-            if e.summary is None:
-                continue
-            for v in e.summary.value:
-                # Only handle scalars
-                if v.HasField("simple_value"):
-                    all_events[v.tag].append((e.step, v.simple_value))
+    # event_files = list(Path(log_dir).glob("**/events.out.tfevents*"))
 
+    # all_events = defaultdict(list)  # {tag_name: [(step, value), ...]}
+    # import tensorboardX
+
+    # # Step 1: Read all events and collect by tag
+    # for event_file in tqdm(event_files, desc="Reading TensorBoard events"):
+    #     for e in tensorboardX.compat.v1.train.summary_iterator(str(event_file)):
+    #         if e.summary is None:
+    #             continue
+    #         for v in e.summary.value:
+    #             # Only handle scalars
+    #             if v.HasField("simple_value"):
+    #                 all_events[v.tag].append((e.step, v.simple_value))
+    all_events = load_scalars_from_tfevents(log_dir)
     # Step 2: Sort events by step per tag and remove duplicates
     for tag, values in all_events.items():
         # Sort by step

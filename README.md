@@ -37,7 +37,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 - Designed for researchers to quickly prototype and modify agents.
 
 ### **Available Agents**
-- **Soft Actor-Critic (SAC)**: [Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor, Haarnoja et al, 2018](Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor)
+- **Soft Actor-Critic (SAC)**: [Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor, Haarnoja et al, 2018](https://arxiv.org/abs/1801.01290)
 - **Average-reward Soft Actor-Critic (SAC)**: Average-reward version of SAC. [Average-Reward Soft Actor-Critic, Adamczyk et al. 2025](https://arxiv.org/pdf/2501.09080v2). 
 - **Proximal Policy Optimization (PPO)**: [Proximal Policy Optimization Algorithms, Schulman et al, 2017](https://arxiv.org/abs/1707.06347)
 - **Average-Reward Policy Optimization (APO)**: [Average-Reward Reinforcement Learning with Trust Region Methods, Ma et al, 2021](https://arxiv.org/abs/2106.03442)

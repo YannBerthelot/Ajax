@@ -11,14 +11,8 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | **Features**                          | **AJAX**          |
 | ------------------------------------- | ----------------- |
 | End-to-End JAX Implementation         | :heavy_check_mark: |
-| State-of-the-Art RL Methods           | :heavy_check_mark: |
 | Modular Design                        | :heavy_check_mark: |
-| Custom Environments                   | :heavy_check_mark: |
-| Parallel Environments                 | :heavy_check_mark: |
 | GPU/TPU Acceleration                  | :heavy_check_mark: |
-| Replay Buffer                         | :heavy_check_mark: |
-| Type Hints                            | :heavy_check_mark: |
-| High Code Coverage                    | :heavy_check_mark: |
 | Logging Support                       | :heavy_check_mark: |
 | Weights & Biases (wandb) Integration  | :heavy_check_mark: |
 | Termination/Truncation handling       | :heavy_check_mark: |
@@ -138,6 +132,15 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-## 📧 Contact
+## 📖 Citation
 
-For questions or feedback, please reach out to [your-email@example.com](mailto:your-email@example.com).
+If you use **TargetGym** in your research or project, please cite it as:
+
+```bibtex
+@misc{ajax2025,
+  title        = {Ajax: Reinforcement Learning Agents in Jax},
+  author       = {Yann Berthelot},
+  year         = {2025},
+  url          = {https://github.com/YannBerthelot/Ajax},
+}
+```

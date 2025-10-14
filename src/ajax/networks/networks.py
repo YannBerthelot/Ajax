@@ -10,7 +10,7 @@ from flax.linen.initializers import constant, orthogonal
 from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
-from ajax.agents.sac.utils import SquashedNormal
+from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.networks.scanned_rnn import ScannedRNN
 from ajax.networks.utils import (
@@ -27,7 +27,7 @@ from ajax.state import (
 from ajax.types import ActivationFunction, HiddenState, InitializationFunction
 
 """
-Heavy inspiration from https://github.com/Howuhh/sac-n-jax/blob/main/sac_n_jax_flax.py
+Heavy inspiration from https://github.com/Howuhh/SAC-n-jax/blob/main/SAC_n_jax_flax.py
 """
 
 
@@ -101,7 +101,7 @@ class Actor(nn.Module):
         if self.continuous:
             self.mean = nn.Dense(
                 self.action_dim,
-                kernel_init=kernel_init,
+                kernel_init=orthogonal(0.01),
                 bias_init=bias_init,
             )
             # self.log_std = nn.Dense(
@@ -130,12 +130,10 @@ class Actor(nn.Module):
     def __call__(self, obs) -> distrax.Distribution:
         # Use the Encoder submodule
         embedding = self.encoder(obs)
+        embedding = nn.LayerNorm()(embedding)
         if self.continuous:
-            # mean = jnp.clip(self.mean(embedding), -1, 1)
             mean = self.mean(embedding)
             log_std = jnp.clip(self.log_std, -20, 2)
-            # log_std = jnp.clip(self.log_std(embedding), -20, 2)
-            # log_std = self.log_std(embedding)
             std = jnp.exp(log_std)
             return (
                 distrax.Normal(mean, std)

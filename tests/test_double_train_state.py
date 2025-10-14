@@ -36,7 +36,7 @@
 #     _, base_state, second_state = create_model_and_states(key)
 
 #     # Test both modes
-#     for mode in ["avg", "sac"]:
+#     for mode in ["avg", "SAC"]:
 #         double_state = DoubleTrainState.from_states(
 #             base_state=base_state, second_state=second_state, second_state_type=mode
 #         )
@@ -144,15 +144,15 @@
 #         base_state=base_state, second_state=second_state, second_state_type="avg"
 #     )
 
-#     sac_state = DoubleTrainState.from_states(
-#         base_state=base_state, second_state=second_state, second_state_type="sac"
+#     SAC_state = DoubleTrainState.from_states(
+#         base_state=base_state, second_state=second_state, second_state_type="SAC"
 #     )
 
 #     # Both should work without normalization
 #     avg_output = avg_state.apply(avg_state.params, x)
-#     sac_output = sac_state.apply(sac_state.params, x)
+#     SAC_output = SAC_state.apply(SAC_state.params, x)
 
-#     assert avg_output.shape == sac_output.shape
+#     assert avg_output.shape == SAC_output.shape
 
 
 # def test_from_states_preserves_attributes():

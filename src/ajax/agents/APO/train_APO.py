@@ -617,7 +617,6 @@ def make_train(
         )
 
         # pre-train agent
-
         (
             imitation_coef,
             imitation_coef_offset,

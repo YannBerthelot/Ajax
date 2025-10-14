@@ -24,7 +24,7 @@ from ajax.types import EnvType
 
 
 class AVG:
-    """Action Value Gradient (AVG)"""
+    """Action Value Gradient (AVG) from Vasan et al. 2024. See https://arxiv.org/abs/2411.15370"""
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -145,8 +145,8 @@ class AVG:
         if logging_config is not None:
             logging_config.config.update(self.config)
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(run_ids):
-                init_logging(run_id, index, logging_config)
+            for run_id in run_ids:
+                init_logging(run_id, logging_config)
         else:
             run_ids = None
 

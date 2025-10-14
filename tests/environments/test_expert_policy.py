@@ -1,4 +1,5 @@
 import brax
+import distrax
 import gymnax
 import jax
 import jax.numpy as jnp
@@ -67,7 +68,7 @@ class DummyPolicy(nn.Module):
         x = nn.Dense(32)(x)
         x = nn.relu(x)
         x = nn.Dense(self.action_dim)(x)
-        return x
+        return distrax.Normal(x, 1)
 
 
 class DummyCritic(nn.Module):
@@ -204,7 +205,9 @@ def test_pre_train_actor_converges():
     actor_losses = jnp.array(metrics["actor_loss"])
     assert actor_losses[-1] <= actor_losses[0]
     for i in range(2):
-        pred_action = trained_actor.apply_fn(trained_actor.params, dataset.obs[i])
+        pred_action = trained_actor.apply_fn(
+            trained_actor.params, dataset.obs[i]
+        ).mean()
         assert jnp.allclose(pred_action, dataset.action[i], atol=0.3)
 
 

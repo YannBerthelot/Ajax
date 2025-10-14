@@ -17,7 +17,7 @@ from ajax.agents.cloning import (
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.train_PPO import init_PPO, update_value_functions
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
-from ajax.agents.sac.utils import SquashedNormal
+from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,

@@ -435,21 +435,35 @@ def collect_experience(
         info["obs_st"] if "obs_st" in info else obsv
     )  # assume autoreset is on if obs_st is found, else assume no autoreset
 
+    buffer_state = agent_state.collector_state.buffer_state
+    raw_obs = (
+        get_raw_obs(
+            env_state=agent_state.collector_state.env_state, env=env_args.env, mode=mode
+        )
+        if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
+        else None
+    )
+    if agent_state.collector_state.buffer_state is not None and buffer is not None:
+        _transition = {
+            "obs": agent_state.collector_state.last_obs,
+            "action": action,  # if action.ndim == 2 else action[:, None]
+            "reward": reward[:, None],
+            "terminated": terminated[:, None],
+            "truncated": truncated[:, None],
+            "raw_obs": raw_obs,  # type: ignore[union-attr]
+        }
+        buffer_state = buffer.add(
+            agent_state.collector_state.buffer_state,
+            _transition,
+        )
+
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
         action=action,
         reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
-        raw_obs=(
-            get_raw_obs(
-                env_state=agent_state.collector_state.env_state,
-                env=env_args.env,
-                mode=mode,
-            )
-            if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
-            else None
-        ),
+        raw_obs=raw_obs,
         next_obs=raw_next_obs,
         log_prob=log_probs,
     )
@@ -471,7 +485,7 @@ def collect_experience(
         last_truncated=truncated,
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
-        buffer_state=agent_state.collector_state.buffer_state,
+        buffer_state=buffer_state,
     )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
@@ -638,5 +652,5 @@ def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bo
     """
 
     return jnp.where(
-        timestep < learning_starts, jnp.zeros_like(timestep), jnp.ones_like(timestep)
+        timestep < learning_starts, jnp.ones_like(timestep), jnp.zeros_like(timestep)
     )

@@ -8,8 +8,8 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.train_AVG import training_iteration as training_iteration_AVG
 from ajax.agents.DynaSAC.state import AVGState, DynaSACConfig, SACState
-from ajax.agents.sac.train_sac import init_sac
-from ajax.agents.sac.train_sac import training_iteration as training_iteration_SAC
+from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.SAC.train_SAC import training_iteration as training_iteration_SAC
 from ajax.buffers.utils import get_batch_from_buffer, get_buffer
 from ajax.distillation import distillation
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
@@ -305,10 +305,10 @@ def make_train(  # noqa: C901
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
-    sac_length: int = 1,
+    SAC_length: int = 1,
     avg_length: int = 1,
     num_epochs: int = 1,
-    n_epochs_sac: int = 1,
+    n_epochs_SAC: int = 1,
     n_avg_agents: int = 1,
     actor_distillation_lr: float = 1e-4,
     critic_distillation_lr: float = 1e-4,
@@ -349,8 +349,8 @@ def make_train(  # noqa: C901
     # Start async logging if logging is enabled
     if logging_config is not None and not sweep:
         start_async_logging()
-    secondary_mode = "sac"
-    # init_secondary = init_sac if secondary_mode == "sac" else init_AVG
+    secondary_mode = "SAC"
+    # init_secondary = init_SAC if secondary_mode == "SAC" else init_AVG
     # init_secondary_args = (
     #     {
     #         "env_args": secondary_env_args,
@@ -372,13 +372,13 @@ def make_train(  # noqa: C901
     # )
     primary_training_iteration = training_iteration_SAC
     secondary_training_iteration = (
-        training_iteration_SAC if secondary_mode == "sac" else training_iteration_AVG
+        training_iteration_SAC if secondary_mode == "SAC" else training_iteration_AVG
     )
 
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):  # noqa: C901
         """Train the SAC agent."""
-        primary_agent_state = init_sac(
+        primary_agent_state = init_SAC(
             key=key,
             env_args=primary_env_args,
             actor_optimizer_args=primary_actor_optimizer_args,
@@ -398,7 +398,7 @@ def make_train(  # noqa: C901
         #     if secondary_mode == "avg"
         #     else partial_init_secondary(key)
         # )
-        secondary_agent_state = init_sac(
+        secondary_agent_state = init_SAC(
             key=key,
             env_args=secondary_env_args,
             actor_optimizer_args=primary_actor_optimizer_args,
@@ -419,7 +419,7 @@ def make_train(  # noqa: C901
 
         n_unroll = 2
 
-        num_updates = total_timesteps // (primary_env_args.n_envs * sac_length)
+        num_updates = total_timesteps // (primary_env_args.n_envs * SAC_length)
         _, action_shape = get_state_action_shapes(primary_env_args.env)
 
         primary_training_iteration_scan_fn = partial(
@@ -439,7 +439,7 @@ def make_train(  # noqa: C901
                 logging_config.log_frequency if logging_config is not None else None
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
-            n_epochs=n_epochs_sac,
+            n_epochs=n_epochs_SAC,
             transition_mix_fraction=1.0,
         )
 
@@ -478,7 +478,7 @@ def make_train(  # noqa: C901
                 "horizon": (
                     logging_config.horizon if logging_config is not None else None
                 ),
-                "n_epochs": n_epochs_sac,
+                "n_epochs": n_epochs_SAC,
                 "transition_mix_fraction": transition_mix_fraction,
             }
         )
@@ -511,7 +511,7 @@ def make_train(  # noqa: C901
                 f=primary_training_iteration_scan_fn,
                 init=primary_agent_state,
                 xs=None,
-                length=sac_length,
+                length=SAC_length,
                 unroll=n_unroll,
             )
             assert secondary_agent_state.collector_state.buffer_state is None
@@ -542,7 +542,7 @@ def make_train(  # noqa: C901
                         agent_state.collector_state.buffer_state,
                         key,  # TODO : change
                     )
-                    if secondary_mode == "sac":
+                    if secondary_mode == "SAC":
                         return observations, actions, observations
 
                     env_norm_info = (
@@ -799,16 +799,16 @@ def make_train(  # noqa: C901
                 _metrics_to_log.update(
                     {
                         "timestep": timestep,
-                        "Distillation/sac_to_avg_actor_distillation_loss": (
+                        "Distillation/SAC_to_avg_actor_distillation_loss": (
                             distillation_losses[0]
                         ),
-                        "Distillation/sac_to_avg_critic_distillation_loss": (
+                        "Distillation/SAC_to_avg_critic_distillation_loss": (
                             distillation_losses[1]
                         ),
-                        "Distillation/avg_to_sac_actor_distillation_loss": (
+                        "Distillation/avg_to_SAC_actor_distillation_loss": (
                             distillation_losses[2]
                         ),
-                        "Distillation/avg_to_sac_critic_distillation_loss": (
+                        "Distillation/avg_to_SAC_critic_distillation_loss": (
                             distillation_losses[3]
                         ),
                     }

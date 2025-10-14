@@ -9,8 +9,8 @@ from jax.tree_util import Partial as partial
 from ajax.agents.AVG.train_AVG import init_AVG
 from ajax.agents.AVG.train_AVG import training_iteration as secondary_training_iteration
 from ajax.agents.DynaSAC.state import AVGState, DynaSACConfig, SACState
-from ajax.agents.sac.train_sac import init_sac
-from ajax.agents.sac.train_sac import training_iteration as primary_training_iteration
+from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.SAC.train_SAC import training_iteration as primary_training_iteration
 from ajax.distillation import policy_distillation, value_distillation
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.logging.wandb_logging import (
@@ -238,10 +238,10 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
-    sac_length: int = 1,
+    SAC_length: int = 1,
     avg_length: int = 1,
     num_epochs: int = 10,
-    n_epochs_sac: int = 10,
+    n_epochs_SAC: int = 10,
 ):
     """
     Create the training function for the SAC agent.
@@ -270,7 +270,7 @@ def make_train(
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the SAC agent."""
-        raw_primary_agent_state = init_sac(
+        raw_primary_agent_state = init_SAC(
             key=key,
             env_args=primary_env_args,
             actor_optimizer_args=primary_actor_optimizer_args,
@@ -298,7 +298,7 @@ def make_train(
             "avg", dyna_factor=agent_config.dyna_factor
         )  # type: ignore[arg-type]
         DoubleTrainStateSAC = get_double_train_state(
-            "sac", dyna_factor=agent_config.dyna_factor
+            "SAC", dyna_factor=agent_config.dyna_factor
         )
 
         def build_states_from_states_env_and_mode(
@@ -386,7 +386,7 @@ def make_train(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
-            n_epochs=n_epochs_sac,
+            n_epochs=n_epochs_SAC,
         )
 
         secondary_training_iteration_scan_fn = partial(
@@ -415,7 +415,7 @@ def make_train(
                 f=primary_training_iteration_scan_fn,
                 init=primary_agent_state,
                 xs=None,
-                length=sac_length,
+                length=SAC_length,
                 unroll=n_unroll,
             )
             timestep = new_primary_agent_state.collector_state.timestep

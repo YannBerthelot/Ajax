@@ -4,7 +4,7 @@ import pytest
 from brax.envs import create as create_brax_env
 from flax.serialization import to_state_dict
 
-from ajax.agents.sac.train_sac import init_sac
+from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.buffers.utils import get_buffer
 from ajax.evaluate import evaluate
 from ajax.state import (
@@ -44,7 +44,7 @@ def env_config(request, fast_env_config, gymnax_env_config):
 
 
 @pytest.fixture
-def sac_state(env_config):
+def SAC_state(env_config):
     key = jax.random.PRNGKey(0)
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
@@ -59,7 +59,7 @@ def sac_state(env_config):
             BufferConfig(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
         )
     )
-    return init_sac(
+    return init_SAC(
         key=key,
         env_args=env_config,
         actor_optimizer_args=optimizer_args,
@@ -70,13 +70,13 @@ def sac_state(env_config):
     )
 
 
-def test_evaluate_with_fast_env(env_config, sac_state):
+def test_evaluate_with_fast_env(env_config, SAC_state):
     num_episodes = 5
     rng = jax.random.PRNGKey(0)
 
-    rewards, avg_entropy, avg_reward, bias, avg_length = evaluate(
+    rewards, avg_entropy, avg_reward, bias, avg_length, expert_rewards = evaluate(
         env=env_config.env,
-        actor_state=sac_state.actor_state,
+        actor_state=SAC_state.actor_state,
         num_episodes=num_episodes,
         rng=rng,
         env_params=env_config.env_params,
@@ -89,13 +89,13 @@ def test_evaluate_with_fast_env(env_config, sac_state):
     assert avg_entropy.shape == ()
 
 
-def test_evaluate_with_gymnax_env(env_config, sac_state):
+def test_evaluate_with_gymnax_env(env_config, SAC_state):
     num_episodes = 3
     rng = jax.random.PRNGKey(42)
 
-    rewards, avg_entropy, avg_reward, bias, avg_length = evaluate(
+    rewards, avg_entropy, avg_reward, bias, avg_length, expert_rewards = evaluate(
         env=env_config.env,
-        actor_state=sac_state.actor_state,
+        actor_state=SAC_state.actor_state,
         num_episodes=num_episodes,
         rng=rng,
         env_params=env_config.env_params,

@@ -202,7 +202,7 @@ if __name__ == "__main__":
 
     # wandb.agent(sweep_id, function=main, count=10)
 
-    n_seeds = 25
+    n_seeds = 1
     log_frequency = 5_000
     logging_config = LoggingConfig(
         project_name="ASAC_benchmark",
@@ -218,13 +218,6 @@ if __name__ == "__main__":
         use_wandb=True,
     )
 
-    # target_altitude = 5000
-    # env = Airplane2D()
-    # # env_params = PlaneParams(target_velocity_range=(120, 120))
-    # env_params = PlaneParams(
-    #     target_altitude_range=(target_altitude, target_altitude),
-    #     # initial_altitude_range=(target_altitude, target_altitude),
-    # )
     env_id = "ant"
     SAC_agent = SAC(env_id=env_id, learning_starts=int(1e4), n_envs=1)
     SAC_agent.train(

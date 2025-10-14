@@ -48,7 +48,6 @@ tensorboard_writers: Dict[str, SummaryWriter] = {}
 
 def init_logging(
     run_id: str,
-    index: int,
     logging_config: LoggingConfig,
 ):
     """Init the wandb run and optionally TensorBoard"""
@@ -123,9 +122,9 @@ def _logging_worker():
             if item is None:
                 continue
 
-            run_id, metrics, step, project, name, sweep = item
+            run_id, metrics, step, project, name, use_wandb = item
 
-            if project is not None and not sweep:
+            if project is not None and use_wandb:
                 while True:
                     try:
                         run = wandb.init(
@@ -187,7 +186,6 @@ def vmap_log(
     }
 
     step = log_metrics["timestep"]
-
     logging_queue.put(
         (
             run_id,
@@ -195,7 +193,7 @@ def vmap_log(
             step,
             logging_config.project_name,
             logging_config.run_name,
-            logging_config.sweep,
+            logging_config.use_wandb and not logging_config.sweep,
         )
     )
 

@@ -41,6 +41,9 @@ def get_sweep_values(
 ):
     imitation_coef_list = []
     imitation_coef_offset_list = [0.0]
+    if baseline:
+        imitation_coef_list += [0.0]
+
     if pre_train:
         pre_train_step_list = [0, int(1e5)]
     else:
@@ -55,12 +58,12 @@ def get_sweep_values(
 
     if auto_imitation:
         imitation_coef_list += [
-            "auto_0.01",  # type: ignore[list-item]
-            "auto_0.001",  # type: ignore[list-item]
+            "auto_10.0",  # type: ignore[list-item]
+            "auto_1.0",  # type: ignore[list-item]
+            "auto_0.1",  # type: ignore[list-item]
+            # "auto_0.01",  # type: ignore[list-item]
+            # "auto_0.001",  # type: ignore[list-item]
         ]
-
-    if baseline:
-        imitation_coef_list += [0.0]
 
     return {
         "imitation_coef": imitation_coef_list,
@@ -87,6 +90,7 @@ def get_log_config(project_name, agent_name):
         horizon=10_000,
         use_tensorboard=True,
         use_wandb=use_wandb,
+        sweep=True,
     )
 
 
@@ -149,10 +153,10 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 if __name__ == "__main__":
     agent = SAC
-    project_name = "tests_SAC_plane_1"
-    n_timesteps = int(1e6)
-    n_seeds = 1
-    num_episode_test = 10
+    project_name = f"tests_{agent.name}_plane_2"
+    n_timesteps = int(1e5)
+    n_seeds = 25
+    num_episode_test = 25
     log_frequency = 4096
     use_wandb = True
     logging_config = get_log_config(project_name, agent.name)
@@ -196,11 +200,11 @@ if __name__ == "__main__":
         _agent = agent(
             env_id=env,
             env_params=env_params,
-            # expert_policy=expert_policy,
-            # pre_train_n_steps=pre_train_n_steps,
-            # imitation_coef=imitation_coef,
-            # distance_to_stable=distance_to_stable,
-            # imitation_coef_offset=imitation_coef_offset,
+            expert_policy=expert_policy,
+            pre_train_n_steps=pre_train_n_steps,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
             **hyperparams,
         )
         if mode == "CPU":

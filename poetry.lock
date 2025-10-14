@@ -3919,13 +3919,15 @@ dev = ["hypothesis (>=6.70.0)", "pytest (>=7.1.0)"]
 
 [[package]]
 name = "target-gym"
-version = "0.1.0"
+version = "0.3.1"
 description = "A reinforcement learning environment for simulating target-MDP environments (Airplane, Car, Bicycle), with gymnasium and gymnax support"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "target_gym-0.3.1-py3-none-any.whl", hash = "sha256:cd8132b77654202b5ad6a25be1ae6fe9f03c62566b3a18a07c4caaece7e974b7"},
+    {file = "target_gym-0.3.1.tar.gz", hash = "sha256:a3f17cb237bcb9f4662fb048615f956878c7cbc4f7798d62e555b5ce37f3fb6d"},
+]
 
 [package.dependencies]
 distrax = ">=0.1.5"
@@ -3940,12 +3942,6 @@ six = ">=1.16.0"
 
 [package.extras]
 dev = ["black (>=25.1.0)", "codecov (>=2.1.13)", "coverage (>=7.3.2)", "flake8 (>=7.3.0)", "isort (>=5.12.0)", "mypy (>=1.6.1)", "pre-commit (>=3.5.0)", "pytest (>=7.4.3)", "pytest-cov (>=4.1.0)", "pytest-readme (>=1.0.2)", "ruff (>=0.12.11)", "stable-baselines3 (>=2.7.0)", "tensorboard (>=2.20.0)"]
-
-[package.source]
-type = "git"
-url = "https://github.com/YannBerthelot/TargetGym"
-reference = "version_relaxing"
-resolved_reference = "0aa30a68e8bb8ab420e6e0178e511a53d3cbabfb"
 
 [[package]]
 name = "tensorboard"
@@ -4710,4 +4706,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "1bcf416c28471fb763c2279264b4b151f2268f75e968126bc20134b336acc86c"
+content-hash = "7246cf1e6d030e8b117f492aae7b9fdc71ffcbe6d283acf9fc4f69008fb85422"

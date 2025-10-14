@@ -14,6 +14,7 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.state import (
     BaseAgentConfig,
+    BaseAgentState,
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
@@ -115,7 +116,7 @@ class ActorCritic:
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
         **kwargs,
-    ) -> None:
+    ) -> BaseAgentState:
         """
         Train the PPO agent.
 
@@ -130,9 +131,9 @@ class ActorCritic:
         if logging_config is not None:
             logging_config.config.update(self.config)
             self.run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(self.run_ids):
-                init_logging(run_id, index, logging_config)
-            logging_config = logging_config.replace(use_wandb=False)
+            for run_id in self.run_ids:
+                init_logging(run_id, logging_config)
+
         else:
             self.run_ids = []
 

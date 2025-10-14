@@ -145,8 +145,8 @@ class AVG:
         if logging_config is not None:
             logging_config.config.update(self.config)
             run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
-            for index, run_id in enumerate(run_ids):
-                init_logging(run_id, index, logging_config)
+            for run_id in run_ids:
+                init_logging(run_id, logging_config)
         else:
             run_ids = None
 

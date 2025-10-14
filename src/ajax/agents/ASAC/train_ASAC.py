@@ -51,8 +51,6 @@ from ajax.state import (
 from ajax.types import BufferType
 from ajax.utils import get_one
 
-PROFILER_PATH = "./tensorboard"
-
 
 def get_alpha_from_params(params: FrozenDict) -> float:
     return jnp.exp(params["log_alpha"])
@@ -860,7 +858,6 @@ def training_iteration(
     Returns:
         Tuple[ASACState, None]: Updated agent state.
     """
-    # collector_state = agent_state.collector_state
 
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
@@ -909,6 +906,7 @@ def training_iteration(
                 **{key: val.flatten() for key, val in to_state_dict(aux.value).items()}
             )
         )
+
         return agent_state, aux
 
     def fill_with_nan(dataclass):
@@ -951,7 +949,7 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
-        avg_reward_mode=True,
+        # avg_reward_mode=True,
     )
     return agent_state, metrics_to_log
 

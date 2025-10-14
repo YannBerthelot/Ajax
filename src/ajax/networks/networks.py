@@ -130,13 +130,10 @@ class Actor(nn.Module):
     def __call__(self, obs) -> distrax.Distribution:
         # Use the Encoder submodule
         embedding = self.encoder(obs)
-        normalized_embedding = nn.LayerNorm()(embedding)
+        embedding = nn.LayerNorm()(embedding)
         if self.continuous:
-            # mean = jnp.clip(self.mean(embedding), -1, 1)
-            mean = self.mean(normalized_embedding)
+            mean = self.mean(embedding)
             log_std = jnp.clip(self.log_std, -20, 2)
-            # log_std = jnp.clip(self.log_std(embedding), -20, 2)
-            # log_std = self.log_std(embedding)
             std = jnp.exp(log_std)
             return (
                 distrax.Normal(mean, std)

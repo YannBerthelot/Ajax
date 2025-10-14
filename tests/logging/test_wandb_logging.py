@@ -31,7 +31,7 @@ def test_init_logging(mock_summary_writer, mock_wandb_init, tmp_path, logging_co
     folder.mkdir()
     logging_config.replace(folder=folder, use_tensorboard=True, use_wandb=True)
 
-    init_logging(logging_config=logging_config, run_id="test_run", index=1)
+    init_logging(logging_config=logging_config, run_id="test_run")
 
     # # Validate wandb initialization
     # mock_wandb_init.assert_called_once_with(

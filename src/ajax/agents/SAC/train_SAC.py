@@ -48,8 +48,6 @@ from ajax.state import (
 from ajax.types import BufferType
 from ajax.utils import get_one
 
-PROFILER_PATH = "./tensorboard"
-
 
 def get_alpha_from_params(params: FrozenDict) -> float:
     return jnp.exp(params["log_alpha"])
@@ -834,6 +832,7 @@ def training_iteration(
         buffer=buffer,
         uniform=uniform,
     )
+
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=1
     )
@@ -914,6 +913,7 @@ def training_iteration(
         total_timesteps,
         expert_policy=expert_policy,
     )
+
     return agent_state, metrics_to_log
 
 

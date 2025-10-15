@@ -167,7 +167,7 @@ if __name__ == "__main__":
     env_params = PlaneParams(
         target_altitude_range=(5000.0, 5000.0),
     )
-    env_id = "ant"
+    env_id = "hopper"
     activation = "relu"
     N_NEURONS = 128
     _agent = APO(

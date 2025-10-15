@@ -141,7 +141,7 @@ if __name__ == "__main__":
         """Remove version from env_id for brax compatibility."""
         short_env_id = env_id.split("-")[0].lower()
         brax_envs = [
-            "ant",
+            "hopper",
             "halfcheetah",
             "hopper",
             "walker2d",
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     # #     "n_steps": 2048,
     # # }
     # # _logging_config = logging_config.replace(log_frequency=config["n_steps"])
-    # env_id = "ant"
+    # env_id = "hopper"
     # N_NEURONS = 128
     # _agent = PPO(
     #     env_id=env_id,

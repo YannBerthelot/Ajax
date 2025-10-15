@@ -5,21 +5,17 @@ import pytest
 from brax.envs import create as create_brax_env
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.state import AVGConfig, AVGState
 from ajax.agents.AVG.train_AVG import (
-    create_alpha_train_state,
     init_AVG,
     make_train,
     policy_loss_function,
-    temperature_loss_function,
     training_iteration,
     update_agent,
     update_AVG_values,
     update_policy,
-    update_temperature,
     update_value_functions,
     value_loss_function,
 )
@@ -94,21 +90,6 @@ def avg_state(env_config):
     collector_state = avg_state.collector_state.replace(rollout=transition)
     avg_state = avg_state.replace(collector_state=collector_state)
     return avg_state
-
-
-def test_create_alpha_train_state():
-    learning_rate = 3e-4
-    alpha_init = 1.0
-
-    train_state = create_alpha_train_state(
-        learning_rate=learning_rate, alpha_init=alpha_init
-    )
-
-    assert isinstance(train_state, TrainState), "Returned object is not a TrainState."
-    assert jnp.isclose(
-        train_state.params["log_alpha"], jnp.log(alpha_init)
-    ), "log_alpha initialization is incorrect."
-    assert train_state.tx is not None, "Optimizer tranSACtion is not initialized."
 
 
 @pytest.mark.parametrize(
@@ -280,63 +261,6 @@ def test_policy_loss_function_with_value_and_grad(env_config, avg_state):
     ), "Gradients contain invalid values."
 
 
-@pytest.mark.parametrize(
-    "log_alpha_init, target_entropy, corrected_log_probs",
-    [
-        (0.0, -1.0, jnp.array([-0.5, -1.5, -1.0])),
-        (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
-    ],
-)
-def test_temperature_loss_function(log_alpha_init, target_entropy, corrected_log_probs):
-    log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
-
-    # Call the alpha loss function
-    loss, aux = temperature_loss_function(
-        log_alpha_params=log_alpha_params,
-        corrected_log_probs=corrected_log_probs,
-        target_entropy=target_entropy,
-    )
-    aux = to_state_dict(aux)
-    # Validate the outputs
-    assert jnp.isfinite(loss), "Loss contains invalid values."
-    assert "alpha_loss" in aux, "Auxiliary outputs are missing 'alpha_loss'."
-    assert "alpha" in aux, "Auxiliary outputs are missing 'alpha'."
-    assert "log_alpha" in aux, "Auxiliary outputs are missing 'log_alpha'."
-    assert aux["alpha"] > 0, "Alpha should be positive."
-
-
-@pytest.mark.parametrize(
-    "log_alpha_init, target_entropy, corrected_log_probs",
-    [
-        (0.0, -1.0, jnp.array([-0.5, -1.5, -1.0])),
-        (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
-    ],
-)
-def test_temperature_loss_function_with_value_and_grad(
-    log_alpha_init, target_entropy, corrected_log_probs
-):
-    log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
-
-    # Define a wrapper for temperature_loss_function
-    def loss_fn(log_alpha_params):
-        loss, _ = temperature_loss_function(
-            log_alpha_params=log_alpha_params,
-            corrected_log_probs=corrected_log_probs,
-            target_entropy=target_entropy,
-        )
-        return loss
-
-    # Compute gradients using jax.value_and_grad
-    loss, grads = jax.value_and_grad(loss_fn)(log_alpha_params)
-
-    # Validate the outputs
-    assert jnp.isfinite(loss), "Loss contains invalid values."
-    assert isinstance(grads, FrozenDict), "Gradients are not a FrozenDict."
-    assert all(
-        jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads)
-    ), "Gradients contain invalid values."
-
-
 def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
     """
     Compares two FrozenDicts to check if they are equal.
@@ -443,40 +367,6 @@ def test_update_policy(env_config, avg_state):
     # Validate auxiliary outputs
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
     assert aux["policy_loss"] <= 0, "Policy loss should be negative."
-
-
-@pytest.mark.parametrize(
-    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
-)
-def test_update_temperature(env_config, avg_state):
-    observation_shape, _ = get_state_action_shapes(env_config.env)
-
-    # Mock inputs for the update_temperature function
-    observations = jnp.zeros((env_config.n_envs, *observation_shape))
-    dones = jnp.zeros((env_config.n_envs, 1))
-    target_entropy = -1.0
-
-    # Save the original alpha params for comparison
-    original_alpha_params = avg_state.alpha.params
-
-    # Call the update_temperature function
-    updated_state, aux = update_temperature(
-        agent_state=avg_state,
-        observations=observations,
-        dones=dones,
-        target_entropy=target_entropy,
-        recurrent=False,
-    )
-    aux = to_state_dict(aux)
-    # Validate that only alpha.params has changed
-    assert not compare_frozen_dicts(
-        updated_state.alpha.params, original_alpha_params
-    ), "alpha.params should have been updated."
-
-    # Validate auxiliary outputs
-    assert "alpha_loss" in aux, "Auxiliary outputs are missing 'alpha_loss'."
-    assert "alpha" in aux, "Auxiliary outputs are missing 'alpha'."
-    assert aux["alpha"] > 0, "Alpha should be positive."
 
 
 @pytest.mark.parametrize(

@@ -8,7 +8,6 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
 from ajax.agents.cloning import (
@@ -18,6 +17,12 @@ from ajax.agents.cloning import (
     get_pre_trained_agent,
 )
 from ajax.agents.REDQ.state import REDQConfig, REDQState
+from ajax.agents.SAC.train_SAC import (
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
+    update_target_networks,
+    update_temperature,
+)
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
@@ -33,7 +38,6 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.networks.networks import (
-    get_adam_tx,
     get_initialized_actor_critic,
     predict_value,
 )
@@ -49,22 +53,11 @@ from ajax.types import BufferType
 from ajax.utils import get_one
 
 
-def get_alpha_from_params(params: FrozenDict) -> float:
-    return jnp.exp(params["log_alpha"])
-
-
-@struct.dataclass
-class TemperatureAuxiliaries:
-    alpha_loss: jax.Array
-    alpha: jax.Array
-    log_alpha: jax.Array
-
-
 @struct.dataclass
 class PolicyAuxiliaries:
     policy_loss: jax.Array
     log_pi: jax.Array
-    q_min: jax.Array
+    q_mean: jax.Array
     imitation_loss: jax.Array
     raw_loss: jax.Array
 
@@ -81,30 +74,6 @@ class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
-
-
-def create_alpha_train_state(
-    learning_rate: float = 3e-4,
-    alpha_init: float = 1.0,
-) -> TrainState:
-    """
-    Initialize the train state for the temperature parameter (alpha).
-
-    Args:
-        learning_rate (float): Learning rate for alpha optimizer.
-        alpha_init (float): Initial value for alpha.
-
-    Returns:
-        TrainState: Initialized train state for alpha.
-    """
-    log_alpha = jnp.log(alpha_init)
-    params = FrozenDict({"log_alpha": log_alpha})
-    tx = get_adam_tx(learning_rate)
-    return TrainState.create(
-        apply_fn=get_alpha_from_params,  # Optional
-        params=params,
-        tx=tx,
-    )
 
 
 def init_REDQ(
@@ -345,44 +314,9 @@ def policy_loss_function(
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
         log_pi=log_probs.mean(),
-        q_min=q_min.mean(),
+        q_mean=q_min.mean(),
         imitation_loss=imitation_loss,
         raw_loss=loss_actor.mean(),
-    )
-
-
-@partial(
-    jax.jit,
-    static_argnames=["target_entropy"],
-)
-def temperature_loss_function(
-    log_alpha_params: FrozenDict,
-    corrected_log_probs: jax.Array,
-    target_entropy: float,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
-    """
-    Compute the loss for the temperature parameter (alpha).
-
-    Args:
-        log_alpha_params (FrozenDict): Logarithm of alpha parameters.
-        corrected_log_probs (jax.Array): Log probabilities of actions.
-        target_entropy (float): Target entropy value.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, Any]]: Loss and auxiliary metrics.
-    """
-    log_alpha = log_alpha_params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-
-    loss = (
-        -1.0
-        * (
-            log_alpha * jax.lax.stop_gradient(corrected_log_probs + target_entropy)
-        ).mean()
-    )
-
-    return loss, TemperatureAuxiliaries(
-        alpha_loss=loss, alpha=alpha, log_alpha=log_alpha
     )
 
 
@@ -507,80 +441,6 @@ def update_policy(
         actor_state=updated_actor_state,
     )
     return agent_state, aux
-
-
-@partial(
-    jax.jit,
-    static_argnames=["target_entropy", "recurrent"],
-)
-def update_temperature(
-    agent_state: REDQState,
-    observations: jax.Array,
-    dones: Optional[jax.Array],
-    target_entropy: float,
-    recurrent: bool,
-) -> Tuple[REDQState, Dict[str, Any]]:
-    """
-    Update the temperature parameter (alpha) using the alpha loss.
-
-    Args:
-        agent_state (REDQState): Current REDQ agent state.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        target_entropy (float): Target entropy value.
-        recurrent (bool): Whether the model is recurrent.
-
-    Returns:
-        Tuple[REDQState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
-
-    pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=observations,
-        done=dones,
-        recurrent=recurrent,
-    )
-    rng, sample_key = jax.random.split(agent_state.rng)
-    _, log_probs = pi.sample_and_log_prob(seed=sample_key)
-
-    (loss, aux), grads = loss_fn(
-        agent_state.alpha.params,
-        log_probs.sum(-1),
-        target_entropy,
-    )
-
-    new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        alpha=new_alpha_state,
-    )
-    return agent_state, jax.lax.stop_gradient(aux)
-
-
-@partial(
-    jax.jit,
-    static_argnames=["tau"],
-)
-def update_target_networks(
-    agent_state: REDQState,
-    tau: float,
-) -> REDQState:
-    """
-    Perform a soft update of the target networks.
-
-    Args:
-        agent_state (REDQState): Current REDQ agent state.
-        tau (float): Soft update coefficient.
-
-    Returns:
-        REDQState: Updated agent state.
-    """
-    new_critic_state = agent_state.critic_state.soft_update(tau=tau)
-    return agent_state.replace(
-        critic_state=new_critic_state,
-    )
 
 
 @partial(

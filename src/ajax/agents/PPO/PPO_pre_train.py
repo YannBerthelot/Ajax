@@ -171,7 +171,7 @@ if __name__ == "__main__":
         """Remove version from env_id for brax compatibility."""
         short_env_id = env_id.split("-")[0].lower()
         brax_envs = [
-            "ant",
+            "hopper",
             "halfcheetah",
             "hopper",
             "walker2d",

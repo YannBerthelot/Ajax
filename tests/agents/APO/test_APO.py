@@ -6,7 +6,7 @@ from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 @pytest.mark.parametrize(
     "env_id",
-    ["Pendulum-v1", "CartPole-v1"],
+    ["fast", "Pendulum-v1", "CartPole-v1"],
 )
 def test_APO_initialization(env_id):
     """Test SAC agent initialization with default parameters."""
@@ -31,24 +31,21 @@ def test_APO_initialization(env_id):
 
 
 @pytest.mark.parametrize(
-    "env_id",
-    ["Pendulum-v1", "CartPole-v1"],
+    "env_id, seeds, n_envs",
+    [
+        ["Pendulum-v1", 42, 1],
+        ["Pendulum-v1", [42, 43], 1],
+        ["Pendulum-v1", [42, 43], 2],
+        ["CartPole-v1", 42, 1],
+        ["CartPole-v1", [42, 43], 1],
+        ["CartPole-v1", [42, 43], 2],
+        ["fast", 42, 1],
+        ["fast", [42, 43], 1],
+        ["fast", [42, 43], 2],
+    ],
 )
-def test_APO_train_single_seed(env_id):
-    """Test SAC agent's train method with a single seed."""
-    # env_id = "Pendulum-v1"
-    APO_agent = APO(env_id=env_id, n_steps=10, batch_size=5)
-    APO_agent.train(seed=42, n_timesteps=100)
+def test_avg_train_all_modes(env_id, seeds, n_envs):
+    n_timesteps = 50  # keep small for speed
 
-
-@pytest.mark.parametrize(
-    "env_id",
-    ["Pendulum-v1", "CartPole-v1"],
-)
-def test_APO_train_multiple_seeds(env_id):
-    """Test SAC agent's train method with multiple seeds using jax.vmap."""
-    # env_id = "Pendulum-v1"
-    APO_agent = APO(env_id=env_id, n_steps=10, batch_size=5)
-    seeds = [42, 43, 44]
-    n_timesteps = 100
-    APO_agent.train(seed=seeds, n_timesteps=n_timesteps)
+    avg_agent = APO(env_id=env_id, n_envs=n_envs)
+    avg_agent.train(seed=seeds, n_timesteps=n_timesteps)

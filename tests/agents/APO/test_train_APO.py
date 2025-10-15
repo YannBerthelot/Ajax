@@ -32,7 +32,7 @@ from ajax.utils import compare_frozen_dicts
 @pytest.fixture
 def fast_env_config():
     env = create_brax_env(
-        "ant", batch_size=1
+        "fast", batch_size=1
     )  # Fast lacks too much functionalities (i.e. _get_obs)
     return EnvironmentConfig(
         env=env,

@@ -26,7 +26,7 @@ def gymnax_env():
 @pytest.fixture(scope="session")
 def brax_env():
     """Provide a simple Brax environment (stateless)."""
-    env = brax.envs.create("ant", batch_size=1)
+    env = brax.envs.create("fast", batch_size=1)
     return env
 
 

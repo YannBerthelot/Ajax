@@ -36,8 +36,8 @@ from ajax.utils import compare_frozen_dicts
 
 
 @pytest.fixture
-def ant_env_config():
-    env = create_brax_env("ant", batch_size=1)
+def fast_env_config():
+    env = create_brax_env("fast", batch_size=1)
     return EnvironmentConfig(
         env=env,
         env_params=None,
@@ -57,9 +57,9 @@ def gymnax_env_config():
     )
 
 
-@pytest.fixture(params=["ant_env_config", "gymnax_env_config"])
-def env_config(request, ant_env_config, gymnax_env_config):
-    return ant_env_config if request.param == "ant_env_config" else gymnax_env_config
+@pytest.fixture(params=["fast_env_config", "gymnax_env_config"])
+def env_config(request, fast_env_config, gymnax_env_config):
+    return fast_env_config if request.param == "fast_env_config" else gymnax_env_config
 
 
 @pytest.fixture
@@ -110,7 +110,7 @@ def test_create_alpha_train_state():
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_init_SAC(SAC_state):
     assert isinstance(SAC_state, SACState), "Returned object is not an SACState."
@@ -123,7 +123,7 @@ def test_init_SAC(SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_value_loss_function(env_config, SAC_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
@@ -162,7 +162,7 @@ def test_value_loss_function(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_value_loss_function_with_value_and_grad(env_config, SAC_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
@@ -208,7 +208,7 @@ def test_value_loss_function_with_value_and_grad(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_policy_loss_function(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
@@ -240,7 +240,7 @@ def test_policy_loss_function(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_policy_loss_function_with_value_and_grad(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
@@ -357,7 +357,7 @@ def test_temperature_loss_function_with_value_and_grad(
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_value_functions(env_config, SAC_state):
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
@@ -401,7 +401,7 @@ def test_update_value_functions(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_policy(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
@@ -433,7 +433,7 @@ def test_update_policy(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_temperature(env_config, SAC_state):
     observation_shape, _ = get_state_action_shapes(env_config.env)
@@ -467,7 +467,7 @@ def test_update_temperature(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_target_networks(env_config, SAC_state):
     tau = 0.05  # Example soft update factor
@@ -525,7 +525,7 @@ def test_update_target_networks(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_agent(env_config, SAC_state):
     # Mock inputs for the update_agent function
@@ -558,7 +558,7 @@ def test_update_agent(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_agent_with_scan(env_config, SAC_state):
     # Mock inputs for the update_agent function
@@ -598,7 +598,7 @@ def tree_equal(a, b):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_training_iteration_with_scan(env_config, SAC_state):
     buffer = get_buffer(buffer_size=100, batch_size=32, n_envs=env_config.n_envs)
@@ -647,7 +647,7 @@ def test_training_iteration_with_scan(env_config, SAC_state):
 
 
 @pytest.mark.parametrize(
-    "env_config", ["ant_env_config", "gymnax_env_config"], indirect=True
+    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_make_train(env_config):
     """Test the make_train function."""

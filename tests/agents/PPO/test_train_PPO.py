@@ -30,8 +30,8 @@ from ajax.utils import compare_frozen_dicts
 
 
 @pytest.fixture
-def ant_env_config():
-    env = create_brax_env("ant", batch_size=1)
+def fast_env_config():
+    env = create_brax_env("fast", batch_size=1)
     return EnvironmentConfig(
         env=env,
         env_params=None,
@@ -63,11 +63,11 @@ def discrete_gymnax_env_config():
 
 
 @pytest.fixture(
-    params=["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"]
+    params=["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"]
 )
-def env_config(request, ant_env_config, gymnax_env_config, discrete_gymnax_env_config):
+def env_config(request, fast_env_config, gymnax_env_config, discrete_gymnax_env_config):
     config_dict = {
-        "ant_env_config": ant_env_config,
+        "fast_env_config": fast_env_config,
         "gymnax_env_config": gymnax_env_config,
         "discrete_gymnax_env_config": discrete_gymnax_env_config,
     }
@@ -96,7 +96,7 @@ def PPO_state(env_config):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_init_PPO(PPO_state):
@@ -108,7 +108,7 @@ def test_init_PPO(PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_value_loss_function(env_config, PPO_state):
@@ -138,7 +138,7 @@ def test_value_loss_function(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_value_loss_function_with_value_and_grad(env_config, PPO_state):
@@ -175,7 +175,7 @@ def test_value_loss_function_with_value_and_grad(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_policy_loss_function(env_config, PPO_state):
@@ -223,7 +223,7 @@ def test_policy_loss_function(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_policy_loss_function_with_value_and_grad(env_config, PPO_state):
@@ -268,7 +268,7 @@ def test_policy_loss_function_with_value_and_grad(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_update_value_functions(env_config, PPO_state):
@@ -302,7 +302,7 @@ def test_update_value_functions(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_update_policy(env_config, PPO_state):
@@ -344,7 +344,7 @@ def test_update_policy(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_update_agent(env_config, PPO_state):
@@ -422,7 +422,7 @@ def test_update_agent(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_update_agent_with_scan(env_config, PPO_state):
@@ -502,7 +502,7 @@ def test_update_agent_with_scan(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_training_iteration_with_scan(env_config, PPO_state):
@@ -543,7 +543,7 @@ def test_training_iteration_with_scan(env_config, PPO_state):
 
 @pytest.mark.parametrize(
     "env_config",
-    ["ant_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
+    ["fast_env_config", "gymnax_env_config", "discrete_gymnax_env_config"],
     indirect=True,
 )
 def test_make_train(env_config):

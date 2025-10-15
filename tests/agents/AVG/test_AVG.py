@@ -8,7 +8,7 @@ from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerC
     "env_id",
     [
         "Pendulum-v1",
-        "ant",
+        "fast",
     ],
 )
 def test_avg_initialization(env_id):
@@ -44,43 +44,19 @@ def test_avg_initialization_with_discrete_env():
 
 
 @pytest.mark.parametrize(
-    "env_id",
+    "env_id, seeds, n_envs",
     [
-        "Pendulum-v1",
-        "ant",
+        ["Pendulum-v1", 42, 1],
+        ["Pendulum-v1", [42, 43], 1],
+        ["Pendulum-v1", [42, 43], 2],
+        ["fast", 42, 1],
+        ["fast", [42, 43], 1],
+        ["fast", [42, 43], 2],
     ],
 )
-def test_avg_train_single_seed(env_id):
-    """Test AVG agent's train method with a single seed."""
-    avg_agent = AVG(env_id=env_id, learning_starts=10)
-    avg_agent.train(seed=42, n_timesteps=100)
+def test_avg_train_all_modes(env_id, seeds, n_envs):
+    n_timesteps = 50  # keep small for speed
+    learning_starts = 10
 
-
-@pytest.mark.parametrize(
-    "env_id",
-    [
-        "Pendulum-v1",
-        "ant",
-    ],
-)
-def test_avg_train_multiple_seeds(env_id):
-    """Test AVG agent's train method with multiple seeds using jax.vmap."""
-    avg_agent = AVG(env_id=env_id, learning_starts=10)
-    seeds = [42, 43, 44]
-    n_timesteps = 100
-    avg_agent.train(seed=seeds, n_timesteps=n_timesteps)
-
-
-@pytest.mark.parametrize(
-    "env_id",
-    [
-        "Pendulum-v1",
-        "ant",
-    ],
-)
-def test_avg_train_multiple_envs(env_id):
-    """Test AVG agent's train method with multiple seeds using jax.vmap."""
-    avg_agent = AVG(env_id=env_id, learning_starts=10, n_envs=2)
-    seeds = [42]
-    n_timesteps = 100
+    avg_agent = AVG(env_id=env_id, learning_starts=learning_starts, n_envs=n_envs)
     avg_agent.train(seed=seeds, n_timesteps=n_timesteps)

@@ -444,7 +444,7 @@ N_STEPS = 5
 def brax_env_with_autoreset():
     """Fixture to create a Brax environment wrapped with AutoResetWrapper."""
     env = create_brax_env(
-        "hopper", batch_size=2, auto_reset=False, episode_length=N_STEPS
+        "inverted_pendulum", batch_size=2, auto_reset=False, episode_length=N_STEPS
     )  # fast env has a fixed initial obs, had to switch to a real one
     return AutoResetWrapper(env)
 

@@ -39,31 +39,20 @@ def test_SAC_initialization_with_discrete_env():
         SAC(env_id=env_id)
 
 
-def test_SAC_train_single_seed():
-    """Test SAC agent's train method with a single seed."""
-    env_id = "Pendulum-v1"
-    SAC_agent = SAC(env_id=env_id, learning_starts=10)
-    SAC_agent.train(seed=42, n_timesteps=100)
-    # try:
-    #     SAC_agent.train(seed=42, n_timesteps=1000)
-    #     success = True  # Placeholder: Add assertions or checks as needed
-    # except Exception as e:
-    #     success = False
-    #     print(f"Training failed with single seed: {e}")
-    # assert success, "Training failed for the single seed"
+@pytest.mark.parametrize(
+    "env_id, seeds, n_envs",
+    [
+        ["Pendulum-v1", 42, 1],
+        ["Pendulum-v1", [42, 43], 1],
+        ["Pendulum-v1", [42, 43], 2],
+        ["fast", 42, 1],
+        ["fast", [42, 43], 1],
+        ["fast", [42, 43], 2],
+    ],
+)
+def test_avg_train_all_modes(env_id, seeds, n_envs):
+    n_timesteps = 50  # keep small for speed
+    learning_starts = 10
 
-
-def test_SAC_train_multiple_seeds():
-    """Test SAC agent's train method with multiple seeds using jax.vmap."""
-    env_id = "Pendulum-v1"
-    SAC_agent = SAC(env_id=env_id, learning_starts=10)
-    seeds = [42, 43, 44]
-    n_timesteps = 100
-    SAC_agent.train(seed=seeds, n_timesteps=n_timesteps)
-    # try:
-    #     SAC_agent.train(seed=seeds, n_timesteps=1000)
-    #     success = True  # Placeholder: Add assertions or checks as needed
-    # except Exception as e:
-    #     success = False
-    #     print(f"Training failed with multiple seeds: {e}")
-    # assert success, "Training failed for one or more seeds"
+    avg_agent = SAC(env_id=env_id, learning_starts=learning_starts, n_envs=n_envs)
+    avg_agent.train(seed=seeds, n_timesteps=n_timesteps)

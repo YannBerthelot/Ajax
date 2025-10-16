@@ -1,0 +1,79 @@
+ant: &mujoco-defaults
+  actor_learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  critic_learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  n_steps:
+    type: categorical
+    choices: [1024, 2048, 4096]
+
+  normalize_observations:
+    type: categorical
+    choices: [True, False]
+
+  ent_coef:
+    type: float
+    low: 1e-6
+    high: 1e-3
+    log: true
+
+  gamma:
+    type: float
+    low: 0.9
+    high: 0.999
+    log: false
+
+  n_neurons:
+    type: categorical
+    choices: [64, 128, 256]
+
+hopper: *mujoco-defaults
+halfcheetah: *mujoco-defaults
+walker2d: *mujoco-defaults
+humanoid: *mujoco-defaults
+
+
+CartPole-v1: 
+  actor_learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  critic_learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  n_steps:
+    type: categorical
+    choices: [1024, 2048, 4096]
+
+  normalize_observations:
+    type: categorical
+    choices: [True, False]
+
+  ent_coef:
+    type: float
+    low: 1e-6
+    high: 1e-3
+    log: true
+
+  gamma:
+    type: float
+    low: 0.9
+    high: 0.999
+    log: false
+
+  n_neurons:
+    type: categorical
+    choices: [64, 128, 256]

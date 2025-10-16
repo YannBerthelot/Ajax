@@ -1,0 +1,20 @@
+[
+    {
+        "config": {
+            "actor_learning_rate": 5.427666323954171e-05,
+            "critic_learning_rate": 0.0008494470962787545,
+            "gamma": 0.962866459604297,
+            "n_neurons": 256
+        },
+        "value": 47.40296173095703
+    },
+    {
+        "config": {
+            "actor_learning_rate": 1.550499101913269e-05,
+            "critic_learning_rate": 1.3131304032399784e-05,
+            "gamma": 0.9057663402294404,
+            "n_neurons": 256
+        },
+        "value": 24.820764541625977
+    }
+]

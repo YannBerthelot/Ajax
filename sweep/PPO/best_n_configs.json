@@ -1,0 +1,26 @@
+[
+    {
+        "config": {
+            "actor_learning_rate": 1.4509918138546037e-05,
+            "critic_learning_rate": 0.00014553069078458193,
+            "n_steps": 4096,
+            "normalize_observations": true,
+            "ent_coef": 5.4854803995732695e-05,
+            "gamma": 0.979113687635395,
+            "n_neurons": 256
+        },
+        "value": 278.5815124511719
+    },
+    {
+        "config": {
+            "actor_learning_rate": 2.0886075063307817e-05,
+            "critic_learning_rate": 1.5560284572259644e-05,
+            "n_steps": 1024,
+            "normalize_observations": false,
+            "ent_coef": 7.965675154299485e-06,
+            "gamma": 0.9057606688211709,
+            "n_neurons": 64
+        },
+        "value": 178.8402099609375
+    }
+]

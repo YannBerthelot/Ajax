@@ -1,20 +1,112 @@
 [
     {
         "config": {
-            "actor_learning_rate": 5.427666323954171e-05,
-            "critic_learning_rate": 0.0008494470962787545,
-            "gamma": 0.962866459604297,
+            "actor_learning_rate": 4.792697970593381e-05,
+            "critic_learning_rate": 0.00020031332263847833,
+            "alpha_learning_rate": 1.7070482828207568e-05,
+            "gamma": 0.9053116084682472,
+            "batch_size": 256,
             "n_neurons": 256
         },
-        "value": 47.40296173095703
+        "value": 9596.19140625
     },
     {
         "config": {
-            "actor_learning_rate": 1.550499101913269e-05,
-            "critic_learning_rate": 1.3131304032399784e-05,
-            "gamma": 0.9057663402294404,
+            "actor_learning_rate": 2.7947628914961215e-05,
+            "critic_learning_rate": 0.0009137716238723173,
+            "alpha_learning_rate": 1.6934947429571473e-05,
+            "gamma": 0.9097144613701464,
+            "batch_size": 256,
             "n_neurons": 256
         },
-        "value": 24.820764541625977
+        "value": 9484.3251953125
+    },
+    {
+        "config": {
+            "actor_learning_rate": 4.866889081418257e-05,
+            "critic_learning_rate": 0.00021583769045789797,
+            "alpha_learning_rate": 1.714310930673927e-05,
+            "gamma": 0.9046750822764417,
+            "batch_size": 256,
+            "n_neurons": 256
+        },
+        "value": 9458.98046875
+    },
+    {
+        "config": {
+            "actor_learning_rate": 0.00039054838224668504,
+            "critic_learning_rate": 0.000633458543937431,
+            "alpha_learning_rate": 1.801337062484764e-05,
+            "gamma": 0.9188166958617099,
+            "batch_size": 256,
+            "n_neurons": 128
+        },
+        "value": 9380.6318359375
+    },
+    {
+        "config": {
+            "actor_learning_rate": 4.51488384555617e-05,
+            "critic_learning_rate": 0.00018761015842807939,
+            "alpha_learning_rate": 1.8090956562711942e-05,
+            "gamma": 0.9433245279556229,
+            "batch_size": 256,
+            "n_neurons": 256
+        },
+        "value": 9303.9384765625
+    },
+    {
+        "config": {
+            "actor_learning_rate": 4.798619375502306e-05,
+            "critic_learning_rate": 0.0001918079551419762,
+            "alpha_learning_rate": 1.2345467843794068e-05,
+            "gamma": 0.908134339668429,
+            "batch_size": 256,
+            "n_neurons": 256
+        },
+        "value": 9291.7119140625
+    },
+    {
+        "config": {
+            "actor_learning_rate": 4.665806852750503e-05,
+            "critic_learning_rate": 0.00014332398155289338,
+            "alpha_learning_rate": 1.7853810020430153e-05,
+            "gamma": 0.9115232267401892,
+            "batch_size": 256,
+            "n_neurons": 256
+        },
+        "value": 9164.8388671875
+    },
+    {
+        "config": {
+            "actor_learning_rate": 3.271742581750035e-05,
+            "critic_learning_rate": 0.0009790684201887094,
+            "alpha_learning_rate": 1.790353861895498e-05,
+            "gamma": 0.9702669752078881,
+            "batch_size": 128,
+            "n_neurons": 128
+        },
+        "value": 9011.5927734375
+    },
+    {
+        "config": {
+            "actor_learning_rate": 3.0294141153675416e-05,
+            "critic_learning_rate": 0.0009386385227368392,
+            "alpha_learning_rate": 1.8391806235426186e-05,
+            "gamma": 0.9751630907181739,
+            "batch_size": 128,
+            "n_neurons": 128
+        },
+        "value": 9002.2216796875
+    },
+    {
+        "config": {
+            "actor_learning_rate": 3.927874534199915e-05,
+            "critic_learning_rate": 0.00016785190778279121,
+            "alpha_learning_rate": 1.9898557955621997e-05,
+            "gamma": 0.969953291789673,
+            "batch_size": 128,
+            "n_neurons": 256
+        },
+        "value": 8992.2724609375
     }
 ]

@@ -1,6 +1,0 @@
-{
-    "distillation_lr": [1e-5, 1e-4],
-    "n_avg_agents": [1, 4, 16],
-    "n_envs_AVG": [1, 4, 16],
-    "n_epochs_distillation": [1, 2, 5, 10]
-  }

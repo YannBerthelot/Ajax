@@ -189,3 +189,4 @@ pending_runs.json
 profile
 *.db
 pyrightconfig.json
+sweep/**/results/

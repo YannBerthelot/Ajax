@@ -13,10 +13,10 @@ AGENT_MAP = {
 }
 
 
-def get_log_config_for_sweep(n_seeds: int) -> LoggingConfig:
+def get_log_config_for_sweep(n_seeds: int, agent_name, short=True) -> LoggingConfig:
     return LoggingConfig(
-        project_name="mission_debug_PPO_Ant_3",
-        run_name="PPO",
+        project_name=f"{agent_name}_optuna_sweep_{'short' if short else 'long'}",
+        run_name=agent_name,
         config={
             "debug": False,
             "log_frequency": 20_000,
@@ -25,8 +25,8 @@ def get_log_config_for_sweep(n_seeds: int) -> LoggingConfig:
         log_frequency=20_000,
         horizon=10_000,
         use_tensorboard=False,
-        use_wandb=False,
-        sweep=True,
+        use_wandb=not (short),
+        sweep=short,
     )
 
 
@@ -66,6 +66,13 @@ def get_args():
         type=int,
         required=False,
         default=10,
+        help="Number of seeds to run per combination",
+    )
+    parser.add_argument(
+        "--n_seeds_long",
+        type=int,
+        required=False,
+        default=25,
         help="Number of seeds to run per combination",
     )
     parser.add_argument(
@@ -115,6 +122,13 @@ def get_args():
         type=str,
         required=False,
         default=None,
+        help="Config to use for agent (without .yaml extension)",
+    )
+    parser.add_argument(
+        "--worker-trial",
+        type=int,
+        required=False,
+        default=1,
         help="Config to use for agent (without .yaml extension)",
     )
     args = parser.parse_args()

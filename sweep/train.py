@@ -22,16 +22,24 @@ def train(
     else:
         _logging_config = logging_config
 
+    if "critic_architecture" not in config:
+        config["critic_architecture"] = (
+            f"{N_NEURONS}",
+            activation,
+            f"{N_NEURONS}",
+            activation,
+        )
+    if "actor_architecture" not in config:
+        config["actor_architecture"] = (
+            f"{N_NEURONS}",
+            activation,
+            f"{N_NEURONS}",
+            activation,
+        )
+
     _agent = agent(
         env_id=env_id,
         **config,
-        actor_architecture=(f"{N_NEURONS}", activation, f"{N_NEURONS}", activation),
-        critic_architecture=(
-            f"{N_NEURONS}",
-            activation,
-            f"{N_NEURONS}",
-            activation,
-        ),
         env_params=env_params,
         normalize_observations=normalize_observations,
         normalize_rewards=normalize_rewards,

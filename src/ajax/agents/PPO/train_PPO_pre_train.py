@@ -584,10 +584,6 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
-    assert (cloning_args is None) == (
-        expert_policy is None
-    ), "cloning_args and expert_policy must either both be provided or both be None"
-
     # Start async logging if logging is enabled
     if logging_config is not None:
         start_async_logging()

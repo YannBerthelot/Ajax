@@ -1,15 +1,15 @@
-import time
 import os
-from functools import partial
-import multiprocessing
-import optuna
-import yaml
-from train import train
-from utils import AGENT_MAP, get_args, get_log_config_for_sweep, get_study
 import subprocess
 import sys
-from target_gym import Plane
+import time
 import warnings
+from functools import partial
+
+import optuna
+import yaml
+from target_gym import Plane
+from train import train
+from utils import AGENT_MAP, get_args, get_log_config_for_sweep, get_study
 
 warnings.filterwarnings(
     "ignore",
@@ -170,7 +170,7 @@ def main(args):
 
             # Add all original arguments except --worker-trial
             skip_next = False
-            for i, arg in enumerate(sys.argv[1:]):
+            for arg in sys.argv[1:]:
                 if skip_next:
                     skip_next = False
                     continue

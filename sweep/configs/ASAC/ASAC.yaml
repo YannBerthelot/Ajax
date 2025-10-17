@@ -1,0 +1,30 @@
+Plane: 
+  actor_learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  critic_learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  alpha_learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  p_0:
+    type: categorical
+    choices: [20, 10, 5]
+
+  batch_size:
+    type: categorical
+    choices: [128, 256, 512]
+
+  n_neurons:
+    type: categorical
+    choices: [64, 128, 256]

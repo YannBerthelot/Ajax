@@ -96,7 +96,7 @@ def get_args():
         "--n_trials",
         type=int,
         required=False,
-        default=10,
+        default=100,
         help="Number of combination per worker",
     )
     parser.add_argument(

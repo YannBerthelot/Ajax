@@ -90,7 +90,7 @@ def get_log_config(project_name, agent_name):
         horizon=10_000,
         use_tensorboard=True,
         use_wandb=use_wandb,
-        sweep=True,
+        sweep=False,
     )
 
 
@@ -153,11 +153,11 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
 
 if __name__ == "__main__":
     agent = SAC
-    project_name = f"tests_{agent.name}_plane_2"
-    n_timesteps = int(1e5)
+    project_name = f"tests_{agent.name}_plane_optim"
+    n_timesteps = int(1e6)
     n_seeds = 25
     num_episode_test = 25
-    log_frequency = 4096
+    log_frequency = 20_000
     use_wandb = True
     logging_config = get_log_config(project_name, agent.name)
 
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-    mode = "CPU"
+    mode = "GPU"
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],

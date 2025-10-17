@@ -1,5 +1,5 @@
 Plane:
-  n_envs: 1
-  critic_learning_rate: 0.0003
-  actor_learning_rate: 0.00003
-  alpha_learning_rate: 0.00003
+  critic_learning_rate: 0.00020031332263847833
+  actor_learning_rate: !!float 4.792697970593381e-05
+  alpha_learning_rate :  !!float 1.7070482828207568e-05
+  gamma: 0.9053116084682472

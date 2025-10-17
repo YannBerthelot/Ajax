@@ -124,7 +124,7 @@ def run_worker_trial(args, trial_idx):
 
 def main(args):
     GPU_MEMORY_FRAC = "0.125"
-    GPU_IDS = ["0", "1"]
+    GPU_IDS = ["1"]
     MAX_JOBS_PER_GPU = int(1 / float(GPU_MEMORY_FRAC))
     TOTAL_TRIALS = args.n_trials
     MAX_WORKERS = args.n_workers

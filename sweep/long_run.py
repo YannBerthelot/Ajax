@@ -100,7 +100,7 @@ def main(args):
 
     # Step 2: Distributed execution setup (same as original)
     GPU_MEMORY_FRAC = "0.45"
-    GPU_IDS = ["0", "1"]
+    GPU_IDS = ["1"]
     MAX_JOBS_PER_GPU = int(1 / float(GPU_MEMORY_FRAC))
     TOTAL_RUNS = len(best_n)
     MAX_WORKERS = args.n_workers
@@ -132,6 +132,7 @@ def main(args):
 
             gpu_id = min(available_gpus, key=lambda x: x[1])[0]
             env = os.environ.copy()
+            env["WANDB_SILENT"] = "True"
             env["CUDA_VISIBLE_DEVICES"] = gpu_id
             env["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
             env["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -155,6 +156,8 @@ def main(args):
     # Step 3: Aggregate results
     results_dir = f"sweep/{args.agent}/results"
     results = []
+    os.makedirs(results_dir, exist_ok=True)
+
     for fname in sorted(os.listdir(results_dir)):
         if fname.endswith(".json"):
             with open(os.path.join(results_dir, fname), "r") as f:

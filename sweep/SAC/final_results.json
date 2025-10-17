@@ -1,0 +1,209 @@
+[
+    {
+        "index": 0,
+        "config": {
+            "actor_learning_rate": 4.792697970593381e-05,
+            "critic_learning_rate": 0.00020031332263847833,
+            "alpha_learning_rate": 1.7070482828207568e-05,
+            "gamma": 0.9053116084682472,
+            "batch_size": 256,
+            "actor_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ],
+            "critic_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ]
+        },
+        "reward": 9559.279296875
+    },
+    {
+        "index": 5,
+        "config": {
+            "actor_learning_rate": 4.798619375502306e-05,
+            "critic_learning_rate": 0.0001918079551419762,
+            "alpha_learning_rate": 1.2345467843794068e-05,
+            "gamma": 0.908134339668429,
+            "batch_size": 256,
+            "actor_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ],
+            "critic_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ]
+        },
+        "reward": 9451.947265625
+    },
+    {
+        "index": 6,
+        "config": {
+            "actor_learning_rate": 4.665806852750503e-05,
+            "critic_learning_rate": 0.00014332398155289338,
+            "alpha_learning_rate": 1.7853810020430153e-05,
+            "gamma": 0.9115232267401892,
+            "batch_size": 256,
+            "actor_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ],
+            "critic_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ]
+        },
+        "reward": 9237.18359375
+    },
+    {
+        "index": 3,
+        "config": {
+            "actor_learning_rate": 0.00039054838224668504,
+            "critic_learning_rate": 0.000633458543937431,
+            "alpha_learning_rate": 1.801337062484764e-05,
+            "gamma": 0.9188166958617099,
+            "batch_size": 256,
+            "actor_architecture": [
+                "128",
+                "relu",
+                "128",
+                "relu"
+            ],
+            "critic_architecture": [
+                "128",
+                "relu",
+                "128",
+                "relu"
+            ]
+        },
+        "reward": 9196.568359375
+    },
+    {
+        "index": 4,
+        "config": {
+            "actor_learning_rate": 4.51488384555617e-05,
+            "critic_learning_rate": 0.00018761015842807939,
+            "alpha_learning_rate": 1.8090956562711942e-05,
+            "gamma": 0.9433245279556229,
+            "batch_size": 256,
+            "actor_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ],
+            "critic_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ]
+        },
+        "reward": 9150.427734375
+    },
+    {
+        "index": 7,
+        "config": {
+            "actor_learning_rate": 3.271742581750035e-05,
+            "critic_learning_rate": 0.0009790684201887094,
+            "alpha_learning_rate": 1.790353861895498e-05,
+            "gamma": 0.9702669752078881,
+            "batch_size": 128,
+            "actor_architecture": [
+                "128",
+                "relu",
+                "128",
+                "relu"
+            ],
+            "critic_architecture": [
+                "128",
+                "relu",
+                "128",
+                "relu"
+            ]
+        },
+        "reward": 8753.533203125
+    },
+    {
+        "index": 9,
+        "config": {
+            "actor_learning_rate": 3.927874534199915e-05,
+            "critic_learning_rate": 0.00016785190778279121,
+            "alpha_learning_rate": 1.9898557955621997e-05,
+            "gamma": 0.969953291789673,
+            "batch_size": 128,
+            "actor_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ],
+            "critic_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ]
+        },
+        "reward": 8611.4072265625
+    },
+    {
+        "index": 1,
+        "config": {
+            "actor_learning_rate": 2.7947628914961215e-05,
+            "critic_learning_rate": 0.0009137716238723173,
+            "alpha_learning_rate": 1.6934947429571473e-05,
+            "gamma": 0.9097144613701464,
+            "batch_size": 256,
+            "actor_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ],
+            "critic_architecture": [
+                "256",
+                "relu",
+                "256",
+                "relu"
+            ]
+        },
+        "reward": 8553.87109375
+    },
+    {
+        "index": 8,
+        "config": {
+            "actor_learning_rate": 3.0294141153675416e-05,
+            "critic_learning_rate": 0.0009386385227368392,
+            "alpha_learning_rate": 1.8391806235426186e-05,
+            "gamma": 0.9751630907181739,
+            "batch_size": 128,
+            "actor_architecture": [
+                "128",
+                "relu",
+                "128",
+                "relu"
+            ],
+            "critic_architecture": [
+                "128",
+                "relu",
+                "128",
+                "relu"
+            ]
+        },
+        "reward": 8275.7958984375
+    }
+]

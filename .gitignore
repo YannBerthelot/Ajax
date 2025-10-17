@@ -187,3 +187,6 @@ pending_runs.json
 *.deb*
 *_test.py
 profile
+*.db
+pyrightconfig.json
+sweep/**/results/

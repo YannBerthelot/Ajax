@@ -54,6 +54,11 @@ memory-profiler = "^0.61.0"
 
 
 
+
+[tool.poetry.group.hyperparameters.dependencies]
+optuna = "^4.5.0"
+
+
 [[tool.poetry.source]]
 name = "pypi"
 priority = "primary"

@@ -2,7 +2,7 @@ import argparse
 
 import optuna
 
-from ajax import APO, PPO, SAC, ASAC, REDQ
+from ajax import APO, ASAC, PPO, REDQ, SAC
 from ajax.logging.wandb_logging import LoggingConfig
 
 # Map string names to agent classes

@@ -1,8 +1,9 @@
+from time import time
+
 from create_study import main as create_study_main
 from long_run import main as long_run_main
 from utils import get_args
 from worker import main as worker_main
-from time import time
 
 
 def main(args):

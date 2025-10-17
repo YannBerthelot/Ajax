@@ -1,15 +1,14 @@
-import os
-import sys
 import json
-import time
+import os
 import subprocess
+import sys
+import time
 import warnings
-from functools import partial
 
 import jax.numpy as jnp
-from utils import AGENT_MAP, get_args, get_study, get_log_config_for_sweep
-from train import train
 from target_gym import Plane
+from train import train
+from utils import AGENT_MAP, get_args, get_log_config_for_sweep, get_study
 
 warnings.filterwarnings(
     "ignore",

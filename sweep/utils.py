@@ -2,15 +2,11 @@ import argparse
 
 import optuna
 
-from ajax import APO, PPO, SAC
+from ajax import APO, PPO, SAC, ASAC, REDQ
 from ajax.logging.wandb_logging import LoggingConfig
 
 # Map string names to agent classes
-AGENT_MAP = {
-    "PPO": PPO,
-    "SAC": SAC,
-    "APO": APO,
-}
+AGENT_MAP = {"PPO": PPO, "SAC": SAC, "APO": APO, "ASAC": ASAC, "REDQ": REDQ}
 
 
 def get_log_config_for_sweep(n_seeds: int, agent_name, short=True) -> LoggingConfig:

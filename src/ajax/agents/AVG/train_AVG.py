@@ -162,7 +162,7 @@ def init_AVG(
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
 
     init_val = jnp.zeros(
-        (env_args.n_envs, 1)
+        (1, 1)
     )  # a single dim as we are normalizing scalars (gamma, reward, G_return) (1 scalar for all envs)
 
     init_norm_info = NormalizationInfo(
@@ -273,6 +273,7 @@ def value_loss_function(
     delta = q_pred - target_q
     scaled_delta = delta / scaling_coef
     assert scaled_delta.shape == delta.shape, f"{scaled_delta.shape} != {delta.shape}"
+
     total_loss = jnp.mean(scaled_delta**2)
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
@@ -316,10 +317,11 @@ def policy_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
+    obs = observations.squeeze()  # TODO handle case of last dim being 1
     pi, _ = get_pi(
         actor_state=actor_state,
         actor_params=actor_params,
-        obs=observations,
+        obs=obs,
         done=dones,
         recurrent=recurrent,
     )
@@ -329,7 +331,7 @@ def policy_loss_function(
         predict_value(
             critic_state=critic_states,
             critic_params=critic_states.params,
-            x=jnp.hstack((observations, actions)),
+            x=jnp.hstack((obs, actions)),
         ),
         axis=0,
     )
@@ -560,6 +562,7 @@ def update_agent(
     recurrent: bool,
     gamma: float,
     action_dim: int,
+    rollout: Transition,
     num_critic_updates: int = 1,
     reward_scale: float = 5.0,
 ) -> Tuple[AVGState, AuxiliaryLogs]:
@@ -579,7 +582,8 @@ def update_agent(
     Returns:
         Tuple[AVGState, None]: Updated agent state.
     """
-    transition = agent_state.collector_state.rollout
+    # transition = agent_state.collector_state.rollout
+    transition = rollout
     done = jnp.logical_or(transition.terminated, transition.truncated)  # type: ignore[union-attr]
 
     # Update Q functions
@@ -664,46 +668,90 @@ def no_op_none(*args, **kwargs):
     return None
 
 
-def squeeze_dim_0(x):
+def squeeze_dim_zero(x):
     return x.squeeze(0)
+
+
+def squeeze_dim_one(x):
+    return x.squeeze(1)
 
 
 def get_nan(x):
     return jnp.nan * x
 
 
+def mean_tree(tree):
+    return jax.tree.map(lambda x: x.mean(keepdims=True).squeeze(0), tree)
+
+
+def squeeze_tree_dim_zero(tree):
+    return jax.tree.map(squeeze_dim_zero, tree)
+
+
 def update_AVG_values(
     agent_state: AVGState, rollout: Transition, agent_config: AVGConfig
 ) -> AVGState:
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
+    def compute_values(carry, rollout_t):
+        agent_state = carry
+        log_alpha = agent_state.alpha.params["log_alpha"]
+        alpha = jnp.exp(log_alpha)
 
-    r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(
-        -1, keepdims=True
-    )
+        r_ent = rollout_t.reward - alpha * jax.lax.stop_gradient(
+            rollout_t.log_prob
+        ).sum(-1, keepdims=True)
 
-    reward = agent_state.reward.replace(value=r_ent)
+        reward = agent_state.reward.replace(value=r_ent)
 
-    gamma = agent_state.gamma.replace(
-        value=agent_config.gamma * (1 - rollout.terminated)
-    )
+        gamma = agent_state.gamma.replace(
+            value=agent_config.gamma * (1 - rollout_t.terminated)
+        )
 
-    new_G = agent_state.G_return.value + r_ent
+        new_G = agent_state.G_return.value + r_ent
 
-    temp_G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
-        rollout.terminated.astype("int8").squeeze(-1), no_op, get_nan, new_G
-    )  # set G_return.value to nan if not terminal, for compute_td_error_scaling
+        temp_G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+            rollout_t.terminated.astype("int8").squeeze(-1), no_op, get_nan, new_G
+        )  # set G_return.value to nan if not terminal, for compute_td_error_scaling
 
-    scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
-        reward, gamma, G_return=agent_state.G_return.replace(value=temp_G_value)
-    )
+        scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
+            reward, gamma, G_return=agent_state.G_return.replace(value=temp_G_value)
+        )
 
-    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
-        rollout.terminated.astype("int8").squeeze(-1), jnp.zeros_like, no_op, new_G
-    )  # either revert to new_G (from nan) to keep on accumulating, or reset to 0
-    G_return = G_return.replace(value=G_value)
-    agent_state = agent_state.replace(
-        reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
+        G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+            rollout_t.terminated.astype("int8").squeeze(-1),
+            jnp.zeros_like,
+            no_op,
+            new_G,
+        )  # either revert to new_G (from nan) to keep on accumulating, or reset to 0
+        G_return = G_return.replace(value=G_value)
+
+        new_agent_state = agent_state.replace(
+            reward=reward,
+            gamma=gamma,
+            G_return=G_return,
+        )
+        return new_agent_state, (reward, gamma, G_return, scaling_coef)
+        # return reward, gamma, G_return, scaling_coef
+
+    # reward, gamma, G_return, scaling_coef = jax.vmap(compute_values, in_axes=0)(rollout)
+
+    # agent_state = agent_state.replace(
+    #     reward=mean_tree(reward),
+    #     gamma=mean_tree(gamma),
+    #     G_return=mean_tree(G_return),
+    #     scaling_coef=mean_tree(scaling_coef),
+    # )
+
+    # initial carry (agent_state)
+    init_carry = agent_state
+
+    # perform sequential scan
+    rollout = jax.tree.map(
+        lambda x: x.swapaxes(0, 1), rollout
+    )  # swap time and batch axes
+    agent_state, outputs = jax.lax.scan(
+        compute_values,
+        init_carry,
+        rollout,  # assuming rollout has shape [T, ...]
     )
 
     return agent_state
@@ -738,6 +786,24 @@ def log_function(
     jax.lax.cond(flag, run_and_log, no_op_none, agent_state, aux, index)
     del aux
     return agent_state
+
+
+def shuffle_rollout(rollout, key):
+    """Shuffle the rollout transitions along the batch dimension."""
+    batch_size = rollout.obs.shape[0]
+    perm_key, _ = jax.random.split(key)
+    perm = jax.random.permutation(perm_key, batch_size)
+    shuffled_rollout = jax.tree.map(lambda x: x[perm], rollout)
+    return shuffled_rollout
+
+
+def reshape_batch_env(x):
+    shape = x.shape
+    new_shape = (
+        1,
+        shape[0] * shape[1],
+    ) + shape[2:]
+    return x.reshape(new_shape)
 
 
 @partial(
@@ -804,14 +870,32 @@ def training_iteration(
         uniform=uniform,
     )
     rng = agent_state.rng
-    agent_state, rollout = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
+    agent_state, rollout = jax.lax.scan(
+        collect_scan_fn, agent_state, xs=None, length=agent_config.batch_size
+    )
 
-    rollout = jax.tree.map(
-        squeeze_dim_0, rollout
-    )  # Remove first dim as we only have one transition
     # jax.debug.print("before {x}", x=timestep)
-    collector_state = agent_state.collector_state.replace(rollout=rollout)
+
+    #     else:
+    #         rollout = jax.tree.map(squeeze_dim_one, rollout)
+    # else:
+    #     rollout = jax.tree.map(
+    #         squeeze_dim_zero, rollout
+    #     )  # Remove first dim as we only have one transition
+
+    collector_state = agent_state.collector_state.replace(
+        rollout=(
+            jax.tree.map(lambda x: x[-1], rollout)  # keep the last transition only
+            if agent_config.batch_size > 1
+            else jax.tree.map(
+                squeeze_dim_zero, rollout
+            )  # only one transition so squeeze dim 0
+        )
+    )
     agent_state = agent_state.replace(collector_state=collector_state)
+    if agent_config.batch_size > 1:
+        rollout = shuffle_rollout(rollout, agent_state.rng)
+        rollout = jax.tree.map(reshape_batch_env, rollout)
     agent_state = update_AVG_values(agent_state, rollout, agent_config)
     timestep = agent_state.collector_state.timestep
     # jax.debug.print("after {x}", x=timestep)
@@ -824,6 +908,7 @@ def training_iteration(
             gamma=agent_config.gamma,
             action_dim=action_dim,
             reward_scale=agent_config.reward_scale,
+            rollout=rollout,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
         aux = aux.replace(

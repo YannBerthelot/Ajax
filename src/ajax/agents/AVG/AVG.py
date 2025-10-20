@@ -46,6 +46,7 @@ class AVG:
         beta_1: float = 0,
         beta_2: float = 0.999,
         num_critics: int = 1,
+        batch_size: int = 1,  # only for experimentation, AVG uses batch size of 1
     ) -> None:
         """
         Initialize the AVG agent.
@@ -121,6 +122,7 @@ class AVG:
             target_entropy=target_entropy,
             reward_scale=reward_scale,
             num_critics=num_critics,
+            batch_size=batch_size,
         )
 
     @with_wandb_silent
@@ -178,9 +180,10 @@ class AVG:
 if __name__ == "__main__":
     n_seeds = 1
     log_frequency = 5000
-    n_envs = 128
+    n_envs = 100
+    batch_size = 1
     logging_config = LoggingConfig(
-        project_name="avg_multi_env",
+        project_name="avg_multi_step_multi_env_benchmark_debug",
         run_name="test",
         config={
             "debug": False,
@@ -191,14 +194,19 @@ if __name__ == "__main__":
         log_frequency=log_frequency,
         horizon=10_000,
         use_tensorboard=False,
+        use_wandb=True,
     )
-    env_id = "halfcheetah"
+    env_id = "hopper"
     avg_agent = AVG(
         env_id=env_id,
         n_envs=n_envs,
+        batch_size=batch_size,
+        actor_learning_rate=6.3e-4,
+        critic_learning_rate=8.7e-4,
+        alpha_init=0.07,
     )
     avg_agent.train(
         seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
+        n_timesteps=int(2e6),
         logging_config=logging_config,
     )

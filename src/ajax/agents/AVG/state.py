@@ -36,3 +36,6 @@ class AVGConfig(BaseAgentConfig):
     learning_starts: int = 0
     reward_scale: float = 1
     num_critics: int = 1  # to switch from single to double-q (or more if you want)
+    batch_size: int = (
+        1  # AVG only considers batch size of 1, but we keep it for experimentation
+    )

@@ -50,19 +50,15 @@ def get_sweep_values(
         pre_train_step_list = [0]
 
     if constant_imitation:
-        imitation_coef_list += [
-            10.0,
-            1.0,
-            1e-1,
-        ]
+        imitation_coef_list += [1.0, 1e-1, 1e-2, 1e-3]
 
     if auto_imitation:
         imitation_coef_list += [
             "auto_10.0",  # type: ignore[list-item]
             "auto_1.0",  # type: ignore[list-item]
             "auto_0.1",  # type: ignore[list-item]
-            # "auto_0.01",  # type: ignore[list-item]
-            # "auto_0.001",  # type: ignore[list-item]
+            "auto_0.01",  # type: ignore[list-item]
+            "auto_0.001",  # type: ignore[list-item]
         ]
 
     return {
@@ -151,11 +147,16 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
     return returns.mean()
 
 
+def get_mode() -> str:
+    return "GPU" if jax.default_backend() == "gpu" else "CPU"
+
+
 if __name__ == "__main__":
+    mode = get_mode()
     agent = SAC
     project_name = f"tests_{agent.name}_plane_optim_debug"
-    n_timesteps = int(2e4)
-    n_seeds = 1
+    n_timesteps = int(1e6)
+    n_seeds = 25
     num_episode_test = 25
     log_frequency = 5_000
     use_wandb = True
@@ -189,7 +190,7 @@ if __name__ == "__main__":
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-    mode = "CPU"
+
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],

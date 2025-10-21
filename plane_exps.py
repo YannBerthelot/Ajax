@@ -50,19 +50,15 @@ def get_sweep_values(
         pre_train_step_list = [0]
 
     if constant_imitation:
-        imitation_coef_list += [
-            10.0,
-            1.0,
-            1e-1,
-        ]
+        imitation_coef_list += [1.0, 1e-1, 1e-2, 1e-3]
 
     if auto_imitation:
         imitation_coef_list += [
             "auto_10.0",  # type: ignore[list-item]
             "auto_1.0",  # type: ignore[list-item]
             "auto_0.1",  # type: ignore[list-item]
-            # "auto_0.01",  # type: ignore[list-item]
-            # "auto_0.001",  # type: ignore[list-item]
+            "auto_0.01",  # type: ignore[list-item]
+            "auto_0.001",  # type: ignore[list-item]
         ]
 
     return {
@@ -77,7 +73,7 @@ def get_distance_fn_from_imitation_coef(imitation_coef):
         return distance_to_stable_fn
 
 
-def get_log_config(project_name, agent_name):
+def get_log_config(project_name, agent_name, sweep: bool = False):
     return LoggingConfig(
         project_name=project_name,
         run_name=agent_name,
@@ -90,7 +86,7 @@ def get_log_config(project_name, agent_name):
         horizon=10_000,
         use_tensorboard=True,
         use_wandb=use_wandb,
-        sweep=False,
+        sweep=sweep,
     )
 
 
@@ -151,15 +147,21 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams):
     return returns.mean()
 
 
+def get_mode() -> str:
+    return "GPU" if jax.default_backend() == "gpu" else "CPU"
+
+
 if __name__ == "__main__":
+    mode = get_mode()
     agent = SAC
-    project_name = f"tests_{agent.name}_plane_optim"
+    project_name = f"tests_{agent.name}_plane_optim_debug"
     n_timesteps = int(1e6)
     n_seeds = 25
     num_episode_test = 25
-    log_frequency = 20_000
+    log_frequency = 5_000
     use_wandb = True
-    logging_config = get_log_config(project_name, agent.name)
+    sweep_mode = True  # True is no logging until the very end (faster) false is logging during training (slower)
+    logging_config = get_log_config(project_name, agent.name, sweep=sweep_mode)
 
     key = jax.random.PRNGKey(42)
     env = Plane()
@@ -188,7 +190,7 @@ if __name__ == "__main__":
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-    mode = "GPU"
+
     for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
         itertools.product(
             sweep_values["pre_train_n_steps"],
@@ -215,9 +217,8 @@ if __name__ == "__main__":
                     n_timesteps=n_timesteps,
                     num_episode_test=num_episode_test,
                 )
-                upload_tensorboard_to_wandb(
-                    _agent.run_ids, logging_config, use_wandb=use_wandb
-                )
+                if sweep_mode:
+                    upload_tensorboard_to_wandb(_agent.run_ids, logging_config)
         else:
             _agent.train(
                 seed=list(range(n_seeds)),
@@ -225,6 +226,5 @@ if __name__ == "__main__":
                 n_timesteps=n_timesteps,
                 num_episode_test=num_episode_test,
             )
-            upload_tensorboard_to_wandb(
-                _agent.run_ids, logging_config, use_wandb=use_wandb
-            )
+            if sweep_mode:
+                upload_tensorboard_to_wandb(_agent.run_ids, logging_config)

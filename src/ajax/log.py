@@ -75,6 +75,7 @@ def no_op_none(agent_state, index, timestep):
         "expert_policy",
         "imitation_coef",
         "action_scale",
+        "sweep",
     ],
 )
 def evaluate_and_log(
@@ -95,6 +96,7 @@ def evaluate_and_log(
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 0.0,
     action_scale: float = 1.0,
+    sweep: bool = False,
 ):
     timestep = agent_state.collector_state.timestep
 
@@ -180,11 +182,17 @@ def evaluate_and_log(
     )
     not_finished_flag = timestep <= total_timesteps if log_frequency else False
 
+    if sweep:
+        close_to_end_flag = timestep >= 0.8 * total_timesteps
+    else:
+        close_to_end_flag = True
+
     flag = jnp.logical_and(
         jnp.logical_and(log_flag, timestep > 1),
         not_finished_flag,
         # timestep >= (total_timesteps - env_args.n_envs),
     )
+    flag = jnp.logical_and(flag, close_to_end_flag)
 
     metrics_to_log = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
 

@@ -383,7 +383,7 @@ def get_raw_obs(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "mode", "env_args", "buffer"],
+    static_argnames=["recurrent", "mode", "env_args", "buffer", "expert_policy"],
     # donate_argnums=0,
 )
 def collect_experience(
@@ -394,6 +394,8 @@ def collect_experience(
     env_args: EnvironmentConfig,
     buffer: Optional[BufferType] = None,
     uniform: bool = False,
+    expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
+    action_scale: float = 1.0,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect experience by interacting with the environment.
 
@@ -420,17 +422,31 @@ def collect_experience(
         recurrent=recurrent,
         uniform=uniform,
     )
+    if expert_policy is not None:
+        raw_obs = (
+            get_raw_obs(
+                env_state=agent_state.collector_state.env_state,
+                env=env_args.env,
+                mode=mode,
+            )
+            if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
+            else None
+        )
+        expert_action = expert_policy(raw_obs)
+    else:
+        expert_action = 0.0
 
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,
             agent_state.collector_state.env_state,
-            action,
+            action * action_scale + expert_action,
             env_args.env,
             mode,
             env_args.env_params,
         )
     )
+
     raw_next_obs = (
         info["obs_st"] if "obs_st" in info else obsv
     )  # assume autoreset is on if obs_st is found, else assume no autoreset

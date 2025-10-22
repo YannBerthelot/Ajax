@@ -73,6 +73,8 @@ def no_op_none(agent_state, index, timestep):
         "total_timesteps",
         "avg_reward_mode",
         "expert_policy",
+        "imitation_coef",
+        "action_scale",
         "sweep",
     ],
 )
@@ -92,6 +94,8 @@ def evaluate_and_log(
     total_timesteps: int,
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.0,
+    action_scale: float = 1.0,
     sweep: bool = False,
 ):
     timestep = agent_state.collector_state.timestep
@@ -131,6 +135,8 @@ def evaluate_and_log(
             ),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            action_scale=action_scale,
         )
 
         metrics_to_log = {

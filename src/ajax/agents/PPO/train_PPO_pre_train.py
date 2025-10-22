@@ -378,6 +378,7 @@ def update_agent(
         "imitation_coef",
         "distance_to_stable",
         "imitation_coef_offset",
+        "action_scale",
     ],
 )
 def training_iteration(
@@ -402,6 +403,7 @@ def training_iteration(
     imitation_coef: float = 1e-3,
     distance_to_stable: Optional[Callable] = get_one,
     imitation_coef_offset: float = 1e-3,
+    action_scale: float = 1.0,
 ) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -428,6 +430,7 @@ def training_iteration(
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
+        action_scale=action_scale,
     )
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
@@ -543,7 +546,10 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
-        avg_reward_mode=True,
+        # avg_reward_mode=True,
+        expert_policy=expert_policy,
+        action_scale=action_scale,
+        imitation_coef=imitation_coef,
     )
 
     jax.clear_caches()
@@ -600,9 +606,7 @@ def make_train(
         )
 
         (
-            imitation_coef,
-            imitation_coef_offset,
-            distance_to_stable,
+            cloning_parameters,
             pre_train_n_steps,
         ) = get_cloning_args(cloning_args, total_timesteps)
 
@@ -639,9 +643,7 @@ def make_train(
             horizon=(logging_config.horizon if logging_config is not None else None),
             total_n_updates=num_updates,
             expert_policy=expert_policy,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
+            **cloning_parameters,
         )
 
         agent_state, out = jax.lax.scan(

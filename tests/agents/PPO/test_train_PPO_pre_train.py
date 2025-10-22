@@ -577,6 +577,12 @@ def test_make_train(env_config):
     total_timesteps = 1000
 
     def expert_policy(x):
+        obs_shape, action_shape = get_state_action_shapes(env_config.env)
+        shape = (*x.shape[:-1], *action_shape)
+        return jnp.ones(shape)
+        import pdb
+
+        pdb.set_trace()
         return (
             jnp.ones((env_config.env.action_size,))
             if mode == "brax"
@@ -584,7 +590,9 @@ def test_make_train(env_config):
         )
 
     cloning_args = CloningConfig(pre_train_n_steps=100)
-
+    discrete = False
+    if mode == "gymnax":
+        discrete = "Discrete" in env_config.env.action_space().__str__()
     # Create the train function
     train_fn = make_train(
         env_args=env_config,
@@ -594,8 +602,8 @@ def test_make_train(env_config):
         agent_config=agent_config,
         total_timesteps=total_timesteps,
         num_episode_test=2,
-        expert_policy=expert_policy,
-        cloning_args=cloning_args,
+        expert_policy=expert_policy if not discrete else None,
+        cloning_args=cloning_args if not discrete else None,
     )
 
     # Run the train function

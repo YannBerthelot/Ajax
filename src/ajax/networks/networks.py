@@ -97,7 +97,6 @@ class Actor(nn.Module):
             bias_init = constant(0.0)
         else:
             bias_init = parse_initialization(self.bias_init)
-
         if self.continuous:
             self.mean = nn.Dense(
                 self.action_dim,
@@ -112,8 +111,10 @@ class Actor(nn.Module):
             self.log_std = self.param(
                 "log_std",
                 nn.initializers.zeros,  # initialize all stds at 0
+                # nn.initializers.constant(jnp.log(1e-12)),
                 (self.action_dim,),  # shape of the parameter
             )
+
         else:
             self.model = nn.Sequential(
                 [

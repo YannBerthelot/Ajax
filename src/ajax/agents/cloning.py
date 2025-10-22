@@ -26,6 +26,7 @@ class CloningConfig:
     imitation_coef: float = 1e-3
     distance_to_stable: Optional[Callable] = None
     imitation_coef_offset: float = 1e-3
+    action_scale: float = 0.1
 
 
 def get_imitation_coef(
@@ -269,6 +270,7 @@ def get_cloning_args(
     distance_to_stable = get_one
     imitation_coef_offset = 0.0
     pre_train_n_steps = 0
+    action_scale = 1.0
 
     if cloning_args is not None:
         imitation_coef = get_imitation_coef(  # type: ignore[assignment]
@@ -277,12 +279,14 @@ def get_cloning_args(
         distance_to_stable = cloning_args.distance_to_stable or get_one
         imitation_coef_offset = cloning_args.imitation_coef_offset
         pre_train_n_steps = cloning_args.pre_train_n_steps
-    return (
-        imitation_coef,
-        imitation_coef_offset,
-        distance_to_stable,
-        pre_train_n_steps,
-    )
+        action_scale = cloning_args.action_scale
+
+    return {
+        "imitation_coef": imitation_coef,
+        "imitation_coef_offset": imitation_coef_offset,
+        "distance_to_stable": distance_to_stable,
+        "action_scale": action_scale,
+    }, pre_train_n_steps
 
 
 @partial(
@@ -300,12 +304,16 @@ def compute_imitation_score(
     distance_to_stable: Callable[[jax.Array], float],
     imitation_coef_offset: float,
 ) -> jax.Array:
-    imitation_loss = (
-        -pi.log_prob(expert_policy(raw_observations)).sum(-1, keepdims=True)
-        if expert_policy is not None
-        else jnp.zeros(1)
+    # imitation_loss = (
+    #     -pi.log_prob(expert_policy(raw_observations)).sum(-1, keepdims=True)
+    #     if expert_policy is not None
+    #     else jnp.zeros(1)
+    # )
+    imitation_loss = jnp.mean(
+        jnp.square(pi.mode() if isinstance(pi, distrax.Categorical) else pi.mean()),
+        axis=-1,
+        keepdims=True,
     )
-
     EPS = 1e-9
 
     distance = (

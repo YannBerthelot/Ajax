@@ -83,7 +83,16 @@ def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):
     return fn
 
 
-def step_environment(mode, env, env_params, recurrent, actor_state, continuous):
+def step_environment(
+    mode,
+    env,
+    env_params,
+    recurrent,
+    actor_state,
+    continuous,
+    expert_policy=None,
+    action_scale=1.0,
+):
     """Return a pure function for environment stepping."""
 
     def fn(carry):
@@ -92,9 +101,11 @@ def step_environment(mode, env, env_params, recurrent, actor_state, continuous):
         step_keys = (
             jax.random.split(step_key, obs.shape[0]) if mode == "gymnax" else step_key
         )
-        actions, entropy = get_deterministic_action_and_entropy_fn(
+        raw_actions, entropy = get_deterministic_action_and_entropy_fn(
             actor_state, recurrent, continuous
         )(obs, done if recurrent else None)
+        expert_actions = expert_policy(obs) if expert_policy is not None else 0.0
+        actions = raw_actions * action_scale + expert_actions
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
@@ -105,6 +116,10 @@ def step_environment(mode, env, env_params, recurrent, actor_state, continuous):
         )
         new_done = jnp.logical_or(new_term, new_trunc)
         still_running = 1 - done
+
+        # distance_to_expert_action = abs(
+        #     raw_actions * action_scale - expert_actions
+        # )  # TODO : propagate to expose it in logs
         return (
             rewards + new_rewards * still_running,
             rng,
@@ -166,6 +181,8 @@ def while_env_not_done(carry):
         "env",
         "avg_reward_mode",
         "expert_policy",
+        "imitation_coef",
+        "action_scale",
     ],
 )
 def evaluate(
@@ -181,6 +198,8 @@ def evaluate(
     avg_reward_mode: bool = False,
     num_steps_average_reward: int = int(1e4),
     expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.0,
+    action_scale: float = 1.0,
 ) -> jax.Array:
     # Setup
     env, mode, continuous = setup_environment(
@@ -207,7 +226,14 @@ def evaluate(
 
     # Choose step function
     step_fn = step_environment(
-        mode, env, env_params, recurrent, actor_state, continuous
+        mode,
+        env,
+        env_params,
+        recurrent,
+        actor_state,
+        continuous,
+        expert_policy=expert_policy if imitation_coef > 0.0 else None,
+        action_scale=action_scale,
     )
 
     # Main loop

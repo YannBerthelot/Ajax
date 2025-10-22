@@ -4,6 +4,7 @@ import functools
 import json
 import os
 import queue
+import struct as pystruct
 import threading
 from collections import defaultdict
 from pathlib import Path
@@ -13,14 +14,14 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import jax
 import jax.numpy as jnp
 import wandb
-from flax import struct
 from flax.serialization import to_state_dict
+from flax.struct import dataclass as flax_dataclass
 from tensorboardX import SummaryWriter
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
 
 
-@struct.dataclass
+@flax_dataclass
 class LoggingConfig:
     """Pass along the wandb config cleanly"""
 
@@ -58,13 +59,13 @@ def init_logging(
             id=run_id,
             resume="never",
             config=logging_config.config,
+            reinit="finish_previous",
         )
-
+        wandb.log({"timestep": 0})
+        # wandb.finish()
         jax.debug.print(
             "Init wandb {run}", run=f"{logging_config.run_name}_{run_id}, id={run_id}"
         )
-        wandb.log({"timestep": 0})
-        wandb.finish()
 
     if logging_config.use_tensorboard:
         log_dir = os.path.join(logging_config.folder or ".", "tensorboard", run_id)
@@ -132,7 +133,7 @@ def _logging_worker():
                             name=f"{name} {run_id}",
                             id=run_id,
                             resume="must",
-                            reinit=True,
+                            reinit="finish_previous",
                         )
                         run.log(metrics, step=step)
                         break  # success → exit retry loop
@@ -232,7 +233,7 @@ def iter_tfrecord(path):
             header = f.read(8)
             if len(header) < 8:
                 break
-            length = struct.unpack("<Q", header)[0]
+            length = pystruct.unpack("<Q", header)[0]
             f.read(4)  # skip CRC of length
             data = f.read(length)
             f.read(4)  # skip CRC of data
@@ -322,7 +323,6 @@ def upload_tensorboard_to_wandb(
     run_ids: list[str],
     logging_config: LoggingConfig,
     base_folder: Optional[str] = None,
-    use_wandb: bool = False,
 ):
     """
     Upload existing TensorBoard log directories to W&B for the given run_ids,

@@ -58,6 +58,7 @@ class SAC(ActorCritic):
         imitation_coef: Union[float, Callable[[int], float]] = 0.0,
         distance_to_stable: Optional[Callable] = None,
         imitation_coef_offset: float = 0.0,
+        action_scale: float = 1.0,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -138,6 +139,7 @@ class SAC(ActorCritic):
             imitation_coef=imitation_coef,
             distance_to_stable=distance_to_stable,
             imitation_coef_offset=imitation_coef_offset,
+            action_scale=action_scale,
         )
         self.expert_policy = expert_policy
 

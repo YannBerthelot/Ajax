@@ -59,6 +59,7 @@ class SAC(ActorCritic):
         distance_to_stable: Optional[Callable] = None,
         imitation_coef_offset: float = 0.0,
         action_scale: float = 1.0,
+        early_termination_condition: Optional[Callable] = None,
     ) -> None:
         """
         Initialize the SAC agent.
@@ -142,6 +143,7 @@ class SAC(ActorCritic):
             action_scale=action_scale,
         )
         self.expert_policy = expert_policy
+        self.early_termination_condition = early_termination_condition
 
     def get_make_train(self) -> Callable:
         """
@@ -156,6 +158,7 @@ class SAC(ActorCritic):
             alpha_args=self.alpha_args,
             cloning_args=self.cloning_confing,
             expert_policy=self.expert_policy,
+            early_termination_condition=self.early_termination_condition,
         )
 
 

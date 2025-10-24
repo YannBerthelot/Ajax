@@ -76,6 +76,7 @@ def no_op_none(agent_state, index, timestep):
         "imitation_coef",
         "action_scale",
         "sweep",
+        "early_termination_condition",
     ],
 )
 def evaluate_and_log(
@@ -97,6 +98,7 @@ def evaluate_and_log(
     imitation_coef: float = 0.0,
     action_scale: float = 1.0,
     sweep: bool = False,
+    early_termination_condition: Optional[Callable] = None,
 ):
     timestep = agent_state.collector_state.timestep
 
@@ -137,6 +139,7 @@ def evaluate_and_log(
             expert_policy=expert_policy,
             imitation_coef=imitation_coef,
             action_scale=action_scale,
+            early_termination_condition=early_termination_condition,
         )
 
         metrics_to_log = {

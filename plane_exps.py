@@ -16,6 +16,7 @@ from ajax.logging.wandb_logging import (
     upload_tensorboard_to_wandb,
 )
 from ajax.stable_utils import get_expert_policy
+from ajax.wrappers import EarlyTerminationWrapper
 
 
 @struct.dataclass
@@ -42,7 +43,7 @@ def get_sweep_values(
     imitation_coef_list = []
     imitation_coef_offset_list = [0.0]
     if baseline:
-        imitation_coef_list += [0.0]
+        imitation_coef_list += [None]
 
     if pre_train:
         pre_train_step_list = [0, int(1e5)]
@@ -50,17 +51,20 @@ def get_sweep_values(
         pre_train_step_list = [0]
 
     if constant_imitation:
-        # imitation_coef_list += [10.0, 1.0, 1e-1]
-        imitation_coef_list += [1e-2, 1e-3, 1e-4]
+        imitation_coef_list += [100.0, 10.0, 1.0, 0.0]  # type: ignore[list-item]
+        # imitation_coef_list += [0.0]
 
     if auto_imitation:
         imitation_coef_list += [
+            "auto_10000.0",  # type: ignore[list-item]
+            # "auto_1000.0",  # type: ignore[list-item]
+            # "auto_100.0",  # type: ignore[list-item]
             # "auto_10.0",  # type: ignore[list-item]
             # "auto_1.0",  # type: ignore[list-item]
             # "auto_0.1",  # type: ignore[list-item]
-            "auto_0.01",  # type: ignore[list-item]
-            "auto_0.001",  # type: ignore[list-item]
-            "auto_0.0001",  # type: ignore[list-item]
+            # "auto_0.01",  # type: ignore[list-item]
+            # "auto_0.001",  # type: ignore[list-item]
+            # "auto_0.0001",  # type: ignore[list-item]
         ]
 
     return {
@@ -156,17 +160,25 @@ def get_mode() -> str:
 if __name__ == "__main__":
     mode = get_mode()
     agent = SAC
-    project_name = f"tests_{agent.name}_plane_optim_action_scale"
+    project_name = f"tests_{agent.name}_plane_early_trunc_tests_3"
     n_timesteps = int(3e5)
     n_seeds = 1
     num_episode_test = 25
     log_frequency = 5_000
+    action_scale = 1.0
     use_wandb = True
     sweep_mode = False  # True is no logging until the very end (faster) false is logging during training (slower)
     logging_config = get_log_config(project_name, agent.name, sweep=sweep_mode)
 
     key = jax.random.PRNGKey(42)
     env = Plane()
+
+    def trunc_condition(state, params):
+        return jnp.logical_and(
+            abs(state.target_altitude - state.z) < 500,
+            jnp.logical_and(abs(state.z_dot) < 50, abs(state.theta_dot) < 1),
+        )
+
     max_alt = 8_000
     min_alt = 3_000
     env_params = PlaneParams(
@@ -185,9 +197,16 @@ if __name__ == "__main__":
         raise ValueError("No stable policy for {max_alt} or {min_alt}")
     print(f"Expert policy mean score: {policy_score}")
 
+    #########
+
+    # Config
+
     sweep_values = get_sweep_values(
-        baseline=True, auto_imitation=True, constant_imitation=True, pre_train=False
+        baseline=False, auto_imitation=True, constant_imitation=False, pre_train=False
     )
+
+    #######
+
     print(f"{sweep_values=}")
     env_id = "Plane"
 
@@ -206,7 +225,9 @@ if __name__ == "__main__":
         # hyperparams["critic_learning_rate"] = 5e-4
         # hyperparams["gamma"] = 0.99
         _agent = agent(
-            env_id=env,
+            env_id=EarlyTerminationWrapper(env, trunc_condition=trunc_condition)
+            if imitation_coef is not None
+            else env,
             env_params=env_params,
             expert_policy=expert_policy,
             pre_train_n_steps=pre_train_n_steps,
@@ -214,7 +235,10 @@ if __name__ == "__main__":
             distance_to_stable=distance_to_stable,
             imitation_coef_offset=imitation_coef_offset,
             **hyperparams,
-            action_scale=1.0,  # if imitation_coef != 0 else 1,
+            action_scale=action_scale if imitation_coef is not None else 1.0,
+            early_termination_condition=trunc_condition
+            if imitation_coef is not None
+            else None,
         )
         if mode == "CPU":
             for seed in tqdm(range(n_seeds)):

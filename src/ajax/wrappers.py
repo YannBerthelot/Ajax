@@ -2,7 +2,7 @@
 
 # ruff: noqa: C901
 from functools import partial
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import chex
 import jax
@@ -768,3 +768,57 @@ class NoiseWrapper(BraxWrapper):
         )
         state = state.replace(info=info)
         return state
+
+
+class TerminatedTruncatedWrapper(GymnaxWrapper):
+    def __init__(self, env):
+        """Set the observation transformation"""
+        super().__init__(env)
+
+    def step(
+        self,
+        key,
+        state: environment.EnvState,
+        action,
+        params: environment.EnvParams = None,
+    ):
+        """Step the env and return the transformed obs"""
+        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        truncated = state.time >= params.max_steps_in_episode
+        terminated = done * (1 - truncated)
+        return obs, state, reward, terminated, truncated, info
+
+
+class EarlyTerminationWrapper(GymnaxWrapper):
+    """Observation modifying wrapper"""
+
+    def __init__(
+        self,
+        env: environment.Environment,
+        trunc_condition: Callable[[environment.EnvState, environment.EnvParams], bool],
+    ):
+        """Set the observation transformation"""
+        super().__init__(env)
+        self.trunc_condition = trunc_condition
+
+    def is_terminal(
+        self, state: environment.EnvState, params: environment.EnvParams
+    ) -> jax.Array:
+        """Check whether state is terminal."""
+        # Check termination and construct updated state
+        return self.trunc_condition(state, params) or self._env.is_terminal(
+            state, params
+        )
+
+    def step(
+        self,
+        key,
+        state: environment.EnvState,
+        action,
+        params: environment.EnvParams = None,
+    ):
+        """Step the env and return the transformed obs"""
+        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        info["truncated"] = self.trunc_condition(state, params)
+        info["terminated"] = jnp.logical_and(done, jnp.logical_not(info["truncated"]))
+        return obs, state, reward - 1, done, info

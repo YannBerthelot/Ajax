@@ -334,6 +334,8 @@ def policy_loss_function(
 
     assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
     loss_actor = alpha * log_probs - q_min
+
+    imitation_coef = imitation_coef if imitation_coef is not None else 0.0
     total_loss = (loss_actor + imitation_coef * imitation_loss).mean()
     # jax.debug.print(
     #     "Policy loss: {loss}, Imitation loss: {imitation_loss}",
@@ -779,6 +781,7 @@ def update_agent(
         "distance_to_stable",
         "imitation_coef_offset",
         "action_scale",
+        "early_termination_condition",
     ],
 )
 def training_iteration(
@@ -806,6 +809,7 @@ def training_iteration(
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
     action_scale: float = 1.0,
+    early_termination_condition: Optional[Callable] = None,
 ) -> tuple[SACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -838,7 +842,7 @@ def training_iteration(
         env_args=env_args,
         buffer=buffer,
         uniform=uniform,
-        expert_policy=expert_policy if imitation_coef > 0.0 else None,
+        expert_policy=expert_policy if imitation_coef is not None else None,
         action_scale=action_scale,
     )
 
@@ -923,6 +927,7 @@ def training_iteration(
         expert_policy=expert_policy,
         imitation_coef=imitation_coef,
         action_scale=action_scale,
+        early_termination_condition=early_termination_condition,
     )
 
     return agent_state, metrics_to_log
@@ -942,6 +947,7 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
+    early_termination_condition: Optional[Callable] = None,
 ):
     """
     Create the training function for the SAC agent.
@@ -1020,6 +1026,7 @@ def make_train(
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
             expert_policy=expert_policy,
+            early_termination_condition=early_termination_condition,
             **cloning_parameters,
         )
 

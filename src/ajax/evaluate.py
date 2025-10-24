@@ -92,6 +92,7 @@ def step_environment(
     continuous,
     expert_policy=None,
     action_scale=1.0,
+    early_termination_condition=None,
 ):
     """Return a pure function for environment stepping."""
 
@@ -105,7 +106,13 @@ def step_environment(
             actor_state, recurrent, continuous
         )(obs, done if recurrent else None)
         expert_actions = expert_policy(obs) if expert_policy is not None else 0.0
-        actions = raw_actions * action_scale + expert_actions
+
+        inside_the_box = (
+            early_termination_condition(state, env_params).reshape(-1, 1)
+            if early_termination_condition is not None
+            else 0.0
+        )
+        actions = (1.0 - inside_the_box) * raw_actions * action_scale + expert_actions
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
@@ -183,6 +190,7 @@ def while_env_not_done(carry):
         "expert_policy",
         "imitation_coef",
         "action_scale",
+        "early_termination_condition",
     ],
 )
 def evaluate(
@@ -200,6 +208,7 @@ def evaluate(
     expert_policy: Optional[Callable] = None,
     imitation_coef: float = 0.0,
     action_scale: float = 1.0,
+    early_termination_condition: Optional[Callable] = None,
 ) -> jax.Array:
     # Setup
     env, mode, continuous = setup_environment(
@@ -232,8 +241,9 @@ def evaluate(
         recurrent,
         actor_state,
         continuous,
-        expert_policy=expert_policy if imitation_coef > 0.0 else None,
+        expert_policy=expert_policy if imitation_coef is not None else None,
         action_scale=action_scale,
+        early_termination_condition=early_termination_condition,
     )
 
     # Main loop

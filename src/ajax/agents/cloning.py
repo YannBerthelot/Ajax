@@ -8,6 +8,7 @@ from flax import struct
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
+from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
@@ -309,11 +310,19 @@ def compute_imitation_score(
     #     if expert_policy is not None
     #     else jnp.zeros(1)
     # )
-    imitation_loss = jnp.mean(
-        jnp.square(pi.mode() if isinstance(pi, distrax.Categorical) else pi.mean()),
-        axis=-1,
-        keepdims=True,
-    )
+    # imitation_loss = jnp.mean(
+    #     jnp.square(pi.mode() if isinstance(pi, distrax.Categorical) else pi.mean()),
+    #     axis=-1,
+    #     keepdims=True,
+    # )
+    if not isinstance(pi, distrax.Categorical):
+        std = pi.unsquashed_stddev() if isinstance(pi, SquashedNormal) else pi.stddev()
+        imitation_loss = jnp.mean(
+            jnp.square(pi.mean()) + jnp.square(std), axis=-1, keepdims=True
+        )
+    else:
+        imitation_loss = 0.0
+
     EPS = 1e-9
 
     distance = (

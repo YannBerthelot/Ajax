@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Optional, Tuple, Union
 
 import distrax
@@ -141,6 +141,63 @@ class Actor(nn.Module):
                 if not self.squash
                 else SquashedNormal(mean, std)
             )
+
+        return self.model(embedding)
+
+
+class ExtraParameterActor(Actor):
+    def setup(self):
+        self.alpha = nn.Dense(
+            self.action_dim,
+            kernel_init=nn.initializers.ones,
+            bias_init=nn.initializers.zeros,
+        )
+        return super().setup()
+
+    @nn.compact
+    def __call__(self, obs) -> tuple[distrax.Distribution, float]:
+        embedding = self.encoder(obs)
+        embedding = nn.LayerNorm()(embedding)
+        if self.continuous:
+            mean = self.mean(embedding)
+            log_std = jnp.clip(self.log_std, -20, 2)
+            std = jnp.exp(log_std)
+            extra_head = self.alpha(embedding)
+            return (
+                (distrax.Normal(mean, std), extra_head)
+                if not self.squash
+                else (SquashedNormal(mean, std), extra_head)
+            )
+
+        return self.model(embedding)
+
+
+class ResidualActor(Actor):
+    expert: Callable[[jnp.ndarray], jnp.ndarray]
+
+    def setup(self):
+        self.extra_head = nn.Dense(
+            self.action_dim,
+            kernel_init=nn.initializers.ones,
+            bias_init=nn.initializers.zeros,
+        )
+        return super().setup()
+
+    @nn.compact
+    def __call__(self, obs) -> tuple[distrax.Distribution, float]:
+        embedding = self.encoder(obs)
+        embedding = nn.LayerNorm()(embedding)
+        if self.continuous:
+            mean = self.mean(embedding)
+            log_std = jnp.clip(self.log_std, -20, 2)
+            std = jnp.exp(log_std)
+            alpha = self.extra_head(embedding)
+            residuals = (
+                distrax.Normal(mean, std)
+                if not self.squash
+                else SquashedNormal(mean, std)
+            )
+            return alpha * self.expert(obs) + residuals
 
         return self.model(embedding)
 

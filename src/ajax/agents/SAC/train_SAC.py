@@ -118,6 +118,10 @@ def init_SAC(
     alpha_args: AlphaConfig,
     buffer: BufferType,
     window_size: int = 10,
+    expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
+    residual: bool = False,
+    fixed_alpha: bool = False,
+    max_timesteps: Optional[int] = None,
 ) -> SACState:
     """
     Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
@@ -149,7 +153,12 @@ def init_SAC(
         action_value=True,
         squash=True,
         num_critics=2,
+        expert_policy=expert_policy,
+        residual=residual,
+        fixed_alpha=fixed_alpha,
+        max_timesteps=max_timesteps,
     )
+
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
         collector_key,
@@ -157,6 +166,7 @@ def init_SAC(
         mode=mode,
         buffer=buffer,
         window_size=window_size,
+        max_timesteps=max_timesteps,
     )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
@@ -722,7 +732,7 @@ def update_agent(
     )
 
     # Update policy
-    agent_state, aux_policy = update_policy(
+    new_agent_state, aux_policy = update_policy(
         observations=transition.obs,
         done=dones,
         agent_state=agent_state,
@@ -732,6 +742,12 @@ def update_agent(
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
         imitation_coef_offset=imitation_coef_offset,
+    )
+
+    agent_state = jax.lax.cond(
+        agent_state.collector_state.timestep >= 0,
+        lambda: new_agent_state,
+        lambda: agent_state,
     )
 
     # Adjust temperature
@@ -834,7 +850,6 @@ def training_iteration(
 
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
-
     collect_scan_fn = partial(
         collect_experience,
         recurrent=recurrent,
@@ -842,7 +857,7 @@ def training_iteration(
         env_args=env_args,
         buffer=buffer,
         uniform=uniform,
-        expert_policy=expert_policy if imitation_coef is not None else None,
+        expert_policy=expert_policy,
         action_scale=action_scale,
     )
 
@@ -928,6 +943,7 @@ def training_iteration(
         imitation_coef=imitation_coef,
         action_scale=action_scale,
         early_termination_condition=early_termination_condition,
+        train_frac=agent_state.collector_state.train_time_fraction,
     )
 
     return agent_state, metrics_to_log
@@ -948,6 +964,8 @@ def make_train(
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
     early_termination_condition: Optional[Callable] = None,
+    residual: bool = False,
+    fixed_alpha: bool = False,
 ):
     """
     Create the training function for the SAC agent.
@@ -985,6 +1003,10 @@ def make_train(
             network_args=network_args,
             alpha_args=alpha_args,
             buffer=buffer,
+            expert_policy=expert_policy,
+            residual=residual,
+            fixed_alpha=fixed_alpha,
+            max_timesteps=total_timesteps,
         )
 
         # pre-train agent

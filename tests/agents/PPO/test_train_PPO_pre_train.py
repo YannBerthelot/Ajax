@@ -580,9 +580,6 @@ def test_make_train(env_config):
         obs_shape, action_shape = get_state_action_shapes(env_config.env)
         shape = (*x.shape[:-1], *action_shape)
         return jnp.ones(shape)
-        import pdb
-
-        pdb.set_trace()
         return (
             jnp.ones((env_config.env.action_size,))
             if mode == "brax"

@@ -1,10 +1,12 @@
 from collections.abc import Callable, Sequence
-from typing import Optional, Tuple, Union
+from functools import partial
+from typing import Optional, Tuple, Union, overload
 
 import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax import struct
 from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
 from flax.linen.normalization import _l2_normalize
@@ -30,6 +32,7 @@ from ajax.types import ActivationFunction, HiddenState, InitializationFunction
 Heavy inspiration from https://github.com/Howuhh/SAC-n-jax/blob/main/SAC_n_jax_flax.py
 """
 
+from jax.nn import sigmoid
 
 # class Encoder(nn.Module):
 #     input_architecture: Sequence[Union[str, ActivationFunction]]
@@ -128,7 +131,11 @@ class Actor(nn.Module):
             )
 
     @nn.compact
-    def __call__(self, obs) -> distrax.Distribution:
+    def __call__(
+        self, obs, raw_obs=None
+    ) -> (
+        distrax.Distribution
+    ):  # TODO : temporary solution to have raw_obs here, in practice the obs should be normalized as part of the call
         # Use the Encoder submodule
         embedding = self.encoder(obs)
         embedding = nn.LayerNorm()(embedding)
@@ -172,32 +179,87 @@ class ExtraParameterActor(Actor):
         return self.model(embedding)
 
 
+@struct.dataclass
+class LoadedObs:
+    obs: jax.Array
+    raw: jax.Array
+
+
+def shift_distribution(base_dist: distrax.Distribution, shift):
+    BaseType = type(base_dist)
+
+    class Shifted(BaseType):
+        def __init__(self, base, shift):
+            # Do NOT call BaseType.__init__
+            self._base = base
+            self._shift = shift
+
+        # Required override for Distrax
+        def _sample_n(self, key, n):
+            return self._base._sample_n(key, n) + self._shift
+
+        def log_prob(self, value):
+            return self._base.log_prob(value - self._shift)
+
+        def mean(self):
+            return self._base.mean() + self._shift
+
+        # Forward moment methods explicitly
+        def variance(self):
+            return self._base.variance()
+
+        def stddev(self):
+            return self._base.stddev()
+
+        def entropy(self):
+            return self._base.entropy()
+
+        # Forward everything else
+        def __getattr__(self, name):
+            return getattr(self._base, name)
+
+    return Shifted(base_dist, shift)
+
+
 class ResidualActor(Actor):
-    expert: Callable[[jnp.ndarray], jnp.ndarray]
+    expert: Callable[[jnp.ndarray], jnp.ndarray] = (
+        None  # Find a way to not have None as default
+    )
+    fixed_alpha: bool = False
 
     def setup(self):
         self.extra_head = nn.Dense(
-            self.action_dim,
+            1,
             kernel_init=nn.initializers.ones,
             bias_init=nn.initializers.zeros,
         )
+        assert self.expert is not None
+        print("using reisudal actor")
         return super().setup()
 
     @nn.compact
-    def __call__(self, obs) -> tuple[distrax.Distribution, float]:
+    def __call__(
+        self, obs: jnp.ndarray, raw_obs: jnp.ndarray = None
+    ) -> distrax.Distribution:
+        # Raw obs is the observation expected by the expert (without normalization or anything specific to the actor), the expert function should encapsulate all the expert behavior, including its own normalization.
+        if raw_obs is None:
+            raw_obs = obs  # Assume that there is no modification to obs
         embedding = self.encoder(obs)
         embedding = nn.LayerNorm()(embedding)
         if self.continuous:
             mean = self.mean(embedding)
             log_std = jnp.clip(self.log_std, -20, 2)
             std = jnp.exp(log_std)
-            alpha = self.extra_head(embedding)
-            residuals = (
-                distrax.Normal(mean, std)
-                if not self.squash
-                else SquashedNormal(mean, std)
+            alpha = 1.0 if self.fixed_alpha else jnp.tanh(self.extra_head(embedding))
+            # return distrax.Normal(self.expert(raw_obs), 0)
+            return shift_distribution(
+                (
+                    distrax.Normal(mean, std)
+                    if not self.squash
+                    else SquashedNormal(mean, std)
+                ),
+                shift=alpha * jax.lax.stop_gradient(self.expert(raw_obs)),
             )
-            return alpha * self.expert(obs) + residuals
 
         return self.model(embedding)
 
@@ -281,6 +343,10 @@ def get_initialized_actor_critic(
     critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
+    expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
+    residual: bool = False,
+    fixed_alpha: bool = False,
+    max_timesteps: Optional[int] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """Create actor and critic adapted to the environment and following the\
           given architectures
@@ -304,7 +370,13 @@ def get_initialized_actor_critic(
     #     )
     # else:
     #     bounds = ((lower_bound, higher_bound),)
-    actor = Actor(
+    ActorClass = (
+        partial(ResidualActor, expert=expert_policy, fixed_alpha=fixed_alpha)
+        if residual
+        else Actor
+    )
+    # ActorClass = Actor
+    actor = ActorClass(
         input_architecture=network_config.actor_architecture,
         action_dim=action_dim,
         continuous=continuous,
@@ -332,6 +404,12 @@ def get_initialized_actor_critic(
     observation_shape, action_shape = get_state_action_shapes(
         env_config.env,
     )
+    if max_timesteps is not None:
+        _obs_shape = list(observation_shape)
+        _obs_shape[-1] += 1
+        observation_shape = tuple(
+            _obs_shape
+        )  # To account for the schedule observation for the agent
     init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
     init_action = jnp.zeros((env_config.n_envs, *action_shape))
     actor_state = init_network_state(

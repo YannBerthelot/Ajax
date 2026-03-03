@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Type, Union
 
 import flashbax as fbx
 import flax
@@ -51,12 +51,95 @@ class RollinEpisodicMeanRewardState(RollingMeanState):
     cumulative_reward: jnp.ndarray
 
 
+from typing import Type, TypeVar
+
+T = TypeVar("T")
+
+
+def linear_schedule(train_time_fraction: float) -> float:
+    return 1 - train_time_fraction
+
+
+def exponential_schedule(train_time_fraction: float, p: float = 5) -> float:
+    return jnp.exp(-p * train_time_fraction)
+
+
+def polynomial_schedule(train_time_fraction: float, p: int = 2) -> float:
+    return jnp.abs(train_time_fraction - 1) ** p
+
+
+class LoadedStateMixin:
+    train_time_fraction: float = flax.struct.field(pytree_node=False)
+
+    def __getattr__(self, name):
+        return getattr(self._state, name)
+
+    @property
+    def linear_schedule(self) -> float:
+        return linear_schedule(self.train_time_fraction)
+
+    @property
+    def exponential_schedule(self) -> float:
+        return exponential_schedule(self.train_time_fraction)
+
+    @property
+    def polynomial_schedule(self) -> float:
+        return polynomial_schedule(self.train_time_fraction)
+
+
+def make_loaded_state_class(base_cls: Type[T]) -> Type[T]:
+    @struct.dataclass
+    class LoadedEnvState(base_cls, LoadedStateMixin):
+        train_time_fraction: float = flax.struct.field(pytree_node=False)
+
+        @property
+        def linear_schedule(self) -> float:
+            return linear_schedule(self.train_time_fraction)
+
+        @property
+        def exponential_schedule(self) -> float:
+            return exponential_schedule(self.train_time_fraction)
+
+        @property
+        def polynomial_schedule(self) -> float:
+            return polynomial_schedule(self.train_time_fraction)
+
+    return LoadedEnvState
+
+
+# class LoadedEnvState:
+#     state: EnvStateType
+#     train_time_fraction: float = flax.struct.field(pytree_node=False)
+#     # def __init__(self, state: EnvStateType, train_time_fraction: float):
+#     #     self._state = state
+#     #     self.train_time_fraction = train_time_fraction
+
+#     def __getattr__(self, name):
+#         return getattr(self._state, name)
+
+#     @property
+#     def linear_schedule(self) -> float:
+#         return 1 - self.train_time_fraction
+
+#     @property
+#     def exponential_schedule(self) -> float:
+#         return jnp.exp(-self.train_time_fraction)
+
+
+def load_state(state, train_time_fraction: float):
+    LoadedCls = make_loaded_state_class(type(state))
+    return LoadedCls(
+        **state.__dict__,
+        train_time_fraction=train_time_fraction,
+    )
+
+
 @struct.dataclass
 class CollectorState:
     """The variables necessary to interact with the environment and collect the transitions"""
 
     rng: jax.Array
-    env_state: EnvStateType
+    _env_state: EnvStateType
     last_obs: jnp.ndarray
     last_terminated: jnp.ndarray
     last_truncated: jnp.ndarray
@@ -67,6 +150,25 @@ class CollectorState:
     average_reward: float = 0.0
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
     rollout: Optional[Transition] = None
+    cumulative_reward: Optional[jnp.ndarray] = None
+    max_timesteps: Optional[int] = None
+
+    @property
+    def train_time_fraction(self) -> float:
+        return self.timestep / self.max_timesteps
+
+    @property
+    def env_state(
+        self,
+    ) -> LoadedStateMixin:
+        return load_state(self._env_state, train_time_fraction=self.train_time_fraction)
+
+    @env_state.setter
+    def env_state(self, value) -> LoadedStateMixin:
+        self._env_state = value
+        # LoadedEnvState(
+        #     value, train_time_fraction=self.train_time_fraction
+        # )
 
 
 @partial(struct.dataclass, kw_only=True)

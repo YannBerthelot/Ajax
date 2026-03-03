@@ -1,183 +1,70 @@
 import itertools
+import os
+from functools import partial
+from typing import Optional
 
+import dill as pickle
 import jax
 import jax.numpy as jnp
-import yaml
-from flax import struct
 from target_gym import Plane, PlaneParams
 from target_gym.plane.env import PlaneState
 from tqdm import tqdm
 
 from ajax import SAC
-
-# from ajax.agents.PPO.PPO import PPO
+from ajax.early_termination_wrapper import EarlyTerminationWrapper
 from ajax.logging.wandb_logging import (
-    LoggingConfig,
     upload_tensorboard_to_wandb,
 )
+from ajax.plane.plane_exps_utils import (
+    _resolve_schedule_factor,
+    get_distance_fn_from_imitation_coef,
+    get_log_config,
+    get_mode,
+    get_policy_score,
+    get_sweep_values,
+    load_hyperparams,
+)
 from ajax.stable_utils import get_expert_policy
-from ajax.wrappers import EarlyTerminationWrapper
-
-
-@struct.dataclass
-class StableState:
-    z: float
-    z_dot: float
-    theta_dot: float
-
-
-def distance_to_stable_fn(state: PlaneState):
-    z = state[..., 1]
-    target = state[..., 6]
-    z_dot = state[..., 2]
-    theta_dot = state[..., 4]
-    return jnp.abs(z - target) + jnp.abs(z_dot - 0.0) + jnp.abs(theta_dot - 0.0)
-
-
-def get_sweep_values(
-    baseline: bool = True,
-    auto_imitation: bool = True,
-    constant_imitation: bool = True,
-    pre_train: bool = True,
-):
-    imitation_coef_list = []
-    imitation_coef_offset_list = [0.0]
-    if baseline:
-        imitation_coef_list += [None]
-
-    if pre_train:
-        pre_train_step_list = [0, int(1e5)]
-    else:
-        pre_train_step_list = [0]
-
-    if constant_imitation:
-        imitation_coef_list += [100.0, 10.0, 1.0, 0.0]  # type: ignore[list-item]
-        # imitation_coef_list += [0.0]
-
-    if auto_imitation:
-        imitation_coef_list += [
-            "auto_10000.0",  # type: ignore[list-item]
-            # "auto_1000.0",  # type: ignore[list-item]
-            # "auto_100.0",  # type: ignore[list-item]
-            # "auto_10.0",  # type: ignore[list-item]
-            # "auto_1.0",  # type: ignore[list-item]
-            # "auto_0.1",  # type: ignore[list-item]
-            # "auto_0.01",  # type: ignore[list-item]
-            # "auto_0.001",  # type: ignore[list-item]
-            # "auto_0.0001",  # type: ignore[list-item]
-        ]
-
-    return {
-        "imitation_coef": imitation_coef_list,
-        "imitation_coef_offset": imitation_coef_offset_list,
-        "pre_train_n_steps": pre_train_step_list,
-    }
-
-
-def get_distance_fn_from_imitation_coef(imitation_coef):
-    if "auto" in str(imitation_coef):
-        return distance_to_stable_fn
-
-
-def get_log_config(project_name, agent_name, sweep: bool = False):
-    return LoggingConfig(
-        project_name=project_name,
-        run_name=agent_name,
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-        },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=True,
-        use_wandb=use_wandb,
-        sweep=sweep,
-    )
-
-
-def strip_str_seq_to_seq_of_str(seq: str):
-    return [x.strip(" ") for x in seq.lstrip("(").rstrip(")").split(",")]
-
-
-def process_hyperparams(hpp: dict):
-    if "actor_architecture" in hpp.keys():
-        hpp["actor_architecture"] = strip_str_seq_to_seq_of_str(
-            hpp["actor_architecture"]
-        )
-    if "critic_architecture" in hpp.keys():
-        hpp["critic_architecture"] = strip_str_seq_to_seq_of_str(
-            hpp["critic_architecture"]
-        )
-    if "normalize" in hpp.keys():
-        normalize = hpp.pop("normalize")
-        hpp["normalize_observations"] = normalize
-        hpp["normalize_rewards"] = normalize
-    return hpp
-
-
-def load_hyperparams(agent: str = "PPO", env_id: str = "Plane"):
-    file_name = f"hyperparams/ajax_{agent.lower()}.yml"
-    with open(file_name) as stream:
-        try:
-            hyperparams_data = yaml.load(stream, Loader=yaml.FullLoader)
-        except yaml.YAMLError as exc:
-            print(exc)
-        return process_hyperparams(hyperparams_data[env_id])
-
-
-def get_policy_score(policy, env: Plane, env_params: PlaneParams):
-    key = jax.random.PRNGKey(0)
-
-    def run_episode(key):
-        obs, state = env.reset(key, env_params)
-
-        def step_fn(carry, _):
-            obs, state = carry
-            action = policy(obs)
-            obs, state, reward, done, info = env.step(key, state, action, env_params)
-            return (obs, state), (reward, done)
-
-        _, (rewards, dones) = jax.lax.scan(
-            f=step_fn,
-            init=(obs, state),
-            xs=None,
-            length=env_params.max_steps_in_episode,
-        )
-        rewards_before_done = (rewards * (1 - dones)).sum()
-        rewards_with_last_step = rewards_before_done + rewards[jnp.argmax(dones)]
-        return rewards_with_last_step
-
-    keys = jax.random.split(key, 1000)
-    returns = jax.vmap(run_episode, in_axes=[0])(keys)
-    return returns.mean()
-
-
-def get_mode() -> str:
-    return "GPU" if jax.default_backend() == "gpu" else "CPU"
-
 
 if __name__ == "__main__":
     mode = get_mode()
+    mode = "GPU"
     agent = SAC
-    project_name = f"tests_{agent.name}_plane_early_trunc_tests_3"
-    n_timesteps = int(3e5)
-    n_seeds = 1
+    project_name = f"tests_{agent.name}_plane_early_trunc_tests_6"
+    n_timesteps = int(1e6)
+    n_seeds = 2
     num_episode_test = 25
     log_frequency = 5_000
     action_scale = 1.0
     use_wandb = True
+    schedule = "polynomial"
     sweep_mode = False  # True is no logging until the very end (faster) false is logging during training (slower)
-    logging_config = get_log_config(project_name, agent.name, sweep=sweep_mode)
+    logging_config = get_log_config(
+        project_name=project_name,
+        agent_name=agent.name,
+        log_frequency=log_frequency,
+        n_seeds=n_seeds,
+        use_wandb=use_wandb,
+        sweep=sweep_mode,
+        schedule=schedule,
+    )
 
     key = jax.random.PRNGKey(42)
     env = Plane()
 
-    def trunc_condition(state, params):
-        return jnp.logical_and(
-            abs(state.target_altitude - state.z) < 500,
-            jnp.logical_and(abs(state.z_dot) < 50, abs(state.theta_dot) < 1),
-        )
+    def trunc_condition(
+        state: PlaneState,
+        params: PlaneParams,
+        schedule: Optional[str] = None,
+        train_frac: Optional[float] = None,
+    ):
+        factor = _resolve_schedule_factor(state, schedule, train_frac)
+
+        altitude_ok = abs(state.target_altitude - state.z) < (500 * factor)
+        # velocity_ok = abs(state.z_dot) < 50 * factor
+        # rotation_ok = abs(state.theta_dot) < 1.0 * factor
+
+        return altitude_ok  # & velocity_ok & rotation_ok
 
     max_alt = 8_000
     min_alt = 3_000
@@ -187,7 +74,15 @@ if __name__ == "__main__":
         max_steps_in_episode=10_000,
     )
 
-    expert_policy = get_expert_policy(env, env_params)
+    if "expert_policy.pkl" in os.listdir():
+        with open("expert_policy.pkl", "rb") as f:
+            expert_policy = pickle.load(f)  # deserialize using load()
+    else:
+        expert_policy = get_expert_policy(env, env_params)
+
+        with open("expert_policy.pkl", "wb") as f:  # open a text file
+            pickle.dump(expert_policy, f)  # serialize the list
+
     policy_score = get_policy_score(expert_policy, env, env_params)
 
     if (
@@ -196,7 +91,6 @@ if __name__ == "__main__":
     ):
         raise ValueError("No stable policy for {max_alt} or {min_alt}")
     print(f"Expert policy mean score: {policy_score}")
-
     #########
 
     # Config
@@ -219,14 +113,17 @@ if __name__ == "__main__":
             sweep_values["imitation_coef_offset"],
         )
     ):
+        imitation_coef = None
         distance_to_stable = get_distance_fn_from_imitation_coef(imitation_coef)
 
-        # hyperparams["actor_learning_rate"] = 1e-4
-        # hyperparams["critic_learning_rate"] = 5e-4
-        # hyperparams["gamma"] = 0.99
+        residual = True
+        fixed_alpha = True
+        trunc_condition = partial(trunc_condition, schedule=schedule)
         _agent = agent(
-            env_id=EarlyTerminationWrapper(env, trunc_condition=trunc_condition)
-            if imitation_coef is not None
+            env_id=EarlyTerminationWrapper(
+                env, trunc_condition=trunc_condition, expert_policy=expert_policy
+            )
+            if trunc_condition is not None
             else env,
             env_params=env_params,
             expert_policy=expert_policy,
@@ -236,9 +133,9 @@ if __name__ == "__main__":
             imitation_coef_offset=imitation_coef_offset,
             **hyperparams,
             action_scale=action_scale if imitation_coef is not None else 1.0,
-            early_termination_condition=trunc_condition
-            if imitation_coef is not None
-            else None,
+            early_termination_condition=trunc_condition,
+            residual=residual,
+            fixed_alpha=fixed_alpha,
         )
         if mode == "CPU":
             for seed in tqdm(range(n_seeds)):

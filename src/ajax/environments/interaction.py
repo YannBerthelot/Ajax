@@ -130,10 +130,13 @@ def step(
 
         time = state.time if hasattr(state, "time") else state.t
         truncated = time >= env_params.max_steps_in_episode - 1  # type: ignore[union-attr]
-        out = jax.vmap(
-            step_wrapper,
-            in_axes=(0, 0, 0, None),
-        )(rng, state, action, env_params)
+        if action.ndim > 1:
+            out = jax.vmap(
+                step_wrapper,
+                in_axes=(0, 0, 0, None),
+            )(rng, state, action, env_params)
+        else:
+            out = step_wrapper(rng, state, action, env_params)
 
         # jax.debug.print("Action: {action}", action=action)
         if len(out) == 5:
@@ -211,7 +214,6 @@ def get_pi(
     else:
         pi = actor_state.apply(actor_params, obs)
         new_actor_hidden_state = None
-
     return pi, actor_state.replace(hidden_state=new_actor_hidden_state)
 
 
@@ -371,14 +373,31 @@ def get_action_and_log_probs(
     return uniform * uniform_action + (1 - uniform) * action, log_probs
 
 
+def maybe_vmap(f, vmap_on, **kwargs):
+    if vmap_on:
+        return jax.vmap(f, **kwargs)
+    return f
+
+
 def get_raw_obs(
     env_state: EnvState, env: Environment, mode: str
 ) -> Optional[jax.Array]:
-    return (
-        jax.vmap(env.get_obs)(env_state)
-        if mode == "gymnax"
-        else jax.vmap(env._get_obs)(env_state.pipeline_state)
+    vmap_on = (
+        max(jax.tree_util.tree_leaves(jax.tree.map(lambda x: x.ndim, env_state))) > 0
     )
+    return (
+        maybe_vmap(env.get_obs, vmap_on)(env_state)
+        if mode == "gymnax"
+        else maybe_vmap(env._get_obs, vmap_on)(env_state.pipeline_state)
+    )
+
+
+def identity(*args):
+    return args
+
+
+def return_first(*args):
+    return args[0]
 
 
 @partial(
@@ -396,6 +415,7 @@ def collect_experience(
     uniform: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     action_scale: float = 1.0,
+    gamma: Optional[float] = None,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect experience by interacting with the environment.
 
@@ -412,6 +432,7 @@ def collect_experience(
 
     """
     rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
+
     rng_step = (
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
@@ -436,16 +457,33 @@ def collect_experience(
     else:
         expert_action = 0.0
 
+    in_box = 0
+    if "trunc_condition" in dir(env_args.env):
+        in_box = env_args.env.trunc_condition(
+            agent_state.collector_state.env_state, env_args.env_params
+        )
+
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,
             agent_state.collector_state.env_state,
-            action * action_scale + expert_action,
+            (1 - in_box) * action
+            + in_box * expert_action,  # * action_scale + expert_action,
+            # jnp.ones_like(action) * expert_action,
             env_args.env,
             mode,
             env_args.env_params,
         )
     )
+
+    if "trunc_condition" in dir(env_args.env):
+        in_box = env_args.env.trunc_condition(
+            agent_state.collector_state.env_state, env_args.env_params
+        )
+        new_col = jnp.full(
+            (obsv.shape[0], 1), agent_state.collector_state.train_time_fraction
+        )
+        obsv = jnp.concatenate([obsv, new_col], axis=-1)
 
     raw_next_obs = (
         info["obs_st"] if "obs_st" in info else obsv
@@ -459,24 +497,51 @@ def collect_experience(
         if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
         else None
     )
+    cond = in_box * jnp.logical_or(terminated, truncated)
+    reward_transi = (
+        cond * agent_state.collector_state.cumulative_reward + (1 - cond) * reward
+    )
     if agent_state.collector_state.buffer_state is not None and buffer is not None:
         _transition = {
             "obs": agent_state.collector_state.last_obs,
             "action": action,  # if action.ndim == 2 else action[:, None]
-            "reward": reward[:, None],
+            "reward": reward_transi[:, None],
             "terminated": terminated[:, None],
             "truncated": truncated[:, None],
             "raw_obs": raw_obs,  # type: ignore[union-attr]
         }
-        buffer_state = buffer.add(
+        # buffer_state = buffer.add(
+        #     agent_state.collector_state.buffer_state,
+        #     _transition,
+        # )
+
+        buffer_state = jax.lax.cond(
+            in_box[0]
+            * jnp.logical_not(jnp.logical_or(terminated, truncated))[
+                0
+            ],  # TODO : need to make so that it works for multiple envs
+            return_first,
+            buffer.add,
             agent_state.collector_state.buffer_state,
             _transition,
         )
 
+        # pdb.set_trace()
+        # buffer_state = maybe_vmap(
+        #     jax.lax.cond, vmap_on, in_axes=(0, None, None, None, None)
+        # )(
+        #     in_box,
+        #     return_first,
+        #     buffer.add,
+        #     agent_state.collector_state.buffer_state,
+        #     _transition,
+        # )
+        # pdb.set_trace()
+
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
         action=action,
-        reward=reward[:, None],
+        reward=reward_transi[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
         raw_obs=raw_obs,
@@ -484,9 +549,15 @@ def collect_experience(
         log_prob=log_probs,
     )
 
+    # jax.debug.print(
+    #     "reward:{x}, target:{y}, action:{z}",
+    #     x=reward + 1,
+    #     y=agent_state.collector_state.env_state.target_altitude,
+    #     z=jnp.ones_like(action) * expert_action,
+    # )
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
         agent_state=agent_state,
-        reward=reward,
+        reward=reward + 1,  # TODO : change for early termination
         done=jnp.logical_or(terminated, truncated),
         env=env_args.env,
         mode=mode,
@@ -494,7 +565,7 @@ def collect_experience(
 
     new_collector_state = agent_state.collector_state.replace(
         rng=rng,
-        env_state=env_state,
+        _env_state=env_state,
         last_obs=obsv,
         timestep=agent_state.collector_state.timestep + env_args.n_envs,
         last_terminated=terminated,
@@ -502,7 +573,13 @@ def collect_experience(
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
         buffer_state=buffer_state,
+        cumulative_reward=(
+            in_box * (agent_state.collector_state.cumulative_reward + (1 + reward))
+        ),  # +1 to counteract the -1 in the wrapper, maybe FIXME
     )
+    # jax.debug.print(
+    #     "in_box:{x}, {y}", x=in_box, y=agent_state.collector_state.cumulative_reward
+    # )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
     return agent_state, transition
@@ -596,6 +673,7 @@ def init_collector_state(
     mode: str,
     buffer: Optional[fbx.flat_buffer.TrajectoryBuffer] = None,
     window_size: int = 10,
+    max_timesteps: Optional[int] = None,
 ):
     last_done = jnp.zeros(env_args.n_envs)
 
@@ -605,6 +683,15 @@ def init_collector_state(
     )
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
+
+    if max_timesteps is not None:
+        _obs_shape = list(obs_shape)
+        _obs_shape[-1] += 1
+        obs_shape = tuple(
+            _obs_shape
+        )  # To account for the schedule observation for the agent
+        new_col = jnp.full((last_obs.shape[0], 1), 0)
+        last_obs = jnp.concatenate([last_obs, new_col], axis=-1)
 
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
@@ -621,10 +708,12 @@ def init_collector_state(
         cumulative_reward=jnp.zeros((env_args.n_envs, 1)),
         last_return=jnp.nan * jnp.zeros((env_args.n_envs, 1)),
     )
-    buffer_state = init_buffer(buffer, env_args) if buffer is not None else None
+    buffer_state = (
+        init_buffer(buffer, env_args, max_timesteps) if buffer is not None else None
+    )
     return CollectorState(
         rng=rng,
-        env_state=env_state,
+        _env_state=env_state,
         last_obs=last_obs,
         buffer_state=buffer_state,
         timestep=0,
@@ -632,6 +721,10 @@ def init_collector_state(
         last_truncated=last_done,
         rollout=transition,
         episodic_return_state=episodic_return_state,
+        cumulative_reward=jnp.zeros(
+            (env_args.n_envs)
+        ),  # TODO : switch to (env_args.n_envs,1)
+        max_timesteps=max_timesteps,
     )
 
 

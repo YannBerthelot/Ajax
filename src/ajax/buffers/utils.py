@@ -1,3 +1,5 @@
+from typing import Optional
+
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
@@ -24,11 +26,19 @@ def get_buffer(
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
+    max_timesteps: Optional[int] = None,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     # Get the state and action shapes for the environment
     observation_shape, action_shape = get_state_action_shapes(
         env_args.env,
     )
+    raw_observation_shape = observation_shape
+    if max_timesteps is not None:
+        _obs_shape = list(observation_shape)
+        _obs_shape[-1] += 1
+        observation_shape = tuple(
+            _obs_shape
+        )  # To account for the schedule observation for the agent
 
     # Initialize the action as a single action for a single timestep (not batched)
     action = jnp.zeros(
@@ -38,6 +48,7 @@ def init_buffer(
 
     # Initialize the observation for a single timestep (shape: [observation_size])
     obsv = jnp.zeros((observation_shape[0],))
+    raw_obsv = jnp.zeros((raw_observation_shape[0],))
 
     # Initialize the reward and done flag for a single timestep
     reward = jnp.zeros((1,), dtype=jnp.float32)  # Shape for a single reward
@@ -51,7 +62,7 @@ def init_buffer(
             "reward": reward,  # Single reward (shape: [1])
             "terminated": done,  # Single done flag (shape: [1])
             "truncated": done,  # Single done flag (shape: [1])
-            "raw_obs": obsv,  # Single raw observation (shape: [observation_size]
+            "raw_obs": raw_obsv,  # Single raw observation (shape: [observation_size]
         },
     )
 

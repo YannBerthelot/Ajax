@@ -25,6 +25,7 @@ gymnax = {git = "https://github.com/YannBerthelot/gymnax.git", rev = "terminal_s
 target-gym = "^0.3.1"
 distrax = ">=0.1.6"
 tensorboardx = "^2.6.4"
+dill = "^0.4.1"
 
 
 

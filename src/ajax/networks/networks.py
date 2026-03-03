@@ -1,6 +1,6 @@
 from collections.abc import Callable, Sequence
 from functools import partial
-from typing import Optional, Tuple, Union, overload
+from typing import Optional, Tuple, Union
 
 import distrax
 import flax.linen as nn
@@ -32,7 +32,6 @@ from ajax.types import ActivationFunction, HiddenState, InitializationFunction
 Heavy inspiration from https://github.com/Howuhh/SAC-n-jax/blob/main/SAC_n_jax_flax.py
 """
 
-from jax.nn import sigmoid
 
 # class Encoder(nn.Module):
 #     input_architecture: Sequence[Union[str, ActivationFunction]]
@@ -133,9 +132,7 @@ class Actor(nn.Module):
     @nn.compact
     def __call__(
         self, obs, raw_obs=None
-    ) -> (
-        distrax.Distribution
-    ):  # TODO : temporary solution to have raw_obs here, in practice the obs should be normalized as part of the call
+    ) -> distrax.Distribution:  # TODO : temporary solution to have raw_obs here, in practice the obs should be normalized as part of the call
         # Use the Encoder submodule
         embedding = self.encoder(obs)
         embedding = nn.LayerNorm()(embedding)

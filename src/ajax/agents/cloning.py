@@ -326,7 +326,7 @@ def compute_imitation_score(
     EPS = 1e-9
 
     distance = (
-        1 / (distance_to_stable(raw_observations) + EPS)
-    ) + imitation_coef_offset  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
+        (1 / (distance_to_stable(raw_observations) + EPS)) + imitation_coef_offset
+    )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
     distance = jnp.expand_dims(distance, -1)
     return distance * imitation_loss

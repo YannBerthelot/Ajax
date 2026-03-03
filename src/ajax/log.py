@@ -9,8 +9,7 @@ from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
 
 
-class AuxiliaryLogsProtocol(Protocol):
-    ...
+class AuxiliaryLogsProtocol(Protocol): ...
 
 
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:

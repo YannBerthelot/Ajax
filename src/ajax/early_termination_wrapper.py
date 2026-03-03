@@ -1,25 +1,11 @@
 # ruff: noqa: C901
-from functools import partial
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Callable
 
-import chex
 import jax
 import jax.numpy as jnp
-import numpy as np
-from brax.envs import Env as BraxEnv
-from brax.envs.base import State
-from brax.envs.base import Wrapper as BraxWrapper
-from flax import struct
-from flax.serialization import to_state_dict
-from gymnasium import core
-from gymnasium import spaces as gymnasium_spaces
-from gymnax.environments import environment, spaces
+from gymnax.environments import environment
 
 from ajax.environments.interaction import get_raw_obs
-from ajax.environments.utils import get_state_action_shapes
-from ajax.evaluate import step_environment_expert, while_env_not_done
-from ajax.types import EnvNormalizationInfo, NormalizationInfo
-from ajax.utils import online_normalize
 from ajax.wrappers import GymnaxWrapper
 
 

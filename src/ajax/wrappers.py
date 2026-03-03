@@ -2,7 +2,7 @@
 
 # ruff: noqa: C901
 from functools import partial
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import chex
 import jax

@@ -51,7 +51,7 @@ class RollinEpisodicMeanRewardState(RollingMeanState):
     cumulative_reward: jnp.ndarray
 
 
-from typing import Type, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 

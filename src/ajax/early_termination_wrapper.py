@@ -84,7 +84,7 @@ class EarlyTerminationWrapper(GymnaxWrapper):
         return (
             obs,
             state,
-            reward - 1,
+            reward,
             done,
             info,
         )  # -1 to make all rewards negative and minize the time to reach the box TODO: improve

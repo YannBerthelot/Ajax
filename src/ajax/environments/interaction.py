@@ -475,8 +475,8 @@ def collect_experience(
             env_args.env_params,
         )
     )
-
-    if "trunc_condition" in dir(env_args.env):
+    using_truncation = "trunc_condition" in dir(env_args.env)
+    if using_truncation:
         in_box = env_args.env.trunc_condition(
             agent_state.collector_state.env_state, env_args.env_params
         )
@@ -498,9 +498,8 @@ def collect_experience(
         else None
     )
     cond = in_box * jnp.logical_or(terminated, truncated)
-    reward_transi = (
-        cond * agent_state.collector_state.cumulative_reward + (1 - cond) * reward
-    )
+    reward_transi = cond * agent_state.collector_state.cumulative_reward + reward
+
     if agent_state.collector_state.buffer_state is not None and buffer is not None:
         _transition = {
             "obs": agent_state.collector_state.last_obs,
@@ -557,7 +556,7 @@ def collect_experience(
     # )
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
         agent_state=agent_state,
-        reward=reward + 1,  # TODO : change for early termination
+        reward=reward,  # TODO : change for early termination
         done=jnp.logical_or(terminated, truncated),
         env=env_args.env,
         mode=mode,
@@ -574,7 +573,7 @@ def collect_experience(
         episodic_mean_return=episodic_mean_return,
         buffer_state=buffer_state,
         cumulative_reward=(
-            in_box * (agent_state.collector_state.cumulative_reward + (1 + reward))
+            in_box * (agent_state.collector_state.cumulative_reward + (reward))
         ),  # +1 to counteract the -1 in the wrapper, maybe FIXME
     )
     # jax.debug.print(

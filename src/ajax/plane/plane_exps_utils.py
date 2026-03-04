@@ -76,11 +76,10 @@ def get_distance_fn_from_imitation_coef(imitation_coef):
 def get_log_config(
     project_name,
     agent_name,
-    schedule,
-    log_frequency,
-    n_seeds,
     use_wandb,
+    log_frequency,
     sweep: bool = False,
+    **kwargs,
 ):
     return LoggingConfig(
         project_name=project_name,
@@ -88,8 +87,7 @@ def get_log_config(
         config={
             "debug": False,
             "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-            "schedule": schedule,
+            **kwargs,
         },
         log_frequency=log_frequency,
         horizon=10_000,

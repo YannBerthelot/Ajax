@@ -1,4 +1,3 @@
-import itertools
 import os
 from functools import partial
 from typing import Optional
@@ -17,7 +16,6 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.plane.plane_exps_utils import (
     _resolve_schedule_factor,
-    get_distance_fn_from_imitation_coef,
     get_log_config,
     get_mode,
     get_policy_score,
@@ -30,24 +28,15 @@ if __name__ == "__main__":
     mode = get_mode()
     mode = "GPU"
     agent = SAC
-    project_name = f"tests_{agent.name}_plane_early_trunc_tests_6"
+    project_name = f"tests_{agent.name}_plane_early_trunc_tests_debug"
     n_timesteps = int(1e6)
-    n_seeds = 2
+    n_seeds = 1
     num_episode_test = 25
     log_frequency = 5_000
     action_scale = 1.0
     use_wandb = True
     schedule = "polynomial"
     sweep_mode = False  # True is no logging until the very end (faster) false is logging during training (slower)
-    logging_config = get_log_config(
-        project_name=project_name,
-        agent_name=agent.name,
-        log_frequency=log_frequency,
-        n_seeds=n_seeds,
-        use_wandb=use_wandb,
-        sweep=sweep_mode,
-        schedule=schedule,
-    )
 
     key = jax.random.PRNGKey(42)
     env = Plane()
@@ -105,19 +94,21 @@ if __name__ == "__main__":
     env_id = "Plane"
 
     hyperparams = load_hyperparams(agent.name, env_id)
-
-    for pre_train_n_steps, imitation_coef, imitation_coef_offset in tqdm(
-        itertools.product(
-            sweep_values["pre_train_n_steps"],
-            sweep_values["imitation_coef"],
-            sweep_values["imitation_coef_offset"],
-        )
-    ):
-        imitation_coef = None
-        distance_to_stable = get_distance_fn_from_imitation_coef(imitation_coef)
-
-        residual = True
+    residual = True
+    for schedule in (None, "linear", "exponential", "polynomial"):
         fixed_alpha = True
+        logging_config = get_log_config(
+            project_name=project_name,
+            agent_name=agent.name,
+            log_frequency=log_frequency,
+            n_seeds=n_seeds,
+            use_wandb=use_wandb,
+            sweep=sweep_mode,
+            schedule=schedule,
+            residual=residual,
+            fixed_alpha=fixed_alpha,
+        )
+
         trunc_condition = partial(trunc_condition, schedule=schedule)
         _agent = agent(
             env_id=EarlyTerminationWrapper(
@@ -127,12 +118,8 @@ if __name__ == "__main__":
             else env,
             env_params=env_params,
             expert_policy=expert_policy,
-            pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
             **hyperparams,
-            action_scale=action_scale if imitation_coef is not None else 1.0,
+            action_scale=1.0,
             early_termination_condition=trunc_condition,
             residual=residual,
             fixed_alpha=fixed_alpha,

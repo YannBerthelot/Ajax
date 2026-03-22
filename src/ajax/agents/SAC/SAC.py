@@ -61,34 +61,24 @@ class SAC(ActorCritic):
         residual: bool = False,
         fixed_alpha: bool = False,
         num_critics: int = 4,
-        # --- Expert guidance ---
+        # --- Expert guidance (all disabled by default) ---
         use_expert_guidance: bool = False,
-        # --- AWBC training parameters ---
         num_critic_updates: int = 1,
         expert_buffer_n_steps: int = 20_000,
-        critic_pretrain_steps: int = 5_000,
-        actor_pretrain_steps: int = 0,  # 0 = no BC pre-training
         expert_mix_fraction: float = 0.1,
-        # --- Asymmetric AWBC (disabled by default) ---
-        # Set use_asymmetric_awbc=True to activate.
-        # above_expert_coef: small AWBC constant when policy beats expert,
-        #   prevents drift without blocking improvement.
-        #   encouraging precision over exploration near the performance ceiling.
-        use_asymmetric_awbc: bool = False,
-        above_expert_coef: float = 0.01,
-        # --- Proximity-weighted AWBC ---
-        # box_threshold: distance at which expert takes over — must match trunc_condition.
-        #   Single source of truth: changing this automatically updates both the box
-        #   boundary and the proximity weight normalization.
-        # proximity_scale: decay rate; weight = exp(-dist/box_threshold/scale)
-        #   None  → no decay (uniform expert trust everywhere)
-        #   0.5   → very local (≈0 beyond 2× box boundary)
-        #   1.0   → moderate (0.37 at box boundary, ≈0 at 5× boundary)
-        #   2.0   → gentle (still 8% trust at 5× box boundary)
+        # AWBC proximity decay (proximity_scale=None = no decay)
         box_threshold: float = 500.0,
         proximity_scale: Optional[float] = None,
-        altitude_obs_idx: int = 1,  # raw_obs index for current altitude
-        target_obs_idx: int = 6,  # raw_obs index for target altitude
+        altitude_obs_idx: int = 1,
+        target_obs_idx: int = 6,
+        # MC critic pretraining (unbiased, replaces Bellman pretraining)
+        use_mc_critic_pretrain: bool = False,
+        mc_pretrain_n_mc_steps: int = 10_000,
+        mc_pretrain_n_steps: int = 5_000,
+        # Value constraint: Q_π >= Q_expert (action-agnostic floor)
+        value_constraint_coef: float = 0.0,
+        # Obs augmentation: append a_expert(target) to obs
+        augment_obs_with_expert_action: bool = False,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -106,10 +96,8 @@ class SAC(ActorCritic):
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
         )
-
         self.alpha_args = AlphaConfig(
-            learning_rate=alpha_learning_rate,
-            alpha_init=alpha_init,
+            learning_rate=alpha_learning_rate, alpha_init=alpha_init
         )
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
@@ -118,24 +106,19 @@ class SAC(ActorCritic):
             squash=True,
             penultimate_normalization=False,
         )
-
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("SAC only supports continuous action spaces.")
 
         action_dim = get_action_dim(self.env_args.env, env_params)
-        target_entropy = target_entropy_per_dim * action_dim
-
         self.agent_config = SACConfig(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,
-            target_entropy=target_entropy,
+            target_entropy=target_entropy_per_dim * action_dim,
             reward_scale=reward_scale,
         )
         self.buffer = get_buffer(
-            buffer_size=buffer_size,
-            batch_size=batch_size,
-            n_envs=n_envs,
+            buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs
         )
         self.num_critics = num_critics
         self.cloning_confing = CloningConfig(
@@ -159,17 +142,16 @@ class SAC(ActorCritic):
         self.use_expert_guidance = use_expert_guidance
         self.num_critic_updates = num_critic_updates
         self.expert_buffer_n_steps = expert_buffer_n_steps
-        self.critic_pretrain_steps = critic_pretrain_steps
-        self.actor_pretrain_steps = actor_pretrain_steps
         self.expert_mix_fraction = expert_mix_fraction
-
-        # When use_asymmetric_awbc=False, disable asymmetry:
-        #   above_expert_coef=0.0  → pure SAC when above expert (symmetric)
-        self.above_expert_coef = above_expert_coef if use_asymmetric_awbc else 0.0
         self.box_threshold = box_threshold
         self.proximity_scale = proximity_scale
         self.altitude_obs_idx = altitude_obs_idx
         self.target_obs_idx = target_obs_idx
+        self.use_mc_critic_pretrain = use_mc_critic_pretrain
+        self.mc_pretrain_n_mc_steps = mc_pretrain_n_mc_steps
+        self.mc_pretrain_n_steps = mc_pretrain_n_steps
+        self.value_constraint_coef = value_constraint_coef
+        self.augment_obs_with_expert_action = augment_obs_with_expert_action
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -177,8 +159,6 @@ class SAC(ActorCritic):
             buffer=self.buffer,
             alpha_args=self.alpha_args,
             cloning_args=self.cloning_confing,
-            # expert_policy: used for training (warmup seeding, AWBC gradient).
-            #   None → no expert involvement in training whatsoever.
             expert_policy=self.expert_policy,
             eval_expert_policy=self.eval_expert_policy,
             early_termination_condition=self.early_termination_condition,
@@ -188,12 +168,14 @@ class SAC(ActorCritic):
             use_expert_guidance=self.use_expert_guidance,
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,
-            critic_pretrain_steps=self.critic_pretrain_steps,
-            actor_pretrain_steps=self.actor_pretrain_steps,
             expert_mix_fraction=self.expert_mix_fraction,
-            above_expert_coef=self.above_expert_coef,
             box_threshold=self.box_threshold,
             proximity_scale=self.proximity_scale,
             altitude_obs_idx=self.altitude_obs_idx,
             target_obs_idx=self.target_obs_idx,
+            use_mc_critic_pretrain=self.use_mc_critic_pretrain,
+            mc_pretrain_n_mc_steps=self.mc_pretrain_n_mc_steps,
+            mc_pretrain_n_steps=self.mc_pretrain_n_steps,
+            value_constraint_coef=self.value_constraint_coef,
+            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
         )

@@ -29,49 +29,43 @@ from ajax.stable_utils import get_expert_policy
 @dataclass
 class ExperimentConfig:
     """
-    One experiment in the sweep. Each field maps directly to a SAC constructor
-    argument. Add rows to build_experiments() to extend the sweep.
+    One experiment in the sweep.
+    All expert-guidance flags default to off → safe baseline when not set.
     """
 
-    name: str  # W&B run label
+    name: str
 
     # Environment
-    use_box: bool = True  # wrap with EarlyTerminationWrapper
+    use_box: bool = False  # EarlyTerminationWrapper (expert takes over near target)
 
-    # Expert involvement — three independent flags:
-    # use_expert_warmup:  expert actions used during buffer warmup phase
-    # use_expert_guidance: AWBC gradient term active during training
-    # Setting both False → true vanilla SAC with no expert involvement whatsoever
-    use_expert_warmup: bool = True  # expert/uniform mix during warmup
-    use_expert_guidance: bool = False  # AWBC gradient term active
+    # Expert warmup
+    use_expert_warmup: bool = False  # expert/uniform mix during warmup phase
 
-    # AWBC core parameters
-    num_critic_updates: int = 1  # critic gradient steps per env step
-    actor_pretrain_steps: int = 0  # BC pre-training steps (0 = disabled)
-    critic_pretrain_steps: int = 5_000  # critic pre-training on expert buffer
-    expert_buffer_n_steps: int = 20_000  # expert transitions pre-loaded into buffer
-    expert_mix_fraction: float = 0.1  # fraction of each batch from expert buffer
+    # Expert guidance flags (all independent, all off by default)
+    use_expert_guidance: bool = False  # AWBC gradient term
+    use_mc_critic_pretrain: bool = False  # MC return critic pretraining
+    value_constraint_coef: float = 0.0  # value floor penalty (0 = off)
+    augment_obs_with_expert_action: bool = False  # append a_expert to obs
 
-    # Asymmetric AWBC (disabled by default → symmetric, set True to activate)
-    use_asymmetric_awbc: bool = False
-    above_expert_coef: float = 0.01  # only used when use_asymmetric_awbc=True
-
-    # Proximity-weighted AWBC
-    # box_threshold is the single source of truth: it sets both the
-    # EarlyTerminationWrapper boundary AND normalizes the proximity weight.
-    # proximity_scale=None → no decay (uniform expert trust everywhere)
-    # proximity_scale=1.0  → weight=0.37 at box boundary, ~0 at 5× boundary
-    # proximity_scale=2.0  → gentler: still 8% trust at 5× boundary
+    # AWBC parameters
+    num_critic_updates: int = 1
+    expert_buffer_n_steps: int = 20_000
+    expert_mix_fraction: float = 0.1
     box_threshold: float = 500.0
-    proximity_scale: Optional[float] = None
-    altitude_obs_idx: int = 1  # raw_obs index for current altitude
-    target_obs_idx: int = 6  # raw_obs index for target altitude
+    proximity_scale: Optional[float] = None  # None = no decay
+    altitude_obs_idx: int = 1
+    target_obs_idx: int = 6
+
+    # MC pretraining parameters
+    mc_pretrain_n_mc_steps: int = 10_000
+    mc_pretrain_n_steps: int = 5_000
 
     # Standard SAC hyperparameters
     num_critics: int = 4
     tau: float = 5e-4
     alpha_init: float = 1.0
     target_entropy_per_dim: float = -1.0
+    max_grad_norm: Optional[float] = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -81,174 +75,146 @@ class ExperimentConfig:
 
 def build_experiments() -> List[ExperimentConfig]:
     """
-    Full sweep table. Modify here to add/remove/change experiments.
+    New experiment table focused on the three new expert-guidance approaches:
+    1. MC critic pretraining    — unbiased Q-value initialisation from expert returns
+    2. Value constraint         — Q_π >= Q_expert floor, action-agnostic
+    3. Obs augmentation         — a_expert appended to obs as a hint
 
-    Current experiments:
-      1. Baseline SAC              — no expert, no box
-      2. Baseline SAC + box        — box only, no AWBC (isolates box benefit)
-      3. AWBC no BC, 1 critic      — replicates original working run
-      4. AWBC no BC, 4 critics     — best known result so far
-      5. AWBC + BC, 1 critic       — BC without enough critic updates (expect instability)
-      6. AWBC + BC, 4 critics      — currently running, hypothesis: best of both worlds
-      7. Asymmetric AWBC no BC     — tests saturation hypothesis without BC
-      8. Asymmetric AWBC + BC      — tests saturation hypothesis with BC
+    Baselines:
+      baseline_sac_vanilla      — true SAC (2 critics, tau=0.005, no expert)
+      baseline_sac_tuned        — our tuned SAC (4 critics, tau=5e-4, no expert)
+      baseline_sac_expert_warmup — tuned SAC + expert warmup only
+
+    Previous AWBC experiments are kept as reference points but are not the
+    primary focus of this sweep.
     """
     exps = []
 
     # ------------------------------------------------------------------
-    # 1. True vanilla SAC — no expert involvement whatsoever
-    # Uses standard SAC hyperparameters: 2 critics, tau=0.005.
-    # Our tuned settings (4 critics, tau=5e-4) are deliberate departures
-    # from vanilla SAC — this baseline uses neither.
+    # Baselines
     # ------------------------------------------------------------------
     exps.append(
         ExperimentConfig(
             name="baseline_sac_vanilla",
-            use_box=False,
-            use_expert_warmup=False,
-            use_expert_guidance=False,
-            num_critics=2,  # standard SAC (not our tuned 4)
-            tau=0.005,  # standard SAC (not our tuned 5e-4)
-            num_critic_updates=1,
-            actor_pretrain_steps=0,
-            critic_pretrain_steps=0,
+            num_critics=2,
+            tau=0.005,
+            max_grad_norm=None,
             expert_buffer_n_steps=0,
             expert_mix_fraction=0.0,
         )
     )
-
-    # ------------------------------------------------------------------
-    # 2. SAC with our tuned settings but no expert involvement
-    # Separates the effect of our hyperparameter choices from the expert.
-    # ------------------------------------------------------------------
     exps.append(
         ExperimentConfig(
             name="baseline_sac_tuned",
-            use_box=False,
-            use_expert_warmup=False,
-            use_expert_guidance=False,
-            num_critics=4,  # our tuned setting
-            tau=5e-4,  # our tuned setting
-            num_critic_updates=1,
-            actor_pretrain_steps=0,
-            critic_pretrain_steps=0,
             expert_buffer_n_steps=0,
             expert_mix_fraction=0.0,
         )
     )
-
-    # ------------------------------------------------------------------
-    # 3. SAC with expert warmup, no AWBC, no box
-    # Isolates the effect of expert buffer seeding alone.
-    # ------------------------------------------------------------------
     exps.append(
         ExperimentConfig(
             name="baseline_sac_expert_warmup",
-            use_box=False,
             use_expert_warmup=True,
-            use_expert_guidance=False,
-            num_critics=4,
-            tau=5e-4,
-            num_critic_updates=1,
-            actor_pretrain_steps=0,
-            critic_pretrain_steps=0,
             expert_buffer_n_steps=0,
             expert_mix_fraction=0.0,
         )
     )
 
     # ------------------------------------------------------------------
-    # 4. Baseline SAC + box — no AWBC, but box mechanism active
+    # New approach 1: MC critic pretraining
+    # Pre-trains critic to Q(s,a_expert) ≈ MC return before any RL.
+    # Critic starts with accurate near-target values → policy gradient
+    # immediately favours expert-valued states, no imitation term needed.
     # ------------------------------------------------------------------
     exps.append(
         ExperimentConfig(
-            name="baseline_sac_box",
-            use_box=True,
+            name="mc_pretrain",
             use_expert_warmup=True,
-            use_expert_guidance=False,
-            num_critics=4,
-            tau=5e-4,
-            num_critic_updates=1,
-            actor_pretrain_steps=0,
-            critic_pretrain_steps=0,
-            expert_buffer_n_steps=0,
-            expert_mix_fraction=0.0,
+            use_mc_critic_pretrain=True,
+            mc_pretrain_n_mc_steps=10_000,
+            mc_pretrain_n_steps=5_000,
+            expert_buffer_n_steps=20_000,
+            expert_mix_fraction=0.1,
+        )
+    )
+    # MC pretrain + AWBC: does accurate Q-init make AWBC work better?
+    exps.append(
+        ExperimentConfig(
+            name="mc_pretrain_awbc",
+            use_expert_warmup=True,
+            use_mc_critic_pretrain=True,
+            use_expert_guidance=True,
+            mc_pretrain_n_mc_steps=10_000,
+            mc_pretrain_n_steps=5_000,
+            expert_buffer_n_steps=20_000,
+            expert_mix_fraction=0.1,
+            num_critic_updates=4,
         )
     )
 
     # ------------------------------------------------------------------
-    # 4 & 5. AWBC, no BC — symmetric, varying critic updates
+    # New approach 2: Value constraint
+    # Policy penalised when Q_π < Q_expert. Action-agnostic: allows the
+    # agent to approach aggressively as long as value is >= expert.
     # ------------------------------------------------------------------
-    for n in [1, 4]:
+    for coef in [0.1, 0.5, 1.0]:
         exps.append(
             ExperimentConfig(
-                name=f"awbc_no_bc_{n}critic",
-                use_box=True,
+                name=f"value_constraint_{coef}",
                 use_expert_warmup=True,
-                use_expert_guidance=True,
-                num_critic_updates=n,
-                actor_pretrain_steps=0,
-                critic_pretrain_steps=5_000,
+                value_constraint_coef=coef,
                 expert_buffer_n_steps=20_000,
-                use_asymmetric_awbc=False,
-            )
-        )
-
-    # ------------------------------------------------------------------
-    # 6 & 7. AWBC + BC — symmetric, varying critic updates
-    # ------------------------------------------------------------------
-    for n in [1, 4]:
-        exps.append(
-            ExperimentConfig(
-                name=f"awbc_bc_{n}critic",
-                use_box=True,
-                use_expert_warmup=True,
-                use_expert_guidance=True,
-                num_critic_updates=n,
-                actor_pretrain_steps=2_000,
-                critic_pretrain_steps=5_000,
-                expert_buffer_n_steps=20_000,
-                use_asymmetric_awbc=False,
-            )
-        )
-
-    # ------------------------------------------------------------------
-    # 8 & 9. Asymmetric AWBC — with and without BC, 4 critics
-    # ------------------------------------------------------------------
-    for use_bc in [False, True]:
-        exps.append(
-            ExperimentConfig(
-                name=f"awbc_asymmetric_{'bc' if use_bc else 'no_bc'}_4critic",
-                use_box=True,
-                use_expert_warmup=True,
-                use_expert_guidance=True,
+                expert_mix_fraction=0.1,
                 num_critic_updates=4,
-                actor_pretrain_steps=2_000 if use_bc else 0,
-                critic_pretrain_steps=5_000,
-                expert_buffer_n_steps=20_000,
-                use_asymmetric_awbc=True,
-                above_expert_coef=0.01,
             )
         )
 
     # ------------------------------------------------------------------
-    # 10–12. Proximity-weighted AWBC — varying decay scale, no BC, 4 critics
+    # New approach 3: Observation augmentation
+    # a_expert(target) appended to obs. Network learns to use this hint
+    # near target (trivially) and override it far away.
+    # Note: requires network initialised with extra_obs_dim=2.
     # ------------------------------------------------------------------
-    for scale in [0.5, 1.0, 2.0]:
-        exps.append(
-            ExperimentConfig(
-                name=f"awbc_proximity_{scale}_4critic",
-                use_box=True,
-                use_expert_warmup=True,
-                use_expert_guidance=True,
-                num_critic_updates=4,
-                actor_pretrain_steps=0,
-                critic_pretrain_steps=5_000,
-                expert_buffer_n_steps=20_000,
-                box_threshold=500.0,
-                proximity_scale=scale,
-            )
+    exps.append(
+        ExperimentConfig(
+            name="obs_augment",
+            use_expert_warmup=True,
+            augment_obs_with_expert_action=True,
+            expert_buffer_n_steps=20_000,
+            expert_mix_fraction=0.1,
         )
+    )
+
+    # ------------------------------------------------------------------
+    # Combination: MC pretrain + value constraint (best of both)
+    # ------------------------------------------------------------------
+    exps.append(
+        ExperimentConfig(
+            name="mc_pretrain_vc_0.5",
+            use_expert_warmup=True,
+            use_mc_critic_pretrain=True,
+            value_constraint_coef=0.5,
+            mc_pretrain_n_mc_steps=10_000,
+            mc_pretrain_n_steps=5_000,
+            expert_buffer_n_steps=20_000,
+            expert_mix_fraction=0.1,
+            num_critic_updates=4,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # Legacy AWBC reference (best previous result: no BC, 4 critics)
+    # ------------------------------------------------------------------
+    exps.append(
+        ExperimentConfig(
+            name="awbc_4critic_reference",
+            use_box=True,
+            use_expert_warmup=True,
+            use_expert_guidance=True,
+            num_critic_updates=4,
+            expert_buffer_n_steps=20_000,
+            expert_mix_fraction=0.1,
+        )
+    )
 
     return exps
 
@@ -326,14 +292,12 @@ def run_single_experiment(
     policy_score = get_policy_score(expert_policy, env, env_params)
     print(f"[{exp.name}] Expert score: {policy_score:.1f}")
     print(
-        f"[{exp.name}] box={exp.use_box}  threshold={exp.box_threshold}  "
-        f"expert_warmup={exp.use_expert_warmup}  guidance={exp.use_expert_guidance}  "
-        f"critics={exp.num_critic_updates}  bc={exp.actor_pretrain_steps > 0}  "
-        f"proximity_scale={exp.proximity_scale}"
+        f"[{exp.name}] box={exp.use_box}  warmup={exp.use_expert_warmup}  "
+        f"awbc={exp.use_expert_guidance}  mc_pretrain={exp.use_mc_critic_pretrain}  "
+        f"vc={exp.value_constraint_coef}  obs_aug={exp.augment_obs_with_expert_action}  "
+        f"critics={exp.num_critic_updates}"
     )
 
-    # When use_expert_warmup=False, pass None to the agent so collect_experience
-    # uses pure uniform random actions during warmup — true vanilla SAC behaviour.
     agent_expert_policy = expert_policy if exp.use_expert_warmup else None
 
     logging_config = get_log_config(
@@ -345,14 +309,13 @@ def run_single_experiment(
         use_box=exp.use_box,
         use_expert_warmup=exp.use_expert_warmup,
         use_expert_guidance=exp.use_expert_guidance,
+        use_mc_critic_pretrain=exp.use_mc_critic_pretrain,
+        value_constraint_coef=exp.value_constraint_coef,
+        augment_obs_with_expert_action=exp.augment_obs_with_expert_action,
         num_critics=exp.num_critics,
         num_critic_updates=exp.num_critic_updates,
-        actor_pretrain_steps=exp.actor_pretrain_steps,
-        critic_pretrain_steps=exp.critic_pretrain_steps,
         expert_buffer_n_steps=exp.expert_buffer_n_steps,
         expert_mix_fraction=exp.expert_mix_fraction,
-        use_asymmetric_awbc=exp.use_asymmetric_awbc,
-        above_expert_coef=exp.above_expert_coef,
         box_threshold=exp.box_threshold,
         proximity_scale=exp.proximity_scale,
         tau=exp.tau,
@@ -362,9 +325,10 @@ def run_single_experiment(
     _agent = SAC(
         env_id=wrapped_env if exp.use_box else env,
         env_params=env_params,
-        expert_policy=agent_expert_policy,  # None → pure uniform warmup
-        eval_expert_policy=expert_policy,  # always set → expert bias logged for all runs
+        expert_policy=agent_expert_policy,
+        eval_expert_policy=expert_policy,
         action_scale=1.0,
+        max_grad_norm=exp.max_grad_norm,
         early_termination_condition=trunc_condition if exp.use_box else None,
         num_critics=exp.num_critics,
         tau=exp.tau,
@@ -374,24 +338,17 @@ def run_single_experiment(
         fixed_alpha=False,
         use_expert_guidance=exp.use_expert_guidance,
         num_critic_updates=exp.num_critic_updates,
-        expert_buffer_n_steps=(
-            exp.expert_buffer_n_steps if exp.use_expert_guidance else 0
-        ),
-        critic_pretrain_steps=(
-            exp.critic_pretrain_steps if exp.use_expert_guidance else 0
-        ),
-        actor_pretrain_steps=(
-            exp.actor_pretrain_steps if exp.use_expert_guidance else 0
-        ),
-        expert_mix_fraction=(
-            exp.expert_mix_fraction if exp.use_expert_guidance else 0.0
-        ),
-        use_asymmetric_awbc=exp.use_asymmetric_awbc,
-        above_expert_coef=exp.above_expert_coef,
+        expert_buffer_n_steps=exp.expert_buffer_n_steps,
+        expert_mix_fraction=exp.expert_mix_fraction,
         box_threshold=exp.box_threshold,
         proximity_scale=exp.proximity_scale,
         altitude_obs_idx=exp.altitude_obs_idx,
         target_obs_idx=exp.target_obs_idx,
+        use_mc_critic_pretrain=exp.use_mc_critic_pretrain,
+        mc_pretrain_n_mc_steps=exp.mc_pretrain_n_mc_steps,
+        mc_pretrain_n_steps=exp.mc_pretrain_n_steps,
+        value_constraint_coef=exp.value_constraint_coef,
+        augment_obs_with_expert_action=exp.augment_obs_with_expert_action,
     )
 
     if mode == "CPU":

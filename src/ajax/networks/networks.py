@@ -91,7 +91,6 @@ class Actor(nn.Module):
             # bias at initialization regardless of input, giving a clean
             # starting std of exp(-1) ≈ 0.37 — enough for meaningful
             # exploration without destabilizing early training.
-            # The kernel learns to modulate std per-state as training progresses.
             self.log_std = nn.Dense(
                 self.action_dim,
                 kernel_init=nn.initializers.zeros,
@@ -213,13 +212,18 @@ def get_initialized_actor_critic(
     residual: bool = False,  # kept for API compatibility, ignored
     fixed_alpha: bool = False,  # kept for API compatibility, ignored
     max_timesteps: Optional[int] = None,
+    extra_obs_dim: int = 0,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
-    Create actor and critic networks. Expert guidance is handled at the
-    loss level (AWBC regularization), not in the architecture, so the
-    actor is always a plain Actor regardless of whether an expert is provided.
-    The `residual` and `fixed_alpha` arguments are retained for API
-    compatibility but have no effect.
+    Create actor and critic networks.
+
+    extra_obs_dim: extra dimensions appended to obs at runtime before the
+    network forward pass. Set to action_dim (2 for the plane) when
+    augment_obs_with_expert_action=True, so the network is initialised with
+    the correct input size matching what augment_obs_if_needed produces.
+
+    All other expert-guidance is handled at the loss level (AWBC, value
+    constraint) so the architecture is always a plain Actor/MultiCritic.
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
 
@@ -249,9 +253,12 @@ def get_initialized_actor_critic(
     actor_key, critic_key = jax.random.split(key)
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
-    if max_timesteps is not None:
+
+    # Inflate obs dim for train_frac and/or obs augmentation
+    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    if obs_extra > 0:
         _obs_shape = list(observation_shape)
-        _obs_shape[-1] += 1
+        _obs_shape[-1] += obs_extra
         observation_shape = tuple(_obs_shape)
 
     init_obs = jnp.zeros((env_config.n_envs, *observation_shape))

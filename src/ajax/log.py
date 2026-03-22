@@ -9,7 +9,8 @@ from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
 
 
-class AuxiliaryLogsProtocol(Protocol): ...
+class AuxiliaryLogsProtocol(Protocol):
+    ...
 
 
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -74,7 +75,6 @@ def no_op_none(agent_state, index, timestep):
         "total_timesteps",
         "avg_reward_mode",
         "expert_policy",
-        "imitation_coef",
         "action_scale",
         "sweep",
         "early_termination_condition",
@@ -96,7 +96,6 @@ def evaluate_and_log(
     total_timesteps: int,
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
-    imitation_coef: float = 0.0,
     action_scale: float = 1.0,
     sweep: bool = False,
     early_termination_condition: Optional[Callable] = None,
@@ -139,7 +138,6 @@ def evaluate_and_log(
             ),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
-            imitation_coef=imitation_coef,
             action_scale=action_scale,
             early_termination_condition=early_termination_condition,
             train_frac=train_frac,

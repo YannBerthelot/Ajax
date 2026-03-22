@@ -205,7 +205,6 @@ def while_env_not_done(carry):
         "env",
         "avg_reward_mode",
         "expert_policy",
-        "imitation_coef",
         "action_scale",
         "early_termination_condition",
     ],
@@ -223,7 +222,6 @@ def evaluate(
     avg_reward_mode: bool = False,
     num_steps_average_reward: int = int(1e4),
     expert_policy: Optional[Callable] = None,
-    imitation_coef: float = 0.0,
     action_scale: float = 1.0,
     early_termination_condition: Optional[Callable] = None,
     train_frac: Optional[float] = None,
@@ -277,11 +275,7 @@ def evaluate(
         continuous,
         expert_policy=expert_policy,
         action_scale=action_scale,
-        early_termination_condition=(
-            partial(early_termination_condition, train_frac=train_frac)
-            if callable(early_termination_condition)
-            else None
-        ),
+        early_termination_condition=early_termination_condition,
         train_frac=train_frac,
     )
 

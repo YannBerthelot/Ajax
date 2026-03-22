@@ -1,12 +1,10 @@
 from collections.abc import Callable, Sequence
-from functools import partial
 from typing import Optional, Tuple, Union
 
 import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax import struct
 from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
 from flax.linen.normalization import _l2_normalize
@@ -28,30 +26,6 @@ from ajax.state import (
 )
 from ajax.types import ActivationFunction, HiddenState, InitializationFunction
 
-"""
-Heavy inspiration from https://github.com/Howuhh/SAC-n-jax/blob/main/SAC_n_jax_flax.py
-"""
-
-
-# class Encoder(nn.Module):
-#     input_architecture: Sequence[Union[str, ActivationFunction]]
-#     penultimate_normalization: bool = False
-#     kernel_init: Optional[str] = None
-#     bias_init: Optional[str] = None
-
-#     def setup(self):
-#         layers = parse_architecture(
-#             self.input_architecture, self.kernel_init, self.bias_init
-#         )
-#         self.encoder = nn.Sequential(layers)
-
-#     @nn.compact
-#     def __call__(self, input):
-#         features = self.encoder(input)
-#         if self.penultimate_normalization:
-#             return _l2_normalize(features, axis=1)
-#         return features
-
 
 class Encoder(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
@@ -59,19 +33,27 @@ class Encoder(nn.Module):
     kernel_init: Optional[str] = None
     bias_init: Optional[str] = None
 
-    @nn.compact
-    def __call__(self, input):
+    def setup(self):
         layers = parse_architecture(
             self.input_architecture, self.kernel_init, self.bias_init
         )
-        encoder = nn.Sequential(layers)
-        features = encoder(input)
+        self.network = nn.Sequential(layers)
+        self.norm = nn.LayerNorm()
+
+    def __call__(self, x):
+        features = self.network(x)
         if self.penultimate_normalization:
             return _l2_normalize(features, axis=1)
-        return features
+        return self.norm(features)
 
 
 class Actor(nn.Module):
+    """
+    Standard SAC actor. Expert guidance is handled entirely at the loss level
+    via advantage-weighted behavioral regularization (AWBC), not in the
+    architecture. This keeps the policy unconstrained and theoretically clean.
+    """
+
     input_architecture: Sequence[Union[str, ActivationFunction]]
     action_dim: int
     continuous: bool = False
@@ -81,10 +63,8 @@ class Actor(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
-    bounds: Optional[Tuple] = None
 
     def setup(self):
-        # Initialize the Encoder as a submodule
         self.encoder = Encoder(
             input_architecture=self.input_architecture,
             penultimate_normalization=self.penultimate_normalization,
@@ -99,24 +79,25 @@ class Actor(nn.Module):
             bias_init = constant(0.0)
         else:
             bias_init = parse_initialization(self.bias_init)
+
         if self.continuous:
             self.mean = nn.Dense(
                 self.action_dim,
                 kernel_init=orthogonal(0.01),
                 bias_init=bias_init,
+                name="mean",
             )
-            # self.log_std = nn.Dense(
-            #     self.action_dim,
-            #     kernel_init=kernel_init,
-            #     bias_init=bias_init,
-            # )
-            self.log_std = self.param(
-                "log_std",
-                nn.initializers.zeros,  # initialize all stds at 0
-                # nn.initializers.constant(jnp.log(1e-12)),
-                (self.action_dim,),  # shape of the parameter
+            # State-dependent log_std: kernel_init=zeros means output equals
+            # bias at initialization regardless of input, giving a clean
+            # starting std of exp(-1) ≈ 0.37 — enough for meaningful
+            # exploration without destabilizing early training.
+            # The kernel learns to modulate std per-state as training progresses.
+            self.log_std = nn.Dense(
+                self.action_dim,
+                kernel_init=nn.initializers.zeros,
+                bias_init=nn.initializers.constant(-1.0),
+                name="log_std",
             )
-
         else:
             self.model = nn.Sequential(
                 [
@@ -129,135 +110,17 @@ class Actor(nn.Module):
                 ],
             )
 
-    @nn.compact
-    def __call__(
-        self, obs, raw_obs=None
-    ) -> distrax.Distribution:  # TODO : temporary solution to have raw_obs here, in practice the obs should be normalized as part of the call
-        # Use the Encoder submodule
+    def __call__(self, obs, raw_obs=None) -> distrax.Distribution:
         embedding = self.encoder(obs)
-        embedding = nn.LayerNorm()(embedding)
         if self.continuous:
             mean = self.mean(embedding)
-            log_std = jnp.clip(self.log_std, -20, 2)
+            log_std = jnp.clip(self.log_std(embedding), -20, 2)
             std = jnp.exp(log_std)
             return (
                 distrax.Normal(mean, std)
                 if not self.squash
                 else SquashedNormal(mean, std)
             )
-
-        return self.model(embedding)
-
-
-class ExtraParameterActor(Actor):
-    def setup(self):
-        self.alpha = nn.Dense(
-            self.action_dim,
-            kernel_init=nn.initializers.ones,
-            bias_init=nn.initializers.zeros,
-        )
-        return super().setup()
-
-    @nn.compact
-    def __call__(self, obs) -> tuple[distrax.Distribution, float]:
-        embedding = self.encoder(obs)
-        embedding = nn.LayerNorm()(embedding)
-        if self.continuous:
-            mean = self.mean(embedding)
-            log_std = jnp.clip(self.log_std, -20, 2)
-            std = jnp.exp(log_std)
-            extra_head = self.alpha(embedding)
-            return (
-                (distrax.Normal(mean, std), extra_head)
-                if not self.squash
-                else (SquashedNormal(mean, std), extra_head)
-            )
-
-        return self.model(embedding)
-
-
-@struct.dataclass
-class LoadedObs:
-    obs: jax.Array
-    raw: jax.Array
-
-
-def shift_distribution(base_dist: distrax.Distribution, shift):
-    BaseType = type(base_dist)
-
-    class Shifted(BaseType):
-        def __init__(self, base, shift):
-            # Do NOT call BaseType.__init__
-            self._base = base
-            self._shift = shift
-
-        # Required override for Distrax
-        def _sample_n(self, key, n):
-            return self._base._sample_n(key, n) + self._shift
-
-        def log_prob(self, value):
-            return self._base.log_prob(value - self._shift)
-
-        def mean(self):
-            return self._base.mean() + self._shift
-
-        # Forward moment methods explicitly
-        def variance(self):
-            return self._base.variance()
-
-        def stddev(self):
-            return self._base.stddev()
-
-        def entropy(self):
-            return self._base.entropy()
-
-        # Forward everything else
-        def __getattr__(self, name):
-            return getattr(self._base, name)
-
-    return Shifted(base_dist, shift)
-
-
-class ResidualActor(Actor):
-    expert: Callable[[jnp.ndarray], jnp.ndarray] = (
-        None  # Find a way to not have None as default
-    )
-    fixed_alpha: bool = False
-
-    def setup(self):
-        self.extra_head = nn.Dense(
-            1,
-            kernel_init=nn.initializers.ones,
-            bias_init=nn.initializers.zeros,
-        )
-        assert self.expert is not None
-        print("using reisudal actor")
-        return super().setup()
-
-    @nn.compact
-    def __call__(
-        self, obs: jnp.ndarray, raw_obs: jnp.ndarray = None
-    ) -> distrax.Distribution:
-        # Raw obs is the observation expected by the expert (without normalization or anything specific to the actor), the expert function should encapsulate all the expert behavior, including its own normalization.
-        if raw_obs is None:
-            raw_obs = obs  # Assume that there is no modification to obs
-        embedding = self.encoder(obs)
-        embedding = nn.LayerNorm()(embedding)
-        if self.continuous:
-            mean = self.mean(embedding)
-            log_std = jnp.clip(self.log_std, -20, 2)
-            std = jnp.exp(log_std)
-            alpha = 1.0 if self.fixed_alpha else jnp.tanh(self.extra_head(embedding))
-            # return distrax.Normal(self.expert(raw_obs), 0)
-            return shift_distribution(
-                (
-                    distrax.Normal(mean, std)
-                    if not self.squash
-                    else SquashedNormal(mean, std)
-                ),
-                shift=alpha * jax.lax.stop_gradient(self.expert(raw_obs)),
-            )
-
         return self.model(embedding)
 
 
@@ -274,15 +137,16 @@ class Critic(nn.Module):
             input_architecture=self.input_architecture,
             penultimate_normalization=self.penultimate_normalization,
         )
-        if self.kernel_init is None:
-            kernel_init = orthogonal(1.0)
-        else:
-            kernel_init = parse_initialization(self.kernel_init)
-        if self.bias_init is None:
-            bias_init = constant(0.0)
-        else:
-            bias_init = parse_initialization(self.bias_init)
-
+        kernel_init = (
+            orthogonal(1.0)
+            if self.kernel_init is None
+            else parse_initialization(self.kernel_init)
+        )
+        bias_init = (
+            constant(0.0)
+            if self.bias_init is None
+            else parse_initialization(self.bias_init)
+        )
         self.model = nn.Dense(
             1,
             kernel_init=kernel_init,
@@ -290,13 +154,19 @@ class Critic(nn.Module):
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        embedding = self.encoder(x)
-        return self.model(embedding)
+        return self.model(self.encoder(x))
 
 
 class MultiCritic(nn.Module):
+    """
+    Ensemble of critics. Using num=4 is recommended for this setting:
+    the min aggregation over 4 critics is significantly more conservative
+    than over 2, directly reducing overestimation bias without requiring
+    more gradient updates per step.
+    """
+
     input_architecture: Sequence[Union[str, ActivationFunction]]
-    num: int = 1
+    num: int = 4
     penultimate_normalization: bool = False
     kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
@@ -313,7 +183,6 @@ class MultiCritic(nn.Module):
             split_rngs={"params": True},
             axis_size=self.num,
         )
-
         return ensemble(
             self.input_architecture,
             self.penultimate_normalization,
@@ -333,7 +202,7 @@ def get_initialized_actor_critic(
     continuous: bool = False,
     action_value: bool = False,
     squash: bool = False,
-    num_critics: int = 1,
+    num_critics: int = 4,
     actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
     actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
     critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -341,39 +210,20 @@ def get_initialized_actor_critic(
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
-    residual: bool = False,
-    fixed_alpha: bool = False,
+    residual: bool = False,  # kept for API compatibility, ignored
+    fixed_alpha: bool = False,  # kept for API compatibility, ignored
     max_timesteps: Optional[int] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
-    """Create actor and critic adapted to the environment and following the\
-          given architectures
+    """
+    Create actor and critic networks. Expert guidance is handled at the
+    loss level (AWBC regularization), not in the architecture, so the
+    actor is always a plain Actor regardless of whether an expert is provided.
+    The `residual` and `fixed_alpha` arguments are retained for API
+    compatibility but have no effect.
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
-    # higher_bound = (
-    #     env_config.env.action_space(env_config.env_params).high
-    #     if "action_space" in dir(env_config.env)
-    #     else jnp.inf
-    # )
-    # lower_bound = (
-    #     env_config.env.action_space(env_config.env_params).low
-    #     if "action_space" in dir(env_config.env)
-    #     else -jnp.inf
-    # )
-    # if isinstance(higher_bound, jnp.ndarray):
-    #     bounds = (
-    #         tuple((low, high) for low, high in zip(lower_bound, higher_bound))
-    #         if continuous and squash
-    #         else None
-    #     )
-    # else:
-    #     bounds = ((lower_bound, higher_bound),)
-    ActorClass = (
-        partial(ResidualActor, expert=expert_policy, fixed_alpha=fixed_alpha)
-        if residual
-        else Actor
-    )
-    # ActorClass = Actor
-    actor = ActorClass(
+
+    actor = Actor(
         input_architecture=network_config.actor_architecture,
         action_dim=action_dim,
         continuous=continuous,
@@ -383,7 +233,6 @@ def get_initialized_actor_critic(
         bias_init=actor_bias_init,
         encoder_kernel_init=encoder_kernel_init,
         encoder_bias_init=encoder_bias_init,
-        # bounds=bounds,
     )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
@@ -394,21 +243,20 @@ def get_initialized_actor_critic(
         encoder_kernel_init=encoder_kernel_init,
         encoder_bias_init=encoder_bias_init,
     )
+
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
     critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
-
     actor_key, critic_key = jax.random.split(key)
-    observation_shape, action_shape = get_state_action_shapes(
-        env_config.env,
-    )
+
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
     if max_timesteps is not None:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += 1
-        observation_shape = tuple(
-            _obs_shape
-        )  # To account for the schedule observation for the agent
+        observation_shape = tuple(_obs_shape)
+
     init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
     init_action = jnp.zeros((env_config.n_envs, *action_shape))
+
     actor_state = init_network_state(
         init_x=init_obs,
         network=actor,
@@ -419,7 +267,6 @@ def get_initialized_actor_critic(
         n_envs=env_config.n_envs,
         lr_schedule=actor_optimizer_config.learning_rate,
     )
-
     critic_state = init_network_state(
         init_x=jnp.hstack([init_obs, init_action]) if action_value else init_obs,
         network=critic,
@@ -430,7 +277,6 @@ def get_initialized_actor_critic(
         n_envs=env_config.n_envs,
         lr_schedule=critic_optimizer_config.learning_rate,
     )
-
     return actor_state, critic_state
 
 
@@ -439,8 +285,6 @@ def init_hidden_state(
     n_envs: int,
     rng: jax.random.PRNGKey,
 ) -> HiddenState:
-    """Initialize the hidden state for the recurrent layer of the network."""
-    # rng, _rng = jax.random.split(rng)
     return ScannedRNN(lstm_hidden_size).initialize_carry(rng, n_envs)
 
 
@@ -453,7 +297,6 @@ def init_network_state(
         hidden_state = init_hidden_state(lstm_hidden_size, n_envs, hidden_state_key)
     else:
         hidden_state = None
-
     return LoadedTrainState.create(
         params=params,
         tx=tx,

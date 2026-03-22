@@ -10,7 +10,7 @@ from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import init_buffer
-from ajax.environments.utils import get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes, maybe_append_train_frac
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -400,10 +400,48 @@ def return_first(*args):
     return args[0]
 
 
+def get_buffer_action_and_env_action(
+    rng: jax.Array,
+    expert_action: jax.Array,
+    policy_action: jax.Array,
+    is_warmup: jax.Array,
+    expert_fraction: float = 0.7,
+) -> tuple[jax.Array, jax.Array]:
+    """
+    During warmup: randomly choose between expert and uniform for BOTH
+    the environment step and the buffer write, so rewards are consistent.
+    After warmup: use the policy action for both.
+
+    Returns (env_action, buffer_action) — always the same during warmup,
+    always policy_action after warmup.
+    """
+    mix_key, rng = jax.random.split(rng)
+    uniform_action = jax.random.uniform(
+        mix_key, minval=-1.0, maxval=1.0, shape=expert_action.shape
+    )
+    # Coin flip: expert or uniform for this step
+    use_expert = jax.random.uniform(mix_key) < expert_fraction
+    warmup_action = jnp.where(use_expert, expert_action, uniform_action)
+
+    # Both env and buffer see the same action → reward is meaningful
+    env_action = jax.lax.cond(
+        is_warmup,
+        lambda: warmup_action,
+        lambda: policy_action,
+    )
+    return env_action, env_action  # buffer_action = env_action always
+
+
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "mode", "env_args", "buffer", "expert_policy"],
-    # donate_argnums=0,
+    static_argnames=[
+        "recurrent",
+        "mode",
+        "env_args",
+        "buffer",
+        "expert_policy",
+        "expert_fraction",
+    ],
 )
 def collect_experience(
     agent_state: BaseAgentState,
@@ -416,131 +454,168 @@ def collect_experience(
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     action_scale: float = 1.0,
     gamma: Optional[float] = None,
+    always_expert: bool = False,
+    expert_fraction: float = 1.0,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect experience by interacting with the environment.
 
+    During warmup (uniform=True): randomly alternates between expert and uniform
+    actions for both the environment step and buffer write, so the critic learns
+    a meaningful contrast between good and bad actions before policy learning starts.
+
+    After warmup: uses the policy action, with expert override when in_box=True.
+
     Args:
-        agent_state (BaseAgentState): Current agent state.
-        _ (Any): Placeholder argument for compatibility.
-        recurrent (bool): Whether the agent is recurrent.
-        mode (str): The mode of the environment ("gymnax" or "brax").
-        env_args (EnvironmentConfig): Configuration for the environment.
-        buffer (fbx.flat_buffer.TrajectoryBuffer): Buffer to store trajectory data.
+        agent_state: Current agent state.
+        _: Placeholder argument for scan compatibility.
+        recurrent: Whether the agent is recurrent.
+        mode: Environment mode ("gymnax" or "brax").
+        env_args: Environment configuration.
+        buffer: Replay buffer.
+        uniform: Whether we are in the warmup phase.
+        expert_policy: Expert policy function mapping raw obs to actions.
+        action_scale: Action scaling factor.
+        gamma: Discount factor (unused here, kept for API compatibility).
+        always_expert: Whether to always use the expert action in the environment.
+        expert_fraction: Fraction of warmup steps that use the expert (vs uniform random).
 
     Returns:
-        Tuple[BaseAgentState, None]: Updated agent state and None.
-
+        Updated agent state and transition.
     """
-    rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
+    rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
 
     rng_step = (
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
 
+    # Policy action — handles uniform blending internally when uniform=True
+    # but we override this below during warmup with expert/uniform mix
     action, log_probs = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
         recurrent=recurrent,
         uniform=uniform,
     )
-    if expert_policy is not None:
-        raw_obs = (
-            get_raw_obs(
-                env_state=agent_state.collector_state.env_state,
-                env=env_args.env,
-                mode=mode,
-            )
-            if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
-            else None
+
+    # Get raw obs for expert policy
+    has_raw_obs = agent_state.collector_state.rollout.raw_obs is not None
+    raw_obs = (
+        get_raw_obs(
+            env_state=agent_state.collector_state.env_state,
+            env=env_args.env,
+            mode=mode,
         )
+        if has_raw_obs
+        else None
+    )
+
+    # Compute expert action if available
+    if expert_policy is not None:
         expert_action = expert_policy(raw_obs)
     else:
-        expert_action = 0.0
+        expert_action = jnp.zeros_like(action)
 
-    in_box = 0
-    if "trunc_condition" in dir(env_args.env):
-        in_box = env_args.env.trunc_condition(
+    # Proximity-based expert override (post-warmup)
+    in_box = (
+        env_args.env.trunc_condition(
             agent_state.collector_state.env_state, env_args.env_params
         )
+        if "trunc_condition" in dir(env_args.env)
+        else 0
+    )
+    in_box = (1 - always_expert) * in_box + always_expert
 
+    # Post-warmup action: policy with expert override when in proximity
+    policy_action = (1 - in_box) * action + in_box * expert_action
+
+    # During warmup: randomly pick expert or uniform for this step.
+    # Both env and buffer use the SAME action so reward is honest.
+    # After warmup: use policy_action for both.
+    use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
+    uniform_action = jax.random.uniform(
+        mix_key, minval=-1.0, maxval=1.0, shape=action.shape
+    )
+    warmup_action = jnp.where(use_expert_this_step, expert_action, uniform_action)
+    env_action = jax.lax.cond(
+        uniform,  # uniform=True iff warmup phase
+        lambda: warmup_action,
+        lambda: policy_action,
+    )
+    # Buffer always stores what the environment actually received
+    buffer_action = env_action
+
+    # Step the environment
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,
             agent_state.collector_state.env_state,
-            (1 - in_box) * action
-            + in_box * expert_action,  # * action_scale + expert_action,
-            # jnp.ones_like(action) * expert_action,
+            env_action,
             env_args.env,
             mode,
             env_args.env_params,
         )
     )
-    using_truncation = "trunc_condition" in dir(env_args.env)
-    if using_truncation:
-        in_box = env_args.env.trunc_condition(
+
+    # Append train_time_fraction to observation
+    obsv = maybe_append_train_frac(
+        obsv,
+        train_frac=(
+            agent_state.collector_state.train_time_fraction
+            if agent_state.collector_state.max_timesteps is not None
+            else None
+        ),
+    )
+
+    # Recompute in_box after step for reward accumulation logic
+    in_box = (
+        env_args.env.trunc_condition(
             agent_state.collector_state.env_state, env_args.env_params
         )
-        new_col = jnp.full(
-            (obsv.shape[0], 1), agent_state.collector_state.train_time_fraction
-        )
-        obsv = jnp.concatenate([obsv, new_col], axis=-1)
-
-    raw_next_obs = (
-        info["obs_st"] if "obs_st" in info else obsv
-    )  # assume autoreset is on if obs_st is found, else assume no autoreset
-
-    buffer_state = agent_state.collector_state.buffer_state
-    raw_obs = (
-        get_raw_obs(
-            env_state=agent_state.collector_state.env_state, env=env_args.env, mode=mode
-        )
-        if agent_state.collector_state.rollout.raw_obs is not None  # type: ignore[union-attr]
-        else None
+        if "trunc_condition" in dir(env_args.env)
+        else jnp.zeros_like(terminated)
     )
-    cond = in_box * jnp.logical_or(terminated, truncated)
-    reward_transi = cond * agent_state.collector_state.cumulative_reward + reward
 
-    if agent_state.collector_state.buffer_state is not None and buffer is not None:
+    raw_next_obs = info["obs_st"] if "obs_st" in info else obsv
+
+    # Reward accumulation for early termination wrapper
+    cond = in_box * jnp.logical_or(terminated, truncated)
+    # reward_transi = cond * agent_state.collector_state.cumulative_reward + reward
+
+    # Buffer write
+    buffer_state = agent_state.collector_state.buffer_state
+    if buffer_state is not None and buffer is not None:
         _transition = {
             "obs": agent_state.collector_state.last_obs,
-            "action": action,  # if action.ndim == 2 else action[:, None]
-            "reward": reward_transi[:, None],
+            "action": buffer_action,
+            "reward": reward[:, None],
             "terminated": terminated[:, None],
             "truncated": truncated[:, None],
-            "raw_obs": raw_obs,  # type: ignore[union-attr]
+            "raw_obs": raw_obs,
         }
-        # buffer_state = buffer.add(
-        #     agent_state.collector_state.buffer_state,
-        #     _transition,
-        # )
 
+        # Always write during warmup (uniform=True).
+        # After warmup: skip write when in_box and episode not done
+        # (early termination wrapper accumulates reward until done).
+        should_write = jnp.logical_or(
+            uniform,
+            jnp.logical_not(
+                in_box[0] * jnp.logical_not(jnp.logical_or(terminated, truncated))[0]
+            ),
+        )
+        should_write = True
         buffer_state = jax.lax.cond(
-            in_box[0]
-            * jnp.logical_not(jnp.logical_or(terminated, truncated))[
-                0
-            ],  # TODO : need to make so that it works for multiple envs
-            return_first,
+            should_write,
             buffer.add,
+            return_first,
             agent_state.collector_state.buffer_state,
             _transition,
         )
 
-        # pdb.set_trace()
-        # buffer_state = maybe_vmap(
-        #     jax.lax.cond, vmap_on, in_axes=(0, None, None, None, None)
-        # )(
-        #     in_box,
-        #     return_first,
-        #     buffer.add,
-        #     agent_state.collector_state.buffer_state,
-        #     _transition,
-        # )
-        # pdb.set_trace()
-
+    # Transition returned to caller (used for on-policy mix if enabled)
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
-        action=action,
-        reward=reward_transi[:, None],
+        action=action,  # policy action, not env_action, for on-policy logging
+        reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
         raw_obs=raw_obs,
@@ -548,15 +623,9 @@ def collect_experience(
         log_prob=log_probs,
     )
 
-    # jax.debug.print(
-    #     "reward:{x}, target:{y}, action:{z}",
-    #     x=reward + 1,
-    #     y=agent_state.collector_state.env_state.target_altitude,
-    #     z=jnp.ones_like(action) * expert_action,
-    # )
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
         agent_state=agent_state,
-        reward=reward,  # TODO : change for early termination
+        reward=reward,
         done=jnp.logical_or(terminated, truncated),
         env=env_args.env,
         mode=mode,
@@ -573,12 +642,9 @@ def collect_experience(
         episodic_mean_return=episodic_mean_return,
         buffer_state=buffer_state,
         cumulative_reward=(
-            in_box * (agent_state.collector_state.cumulative_reward + (reward))
-        ),  # +1 to counteract the -1 in the wrapper, maybe FIXME
+            in_box * (agent_state.collector_state.cumulative_reward + reward)
+        ),
     )
-    # jax.debug.print(
-    #     "in_box:{x}, {y}", x=in_box, y=agent_state.collector_state.cumulative_reward
-    # )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
     return agent_state, transition
@@ -707,8 +773,13 @@ def init_collector_state(
         cumulative_reward=jnp.zeros((env_args.n_envs, 1)),
         last_return=jnp.nan * jnp.zeros((env_args.n_envs, 1)),
     )
+
+    add_train_frac = max_timesteps is not None
+
     buffer_state = (
-        init_buffer(buffer, env_args, max_timesteps) if buffer is not None else None
+        init_buffer(buffer, env_args, max_timesteps, add_train_frac=add_train_frac)
+        if buffer is not None
+        else None
     )
     return CollectorState(
         rng=rng,

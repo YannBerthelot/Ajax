@@ -9,6 +9,7 @@ class SACState(BaseAgentState):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 
     alpha: LoadedTrainState  # Temperature parameter
+    lambda_param: float
 
 
 @struct.dataclass

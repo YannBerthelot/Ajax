@@ -1,7 +1,6 @@
 from functools import partial
 from typing import Callable, Optional, Union
 
-# from gymnax import PlaneParams
 from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
@@ -13,21 +12,19 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import AlphaConfig, NetworkConfig
 from ajax.types import EnvType
 
 
 class SAC(ActorCritic):
-    """Soft Actor-Critic (SAC) agent for training and testing in continuous action spaces."""
+    """Soft Actor-Critic agent for continuous action spaces."""
 
     name: str = "SAC"
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 1,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
@@ -42,7 +39,7 @@ class SAC(ActorCritic):
         learning_starts: int = int(1e4),
         tau: float = 0.005,
         reward_scale: float = 1.0,
-        alpha_init: float = 1.0,  # FIXME: check value
+        alpha_init: float = 1.0,
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
         normalize_observations: bool = False,
@@ -62,28 +59,25 @@ class SAC(ActorCritic):
         early_termination_condition: Optional[Callable] = None,
         residual: bool = False,
         fixed_alpha: bool = False,
+        num_critics: int = 4,
+        # --- Expert guidance ---
+        use_expert_guidance: bool = False,
+        # --- AWBC training parameters ---
+        num_critic_updates: int = 1,
+        expert_buffer_n_steps: int = 20_000,
+        critic_pretrain_steps: int = 5_000,
+        actor_pretrain_steps: int = 0,  # 0 = no BC pre-training
+        expert_mix_fraction: float = 0.1,
+        # --- Asymmetric AWBC (disabled by default) ---
+        # Set use_asymmetric_awbc=True to activate.
+        # above_expert_coef: small AWBC constant when policy beats expert,
+        #   prevents drift without blocking improvement.
+        # above_expert_entropy_scale: halves target entropy when above expert,
+        #   encouraging precision over exploration near the performance ceiling.
+        use_asymmetric_awbc: bool = False,
+        above_expert_coef: float = 0.01,
+        above_expert_entropy_scale: float = 0.5,
     ) -> None:
-        """
-        Initialize the SAC agent.
-
-        Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[PlaneParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
-            alpha_init (float): Initial value for the temperature parameter.
-            target_entropy_per_dim (float): Target entropy per action dimension.
-            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
-        """
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
 
@@ -105,7 +99,6 @@ class SAC(ActorCritic):
             learning_rate=alpha_learning_rate,
             alpha_init=alpha_init,
         )
-
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
@@ -113,10 +106,13 @@ class SAC(ActorCritic):
             squash=True,
             penultimate_normalization=False,
         )
+
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("SAC only supports continuous action spaces.")
+
         action_dim = get_action_dim(self.env_args.env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
+
         self.agent_config = SACConfig(
             gamma=gamma,
             tau=tau,
@@ -124,13 +120,12 @@ class SAC(ActorCritic):
             target_entropy=target_entropy,
             reward_scale=reward_scale,
         )
-
         self.buffer = get_buffer(
             buffer_size=buffer_size,
             batch_size=batch_size,
             n_envs=n_envs,
         )
-
+        self.num_critics = num_critics
         self.cloning_confing = CloningConfig(
             actor_epochs=actor_cloning_epochs,
             critic_epochs=critic_cloning_epochs,
@@ -148,14 +143,22 @@ class SAC(ActorCritic):
         self.early_termination_condition = early_termination_condition
         self.residual = residual
         self.fixed_alpha = fixed_alpha
+        self.use_expert_guidance = use_expert_guidance
+        self.num_critic_updates = num_critic_updates
+        self.expert_buffer_n_steps = expert_buffer_n_steps
+        self.critic_pretrain_steps = critic_pretrain_steps
+        self.actor_pretrain_steps = actor_pretrain_steps
+        self.expert_mix_fraction = expert_mix_fraction
+
+        # When use_asymmetric_awbc=False, disable asymmetry:
+        #   above_expert_coef=0.0  → pure SAC when above expert (symmetric)
+        #   above_expert_entropy_scale=1.0 → standard entropy target always
+        self.above_expert_coef = above_expert_coef if use_asymmetric_awbc else 0.0
+        self.above_expert_entropy_scale = (
+            above_expert_entropy_scale if use_asymmetric_awbc else 1.0
+        )
 
     def get_make_train(self) -> Callable:
-        """
-        Create a training function for the APO agent.
-
-        Returns:
-            Callable: A function that trains the APO agent.
-        """
         return partial(
             make_train,
             buffer=self.buffer,
@@ -165,75 +168,13 @@ class SAC(ActorCritic):
             early_termination_condition=self.early_termination_condition,
             residual=self.residual,
             fixed_alpha=self.fixed_alpha,
+            num_critics=self.num_critics,
+            use_expert_guidance=self.use_expert_guidance,
+            num_critic_updates=self.num_critic_updates,
+            expert_buffer_n_steps=self.expert_buffer_n_steps,
+            critic_pretrain_steps=self.critic_pretrain_steps,
+            actor_pretrain_steps=self.actor_pretrain_steps,
+            expert_mix_fraction=self.expert_mix_fraction,
+            above_expert_coef=self.above_expert_coef,
+            above_expert_entropy_scale=self.above_expert_entropy_scale,
         )
-
-
-if __name__ == "__main__":
-    # def main():
-    #     n_seeds = 1
-    #     log_frequency = 1000
-    #     logging_config = LoggingConfig(
-    #         project_name="dyna_SAC_tests_sweep",
-    #         run_name="SAC",
-    #         config={
-    #             "debug": False,
-    #             "log_frequency": log_frequency,
-    #             "n_seeds": n_seeds,
-    #         },
-    #         log_frequency=log_frequency,
-    #         horizon=10_000,
-    #         use_tensorboard=False,
-    #         use_wandb=False,
-    #     )
-    #     env_id = "halfcheetah"
-
-    #     def init_and_train(config):
-    #         SAC_agent = SAC(env_id=env_id, **config)
-    #         _, score = SAC_agent.train(
-    #             seed=list(range(n_seeds)),
-    #             n_timesteps=int(1e4),
-    #             logging_config=logging_config,
-    #         )
-    #         return score
-
-    #     wandb.init(project="my-first-sweep")
-    #     score = init_and_train(wandb.config)
-
-    #     wandb.log({"score": score})
-
-    # sweep_configuration = {
-    #     "method": "random",
-    #     "metric": {"goal": "maximize", "name": "score"},
-    #     "parameters": {
-    #         "actor_learning_rate": {"max": 0.1, "min": 0.01},
-    #         "n_envs": {"values": [1, 3, 7]},
-    #     },
-    # }
-    # sweep_id = wandb.sweep(sweep=sweep_configuration, project="my-first-sweep")
-
-    # wandb.agent(sweep_id, function=main, count=10)
-
-    n_seeds = 1
-    log_frequency = 5_000
-    logging_config = LoggingConfig(
-        project_name="ASAC_benchmark",
-        run_name="baseline",
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-        },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=False,
-        use_wandb=True,
-    )
-
-    env_id = "ant"
-    SAC_agent = SAC(env_id=env_id, learning_starts=int(1e4), n_envs=1)
-    SAC_agent.train(
-        seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
-        logging_config=logging_config,
-    )
-    # upload_tensorboard_to_wandb(SAC_agent.run_ids, logging_config, use_wandb=True)

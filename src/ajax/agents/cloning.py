@@ -300,33 +300,18 @@ def get_cloning_args(
 )
 def compute_imitation_score(
     pi: distrax.Distribution,
-    expert_policy: Callable[[jax.Array], float],
+    expert_policy: Callable,
     raw_observations: jax.Array,
-    distance_to_stable: Callable[[jax.Array], float],
+    distance_to_stable: Callable,
     imitation_coef_offset: float,
+    q_preds: jax.Array,
+    q_expert: jax.Array,
 ) -> jax.Array:
-    # imitation_loss = (
-    #     -pi.log_prob(expert_policy(raw_observations)).sum(-1, keepdims=True)
-    #     if expert_policy is not None
-    #     else jnp.zeros(1)
-    # )
-    # imitation_loss = jnp.mean(
-    #     jnp.square(pi.mode() if isinstance(pi, distrax.Categorical) else pi.mean()),
-    #     axis=-1,
-    #     keepdims=True,
-    # )
-    if not isinstance(pi, distrax.Categorical):
-        std = pi.unsquashed_stddev() if isinstance(pi, SquashedNormal) else pi.stddev()
-        imitation_loss = jnp.mean(
-            jnp.square(pi.mean()) + jnp.square(std), axis=-1, keepdims=True
-        )
-    else:
-        imitation_loss = 0.0
+    if isinstance(pi, distrax.Categorical):
+        return jnp.zeros(1)
 
-    EPS = 1e-9
-
-    distance = (
-        (1 / (distance_to_stable(raw_observations) + EPS)) + imitation_coef_offset
-    )  # small offset to prevent it going too low while avoiding max (which is conditional on the actual value) for performance
-    distance = jnp.expand_dims(distance, -1)
-    return distance * imitation_loss
+    expert_action = jax.lax.stop_gradient(expert_policy(raw_observations))
+    mse = jnp.mean(
+        jnp.square(pi.mean() - expert_action) / 4.0, axis=-1, keepdims=True
+    )  # pure distance, no Q-weighting
+    return mse

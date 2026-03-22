@@ -97,3 +97,19 @@ def unnormalize_observation(obs: jax.Array, norm_info: NormalizationInfo) -> jax
     if norm_info is None or norm_info.var is None:
         return obs
     return obs * jnp.sqrt(norm_info.var + 1e-8) + norm_info.mean
+
+
+def maybe_append_train_frac(
+    obs: jax.Array,
+    train_frac: Optional[float],
+) -> jax.Array:
+    """
+    Append train_time_fraction as a final observation dimension if provided.
+    This is used to give the agent a curriculum signal (how far through
+    training we are). Pass train_frac=0.0 for pre-collected expert data
+    (collected before training begins) and None to leave obs unchanged.
+    """
+    if train_frac is None:
+        return obs
+    new_col = jnp.full((obs.shape[0], 1), train_frac)
+    return jnp.concatenate([obs, new_col], axis=-1)

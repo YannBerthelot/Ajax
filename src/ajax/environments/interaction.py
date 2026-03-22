@@ -415,15 +415,13 @@ def get_buffer_action_and_env_action(
     Returns (env_action, buffer_action) — always the same during warmup,
     always policy_action after warmup.
     """
-    mix_key, rng = jax.random.split(rng)
+    mix_key, _ = jax.random.split(rng)
     uniform_action = jax.random.uniform(
         mix_key, minval=-1.0, maxval=1.0, shape=expert_action.shape
     )
-    # Coin flip: expert or uniform for this step
     use_expert = jax.random.uniform(mix_key) < expert_fraction
     warmup_action = jnp.where(use_expert, expert_action, uniform_action)
 
-    # Both env and buffer see the same action → reward is meaningful
     env_action = jax.lax.cond(
         is_warmup,
         lambda: warmup_action,
@@ -454,33 +452,19 @@ def collect_experience(
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     action_scale: float = 1.0,
     gamma: Optional[float] = None,
-    always_expert: bool = False,
-    expert_fraction: float = 1.0,
+    expert_fraction: float = 0.7,
 ) -> tuple[BaseAgentState, Transition]:
-    """Collect experience by interacting with the environment.
+    """Collect one step of experience.
 
-    During warmup (uniform=True): randomly alternates between expert and uniform
-    actions for both the environment step and buffer write, so the critic learns
-    a meaningful contrast between good and bad actions before policy learning starts.
+    During warmup (uniform=True):
+      - If expert_policy is provided: randomly picks expert or uniform action
+        (controlled by expert_fraction) for BOTH env step and buffer write,
+        ensuring reward is consistent with the action stored.
+      - If expert_policy is None (vanilla SAC): pure uniform random action.
 
-    After warmup: uses the policy action, with expert override when in_box=True.
-
-    Args:
-        agent_state: Current agent state.
-        _: Placeholder argument for scan compatibility.
-        recurrent: Whether the agent is recurrent.
-        mode: Environment mode ("gymnax" or "brax").
-        env_args: Environment configuration.
-        buffer: Replay buffer.
-        uniform: Whether we are in the warmup phase.
-        expert_policy: Expert policy function mapping raw obs to actions.
-        action_scale: Action scaling factor.
-        gamma: Discount factor (unused here, kept for API compatibility).
-        always_expert: Whether to always use the expert action in the environment.
-        expert_fraction: Fraction of warmup steps that use the expert (vs uniform random).
-
-    Returns:
-        Updated agent state and transition.
+    After warmup:
+      - Policy action, with expert override inside the box when expert_policy
+        is provided and the environment has a trunc_condition.
     """
     rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
 
@@ -488,16 +472,15 @@ def collect_experience(
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
 
-    # Policy action — handles uniform blending internally when uniform=True
-    # but we override this below during warmup with expert/uniform mix
+    # Policy action (used post-warmup)
     action, log_probs = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
         recurrent=recurrent,
-        uniform=uniform,
+        uniform=False,  # never blend here — we handle warmup explicitly below
     )
 
-    # Get raw obs for expert policy
+    # Raw obs (needed for expert policy and buffer)
     has_raw_obs = agent_state.collector_state.rollout.raw_obs is not None
     raw_obs = (
         get_raw_obs(
@@ -509,42 +492,46 @@ def collect_experience(
         else None
     )
 
-    # Compute expert action if available
-    if expert_policy is not None:
-        expert_action = expert_policy(raw_obs)
-    else:
-        expert_action = jnp.zeros_like(action)
-
-    # Proximity-based expert override (post-warmup)
-    in_box = (
-        env_args.env.trunc_condition(
-            agent_state.collector_state.env_state, env_args.env_params
-        )
-        if "trunc_condition" in dir(env_args.env)
-        else 0
-    )
-    in_box = (1 - always_expert) * in_box + always_expert
-
-    # Post-warmup action: policy with expert override when in proximity
-    policy_action = (1 - in_box) * action + in_box * expert_action
-
-    # During warmup: randomly pick expert or uniform for this step.
-    # Both env and buffer use the SAME action so reward is honest.
-    # After warmup: use policy_action for both.
-    use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
+    # --- Compute env_action ---
+    # During warmup: expert/uniform mix (or pure uniform if no expert)
+    # After warmup: policy action with optional in-box expert override
     uniform_action = jax.random.uniform(
         mix_key, minval=-1.0, maxval=1.0, shape=action.shape
     )
-    warmup_action = jnp.where(use_expert_this_step, expert_action, uniform_action)
-    env_action = jax.lax.cond(
-        uniform,  # uniform=True iff warmup phase
-        lambda: warmup_action,
-        lambda: policy_action,
-    )
-    # Buffer always stores what the environment actually received
-    buffer_action = env_action
 
-    # Step the environment
+    if expert_policy is not None:
+        expert_action = jax.lax.stop_gradient(expert_policy(raw_obs))
+
+        # In-box expert override for post-warmup steps
+        in_box = (
+            env_args.env.trunc_condition(
+                agent_state.collector_state.env_state, env_args.env_params
+            )
+            if "trunc_condition" in dir(env_args.env)
+            else jnp.zeros_like(action[..., :1])
+        )
+        post_warmup_action = (1 - in_box) * action + in_box * expert_action
+
+        # Warmup mix: expert_fraction of steps use expert, rest use uniform
+        use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
+        warmup_action = jnp.where(use_expert_this_step, expert_action, uniform_action)
+    else:
+        # No expert — vanilla SAC:
+        #   warmup: pure uniform random
+        #   post-warmup: policy action only (no in-box override)
+        expert_action = jnp.zeros_like(action)  # never sent to env
+        in_box = jnp.zeros_like(action[..., :1])
+        post_warmup_action = action
+        warmup_action = uniform_action
+
+    env_action = jax.lax.cond(
+        uniform,  # True during warmup
+        lambda: warmup_action,
+        lambda: post_warmup_action,
+    )
+    buffer_action = env_action  # always store what the env actually received
+
+    # --- Step environment ---
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,
@@ -566,8 +553,8 @@ def collect_experience(
         ),
     )
 
-    # Recompute in_box after step for reward accumulation logic
-    in_box = (
+    # Recompute in_box AFTER step for reward accumulation logic
+    in_box_after = (
         env_args.env.trunc_condition(
             agent_state.collector_state.env_state, env_args.env_params
         )
@@ -577,11 +564,7 @@ def collect_experience(
 
     raw_next_obs = info["obs_st"] if "obs_st" in info else obsv
 
-    # Reward accumulation for early termination wrapper
-    cond = in_box * jnp.logical_or(terminated, truncated)
-    # reward_transi = cond * agent_state.collector_state.cumulative_reward + reward
-
-    # Buffer write
+    # --- Buffer write ---
     buffer_state = agent_state.collector_state.buffer_state
     if buffer_state is not None and buffer is not None:
         _transition = {
@@ -592,17 +575,13 @@ def collect_experience(
             "truncated": truncated[:, None],
             "raw_obs": raw_obs,
         }
-
-        # Always write during warmup (uniform=True).
-        # After warmup: skip write when in_box and episode not done
-        # (early termination wrapper accumulates reward until done).
         should_write = jnp.logical_or(
             uniform,
             jnp.logical_not(
-                in_box[0] * jnp.logical_not(jnp.logical_or(terminated, truncated))[0]
+                in_box_after[0]
+                * jnp.logical_not(jnp.logical_or(terminated, truncated))[0]
             ),
         )
-        should_write = True
         buffer_state = jax.lax.cond(
             should_write,
             buffer.add,
@@ -611,10 +590,10 @@ def collect_experience(
             _transition,
         )
 
-    # Transition returned to caller (used for on-policy mix if enabled)
+    # Transition for on-policy mix (keeps policy action, not env_action)
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
-        action=action,  # policy action, not env_action, for on-policy logging
+        action=action,
         reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
@@ -642,7 +621,7 @@ def collect_experience(
         episodic_mean_return=episodic_mean_return,
         buffer_state=buffer_state,
         cumulative_reward=(
-            in_box * (agent_state.collector_state.cumulative_reward + reward)
+            in_box_after * (agent_state.collector_state.cumulative_reward + reward)
         ),
     )
 

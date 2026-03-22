@@ -38,7 +38,11 @@ class ExperimentConfig:
     # Environment
     use_box: bool = True  # wrap with EarlyTerminationWrapper
 
-    # Expert guidance
+    # Expert involvement — three independent flags:
+    # use_expert_warmup:  expert actions used during buffer warmup phase
+    # use_expert_guidance: AWBC gradient term active during training
+    # Setting both False → true vanilla SAC with no expert involvement whatsoever
+    use_expert_warmup: bool = True  # expert/uniform mix during warmup
     use_expert_guidance: bool = False  # AWBC gradient term active
 
     # AWBC core parameters
@@ -51,7 +55,17 @@ class ExperimentConfig:
     # Asymmetric AWBC (disabled by default → symmetric, set True to activate)
     use_asymmetric_awbc: bool = False
     above_expert_coef: float = 0.01  # only used when use_asymmetric_awbc=True
-    above_expert_entropy_scale: float = 0.5  # only used when use_asymmetric_awbc=True
+
+    # Proximity-weighted AWBC
+    # box_threshold is the single source of truth: it sets both the
+    # EarlyTerminationWrapper boundary AND normalizes the proximity weight.
+    # proximity_scale=None → no decay (uniform expert trust everywhere)
+    # proximity_scale=1.0  → weight=0.37 at box boundary, ~0 at 5× boundary
+    # proximity_scale=2.0  → gentler: still 8% trust at 5× boundary
+    box_threshold: float = 500.0
+    proximity_scale: Optional[float] = None
+    altitude_obs_idx: int = 1  # raw_obs index for current altitude
+    target_obs_idx: int = 6  # raw_obs index for target altitude
 
     # Standard SAC hyperparameters
     num_critics: int = 4
@@ -82,14 +96,19 @@ def build_experiments() -> List[ExperimentConfig]:
     exps = []
 
     # ------------------------------------------------------------------
-    # 1. Baseline SAC — vanilla, no expert, no box
-    # Clean lower bound for comparison.
+    # 1. True vanilla SAC — no expert involvement whatsoever
+    # Uses standard SAC hyperparameters: 2 critics, tau=0.005.
+    # Our tuned settings (4 critics, tau=5e-4) are deliberate departures
+    # from vanilla SAC — this baseline uses neither.
     # ------------------------------------------------------------------
     exps.append(
         ExperimentConfig(
-            name="baseline_sac",
+            name="baseline_sac_vanilla",
             use_box=False,
+            use_expert_warmup=False,
             use_expert_guidance=False,
+            num_critics=2,  # standard SAC (not our tuned 4)
+            tau=0.005,  # standard SAC (not our tuned 5e-4)
             num_critic_updates=1,
             actor_pretrain_steps=0,
             critic_pretrain_steps=0,
@@ -99,14 +118,56 @@ def build_experiments() -> List[ExperimentConfig]:
     )
 
     # ------------------------------------------------------------------
-    # 2. Baseline SAC + box — no AWBC, but box mechanism active
-    # Isolates whether the box alone helps vs pure SAC.
+    # 2. SAC with our tuned settings but no expert involvement
+    # Separates the effect of our hyperparameter choices from the expert.
+    # ------------------------------------------------------------------
+    exps.append(
+        ExperimentConfig(
+            name="baseline_sac_tuned",
+            use_box=False,
+            use_expert_warmup=False,
+            use_expert_guidance=False,
+            num_critics=4,  # our tuned setting
+            tau=5e-4,  # our tuned setting
+            num_critic_updates=1,
+            actor_pretrain_steps=0,
+            critic_pretrain_steps=0,
+            expert_buffer_n_steps=0,
+            expert_mix_fraction=0.0,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # 3. SAC with expert warmup, no AWBC, no box
+    # Isolates the effect of expert buffer seeding alone.
+    # ------------------------------------------------------------------
+    exps.append(
+        ExperimentConfig(
+            name="baseline_sac_expert_warmup",
+            use_box=False,
+            use_expert_warmup=True,
+            use_expert_guidance=False,
+            num_critics=4,
+            tau=5e-4,
+            num_critic_updates=1,
+            actor_pretrain_steps=0,
+            critic_pretrain_steps=0,
+            expert_buffer_n_steps=0,
+            expert_mix_fraction=0.0,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # 4. Baseline SAC + box — no AWBC, but box mechanism active
     # ------------------------------------------------------------------
     exps.append(
         ExperimentConfig(
             name="baseline_sac_box",
             use_box=True,
+            use_expert_warmup=True,
             use_expert_guidance=False,
+            num_critics=4,
+            tau=5e-4,
             num_critic_updates=1,
             actor_pretrain_steps=0,
             critic_pretrain_steps=0,
@@ -116,15 +177,14 @@ def build_experiments() -> List[ExperimentConfig]:
     )
 
     # ------------------------------------------------------------------
-    # 3 & 4. AWBC, no BC — symmetric, varying critic updates
-    # 1 critic: original working result
-    # 4 critics: best known, more stable Q-estimates
+    # 4 & 5. AWBC, no BC — symmetric, varying critic updates
     # ------------------------------------------------------------------
     for n in [1, 4]:
         exps.append(
             ExperimentConfig(
                 name=f"awbc_no_bc_{n}critic",
                 use_box=True,
+                use_expert_warmup=True,
                 use_expert_guidance=True,
                 num_critic_updates=n,
                 actor_pretrain_steps=0,
@@ -135,15 +195,14 @@ def build_experiments() -> List[ExperimentConfig]:
         )
 
     # ------------------------------------------------------------------
-    # 5 & 6. AWBC + BC — symmetric, varying critic updates
-    # BC initializes policy near expert → awbc_coef ≈ 0 at start → free SAC.
-    # Risk: overshoot with 1 critic update. 4 critics should prevent this.
+    # 6 & 7. AWBC + BC — symmetric, varying critic updates
     # ------------------------------------------------------------------
     for n in [1, 4]:
         exps.append(
             ExperimentConfig(
                 name=f"awbc_bc_{n}critic",
                 use_box=True,
+                use_expert_warmup=True,
                 use_expert_guidance=True,
                 num_critic_updates=n,
                 actor_pretrain_steps=2_000,
@@ -154,17 +213,14 @@ def build_experiments() -> List[ExperimentConfig]:
         )
 
     # ------------------------------------------------------------------
-    # 7 & 8. Asymmetric AWBC — with and without BC, 4 critics
-    # Tests whether near-saturation asymmetry helps (~200pt headroom).
-    # above_expert_coef=0.01: tiny pull prevents drift when above expert.
-    # above_expert_entropy_scale=0.5: lower target entropy when above expert
-    #   → more deterministic approach trajectory → less variance near ceiling.
+    # 8 & 9. Asymmetric AWBC — with and without BC, 4 critics
     # ------------------------------------------------------------------
     for use_bc in [False, True]:
         exps.append(
             ExperimentConfig(
                 name=f"awbc_asymmetric_{'bc' if use_bc else 'no_bc'}_4critic",
                 use_box=True,
+                use_expert_warmup=True,
                 use_expert_guidance=True,
                 num_critic_updates=4,
                 actor_pretrain_steps=2_000 if use_bc else 0,
@@ -172,7 +228,25 @@ def build_experiments() -> List[ExperimentConfig]:
                 expert_buffer_n_steps=20_000,
                 use_asymmetric_awbc=True,
                 above_expert_coef=0.01,
-                above_expert_entropy_scale=0.5,
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # 10–12. Proximity-weighted AWBC — varying decay scale, no BC, 4 critics
+    # ------------------------------------------------------------------
+    for scale in [0.5, 1.0, 2.0]:
+        exps.append(
+            ExperimentConfig(
+                name=f"awbc_proximity_{scale}_4critic",
+                use_box=True,
+                use_expert_warmup=True,
+                use_expert_guidance=True,
+                num_critic_updates=4,
+                actor_pretrain_steps=0,
+                critic_pretrain_steps=5_000,
+                expert_buffer_n_steps=20_000,
+                box_threshold=500.0,
+                proximity_scale=scale,
             )
         )
 
@@ -186,8 +260,9 @@ def build_experiments() -> List[ExperimentConfig]:
 
 def setup():
     """
-    Load environment, expert policy, and box condition.
-    Called once per process — cheap, no GPU needed until JAX is used.
+    Load environment and expert policy.
+    box_threshold is per-experiment so trunc_condition and wrapped_env
+    are built inside run_single_experiment, not here.
     """
     env = Plane()
     env_params = PlaneParams(
@@ -209,16 +284,20 @@ def setup():
         if jnp.isnan(expert_policy(test_obs)).any():
             raise ValueError(f"Expert policy produces NaN at altitude {test_alt}")
 
+    return env, env_params, expert_policy
+
+
+def make_trunc_condition(box_threshold: float):
+    """
+    Build a truncation condition from box_threshold.
+    Single source of truth: the same threshold is used by both the
+    EarlyTerminationWrapper and the AWBC proximity weight normalization.
+    """
+
     def trunc_condition(state: PlaneState, params: PlaneParams) -> bool:
-        return jnp.abs(state.target_altitude - state.z) < 500.0
+        return jnp.abs(state.target_altitude - state.z) < box_threshold
 
-    wrapped_env = EarlyTerminationWrapper(
-        env,
-        trunc_condition=trunc_condition,
-        expert_policy=expert_policy,
-    )
-
-    return env, env_params, expert_policy, trunc_condition, wrapped_env
+    return trunc_condition
 
 
 def run_single_experiment(
@@ -226,8 +305,6 @@ def run_single_experiment(
     env,
     env_params,
     expert_policy,
-    trunc_condition,
-    wrapped_env,
     n_seeds: int,
     n_timesteps: int,
     num_episode_test: int,
@@ -238,13 +315,26 @@ def run_single_experiment(
     """Run one ExperimentConfig to completion. Called per-process by the launcher."""
     mode = get_mode()
 
+    # Build per-experiment box condition from exp.box_threshold — single source of truth
+    trunc_condition = make_trunc_condition(exp.box_threshold)
+    wrapped_env = EarlyTerminationWrapper(
+        env,
+        trunc_condition=trunc_condition,
+        expert_policy=expert_policy,
+    )
+
     policy_score = get_policy_score(expert_policy, env, env_params)
     print(f"[{exp.name}] Expert score: {policy_score:.1f}")
     print(
-        f"[{exp.name}] box={exp.use_box}  guidance={exp.use_expert_guidance}  "
+        f"[{exp.name}] box={exp.use_box}  threshold={exp.box_threshold}  "
+        f"expert_warmup={exp.use_expert_warmup}  guidance={exp.use_expert_guidance}  "
         f"critics={exp.num_critic_updates}  bc={exp.actor_pretrain_steps > 0}  "
-        f"asymmetric={exp.use_asymmetric_awbc}"
+        f"proximity_scale={exp.proximity_scale}"
     )
+
+    # When use_expert_warmup=False, pass None to the agent so collect_experience
+    # uses pure uniform random actions during warmup — true vanilla SAC behaviour.
+    agent_expert_policy = expert_policy if exp.use_expert_warmup else None
 
     logging_config = get_log_config(
         project_name=project_name,
@@ -253,6 +343,7 @@ def run_single_experiment(
         use_wandb=True,
         sweep=sweep_mode,
         use_box=exp.use_box,
+        use_expert_warmup=exp.use_expert_warmup,
         use_expert_guidance=exp.use_expert_guidance,
         num_critics=exp.num_critics,
         num_critic_updates=exp.num_critic_updates,
@@ -262,7 +353,8 @@ def run_single_experiment(
         expert_mix_fraction=exp.expert_mix_fraction,
         use_asymmetric_awbc=exp.use_asymmetric_awbc,
         above_expert_coef=exp.above_expert_coef,
-        above_expert_entropy_scale=exp.above_expert_entropy_scale,
+        box_threshold=exp.box_threshold,
+        proximity_scale=exp.proximity_scale,
         tau=exp.tau,
         target_entropy_per_dim=exp.target_entropy_per_dim,
     )
@@ -270,7 +362,8 @@ def run_single_experiment(
     _agent = SAC(
         env_id=wrapped_env if exp.use_box else env,
         env_params=env_params,
-        expert_policy=expert_policy,
+        expert_policy=agent_expert_policy,  # None → pure uniform warmup
+        eval_expert_policy=expert_policy,  # always set → expert bias logged for all runs
         action_scale=1.0,
         early_termination_condition=trunc_condition if exp.use_box else None,
         num_critics=exp.num_critics,
@@ -295,7 +388,10 @@ def run_single_experiment(
         ),
         use_asymmetric_awbc=exp.use_asymmetric_awbc,
         above_expert_coef=exp.above_expert_coef,
-        above_expert_entropy_scale=exp.above_expert_entropy_scale,
+        box_threshold=exp.box_threshold,
+        proximity_scale=exp.proximity_scale,
+        altitude_obs_idx=exp.altitude_obs_idx,
+        target_obs_idx=exp.target_obs_idx,
     )
 
     if mode == "CPU":
@@ -349,10 +445,9 @@ if __name__ == "__main__":
     sweep_mode = False
 
     experiments = build_experiments()
-    env, env_params, expert_policy, trunc_condition, wrapped_env = setup()
+    env, env_params, expert_policy = setup()
 
     if args.exp_index is not None:
-        # --- Single-experiment mode (called by gpu_launcher.py) ---
         if args.exp_index >= len(experiments):
             raise ValueError(
                 f"--exp-index {args.exp_index} out of range "
@@ -365,8 +460,6 @@ if __name__ == "__main__":
             env=env,
             env_params=env_params,
             expert_policy=expert_policy,
-            trunc_condition=trunc_condition,
-            wrapped_env=wrapped_env,
             n_seeds=n_seeds,
             n_timesteps=n_timesteps,
             num_episode_test=num_episode_test,
@@ -375,7 +468,6 @@ if __name__ == "__main__":
             sweep_mode=sweep_mode,
         )
     else:
-        # --- Full sequential sweep (original behaviour, useful for debugging) ---
         print(f"Sequential sweep: {len(experiments)} experiments × {n_seeds} seeds\n")
         for exp in experiments:
             run_single_experiment(
@@ -383,8 +475,6 @@ if __name__ == "__main__":
                 env=env,
                 env_params=env_params,
                 expert_policy=expert_policy,
-                trunc_condition=trunc_condition,
-                wrapped_env=wrapped_env,
                 n_seeds=n_seeds,
                 n_timesteps=n_timesteps,
                 num_episode_test=num_episode_test,

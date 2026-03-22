@@ -52,6 +52,7 @@ class SAC(ActorCritic):
         critic_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         expert_policy: Optional[Callable] = None,
+        eval_expert_policy: Optional[Callable] = None,  # for eval logging only
         imitation_coef: Union[float, Callable[[int], float]] = 0.0,
         distance_to_stable: Optional[Callable] = None,
         imitation_coef_offset: float = 0.0,
@@ -72,11 +73,22 @@ class SAC(ActorCritic):
         # Set use_asymmetric_awbc=True to activate.
         # above_expert_coef: small AWBC constant when policy beats expert,
         #   prevents drift without blocking improvement.
-        # above_expert_entropy_scale: halves target entropy when above expert,
         #   encouraging precision over exploration near the performance ceiling.
         use_asymmetric_awbc: bool = False,
         above_expert_coef: float = 0.01,
-        above_expert_entropy_scale: float = 0.5,
+        # --- Proximity-weighted AWBC ---
+        # box_threshold: distance at which expert takes over — must match trunc_condition.
+        #   Single source of truth: changing this automatically updates both the box
+        #   boundary and the proximity weight normalization.
+        # proximity_scale: decay rate; weight = exp(-dist/box_threshold/scale)
+        #   None  → no decay (uniform expert trust everywhere)
+        #   0.5   → very local (≈0 beyond 2× box boundary)
+        #   1.0   → moderate (0.37 at box boundary, ≈0 at 5× boundary)
+        #   2.0   → gentle (still 8% trust at 5× box boundary)
+        box_threshold: float = 500.0,
+        proximity_scale: Optional[float] = None,
+        altitude_obs_idx: int = 1,  # raw_obs index for current altitude
+        target_obs_idx: int = 6,  # raw_obs index for target altitude
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -140,6 +152,7 @@ class SAC(ActorCritic):
             action_scale=action_scale,
         )
         self.expert_policy = expert_policy
+        self.eval_expert_policy = eval_expert_policy
         self.early_termination_condition = early_termination_condition
         self.residual = residual
         self.fixed_alpha = fixed_alpha
@@ -152,11 +165,11 @@ class SAC(ActorCritic):
 
         # When use_asymmetric_awbc=False, disable asymmetry:
         #   above_expert_coef=0.0  → pure SAC when above expert (symmetric)
-        #   above_expert_entropy_scale=1.0 → standard entropy target always
         self.above_expert_coef = above_expert_coef if use_asymmetric_awbc else 0.0
-        self.above_expert_entropy_scale = (
-            above_expert_entropy_scale if use_asymmetric_awbc else 1.0
-        )
+        self.box_threshold = box_threshold
+        self.proximity_scale = proximity_scale
+        self.altitude_obs_idx = altitude_obs_idx
+        self.target_obs_idx = target_obs_idx
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -164,7 +177,10 @@ class SAC(ActorCritic):
             buffer=self.buffer,
             alpha_args=self.alpha_args,
             cloning_args=self.cloning_confing,
+            # expert_policy: used for training (warmup seeding, AWBC gradient).
+            #   None → no expert involvement in training whatsoever.
             expert_policy=self.expert_policy,
+            eval_expert_policy=self.eval_expert_policy,
             early_termination_condition=self.early_termination_condition,
             residual=self.residual,
             fixed_alpha=self.fixed_alpha,
@@ -176,5 +192,8 @@ class SAC(ActorCritic):
             actor_pretrain_steps=self.actor_pretrain_steps,
             expert_mix_fraction=self.expert_mix_fraction,
             above_expert_coef=self.above_expert_coef,
-            above_expert_entropy_scale=self.above_expert_entropy_scale,
+            box_threshold=self.box_threshold,
+            proximity_scale=self.proximity_scale,
+            altitude_obs_idx=self.altitude_obs_idx,
+            target_obs_idx=self.target_obs_idx,
         )

@@ -155,6 +155,8 @@ class CollectorState:
 
     @property
     def train_time_fraction(self) -> float:
+        if self.max_timesteps is None:
+            return None
         return self.timestep / self.max_timesteps
 
     @property

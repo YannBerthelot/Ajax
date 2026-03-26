@@ -191,3 +191,6 @@ profile
 pyrightconfig.json
 sweep/**/results/
 expert_policy.pkl
+hp_results/
+plots/
+*.csv

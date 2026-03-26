@@ -1,5 +1,11 @@
 Plane:
-  critic_learning_rate: 0.00020031332263847833
-  actor_learning_rate: !!float 4.792697970593381e-05
-  alpha_learning_rate :  !!float 1.7070482828207568e-05
-  gamma: 0.9053116084682472
+  actor_learning_rate: 0.00034050308333172116
+  critic_learning_rate: 0.0002546344857460044
+  alpha_learning_rate: 0.0006128474423209328
+  gamma: 0.9804642377340801
+  tau: 0.008363056449392907
+  alpha_init: 1.2073256378202188
+  target_entropy_per_dim: -0.2678103449772349
+  batch_size: 256
+  arch_width: 256
+  max_grad_norm: 1.0

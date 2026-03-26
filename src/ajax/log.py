@@ -190,7 +190,6 @@ def evaluate_and_log(
 
         if log:
             jax.debug.callback(log_fn, metrics_to_log, index)
-            jax.clear_caches()
 
         return metrics_to_log
 

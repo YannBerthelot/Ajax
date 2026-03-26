@@ -439,6 +439,7 @@ def get_buffer_action_and_env_action(
         "buffer",
         "expert_policy",
         "expert_fraction",
+        "augment_obs_with_expert_action",
     ],
 )
 def collect_experience(
@@ -453,6 +454,7 @@ def collect_experience(
     action_scale: float = 1.0,
     gamma: Optional[float] = None,
     expert_fraction: float = 0.7,
+    augment_obs_with_expert_action: bool = False,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
@@ -472,15 +474,7 @@ def collect_experience(
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
 
-    # Policy action (used post-warmup)
-    action, log_probs = get_action_and_log_probs(
-        action_key=action_key,
-        agent_state=agent_state,
-        recurrent=recurrent,
-        uniform=False,  # never blend here — we handle warmup explicitly below
-    )
-
-    # Raw obs (needed for expert policy and buffer)
+    # Raw obs (needed for expert policy and augmentation — must come before actor call)
     has_raw_obs = agent_state.collector_state.rollout.raw_obs is not None
     raw_obs = (
         get_raw_obs(
@@ -490,6 +484,31 @@ def collect_experience(
         )
         if has_raw_obs
         else None
+    )
+
+    # If obs augmentation is enabled, temporarily replace last_obs with the
+    # augmented version so the actor sees [obs | a_expert | train_frac].
+    # The buffer still receives the original (unaugmented) last_obs below.
+    if augment_obs_with_expert_action and expert_policy is not None:
+        _raw_for_aug = raw_obs if raw_obs is not None else agent_state.collector_state.last_obs
+        _a_expert = jax.lax.stop_gradient(expert_policy(_raw_for_aug))
+        _last_obs = agent_state.collector_state.last_obs
+        # Layout: [env_obs | a_expert | train_frac]  (train_frac is the last dim)
+        _augmented_obs = jnp.concatenate(
+            [_last_obs[..., :-1], _a_expert, _last_obs[..., -1:]], axis=-1
+        )
+        _agent_state_for_actor = agent_state.replace(
+            collector_state=agent_state.collector_state.replace(last_obs=_augmented_obs)
+        )
+    else:
+        _agent_state_for_actor = agent_state
+
+    # Policy action (used post-warmup)
+    action, log_probs = get_action_and_log_probs(
+        action_key=action_key,
+        agent_state=_agent_state_for_actor,
+        recurrent=recurrent,
+        uniform=False,  # never blend here — we handle warmup explicitly below
     )
 
     # --- Compute env_action ---
@@ -525,11 +544,11 @@ def collect_experience(
         warmup_action = uniform_action
 
     env_action = jax.lax.cond(
-        uniform,  # True during warmup
+        uniform,                          # True during warmup
         lambda: warmup_action,
         lambda: post_warmup_action,
     )
-    buffer_action = env_action  # always store what the env actually received
+    buffer_action = env_action            # always store what the env actually received
 
     # --- Step environment ---
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(

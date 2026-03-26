@@ -60,7 +60,7 @@ class SAC(ActorCritic):
         early_termination_condition: Optional[Callable] = None,
         residual: bool = False,
         fixed_alpha: bool = False,
-        num_critics: int = 4,
+        num_critics: int = 2,
         # --- Expert guidance (all disabled by default) ---
         use_expert_guidance: bool = False,
         num_critic_updates: int = 1,
@@ -80,6 +80,13 @@ class SAC(ActorCritic):
         value_constraint_coef: float = 0.0,
         # Obs augmentation: append a_expert(target) to obs
         augment_obs_with_expert_action: bool = False,
+        # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
+        use_bellman_critic_pretrain: bool = False,
+        # AWBC ablation flags
+        awbc_normalize: bool = True,
+        awbc_use_relu: bool = True,
+        fixed_awbc_lambda: Optional[float] = None,
+        detach_obs_aug_action: bool = False,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -141,6 +148,11 @@ class SAC(ActorCritic):
         self.mc_pretrain_n_steps = mc_pretrain_n_steps
         self.value_constraint_coef = value_constraint_coef
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
+        self.use_bellman_critic_pretrain = use_bellman_critic_pretrain
+        self.awbc_normalize = awbc_normalize
+        self.awbc_use_relu = awbc_use_relu
+        self.fixed_awbc_lambda = fixed_awbc_lambda
+        self.detach_obs_aug_action = detach_obs_aug_action
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -162,4 +174,9 @@ class SAC(ActorCritic):
             mc_pretrain_n_steps=self.mc_pretrain_n_steps,
             value_constraint_coef=self.value_constraint_coef,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
+            use_bellman_critic_pretrain=self.use_bellman_critic_pretrain,
+            awbc_normalize=self.awbc_normalize,
+            awbc_use_relu=self.awbc_use_relu,
+            fixed_awbc_lambda=self.fixed_awbc_lambda,
+            detach_obs_aug_action=self.detach_obs_aug_action,
         )

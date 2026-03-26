@@ -153,11 +153,16 @@ class ActorCritic:
                 **kwargs,
             )
 
-            agent_state, out = train_jit(key, index)
-            stop_async_logging()
-
-            return agent_state, out
+            return train_jit(key, index)
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        # Block until all XLA computation and debug.callbacks complete, then
+        # drain and stop the logging worker.  Calling stop_async_logging()
+        # inside the vmapped function was wrong: it ran as a Python side effect
+        # during vmap *tracing* (before any training executed), killing the
+        # worker before any log events were queued.
+        jax.block_until_ready(result)
+        stop_async_logging()
+        return result

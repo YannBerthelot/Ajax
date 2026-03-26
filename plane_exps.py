@@ -62,8 +62,8 @@ class ExperimentConfig:
     mc_pretrain_n_steps: int = 5_000
 
     # Standard SAC hyperparameters
-    num_critics: int = 4
-    tau: float = 5e-4
+    num_critics: int = 2
+    tau: float = 5e-3
     alpha_init: float = 1.0
     target_entropy_per_dim: float = -1.0
     max_grad_norm: Optional[float] = 0.5
@@ -107,94 +107,94 @@ def build_experiments() -> List[ExperimentConfig]:
     # ------------------------------------------------------------------
     # [0-2] Baselines
     # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="baseline_sac_vanilla",
-        num_critics=2, tau=0.005, max_grad_norm=None,
-        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    ))
-    exps.append(ExperimentConfig(
-        name="baseline_sac_tuned",
-        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    ))
-    exps.append(ExperimentConfig(
-        name="baseline_sac_expert_warmup",
-        use_expert_warmup=True,
-        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    ))
+    # exps.append(ExperimentConfig(
+    #     name="baseline_sac_vanilla",
+    #     num_critics=2, tau=0.005, max_grad_norm=None,
+    #     expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+    # ))
+    # exps.append(ExperimentConfig(
+    #     name="baseline_sac_tuned",
+    #     expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+    # ))
+    # exps.append(ExperimentConfig(
+    #     name="baseline_sac_expert_warmup",
+    #     use_expert_warmup=True,
+    #     expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+    # ))
 
-    # ------------------------------------------------------------------
-    # [3] MC pretrain alone — critic initialisation, no imitation term
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain",
-        use_expert_warmup=True,
-        **MC, **BUF,
-    ))
+    # # ------------------------------------------------------------------
+    # # [3] MC pretrain alone — critic initialisation, no imitation term
+    # # ------------------------------------------------------------------
+    # exps.append(ExperimentConfig(
+    #     name="mc_pretrain",
+    #     use_expert_warmup=True,
+    #     **MC, **BUF,
+    # ))
 
-    # ------------------------------------------------------------------
-    # [4] AWBC alone (no MC pretrain) — isolates AWBC contribution
-    # Previously missing: lets us decompose mc_pretrain_awbc cleanly.
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="awbc_only",
-        use_expert_warmup=True,
-        use_expert_guidance=True,
-        num_critic_updates=4,
-        **BUF,
-    ))
+    # # ------------------------------------------------------------------
+    # # [4] AWBC alone (no MC pretrain) — isolates AWBC contribution
+    # # Previously missing: lets us decompose mc_pretrain_awbc cleanly.
+    # # ------------------------------------------------------------------
+    # exps.append(ExperimentConfig(
+    #     name="awbc_only",
+    #     use_expert_warmup=True,
+    #     use_expert_guidance=True,
+    #     num_critic_updates=4,
+    #     **BUF,
+    # ))
 
-    # ------------------------------------------------------------------
-    # [5] THE WINNER — MC pretrain + AWBC
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc",
-        use_expert_warmup=True,
-        use_expert_guidance=True,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
+    # # ------------------------------------------------------------------
+    # # [5] THE WINNER — MC pretrain + AWBC
+    # # ------------------------------------------------------------------
+    # exps.append(ExperimentConfig(
+    #     name="mc_pretrain_awbc",
+    #     use_expert_warmup=True,
+    #     use_expert_guidance=True,
+    #     num_critic_updates=4,
+    #     **MC, **BUF,
+    # ))
 
-    # ------------------------------------------------------------------
-    # [6-7] Value constraint sweep (two best coefs from prior sweep)
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="value_constraint_0.5",
-        use_expert_warmup=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **BUF,
-    ))
-    exps.append(ExperimentConfig(
-        name="value_constraint_1.0",
-        use_expert_warmup=True,
-        value_constraint_coef=1.0,
-        num_critic_updates=4,
-        **BUF,
-    ))
+    # # ------------------------------------------------------------------
+    # # [6-7] Value constraint sweep (two best coefs from prior sweep)
+    # # ------------------------------------------------------------------
+    # exps.append(ExperimentConfig(
+    #     name="value_constraint_0.5",
+    #     use_expert_warmup=True,
+    #     value_constraint_coef=0.5,
+    #     num_critic_updates=4,
+    #     **BUF,
+    # ))
+    # exps.append(ExperimentConfig(
+    #     name="value_constraint_1.0",
+    #     use_expert_warmup=True,
+    #     value_constraint_coef=1.0,
+    #     num_critic_updates=4,
+    #     **BUF,
+    # ))
 
-    # ------------------------------------------------------------------
-    # [8] MC pretrain + value constraint
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_vc_0.5",
-        use_expert_warmup=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
+    # # ------------------------------------------------------------------
+    # # [8] MC pretrain + value constraint
+    # # ------------------------------------------------------------------
+    # exps.append(ExperimentConfig(
+    #     name="mc_pretrain_vc_0.5",
+    #     use_expert_warmup=True,
+    #     value_constraint_coef=0.5,
+    #     num_critic_updates=4,
+    #     **MC, **BUF,
+    # ))
 
-    # ------------------------------------------------------------------
-    # [9] Winner + value constraint
-    # Does adding a value floor on top of the winner help?
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc_vc_0.5",
-        use_expert_warmup=True,
-        use_expert_guidance=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
+    # # ------------------------------------------------------------------
+    # # [9] Winner + value constraint
+    # # Does adding a value floor on top of the winner help?
+    # # ------------------------------------------------------------------
+    # exps.append(ExperimentConfig(
+    #     name="mc_pretrain_awbc_vc_0.5",
+    #     use_expert_warmup=True,
+    #     use_expert_guidance=True,
+    #     value_constraint_coef=0.5,
+    #     num_critic_updates=4,
+    #     **MC, **BUF,
+    # ))
 
     # ------------------------------------------------------------------
     # [10] Obs augment alone — a_expert appended to obs as a hint
@@ -324,7 +324,7 @@ def build_experiments() -> List[ExperimentConfig]:
         **MC, **BUF,
     ))
 
-    assert len(exps) == 20, f"Expected 20 experiments, got {len(exps)}"
+    #assert len(exps) == 20, f"Expected 20 experiments, got {len(exps)}"
     return exps
 
 
@@ -384,6 +384,7 @@ def run_single_experiment(
     log_frequency: int,
     project_name: str,
     sweep_mode: bool,
+    use_wandb: bool = True,
 ):
     """Run one ExperimentConfig to completion. Called per-process by the launcher."""
     mode = get_mode()
@@ -407,7 +408,7 @@ def run_single_experiment(
         project_name=project_name,
         agent_name=exp.name,
         log_frequency=log_frequency,
-        use_wandb=True,
+        use_wandb=use_wandb,
         sweep=sweep_mode,
         use_box=exp.use_box,
         use_expert_warmup=exp.use_expert_warmup,
@@ -501,15 +502,25 @@ if __name__ == "__main__":
             "Omit to run all experiments sequentially (original behaviour)."
         ),
     )
+    parser.add_argument(
+        "--no-wandb",
+        action="store_true",
+        help=(
+            "Disable W&B logging (TensorBoard still written). "
+            "Saves ~1-3s × n_seeds of blocking network calls before training starts. "
+            "Use for large seed sweeps where you only need post-hoc plots."
+        ),
+    )
     args = parser.parse_args()
 
     # --- Shared config ---
     project_name = "tests_SAC_plane_awbc_sweep_clean"
     n_timesteps = int(1e6)
-    n_seeds = 20
+    n_seeds = 50
     num_episode_test = 25
-    log_frequency = 5_000
+    log_frequency = 10_000
     sweep_mode = False
+    use_wandb = not args.no_wandb
 
     experiments = build_experiments()
     env, env_params, expert_policy = setup()
@@ -533,6 +544,7 @@ if __name__ == "__main__":
             log_frequency=log_frequency,
             project_name=project_name,
             sweep_mode=sweep_mode,
+            use_wandb=use_wandb,
         )
     else:
         print(f"Sequential sweep: {len(experiments)} experiments × {n_seeds} seeds\n")
@@ -548,4 +560,5 @@ if __name__ == "__main__":
                 log_frequency=log_frequency,
                 project_name=project_name,
                 sweep_mode=sweep_mode,
+                use_wandb=use_wandb,
             )

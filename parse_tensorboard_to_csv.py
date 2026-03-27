@@ -24,8 +24,8 @@ from tqdm import tqdm
 
 TB_DIR = Path("tensorboard")
 WANDB_DIR = Path("wandb")
-TARGET_PROJECT = b"tests_SAC_plane_awbc_sweep_clean"
-OUTPUT_CSV = "plane_exps_awbc_sweep_clean.csv"
+TARGET_PROJECT = b"ablation_study_awbc_debug_3"
+OUTPUT_CSV = "ablation_study_awbc_debug_3.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +54,7 @@ HPARAM_KEYS = [
     "use_expert_warmup",
     "use_expert_guidance",
     "use_mc_critic_pretrain",
+    "use_bellman_critic_pretrain",
     "value_constraint_coef",
     "augment_obs_with_expert_action",
     "num_critics",
@@ -64,6 +65,11 @@ HPARAM_KEYS = [
     "proximity_scale",
     "tau",
     "target_entropy_per_dim",
+    "awbc_normalize",
+    "awbc_use_relu",
+    "fixed_awbc_lambda",
+    "detach_obs_aug_action",
+    "use_train_frac",
 ]
 
 

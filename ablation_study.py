@@ -62,7 +62,7 @@ _HP_DEFAULTS = {
     "critic_learning_rate": 3e-4,
     "alpha_learning_rate": 3e-4,
     "gamma": 0.99,
-    "tau": 5e-3,
+    "tau": 5e-4,
     "alpha_init": 1.0,
     "target_entropy_per_dim": -1.0,
     "max_grad_norm": 0.5,
@@ -109,7 +109,7 @@ class ExperimentConfig:
     augment_obs_with_expert_action: bool = False
 
     # AWBC parameters
-    num_critic_updates: int = 1
+    num_critic_updates: int = 4
     expert_buffer_n_steps: int = 20_000
     expert_mix_fraction: float = 0.1
     box_threshold: float = 500.0
@@ -125,7 +125,7 @@ class ExperimentConfig:
     # Standard SAC hyperparameters
     # None means "use the value from hyperparams/ajax_sac.yml" (set by hyperparam search).
     # Set explicitly in an ExperimentConfig to override for a specific ablation.
-    num_critics: int = 2
+    num_critics: int = 4
     actor_lr: Optional[float] = None
     critic_lr: Optional[float] = None
     alpha_lr: Optional[float] = None
@@ -142,6 +142,9 @@ class ExperimentConfig:
     awbc_use_relu: bool = True           # False → raw (Q*-Qπ) difference, no self-annealing
     fixed_awbc_lambda: Optional[float] = None   # float → bypass adaptive λ with a constant
     detach_obs_aug_action: bool = False  # True → stop-grad through a_expert dims in actor obs
+
+    # Train-fraction conditioning
+    use_train_frac: bool = True          # False → disable; True is default for expert-guided runs
 
 
 # ---------------------------------------------------------------------------
@@ -175,10 +178,29 @@ def build_experiments() -> List[ExperimentConfig]:
     # Tier 1 — Core ablations
     # ==================================================================
 
-    # Pure SAC floor — no expert at all
+    # Pure SAC floor — no expert, no train_frac conditioning
     exps.append(ExperimentConfig(
         name="sac_baseline",
         expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+        use_train_frac=False,
+        num_critics=2,
+        num_critic_updates=1,
+    ))
+
+    # SAC with train-fraction conditioning — tests whether time-conditioned obs helps
+    exps.append(ExperimentConfig(
+        name="sac_baseline_4_critics",
+        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+        num_critics=4,
+        num_critic_updates=1,
+        use_train_frac=True,
+    ))
+
+    # Main reference — previously run, anchor for all comparisons
+    exps.append(ExperimentConfig(
+        name="mc_pretrain_awbc",
+        use_expert_warmup=True,
+        **AWBC, **MC, **BUF,
     ))
 
     # AWBC only, no MC pretrain — reference, previously run
@@ -195,10 +217,12 @@ def build_experiments() -> List[ExperimentConfig]:
         **MC, **BUF,
     ))
 
-    # Main reference — previously run, anchor for all comparisons
+    # Same as mc_pretrain_awbc but without train_frac — tests hypothesis that
+    # train_frac conditioning only helps in expert-guided settings
     exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc",
+        name="mc_pretrain_awbc_no_train_frac",
         use_expert_warmup=True,
+        use_train_frac=False,
         **AWBC, **MC, **BUF,
     ))
 
@@ -434,8 +458,9 @@ def run_single_experiment(
     """Run one ExperimentConfig to completion."""
     mode = get_mode()
 
-    # Resolve SAC hyperparameters: experiment value → YAML → hard-coded fallback
-    hp = load_plane_hyperparams()
+    # Resolve SAC hyperparameters: experiment value → YAML (baselines only) → hard-coded fallback
+    _SAC_BASELINE_NAMES = {"sac_baseline", "sac_baseline_4_critics"}
+    hp = load_plane_hyperparams() if exp.name in _SAC_BASELINE_NAMES else dict(_HP_DEFAULTS)
     actor_lr            = exp.actor_lr            if exp.actor_lr            is not None else hp["actor_learning_rate"]
     critic_lr           = exp.critic_lr           if exp.critic_lr           is not None else hp["critic_learning_rate"]
     alpha_lr            = exp.alpha_lr            if exp.alpha_lr            is not None else hp["alpha_learning_rate"]
@@ -461,6 +486,7 @@ def run_single_experiment(
         f"obs_aug={exp.augment_obs_with_expert_action}  "
         f"normalize={exp.awbc_normalize}  relu={exp.awbc_use_relu}  "
         f"fixed_λ={exp.fixed_awbc_lambda}  detach={exp.detach_obs_aug_action}  "
+        f"train_frac={exp.use_train_frac}  "
         f"critics={exp.num_critics}×{exp.num_critic_updates}  "
         f"mix={exp.expert_mix_fraction}"
     )
@@ -534,6 +560,7 @@ def run_single_experiment(
         awbc_use_relu=exp.awbc_use_relu,
         fixed_awbc_lambda=exp.fixed_awbc_lambda,
         detach_obs_aug_action=exp.detach_obs_aug_action,
+        use_train_frac=exp.use_train_frac,
     )
 
     if mode == "CPU":
@@ -590,7 +617,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # --- Shared config ---
-    project_name = "ablation_study_awbc_2"
+    project_name = "ablation_study_awbc_debug_3"
     n_timesteps = int(1e6)
     n_seeds = 25
     num_episode_test = 25
@@ -601,11 +628,11 @@ if __name__ == "__main__":
 
     if args.list:
         tiers = {
-            "Tier 1 — Core ablations": slice(0, 8),
-            "Tier 2 — Obs augmentation": slice(8, 12),
-            "Tier 3 — Critic arch / update ratio": slice(12, 16),
-            "Tier 4 — MC pretrain hyperparams": slice(16, 22),
-            "Tier 5 — Expert mix / buffer": slice(22, 26),
+            "Tier 1 — Core ablations": slice(0, 10),
+            "Tier 2 — Obs augmentation": slice(10, 14),
+            "Tier 3 — Critic arch / update ratio": slice(14, 18),
+            "Tier 4 — MC pretrain hyperparams": slice(18, 24),
+            "Tier 5 — Expert mix / buffer": slice(24, 28),
         }
         for tier, s in tiers.items():
             print(f"\n{tier}:")

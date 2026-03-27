@@ -23,7 +23,7 @@ import pandas as pd
 # Config
 # ---------------------------------------------------------------------------
 
-CSV_FILE = "plane_exps_awbc_sweep_clean.csv"
+CSV_FILE = "ablation_study_awbc_debug_3.csv"
 TB_DIR = Path("tensorboard")
 OUT_DIR = Path("plots")
 
@@ -32,10 +32,18 @@ OUT_DIR = Path("plots")
 SWEEP_HPARAMS = [
     "use_expert_warmup",
     "use_mc_critic_pretrain",
+    "use_bellman_critic_pretrain",
     "use_expert_guidance",
     "value_constraint_coef",
+    "num_critics",
     "num_critic_updates",
     "expert_buffer_n_steps",
+    "augment_obs_with_expert_action",
+    "awbc_normalize",
+    "awbc_use_relu",
+    "fixed_awbc_lambda",
+    "detach_obs_aug_action",
+    "use_train_frac",
 ]
 
 
@@ -72,7 +80,7 @@ def resolve_exp_name(df: pd.DataFrame) -> pd.DataFrame:
     - Rebuild from hparams otherwise.
     """
     df = df.copy()
-    hparam_cols = [c for c in SWEEP_HPARAMS + ["augment_obs_with_expert_action"] if c in df.columns]
+    hparam_cols = [c for c in SWEEP_HPARAMS if c in df.columns]
 
     # Build per-run_id label (hparams are constant within a run)
     run_hparams = df.groupby("run_id")[["exp_name"] + hparam_cols].first()

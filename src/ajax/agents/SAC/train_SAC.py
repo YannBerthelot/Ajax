@@ -1322,6 +1322,8 @@ def make_train(
     awbc_use_relu: bool = True,
     fixed_awbc_lambda: Optional[float] = None,
     detach_obs_aug_action: bool = False,
+    # Train-fraction conditioning: append timestep/total_timesteps to obs
+    use_train_frac: bool = False,
 ):
     """
     SAC + AWBC training factory.
@@ -1355,7 +1357,7 @@ def make_train(
             alpha_args=alpha_args,
             buffer=buffer,
             expert_policy=expert_policy,
-            max_timesteps=None,
+            max_timesteps=total_timesteps if use_train_frac else None,
             num_critics=num_critics,
             expert_buffer_n_steps=(
                 expert_buffer_n_steps if expert_policy is not None else 0
@@ -1375,7 +1377,7 @@ def make_train(
                 n_mc_steps=mc_pretrain_n_mc_steps,
                 n_mc_episodes=mc_pretrain_n_mc_episodes,
                 n_steps=mc_pretrain_n_steps,
-                max_timesteps=None,
+                max_timesteps=total_timesteps if use_train_frac else None,
                 augment_obs_with_expert_action=augment_obs_with_expert_action,
             )
             jax.debug.print(

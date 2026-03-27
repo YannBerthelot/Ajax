@@ -852,7 +852,7 @@ def main() -> None:
     # Master / user flags
     parser.add_argument("--gpus",    nargs="+", type=int, default=None,
                         help="GPU IDs to use (default: all detected by nvidia-smi).")
-    parser.add_argument("--trials",  type=int, default=40,
+    parser.add_argument("--trials",  type=int, default=50,
                         help="Total Phase 1 trials (default: 40).")
     parser.add_argument("--poll",    type=int, default=30,
                         help="Master poll interval in seconds (default: 30).")

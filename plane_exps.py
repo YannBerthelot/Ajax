@@ -107,94 +107,94 @@ def build_experiments() -> List[ExperimentConfig]:
     # ------------------------------------------------------------------
     # [0-2] Baselines
     # ------------------------------------------------------------------
-    # exps.append(ExperimentConfig(
-    #     name="baseline_sac_vanilla",
-    #     num_critics=2, tau=0.005, max_grad_norm=None,
-    #     expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    # ))
-    # exps.append(ExperimentConfig(
-    #     name="baseline_sac_tuned",
-    #     expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    # ))
-    # exps.append(ExperimentConfig(
-    #     name="baseline_sac_expert_warmup",
-    #     use_expert_warmup=True,
-    #     expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    # ))
+    exps.append(ExperimentConfig(
+        name="baseline_sac_vanilla",
+        num_critics=2, tau=0.005, max_grad_norm=None,
+        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+    ))
+    exps.append(ExperimentConfig(
+        name="baseline_sac_tuned",
+        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+    ))
+    exps.append(ExperimentConfig(
+        name="baseline_sac_expert_warmup",
+        use_expert_warmup=True,
+        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
+    ))
 
     # # ------------------------------------------------------------------
     # # [3] MC pretrain alone — critic initialisation, no imitation term
     # # ------------------------------------------------------------------
-    # exps.append(ExperimentConfig(
-    #     name="mc_pretrain",
-    #     use_expert_warmup=True,
-    #     **MC, **BUF,
-    # ))
+    exps.append(ExperimentConfig(
+        name="mc_pretrain",
+        use_expert_warmup=True,
+        **MC, **BUF,
+    ))
 
-    # # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # # [4] AWBC alone (no MC pretrain) — isolates AWBC contribution
     # # Previously missing: lets us decompose mc_pretrain_awbc cleanly.
     # # ------------------------------------------------------------------
-    # exps.append(ExperimentConfig(
-    #     name="awbc_only",
-    #     use_expert_warmup=True,
-    #     use_expert_guidance=True,
-    #     num_critic_updates=4,
-    #     **BUF,
-    # ))
+    exps.append(ExperimentConfig(
+        name="awbc_only",
+        use_expert_warmup=True,
+        use_expert_guidance=True,
+        num_critic_updates=4,
+        **BUF,
+    ))
 
     # # ------------------------------------------------------------------
     # # [5] THE WINNER — MC pretrain + AWBC
     # # ------------------------------------------------------------------
-    # exps.append(ExperimentConfig(
-    #     name="mc_pretrain_awbc",
-    #     use_expert_warmup=True,
-    #     use_expert_guidance=True,
-    #     num_critic_updates=4,
-    #     **MC, **BUF,
-    # ))
+    exps.append(ExperimentConfig(
+        name="mc_pretrain_awbc",
+        use_expert_warmup=True,
+        use_expert_guidance=True,
+        num_critic_updates=4,
+        **MC, **BUF,
+    ))
 
     # # ------------------------------------------------------------------
     # # [6-7] Value constraint sweep (two best coefs from prior sweep)
     # # ------------------------------------------------------------------
-    # exps.append(ExperimentConfig(
-    #     name="value_constraint_0.5",
-    #     use_expert_warmup=True,
-    #     value_constraint_coef=0.5,
-    #     num_critic_updates=4,
-    #     **BUF,
-    # ))
-    # exps.append(ExperimentConfig(
-    #     name="value_constraint_1.0",
-    #     use_expert_warmup=True,
-    #     value_constraint_coef=1.0,
-    #     num_critic_updates=4,
-    #     **BUF,
-    # ))
+    exps.append(ExperimentConfig(
+        name="value_constraint_0.5",
+        use_expert_warmup=True,
+        value_constraint_coef=0.5,
+        num_critic_updates=4,
+        **BUF,
+    ))
+    exps.append(ExperimentConfig(
+        name="value_constraint_1.0",
+        use_expert_warmup=True,
+        value_constraint_coef=1.0,
+        num_critic_updates=4,
+        **BUF,
+    ))
 
     # # ------------------------------------------------------------------
     # # [8] MC pretrain + value constraint
     # # ------------------------------------------------------------------
-    # exps.append(ExperimentConfig(
-    #     name="mc_pretrain_vc_0.5",
-    #     use_expert_warmup=True,
-    #     value_constraint_coef=0.5,
-    #     num_critic_updates=4,
-    #     **MC, **BUF,
-    # ))
+    exps.append(ExperimentConfig(
+        name="mc_pretrain_vc_0.5",
+        use_expert_warmup=True,
+        value_constraint_coef=0.5,
+        num_critic_updates=4,
+        **MC, **BUF,
+    ))
 
     # # ------------------------------------------------------------------
     # # [9] Winner + value constraint
     # # Does adding a value floor on top of the winner help?
     # # ------------------------------------------------------------------
-    # exps.append(ExperimentConfig(
-    #     name="mc_pretrain_awbc_vc_0.5",
-    #     use_expert_warmup=True,
-    #     use_expert_guidance=True,
-    #     value_constraint_coef=0.5,
-    #     num_critic_updates=4,
-    #     **MC, **BUF,
-    # ))
+    exps.append(ExperimentConfig(
+        name="mc_pretrain_awbc_vc_0.5",
+        use_expert_warmup=True,
+        use_expert_guidance=True,
+        value_constraint_coef=0.5,
+        num_critic_updates=4,
+        **MC, **BUF,
+    ))
 
     # ------------------------------------------------------------------
     # [10] Obs augment alone — a_expert appended to obs as a hint

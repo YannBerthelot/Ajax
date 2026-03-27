@@ -87,6 +87,8 @@ class SAC(ActorCritic):
         awbc_use_relu: bool = True,
         fixed_awbc_lambda: Optional[float] = None,
         detach_obs_aug_action: bool = False,
+        # Train-fraction conditioning: append timestep/total_timesteps to obs
+        use_train_frac: bool = False,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -153,6 +155,7 @@ class SAC(ActorCritic):
         self.awbc_use_relu = awbc_use_relu
         self.fixed_awbc_lambda = fixed_awbc_lambda
         self.detach_obs_aug_action = detach_obs_aug_action
+        self.use_train_frac = use_train_frac
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -179,4 +182,5 @@ class SAC(ActorCritic):
             awbc_use_relu=self.awbc_use_relu,
             fixed_awbc_lambda=self.fixed_awbc_lambda,
             detach_obs_aug_action=self.detach_obs_aug_action,
+            use_train_frac=self.use_train_frac,
         )

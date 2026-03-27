@@ -11,6 +11,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import init_buffer
 from ajax.environments.utils import get_state_action_shapes, maybe_append_train_frac
+from ajax.networks.networks import predict_value
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -440,6 +441,7 @@ def get_buffer_action_and_env_action(
         "expert_policy",
         "expert_fraction",
         "augment_obs_with_expert_action",
+        "use_box",
     ],
 )
 def collect_experience(
@@ -455,6 +457,10 @@ def collect_experience(
     gamma: Optional[float] = None,
     expert_fraction: float = 0.7,
     augment_obs_with_expert_action: bool = False,
+    use_box: bool = False,
+    box_v_min: float = 0.0,
+    box_v_max: float = 0.0,
+    total_timesteps: int = 1,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
@@ -485,6 +491,42 @@ def collect_experience(
         if has_raw_obs
         else None
     )
+
+    # --- Value-threshold box logic ---
+    if use_box and agent_state.expert_critic_params is not None:
+        # Compute effective threshold with curriculum
+        train_frac = agent_state.collector_state.timestep / total_timesteps
+        effective_threshold = box_v_min + (box_v_max - box_v_min) * train_frac
+
+        # Compute V_expert using frozen critic
+        obs_for_box = agent_state.collector_state.last_obs
+        raw_for_box = raw_obs if raw_obs is not None else obs_for_box[..., :-1]
+        a_box = jax.lax.stop_gradient(expert_policy(raw_for_box))
+        v_box = jnp.min(
+            predict_value(
+                critic_state=agent_state.critic_state,
+                critic_params=agent_state.expert_critic_params,
+                x=jnp.concatenate([obs_for_box, a_box], axis=-1),
+            ),
+            axis=0,
+        )
+        in_value_box = (v_box > effective_threshold)  # shape (n_envs, 1)
+
+        last_in_box = agent_state.collector_state.last_in_box
+        if last_in_box is None:
+            last_in_box = jnp.zeros_like(in_value_box)
+
+        # Terminal reward bonus on entry (outside→inside transition)
+        entry_bonus = jnp.where(
+            (last_in_box < 0.5) & (in_value_box > 0.5),
+            v_box,
+            jnp.zeros_like(v_box),
+        )
+    else:
+        in_value_box = jnp.zeros(
+            (env_args.n_envs, 1), dtype=jnp.float32
+        )
+        entry_bonus = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
 
     # If obs augmentation is enabled, temporarily replace last_obs with the
     # augmented version so the actor sees [obs | a_expert | train_frac].
@@ -548,6 +590,11 @@ def collect_experience(
         lambda: warmup_action,
         lambda: post_warmup_action,
     )
+
+    # Inside box: override with expert action
+    if use_box and expert_policy is not None:
+        env_action = jnp.where(in_value_box, expert_action, env_action)
+
     buffer_action = env_action            # always store what the env actually received
 
     # --- Step environment ---
@@ -582,6 +629,11 @@ def collect_experience(
     )
 
     raw_next_obs = info["obs_st"] if "obs_st" in info else obsv
+
+    # --- Box reward/termination modification ---
+    if use_box:
+        reward = reward + entry_bonus[..., 0]
+        terminated = jnp.logical_or(terminated.astype(bool), entry_bonus[..., 0] > 0).astype(terminated.dtype)
 
     # --- Buffer write ---
     buffer_state = agent_state.collector_state.buffer_state
@@ -619,6 +671,7 @@ def collect_experience(
         raw_obs=raw_obs,
         next_obs=raw_next_obs,
         log_prob=log_probs,
+        inside_box=in_value_box if use_box else None,
     )
 
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
@@ -642,6 +695,7 @@ def collect_experience(
         cumulative_reward=(
             in_box_after * (agent_state.collector_state.cumulative_reward + reward)
         ),
+        last_in_box=in_value_box.astype(jnp.float32),
     )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
@@ -793,6 +847,7 @@ def init_collector_state(
             (env_args.n_envs)
         ),  # TODO : switch to (env_args.n_envs,1)
         max_timesteps=max_timesteps,
+        last_in_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
     )
 
 

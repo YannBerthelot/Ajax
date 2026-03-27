@@ -76,8 +76,9 @@ class SAC(ActorCritic):
         mc_pretrain_n_mc_steps: int = 10_000,
         mc_pretrain_n_mc_episodes: int = 100,
         mc_pretrain_n_steps: int = 5_000,
-        # Value constraint: Q_π >= Q_expert (action-agnostic floor)
-        value_constraint_coef: float = 0.0,
+        # Actor pretraining via value-weighted BC (requires MC critic pretrain)
+        use_actor_pretrain: bool = False,
+        actor_pretrain_n_steps: int = 5_000,
         # Obs augmentation: append a_expert(target) to obs
         augment_obs_with_expert_action: bool = False,
         # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
@@ -89,6 +90,14 @@ class SAC(ActorCritic):
         detach_obs_aug_action: bool = False,
         # Train-fraction conditioning: append timestep/total_timesteps to obs
         use_train_frac: bool = False,
+        # Update start thresholds
+        policy_update_start: int = 2_000,
+        alpha_update_start: int = 2_000,
+        # Potential-based reward shaping
+        use_critic_blend: bool = False,
+        critic_warmup_frac: float = 0.15,
+        # Value-threshold box (v_min/v_max inferred from MC pretraining)
+        use_box: bool = False,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -148,7 +157,8 @@ class SAC(ActorCritic):
         self.mc_pretrain_n_mc_steps = mc_pretrain_n_mc_steps
         self.mc_pretrain_n_mc_episodes = mc_pretrain_n_mc_episodes
         self.mc_pretrain_n_steps = mc_pretrain_n_steps
-        self.value_constraint_coef = value_constraint_coef
+        self.use_actor_pretrain = use_actor_pretrain
+        self.actor_pretrain_n_steps = actor_pretrain_n_steps
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
         self.use_bellman_critic_pretrain = use_bellman_critic_pretrain
         self.awbc_normalize = awbc_normalize
@@ -156,6 +166,11 @@ class SAC(ActorCritic):
         self.fixed_awbc_lambda = fixed_awbc_lambda
         self.detach_obs_aug_action = detach_obs_aug_action
         self.use_train_frac = use_train_frac
+        self.policy_update_start = policy_update_start
+        self.alpha_update_start = alpha_update_start
+        self.use_critic_blend = use_critic_blend
+        self.critic_warmup_frac = critic_warmup_frac
+        self.use_box = use_box
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -175,7 +190,8 @@ class SAC(ActorCritic):
             mc_pretrain_n_mc_steps=self.mc_pretrain_n_mc_steps,
             mc_pretrain_n_mc_episodes=self.mc_pretrain_n_mc_episodes,
             mc_pretrain_n_steps=self.mc_pretrain_n_steps,
-            value_constraint_coef=self.value_constraint_coef,
+            use_actor_pretrain=self.use_actor_pretrain,
+            actor_pretrain_n_steps=self.actor_pretrain_n_steps,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
             use_bellman_critic_pretrain=self.use_bellman_critic_pretrain,
             awbc_normalize=self.awbc_normalize,
@@ -183,4 +199,9 @@ class SAC(ActorCritic):
             fixed_awbc_lambda=self.fixed_awbc_lambda,
             detach_obs_aug_action=self.detach_obs_aug_action,
             use_train_frac=self.use_train_frac,
+            policy_update_start=self.policy_update_start,
+            alpha_update_start=self.alpha_update_start,
+            use_critic_blend=self.use_critic_blend,
+            critic_warmup_frac=self.critic_warmup_frac,
+            use_box=self.use_box,
         )

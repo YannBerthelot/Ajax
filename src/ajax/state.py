@@ -24,6 +24,7 @@ class Transition:
     next_obs: jnp.ndarray
     raw_obs: Optional[jnp.ndarray] = None
     log_prob: Optional[jnp.ndarray] = None
+    inside_box: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1
@@ -152,6 +153,7 @@ class CollectorState:
     rollout: Optional[Transition] = None
     cumulative_reward: Optional[jnp.ndarray] = None
     max_timesteps: Optional[int] = None
+    last_in_box: Optional[jnp.ndarray] = None
 
     @property
     def train_time_fraction(self) -> float:

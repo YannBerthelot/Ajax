@@ -100,13 +100,37 @@ def is_gpu_free(gpu_id: int, mem_used: Optional[Dict[int, int]] = None) -> bool:
 
 def get_experiment_names(script_name: str) -> List[str]:
     """
-    Import build_experiments() from the target script without triggering JAX
-    GPU allocation (we only need names and count here).
+    Discover experiment names by running the script with --list in a subprocess.
+
+    Using a subprocess instead of importlib.import_module avoids importing JAX,
+    wandb, and multiprocessing spawn contexts in the launcher process, which can
+    hang when CUDA is already initialised by other processes or in poetry envs.
     """
-    os.environ.setdefault("JAX_PLATFORMS", "cpu")
     module_name = script_name.removesuffix(".py")
-    module = importlib.import_module(module_name)
-    return [exp.name for exp in module.build_experiments()]
+    env = os.environ.copy()
+    env["JAX_PLATFORMS"] = "cpu"
+    env["CUDA_VISIBLE_DEVICES"] = ""  # hide GPUs — we only need names
+    result = subprocess.run(
+        [sys.executable, f"{module_name}.py", "--list"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    names = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        # Lines look like: "[ 0] exp_name   project=..."
+        if line.startswith("[") and "]" in line:
+            after_bracket = line.split("]", 1)[1].strip()
+            name = after_bracket.split()[0]
+            names.append(name)
+    if not names:
+        raise RuntimeError(
+            f"get_experiment_names: no experiments found from '{script_name} --list'.\n"
+            f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+        )
+    return names
 
 
 def launch_experiment(
@@ -199,6 +223,17 @@ def run_sweep(
                     )
                     running[gpu_id] = None
 
+                    # Fail fast: drain queue and terminate other jobs on failure
+                    if ret != 0:
+                        print(f"\n  Experiment failed — aborting remaining queue ({len(queue)} pending).")
+                        queue.clear()
+                        for other_gpu, other_job in running.items():
+                            if other_job is not None and other_job.process.poll() is None:
+                                os.killpg(os.getpgid(other_job.process.pid), 15)
+                                other_job.process._log_file.close()
+                                print(f"  [GPU {other_gpu}] terminated: {other_job.exp_name}")
+                                running[other_gpu] = None
+
             # --- Fill empty slots — but only on GPUs that are truly idle ---
             if queue:
                 # One nvidia-smi call covers all GPUs this iteration
@@ -245,6 +280,8 @@ def run_sweep(
         print(f"Failed ({len(failed)}):")
         for name in failed:
             print(f"  ✗ {name}")
+        print(f"Logs in: logs/")
+        sys.exit(1)
     print(f"Logs in: logs/")
 
 

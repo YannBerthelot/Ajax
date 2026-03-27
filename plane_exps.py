@@ -1,12 +1,15 @@
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
-from collections.abc import Callable
 
 import dill as pickle
 import jax
 import jax.numpy as jnp
+
+# Persist compiled XLA modules across runs — avoids recompilation on re-runs
+# with the same static args. Safe to share across experiments on the same machine.
+jax.config.update("jax_compilation_cache_dir", os.path.expanduser("~/.cache/jax_xla"))
 from target_gym import Plane, PlaneParams
 from target_gym.plane.env import PlaneState
 from tqdm import tqdm
@@ -18,6 +21,7 @@ from ajax.plane.plane_exps_utils import (
     get_log_config,
     get_mode,
     get_policy_score,
+    load_hyperparams,
 )
 from ajax.stable_utils import get_expert_policy
 
@@ -35,38 +39,34 @@ class ExperimentConfig:
     """
     name: str
 
-    # Environment
-    use_box: bool = False              # EarlyTerminationWrapper (expert takes over near target)
-
     # Expert warmup
-    use_expert_warmup: bool = False    # expert/uniform mix during warmup phase
+    use_expert_warmup: bool = False
 
-    # Expert guidance flags (all independent, all off by default)
-    use_expert_guidance: bool = False  # AWBC gradient term
-    use_mc_critic_pretrain: bool = False   # MC return critic pretraining
-    value_constraint_coef: float = 0.0    # value floor penalty (0 = off)
-    augment_obs_with_expert_action: bool = False  # append a_expert to obs
+    # Expert guidance flags
+    use_expert_guidance: bool = False
+    use_mc_critic_pretrain: bool = False
+    use_critic_blend: bool = False
+    critic_warmup_frac: float = 0.15
+
+    # Value-threshold box (v_min/v_max inferred from MC pretraining)
+    use_box: bool = False
+
+    # Update start thresholds
+    policy_update_start: int = 2_000
+    alpha_update_start: int = 2_000
 
     # AWBC parameters
     num_critic_updates: int = 1
     expert_buffer_n_steps: int = 20_000
     expert_mix_fraction: float = 0.1
-    box_threshold: float = 500.0
-    proximity_scale: Optional[float] = None   # None = no decay
-    altitude_obs_idx: int = 1
-    target_obs_idx: int = 6
 
     # MC pretraining parameters
     mc_pretrain_n_mc_steps: int = 10_000
-    mc_pretrain_n_mc_episodes: int = 100
+    mc_pretrain_n_mc_episodes: int = 500
     mc_pretrain_n_steps: int = 5_000
 
-    # Standard SAC hyperparameters
+    # Standard SAC hyperparameters (defaults; overridden by yml at runtime)
     num_critics: int = 2
-    tau: float = 5e-3
-    alpha_init: float = 1.0
-    target_entropy_per_dim: float = -1.0
-    max_grad_norm: Optional[float] = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -76,256 +76,61 @@ class ExperimentConfig:
 
 def build_experiments() -> List[ExperimentConfig]:
     """
-    20-experiment sweep.
+    4-experiment sweep.
 
-    Key finding from previous sweep: mc_pretrain_awbc (expert warmup +
-    MC critic pretraining + AWBC) reliably beats the expert. This sweep
-    focuses on understanding obs augmentation and how it interacts with
-    each component and the winning combo.
+    Phase 1: Establish the main result.
 
-    Structure:
-      Baselines          (3) — vanilla, tuned, expert-warmup-only
-      Single methods     (4) — mc_pretrain, awbc_only, obs_augment, vc_0.5
-      Winner             (1) — mc_pretrain_awbc (confirmed best)
-      Prior combos       (2) — vc sweep kept, mc_pretrain_vc_0.5
-      Obs augment cross  (7) — obs_augment × {mc, awbc, mc+awbc, vc,
-                                mc+vc, awbc+vc, mc+awbc+vc}
-      Ablation           (1) — obs_augment without expert warmup
-      Winner + extras    (2) — mc_pretrain_awbc+vc, winner+obs (the key exp)
+    E1: Vanilla SAC (tuned) — baseline.
+    E2: SAC + MC pretrain + AWBC — full expert method without box.
+    E3: SAC + MC pretrain + AWBC + Shaping — adds potential-based shaping.
+    E4: SAC + MC pretrain + Box — box without AWBC.
+
+    E2 vs E1: expert guidance helps.
+    E3 vs E2: shaping on top of E2.
+    E4 vs E1: box independently.
+    E3 vs E4: AWBC+shaping vs box.
     """
-    # Shared MC pretrain settings used in all mc_pretrain experiments
     MC = dict(
         use_mc_critic_pretrain=True,
         mc_pretrain_n_mc_steps=10_000,
         mc_pretrain_n_steps=5_000,
     )
-    # Shared expert buffer settings used in all non-baseline experiments
     BUF = dict(expert_buffer_n_steps=20_000, expert_mix_fraction=0.1)
 
-    exps = []
-
-    # ------------------------------------------------------------------
-    # [0-2] Baselines
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="baseline_sac_vanilla",
-        num_critics=2, tau=0.005, max_grad_norm=None,
-        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    ))
-    exps.append(ExperimentConfig(
-        name="baseline_sac_tuned",
-        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    ))
-    exps.append(ExperimentConfig(
-        name="baseline_sac_expert_warmup",
-        use_expert_warmup=True,
-        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    ))
-
-    # # ------------------------------------------------------------------
-    # # [3] MC pretrain alone — critic initialisation, no imitation term
-    # # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain",
-        use_expert_warmup=True,
-        **MC, **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # # [4] AWBC alone (no MC pretrain) — isolates AWBC contribution
-    # # Previously missing: lets us decompose mc_pretrain_awbc cleanly.
-    # # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="awbc_only",
-        use_expert_warmup=True,
-        use_expert_guidance=True,
-        num_critic_updates=4,
-        **BUF,
-    ))
-
-    # # ------------------------------------------------------------------
-    # # [5] THE WINNER — MC pretrain + AWBC
-    # # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc",
-        use_expert_warmup=True,
-        use_expert_guidance=True,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
-
-    # # ------------------------------------------------------------------
-    # # [6-7] Value constraint sweep (two best coefs from prior sweep)
-    # # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="value_constraint_0.5",
-        use_expert_warmup=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **BUF,
-    ))
-    exps.append(ExperimentConfig(
-        name="value_constraint_1.0",
-        use_expert_warmup=True,
-        value_constraint_coef=1.0,
-        num_critic_updates=4,
-        **BUF,
-    ))
-
-    # # ------------------------------------------------------------------
-    # # [8] MC pretrain + value constraint
-    # # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_vc_0.5",
-        use_expert_warmup=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
-
-    # # ------------------------------------------------------------------
-    # # [9] Winner + value constraint
-    # # Does adding a value floor on top of the winner help?
-    # # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc_vc_0.5",
-        use_expert_warmup=True,
-        use_expert_guidance=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [10] Obs augment alone — a_expert appended to obs as a hint
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [11] Obs augment + MC pretrain
-    # Better critic init: does obs hint become more useful when Q(s,a*)
-    # is already accurate from the start?
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_mc_pretrain",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        **MC, **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [12] Obs augment + AWBC
-    # Hint in obs + gradient pull toward expert: redundant or synergistic?
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_awbc",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        use_expert_guidance=True,
-        num_critic_updates=4,
-        **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [13] Obs augment + MC pretrain + AWBC  ← KEY EXPERIMENT
-    # The winning combo with an obs hint added. If obs augment adds
-    # value on top of mc_pretrain_awbc, this should be the best run.
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_mc_pretrain_awbc",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        use_expert_guidance=True,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [14] Obs augment + value constraint
-    # Value floor + obs hint: both action-agnostic, should be compatible.
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_vc_0.5",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [15] Obs augment + MC pretrain + value constraint
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_mc_pretrain_vc_0.5",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [16] Obs augment + AWBC + value constraint
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_awbc_vc_0.5",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        use_expert_guidance=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [17] Obs augment + MC pretrain + AWBC + value constraint
-    # Kitchen sink: all methods combined.
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_mc_pretrain_awbc_vc_0.5",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        use_expert_guidance=True,
-        value_constraint_coef=0.5,
-        num_critic_updates=4,
-        **MC, **BUF,
-    ))
-
-    # ------------------------------------------------------------------
-    # [18] Obs augment without expert warmup
-    # Ablation: does the obs hint work even without expert buffer seeding?
-    # Tests whether obs augmentation is self-sufficient or depends on
-    # expert transitions being in the replay buffer from the start.
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_no_warmup",
-        use_expert_warmup=False,
-        augment_obs_with_expert_action=True,
-        expert_buffer_n_steps=0, expert_mix_fraction=0.0,
-    ))
-
-    # ------------------------------------------------------------------
-    # [19] Obs augment + MC pretrain + AWBC, no value constraint
-    # (same as [13] but with 1 critic update instead of 4, as a check
-    # that 4 updates is what drives mc_pretrain_awbc's success)
-    # ------------------------------------------------------------------
-    exps.append(ExperimentConfig(
-        name="obs_augment_mc_pretrain_awbc_1critic",
-        use_expert_warmup=True,
-        augment_obs_with_expert_action=True,
-        use_expert_guidance=True,
-        num_critic_updates=1,
-        **MC, **BUF,
-    ))
-
-    #assert len(exps) == 20, f"Expected 20 experiments, got {len(exps)}"
-    return exps
+    return [
+        # E1: Vanilla SAC (tuned) — baseline (no expert; higher update starts)
+        ExperimentConfig(
+            name="e1_vanilla_sac",
+            expert_buffer_n_steps=0,
+            expert_mix_fraction=0.0,
+            policy_update_start=10_000,
+            alpha_update_start=10_000,
+        ),
+        # E2: MC pretrain + AWBC — full expert method without box
+        ExperimentConfig(
+            name="e2_mc_pretrain_awbc",
+            use_expert_warmup=True,
+            use_expert_guidance=True,
+            num_critic_updates=4,
+            **MC, **BUF,
+        ),
+        # E3: MC pretrain + AWBC + blended Bellman target
+        ExperimentConfig(
+            name="e3_mc_pretrain_awbc_blend",
+            use_expert_warmup=True,
+            use_expert_guidance=True,
+            use_critic_blend=True,
+            num_critic_updates=4,
+            **MC, **BUF,
+        ),
+        # E4: MC pretrain + Box (value threshold)
+        ExperimentConfig(
+            name="e4_mc_pretrain_box",
+            use_expert_warmup=True,
+            use_box=True,
+            **MC, **BUF,
+        ),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -362,17 +167,6 @@ def setup():
     return env, env_params, expert_policy
 
 
-def make_trunc_condition(box_threshold: float):
-    """
-    Build a truncation condition from box_threshold.
-    Single source of truth: the same threshold is used by both the
-    EarlyTerminationWrapper and the AWBC proximity weight normalization.
-    """
-    def trunc_condition(state: PlaneState, params: PlaneParams) -> bool:
-        return jnp.abs(state.target_altitude - state.z) < box_threshold
-    return trunc_condition
-
-
 def run_single_experiment(
     exp: ExperimentConfig,
     env,
@@ -389,20 +183,21 @@ def run_single_experiment(
     """Run one ExperimentConfig to completion. Called per-process by the launcher."""
     mode = get_mode()
 
-    # Build per-experiment box condition from exp.box_threshold — single source of truth
-    trunc_condition = make_trunc_condition(exp.box_threshold)
-    wrapped_env = EarlyTerminationWrapper(
-        env, trunc_condition=trunc_condition, expert_policy=expert_policy,
-    )
+    # Load tuned hyperparameters from yml — single source of truth
+    hp = load_hyperparams("SAC", "Plane")
+    arch_width = hp.pop("arch_width", 256)
+    architecture = (str(arch_width), "relu", str(arch_width), "relu")
+
+    agent_expert_policy = expert_policy if exp.use_expert_warmup else None
 
     policy_score = get_policy_score(expert_policy, env, env_params)
     print(f"[{exp.name}] Expert score: {policy_score:.1f}")
-    print(f"[{exp.name}] box={exp.use_box}  warmup={exp.use_expert_warmup}  "
-          f"awbc={exp.use_expert_guidance}  mc_pretrain={exp.use_mc_critic_pretrain}  "
-          f"vc={exp.value_constraint_coef}  obs_aug={exp.augment_obs_with_expert_action}  "
-          f"critics={exp.num_critic_updates}")
-
-    agent_expert_policy = expert_policy if exp.use_expert_warmup else None
+    print(
+        f"[{exp.name}] warmup={exp.use_expert_warmup}  "
+        f"awbc={exp.use_expert_guidance}  mc_pretrain={exp.use_mc_critic_pretrain}  "
+        f"blend={exp.use_critic_blend}  box={exp.use_box}  "
+        f"critics={exp.num_critic_updates}"
+    )
 
     logging_config = get_log_config(
         project_name=project_name,
@@ -410,50 +205,42 @@ def run_single_experiment(
         log_frequency=log_frequency,
         use_wandb=use_wandb,
         sweep=sweep_mode,
-        use_box=exp.use_box,
         use_expert_warmup=exp.use_expert_warmup,
         use_expert_guidance=exp.use_expert_guidance,
         use_mc_critic_pretrain=exp.use_mc_critic_pretrain,
-        value_constraint_coef=exp.value_constraint_coef,
-        augment_obs_with_expert_action=exp.augment_obs_with_expert_action,
+        use_critic_blend=exp.use_critic_blend,
+        critic_warmup_frac=exp.critic_warmup_frac,
+        use_box=exp.use_box,
         num_critics=exp.num_critics,
         num_critic_updates=exp.num_critic_updates,
         expert_buffer_n_steps=exp.expert_buffer_n_steps,
         expert_mix_fraction=exp.expert_mix_fraction,
-        box_threshold=exp.box_threshold,
-        proximity_scale=exp.proximity_scale,
-        tau=exp.tau,
-        target_entropy_per_dim=exp.target_entropy_per_dim,
     )
 
     _agent = SAC(
-        env_id=wrapped_env if exp.use_box else env,
+        env_id=env,
         env_params=env_params,
         expert_policy=agent_expert_policy,
         eval_expert_policy=expert_policy,
-        action_scale=1.0,
-        max_grad_norm=exp.max_grad_norm,
-        early_termination_condition=trunc_condition if exp.use_box else None,
+        actor_architecture=architecture,
+        critic_architecture=architecture,
         num_critics=exp.num_critics,
-        tau=exp.tau,
-        alpha_init=exp.alpha_init,
-        target_entropy_per_dim=exp.target_entropy_per_dim,
-        residual=False,
-        fixed_alpha=False,
         use_expert_guidance=exp.use_expert_guidance,
         num_critic_updates=exp.num_critic_updates,
         expert_buffer_n_steps=exp.expert_buffer_n_steps,
         expert_mix_fraction=exp.expert_mix_fraction,
-        box_threshold=exp.box_threshold,
-        proximity_scale=exp.proximity_scale,
-        altitude_obs_idx=exp.altitude_obs_idx,
-        target_obs_idx=exp.target_obs_idx,
         use_mc_critic_pretrain=exp.use_mc_critic_pretrain,
         mc_pretrain_n_mc_steps=exp.mc_pretrain_n_mc_steps,
         mc_pretrain_n_mc_episodes=exp.mc_pretrain_n_mc_episodes,
         mc_pretrain_n_steps=exp.mc_pretrain_n_steps,
-        value_constraint_coef=exp.value_constraint_coef,
-        augment_obs_with_expert_action=exp.augment_obs_with_expert_action,
+        use_critic_blend=exp.use_critic_blend,
+        critic_warmup_frac=exp.critic_warmup_frac,
+        use_box=exp.use_box,
+        policy_update_start=exp.policy_update_start,
+        alpha_update_start=exp.alpha_update_start,
+        use_train_frac=exp.use_expert_warmup,
+        # Tuned hyperparameters from yml
+        **hp,
     )
 
     if mode == "CPU":
@@ -477,8 +264,10 @@ def run_single_experiment(
             num_episode_test=num_episode_test,
         )
         elapsed = time.time() - t0
-        print(f"[{exp.name}] {n_seeds} seeds done in {elapsed:.1f}s "
-              f"({elapsed/n_seeds:.1f}s/seed)")
+        print(
+            f"[{exp.name}] {n_seeds} seeds done in {elapsed:.1f}s "
+            f"({elapsed/n_seeds:.1f}s/seed)"
+        )
         if sweep_mode:
             upload_tensorboard_to_wandb(_agent.run_ids, logging_config)
 
@@ -514,9 +303,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # --- Shared config ---
-    project_name = "tests_SAC_plane_awbc_sweep_clean"
+    project_name = "tests_SAC_plane_phase1"
     n_timesteps = int(1e6)
-    n_seeds = 50
+    n_seeds = 25
     num_episode_test = 25
     log_frequency = 10_000
     sweep_mode = False

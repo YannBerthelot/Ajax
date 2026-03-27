@@ -201,6 +201,7 @@ def init_logging(run_id: str, logging_config: LoggingConfig) -> None:
             id=run_id,
             resume="never",
             config=logging_config.config,
+            group=logging_config.group_name,
             reinit="finish_previous",
         )
         wandb.log({"timestep": 0})

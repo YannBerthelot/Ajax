@@ -1,3 +1,5 @@
+from typing import Any, Optional
+
 from flax import struct
 from jax.tree_util import Partial as partial
 
@@ -10,6 +12,9 @@ class SACState(BaseAgentState):
 
     alpha: LoadedTrainState  # Temperature parameter
     lambda_param: float
+    expert_critic_params: Optional[Any] = None
+    expert_v_min: Optional[Any] = None
+    expert_v_max: Optional[Any] = None
 
 
 @struct.dataclass

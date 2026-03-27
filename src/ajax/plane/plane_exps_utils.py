@@ -32,6 +32,7 @@ def get_log_config(
     use_wandb: bool,
     log_frequency: int,
     sweep: bool = False,
+    group_name: Optional[str] = None,
     **kwargs,
 ) -> LoggingConfig:
     """
@@ -41,6 +42,7 @@ def get_log_config(
     return LoggingConfig(
         project_name=project_name,
         run_name=agent_name,
+        group_name=group_name,
         config={
             "debug": False,
             "log_frequency": log_frequency,

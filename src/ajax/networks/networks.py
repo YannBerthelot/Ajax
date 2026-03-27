@@ -287,6 +287,48 @@ def get_initialized_actor_critic(
     return actor_state, critic_state
 
 
+def get_initialized_critic(
+    key: jax.Array,
+    env_config: EnvironmentConfig,
+    critic_optimizer_config: OptimizerConfig,
+    network_config: NetworkConfig,
+    num_critics: int = 2,
+    max_timesteps: Optional[int] = None,
+    extra_obs_dim: int = 0,
+) -> LoadedTrainState:
+    """Initialize a standalone critic network (no actor). Same architecture as
+    the online critic so predict_value can be called on its params directly."""
+    critic = MultiCritic(
+        input_architecture=network_config.critic_architecture,
+        penultimate_normalization=network_config.penultimate_normalization,
+        num=num_critics,
+    )
+
+    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
+
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
+
+    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    if obs_extra > 0:
+        _obs_shape = list(observation_shape)
+        _obs_shape[-1] += obs_extra
+        observation_shape = tuple(_obs_shape)
+
+    init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
+    init_action = jnp.zeros((env_config.n_envs, *action_shape))
+
+    return init_network_state(
+        init_x=jnp.hstack([init_obs, init_action]),
+        network=critic,
+        key=key,
+        tx=critic_tx,
+        recurrent=network_config.lstm_hidden_size is not None,
+        lstm_hidden_size=network_config.lstm_hidden_size,
+        n_envs=env_config.n_envs,
+        lr_schedule=critic_optimizer_config.learning_rate,
+    )
+
+
 def init_hidden_state(
     lstm_hidden_size: int,
     n_envs: int,

@@ -76,9 +76,10 @@ class SAC(ActorCritic):
         mc_pretrain_n_mc_steps: int = 10_000,
         mc_pretrain_n_mc_episodes: int = 100,
         mc_pretrain_n_steps: int = 5_000,
-        # Actor pretraining via value-weighted BC (requires MC critic pretrain)
-        use_actor_pretrain: bool = False,
-        actor_pretrain_n_steps: int = 5_000,
+        # Online critic light pre-regression (requires MC critic pretrain)
+        use_online_critic_light_pretrain: bool = True,
+        online_critic_pretrain_steps: int = 500,
+        online_critic_pretrain_lr_scale: float = 0.1,
         # Obs augmentation: append a_expert(target) to obs
         augment_obs_with_expert_action: bool = False,
         # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
@@ -157,8 +158,9 @@ class SAC(ActorCritic):
         self.mc_pretrain_n_mc_steps = mc_pretrain_n_mc_steps
         self.mc_pretrain_n_mc_episodes = mc_pretrain_n_mc_episodes
         self.mc_pretrain_n_steps = mc_pretrain_n_steps
-        self.use_actor_pretrain = use_actor_pretrain
-        self.actor_pretrain_n_steps = actor_pretrain_n_steps
+        self.use_online_critic_light_pretrain = use_online_critic_light_pretrain
+        self.online_critic_pretrain_steps = online_critic_pretrain_steps
+        self.online_critic_pretrain_lr_scale = online_critic_pretrain_lr_scale
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
         self.use_bellman_critic_pretrain = use_bellman_critic_pretrain
         self.awbc_normalize = awbc_normalize
@@ -190,8 +192,9 @@ class SAC(ActorCritic):
             mc_pretrain_n_mc_steps=self.mc_pretrain_n_mc_steps,
             mc_pretrain_n_mc_episodes=self.mc_pretrain_n_mc_episodes,
             mc_pretrain_n_steps=self.mc_pretrain_n_steps,
-            use_actor_pretrain=self.use_actor_pretrain,
-            actor_pretrain_n_steps=self.actor_pretrain_n_steps,
+            use_online_critic_light_pretrain=self.use_online_critic_light_pretrain,
+            online_critic_pretrain_steps=self.online_critic_pretrain_steps,
+            online_critic_pretrain_lr_scale=self.online_critic_pretrain_lr_scale,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
             use_bellman_critic_pretrain=self.use_bellman_critic_pretrain,
             awbc_normalize=self.awbc_normalize,

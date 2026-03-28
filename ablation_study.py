@@ -84,7 +84,7 @@ class ExperimentConfig:
     # Expert guidance mechanisms
     use_expert_guidance: bool = False       # AWBC actor regularisation
     use_mc_critic_pretrain: bool = False    # MC-return critic pretraining
-    use_actor_pretrain: bool = False        # Value-weighted BC actor pretrain (requires MC)
+    use_online_critic_light_pretrain: bool = True   # Light online critic nudge toward φ* (requires MC)
     use_critic_blend: bool = False          # Blended Bellman target (replaces potential shaping)
     critic_warmup_frac: float = 0.15        # Fraction of training over which blend decays 1→0
     use_box: bool = False                   # Value-threshold curriculum box
@@ -105,11 +105,13 @@ class ExperimentConfig:
     awbc_use_relu: bool = True
     fixed_awbc_lambda: Optional[float] = None
 
-    # MC / actor pretrain parameters
+    # MC pretrain parameters
     mc_pretrain_n_mc_steps: int = 10_000
     mc_pretrain_n_mc_episodes: int = 1000
     mc_pretrain_n_steps: int = 5_000
-    actor_pretrain_n_steps: int = 5_000
+    # Online critic light pretrain parameters
+    online_critic_pretrain_steps: int = 500
+    online_critic_pretrain_lr_scale: float = 0.1
 
     # Standard SAC hyperparameters (overridable per experiment)
     num_critics: int = 2
@@ -141,7 +143,7 @@ def build_experiments() -> List[ExperimentConfig]:
     )
     BUF = dict(expert_buffer_n_steps=20_000, expert_mix_fraction=0.1)
     AWBC = dict(use_expert_guidance=True, num_critic_updates=4)
-    AP = dict(use_actor_pretrain=True, actor_pretrain_n_steps=5_000)
+    LIGHT = dict(use_online_critic_light_pretrain=True, online_critic_pretrain_steps=500)
 
     exps = []
 
@@ -161,76 +163,75 @@ def build_experiments() -> List[ExperimentConfig]:
     ))
 
     # ==================================================================
-    # Tier 0 — Actor pretrain  (indices 1–8)
-    # Most promising: warm-started actor + expert critic + AWBC / shaping / box.
-    # All use policy_update_start=2_000 (actor is already pre-trained).
+    # Tier 0 — Online critic light pretrain + decaying BC  (indices 1–8)
+    # Most promising: MC critic pretrain → light online critic nudge → decaying BC + AWBC.
     # ==================================================================
 
-    # Full stack: MC pretrain + actor pretrain + AWBC (most complete expert guidance)
+    # Full stack: MC pretrain + light online critic + AWBC + decaying BC
     exps.append(ExperimentConfig(
-        name="mc_pretrain_actor_pretrain_awbc",
+        name="mc_pretrain_light_critic_awbc",
         wandb_project=P["actor_pretrain"],
         use_expert_warmup=True,
-        **AWBC, **MC, **AP, **BUF,
+        **AWBC, **MC, **LIGHT, **BUF,
     ))
 
-    # Actor pretrain alone — isolates warm-start effect without ongoing AWBC
+    # Light online critic alone — isolates nudge effect without ongoing AWBC
     exps.append(ExperimentConfig(
-        name="mc_pretrain_actor_pretrain",
+        name="mc_pretrain_light_critic",
         wandb_project=P["actor_pretrain"],
         use_expert_warmup=True,
         num_critic_updates=1,
-        **MC, **AP, **BUF,
+        **MC, **LIGHT, **BUF,
     ))
 
-    # MC + actor pretrain + blended Bellman target (critic_warmup_frac=0.15)
+    # MC + light online critic + blended Bellman target
     exps.append(ExperimentConfig(
-        name="mc_pretrain_actor_pretrain_blend",
+        name="mc_pretrain_light_critic_blend",
         wandb_project=P["actor_pretrain"],
         use_expert_warmup=True,
         use_critic_blend=True,
         num_critic_updates=1,
-        **MC, **AP, **BUF,
+        **MC, **LIGHT, **BUF,
     ))
 
     # AWBC + blend — tests whether AWBC and blended target are additive
     exps.append(ExperimentConfig(
-        name="mc_pretrain_actor_pretrain_awbc_blend",
+        name="mc_pretrain_light_critic_awbc_blend",
         wandb_project=P["actor_pretrain"],
         use_expert_warmup=True,
         use_critic_blend=True,
-        **AWBC, **MC, **AP, **BUF,
+        **AWBC, **MC, **LIGHT, **BUF,
     ))
 
-    # Actor pretrain + box curriculum
+    # Light online critic + box curriculum
     exps.append(ExperimentConfig(
-        name="mc_pretrain_actor_pretrain_box",
+        name="mc_pretrain_light_critic_box",
         wandb_project=P["actor_pretrain"],
         use_expert_warmup=True,
         use_box=True,
         num_critic_updates=1,
-        **MC, **AP, **BUF,
+        **MC, **LIGHT, **BUF,
     ))
 
-    # Actor pretrain n_steps ablation — fewer steps (1k)
+    # Online critic light pretrain n_steps ablation — fewer steps (100)
     exps.append(ExperimentConfig(
-        name="actor_pretrain_n_steps_1k",
+        name="online_critic_pretrain_steps_100",
         wandb_project=P["actor_pretrain"],
         use_expert_warmup=True,
-        actor_pretrain_n_steps=1_000,
-        **AWBC, **MC, **dict(use_actor_pretrain=True), **BUF,
+        online_critic_pretrain_steps=100,
+        **AWBC, **MC, **dict(use_online_critic_light_pretrain=True), **BUF,
     ))
 
-    # Actor pretrain n_steps ablation — more steps (20k)
+    # Online critic light pretrain n_steps ablation — more steps (1k)
     exps.append(ExperimentConfig(
-        name="actor_pretrain_n_steps_20k",
+        name="online_critic_pretrain_steps_1k",
         wandb_project=P["actor_pretrain"],
         use_expert_warmup=True,
-        actor_pretrain_n_steps=20_000,
-        **AWBC, **MC, **dict(use_actor_pretrain=True), **BUF,
+        online_critic_pretrain_steps=1_000,
+        **AWBC, **MC, **dict(use_online_critic_light_pretrain=True), **BUF,
     ))
 
-    # Blend only (no actor pretrain) — isolates blended target contribution
+    # Blend only (no light pretrain) — isolates blended target contribution
     exps.append(ExperimentConfig(
         name="mc_pretrain_blend",
         wandb_project=P["actor_pretrain"],
@@ -572,7 +573,7 @@ def run_single_experiment(
     print(
         f"[{exp.name}] project={effective_project}  expert_score={policy_score:.1f}\n"
         f"  warmup={exp.use_expert_warmup}  awbc={exp.use_expert_guidance}  "
-        f"mc_pretrain={exp.use_mc_critic_pretrain}  actor_pretrain={exp.use_actor_pretrain}  "
+        f"mc_pretrain={exp.use_mc_critic_pretrain}  light_critic_pretrain={exp.use_online_critic_light_pretrain}  "
         f"blend={exp.use_critic_blend}  box={exp.use_box}\n"
         f"  critics={exp.num_critics}×{exp.num_critic_updates}  "
         f"normalize={exp.awbc_normalize}  relu={exp.awbc_use_relu}  "
@@ -590,7 +591,7 @@ def run_single_experiment(
         use_expert_warmup=exp.use_expert_warmup,
         use_expert_guidance=exp.use_expert_guidance,
         use_mc_critic_pretrain=exp.use_mc_critic_pretrain,
-        use_actor_pretrain=exp.use_actor_pretrain,
+        use_online_critic_light_pretrain=exp.use_online_critic_light_pretrain,
         use_critic_blend=exp.use_critic_blend,
         critic_warmup_frac=exp.critic_warmup_frac,
         use_box=exp.use_box,
@@ -601,7 +602,8 @@ def run_single_experiment(
         awbc_normalize=exp.awbc_normalize,
         awbc_use_relu=exp.awbc_use_relu,
         fixed_awbc_lambda=exp.fixed_awbc_lambda,
-        actor_pretrain_n_steps=exp.actor_pretrain_n_steps,
+        online_critic_pretrain_steps=exp.online_critic_pretrain_steps,
+        online_critic_pretrain_lr_scale=exp.online_critic_pretrain_lr_scale,
         policy_update_start=exp.policy_update_start,
     )
 
@@ -621,8 +623,9 @@ def run_single_experiment(
         mc_pretrain_n_mc_steps=exp.mc_pretrain_n_mc_steps,
         mc_pretrain_n_mc_episodes=exp.mc_pretrain_n_mc_episodes,
         mc_pretrain_n_steps=exp.mc_pretrain_n_steps,
-        use_actor_pretrain=exp.use_actor_pretrain,
-        actor_pretrain_n_steps=exp.actor_pretrain_n_steps,
+        use_online_critic_light_pretrain=exp.use_online_critic_light_pretrain,
+        online_critic_pretrain_steps=exp.online_critic_pretrain_steps,
+        online_critic_pretrain_lr_scale=exp.online_critic_pretrain_lr_scale,
         use_critic_blend=exp.use_critic_blend,
         critic_warmup_frac=exp.critic_warmup_frac,
         use_box=exp.use_box,

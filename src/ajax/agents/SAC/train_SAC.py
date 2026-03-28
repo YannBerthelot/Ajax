@@ -82,6 +82,9 @@ class PolicyAuxiliaries:
     l2_expert: jax.Array          # ||π(s) - a_expert||^2: L2 distance to expert action
     above_expert_frac: jax.Array  # fraction of batch where policy beats expert
 
+    # Online decaying BC term
+    bc_term: jax.Array            # decaying online BC loss magnitude (0 after warmup_frac)
+
     # Policy behavior KPIs (from raw_obs — tell us what the policy actually does)
     altitude_error: jax.Array     # mean |z - target| over batch
     z_dot_mean: jax.Array         # mean |z_dot| over batch: 0 = stable, high = aggressive
@@ -469,6 +472,62 @@ def pretrain_critic_mc(
 
 
 # ---------------------------------------------------------------------------
+# Online critic light pre-regression (weak supervised nudge toward φ*)
+# ---------------------------------------------------------------------------
+
+
+@partial(jax.jit, static_argnames=["n_steps", "lr_scale"])
+def pretrain_critic_online_light(
+    agent_state: SACState,
+    obs_batched: jax.Array,      # reuse MC pretrain dataset
+    action_batched: jax.Array,
+    n_steps: int = 500,
+    lr_scale: float = 0.1,
+) -> SACState:
+    """
+    Weak supervised nudge of the online critic toward φ*.
+    Goal: reduce seed-to-seed variance at initialization.
+    NOT a full MC pretrain — just reduces starting point spread.
+    Target network stays random and untouched.
+    """
+    def light_loss_fn(critic_params, obs, actions):
+        # Target from frozen expert critic
+        v_expert = jax.lax.stop_gradient(
+            jnp.min(
+                predict_value(
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.expert_critic_params,
+                    x=jnp.concatenate([obs, actions], axis=-1),
+                ), axis=0,
+            )
+        )
+        # Online critic prediction
+        q_online = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=critic_params,
+            x=jnp.concatenate([obs, actions], axis=-1),
+        )
+        return jnp.mean((q_online - v_expert) ** 2)
+
+    def step(carry, batch):
+        agent_state = carry
+        obs_b, action_b = batch
+        loss, grads = jax.value_and_grad(light_loss_fn)(
+            agent_state.critic_state.params, obs_b, action_b
+        )
+        # Scale gradients down — weak signal only
+        grads = jax.tree.map(lambda g: g * lr_scale, grads)
+        new_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
+        return agent_state.replace(critic_state=new_critic_state), loss
+
+    agent_state, _ = jax.lax.scan(
+        step, agent_state, (obs_batched[:n_steps], action_batched[:n_steps])
+    )
+    # Target network intentionally untouched
+    return agent_state
+
+
+# ---------------------------------------------------------------------------
 # Actor pre-training via value-weighted behavioral cloning
 # ---------------------------------------------------------------------------
 
@@ -741,7 +800,7 @@ def augment_obs_if_needed(
                     "augment_obs_with_expert_action",
                     "proximity_scale",
                     "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
-                    "detach_obs_aug_action"],
+                    "detach_obs_aug_action", "critic_warmup_frac"],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
@@ -766,6 +825,11 @@ def policy_loss_function(
     fixed_awbc_lambda: Optional[float] = None,
     detach_obs_aug_action: bool = False,
     inside_box_mask: Optional[jax.Array] = None,
+    train_frac: Optional[jax.Array] = None,
+    expert_critic_params: Optional[Any] = None,
+    expert_v_min: Optional[jax.Array] = None,
+    expert_v_max: Optional[jax.Array] = None,
+    critic_warmup_frac: float = 0.15,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     SAC actor loss with optional expert guidance.
@@ -855,13 +919,42 @@ def policy_loss_function(
         else:
             awbc_term = awbc_coef_logged = l2_expert_logged = jnp.zeros(())
 
-        total_loss = loss_actor.mean() + awbc_term
+        # Online decaying BC term — value-weighted, warmup-decaying
+        if (
+            expert_policy is not None
+            and critic_warmup_frac > 0.0
+            and expert_critic_params is not None
+        ):
+            bc_weight = jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
+            v_star = jax.lax.stop_gradient(
+                jnp.min(
+                    predict_value(
+                        critic_state=critic_states,
+                        critic_params=expert_critic_params,
+                        x=jnp.concatenate([observations, a_expert], axis=-1),
+                    ), axis=0,
+                )
+            )
+            v_weight = jnp.clip(
+                (v_star - expert_v_min) / (expert_v_max - expert_v_min + 1e-6),
+                0.0, 1.0,
+            ) ** 2
+            mu = jnp.tanh(pi.distribution.loc)
+            bc_term = bc_weight * (v_weight * jnp.sum(
+                (mu - jax.lax.stop_gradient(a_expert)) ** 2,
+                axis=-1, keepdims=True,
+            )).mean()
+            total_loss = loss_actor.mean() + awbc_term + bc_term
+        else:
+            bc_term = jnp.zeros(())
+            total_loss = loss_actor.mean() + awbc_term
     else:
         total_loss        = loss_actor.mean()
         awbc_coef_logged  = jnp.zeros(())
         l2_expert_logged  = jnp.zeros(())
         q_expert_logged   = jnp.zeros(())
         above_expert_frac = jnp.zeros(())
+        bc_term           = jnp.zeros(())
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -875,6 +968,7 @@ def policy_loss_function(
         altitude_error=altitude_error_val,
         z_dot_mean=z_dot_mean_val,
         raw_loss=loss_actor.mean(),
+        bc_term=bc_term,
     )
 
 
@@ -885,7 +979,7 @@ def policy_loss_function(
                     "augment_obs_with_expert_action",
                     "proximity_scale",
                     "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
-                    "detach_obs_aug_action"],
+                    "detach_obs_aug_action", "critic_warmup_frac"],
 )
 def update_policy(
     agent_state: SACState,
@@ -906,6 +1000,8 @@ def update_policy(
     fixed_awbc_lambda: Optional[float] = None,
     detach_obs_aug_action: bool = False,
     inside_box_mask: Optional[jax.Array] = None,
+    train_frac: Optional[jax.Array] = None,
+    critic_warmup_frac: float = 0.15,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
     """Returns (new_state, aux, log_probs) — log_probs reused by update_temperature
     to avoid a redundant actor forward pass."""
@@ -928,6 +1024,11 @@ def update_policy(
         fixed_awbc_lambda=fixed_awbc_lambda,
         detach_obs_aug_action=detach_obs_aug_action,
         inside_box_mask=inside_box_mask,
+        train_frac=train_frac,
+        expert_critic_params=agent_state.expert_critic_params,
+        expert_v_min=agent_state.expert_v_min,
+        expert_v_max=agent_state.expert_v_max,
+        critic_warmup_frac=critic_warmup_frac,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -1245,6 +1346,7 @@ def update_agent(
     aux_value = jax.tree.map(lambda x: x[-1], aux_value_seq)
 
     # --- Policy update — returns log_probs for temperature reuse ---
+    train_frac = agent_state.collector_state.timestep / total_timesteps
     new_agent_state, aux_policy, policy_log_probs = update_policy(
         observations=transition.obs, done=dones, agent_state=agent_state,
         recurrent=recurrent, raw_observations=transition.raw_obs,
@@ -1260,6 +1362,8 @@ def update_agent(
         fixed_awbc_lambda=fixed_awbc_lambda,
         detach_obs_aug_action=detach_obs_aug_action,
         inside_box_mask=inside_box_mask,
+        train_frac=train_frac,
+        critic_warmup_frac=critic_warmup_frac,
     )
     agent_state = jax.lax.cond(
         agent_state.collector_state.timestep >= policy_update_start,
@@ -1520,9 +1624,10 @@ def make_train(
     mc_pretrain_n_mc_steps: int = 10_000,
     mc_pretrain_n_mc_episodes: int = 100,
     mc_pretrain_n_steps: int = 5_000,
-    # Actor pretraining via value-weighted BC (requires MC critic pretrain)
-    use_actor_pretrain: bool = False,
-    actor_pretrain_n_steps: int = 5_000,
+    # Online critic light pre-regression (requires MC critic pretrain)
+    use_online_critic_light_pretrain: bool = True,
+    online_critic_pretrain_steps: int = 500,
+    online_critic_pretrain_lr_scale: float = 0.1,
     # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
     use_bellman_critic_pretrain: bool = False,
     # Expert-guided policy loss terms
@@ -1631,15 +1736,18 @@ def make_train(
                 qx=mc_aux.q_expert_max,
             )
 
-            if use_actor_pretrain:
-                agent_state = pretrain_actor_weighted_bc(
-                    agent_state=agent_state,
-                    obs_batched=mc_obs_batched,
-                    action_batched=mc_action_batched,
-                    n_steps=actor_pretrain_n_steps,
-                    recurrent=network_args.lstm_hidden_size is not None,
+            if use_online_critic_light_pretrain:
+                agent_state = pretrain_critic_online_light(
+                    agent_state,
+                    mc_obs_batched,
+                    mc_action_batched,
+                    n_steps=online_critic_pretrain_steps,
+                    lr_scale=online_critic_pretrain_lr_scale,
                 )
-                jax.debug.print("[Actor pretrain] done ({n} steps)", n=actor_pretrain_n_steps)
+                jax.debug.print(
+                    "[Online critic light pretrain] done ({n} steps, lr_scale={s})",
+                    n=online_critic_pretrain_steps, s=online_critic_pretrain_lr_scale,
+                )
 
         if expert_policy is not None and use_bellman_critic_pretrain:
             agent_state = pretrain_critic_bellman(

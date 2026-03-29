@@ -44,6 +44,7 @@ from ajax.plane.plane_exps_utils import (
     load_hyperparams,
 )
 from ajax.environments.create import prepare_env
+from ajax.environments.utils import get_action_dim
 from ajax.stable_utils import get_expert_policy
 from ajax.state import EnvironmentConfig
 from mc_pretrain_collect import (
@@ -124,6 +125,20 @@ class ExperimentConfig:
     exploration_decay_frac: float = 0.30
     exploration_tau: float = 1.0
 
+    # Prioritized experience replay
+    use_prioritized_replay: bool = False
+    priority_alpha: float = 0.6
+    priority_beta: float = 0.4
+    priority_epsilon: float = 1e-3
+
+    # Distance-modulated entropy (None = disabled; scale applied to target_entropy_per_dim)
+    use_distance_entropy: bool = False
+    target_entropy_far_scale: float = 0.5
+
+    # Online MC correction for high-variance states
+    use_mc_correction: bool = False
+    variance_threshold: float = 1.0
+
     num_critics: int = 2
 
 
@@ -173,10 +188,86 @@ def build_experiments() -> List[ExperimentConfig]:
     BLEND = dict(
         use_critic_blend=True,
     )
+    EGE_BASE = dict(
+        use_expert_guided_exploration=True,
+        exploration_decay_frac=0.30,
+        exploration_tau=1.0,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_online_bc=False,
+        use_online_critic_light_pretrain=False,
+        use_critic_blend=False,
+        use_expert_guidance=False,
+        num_critic_updates=1,
+    )
     # alpha_update_start=50_000 is now the default in ExperimentConfig.
     # SAC baseline overrides back to 10_000 since it has no expert critic.
 
     exps = []
+
+    # ==================================================================
+    # Tier -1 — EGE solution ablations
+    # Each activates exactly one add-on on top of EGE_BASE + MC pretrain.
+    # Tier -1 runs first: shortest iteration time, most diagnostic value.
+    # ==================================================================
+
+    # 1. EGE + prioritized replay only
+    # Cleanest test of Solution 3. Does disagreement-weighted sampling
+    # accelerate critic convergence in OOD reach-phase states?
+    exps.append(ExperimentConfig(
+        name="ege_priority_replay",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,
+        **MC, **EGE_BASE,
+        use_prioritized_replay=True,
+        priority_alpha=0.6,
+        priority_beta=0.4,
+        priority_epsilon=1e-3,
+    ))
+
+    # 2. EGE + online MC correction only
+    # Cleanest test of Solution 1. Does replacing Bellman targets with
+    # short expert rollouts in high-variance states improve Q accuracy?
+    exps.append(ExperimentConfig(
+        name="ege_mc_correction",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,
+        **MC, **EGE_BASE,
+        use_mc_correction=True,
+        variance_threshold=1.0,
+    ))
+
+    # 3. EGE + distance-modulated entropy only
+    # Tests whether higher entropy far from setpoint improves reach-phase
+    # exploration without interfering with near-setpoint precision.
+    # target_entropy_far_scale=0.5 → target_entropy_per_dim * 0.5 (less negative = more entropy far away)
+    exps.append(ExperimentConfig(
+        name="ege_entropy_distance",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,
+        **MC, **EGE_BASE,
+        use_distance_entropy=True,
+        target_entropy_far_scale=0.5,
+    ))
+
+    # 4. EGE + all three combined
+    # Full stack: prioritized replay identifies uncertain states,
+    # MC correction provides accurate targets there,
+    # distance entropy encourages reach-phase exploration.
+    exps.append(ExperimentConfig(
+        name="ege_priority_mc_entropy",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,
+        **MC, **EGE_BASE,
+        use_prioritized_replay=True,
+        priority_alpha=0.6,
+        priority_beta=0.4,
+        priority_epsilon=1e-3,
+        use_mc_correction=True,
+        variance_threshold=1.0,
+        use_distance_entropy=True,
+        target_entropy_far_scale=0.5,
+    ))
 
     # ==================================================================
     # Tier 0 — Baseline anchors
@@ -614,6 +705,15 @@ def run_single_experiment(
 
     agent_expert_policy = expert_policy if exp.use_expert_warmup else None
 
+    # Compute absolute target_entropy_far from per-dim scale × action_dim
+    target_entropy_far: Optional[float] = None
+    if exp.use_distance_entropy:
+        tep = hp.get("target_entropy_per_dim", -1.0)
+        action_dim = get_action_dim(env, env_params)
+        target_entropy_far = tep * exp.target_entropy_far_scale * action_dim
+
+    mc_variance_threshold: Optional[float] = exp.variance_threshold if exp.use_mc_correction else None
+
     policy_score = get_policy_score(expert_policy, env, env_params)
     print(
         f"[{exp.name}] group={exp.wandb_group}  expert_score={policy_score:.1f}\n"
@@ -680,6 +780,12 @@ def run_single_experiment(
         use_expert_guided_exploration=exp.use_expert_guided_exploration,
         exploration_decay_frac=exp.exploration_decay_frac,
         exploration_tau=exp.exploration_tau,
+        target_entropy_far=target_entropy_far,
+        use_prioritized_replay=exp.use_prioritized_replay,
+        priority_alpha=exp.priority_alpha,
+        priority_beta=exp.priority_beta,
+        priority_epsilon=exp.priority_epsilon,
+        mc_variance_threshold=mc_variance_threshold,
         policy_update_start=exp.policy_update_start,
         alpha_update_start=exp.alpha_update_start,
         use_train_frac=exp.use_expert_warmup,  # enable train_frac obs for all expert runs

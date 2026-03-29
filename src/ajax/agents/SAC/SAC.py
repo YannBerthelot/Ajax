@@ -7,7 +7,7 @@ from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
-from ajax.buffers.utils import get_buffer
+from ajax.buffers.utils import get_buffer, get_prioritized_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
@@ -108,6 +108,13 @@ class SAC(ActorCritic):
         exploration_tau: float = 1.0,
         # Distance-modulated entropy target (None = disabled)
         target_entropy_far: Optional[float] = None,
+        # Prioritized experience replay (PER)
+        use_prioritized_replay: bool = False,
+        priority_alpha: float = 0.6,
+        priority_beta: float = 0.4,
+        priority_epsilon: float = 1e-3,
+        # Online MC correction for high-variance states (None = disabled)
+        mc_variance_threshold: Optional[float] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -139,7 +146,13 @@ class SAC(ActorCritic):
             target_entropy=target_entropy_per_dim * action_dim,
             reward_scale=reward_scale,
         )
-        self.buffer = get_buffer(buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs)
+        if use_prioritized_replay:
+            self.buffer = get_prioritized_buffer(
+                buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs,
+                priority_exponent=priority_alpha,
+            )
+        else:
+            self.buffer = get_buffer(buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs)
         self.num_critics = num_critics
         self.cloning_confing = CloningConfig(
             actor_epochs=actor_cloning_epochs, critic_epochs=critic_cloning_epochs,
@@ -188,6 +201,11 @@ class SAC(ActorCritic):
         self.exploration_decay_frac = exploration_decay_frac
         self.exploration_tau = exploration_tau
         self.target_entropy_far = target_entropy_far
+        self.use_prioritized_replay = use_prioritized_replay
+        self.priority_alpha = priority_alpha
+        self.priority_beta = priority_beta
+        self.priority_epsilon = priority_epsilon
+        self.mc_variance_threshold = mc_variance_threshold
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -228,4 +246,9 @@ class SAC(ActorCritic):
             exploration_decay_frac=self.exploration_decay_frac,
             exploration_tau=self.exploration_tau,
             target_entropy_far=self.target_entropy_far,
+            use_prioritized_replay=self.use_prioritized_replay,
+            priority_alpha=self.priority_alpha,
+            priority_beta=self.priority_beta,
+            priority_epsilon=self.priority_epsilon,
+            mc_variance_threshold=self.mc_variance_threshold,
         )

@@ -20,7 +20,7 @@ from ajax.agents.cloning import (
 )
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.buffers.utils import get_batch_from_buffer
+from ajax.buffers.utils import get_batch_from_buffer, get_batch_from_prioritized_buffer
 from ajax.environments.interaction import (
     collect_experience,
     collect_experience_from_expert_policy,
@@ -101,6 +101,7 @@ class ValueAuxiliaries:
     alpha_blend: jax.Array          # current blend coefficient (1=pure expert, 0=pure Bellman)
     effective_threshold: jax.Array  # box threshold at current train_frac
     box_entry_rate: jax.Array       # fraction of batch inside value box
+    mc_correction_frac: jax.Array   # fraction of batch where MC target replaced Bellman
 
 
 @struct.dataclass
@@ -660,7 +661,7 @@ def pretrain_critic_bellman(
 # ---------------------------------------------------------------------------
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale"])
+@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale", "mc_variance_threshold"])
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
@@ -678,6 +679,9 @@ def value_loss_function(
     expert_q: Optional[jax.Array] = None,
     v_expert_next: Optional[jax.Array] = None,
     alpha_blend: Optional[jax.Array] = None,
+    is_weights: Optional[jax.Array] = None,
+    expert_critic_params: Optional[Any] = None,
+    mc_variance_threshold: Optional[float] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     rewards = rewards * reward_scale
 
@@ -715,9 +719,37 @@ def value_loss_function(
         alpha_blend_logged = jnp.zeros(1)
 
     target_q = jax.lax.stop_gradient(y)
+
+    # MC correction: replace Bellman target with expert-critic oracle for high-variance states.
+    # expert_critic_params must be the MC-pretrained frozen critic (agent_state.expert_critic_params).
+    mc_correction_frac = jnp.zeros(1)
+    if mc_variance_threshold is not None:
+        q_var = var_preds[0, :, 0]  # (batch,) — inter-critic variance per state
+        uncertain_mask = q_var > mc_variance_threshold  # (batch,)
+        mc_correction_frac = uncertain_mask.mean().reshape(1)
+        if expert_critic_params is not None:
+            q_mc_target = jnp.min(
+                predict_value(
+                    critic_state=critic_states,
+                    critic_params=expert_critic_params,
+                    x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+                ),
+                axis=0,
+            )  # (batch, 1)
+            target_q = jnp.where(
+                uncertain_mask[..., None],
+                jax.lax.stop_gradient(q_mc_target),
+                target_q,
+            )
+
     assert target_q.shape == q_preds.shape[1:]
 
-    total_loss = jnp.mean((q_preds - target_q) ** 2)
+    # IS-weighted loss (for prioritized replay); uniform loss otherwise
+    if is_weights is not None:
+        total_loss = jnp.mean(is_weights[None, :, None] * (q_preds - target_q) ** 2)
+    else:
+        total_loss = jnp.mean((q_preds - target_q) ** 2)
+
     q_pred_min = jnp.min(q_preds, axis=0)
 
     q_expert_mean = expert_q.mean().flatten() if expert_q is not None else jnp.zeros(1)
@@ -733,10 +765,11 @@ def value_loss_function(
         effective_threshold=jnp.zeros(1),
         box_entry_rate=jnp.zeros(1),
         expert_frac_in_buffer=jnp.zeros(1),
+        mc_correction_frac=mc_correction_frac,
     )
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale"])
+@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale", "mc_variance_threshold"])
 def update_value_functions(
     agent_state: SACState,
     observations: jax.Array,
@@ -750,6 +783,9 @@ def update_value_functions(
     expert_q: Optional[jax.Array] = None,
     v_expert_next: Optional[jax.Array] = None,
     alpha_blend: Optional[jax.Array] = None,
+    is_weights: Optional[jax.Array] = None,
+    expert_critic_params: Optional[Any] = None,
+    mc_variance_threshold: Optional[float] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
@@ -758,7 +794,7 @@ def update_value_functions(
         agent_state.critic_state.params, agent_state.critic_state, value_loss_key,
         agent_state.actor_state, actions, observations, next_observations,
         dones, rewards, gamma, alpha, recurrent, reward_scale, expert_q,
-        v_expert_next, alpha_blend,
+        v_expert_next, alpha_blend, is_weights, expert_critic_params, mc_variance_threshold,
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -1164,6 +1200,7 @@ def is_inside_box(
         "detach_obs_aug_action",
         "use_critic_blend", "critic_warmup_frac", "use_box",
         "total_timesteps", "use_online_bc", "bc_coef",
+        "use_prioritized_replay", "mc_variance_threshold",
     ],
 )
 def update_agent(
@@ -1202,16 +1239,32 @@ def update_agent(
     use_online_bc: bool = True,
     bc_coef: float = 1.0,
     target_entropy_far: Optional[float] = None,
+    use_prioritized_replay: bool = False,
+    priority_beta: float = 0.4,
+    priority_epsilon: float = 1e-3,
+    mc_variance_threshold: Optional[float] = None,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
 
     # --- Sample from buffer ---
     if buffer is not None and agent_state.collector_state.buffer_state is not None:
-        (
-            observations, terminated, truncated, next_observations,
-            rewards, actions, raw_observations, is_expert,
-        ) = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, sample_key)
+        if use_prioritized_replay:
+            (
+                observations, terminated, truncated, next_observations,
+                rewards, actions, raw_observations, is_expert,
+                sample_indices, probabilities,
+            ) = get_batch_from_prioritized_buffer(buffer, agent_state.collector_state.buffer_state, sample_key)
+            # IS weights for bias correction — normalized so max weight = 1
+            is_weights_raw = (1.0 / probabilities) ** priority_beta
+            is_weights = is_weights_raw / is_weights_raw.max()  # (batch,)
+        else:
+            (
+                observations, terminated, truncated, next_observations,
+                rewards, actions, raw_observations, is_expert,
+            ) = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, sample_key)
+            is_weights = None
+            sample_indices = None
         expert_frac_in_buffer = is_expert.mean()
         original_transition = Transition(
             observations, actions, rewards, terminated, truncated,
@@ -1237,9 +1290,19 @@ def update_agent(
         else:
             transition = original_transition
 
+        # When mixing buffer+online, extend IS weights with 1.0 for online portion
+        if use_prioritized_replay and additional_transition is not None and transition_mix_fraction < 1.0:
+            is_weights = jnp.concatenate([
+                is_weights[:n_from_buffer],
+                jnp.ones(n_from_online),
+            ], axis=0)
+            is_weights = is_weights / is_weights.max()
+
     elif additional_transition is not None:
         transition = additional_transition
         expert_frac_in_buffer = jnp.zeros(())
+        is_weights = None
+        sample_indices = None
     else:
         raise ValueError("Either buffer or additional_transition must be provided.")
 
@@ -1268,6 +1331,13 @@ def update_agent(
             next_obs=_cat(transition.next_obs, exp_next_obs),
             raw_obs=_cat(transition.raw_obs, exp_raw_obs),
         )
+        # IS weights: expert-mixed portion has no buffer sampling bias → weight = 1.0
+        if use_prioritized_replay and is_weights is not None:
+            is_weights = jnp.concatenate([
+                is_weights[:n_online],
+                jnp.ones(n_expert),
+            ], axis=0)
+            is_weights = is_weights / is_weights.max()
 
     dones = jnp.logical_or(transition.terminated, transition.truncated)
 
@@ -1365,6 +1435,9 @@ def update_agent(
             dones=dones, agent_state=agent_state, recurrent=recurrent,
             gamma=gamma, reward_scale=reward_scale, expert_q=expert_q,
             v_expert_next=v_expert_next_blend, alpha_blend=alpha_blend_val,
+            is_weights=is_weights,
+            expert_critic_params=agent_state.expert_critic_params,
+            mc_variance_threshold=mc_variance_threshold,
         )
         return agent_state, aux_value
 
@@ -1372,6 +1445,23 @@ def update_agent(
         critic_update_step, agent_state, None, length=num_critic_updates
     )
     aux_value = jax.tree.map(lambda x: x[-1], aux_value_seq)
+
+    # --- Prioritized replay: update priorities with post-update critic disagreement ---
+    if use_prioritized_replay and sample_indices is not None:
+        q_preds_for_priority = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=jnp.concatenate(
+                (observations, jax.lax.stop_gradient(actions)), axis=-1
+            ),
+        )  # (n_critics, batch, 1)
+        new_priorities = q_preds_for_priority.var(axis=0).squeeze(-1) + priority_epsilon  # (batch,)
+        new_buffer_state = buffer.set_priorities(
+            agent_state.collector_state.buffer_state, sample_indices, new_priorities
+        )
+        agent_state = agent_state.replace(
+            collector_state=agent_state.collector_state.replace(buffer_state=new_buffer_state)
+        )
 
     # --- Policy update — returns log_probs for temperature reuse ---
     train_frac = agent_state.collector_state.timestep / total_timesteps
@@ -1438,6 +1528,7 @@ def update_agent(
             effective_threshold=effective_threshold_logged,
             box_entry_rate=box_entry_rate,
             expert_frac_in_buffer=jnp.atleast_1d(expert_frac_in_buffer),
+            mc_correction_frac=aux_value.mc_correction_frac.flatten(),
         ),
     )
     return agent_state, aux
@@ -1466,6 +1557,7 @@ def update_agent(
         "policy_update_start", "alpha_update_start",
         "use_critic_blend", "critic_warmup_frac", "use_box", "use_online_bc", "bc_coef",
         "use_expert_guided_exploration", "target_entropy_far",
+        "use_prioritized_replay", "mc_variance_threshold",
     ],
 )
 def training_iteration(
@@ -1517,6 +1609,10 @@ def training_iteration(
     exploration_decay_frac: float = 0.30,
     exploration_tau: float = 1.0,
     target_entropy_far: Optional[float] = None,
+    use_prioritized_replay: bool = False,
+    priority_beta: float = 0.4,
+    priority_epsilon: float = 1e-3,
+    mc_variance_threshold: Optional[float] = None,
     # API compat
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = lambda x: 1.0,
@@ -1575,6 +1671,10 @@ def training_iteration(
             use_online_bc=use_online_bc,
             bc_coef=bc_coef,
             target_entropy_far=target_entropy_far,
+            use_prioritized_replay=use_prioritized_replay,
+            priority_beta=priority_beta,
+            priority_epsilon=priority_epsilon,
+            mc_variance_threshold=mc_variance_threshold,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=n_epochs)
         aux = jax.tree.map(lambda x: x[-1].reshape((1,)), aux)
@@ -1589,6 +1689,7 @@ def training_iteration(
                 effective_threshold=aux.value.effective_threshold.flatten(),
                 box_entry_rate=aux.value.box_entry_rate.flatten(),
                 expert_frac_in_buffer=aux.value.expert_frac_in_buffer.flatten(),
+                mc_correction_frac=aux.value.mc_correction_frac.flatten(),
             )
         )
         return agent_state, aux
@@ -1714,6 +1815,13 @@ def make_train(
     exploration_tau: float = 1.0,
     # Distance-modulated entropy target (None = disabled)
     target_entropy_far: Optional[float] = None,
+    # Prioritized experience replay (PER)
+    use_prioritized_replay: bool = False,
+    priority_alpha: float = 0.6,
+    priority_beta: float = 0.4,
+    priority_epsilon: float = 1e-3,
+    # Online MC correction for high-variance critic states (None = disabled)
+    mc_variance_threshold: Optional[float] = None,
     # Pre-collected MC data: (obs, action, mc_return) JAX arrays.
     # When provided, the in-run expert rollout + MC-return computation is skipped.
     mc_preloaded_data: Optional[Tuple] = None,
@@ -1897,6 +2005,10 @@ def make_train(
             exploration_decay_frac=exploration_decay_frac,
             exploration_tau=exploration_tau,
             target_entropy_far=target_entropy_far,
+            use_prioritized_replay=use_prioritized_replay,
+            priority_beta=priority_beta,
+            priority_epsilon=priority_epsilon,
+            mc_variance_threshold=mc_variance_threshold,
             **_valid_cloning_params,
         )
 

@@ -511,6 +511,7 @@ def update_agent(
             rewards,
             actions,
             raw_observations,
+            _,
         ) = get_batch_from_buffer(
             buffer,
             agent_state.collector_state.buffer_state,

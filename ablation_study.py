@@ -26,6 +26,8 @@ import jax
 import jax.numpy as jnp
 
 jax.config.update("jax_compilation_cache_dir", os.path.expanduser("~/.cache/jax_xla"))
+jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+os.environ["WANDB_SILENT"] = "true"
 
 from target_gym import Plane, PlaneParams
 from tqdm import tqdm
@@ -41,21 +43,36 @@ from ajax.plane.plane_exps_utils import (
     get_policy_score,
     load_hyperparams,
 )
+from ajax.environments.create import prepare_env
 from ajax.stable_utils import get_expert_policy
+from ajax.state import EnvironmentConfig
+from mc_pretrain_collect import (
+    MC_DATA_PATH,
+    read_mc_meta,
+    collect_and_save_mc_data,
+    load_mc_data_for_experiment,
+)
 
 
 # ---------------------------------------------------------------------------
-# W&B project names — one project per thematic tier.
-# Edit these to match your W&B workspace.
+# Single W&B project — all experiments land here.
+# Edit to match your W&B workspace.
 # ---------------------------------------------------------------------------
 
-GROUP_PROJECTS = {
-    "actor_pretrain":       "ablation_actor_pretrain_plane",
-    "component_isolation":  "ablation_component_isolation_plane",
-    "awbc":                 "ablation_awbc_plane",
-    "critics":              "ablation_critics_plane",
-    "mc_pretrain":          "ablation_mc_pretrain_plane",
-    "expert_mix":           "ablation_expert_mix_plane",
+WANDB_PROJECT = "ablation_plane_clean"
+
+# W&B group names — one group per thematic tier (used as the `group` field).
+WANDB_GROUPS = {
+    "baselines":            "ablation_baselines_plane_debug",
+    "best_variants":        "ablation_best_variants_plane_debug",
+    "component_isolation":  "ablation_component_isolation_plane_debug",
+    "alpha_deferral":       "ablation_alpha_deferral_plane_debug",
+    "critic_architecture":  "ablation_critic_architecture_plane_debug",
+    "actor_pretrain":       "ablation_actor_pretrain_plane_debug",
+    "awbc":                 "ablation_awbc_plane_debug",
+    "critics":              "ablation_critics_plane_debug",
+    "mc_pretrain":          "ablation_mc_pretrain_plane_debug",
+    "expert_mix":           "ablation_expert_mix_plane_debug",
 }
 
 # Path where baseline run IDs are cached after sac_baseline completes.
@@ -68,358 +85,341 @@ SEEDED_PROJECTS_FILE = os.path.abspath("ablation_seeded_projects.json")
 # Experiment configuration dataclass
 # ---------------------------------------------------------------------------
 
-
 @dataclass
 class ExperimentConfig:
-    """
-    One experiment in the ablation suite.
-    All expert-guidance flags default to off — safe baseline when not set.
-    """
     name: str
-    wandb_project: str = ""  # empty → use the global project passed at runtime
+    wandb_group: str = ""
 
-    # Expert warmup (seed replay buffer with expert rollouts)
     use_expert_warmup: bool = False
+    use_expert_guidance: bool = False
+    use_mc_critic_pretrain: bool = False
+    use_online_bc: bool = False             # decoupled from AWBC, explicit default off
+    use_online_critic_light_pretrain: bool = False  # explicit default off, must opt in
+    use_critic_blend: bool = False
+    critic_warmup_frac: float = 0.3
+    use_box: bool = False
 
-    # Expert guidance mechanisms
-    use_expert_guidance: bool = False       # AWBC actor regularisation
-    use_mc_critic_pretrain: bool = False    # MC-return critic pretraining
-    use_online_critic_light_pretrain: bool = True   # Light online critic nudge toward φ* (requires MC)
-    use_critic_blend: bool = False          # Blended Bellman target (replaces potential shaping)
-    critic_warmup_frac: float = 0.15        # Fraction of training over which blend decays 1→0
-    use_box: bool = False                   # Value-threshold curriculum box
-
-    # Update start thresholds.
-    # 2k for expert runs (actor pretrained → no need for long critic warm-up).
-    # sac_baseline overrides to 10k (no expert → critic needs time to stabilise).
     policy_update_start: int = 5_000
-    alpha_update_start: int = 5_000
+    alpha_update_start: int = 5_000        # default deferred to prevent early collapse
 
-    # AWBC parameters
-    num_critic_updates: int = 1
+    num_critic_updates: int = 1             # default 1, UTD=4 must be explicit opt-in
     expert_buffer_n_steps: int = 20_000
     expert_mix_fraction: float = 0.1
 
-    # AWBC mechanism ablation flags
     awbc_normalize: bool = True
     awbc_use_relu: bool = True
     fixed_awbc_lambda: Optional[float] = None
 
-    # MC pretrain parameters
     mc_pretrain_n_mc_steps: int = 10_000
-    mc_pretrain_n_mc_episodes: int = 1000
+    mc_pretrain_n_mc_episodes: int = 1000   # explicit, matches winning run
     mc_pretrain_n_steps: int = 5_000
-    # Online critic light pretrain parameters
-    online_critic_pretrain_steps: int = 500
+
+    online_critic_pretrain_steps: int = 100  # default matches winning run
     online_critic_pretrain_lr_scale: float = 0.1
 
-    # Standard SAC hyperparameters (overridable per experiment)
+    alpha_learning_rate_scale: float = 0.5   # multiplier on SAC-tuned alpha_lr (0.5 for non-baselines)
+    bc_coef: float = 1.0                     # BC term strength multiplier
+
+    use_expert_guided_exploration: bool = False
+    exploration_decay_frac: float = 0.30
+    exploration_tau: float = 1.0
+
     num_critics: int = 2
 
 
-# ---------------------------------------------------------------------------
-# Sweep definition
-# ---------------------------------------------------------------------------
-
-
 def build_experiments() -> List[ExperimentConfig]:
-    """
-    Ablation suite ordered by expected impact (highest first).
+    P = WANDB_GROUPS
 
-    Tier 0 — Actor pretrain (new, most promising):
-        Exercises the full MC-pretrain → value-weighted BC → AWBC / shaping / box stack.
-    Tier 1 — Component isolation: establishes contribution of each legacy mechanism.
-    Tier 2 — AWBC mechanism: normalisation, ReLU gating, fixed λ.
-    Tier 3 — Critic count and update ratio.
-    Tier 4 — MC pretrain hyperparameters.
-    Tier 5 — Expert mix fraction.
-    """
-    P = GROUP_PROJECTS      # shorthand
-
+    # ------------------------------------------------------------------
+    # Shared dicts — explicit, no silent inheritance
+    # ------------------------------------------------------------------
     MC = dict(
         use_mc_critic_pretrain=True,
         mc_pretrain_n_mc_steps=10_000,
+        mc_pretrain_n_mc_episodes=1000,     # explicit
         mc_pretrain_n_steps=5_000,
     )
-    BUF = dict(expert_buffer_n_steps=20_000, expert_mix_fraction=0.1)
-    AWBC = dict(use_expert_guidance=True, num_critic_updates=4)
-    LIGHT = dict(use_online_critic_light_pretrain=True, online_critic_pretrain_steps=500)
+    BUF = dict(
+        expert_buffer_n_steps=20_000,
+        expert_mix_fraction=0.1,
+    )
+    AWBC = dict(
+        use_expert_guidance=True,
+        num_critic_updates=1,               # confirmed: AWBC + UTD=4 is harmful
+    )
+    UTD4 = dict(
+        num_critic_updates=4,               # only for non-AWBC runs
+    )
+    LIGHT = dict(
+        use_online_critic_light_pretrain=True,
+        online_critic_pretrain_steps=100,
+    )
+    BC = dict(
+        use_online_bc=True,
+        critic_warmup_frac=0.3,
+        bc_coef=5.0,
+    )
+    BC_OFF = dict(
+        use_online_bc=False,
+        critic_warmup_frac=0.0,
+    )
+    EGE = dict(
+        use_expert_guided_exploration=True,
+        exploration_decay_frac=0.30,
+        exploration_tau=1.0,
+        expert_buffer_n_steps=0,        # no pre-population needed
+        expert_mix_fraction=0.0,        # no static mixing needed
+    )
+    BLEND = dict(
+        use_critic_blend=True,
+    )
+    # alpha_update_start=50_000 is now the default in ExperimentConfig.
+    # SAC baseline overrides back to 10_000 since it has no expert critic.
 
     exps = []
 
     # ==================================================================
-    # sac_baseline — anchor, runs first so the cache is written before
-    # any other experiment needs to inject it into a new project.
-    # index 0
+    # Tier 0 — Baseline anchors
+    # Must run first. No expert components, alpha deferred at 10k (no MC).
     # ==================================================================
 
-    exps.append(ExperimentConfig(
-        name="sac_baseline",
-        wandb_project=P["actor_pretrain"],   # lives in the first project
-        expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
-        policy_update_start=10_000,          # no expert → critic needs longer warm-up
-        alpha_update_start=10_000,
-    ))
+    # exps.append(ExperimentConfig(
+    #     name="sac_baseline",
+    #     wandb_group=P["baselines"],
+    #     expert_buffer_n_steps=0,
+    #     expert_mix_fraction=0.0,
+    #     policy_update_start=10_000,
+    #     alpha_update_start=10_000,          # no MC pretrain → no early collapse risk
+    #     use_online_bc=False,
+    #     use_online_critic_light_pretrain=False,
+    # ))
+
+    # exps.append(ExperimentConfig(
+    #     name="sac_expert_seeding",
+    #     wandb_group=P["baselines"],
+    #     use_expert_warmup=True,
+    #     expert_buffer_n_steps=20_000,
+    #     expert_mix_fraction=0.0,
+    #     policy_update_start=10_000,
+    #     alpha_update_start=10_000,          # no MC pretrain → no early collapse risk
+    #     use_online_bc=False,
+    #     use_online_critic_light_pretrain=False,
+    # ))
 
     # ==================================================================
-    # Tier 0 — Online critic light pretrain + decaying BC  (indices 1–8)
-    # Most promising: MC critic pretrain → light online critic nudge → decaying BC + AWBC.
+    # Tier 1 — Current best and direct variants
+    # Ranked by expected impact. Alpha deferred (50k) is the default.
+    # Key question: is BC alone sufficient? is UTD=4 safe without AWBC?
     # ==================================================================
 
-    # Full stack: MC pretrain + light online critic + AWBC + decaying BC
+    # EGE alone, UTD=1 — cleanest test of the mechanism, no other expert components
     exps.append(ExperimentConfig(
-        name="mc_pretrain_light_critic_awbc",
-        wandb_project=P["actor_pretrain"],
-        use_expert_warmup=True,
-        **AWBC, **MC, **LIGHT, **BUF,
-    ))
-
-    # Light online critic alone — isolates nudge effect without ongoing AWBC
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_light_critic",
-        wandb_project=P["actor_pretrain"],
-        use_expert_warmup=True,
+        name="ege_utd1",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,    # explicit: no pre-population
+        **MC, **EGE,
+        use_expert_guidance=False,
+        use_online_bc=False,
+        use_online_critic_light_pretrain=False,
         num_critic_updates=1,
-        **MC, **LIGHT, **BUF,
     ))
 
-    # MC + light online critic + blended Bellman target
+    # EGE + UTD=4 — tests whether faster critic learning helps EGE
+    # UTD=4 is now safe: no BC term, no gradient conflict, no actor-side guidance
     exps.append(ExperimentConfig(
-        name="mc_pretrain_light_critic_blend",
-        wandb_project=P["actor_pretrain"],
-        use_expert_warmup=True,
-        use_critic_blend=True,
+        name="ege_utd4",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,
+        **MC, **EGE, **UTD4,
+        use_expert_guidance=False,
+        use_online_bc=False,
+        use_online_critic_light_pretrain=False,
+    ))
+
+    # EGE + blend — expert guides both exploration and critic targets
+    # blend provides expert signal to critic, EGE provides expert data to buffer
+    # no gradient conflict since neither touches the actor loss directly
+    exps.append(ExperimentConfig(
+        name="ege_blend_utd1",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,
+        **MC, **EGE, **BLEND,
+        use_expert_guidance=False,
+        use_online_bc=False,
+        use_online_critic_light_pretrain=False,
         num_critic_updates=1,
-        **MC, **LIGHT, **BUF,
     ))
 
-    # AWBC + blend — tests whether AWBC and blended target are additive
+    # EGE + blend + UTD=4 — full stack without any actor-side constraints
     exps.append(ExperimentConfig(
-        name="mc_pretrain_light_critic_awbc_blend",
-        wandb_project=P["actor_pretrain"],
-        use_expert_warmup=True,
-        use_critic_blend=True,
-        **AWBC, **MC, **LIGHT, **BUF,
+        name="ege_blend_utd4",
+        wandb_group=P["best_variants"],
+        use_expert_warmup=False,
+        **MC, **EGE, **BLEND, **UTD4,
+        use_expert_guidance=False,
+        use_online_bc=False,
+        use_online_critic_light_pretrain=False,
     ))
 
-    # Light online critic + box curriculum
+    # No light pretrain — is the 100-step nudge load-bearing?
     exps.append(ExperimentConfig(
-        name="mc_pretrain_light_critic_box",
-        wandb_project=P["actor_pretrain"],
+        name="mc_bc_utd4_no_light",
+        wandb_group=P["best_variants"],
         use_expert_warmup=True,
-        use_box=True,
-        num_critic_updates=1,
-        **MC, **LIGHT, **BUF,
-    ))
-
-    # Online critic light pretrain n_steps ablation — fewer steps (100)
-    exps.append(ExperimentConfig(
-        name="online_critic_pretrain_steps_100",
-        wandb_project=P["actor_pretrain"],
-        use_expert_warmup=True,
-        online_critic_pretrain_steps=100,
-        **AWBC, **MC, **dict(use_online_critic_light_pretrain=True), **BUF,
-    ))
-
-    # Online critic light pretrain n_steps ablation — more steps (1k)
-    exps.append(ExperimentConfig(
-        name="online_critic_pretrain_steps_1k",
-        wandb_project=P["actor_pretrain"],
-        use_expert_warmup=True,
-        online_critic_pretrain_steps=1_000,
-        **AWBC, **MC, **dict(use_online_critic_light_pretrain=True), **BUF,
-    ))
-
-    # Blend only (no light pretrain) — isolates blended target contribution
-    exps.append(ExperimentConfig(
-        name="mc_pretrain_blend",
-        wandb_project=P["actor_pretrain"],
-        use_expert_warmup=True,
-        use_critic_blend=True,
-        num_critic_updates=1,
-        **MC, **BUF,
+        **MC, **BUF, **BC, **UTD4,
+        use_online_critic_light_pretrain=False,
+        use_expert_guidance=False,
     ))
 
     # ==================================================================
-    # Tier 1 — Component isolation  (indices 9–13)
+    # Tier 2 — Component isolation
+    # Each experiment activates exactly one component on top of MC pretrain.
+    # BC_OFF is explicit to prevent silent activation via critic_warmup_frac default.
     # ==================================================================
 
-    # KEY DIAGNOSTIC: seeding only — isolates whether expert buffer pre-seeding helps
+    # MC alone — frozen phi* exists but nothing uses it during training
     exps.append(ExperimentConfig(
-        name="sac_expert_seeding",
-        wandb_project=P["component_isolation"],
+        name="mc_only",
+        wandb_group=P["component_isolation"],
         use_expert_warmup=True,
-        expert_buffer_n_steps=20_000,
-        expert_mix_fraction=0.0,
+        **MC, **BUF, **BC_OFF,
+        use_online_critic_light_pretrain=False,
+        use_expert_guidance=False,
     ))
 
-    # AWBC only — no MC pretrain (tests AWBC with an un-pretrained critic)
+    # MC + light pretrain only — nudge without BC or UTD
     exps.append(ExperimentConfig(
-        name="awbc_only",
-        wandb_project=P["component_isolation"],
+        name="mc_light_only",
+        wandb_group=P["component_isolation"],
         use_expert_warmup=True,
-        **AWBC, **BUF,
+        **MC, **LIGHT, **BUF, **BC_OFF,
+        use_expert_guidance=False,
     ))
 
-    # MC pretrain only — critic init alone, no AWBC at training time
+    # MC + BC only, no light pretrain, no UTD — pure BC contribution
     exps.append(ExperimentConfig(
-        name="mc_pretrain_only",
-        wandb_project=P["component_isolation"],
+        name="mc_bc_only",
+        wandb_group=P["component_isolation"],
         use_expert_warmup=True,
-        num_critic_updates=1,
-        **MC, **BUF,
+        **MC, **BUF, **BC,
+        use_online_critic_light_pretrain=False,
+        use_expert_guidance=False,
     ))
 
-    # MC pretrain + AWBC (legacy anchor E2)
+    # MC + AWBC only, UTD=1, no BC — legacy E2 anchor, clean AWBC test
     exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc",
-        wandb_project=P["component_isolation"],
+        name="mc_awbc_utd1_no_bc",
+        wandb_group=P["component_isolation"],
         use_expert_warmup=True,
-        **AWBC, **MC, **BUF,
+        **MC, **AWBC, **BUF, **BC_OFF,
+        use_online_critic_light_pretrain=False,
     ))
 
-    # MC pretrain + Box (legacy anchor E4)
+    # MC + UTD=4 only, no BC, no AWBC — does UTD alone help?
     exps.append(ExperimentConfig(
-        name="mc_pretrain_box",
-        wandb_project=P["component_isolation"],
+        name="mc_utd4_no_bc_no_awbc",
+        wandb_group=P["component_isolation"],
         use_expert_warmup=True,
-        use_box=True,
-        **MC, **BUF,
-    ))
-
-    # ==================================================================
-    # Tier 2 — AWBC mechanism  (indices 14–17)
-    # ==================================================================
-
-    exps.append(ExperimentConfig(
-        name="awbc_no_normalize",
-        wandb_project=P["awbc"],
-        use_expert_warmup=True,
-        awbc_normalize=False,
-        **AWBC, **MC, **BUF,
-    ))
-
-    exps.append(ExperimentConfig(
-        name="awbc_no_relu",
-        wandb_project=P["awbc"],
-        use_expert_warmup=True,
-        awbc_use_relu=False,
-        **AWBC, **MC, **BUF,
-    ))
-
-    exps.append(ExperimentConfig(
-        name="awbc_fixed_lambda_0.1",
-        wandb_project=P["awbc"],
-        use_expert_warmup=True,
-        fixed_awbc_lambda=0.1,
-        **AWBC, **MC, **BUF,
-    ))
-
-    exps.append(ExperimentConfig(
-        name="awbc_fixed_lambda_1.0",
-        wandb_project=P["awbc"],
-        use_expert_warmup=True,
-        fixed_awbc_lambda=1.0,
-        **AWBC, **MC, **BUF,
+        **MC, **BUF, **BC_OFF, **UTD4,
+        use_online_critic_light_pretrain=False,
+        use_expert_guidance=False,
     ))
 
     # ==================================================================
-    # Tier 3 — Critic count and update ratio  (indices 18–21)
+    # Tier 3 — Alpha deferral ablation
+    # Confirms that alpha_update_start=50k is the right fix.
+    # Runs against mc_light_bc_utd4 (Tier 1 best) as the reference.
     # ==================================================================
 
     exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc_x1update",
-        wandb_project=P["critics"],
+        name="mc_light_bc_utd4_alpha5k",   # alpha NOT deferred — reproduces collapse
+        wandb_group=P["alpha_deferral"],
         use_expert_warmup=True,
-        num_critic_updates=1,
-        use_expert_guidance=True,
-        **MC, **BUF,
+        **MC, **LIGHT, **BUF, **BC, **UTD4,
+        use_expert_guidance=False,
+        alpha_update_start=5_000,           # explicit: no deferral
     ))
 
     exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc_x2updates",
-        wandb_project=P["critics"],
+        name="mc_light_bc_utd4_alpha25k",  # partial deferral
+        wandb_group=P["alpha_deferral"],
         use_expert_warmup=True,
+        **MC, **LIGHT, **BUF, **BC, **UTD4,
+        use_expert_guidance=False,
+        alpha_update_start=25_000,
+    ))
+
+    exps.append(ExperimentConfig(
+        name="mc_light_bc_utd4_alpha100k", # overcautious deferral
+        wandb_group=P["alpha_deferral"],
+        use_expert_warmup=True,
+        **MC, **LIGHT, **BUF, **BC, **UTD4,
+        use_expert_guidance=False,
+        alpha_update_start=100_000,
+    ))
+
+    # ==================================================================
+    # Tier 4 — Critic architecture
+    # Tests UTD ratio and ensemble size independently.
+    # Base config: mc_light_bc (UTD=1) to isolate each change.
+    # ==================================================================
+
+    exps.append(ExperimentConfig(
+        name="mc_light_bc_utd2",
+        wandb_group=P["critic_architecture"],
+        use_expert_warmup=True,
+        **MC, **LIGHT, **BUF, **BC,
         num_critic_updates=2,
-        use_expert_guidance=True,
-        **MC, **BUF,
+        use_expert_guidance=False,
     ))
 
     exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc_1critic",
-        wandb_project=P["critics"],
+        name="mc_light_bc_utd8",
+        wandb_group=P["critic_architecture"],
         use_expert_warmup=True,
-        num_critics=1,
-        **AWBC, **MC, **BUF,
+        **MC, **LIGHT, **BUF, **BC,
+        num_critic_updates=8,
+        use_expert_guidance=False,
     ))
 
     exps.append(ExperimentConfig(
-        name="mc_pretrain_awbc_4critics",
-        wandb_project=P["critics"],
+        name="mc_light_bc_utd4_4critics",
+        wandb_group=P["critic_architecture"],
         use_expert_warmup=True,
+        **MC, **LIGHT, **BUF, **BC, **UTD4,
         num_critics=4,
-        **AWBC, **MC, **BUF,
+        use_expert_guidance=False,
     ))
 
     # ==================================================================
-    # Tier 4 — MC pretrain hyperparameters  (indices 22–26)
+    # Tier 5 — MC pretrain data quality
+    # Tests whether phi* quality affects BC term and light pretrain.
+    # Base: mc_light_bc_utd4 (Tier 1 best).
     # ==================================================================
 
-    for n_ep in [10, 50, 500]:
+    for n_ep in [100, 500]:
         exps.append(ExperimentConfig(
-            name=f"mc_pretrain_episodes_{n_ep}",
-            wandb_project=P["mc_pretrain"],
+            name=f"mc_light_bc_utd4_{n_ep}ep",
+            wandb_group=P["mc_pretrain"],
             use_expert_warmup=True,
+            **LIGHT, **BUF, **BC, **UTD4,
             use_mc_critic_pretrain=True,
             mc_pretrain_n_mc_steps=10_000,
-            mc_pretrain_n_mc_episodes=n_ep,
+            mc_pretrain_n_mc_episodes=n_ep,  # below default of 1000
             mc_pretrain_n_steps=5_000,
-            **AWBC, **BUF,
-        ))
-
-    for n_steps in [1_000, 20_000]:
-        exps.append(ExperimentConfig(
-            name=f"mc_pretrain_steps_{n_steps // 1000}k",
-            wandb_project=P["mc_pretrain"],
-            use_expert_warmup=True,
-            use_mc_critic_pretrain=True,
-            mc_pretrain_n_mc_steps=10_000,
-            mc_pretrain_n_mc_episodes=100,
-            mc_pretrain_n_steps=n_steps,
-            **AWBC, **BUF,
-        ))
-
-    # ==================================================================
-    # Tier 5 — Expert mix fraction  (indices 27–30)
-    # ==================================================================
-
-    exps.append(ExperimentConfig(
-        name="expert_mix_0",
-        wandb_project=P["expert_mix"],
-        use_expert_warmup=True,
-        expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
-        **AWBC, **MC,
-    ))
-
-    for frac in [0.3, 0.5]:
-        exps.append(ExperimentConfig(
-            name=f"expert_mix_{frac}",
-            wandb_project=P["expert_mix"],
-            use_expert_warmup=True,
-            expert_mix_fraction=frac,
-            expert_buffer_n_steps=20_000,
-            **AWBC, **MC,
+            use_expert_guidance=False,
         ))
 
     exps.append(ExperimentConfig(
-        name="expert_buffer_pretrain_only",
-        wandb_project=P["expert_mix"],
+        name="mc_light_bc_utd4_20ksteps",
+        wandb_group=P["mc_pretrain"],
         use_expert_warmup=True,
-        expert_buffer_n_steps=20_000,
-        expert_mix_fraction=0.0,
-        **AWBC, **MC,
+        **LIGHT, **BUF, **BC, **UTD4,
+        use_mc_critic_pretrain=True,
+        mc_pretrain_n_mc_steps=10_000,
+        mc_pretrain_n_mc_episodes=1000,
+        mc_pretrain_n_steps=20_000,          # more regression steps
+        use_expert_guidance=False,
     ))
 
     return exps
@@ -540,6 +540,58 @@ def setup():
     return env, env_params, expert_policy
 
 
+def setup_mc_data(env, env_params, expert_policy, experiments: List["ExperimentConfig"]) -> None:
+    """Collect MC expert trajectories once for all experiments that need them.
+
+    Runs for the maximum episode count across all MC-pretrain experiments and
+    saves results to MC_DATA_PATH (a CSV).  Subsequent calls are no-ops when a
+    sufficient cache already exists.
+    """
+    mc_exps = [e for e in experiments if e.use_mc_critic_pretrain]
+    if not mc_exps:
+        return
+
+    max_episodes = max(e.mc_pretrain_n_mc_episodes for e in mc_exps)
+    n_mc_steps   = max(e.mc_pretrain_n_mc_steps   for e in mc_exps)
+    n_rows_needed = n_mc_steps * max_episodes
+
+    if os.path.exists(MC_DATA_PATH):
+        try:
+            meta = read_mc_meta(MC_DATA_PATH)
+            if meta.get("n_rows", 0) >= n_rows_needed:
+                print(
+                    f"[MC collect] Cache hit: {meta['n_rows']:,} rows available "
+                    f"(need {n_rows_needed:,}) — skipping collection."
+                )
+                return
+        except Exception:
+            pass  # corrupt file → re-collect
+
+    print(
+        f"\n[MC collect] ── Starting collection ──────────────────────────────────\n"
+        f"[MC collect] {max_episodes} episodes × {n_mc_steps} steps "
+        f"= {n_rows_needed:,} transitions  →  {MC_DATA_PATH}"
+    )
+
+    mc_n_envs = 64  # parallel envs for MC collection — increase for faster collection
+    env_prepared, env_params_prepared, _, continuous = prepare_env(env, env_params=env_params, n_envs=mc_n_envs)
+    env_args = EnvironmentConfig(env=env_prepared, env_params=env_params_prepared, n_envs=mc_n_envs, continuous=continuous)
+
+    hp = load_hyperparams("SAC", "Plane")
+    gamma        = hp.get("gamma",        0.99)
+    reward_scale = hp.get("reward_scale", 1.0)
+
+    collect_and_save_mc_data(
+        expert_policy=expert_policy,
+        env_args=env_args,
+        n_mc_steps=n_mc_steps,
+        n_mc_episodes=max_episodes,
+        gamma=gamma,
+        reward_scale=reward_scale,
+    )
+    print("[MC collect] ── Collection complete ──────────────────────────────────\n")
+
+
 def run_single_experiment(
     exp: ExperimentConfig,
     env,
@@ -549,29 +601,22 @@ def run_single_experiment(
     n_timesteps: int,
     num_episode_test: int,
     log_frequency: int,
-    global_project_name: str,
     sweep_mode: bool,
     use_wandb: bool = True,
 ):
     """Run one ExperimentConfig to completion. Called per-process by the launcher."""
-    effective_project = exp.wandb_project or global_project_name
-    baseline_project = GROUP_PROJECTS["actor_pretrain"]
-
-    # Inject baseline into this project before running (skipped when already present
-    # or when this IS the baseline, or when W&B is disabled).
-    if use_wandb and exp.name != "sac_baseline":
-        ensure_baseline_in_project(effective_project, baseline_project)
-
     mode = get_mode()
     hp = load_hyperparams("SAC", "Plane")
     arch_width = hp.pop("arch_width", 256)
     architecture = (str(arch_width), "relu", str(arch_width), "relu")
+    if "alpha_learning_rate" in hp and exp.alpha_learning_rate_scale != 1.0:
+        hp["alpha_learning_rate"] = hp["alpha_learning_rate"] * exp.alpha_learning_rate_scale
 
     agent_expert_policy = expert_policy if exp.use_expert_warmup else None
 
     policy_score = get_policy_score(expert_policy, env, env_params)
     print(
-        f"[{exp.name}] project={effective_project}  expert_score={policy_score:.1f}\n"
+        f"[{exp.name}] group={exp.wandb_group}  expert_score={policy_score:.1f}\n"
         f"  warmup={exp.use_expert_warmup}  awbc={exp.use_expert_guidance}  "
         f"mc_pretrain={exp.use_mc_critic_pretrain}  light_critic_pretrain={exp.use_online_critic_light_pretrain}  "
         f"blend={exp.use_critic_blend}  box={exp.use_box}\n"
@@ -582,12 +627,13 @@ def run_single_experiment(
     )
 
     logging_config = get_log_config(
-        project_name=effective_project,
+        project_name=WANDB_PROJECT,
         agent_name=exp.name,
-        group_name=exp.name,
+        group_name=exp.wandb_group,
         log_frequency=log_frequency,
         use_wandb=use_wandb,
         sweep=sweep_mode,
+        exp_name=exp.name,
         use_expert_warmup=exp.use_expert_warmup,
         use_expert_guidance=exp.use_expert_guidance,
         use_mc_critic_pretrain=exp.use_mc_critic_pretrain,
@@ -629,6 +675,11 @@ def run_single_experiment(
         use_critic_blend=exp.use_critic_blend,
         critic_warmup_frac=exp.critic_warmup_frac,
         use_box=exp.use_box,
+        use_online_bc=exp.use_online_bc,
+        bc_coef=exp.bc_coef,
+        use_expert_guided_exploration=exp.use_expert_guided_exploration,
+        exploration_decay_frac=exp.exploration_decay_frac,
+        exploration_tau=exp.exploration_tau,
         policy_update_start=exp.policy_update_start,
         alpha_update_start=exp.alpha_update_start,
         use_train_frac=exp.use_expert_warmup,  # enable train_frac obs for all expert runs
@@ -638,6 +689,24 @@ def run_single_experiment(
         **hp,
     )
 
+    # Load pre-collected MC data for this experiment (None → in-run collection)
+    mc_preloaded_data = None
+    if exp.use_mc_critic_pretrain:
+        print(
+            f"[{exp.name}] Loading MC data "
+            f"({exp.mc_pretrain_n_mc_episodes} episodes × {exp.mc_pretrain_n_mc_steps} steps) ..."
+        )
+        mc_preloaded_data = load_mc_data_for_experiment(
+            n_mc_steps=exp.mc_pretrain_n_mc_steps,
+            n_mc_episodes=exp.mc_pretrain_n_mc_episodes,
+        )
+        if mc_preloaded_data is not None:
+            print(
+                f"[{exp.name}] Loaded {mc_preloaded_data[0].shape[0]:,} MC rows from cache."
+            )
+        else:
+            print(f"[{exp.name}] MC cache miss — data will be collected in-run.")
+
     if mode == "CPU":
         for seed in tqdm(range(n_seeds), desc=exp.name):
             t0 = time.time()
@@ -646,6 +715,7 @@ def run_single_experiment(
                 logging_config=logging_config,
                 n_timesteps=n_timesteps,
                 num_episode_test=num_episode_test,
+                mc_preloaded_data=mc_preloaded_data,
             )
             print(f"[{exp.name}] seed {seed} done in {time.time() - t0:.1f}s")
             if sweep_mode:
@@ -657,6 +727,7 @@ def run_single_experiment(
             logging_config=logging_config,
             n_timesteps=n_timesteps,
             num_episode_test=num_episode_test,
+            mc_preloaded_data=mc_preloaded_data,
         )
         elapsed = time.time() - t0
         print(
@@ -668,7 +739,7 @@ def run_single_experiment(
 
     # After the baseline runs: cache run IDs so other projects can share it.
     if use_wandb and exp.name == "sac_baseline" and getattr(_agent, "run_ids", None):
-        _save_baseline_cache(_agent.run_ids, effective_project)
+        _save_baseline_cache(_agent.run_ids, WANDB_PROJECT)
 
 
 # ---------------------------------------------------------------------------
@@ -716,11 +787,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # --- Shared config ---
-    global_project_name = GROUP_PROJECTS["actor_pretrain"]  # fallback for exps without wandb_project
     n_timesteps = int(1e6)
-    n_seeds = 25
+    n_seeds = 100
     num_episode_test = 25
-    log_frequency = 10_000
+    log_frequency = 5_000
     sweep_mode = False
     use_wandb = not args.no_wandb
 
@@ -744,11 +814,14 @@ if __name__ == "__main__":
         for tier, s in tiers.items():
             print(f"\n{tier}:")
             for i, exp in enumerate(experiments[s], start=s.start):
-                proj = exp.wandb_project or global_project_name
-                print(f"  [{i:2d}] {exp.name:<45}  project={proj}")
+                print(f"  [{i:2d}] {exp.name:<45}  group={exp.wandb_group}")
         raise SystemExit(0)
 
     env, env_params, expert_policy = setup()
+
+    # Collect MC expert trajectories once (max episodes across all configs).
+    # Saves to MC_DATA_PATH; each experiment loads the slice it needs.
+    setup_mc_data(env, env_params, expert_policy, experiments)
 
     if args.exp_index is not None:
         if args.exp_index >= len(experiments):
@@ -767,7 +840,6 @@ if __name__ == "__main__":
             n_timesteps=n_timesteps,
             num_episode_test=num_episode_test,
             log_frequency=log_frequency,
-            global_project_name=global_project_name,
             sweep_mode=sweep_mode,
             use_wandb=use_wandb,
         )
@@ -783,7 +855,6 @@ if __name__ == "__main__":
                 n_timesteps=n_timesteps,
                 num_episode_test=num_episode_test,
                 log_frequency=log_frequency,
-                global_project_name=global_project_name,
                 sweep_mode=sweep_mode,
                 use_wandb=use_wandb,
             )

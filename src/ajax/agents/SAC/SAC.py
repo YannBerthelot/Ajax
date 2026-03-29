@@ -99,6 +99,15 @@ class SAC(ActorCritic):
         critic_warmup_frac: float = 0.15,
         # Value-threshold box (v_min/v_max inferred from MC pretraining)
         use_box: bool = False,
+        # Online decaying BC term (active for all MC pretrain runs unless disabled)
+        use_online_bc: bool = True,
+        bc_coef: float = 1.0,
+        # Expert-guided exploration
+        use_expert_guided_exploration: bool = False,
+        exploration_decay_frac: float = 0.30,
+        exploration_tau: float = 1.0,
+        # Distance-modulated entropy target (None = disabled)
+        target_entropy_far: Optional[float] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -173,6 +182,12 @@ class SAC(ActorCritic):
         self.use_critic_blend = use_critic_blend
         self.critic_warmup_frac = critic_warmup_frac
         self.use_box = use_box
+        self.use_online_bc = use_online_bc
+        self.bc_coef = bc_coef
+        self.use_expert_guided_exploration = use_expert_guided_exploration
+        self.exploration_decay_frac = exploration_decay_frac
+        self.exploration_tau = exploration_tau
+        self.target_entropy_far = target_entropy_far
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -207,4 +222,10 @@ class SAC(ActorCritic):
             use_critic_blend=self.use_critic_blend,
             critic_warmup_frac=self.critic_warmup_frac,
             use_box=self.use_box,
+            use_online_bc=self.use_online_bc,
+            bc_coef=self.bc_coef,
+            use_expert_guided_exploration=self.use_expert_guided_exploration,
+            exploration_decay_frac=self.exploration_decay_frac,
+            exploration_tau=self.exploration_tau,
+            target_entropy_far=self.target_entropy_far,
         )

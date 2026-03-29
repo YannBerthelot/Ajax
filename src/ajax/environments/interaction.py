@@ -442,6 +442,7 @@ def get_buffer_action_and_env_action(
         "expert_fraction",
         "augment_obs_with_expert_action",
         "use_box",
+        "use_expert_guided_exploration",
     ],
 )
 def collect_experience(
@@ -461,6 +462,9 @@ def collect_experience(
     box_v_min: float = 0.0,
     box_v_max: float = 0.0,
     total_timesteps: int = 1,
+    use_expert_guided_exploration: bool = False,
+    exploration_decay_frac: float = 0.30,
+    exploration_tau: float = 1.0,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
@@ -573,9 +577,47 @@ def collect_experience(
         )
         post_warmup_action = (1 - in_box) * action + in_box * expert_action
 
+        # Expert-guided exploration: value-gap-based stochastic substitution.
+        # Uses live critic Q_φ (not frozen φ*) to measure current policy vs expert.
+        # Decays to zero after exploration_decay_frac of training.
+        if use_expert_guided_exploration:
+            obs_for_ege = agent_state.collector_state.last_obs
+            q_policy = jnp.min(
+                predict_value(
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.critic_state.params,
+                    x=jnp.concatenate([obs_for_ege, action], axis=-1),
+                ), axis=0,
+            )
+            q_expert_ege = jnp.min(
+                predict_value(
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.critic_state.params,
+                    x=jnp.concatenate([obs_for_ege, expert_action], axis=-1),
+                ), axis=0,
+            )
+            gap = q_expert_ege - q_policy
+            q_scale = jax.lax.stop_gradient(jnp.abs(q_policy).mean() + 1e-6)
+            p_expert_state = jax.nn.sigmoid(gap / (exploration_tau * q_scale))
+            train_frac_ege = agent_state.collector_state.timestep / total_timesteps
+            decay = jnp.maximum(1.0 - train_frac_ege / exploration_decay_frac, 0.0)
+            p_expert_final = decay * p_expert_state
+            rng, ege_key = jax.random.split(rng)
+            use_expert_ege = jax.random.uniform(ege_key, shape=p_expert_final.shape) < p_expert_final
+            post_warmup_action = jnp.where(use_expert_ege, expert_action, post_warmup_action)
+
         # Warmup mix: expert_fraction of steps use expert, rest use uniform
         use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
         warmup_action = jnp.where(use_expert_this_step, expert_action, uniform_action)
+
+        # Track whether the stored action came from the expert (for buffer logging)
+        _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
+        if use_expert_guided_exploration:
+            _post_expert = jnp.maximum(_post_expert, use_expert_ege.astype(jnp.float32))
+        if use_box:
+            _post_expert = jnp.maximum(_post_expert, in_value_box.astype(jnp.float32))
+        _warmup_expert = jnp.ones_like(action[..., :1], dtype=jnp.float32) * use_expert_this_step.astype(jnp.float32)
+        is_expert_flag = jax.lax.cond(uniform, lambda: _warmup_expert, lambda: _post_expert)
     else:
         # No expert — vanilla SAC:
         #   warmup: pure uniform random
@@ -584,6 +626,7 @@ def collect_experience(
         in_box = jnp.zeros_like(action[..., :1])
         post_warmup_action = action
         warmup_action = uniform_action
+        is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
 
     env_action = jax.lax.cond(
         uniform,                          # True during warmup
@@ -645,6 +688,7 @@ def collect_experience(
             "terminated": terminated[:, None],
             "truncated": truncated[:, None],
             "raw_obs": raw_obs,
+            "is_expert": is_expert_flag,
         }
         should_write = jnp.logical_or(
             uniform,

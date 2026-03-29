@@ -1,3 +1,4 @@
+import time
 from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
@@ -137,26 +138,26 @@ class ActorCritic:
         else:
             self.run_ids = []
 
+        train_jit = self.get_make_train()(
+            env_args=self.env_args,
+            actor_optimizer_args=self.actor_optimizer_args,
+            critic_optimizer_args=self.critic_optimizer_args,
+            network_args=self.network_args,
+            agent_config=self.agent_config,
+            total_timesteps=n_timesteps,
+            num_episode_test=num_episode_test,
+            run_ids=self.run_ids,
+            logging_config=logging_config,
+            **kwargs,
+        )
+
         def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
-
-            train_jit = self.get_make_train()(
-                env_args=self.env_args,
-                actor_optimizer_args=self.actor_optimizer_args,
-                critic_optimizer_args=self.critic_optimizer_args,
-                network_args=self.network_args,
-                agent_config=self.agent_config,
-                total_timesteps=n_timesteps,
-                num_episode_test=num_episode_test,
-                run_ids=self.run_ids,
-                logging_config=logging_config,
-                **kwargs,
-            )
-
             return train_jit(key, index)
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
+        _t0 = time.time()
         result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()

@@ -537,6 +537,8 @@ def make_train(  # noqa: C901
                         _,
                         _,
                         actions,
+                        _,
+                        _,
                     ) = get_batch_from_buffer(
                         distillation_buffer,
                         agent_state.collector_state.buffer_state,

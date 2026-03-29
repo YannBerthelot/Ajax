@@ -97,6 +97,7 @@ class ValueAuxiliaries:
     q_expert_mean: jax.Array        # critic's estimate of expert value
     q_gap: jax.Array                # q_expert - q_min: >0 = room to improve
     var_preds: jax.Array            # inter-critic variance
+    expert_frac_in_buffer: jax.Array  # fraction of sampled batch flagged as expert
     alpha_blend: jax.Array          # current blend coefficient (1=pure expert, 0=pure Bellman)
     effective_threshold: jax.Array  # box threshold at current train_frac
     box_entry_rate: jax.Array       # fraction of batch inside value box
@@ -206,6 +207,7 @@ def collect_and_store_expert_transitions(
             "terminated": take(flat.terminated),
             "truncated": take(flat.truncated),
             "raw_obs": take(flat_raw_obs),
+            "is_expert": take(jnp.ones_like(flat_obs[..., :1])),
         }
         return buffer.add(buffer_state, _transition), None
 
@@ -331,6 +333,9 @@ def pretrain_critic_mc(
     batch_size: int = 256,
     max_timesteps: Optional[int] = None,
     augment_obs_with_expert_action: bool = False,
+    preloaded_obs: Optional[jax.Array] = None,
+    preloaded_action: Optional[jax.Array] = None,
+    preloaded_mc: Optional[jax.Array] = None,
 ) -> Tuple[SACState, FrozenDict, jax.Array, jax.Array, "MCPretrainAux"]:
     """
     Pre-train critic using Monte Carlo returns from expert trajectories.
@@ -346,41 +351,49 @@ def pretrain_critic_mc(
     (which fails inside the outer vmap over seeds).
     Total transitions ≈ n_mc_steps * n_mc_episodes regardless of n_envs.
     """
-    # --- Single collection call: n_envs envs reset independently → diversity ---
-    n_total_steps = max(1, (n_mc_steps * n_mc_episodes) // env_args.n_envs)
-    all_transitions = collect_experience_from_expert_policy(
-        expert_policy=expert_policy,
-        rng=agent_state.rng,
-        mode=mode,
-        env_args=env_args,
-        n_timesteps=n_total_steps,
-    )
-    # Shape: (n_total_steps, n_envs, ...)
+    if preloaded_obs is not None:
+        # --- Use pre-collected data: skip environment rollout and MC computation ---
+        obs_flat    = preloaded_obs
+        action_flat = preloaded_action
+        mc_flat     = preloaded_mc
+        raw_obs_flat = preloaded_obs   # raw env obs for expert-action augmentation
+    else:
+        # --- Single collection call: n_envs envs reset independently → diversity ---
+        n_total_steps = max(1, (n_mc_steps * n_mc_episodes) // env_args.n_envs)
+        all_transitions = collect_experience_from_expert_policy(
+            expert_policy=expert_policy,
+            rng=agent_state.rng,
+            mode=mode,
+            env_args=env_args,
+            n_timesteps=n_total_steps,
+        )
+        # Shape: (n_total_steps, n_envs, ...)
 
-    # --- Compute MC returns with a single backward scan ---
-    # Scan over time axis; n_envs are handled as a batch dim in the carry.
-    rewards = all_transitions.reward * reward_scale  # (T, n_envs, 1)
-    dones = jnp.logical_or(
-        all_transitions.terminated, all_transitions.truncated
-    ).astype(jnp.float32)                             # (T, n_envs, 1)
+        # --- Compute MC returns with a single backward scan ---
+        # Scan over time axis; n_envs are handled as a batch dim in the carry.
+        rewards = all_transitions.reward * reward_scale  # (T, n_envs, 1)
+        dones = jnp.logical_or(
+            all_transitions.terminated, all_transitions.truncated
+        ).astype(jnp.float32)                             # (T, n_envs, 1)
 
-    def mc_scan(carry, x):
-        reward, done = x
-        mc_return = reward + gamma * carry * (1.0 - done)
-        return mc_return, mc_return
+        def mc_scan(carry, x):
+            reward, done = x
+            mc_return = reward + gamma * carry * (1.0 - done)
+            return mc_return, mc_return
 
-    _, mc_returns = jax.lax.scan(
-        mc_scan,
-        jnp.zeros_like(rewards[0]),     # carry: (n_envs, 1)
-        (rewards[::-1], dones[::-1]),   # scan backwards over time
-    )
-    mc_returns = mc_returns[::-1]       # (T, n_envs, 1)
+        _, mc_returns = jax.lax.scan(
+            mc_scan,
+            jnp.zeros_like(rewards[0]),     # carry: (n_envs, 1)
+            (rewards[::-1], dones[::-1]),   # scan backwards over time
+        )
+        mc_returns = mc_returns[::-1]       # (T, n_envs, 1)
 
-    # --- Flatten time × envs into one dataset ---
-    T, n_envs = rewards.shape[:2]
-    obs_flat    = all_transitions.obs.reshape(T * n_envs, -1)
-    action_flat = all_transitions.action.reshape(T * n_envs, -1)
-    mc_flat     = mc_returns.reshape(T * n_envs, 1)
+        # --- Flatten time × envs into one dataset ---
+        T, n_envs = rewards.shape[:2]
+        obs_flat    = all_transitions.obs.reshape(T * n_envs, -1)
+        action_flat = all_transitions.action.reshape(T * n_envs, -1)
+        mc_flat     = mc_returns.reshape(T * n_envs, 1)
+        raw_obs_flat = obs_flat
 
     # Append train_frac=0.0 if max_timesteps was set
     if max_timesteps is not None:
@@ -391,8 +404,7 @@ def pretrain_critic_mc(
     # Augment obs with expert action if enabled — must match network input dim
     # Layout: [env_obs | a_expert | train_frac]
     if augment_obs_with_expert_action:
-        raw_flat = all_transitions.obs.reshape(T * n_envs, -1)
-        a_expert_flat = jax.lax.stop_gradient(expert_policy(raw_flat))
+        a_expert_flat = jax.lax.stop_gradient(expert_policy(raw_obs_flat))
         if max_timesteps is not None:
             # obs_flat is [env_obs | train_frac] — insert a_expert before train_frac
             obs_flat = jnp.concatenate(
@@ -402,7 +414,7 @@ def pretrain_critic_mc(
             obs_flat = jnp.concatenate([obs_flat, a_expert_flat], axis=-1)
 
     # --- Batch into fixed-size chunks for regression ---
-    n_total   = T * n_envs
+    n_total   = obs_flat.shape[0]
     n_batches = n_total // batch_size
     obs_batched    = obs_flat[:n_batches * batch_size].reshape(n_batches, batch_size, -1)
     action_batched = action_flat[:n_batches * batch_size].reshape(n_batches, batch_size, -1)
@@ -627,7 +639,7 @@ def pretrain_critic_bellman(
         agent_state = agent_state.replace(rng=rng)
         (
             observations, terminated, truncated, next_observations,
-            rewards, actions, raw_observations,
+            rewards, actions, raw_observations, _,
         ) = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, sample_key)
         dones = jnp.logical_or(terminated, truncated)
         agent_state, _ = update_value_functions(
@@ -720,6 +732,7 @@ def value_loss_function(
         alpha_blend=alpha_blend_logged,
         effective_threshold=jnp.zeros(1),
         box_entry_rate=jnp.zeros(1),
+        expert_frac_in_buffer=jnp.zeros(1),
     )
 
 
@@ -800,7 +813,8 @@ def augment_obs_if_needed(
                     "augment_obs_with_expert_action",
                     "proximity_scale",
                     "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
-                    "detach_obs_aug_action", "critic_warmup_frac"],
+                    "detach_obs_aug_action", "critic_warmup_frac", "use_online_bc",
+                    "bc_coef"],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
@@ -830,6 +844,8 @@ def policy_loss_function(
     expert_v_min: Optional[jax.Array] = None,
     expert_v_max: Optional[jax.Array] = None,
     critic_warmup_frac: float = 0.15,
+    use_online_bc: bool = True,
+    bc_coef: float = 1.0,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     SAC actor loss with optional expert guidance.
@@ -878,12 +894,22 @@ def policy_loss_function(
     z_dot_mean_val     = jnp.abs(_raw_obs[..., 2]).mean()
 
     needs_expert = expert_policy is not None and use_expert_guidance
+    needs_bc = (
+        use_online_bc
+        and expert_policy is not None
+        and expert_critic_params is not None
+        and critic_warmup_frac > 0.0
+    )
 
-    if needs_expert:
+    if needs_expert or needs_bc:
         a_expert = (
             a_expert_precomputed if a_expert_precomputed is not None
             else jax.lax.stop_gradient(expert_policy(_raw_obs))
         )
+    else:
+        a_expert = None
+
+    if needs_expert:
         q_expert = jnp.min(
             predict_value(
                 critic_state=critic_states, critic_params=critic_states.params,
@@ -894,67 +920,60 @@ def policy_loss_function(
         q_expert_logged   = q_expert.mean()
 
         # 1. AWBC
-        if use_expert_guidance:
-            # SquashedNormal = Normal → tanh; mode of Normal is loc, so mode after squash is tanh(loc)
-            l2_expert = jnp.sum((jnp.tanh(pi.distribution.loc) - a_expert) ** 2, axis=-1, keepdims=True)
-            lambda_s   = compute_awbc_coef(
-                q_expert, q_min,
-                normalize=awbc_normalize, use_relu=awbc_use_relu,
-                fixed_lambda=fixed_awbc_lambda,
-            )
-            if proximity_scale is not None:
-                dist_norm        = jnp.abs(
-                    _raw_obs[..., altitude_obs_idx:altitude_obs_idx + 1] -
-                    _raw_obs[..., target_obs_idx:target_obs_idx + 1]
-                ) / box_threshold
-                proximity_weight = jnp.exp(-dist_norm / proximity_scale)
-            else:
-                proximity_weight = jnp.ones_like(l2_expert)
-            if inside_box_mask is not None:
-                awbc_term = (lambda_s * proximity_weight * l2_expert * (1.0 - inside_box_mask)).mean()
-            else:
-                awbc_term = (lambda_s * proximity_weight * l2_expert).mean()
-            awbc_coef_logged  = lambda_s.mean()
-            l2_expert_logged  = l2_expert.mean()
+        # SquashedNormal = Normal → tanh; mode of Normal is loc, so mode after squash is tanh(loc)
+        l2_expert = jnp.sum((jnp.tanh(pi.distribution.loc) - a_expert) ** 2, axis=-1, keepdims=True)
+        lambda_s   = compute_awbc_coef(
+            q_expert, q_min,
+            normalize=awbc_normalize, use_relu=awbc_use_relu,
+            fixed_lambda=fixed_awbc_lambda,
+        )
+        if proximity_scale is not None:
+            dist_norm        = jnp.abs(
+                _raw_obs[..., altitude_obs_idx:altitude_obs_idx + 1] -
+                _raw_obs[..., target_obs_idx:target_obs_idx + 1]
+            ) / box_threshold
+            proximity_weight = jnp.exp(-dist_norm / proximity_scale)
         else:
-            awbc_term = awbc_coef_logged = l2_expert_logged = jnp.zeros(())
-
-        # Online decaying BC term — value-weighted, warmup-decaying
-        if (
-            expert_policy is not None
-            and critic_warmup_frac > 0.0
-            and expert_critic_params is not None
-        ):
-            bc_weight = jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
-            v_star = jax.lax.stop_gradient(
-                jnp.min(
-                    predict_value(
-                        critic_state=critic_states,
-                        critic_params=expert_critic_params,
-                        x=jnp.concatenate([observations, a_expert], axis=-1),
-                    ), axis=0,
-                )
-            )
-            v_weight = jnp.clip(
-                (v_star - expert_v_min) / (expert_v_max - expert_v_min + 1e-6),
-                0.0, 1.0,
-            ) ** 2
-            mu = jnp.tanh(pi.distribution.loc)
-            bc_term = bc_weight * (v_weight * jnp.sum(
-                (mu - jax.lax.stop_gradient(a_expert)) ** 2,
-                axis=-1, keepdims=True,
-            )).mean()
-            total_loss = loss_actor.mean() + awbc_term + bc_term
+            proximity_weight = jnp.ones_like(l2_expert)
+        if inside_box_mask is not None:
+            awbc_term = (lambda_s * proximity_weight * l2_expert * (1.0 - inside_box_mask)).mean()
         else:
-            bc_term = jnp.zeros(())
-            total_loss = loss_actor.mean() + awbc_term
+            awbc_term = (lambda_s * proximity_weight * l2_expert).mean()
+        awbc_coef_logged  = lambda_s.mean()
+        l2_expert_logged  = l2_expert.mean()
     else:
-        total_loss        = loss_actor.mean()
+        awbc_term         = jnp.zeros(())
         awbc_coef_logged  = jnp.zeros(())
         l2_expert_logged  = jnp.zeros(())
         q_expert_logged   = jnp.zeros(())
         above_expert_frac = jnp.zeros(())
-        bc_term           = jnp.zeros(())
+
+    # Online decaying BC term — value-weighted, warmup-decaying.
+    # Independent of AWBC: active whenever expert_critic_params is set and use_online_bc=True.
+    if needs_bc:
+        bc_weight = jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
+        v_star = jax.lax.stop_gradient(
+            jnp.min(
+                predict_value(
+                    critic_state=critic_states,
+                    critic_params=expert_critic_params,
+                    x=jnp.concatenate([observations, a_expert], axis=-1),
+                ), axis=0,
+            )
+        )
+        v_weight = jnp.clip(
+            (v_star - expert_v_min) / (expert_v_max - expert_v_min + 1e-6),
+            0.0, 1.0,
+        ) ** 2
+        mu = jnp.tanh(pi.distribution.loc)
+        bc_term = bc_coef * bc_weight * (v_weight * jnp.sum(
+            (mu - jax.lax.stop_gradient(a_expert)) ** 2,
+            axis=-1, keepdims=True,
+        )).mean()
+    else:
+        bc_term = jnp.zeros(())
+
+    total_loss = loss_actor.mean() + awbc_term + bc_term
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -979,7 +998,8 @@ def policy_loss_function(
                     "augment_obs_with_expert_action",
                     "proximity_scale",
                     "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
-                    "detach_obs_aug_action", "critic_warmup_frac"],
+                    "detach_obs_aug_action", "critic_warmup_frac", "use_online_bc",
+                    "bc_coef"],
 )
 def update_policy(
     agent_state: SACState,
@@ -1002,6 +1022,8 @@ def update_policy(
     inside_box_mask: Optional[jax.Array] = None,
     train_frac: Optional[jax.Array] = None,
     critic_warmup_frac: float = 0.15,
+    use_online_bc: bool = True,
+    bc_coef: float = 1.0,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
     """Returns (new_state, aux, log_probs) — log_probs reused by update_temperature
     to avoid a redundant actor forward pass."""
@@ -1029,6 +1051,8 @@ def update_policy(
         expert_v_min=agent_state.expert_v_min,
         expert_v_max=agent_state.expert_v_max,
         critic_warmup_frac=critic_warmup_frac,
+        use_online_bc=use_online_bc,
+        bc_coef=bc_coef,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -1055,32 +1079,31 @@ def update_policy(
 # ---------------------------------------------------------------------------
 
 
-@partial(jax.jit, static_argnames=["target_entropy"])
 def temperature_loss_function(
     log_alpha_params: FrozenDict,
     corrected_log_probs: jax.Array,
-    target_entropy: float,
+    effective_target_entropy: jax.Array,
 ) -> Tuple[jax.Array, TemperatureAuxiliaries]:
     log_alpha = log_alpha_params["log_alpha"]
     alpha = jnp.exp(log_alpha)
-    loss = (log_alpha * jax.lax.stop_gradient(-corrected_log_probs - target_entropy)).mean()
+    loss = (log_alpha * jax.lax.stop_gradient(-corrected_log_probs - effective_target_entropy)).mean()
     return loss, TemperatureAuxiliaries(alpha=alpha, log_alpha=log_alpha)
 
 
-@partial(jax.jit, static_argnames=["target_entropy"])
+@jax.jit
 def update_temperature(
     agent_state: SACState,
     log_probs: jax.Array,
-    target_entropy: float,
+    effective_target_entropy: jax.Array,
 ) -> Tuple[SACState, TemperatureAuxiliaries]:
     """
     Standard SAC temperature update.
     log_probs passed from update_policy using the same RNG key the old
     update_temperature would have used — numerically equivalent to old code.
-    target_entropy is a static Python float, never traced.
+    effective_target_entropy is a dynamic JAX array (may be distance-modulated).
     """
     (loss, aux), grads = jax.value_and_grad(temperature_loss_function, has_aux=True)(
-        agent_state.alpha.params, log_probs.sum(-1), target_entropy,
+        agent_state.alpha.params, log_probs.sum(-1), effective_target_entropy,
     )
     new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
     # agent_state.rng was already advanced correctly in update_policy — no split needed here
@@ -1133,14 +1156,14 @@ def is_inside_box(
     static_argnames=[
         "recurrent", "buffer", "gamma", "tau", "action_dim",
         "num_critic_updates", "reward_scale", "transition_mix_fraction",
-        "expert_policy", "use_expert_guidance", "target_entropy",
+        "expert_policy", "use_expert_guidance", "target_entropy", "target_entropy_far",
         "policy_update_start", "alpha_update_start", "expert_mix_fraction",
         "box_threshold", "proximity_scale", "altitude_obs_idx", "target_obs_idx",
         "augment_obs_with_expert_action",
         "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
         "detach_obs_aug_action",
         "use_critic_blend", "critic_warmup_frac", "use_box",
-        "total_timesteps",
+        "total_timesteps", "use_online_bc", "bc_coef",
     ],
 )
 def update_agent(
@@ -1176,6 +1199,9 @@ def update_agent(
     box_v_min: float = 0.0,
     box_v_max: float = 0.0,
     total_timesteps: int = 1,
+    use_online_bc: bool = True,
+    bc_coef: float = 1.0,
+    target_entropy_far: Optional[float] = None,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
@@ -1184,8 +1210,9 @@ def update_agent(
     if buffer is not None and agent_state.collector_state.buffer_state is not None:
         (
             observations, terminated, truncated, next_observations,
-            rewards, actions, raw_observations,
+            rewards, actions, raw_observations, is_expert,
         ) = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, sample_key)
+        expert_frac_in_buffer = is_expert.mean()
         original_transition = Transition(
             observations, actions, rewards, terminated, truncated,
             next_observations, raw_obs=raw_observations,
@@ -1212,6 +1239,7 @@ def update_agent(
 
     elif additional_transition is not None:
         transition = additional_transition
+        expert_frac_in_buffer = jnp.zeros(())
     else:
         raise ValueError("Either buffer or additional_transition must be provided.")
 
@@ -1219,7 +1247,7 @@ def update_agent(
     if expert_mix_fraction > 0.0 and expert_policy is not None:
         (
             exp_obs, exp_terminated, exp_truncated, exp_next_obs,
-            exp_rewards, exp_actions, exp_raw_obs,
+            exp_rewards, exp_actions, exp_raw_obs, _,
         ) = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, expert_sample_key)
 
         n_total = transition.obs.shape[0]
@@ -1262,7 +1290,7 @@ def update_agent(
     expert_q = None
     a_expert_precomputed = None
     needs_expert = expert_policy is not None and (
-        use_expert_guidance or use_box
+        use_expert_guidance or use_box or use_online_bc
     )
     if needs_expert:
         _raw = (
@@ -1364,15 +1392,30 @@ def update_agent(
         inside_box_mask=inside_box_mask,
         train_frac=train_frac,
         critic_warmup_frac=critic_warmup_frac,
+        use_online_bc=use_online_bc,
+        bc_coef=bc_coef,
     )
     agent_state = jax.lax.cond(
         agent_state.collector_state.timestep >= policy_update_start,
         lambda: new_agent_state, lambda: agent_state,
     )
 
+    # --- Distance-modulated entropy target ---
+    if target_entropy_far is not None and transition.raw_obs is not None:
+        raw_distance = jnp.abs(
+            transition.raw_obs[..., altitude_obs_idx] - transition.raw_obs[..., target_obs_idx]
+        ).mean()
+        distance_frac = jnp.clip(raw_distance / box_threshold, 0.0, 1.0)
+        effective_target_entropy = (
+            target_entropy * (1.0 - distance_frac)
+            + target_entropy_far * distance_frac
+        )
+    else:
+        effective_target_entropy = jnp.asarray(target_entropy)
+
     # --- Temperature update — reuses log_probs, no redundant actor forward pass ---
     new_agent_state_temp, aux_temperature = update_temperature(
-        agent_state, log_probs=policy_log_probs, target_entropy=target_entropy,
+        agent_state, log_probs=policy_log_probs, effective_target_entropy=effective_target_entropy,
     )
     agent_state = jax.lax.cond(
         agent_state.collector_state.timestep >= alpha_update_start,
@@ -1394,6 +1437,7 @@ def update_agent(
             alpha_blend=aux_value.alpha_blend.flatten(),
             effective_threshold=effective_threshold_logged,
             box_entry_rate=box_entry_rate,
+            expert_frac_in_buffer=jnp.atleast_1d(expert_frac_in_buffer),
         ),
     )
     return agent_state, aux
@@ -1420,7 +1464,8 @@ def update_agent(
         "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
         "detach_obs_aug_action",
         "policy_update_start", "alpha_update_start",
-        "use_critic_blend", "critic_warmup_frac", "use_box",
+        "use_critic_blend", "critic_warmup_frac", "use_box", "use_online_bc", "bc_coef",
+        "use_expert_guided_exploration", "target_entropy_far",
     ],
 )
 def training_iteration(
@@ -1466,6 +1511,12 @@ def training_iteration(
     use_box: bool = False,
     box_v_min: float = 0.0,
     box_v_max: float = 0.0,
+    use_online_bc: bool = True,
+    bc_coef: float = 1.0,
+    use_expert_guided_exploration: bool = False,
+    exploration_decay_frac: float = 0.30,
+    exploration_tau: float = 1.0,
+    target_entropy_far: Optional[float] = None,
     # API compat
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = lambda x: 1.0,
@@ -1482,6 +1533,9 @@ def training_iteration(
         augment_obs_with_expert_action=augment_obs_with_expert_action,
         use_box=use_box, box_v_min=box_v_min, box_v_max=box_v_max,
         total_timesteps=total_timesteps,
+        use_expert_guided_exploration=use_expert_guided_exploration,
+        exploration_decay_frac=exploration_decay_frac,
+        exploration_tau=exploration_tau,
     )
 
     agent_state, transition = collect_scan_fn(agent_state, None)
@@ -1518,6 +1572,9 @@ def training_iteration(
             box_v_min=box_v_min,
             box_v_max=box_v_max,
             total_timesteps=total_timesteps,
+            use_online_bc=use_online_bc,
+            bc_coef=bc_coef,
+            target_entropy_far=target_entropy_far,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=n_epochs)
         aux = jax.tree.map(lambda x: x[-1].reshape((1,)), aux)
@@ -1531,6 +1588,7 @@ def training_iteration(
                 alpha_blend=aux.value.alpha_blend.flatten(),
                 effective_threshold=aux.value.effective_threshold.flatten(),
                 box_entry_rate=aux.value.box_entry_rate.flatten(),
+                expert_frac_in_buffer=aux.value.expert_frac_in_buffer.flatten(),
             )
         )
         return agent_state, aux
@@ -1647,6 +1705,18 @@ def make_train(
     critic_warmup_frac: float = 0.15,
     # Value-threshold box (v_min/v_max inferred from MC pretraining)
     use_box: bool = False,
+    # Online decaying BC term (active for all MC pretrain runs unless disabled)
+    use_online_bc: bool = True,
+    bc_coef: float = 1.0,
+    # Expert-guided exploration: stochastic expert substitution during collection
+    use_expert_guided_exploration: bool = False,
+    exploration_decay_frac: float = 0.30,
+    exploration_tau: float = 1.0,
+    # Distance-modulated entropy target (None = disabled)
+    target_entropy_far: Optional[float] = None,
+    # Pre-collected MC data: (obs, action, mc_return) JAX arrays.
+    # When provided, the in-run expert rollout + MC-return computation is skipped.
+    mc_preloaded_data: Optional[Tuple] = None,
 ):
     """
     SAC + AWBC training factory.
@@ -1704,6 +1774,7 @@ def make_train(
                     if augment_obs_with_expert_action else 0
                 ),
             )
+            _preloaded = mc_preloaded_data  # None or (obs, action, mc) JAX arrays
             agent_state, frozen_expert_params, mc_obs_batched, mc_action_batched, mc_aux = pretrain_critic_mc(
                 agent_state=agent_state,
                 expert_critic_state=expert_critic_state,
@@ -1718,6 +1789,9 @@ def make_train(
                 n_steps=mc_pretrain_n_steps,
                 max_timesteps=total_timesteps if use_train_frac else None,
                 augment_obs_with_expert_action=augment_obs_with_expert_action,
+                preloaded_obs=_preloaded[0] if _preloaded is not None else None,
+                preloaded_action=_preloaded[1] if _preloaded is not None else None,
+                preloaded_mc=_preloaded[2] if _preloaded is not None else None,
             )
             agent_state = agent_state.replace(
                 expert_critic_params=frozen_expert_params,
@@ -1817,6 +1891,12 @@ def make_train(
             use_box=use_box,
             box_v_min=_box_v_min,
             box_v_max=_box_v_max,
+            use_online_bc=use_online_bc,
+            bc_coef=bc_coef,
+            use_expert_guided_exploration=use_expert_guided_exploration,
+            exploration_decay_frac=exploration_decay_frac,
+            exploration_tau=exploration_tau,
+            target_entropy_far=target_entropy_far,
             **_valid_cloning_params,
         )
 

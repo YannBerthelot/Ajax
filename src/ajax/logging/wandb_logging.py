@@ -162,10 +162,18 @@ def start_async_logging() -> None:
     global _log_queue, _log_process, _pending_init_msgs
     if _log_process is None or not _log_process.is_alive():
         _log_queue = _mp_ctx.JoinableQueue()
+        # Force CPU in the child: wandb_logging imports jax at module level,
+        # which would otherwise trigger JAX GPU pre-allocation in the worker.
+        _old = os.environ.get("JAX_PLATFORMS")
+        os.environ["JAX_PLATFORMS"] = "cpu"
         _log_process = _mp_ctx.Process(
             target=_logging_worker, args=(_log_queue,), daemon=True
         )
         _log_process.start()
+        if _old is None:
+            os.environ.pop("JAX_PLATFORMS", None)
+        else:
+            os.environ["JAX_PLATFORMS"] = _old
         # Flush any messages that arrived before the worker started
         for msg in _pending_init_msgs:
             _log_queue.put(msg)

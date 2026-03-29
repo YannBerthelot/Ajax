@@ -63,6 +63,7 @@ def init_buffer(
             "terminated": done,
             "truncated": done,
             "raw_obs": raw_obsv,
+            "is_expert": jnp.zeros((1,), dtype=jnp.float32),
         }
     )
 
@@ -87,4 +88,5 @@ def get_batch_from_buffer(
     terminated = batch.first["terminated"]
     truncated = batch.first["truncated"]
     raw_observations = batch.first["raw_obs"]
-    return obs, terminated, truncated, next_obs, rew, act, raw_observations
+    is_expert = batch.first["is_expert"]
+    return obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert

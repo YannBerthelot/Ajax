@@ -23,27 +23,6 @@ def get_buffer(
     )
 
 
-def get_prioritized_buffer(
-    buffer_size: int,
-    batch_size: int,
-    n_envs: int = 1,
-    priority_exponent: float = 0.6,
-):
-    """Prioritized replay buffer (PER). Samples proportionally to priority^exponent.
-
-    Returned buffer has the same add/init interface as the flat buffer, plus
-    set_priorities(state, indices, priorities) and sample() that additionally
-    returns .indices and .probabilities alongside .experience.
-    """
-    return fbx.make_prioritised_flat_buffer(
-        max_length=buffer_size,
-        sample_batch_size=batch_size,
-        min_length=batch_size,
-        add_batch_size=n_envs,
-        priority_exponent=priority_exponent,
-    )
-
-
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
@@ -113,28 +92,3 @@ def get_batch_from_buffer(
     return obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert
 
 
-@partial(jax.jit, static_argnames=["buffer"])
-def get_batch_from_prioritized_buffer(
-    buffer: BufferType,
-    buffer_state,
-    key,
-):
-    """Like get_batch_from_buffer but also returns (indices, probabilities) for PER.
-
-    indices:       (batch,)  — buffer positions of sampled transitions
-    probabilities: (batch,)  — actual sampling probabilities p(i)^alpha / sum
-    """
-    sample = buffer.sample(buffer_state, key)
-    batch = sample.experience
-    obs = batch.first["obs"]
-    act = batch.first["action"]
-    rew = batch.first["reward"]
-    next_obs = batch.second["obs"]
-    terminated = batch.first["terminated"]
-    truncated = batch.first["truncated"]
-    raw_observations = batch.first["raw_obs"]
-    is_expert = batch.first["is_expert"]
-    return (
-        obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert,
-        sample.indices, sample.probabilities,
-    )

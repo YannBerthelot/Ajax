@@ -125,12 +125,6 @@ class ExperimentConfig:
     exploration_decay_frac: float = 0.30
     exploration_tau: float = 1.0
 
-    # Prioritized experience replay
-    use_prioritized_replay: bool = False
-    priority_alpha: float = 0.6
-    priority_beta: float = 0.4
-    priority_epsilon: float = 1e-3
-
     # Distance-modulated entropy (None = disabled; scale applied to target_entropy_per_dim)
     use_distance_entropy: bool = False
     target_entropy_far_scale: float = 0.5
@@ -211,21 +205,7 @@ def build_experiments() -> List[ExperimentConfig]:
     # Tier -1 runs first: shortest iteration time, most diagnostic value.
     # ==================================================================
 
-    # 1. EGE + prioritized replay only
-    # Cleanest test of Solution 3. Does disagreement-weighted sampling
-    # accelerate critic convergence in OOD reach-phase states?
-    exps.append(ExperimentConfig(
-        name="ege_priority_replay",
-        wandb_group=P["best_variants"],
-        use_expert_warmup=False,
-        **MC, **EGE_BASE,
-        use_prioritized_replay=True,
-        priority_alpha=0.6,
-        priority_beta=0.4,
-        priority_epsilon=1e-3,
-    ))
-
-    # 2. EGE + online MC correction only
+    # 1. EGE + online MC correction only
     # Cleanest test of Solution 1. Does replacing Bellman targets with
     # short expert rollouts in high-variance states improve Q accuracy?
     exps.append(ExperimentConfig(
@@ -237,7 +217,7 @@ def build_experiments() -> List[ExperimentConfig]:
         variance_threshold=1.0,
     ))
 
-    # 3. EGE + distance-modulated entropy only
+    # 2. EGE + distance-modulated entropy only
     # Tests whether higher entropy far from setpoint improves reach-phase
     # exploration without interfering with near-setpoint precision.
     # target_entropy_far_scale=0.5 → target_entropy_per_dim * 0.5 (less negative = more entropy far away)
@@ -250,19 +230,12 @@ def build_experiments() -> List[ExperimentConfig]:
         target_entropy_far_scale=0.5,
     ))
 
-    # 4. EGE + all three combined
-    # Full stack: prioritized replay identifies uncertain states,
-    # MC correction provides accurate targets there,
-    # distance entropy encourages reach-phase exploration.
+    # 3. EGE + MC correction + distance entropy combined
     exps.append(ExperimentConfig(
-        name="ege_priority_mc_entropy",
+        name="ege_mc_entropy",
         wandb_group=P["best_variants"],
         use_expert_warmup=False,
         **MC, **EGE_BASE,
-        use_prioritized_replay=True,
-        priority_alpha=0.6,
-        priority_beta=0.4,
-        priority_epsilon=1e-3,
         use_mc_correction=True,
         variance_threshold=1.0,
         use_distance_entropy=True,
@@ -781,10 +754,6 @@ def run_single_experiment(
         exploration_decay_frac=exp.exploration_decay_frac,
         exploration_tau=exp.exploration_tau,
         target_entropy_far=target_entropy_far,
-        use_prioritized_replay=exp.use_prioritized_replay,
-        priority_alpha=exp.priority_alpha,
-        priority_beta=exp.priority_beta,
-        priority_epsilon=exp.priority_epsilon,
         mc_variance_threshold=mc_variance_threshold,
         policy_update_start=exp.policy_update_start,
         alpha_update_start=exp.alpha_update_start,

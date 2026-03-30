@@ -61,6 +61,7 @@ from ajax.types import BufferType
 class TemperatureAuxiliaries:
     alpha: jax.Array
     log_alpha: jax.Array
+    effective_target_entropy: jax.Array  # actual target used in alpha update (distance-modulated when active)
 
 
 @struct.dataclass
@@ -102,6 +103,23 @@ class ValueAuxiliaries:
     effective_threshold: jax.Array  # box threshold at current train_frac
     box_entry_rate: jax.Array       # fraction of batch inside value box
     mc_correction_frac: jax.Array   # fraction of batch where MC target replaced Bellman
+    phi_star_q_gap_ood: jax.Array   # |Q_φ*(s,π*) - Q_φ(s,π*)| mean: φ* OOD coverage error
+
+
+@struct.dataclass
+class EGEAuxiliaries:
+    """EGE diagnostics computed on the training batch (same distribution as collection)."""
+    value_gap: jax.Array              # Q(s,π*) - Q(s,π): gate signal; positive → expert still better
+    p_expert_mean: jax.Array          # sigmoid(value_gap / (tau·|Q_π|)): Boltzmann p before decay
+    expert_action_fraction: jax.Array  # fraction of batch with is_expert=1 (buffer density of EGE data)
+
+
+@struct.dataclass
+class PhiRefreshAuxiliaries:
+    """φ* refresh diagnostics (A10). All-zero when no refresh triggered this step."""
+    loss_before: jax.Array      # expert-masked regression loss before gradient steps
+    loss_after: jax.Array       # expert-masked regression loss after gradient steps
+    expert_buffer_size: jax.Array  # count of is_expert=1 in the diagnostic sample batch
 
 
 @struct.dataclass
@@ -109,6 +127,8 @@ class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    ege: EGEAuxiliaries
+    phi_refresh: PhiRefreshAuxiliaries
 
 
 @struct.dataclass
@@ -481,7 +501,7 @@ def pretrain_critic_mc(
         q_expert_max=q_for_stats.max(),
         v_min=v_min,
         v_max=v_max,
-    )
+    ), expert_critic_state
 
 
 # ---------------------------------------------------------------------------
@@ -538,6 +558,126 @@ def pretrain_critic_online_light(
     )
     # Target network intentionally untouched
     return agent_state
+
+
+# ---------------------------------------------------------------------------
+# Periodic self-consistent φ* refresh
+# ---------------------------------------------------------------------------
+
+
+def refresh_phi_star(
+    agent_state: SACState,
+    buffer: BufferType,
+    phi_refresh_steps: int,
+    gamma: float,
+    reward_scale: float,
+    expert_policy: Callable,
+) -> Tuple[SACState, PhiRefreshAuxiliaries]:
+    """
+    Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
+
+    Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
+    Non-expert transitions are masked out, so the gradient comes only from
+    (s, a_expert, r, s′) rows where EGE fired the expert action.
+
+    Returns updated SACState and PhiRefreshAuxiliaries with loss_before/after/expert_buffer_size.
+    """
+    buffer_state = agent_state.collector_state.buffer_state
+    expert_critic_state = agent_state.expert_critic_state
+
+    diag_key, refresh_key, new_rng = jax.random.split(agent_state.rng, 3)
+    agent_state = agent_state.replace(rng=new_rng)
+
+    # --- Diagnostic batch: used only for loss_before / loss_after / expert_buffer_size ---
+    obs_d, terminated_d, truncated_d, next_obs_d, rewards_d, actions_d, _, is_expert_d = (
+        get_batch_from_buffer(buffer, buffer_state, diag_key)
+    )
+    expert_mask_d = is_expert_d[..., 0]  # (batch,)
+    expert_buffer_size = expert_mask_d.sum()
+    rewards_d = rewards_d * reward_scale
+    dones_d = jnp.logical_or(terminated_d, truncated_d).astype(jnp.float32)
+
+    # Compute fixed targets on diagnostic batch using initial target network
+    a_expert_d = jax.lax.stop_gradient(expert_policy(next_obs_d))
+    q_next_d = predict_value(
+        critic_state=expert_critic_state,
+        critic_params=expert_critic_state.target_params,  # fixed initial target
+        x=jnp.concatenate([next_obs_d, a_expert_d], axis=-1),
+    )
+    target_d = jax.lax.stop_gradient(
+        rewards_d + gamma * (1.0 - dones_d) * jnp.min(q_next_d, axis=0)
+    )
+
+    def compute_diag_loss(params):
+        """Expert-masked regression loss on the diagnostic batch with fixed targets."""
+        q_preds = predict_value(
+            critic_state=expert_critic_state,
+            critic_params=params,
+            x=jnp.concatenate([obs_d, actions_d], axis=-1),
+        )
+        mse_per = jnp.mean((q_preds - target_d) ** 2, axis=(0, 2))  # (batch,)
+        n_expert = expert_mask_d.sum() + 1e-6
+        return (mse_per * expert_mask_d).sum() / n_expert
+
+    loss_before = compute_diag_loss(expert_critic_state.params)
+
+    # --- Gradient refresh steps (independent samples per step) ---
+    def refresh_step(carry, _):
+        expert_critic_state, step_key = carry
+        sample_key, step_key = jax.random.split(step_key)
+
+        obs, terminated, truncated, next_obs, rewards, actions, _, is_expert = (
+            get_batch_from_buffer(buffer, buffer_state, sample_key)
+        )
+
+        expert_mask = is_expert[..., 0]  # (batch,)
+        rewards = rewards * reward_scale
+        dones = jnp.logical_or(terminated, truncated).astype(jnp.float32)
+
+        a_expert_next = jax.lax.stop_gradient(expert_policy(next_obs))
+        q_next = predict_value(
+            critic_state=expert_critic_state,
+            critic_params=expert_critic_state.target_params,
+            x=jnp.concatenate([next_obs, a_expert_next], axis=-1),
+        )
+        target = jax.lax.stop_gradient(rewards + gamma * (1.0 - dones) * jnp.min(q_next, axis=0))
+
+        def loss_fn(params):
+            q_preds = predict_value(
+                critic_state=expert_critic_state,
+                critic_params=params,
+                x=jnp.concatenate([obs, actions], axis=-1),
+            )
+            mse_per = jnp.mean((q_preds - target) ** 2, axis=(0, 2))
+            n_expert = expert_mask.sum() + 1e-6
+            return (mse_per * expert_mask).sum() / n_expert
+
+        _, grads = jax.value_and_grad(loss_fn)(expert_critic_state.params)
+        new_expert_critic_state = expert_critic_state.apply_gradients(grads=grads)
+        return (new_expert_critic_state, step_key), None
+
+    (new_expert_critic_state, _), _ = jax.lax.scan(
+        refresh_step, (expert_critic_state, refresh_key), None, length=phi_refresh_steps
+    )
+
+    loss_after = compute_diag_loss(new_expert_critic_state.params)
+
+    # Hard-sync target network after refresh so MC-correction targets are current
+    new_expert_critic_state = new_expert_critic_state.soft_update(tau=1.0)
+    frozen_params = jax.lax.stop_gradient(new_expert_critic_state.params)
+
+    phi_refresh_aux = PhiRefreshAuxiliaries(
+        loss_before=jnp.atleast_1d(loss_before),
+        loss_after=jnp.atleast_1d(loss_after),
+        expert_buffer_size=jnp.atleast_1d(expert_buffer_size),
+    )
+    return (
+        agent_state.replace(
+            expert_critic_state=new_expert_critic_state,
+            expert_critic_params=frozen_params,
+        ),
+        phi_refresh_aux,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -761,6 +901,7 @@ def value_loss_function(
         box_entry_rate=jnp.zeros(1),
         expert_frac_in_buffer=jnp.zeros(1),
         mc_correction_frac=mc_correction_frac,
+        phi_star_q_gap_ood=jnp.zeros(1),
     )
 
 
@@ -1117,7 +1258,11 @@ def temperature_loss_function(
     log_alpha = log_alpha_params["log_alpha"]
     alpha = jnp.exp(log_alpha)
     loss = (log_alpha * jax.lax.stop_gradient(-corrected_log_probs - effective_target_entropy)).mean()
-    return loss, TemperatureAuxiliaries(alpha=alpha, log_alpha=log_alpha)
+    return loss, TemperatureAuxiliaries(
+        alpha=alpha,
+        log_alpha=log_alpha,
+        effective_target_entropy=effective_target_entropy,
+    )
 
 
 @jax.jit
@@ -1194,7 +1339,7 @@ def is_inside_box(
         "detach_obs_aug_action",
         "use_critic_blend", "critic_warmup_frac", "use_box",
         "total_timesteps", "use_online_bc", "bc_coef",
-        "mc_variance_threshold",
+        "mc_variance_threshold", "exploration_tau",
     ],
 )
 def update_agent(
@@ -1234,6 +1379,7 @@ def update_agent(
     bc_coef: float = 1.0,
     target_entropy_far: Optional[float] = None,
     mc_variance_threshold: Optional[float] = None,
+    exploration_tau: float = 1.0,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
@@ -1341,6 +1487,23 @@ def update_agent(
                 axis=0,
             )
         )
+
+    # --- φ* OOD quality: |Q_φ*(s,π*) - Q_φ(s,π*)| on training batch ---
+    # Measures how much frozen φ* disagrees with the live critic on expert actions.
+    # Non-zero only when MC pretrain has been run (expert_critic_params is not None).
+    phi_star_q_gap_ood = jnp.zeros(())
+    if agent_state.expert_critic_params is not None and expert_q is not None and a_expert_precomputed is not None:
+        q_phi_star = jax.lax.stop_gradient(
+            jnp.min(
+                predict_value(
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.expert_critic_params,
+                    x=jnp.concatenate([transition.obs, a_expert_precomputed], axis=-1),
+                ),
+                axis=0,
+            )
+        )
+        phi_star_q_gap_ood = jnp.abs(q_phi_star - jax.lax.stop_gradient(expert_q)).mean()
 
     # --- Critic blend: pre-compute V*(s') and α_blend for blended Bellman target ---
     # α_blend = max(1 - train_frac / critic_warmup_frac, 0)
@@ -1458,6 +1621,11 @@ def update_agent(
 
     agent_state = update_target_networks(agent_state, tau=tau)
 
+    # --- EGE diagnostics (computed on training batch) ---
+    # value_gap = existing q_gap: Q(s,π*) - Q(s,π) — same quantity EGE gates on
+    q_scale_ege = jax.lax.stop_gradient(jnp.abs(aux_value.q_pred_min).mean() + 1e-6)
+    ege_p_expert = jax.nn.sigmoid(aux_value.q_gap / (exploration_tau * q_scale_ege))
+
     # Direct field access instead of to_state_dict — avoids serialization overhead
     aux = AuxiliaryLogs(
         temperature=aux_temperature,
@@ -1473,6 +1641,17 @@ def update_agent(
             box_entry_rate=box_entry_rate,
             expert_frac_in_buffer=jnp.atleast_1d(expert_frac_in_buffer),
             mc_correction_frac=aux_value.mc_correction_frac.flatten(),
+            phi_star_q_gap_ood=jnp.atleast_1d(phi_star_q_gap_ood),
+        ),
+        ege=EGEAuxiliaries(
+            value_gap=aux_value.q_gap.flatten(),
+            p_expert_mean=jnp.atleast_1d(ege_p_expert.mean()),
+            expert_action_fraction=jnp.atleast_1d(expert_frac_in_buffer),
+        ),
+        phi_refresh=PhiRefreshAuxiliaries(
+            loss_before=jnp.zeros(1),
+            loss_after=jnp.zeros(1),
+            expert_buffer_size=jnp.zeros(1),
         ),
     )
     return agent_state, aux
@@ -1500,8 +1679,10 @@ def update_agent(
         "detach_obs_aug_action",
         "policy_update_start", "alpha_update_start",
         "use_critic_blend", "critic_warmup_frac", "use_box", "use_online_bc", "bc_coef",
-        "use_expert_guided_exploration", "target_entropy_far",
+        "use_expert_guided_exploration", "exploration_decay_frac", "exploration_tau",
+        "target_entropy_far",
         "mc_variance_threshold",
+        "use_phi_refresh", "phi_refresh_interval", "phi_refresh_steps",
     ],
 )
 def training_iteration(
@@ -1554,6 +1735,9 @@ def training_iteration(
     exploration_tau: float = 1.0,
     target_entropy_far: Optional[float] = None,
     mc_variance_threshold: Optional[float] = None,
+    use_phi_refresh: bool = False,
+    phi_refresh_interval: int = 500,
+    phi_refresh_steps: int = 20,
     # API compat
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = lambda x: 1.0,
@@ -1579,6 +1763,30 @@ def training_iteration(
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
+        # Periodic φ* refresh: self-consistent Bellman steps on expert buffer transitions.
+        # Initialise zero aux; overwritten when refresh triggers.
+        _zero_phi = PhiRefreshAuxiliaries(
+            loss_before=jnp.zeros(1),
+            loss_after=jnp.zeros(1),
+            expert_buffer_size=jnp.zeros(1),
+        )
+        if use_phi_refresh and expert_policy is not None:
+            agent_state, phi_refresh_aux = jax.lax.cond(
+                agent_state.collector_state.timestep % phi_refresh_interval == 0,
+                lambda s: refresh_phi_star(
+                    s, buffer, phi_refresh_steps,
+                    agent_config.gamma, agent_config.reward_scale, expert_policy,
+                ),
+                lambda s: (s, PhiRefreshAuxiliaries(
+                    loss_before=jnp.zeros(1),
+                    loss_after=jnp.zeros(1),
+                    expert_buffer_size=jnp.zeros(1),
+                )),
+                operand=agent_state,
+            )
+        else:
+            phi_refresh_aux = _zero_phi
+
         update_scan_fn = partial(
             update_agent,
             buffer=buffer, recurrent=recurrent, gamma=agent_config.gamma,
@@ -1613,6 +1821,7 @@ def training_iteration(
             bc_coef=bc_coef,
             target_entropy_far=target_entropy_far,
             mc_variance_threshold=mc_variance_threshold,
+            exploration_tau=exploration_tau,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=n_epochs)
         aux = jax.tree.map(lambda x: x[-1].reshape((1,)), aux)
@@ -1628,7 +1837,19 @@ def training_iteration(
                 box_entry_rate=aux.value.box_entry_rate.flatten(),
                 expert_frac_in_buffer=aux.value.expert_frac_in_buffer.flatten(),
                 mc_correction_frac=aux.value.mc_correction_frac.flatten(),
-            )
+                phi_star_q_gap_ood=aux.value.phi_star_q_gap_ood.flatten(),
+            ),
+            ege=EGEAuxiliaries(
+                value_gap=aux.ege.value_gap.flatten(),
+                p_expert_mean=aux.ege.p_expert_mean.flatten(),
+                expert_action_fraction=aux.ege.expert_action_fraction.flatten(),
+            ),
+            # Override the zeros from update_agent with the actual refresh diagnostics
+            phi_refresh=PhiRefreshAuxiliaries(
+                loss_before=phi_refresh_aux.loss_before.flatten(),
+                loss_after=phi_refresh_aux.loss_after.flatten(),
+                expert_buffer_size=phi_refresh_aux.expert_buffer_size.flatten(),
+            ),
         )
         return agent_state, aux
 
@@ -1755,6 +1976,10 @@ def make_train(
     target_entropy_far: Optional[float] = None,
     # Online MC correction for high-variance critic states (None = disabled)
     mc_variance_threshold: Optional[float] = None,
+    # Periodic self-consistent φ* refresh via expert-flagged buffer transitions
+    use_phi_refresh: bool = False,
+    phi_refresh_interval: int = 500,
+    phi_refresh_steps: int = 20,
     # Pre-collected MC data: (obs, action, mc_return) JAX arrays.
     # When provided, the in-run expert rollout + MC-return computation is skipped.
     mc_preloaded_data: Optional[Tuple] = None,
@@ -1816,7 +2041,10 @@ def make_train(
                 ),
             )
             _preloaded = mc_preloaded_data  # None or (obs, action, mc) JAX arrays
-            agent_state, frozen_expert_params, mc_obs_batched, mc_action_batched, mc_aux = pretrain_critic_mc(
+            (
+                agent_state, frozen_expert_params, mc_obs_batched, mc_action_batched,
+                mc_aux, expert_critic_state_trained,
+            ) = pretrain_critic_mc(
                 agent_state=agent_state,
                 expert_critic_state=expert_critic_state,
                 expert_policy=expert_policy,
@@ -1838,6 +2066,8 @@ def make_train(
                 expert_critic_params=frozen_expert_params,
                 expert_v_min=mc_aux.v_min,
                 expert_v_max=mc_aux.v_max,
+                # Keep φ* optimizer state alive for periodic refresh (None when disabled)
+                expert_critic_state=expert_critic_state_trained if use_phi_refresh else None,
             )
             if use_box:
                 _box_v_min = mc_aux.v_min
@@ -1939,6 +2169,9 @@ def make_train(
             exploration_tau=exploration_tau,
             target_entropy_far=target_entropy_far,
             mc_variance_threshold=mc_variance_threshold,
+            use_phi_refresh=use_phi_refresh,
+            phi_refresh_interval=phi_refresh_interval,
+            phi_refresh_steps=phi_refresh_steps,
             **_valid_cloning_params,
         )
 

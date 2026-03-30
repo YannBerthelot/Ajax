@@ -116,6 +116,7 @@ class ActorCritic:
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
+        on_ids_ready: Optional[Callable] = None,
         **kwargs,
     ) -> BaseAgentState:
         """
@@ -137,6 +138,9 @@ class ActorCritic:
 
         else:
             self.run_ids = []
+
+        if on_ids_ready is not None:
+            on_ids_ready(self.run_ids)
 
         train_jit = self.get_make_train()(
             env_args=self.env_args,

@@ -15,6 +15,8 @@ class SACState(BaseAgentState):
     expert_critic_params: Optional[Any] = None
     expert_v_min: Optional[Any] = None
     expert_v_max: Optional[Any] = None
+    # Mutable φ* state for periodic self-consistent refresh (None when refresh disabled)
+    expert_critic_state: Optional[LoadedTrainState] = None
 
 
 @struct.dataclass

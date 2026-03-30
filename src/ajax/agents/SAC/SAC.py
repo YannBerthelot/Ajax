@@ -110,6 +110,10 @@ class SAC(ActorCritic):
         target_entropy_far: Optional[float] = None,
         # Online MC correction for high-variance states (None = disabled)
         mc_variance_threshold: Optional[float] = None,
+        # Periodic self-consistent φ* refresh via expert-flagged buffer transitions
+        use_phi_refresh: bool = False,
+        phi_refresh_interval: int = 500,
+        phi_refresh_steps: int = 20,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -191,6 +195,9 @@ class SAC(ActorCritic):
         self.exploration_tau = exploration_tau
         self.target_entropy_far = target_entropy_far
         self.mc_variance_threshold = mc_variance_threshold
+        self.use_phi_refresh = use_phi_refresh
+        self.phi_refresh_interval = phi_refresh_interval
+        self.phi_refresh_steps = phi_refresh_steps
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -232,4 +239,7 @@ class SAC(ActorCritic):
             exploration_tau=self.exploration_tau,
             target_entropy_far=self.target_entropy_far,
             mc_variance_threshold=self.mc_variance_threshold,
+            use_phi_refresh=self.use_phi_refresh,
+            phi_refresh_interval=self.phi_refresh_interval,
+            phi_refresh_steps=self.phi_refresh_steps,
         )

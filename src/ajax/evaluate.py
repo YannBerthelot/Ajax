@@ -95,6 +95,7 @@ def step_environment(
     early_termination_condition=None,
     expert_handover: bool = False,
     train_frac: Optional[float] = None,
+    use_residual_rl: bool = False,
 ):
     """Return a pure function for environment stepping."""
 
@@ -115,7 +116,11 @@ def step_environment(
             else 0.0
         )
 
-        actions = (1.0 - inside_the_box) * raw_actions + inside_the_box * expert_actions
+        if use_residual_rl:
+            # Residual RL eval: execute clip(a_expert + a_pi_det, -1, 1)
+            actions = jnp.clip(expert_actions + raw_actions, -1.0, 1.0)
+        else:
+            actions = (1.0 - inside_the_box) * raw_actions + inside_the_box * expert_actions
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
@@ -207,6 +212,7 @@ def while_env_not_done(carry):
         "expert_policy",
         "action_scale",
         "early_termination_condition",
+        "use_residual_rl",
     ],
 )
 def evaluate(
@@ -225,6 +231,7 @@ def evaluate(
     action_scale: float = 1.0,
     early_termination_condition: Optional[Callable] = None,
     train_frac: Optional[float] = None,
+    use_residual_rl: bool = False,
 ) -> jax.Array:
     # Setup
     env, mode, continuous = setup_environment(
@@ -277,6 +284,7 @@ def evaluate(
         action_scale=action_scale,
         early_termination_condition=early_termination_condition,
         train_frac=train_frac,
+        use_residual_rl=use_residual_rl,
     )
 
     # Main loop

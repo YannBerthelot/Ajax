@@ -78,6 +78,7 @@ def no_op_none(agent_state, index, timestep):
         "action_scale",
         "sweep",
         "early_termination_condition",
+        "use_residual_rl",
     ],
 )
 def evaluate_and_log(
@@ -100,6 +101,7 @@ def evaluate_and_log(
     sweep: bool = False,
     early_termination_condition: Optional[Callable] = None,
     train_frac: Optional[float] = None,
+    use_residual_rl: bool = False,
 ):
     timestep = agent_state.collector_state.timestep
 
@@ -141,6 +143,7 @@ def evaluate_and_log(
             action_scale=action_scale,
             early_termination_condition=early_termination_condition,
             train_frac=train_frac,
+            use_residual_rl=use_residual_rl,
         )
         schedule = (
             early_termination_condition.keywords["schedule"]

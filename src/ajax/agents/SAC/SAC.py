@@ -106,6 +106,9 @@ class SAC(ActorCritic):
         use_expert_guided_exploration: bool = False,
         exploration_decay_frac: float = 0.30,
         exploration_tau: float = 1.0,
+        exploration_boltzmann: bool = False,
+        fixed_exploration_prob: float = 0.5,
+        exploration_argmax: bool = False,
         # Distance-modulated entropy target (None = disabled)
         target_entropy_far: Optional[float] = None,
         # Online MC correction for high-variance states (None = disabled)
@@ -193,6 +196,9 @@ class SAC(ActorCritic):
         self.use_expert_guided_exploration = use_expert_guided_exploration
         self.exploration_decay_frac = exploration_decay_frac
         self.exploration_tau = exploration_tau
+        self.exploration_boltzmann = exploration_boltzmann
+        self.fixed_exploration_prob = fixed_exploration_prob
+        self.exploration_argmax = exploration_argmax
         self.target_entropy_far = target_entropy_far
         self.mc_variance_threshold = mc_variance_threshold
         self.use_phi_refresh = use_phi_refresh
@@ -237,6 +243,10 @@ class SAC(ActorCritic):
             use_expert_guided_exploration=self.use_expert_guided_exploration,
             exploration_decay_frac=self.exploration_decay_frac,
             exploration_tau=self.exploration_tau,
+            exploration_boltzmann=self.exploration_boltzmann,
+            fixed_exploration_prob=self.fixed_exploration_prob,
+            exploration_argmax=self.exploration_argmax,
+            use_residual_rl=self.residual,
             target_entropy_far=self.target_entropy_far,
             mc_variance_threshold=self.mc_variance_threshold,
             use_phi_refresh=self.use_phi_refresh,

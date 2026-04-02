@@ -15,9 +15,12 @@ List all experiments:
 Manually inject baseline into a W&B project (after sac_baseline has run):
     python ablation_study.py --inject-baseline PROJECT_NAME
 """
+import fcntl
 import json
 import os
 import time
+
+os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
 from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
@@ -28,6 +31,7 @@ import jax.numpy as jnp
 jax.config.update("jax_compilation_cache_dir", os.path.expanduser("~/.cache/jax_xla"))
 jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
 os.environ["WANDB_SILENT"] = "true"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 from target_gym import Plane, PlaneParams
 from tqdm import tqdm
@@ -53,6 +57,11 @@ from mc_pretrain_collect import (
     collect_and_save_mc_data,
     load_mc_data_for_experiment,
 )
+from partial_expert_train import (
+    PARTIAL_EXPERT_STEPS,
+    setup_partial_expert_checkpoints,
+    load_partial_expert_policy,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -60,20 +69,17 @@ from mc_pretrain_collect import (
 # Edit to match your W&B workspace.
 # ---------------------------------------------------------------------------
 
-WANDB_PROJECT = "ablation_plane_final_clean_2"
+WANDB_PROJECT = "ablation_plane_final_clean_3"
 
-# W&B group names — one group per thematic tier (used as the `group` field).
+# W&B group names — one group per question tier (used as the `group` field).
+# Q1: Is the value-gap gate doing real work, or is EGE just epsilon-greedy?
+# Q2: Is MC pretrain (φ*) necessary for the gate to work?
+# Q3: What is the right decay horizon?
 WANDB_GROUPS = {
-    "baselines":            "ablation_baselines_plane_debug",
-    "best_variants":        "ablation_best_variants_plane_debug",
-    "component_isolation":  "ablation_component_isolation_plane_debug",
-    "alpha_deferral":       "ablation_alpha_deferral_plane_debug",
-    "critic_architecture":  "ablation_critic_architecture_plane_debug",
-    "actor_pretrain":       "ablation_actor_pretrain_plane_debug",
-    "awbc":                 "ablation_awbc_plane_debug",
-    "critics":              "ablation_critics_plane_debug",
-    "mc_pretrain":          "ablation_mc_pretrain_plane_debug",
-    "expert_mix":           "ablation_expert_mix_plane_debug",
+    "baselines":    "ablation_baselines_plane",
+    "q1_decay":     "ablation_q1_decay_plane",      # Q1: decay horizon sweep
+    "q2_epsilon":   "ablation_q2_epsilon_plane",    # Q2: epsilon sensitivity (uses best decay from Q1)
+    "q3_gating":    "ablation_q3_gating_plane",     # Q3: gating style (uses best decay+epsilon from Q1/Q2)
 }
 
 # Path where baseline run IDs are cached after sac_baseline completes.
@@ -122,14 +128,13 @@ class ExperimentConfig:
     alpha_learning_rate_scale: float = 1.0  # fixed: was 0.5 for non-baselines, now 1.0 everywhere
     bc_coef: float = 1.0
 
+    use_residual_rl: bool = False
     use_expert_guided_exploration: bool = False
-    exploration_decay_frac: float = 0.15
+    exploration_decay_frac: float = 0.50
     exploration_tau: float = 1.0
-    exploration_boltzmann: bool = True       # new: True = adaptive gate, False = fixed epsilon
-    fixed_exploration_prob: float = 0.5     # new: used when exploration_boltzmann=False
-
-    use_distance_entropy: bool = False
-    target_entropy_far_scale: float = 0.5
+    exploration_boltzmann: bool = False      # True = adaptive value-gap gate, False = fixed epsilon
+    fixed_exploration_prob: float = 0.5     # used when exploration_boltzmann=False
+    exploration_argmax: bool = False         # True = IBRL-style argmax gating (deterministic)
 
     use_mc_correction: bool = False
     variance_threshold: float = 1.0
@@ -140,21 +145,24 @@ class ExperimentConfig:
 
     num_critics: int = 2
 
+    # Degradation 3: Value-based sub-optimality.
+    # When set, the experiment uses a SAC actor trained for this many steps
+    # (loaded from partial_expert_checkpoints/) as the expert_policy instead
+    # of the full PID controller.  None = use the full PID expert (default).
+    partial_expert_steps: Optional[int] = None
+
 
 def build_experiments() -> List[ExperimentConfig]:
     P = WANDB_GROUPS
 
-    MC = dict(
-        use_mc_critic_pretrain=True,
-        mc_pretrain_n_mc_steps=10_000,
-        mc_pretrain_n_mc_episodes=1000,
-        mc_pretrain_n_steps=5_000,
-    )
-
-    EGE_BASE = dict(
+    # Shared EGE defaults — all EGE experiments inherit from this.
+    # MC pre-train is disabled for all experiments.
+    # Boltzmann gating is disabled everywhere; epsilon-greedy is the default.
+    EGE = dict(
         use_expert_guided_exploration=True,
-        # exploration_decay_frac, exploration_tau, exploration_boltzmann omitted
-        # — dataclass defaults (0.15, 1.0, True) apply; override per-experiment as needed
+        use_mc_critic_pretrain=False,
+        exploration_tau=1.0,
+        exploration_boltzmann=False,
         expert_buffer_n_steps=0,            # no pre-population: EGE fills organically
         expert_mix_fraction=0.0,
         use_online_bc=False,
@@ -162,16 +170,16 @@ def build_experiments() -> List[ExperimentConfig]:
         use_critic_blend=False,
         use_expert_guidance=False,
         num_critic_updates=1,
-        alpha_learning_rate_scale=1.0,      # fixed: match baseline, no silent asymmetry
+        alpha_learning_rate_scale=1.0,
     )
 
     exps = []
 
     # ==================================================================
-    # Anchors
+    # Baselines — run first (sac_baseline must be index 0 for cache)
     # ==================================================================
 
-    # Vanilla SAC — clean baseline, no expert data, no modifications
+    # Vanilla SAC — no expert, no modifications.  Lower bound.
     exps.append(ExperimentConfig(
         name="sac_baseline",
         wandb_group=P["baselines"],
@@ -186,135 +194,253 @@ def build_experiments() -> List[ExperimentConfig]:
         num_critic_updates=1,
     ))
 
-    # EGE only — primary winning method, main anchor for all ablations
-    # exploration_decay_frac=0.15 from EGE_BASE
+    # Residual RL baseline (Johannink et al.):
+    # Vanilla SAC where the executed action is clip(a_expert + a_policy, -1, 1).
     exps.append(ExperimentConfig(
-        name="ege_only",
-        wandb_group=P["best_variants"],
-        **MC, **EGE_BASE,
-        use_distance_entropy=False,
-    ))
-
-    # ==================================================================
-    # Q1: Does distance entropy add to or hurt EGE?
-    # Compare ege_dist_entropy vs ege_only (anchor).
-    # From partial data: dist entropy alone did nothing, combined hurt EGE.
-    # Run to 1M to confirm.
-    # ==================================================================
-
-    # Already run — kept as anchor for completeness
-    exps.append(ExperimentConfig(
-        name="ege_dist_entropy",
-        wandb_group=P["best_variants"],
-        **MC, **EGE_BASE,
-        use_distance_entropy=True,
-        target_entropy_far_scale=0.5,
-    ))
-
-    # Dist entropy alone — no EGE, no expert buffer, no MC pretrain
-    # Note: MC removed because φ* is unused without EGE or BC
-    exps.append(ExperimentConfig(
-        name="dist_entropy_only",
-        wandb_group=P["best_variants"],
-        use_mc_critic_pretrain=False,       # fixed: φ* unused without EGE
-        use_expert_guided_exploration=False,
-        use_distance_entropy=True,
-        target_entropy_far_scale=0.5,
+        name="residual_rl",
+        wandb_group=P["baselines"],
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
+        policy_update_start=10_000,
+        alpha_update_start=10_000,
+        alpha_learning_rate_scale=1.0,
+        critic_warmup_frac=0.0,
         use_online_bc=False,
         use_online_critic_light_pretrain=False,
-        use_critic_blend=False,
-        use_expert_guidance=False,
         num_critic_updates=1,
-        alpha_learning_rate_scale=1.0,
+        use_residual_rl=True,
+    ))
+
+    # IBRL-style argmax gating, no decay — true IBRL baseline.
+    # In baselines group so it appears alongside SAC in expert-bias overview plots.
+    exps.append(ExperimentConfig(
+        name="ibrl_style",
+        wandb_group=P["baselines"],
+        **EGE,
+        exploration_argmax=True,
+        exploration_decay_frac=0.0,
     ))
 
     # ==================================================================
-    # Q2: Is MC pretrain (φ*) load-bearing for EGE?
-    # Without MC, EGE gates on the live critic alone — no stable φ* reference.
-    # Compare ege_only_no_mc vs ege_only (anchor).
+    # Q1: What is the right decay horizon?
+    # Best decay from this study feeds into Q2 and Q3.
     # ==================================================================
 
     exps.append(ExperimentConfig(
-        name="ege_only_no_mc",
-        wandb_group=P["best_variants"],
-        use_mc_critic_pretrain=False,       # no φ* — EGE uses live critic for value gap
-        use_expert_guided_exploration=True,
+        name="ege_no_decay",
+        wandb_group=P["q1_decay"],
+        **EGE,
+        exploration_decay_frac=0.0,
+        fixed_exploration_prob=0.5,
+    ))
+
+    exps.append(ExperimentConfig(
+        name="ege_decay_005",
+        wandb_group=P["q1_decay"],
+        **EGE,
+        exploration_decay_frac=0.05,
+        fixed_exploration_prob=0.5,
+    ))
+
+    exps.append(ExperimentConfig(
+        name="ege_simple",
+        wandb_group=P["q1_decay"],
+        **EGE,
         exploration_decay_frac=0.15,
-        exploration_tau=1.0,
-        exploration_boltzmann=True,
-        use_distance_entropy=False,
-        expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
-        use_online_bc=False,
-        use_online_critic_light_pretrain=False,
-        use_critic_blend=False,
-        use_expert_guidance=False,
-        num_critic_updates=1,
-        alpha_learning_rate_scale=1.0,
+        fixed_exploration_prob=0.5,
     ))
 
-    # ==================================================================
-    # Q3: What is the right EGE decay horizon?
-    # Ablation on ege_only (no dist entropy — cleaner isolation).
-    # Three-way: 0.15 (anchor) vs 0.30 (A5) vs 0.50 (A6).
-    # ==================================================================
-
-    exps.append(ExperimentConfig(
-        name="ege_decay_030",
-        wandb_group=P["best_variants"],
-        **MC, **EGE_BASE,
-        exploration_decay_frac=0.30,        # override EGE_BASE default of 0.15
-        use_distance_entropy=False,
-    ))
-
+    # This experiment also serves as the main result (update MAIN_EXP in plot_sweep.py
+    # and move wandb_group=P["baselines"] to whichever decay wins).
     exps.append(ExperimentConfig(
         name="ege_decay_050",
-        wandb_group=P["best_variants"],
-        **MC, **EGE_BASE,
+        wandb_group=P["baselines"],
+        **EGE,
         exploration_decay_frac=0.50,
-        use_distance_entropy=False,
+        fixed_exploration_prob=0.5,
+    ))
+
+    exps.append(ExperimentConfig(
+        name="ege_decay_075",
+        wandb_group=P["q1_decay"],
+        **EGE,
+        exploration_decay_frac=0.75,
+        fixed_exploration_prob=0.5,
     ))
 
     # ==================================================================
-    # Q4: Does the adaptive Boltzmann gate matter vs fixed epsilon-greedy?
-    # This is the key mechanistic question: is the value gap doing real work,
-    # or is EGE just epsilon-greedy data augmentation?
-    # If fixed_epsilon matches ege_only, the value gap contributes nothing.
-    # If ege_only wins, adaptive gating is the mechanism.
-    # Same global decay (0.15), same expert data fraction on average,
-    # only the per-state gating logic differs.
+    # Q2: How sensitive is EGE to the fixed-epsilon value?
+    # Uses the best decay found in Q1.  ε=0.5 is covered by ege_decay_050.
+    # ==================================================================
+
+    for epsilon in [0.1, 0.25, 0.75, 0.9, 0.95, 0.99]:
+        exps.append(ExperimentConfig(
+            name=f"ege_eps_{epsilon}",
+            wandb_group=P["q2_epsilon"],
+            **EGE,
+            fixed_exploration_prob=epsilon,
+            exploration_decay_frac=0.50,  # best decay from Q1
+        ))
+
+    # ==================================================================
+    # Q3: Does gating style matter?  Uses best decay from Q1.
+    # IBRL with decay uses the Q1-optimal decay value.
     # ==================================================================
 
     exps.append(ExperimentConfig(
-        name="ege_fixed_epsilon",
-        wandb_group=P["best_variants"],
-        **MC, **EGE_BASE,
-        exploration_boltzmann=False,        # fixed probability instead of value-gap gate
-        fixed_exploration_prob=0.5,         # 50% expert, same global decay applied on top
-        use_distance_entropy=False,
-    ))
-
-    # ==================================================================
-    # Q5: Does periodic φ* refresh improve upon static frozen φ*?
-    # EGE tags transitions where expert acted (was_expert_action=True).
-    # Every phi_refresh_interval steps, short MC regression on those transitions.
-    # No Bellman bootstrapping — only valid expert-action transitions used.
-    # Compare ege_phi_refresh vs ege_only (anchor).
-    # ==================================================================
-
-    exps.append(ExperimentConfig(
-        name="ege_phi_refresh",
-        wandb_group=P["best_variants"],
-        **MC, **EGE_BASE,
-        use_distance_entropy=False,
-        use_phi_refresh=True,
-        phi_refresh_interval=10_000,
-        phi_refresh_steps=200,
+        name="ibrl_style_decay",
+        wandb_group=P["q3_gating"],
+        **EGE,
+        exploration_argmax=True,
+        exploration_decay_frac=0.50,  # best decay from Q1
     ))
 
     return exps
+
+
+# ---------------------------------------------------------------------------
+# Completion check
+# ---------------------------------------------------------------------------
+
+
+def _last_step_in_run(run_id: str) -> Optional[int]:
+    """Return the last logged step in a run's TFEvents file, or None if unreadable.
+
+    Parses the raw TFRecord binary format to avoid a hard tensorboard dependency.
+    Each TFRecord: uint64 length | uint32 crc_len | byte[length] data | uint32 crc_data
+    Each Event proto field 2 (step) is a varint at wire type 0.
+    """
+    import struct
+
+    tb_dir = os.path.join(os.path.abspath("tensorboard"), run_id)
+    if not os.path.isdir(tb_dir):
+        return None
+
+    def _read_varint(data: bytes, idx: int):
+        val = 0; shift = 0
+        while idx < len(data):
+            b = data[idx]; idx += 1
+            val |= (b & 0x7F) << shift
+            shift += 7
+            if not (b & 0x80):
+                break
+        return val, idx
+
+    def _step_from_record(data: bytes) -> Optional[int]:
+        """Extract the step field (proto field 2, varint) from a serialised Event."""
+        idx = 0
+        while idx < len(data):
+            b = data[idx]; idx += 1
+            field_num = b >> 3
+            wire_type = b & 0x7
+            if field_num == 2 and wire_type == 0:
+                val, _ = _read_varint(data, idx)
+                return val
+            # Skip over this field
+            if wire_type == 0:
+                _, idx = _read_varint(data, idx)
+            elif wire_type == 1:
+                idx += 8
+            elif wire_type == 2:
+                length, idx = _read_varint(data, idx)
+                idx += length
+            elif wire_type == 5:
+                idx += 4
+            else:
+                break
+        return None
+
+    last_step = None
+    for fname in os.listdir(tb_dir):
+        if "tfevents" not in fname:
+            continue
+        fpath = os.path.join(tb_dir, fname)
+        try:
+            with open(fpath, "rb") as fh:
+                while True:
+                    header = fh.read(8)
+                    if len(header) < 8:
+                        break
+                    data_len = struct.unpack("<Q", header)[0]
+                    fh.read(4)                  # crc of length
+                    record = fh.read(data_len)
+                    fh.read(4)                  # crc of data
+                    if len(record) < data_len:
+                        break
+                    step = _step_from_record(record)
+                    if step is not None:
+                        last_step = step
+        except Exception:
+            pass
+
+    return last_step
+
+
+# Fields excluded from config-matching: pure metadata, not training behaviour.
+_CONFIG_METADATA_KEYS = {"name", "wandb_group"}
+
+# Dataclass defaults used as fallback when a stored registry entry pre-dates a field.
+_EXPERIMENT_DEFAULTS: dict = asdict(ExperimentConfig(name="_defaults_"))
+
+
+def _configs_match(exp: ExperimentConfig, stored: dict) -> bool:
+    """Return True if stored config is equivalent to exp for all training-relevant fields.
+
+    Missing keys in stored (e.g. fields added after the run was saved) are treated
+    as the dataclass default.  If the default matches the current experiment value the
+    run is still considered valid; if it differs the run is stale and is rejected.
+    """
+    current = asdict(exp)
+    for key, value in current.items():
+        if key in _CONFIG_METADATA_KEYS:
+            continue
+        stored_value = stored.get(key, _EXPERIMENT_DEFAULTS[key])
+        if stored_value != value:
+            return False
+    return True
+
+
+def is_experiment_complete(exp: ExperimentConfig, n_seeds: int, n_timesteps: int) -> bool:
+    """Return True if exp has n_seeds distinct, fully-finished runs with a matching config.
+
+    Rules:
+    - Only runs from WANDB_PROJECT are considered (ignores old / other projects).
+    - A run is "finished" when its last logged TFEvents step is ≥ 99% of n_timesteps.
+    - The stored run config must match the current experiment config on all
+      training-relevant fields (excluding name/wandb_group).  Runs saved before a
+      field existed are compared against the dataclass default for that field.
+    - Duplicate run_ids are counted only once.
+    """
+    if not os.path.exists(RUN_REGISTRY_FILE):
+        return False
+    try:
+        with open(RUN_REGISTRY_FILE) as f:
+            registry = json.load(f)
+    except Exception:
+        return False
+
+    threshold = int(n_timesteps * 0.99)
+
+    # Filter: current project + matching exp_name + matching training config,
+    # deduplicated by run_id.
+    seen = set()
+    candidates = []
+    for entry in registry:
+        rid = entry.get("run_id")
+        if (
+            entry.get("exp_name") == exp.name
+            and entry.get("project") == WANDB_PROJECT
+            and rid not in seen
+            and _configs_match(exp, entry.get("config", {}))
+        ):
+            seen.add(rid)
+            candidates.append(rid)
+
+    finished = sum(
+        1 for rid in candidates
+        if (_last_step_in_run(rid) or 0) >= threshold
+    )
+    return finished >= n_seeds
 
 
 # ---------------------------------------------------------------------------
@@ -352,42 +478,49 @@ def _save_run_configs(exp: ExperimentConfig, run_ids: list) -> None:
             json.dump(payload, f, indent=2)
 
     # --- global registry (read-modify-write, atomic write) ---
-    registry: list = []
-    if os.path.exists(RUN_REGISTRY_FILE):
+    # Use a lock file to serialise concurrent writes from parallel GPU processes.
+    lock_path = RUN_REGISTRY_FILE + ".lock"
+    with open(lock_path, "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
-            with open(RUN_REGISTRY_FILE) as f:
-                registry = json.load(f)
-        except Exception:
-            # Partial write / corruption — try to recover whatever is valid
-            try:
-                with open(RUN_REGISTRY_FILE) as f:
-                    raw = f.read()
-                decoder = json.JSONDecoder()
-                obj, _ = decoder.raw_decode(raw)
-                registry = obj if isinstance(obj, list) else []
-                print(f"[registry] Recovered {len(registry)} entries from corrupt file")
-            except Exception:
-                registry = []
-                print("[registry] Could not recover registry; starting fresh")
+            registry: list = []
+            if os.path.exists(RUN_REGISTRY_FILE):
+                try:
+                    with open(RUN_REGISTRY_FILE) as f:
+                        registry = json.load(f)
+                except Exception:
+                    # Partial write / corruption — try to recover whatever is valid
+                    try:
+                        with open(RUN_REGISTRY_FILE) as f:
+                            raw = f.read()
+                        decoder = json.JSONDecoder()
+                        obj, _ = decoder.raw_decode(raw)
+                        registry = obj if isinstance(obj, list) else []
+                        print(f"[registry] Recovered {len(registry)} entries from corrupt file")
+                    except Exception:
+                        registry = []
+                        print("[registry] Could not recover registry; starting fresh")
 
-    existing_ids = {entry["run_id"] for entry in registry}
-    for run_id in run_ids:
-        if run_id not in existing_ids:
-            registry.append({
-                "run_id": run_id,
-                "exp_name": exp.name,
-                "group": exp.wandb_group,
-                "project": WANDB_PROJECT,
-                "tb_path": os.path.join("tensorboard", run_id),
-                "config": config_dict,
-            })
+            existing_ids = {entry["run_id"] for entry in registry}
+            for run_id in run_ids:
+                if run_id not in existing_ids:
+                    registry.append({
+                        "run_id": run_id,
+                        "exp_name": exp.name,
+                        "group": exp.wandb_group,
+                        "project": WANDB_PROJECT,
+                        "tb_path": os.path.join("tensorboard", run_id),
+                        "config": config_dict,
+                    })
 
-    # Atomic write: write to temp file then rename so a killed process never
-    # leaves a partial/corrupt registry file.
-    tmp_path = RUN_REGISTRY_FILE + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(registry, f, indent=2)
-    os.replace(tmp_path, RUN_REGISTRY_FILE)
+            # Atomic write: write to a per-process temp file then rename so a
+            # killed process never leaves a partial/corrupt registry file.
+            tmp_path = f"{RUN_REGISTRY_FILE}.{os.getpid()}.tmp"
+            with open(tmp_path, "w") as f:
+                json.dump(registry, f, indent=2)
+            os.replace(tmp_path, RUN_REGISTRY_FILE)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     print(
         f"[registry] Saved config for {len(run_ids)} run(s) "
@@ -570,7 +703,16 @@ def run_single_experiment(
     use_wandb: bool = True,
     upload_after: bool = False,
 ):
-    """Run one ExperimentConfig to completion. Called per-process by the launcher."""
+    """Run one ExperimentConfig to completion. Called per-process by the launcher.
+
+    Skips the experiment if n_seeds finished runs already exist in the registry.
+    """
+    if is_experiment_complete(exp, n_seeds, n_timesteps):
+        print(
+            f"[{exp.name}] Already complete ({n_seeds} seeds × {n_timesteps:,} steps) — skipping."
+        )
+        return
+
     mode = get_mode()
     hp = load_hyperparams("SAC", "Plane")
     arch_width = hp.pop("arch_width", 256)
@@ -589,15 +731,15 @@ def run_single_experiment(
         or exp.use_expert_guidance
         or exp.use_critic_blend
         or exp.use_box
+        or exp.use_residual_rl
     )
-    agent_expert_policy = expert_policy if needs_expert_policy else None
 
-    # Compute absolute target_entropy_far from per-dim scale × action_dim
-    target_entropy_far: Optional[float] = None
-    if exp.use_distance_entropy:
-        tep = hp.get("target_entropy_per_dim", -1.0)
-        action_dim = get_action_dim(env, env_params)
-        target_entropy_far = tep * exp.target_entropy_far_scale * action_dim
+    if exp.partial_expert_steps is not None:
+        # Degradation 3: swap in a partial SAC actor as the expert.
+        # eval_expert_policy stays as the full PID controller for fair comparison.
+        agent_expert_policy = load_partial_expert_policy(exp.partial_expert_steps)
+    else:
+        agent_expert_policy = expert_policy if needs_expert_policy else None
 
     mc_variance_threshold: Optional[float] = exp.variance_threshold if exp.use_mc_correction else None
 
@@ -664,10 +806,14 @@ def run_single_experiment(
         use_box=exp.use_box,
         use_online_bc=exp.use_online_bc,
         bc_coef=exp.bc_coef,
+        residual=exp.use_residual_rl,
         use_expert_guided_exploration=exp.use_expert_guided_exploration,
         exploration_decay_frac=exp.exploration_decay_frac,
         exploration_tau=exp.exploration_tau,
-        target_entropy_far=target_entropy_far,
+        exploration_boltzmann=exp.exploration_boltzmann,
+        fixed_exploration_prob=exp.fixed_exploration_prob,
+        exploration_argmax=exp.exploration_argmax,
+        target_entropy_far=None,
         mc_variance_threshold=mc_variance_threshold,
         use_phi_refresh=exp.use_phi_refresh,
         phi_refresh_interval=exp.phi_refresh_interval,
@@ -816,7 +962,9 @@ if __name__ == "__main__":
     if args.list:
         print(f"\n{len(experiments)} experiments:\n")
         for i, exp in enumerate(experiments):
-            print(f"  [{i:2d}] {exp.name:<45}  group={exp.wandb_group}")
+            done = is_experiment_complete(exp, n_seeds, n_timesteps)
+            status = "DONE" if done else "    "
+            print(f"  [{i:2d}] {status}  {exp.name:<45}  group={exp.wandb_group}")
         raise SystemExit(0)
 
     env, env_params, expert_policy = setup()
@@ -824,6 +972,11 @@ if __name__ == "__main__":
     # Collect MC expert trajectories once (max episodes across all configs).
     # Saves to MC_DATA_PATH; each experiment loads the slice it needs.
     setup_mc_data(env, env_params, expert_policy, experiments)
+
+    # Train partial SAC experts at different budgets (no-op if already cached).
+    # Only runs when the experiment list contains degradation-3 experiments.
+    if any(e.partial_expert_steps is not None for e in experiments):
+        setup_partial_expert_checkpoints(env, env_params)
 
     if args.exp_index is not None:
         if args.exp_index >= len(experiments):
@@ -847,7 +1000,12 @@ if __name__ == "__main__":
             upload_after=upload_after,
         )
     else:
-        print(f"Sequential sweep: {len(experiments)} experiments × {n_seeds} seeds\n")
+        pending = [e for e in experiments if not is_experiment_complete(e, n_seeds, n_timesteps)]
+        done_count = len(experiments) - len(pending)
+        print(
+            f"Sequential sweep: {len(experiments)} experiments × {n_seeds} seeds  "
+            f"({done_count} already complete, {len(pending)} to run)\n"
+        )
         for exp in experiments:
             run_single_experiment(
                 exp=exp,

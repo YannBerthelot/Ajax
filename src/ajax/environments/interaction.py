@@ -443,6 +443,10 @@ def get_buffer_action_and_env_action(
         "augment_obs_with_expert_action",
         "use_box",
         "use_expert_guided_exploration",
+        "exploration_decay_frac",
+        "exploration_boltzmann",
+        "exploration_argmax",
+        "use_residual_rl",
     ],
 )
 def collect_experience(
@@ -465,6 +469,10 @@ def collect_experience(
     use_expert_guided_exploration: bool = False,
     exploration_decay_frac: float = 0.30,
     exploration_tau: float = 1.0,
+    exploration_boltzmann: bool = False,
+    fixed_exploration_prob: float = 0.5,
+    exploration_argmax: bool = False,
+    use_residual_rl: bool = False,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
@@ -575,40 +583,72 @@ def collect_experience(
             if "trunc_condition" in dir(env_args.env)
             else jnp.zeros_like(action[..., :1])
         )
-        post_warmup_action = (1 - in_box) * action + in_box * expert_action
+        if use_residual_rl:
+            # Residual RL (Johannink et al.): policy outputs a residual correction
+            # added on top of the expert action, then clipped to valid action range.
+            post_warmup_action = jnp.clip(expert_action + action, -1.0, 1.0)
+        else:
+            post_warmup_action = (1 - in_box) * action + in_box * expert_action
 
         # Expert-guided exploration: value-gap-based stochastic substitution.
-        # Uses live critic Q_φ (not frozen φ*) to measure current policy vs expert.
+        # Uses frozen φ* (expert_critic_params) when available for a stable reference;
+        # falls back to the live critic when φ* is not present (e.g. no MC pre-train).
         # Decays to zero after exploration_decay_frac of training.
         if use_expert_guided_exploration:
             obs_for_ege = agent_state.collector_state.last_obs
+            # Use frozen φ* as the reference critic when available (Q2 ablation gate).
+            ege_critic_params = (
+                agent_state.expert_critic_params
+                if agent_state.expert_critic_params is not None
+                else agent_state.critic_state.params
+            )
             q_policy = jnp.min(
                 predict_value(
                     critic_state=agent_state.critic_state,
-                    critic_params=agent_state.critic_state.params,
+                    critic_params=ege_critic_params,
                     x=jnp.concatenate([obs_for_ege, action], axis=-1),
                 ), axis=0,
             )
             q_expert_ege = jnp.min(
                 predict_value(
                     critic_state=agent_state.critic_state,
-                    critic_params=agent_state.critic_state.params,
+                    critic_params=ege_critic_params,
                     x=jnp.concatenate([obs_for_ege, expert_action], axis=-1),
                 ), axis=0,
             )
             gap = q_expert_ege - q_policy
-            q_scale = jax.lax.stop_gradient(jnp.abs(q_policy).mean() + 1e-6)
-            p_expert_state = jax.nn.sigmoid(gap / (exploration_tau * q_scale))
             train_frac_ege = agent_state.collector_state.timestep / total_timesteps
-            decay = jnp.maximum(1.0 - train_frac_ege / exploration_decay_frac, 0.0)
-            p_expert_final = decay * p_expert_state
-            rng, ege_key = jax.random.split(rng)
-            use_expert_ege = jax.random.uniform(ege_key, shape=p_expert_final.shape) < p_expert_final
+            # decay_frac=0.0 means never decay (gate stays active for full training)
+            if exploration_decay_frac == 0.0:
+                decay = jnp.ones_like(train_frac_ege)
+            else:
+                decay = jnp.maximum(1.0 - train_frac_ege / exploration_decay_frac, 0.0)
+            if exploration_argmax:
+                # IBRL-style: deterministically pick expert when Q(s, π*(s)) > Q(s, π(s))
+                use_expert_ege = (gap > 0.0) & (decay > 0.0)
+            elif exploration_boltzmann:
+                # Adaptive value-gap gate: p ∝ sigmoid(gap / τ·|Q|)
+                q_scale = jax.lax.stop_gradient(jnp.abs(q_policy).mean() + 1e-6)
+                p_expert_state = jax.nn.sigmoid(gap / (exploration_tau * q_scale))
+                p_expert_final = decay * p_expert_state
+                rng, ege_key = jax.random.split(rng)
+                use_expert_ege = jax.random.uniform(ege_key, shape=p_expert_final.shape) < p_expert_final
+            else:
+                # Fixed-epsilon: constant probability regardless of value gap
+                p_expert_final = decay * fixed_exploration_prob
+                rng, ege_key = jax.random.split(rng)
+                use_expert_ege = jax.random.uniform(ege_key, shape=p_expert_final.shape) < p_expert_final
             post_warmup_action = jnp.where(use_expert_ege, expert_action, post_warmup_action)
 
-        # Warmup mix: expert_fraction of steps use expert, rest use uniform
-        use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
-        warmup_action = jnp.where(use_expert_this_step, expert_action, uniform_action)
+        # Warmup mix: expert_fraction of steps use expert, rest use uniform.
+        # Residual RL uses pure uniform warmup (matching vanilla SAC) since the
+        # expert is only meant to serve as a base for post-warmup residual actions.
+        if use_residual_rl:
+            warmup_action = uniform_action
+            use_expert_this_step = jnp.zeros((), dtype=jnp.bool_)
+        else:
+            use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
+            warmup_action = jnp.where(use_expert_this_step, expert_action, uniform_action)
 
         # Track whether the stored action came from the expert (for buffer logging)
         _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)

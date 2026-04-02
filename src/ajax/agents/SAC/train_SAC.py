@@ -985,7 +985,7 @@ def augment_obs_if_needed(
                     "proximity_scale",
                     "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
                     "detach_obs_aug_action", "critic_warmup_frac", "use_online_bc",
-                    "bc_coef"],
+                    "bc_coef", "use_residual_rl"],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
@@ -1017,6 +1017,7 @@ def policy_loss_function(
     critic_warmup_frac: float = 0.15,
     use_online_bc: bool = True,
     bc_coef: float = 1.0,
+    use_residual_rl: bool = False,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     SAC actor loss with optional expert guidance.
@@ -1050,9 +1051,20 @@ def policy_loss_function(
     policy_std = (
         pi.unsquashed_stddev().mean() if isinstance(pi, SquashedNormal) else pi.stddev().mean()
     )
+    # Residual RL: the executed action is clip(a_expert + a_pi, -1, 1).
+    # The critic was trained on (s, executed_action) tuples, so the policy gradient
+    # must also flow through Q(s, executed_action), not Q(s, a_pi).
+    if use_residual_rl:
+        _a_exp_for_q = (
+            a_expert_precomputed if a_expert_precomputed is not None
+            else jax.lax.stop_gradient(expert_policy(_raw_obs))
+        )
+        q_input_actions = jnp.clip(_a_exp_for_q + actions, -1.0, 1.0)
+    else:
+        q_input_actions = actions
     q_preds = predict_value(
         critic_state=critic_states, critic_params=critic_states.params,
-        x=jnp.concatenate([observations, actions], axis=-1),
+        x=jnp.concatenate([observations, q_input_actions], axis=-1),
     )
     q_min = jnp.min(q_preds, axis=0)
     assert log_probs.shape == q_min.shape
@@ -1170,7 +1182,7 @@ def policy_loss_function(
                     "proximity_scale",
                     "awbc_normalize", "awbc_use_relu", "fixed_awbc_lambda",
                     "detach_obs_aug_action", "critic_warmup_frac", "use_online_bc",
-                    "bc_coef"],
+                    "bc_coef", "use_residual_rl"],
 )
 def update_policy(
     agent_state: SACState,
@@ -1195,6 +1207,7 @@ def update_policy(
     critic_warmup_frac: float = 0.15,
     use_online_bc: bool = True,
     bc_coef: float = 1.0,
+    use_residual_rl: bool = False,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
     """Returns (new_state, aux, log_probs) — log_probs reused by update_temperature
     to avoid a redundant actor forward pass."""
@@ -1224,6 +1237,7 @@ def update_policy(
         critic_warmup_frac=critic_warmup_frac,
         use_online_bc=use_online_bc,
         bc_coef=bc_coef,
+        use_residual_rl=use_residual_rl,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -1339,7 +1353,7 @@ def is_inside_box(
         "detach_obs_aug_action",
         "use_critic_blend", "critic_warmup_frac", "use_box",
         "total_timesteps", "use_online_bc", "bc_coef",
-        "mc_variance_threshold", "exploration_tau",
+        "mc_variance_threshold", "exploration_tau", "use_residual_rl",
     ],
 )
 def update_agent(
@@ -1380,6 +1394,7 @@ def update_agent(
     target_entropy_far: Optional[float] = None,
     mc_variance_threshold: Optional[float] = None,
     exploration_tau: float = 1.0,
+    use_residual_rl: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
@@ -1468,7 +1483,7 @@ def update_agent(
     expert_q = None
     a_expert_precomputed = None
     needs_expert = expert_policy is not None and (
-        use_expert_guidance or use_box or use_online_bc
+        use_expert_guidance or use_box or use_online_bc or use_residual_rl
     )
     if needs_expert:
         _raw = (
@@ -1591,6 +1606,7 @@ def update_agent(
         critic_warmup_frac=critic_warmup_frac,
         use_online_bc=use_online_bc,
         bc_coef=bc_coef,
+        use_residual_rl=use_residual_rl,
     )
     agent_state = jax.lax.cond(
         agent_state.collector_state.timestep >= policy_update_start,
@@ -1680,6 +1696,7 @@ def update_agent(
         "policy_update_start", "alpha_update_start",
         "use_critic_blend", "critic_warmup_frac", "use_box", "use_online_bc", "bc_coef",
         "use_expert_guided_exploration", "exploration_decay_frac", "exploration_tau",
+        "exploration_boltzmann", "exploration_argmax", "use_residual_rl",
         "target_entropy_far",
         "mc_variance_threshold",
         "use_phi_refresh", "phi_refresh_interval", "phi_refresh_steps",
@@ -1733,6 +1750,10 @@ def training_iteration(
     use_expert_guided_exploration: bool = False,
     exploration_decay_frac: float = 0.30,
     exploration_tau: float = 1.0,
+    exploration_boltzmann: bool = False,
+    fixed_exploration_prob: float = 0.5,
+    exploration_argmax: bool = False,
+    use_residual_rl: bool = False,
     target_entropy_far: Optional[float] = None,
     mc_variance_threshold: Optional[float] = None,
     use_phi_refresh: bool = False,
@@ -1757,6 +1778,10 @@ def training_iteration(
         use_expert_guided_exploration=use_expert_guided_exploration,
         exploration_decay_frac=exploration_decay_frac,
         exploration_tau=exploration_tau,
+        exploration_boltzmann=exploration_boltzmann,
+        fixed_exploration_prob=fixed_exploration_prob,
+        exploration_argmax=exploration_argmax,
+        use_residual_rl=use_residual_rl,
     )
 
     agent_state, transition = collect_scan_fn(agent_state, None)
@@ -1822,6 +1847,7 @@ def training_iteration(
             target_entropy_far=target_entropy_far,
             mc_variance_threshold=mc_variance_threshold,
             exploration_tau=exploration_tau,
+            use_residual_rl=use_residual_rl,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=n_epochs)
         aux = jax.tree.map(lambda x: x[-1].reshape((1,)), aux)
@@ -1895,6 +1921,7 @@ def training_iteration(
         action_scale=action_scale,
         early_termination_condition=early_termination_condition,
         train_frac=agent_state.collector_state.train_time_fraction,
+        use_residual_rl=use_residual_rl,
     )
     # Keep the original agent_state (with original apply_fn) for training
     agent_state = agent_state.replace(
@@ -1972,6 +1999,11 @@ def make_train(
     use_expert_guided_exploration: bool = False,
     exploration_decay_frac: float = 0.30,
     exploration_tau: float = 1.0,
+    exploration_boltzmann: bool = False,
+    fixed_exploration_prob: float = 0.5,
+    exploration_argmax: bool = False,
+    # Residual RL (Johannink et al.): execute clip(a_expert + a_policy, -1, 1)
+    use_residual_rl: bool = False,
     # Distance-modulated entropy target (None = disabled)
     target_entropy_far: Optional[float] = None,
     # Online MC correction for high-variance critic states (None = disabled)
@@ -2167,6 +2199,10 @@ def make_train(
             use_expert_guided_exploration=use_expert_guided_exploration,
             exploration_decay_frac=exploration_decay_frac,
             exploration_tau=exploration_tau,
+            exploration_boltzmann=exploration_boltzmann,
+            fixed_exploration_prob=fixed_exploration_prob,
+            exploration_argmax=exploration_argmax,
+            use_residual_rl=use_residual_rl,
             target_entropy_far=target_entropy_far,
             mc_variance_threshold=mc_variance_threshold,
             use_phi_refresh=use_phi_refresh,

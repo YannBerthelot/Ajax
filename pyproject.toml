@@ -26,6 +26,8 @@ target-gym = "^0.3.1"
 distrax = ">=0.1.6"
 tensorboardx = "^2.6.4"
 dill = "^0.4.1"
+statsmodels = "^0.14.6"
+pyarrow = "^23.0.1"
 
 
 

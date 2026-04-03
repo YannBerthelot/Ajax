@@ -72,7 +72,7 @@ from partial_expert_train import (
 WANDB_PROJECT = "ablation_plane_final_clean_3"
 
 # W&B group names — one group per question tier (used as the `group` field).
-# Q1: Is the value-gap gate doing real work, or is EGE just epsilon-greedy?
+# Q1: Is the value-gap gate doing real work, or is EDGE just epsilon-greedy?
 # Q2: Is MC pretrain (φ*) necessary for the gate to work?
 # Q3: What is the right decay horizon?
 WANDB_GROUPS = {
@@ -155,7 +155,7 @@ class ExperimentConfig:
 def build_experiments() -> List[ExperimentConfig]:
     P = WANDB_GROUPS
 
-    # Shared EGE defaults — all EGE experiments inherit from this.
+    # Shared EDGE defaults — all EDGE experiments inherit from this.
     # MC pre-train is disabled for all experiments.
     # Boltzmann gating is disabled everywhere; epsilon-greedy is the default.
     EGE = dict(
@@ -163,7 +163,7 @@ def build_experiments() -> List[ExperimentConfig]:
         use_mc_critic_pretrain=False,
         exploration_tau=1.0,
         exploration_boltzmann=False,
-        expert_buffer_n_steps=0,            # no pre-population: EGE fills organically
+        expert_buffer_n_steps=0,            # no pre-population: EDGE fills organically
         expert_mix_fraction=0.0,
         use_online_bc=False,
         use_online_critic_light_pretrain=False,
@@ -269,7 +269,7 @@ def build_experiments() -> List[ExperimentConfig]:
     ))
 
     # ==================================================================
-    # Q2: How sensitive is EGE to the fixed-epsilon value?
+    # Q2: How sensitive is EDGE to the fixed-epsilon value?
     # Uses the best decay found in Q1.  ε=0.5 is covered by ege_decay_050.
     # ==================================================================
 
@@ -721,7 +721,7 @@ def run_single_experiment(
         hp["alpha_learning_rate"] = hp["alpha_learning_rate"] * exp.alpha_learning_rate_scale
 
     # Pass expert_policy to any config that uses expert-based features.
-    # Previously gated on use_expert_warmup, which silently disabled EGE and MC pretrain.
+    # Previously gated on use_expert_warmup, which silently disabled EDGE and MC pretrain.
     # Buffer pre-seeding is controlled by expert_buffer_n_steps (0 = no seeding).
     # Baseline gets None to avoid per-step expert_action overhead.
     needs_expert_policy = (

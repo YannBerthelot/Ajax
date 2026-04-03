@@ -89,7 +89,7 @@ class LoadedStateMixin:
 
 
 def make_loaded_state_class(base_cls: Type[T]) -> Type[T]:
-    @struct.dataclass
+    @partial(struct.dataclass, kw_only=True)
     class LoadedEnvState(base_cls, LoadedStateMixin):
         train_time_fraction: float = flax.struct.field(pytree_node=False)
 
@@ -129,8 +129,10 @@ def make_loaded_state_class(base_cls: Type[T]) -> Type[T]:
 
 def load_state(state, train_time_fraction: float):
     LoadedCls = make_loaded_state_class(type(state))
+    state_dict = dict(state.__dict__)
+    state_dict.pop("train_time_fraction", None)
     return LoadedCls(
-        **state.__dict__,
+        **state_dict,
         train_time_fraction=train_time_fraction,
     )
 
@@ -165,6 +167,8 @@ class CollectorState:
     def env_state(
         self,
     ) -> LoadedStateMixin:
+        if self.train_time_fraction is None:
+            return self._env_state
         return load_state(self._env_state, train_time_fraction=self.train_time_fraction)
 
     @env_state.setter

@@ -101,7 +101,7 @@ def _noisy_expert_fn(obs, interpolator, noise_std_m: float):
     """
     def _perturb(t):
         key = jax.random.fold_in(jax.random.PRNGKey(0), jnp.int32(t))
-        return t + jax.random.normal(key) * noise_std_m
+        return jnp.clip(t + jax.random.normal(key) * noise_std_m, 3_000.0, 8_000.0)
 
     noisy_target = jnp.vectorize(_perturb)(obs[..., 6])
     power = interpolator(noisy_target)[..., None]
@@ -135,7 +135,7 @@ class ExpConfig:
     noise_pct: float = 0.0              # noise std as % of altitude range (0–100)
 
     # Algorithm selector — controls which baseline is run at each noise level.
-    # "ege"      → EGE with ε-greedy decay (matches ablation_study.py's ege_decay_050)
+    # "ege"      → EDGE with ε-greedy decay (matches ablation_study.py's ege_decay_050)
     # "ibrl"     → IBRL-style argmax gating, no decay (matches ablation_study.py's ibrl_style)
     # "residual" → Residual RL (matches ablation_study.py's residual_rl)
     algorithm: str = "ege"
@@ -156,7 +156,7 @@ def build_experiments() -> List[ExpConfig]:
     P = WANDB_GROUPS
     exps = []
 
-    # EGE — ε-greedy with decay=0.50 (main result, matches ablation_study ege_decay_050)
+    # EDGE — ε-greedy with decay=0.50 (main result, matches ablation_study ege_decay_050)
     for pct in NOISE_LEVELS_PCT:
         label = f"{pct}pct"
         group = P["reference"] if pct == 0 else P["degradation"]
@@ -214,57 +214,23 @@ def build_experiments() -> List[ExpConfig]:
 # ---------------------------------------------------------------------------
 
 def _last_step_in_run(run_id: str) -> Optional[int]:
-    """Return the last logged step in a run's TFEvents file, or None."""
-    import struct
+    """Return the last logged step of Eval/episodic_mean_reward, or None.
+
+    Using the policy reward tag rather than max-across-all-tags because
+    scheduled/value metrics log throughout even when the policy has gone NaN,
+    which would otherwise make a crashed run appear complete.
+    """
+    from ajax.logging.wandb_logging import load_scalars_from_tfevents
 
     tb_dir = os.path.join(os.path.abspath("tensorboard"), run_id)
     if not os.path.isdir(tb_dir):
         return None
-
-    def _read_varint(data, idx):
-        val = 0; shift = 0
-        while idx < len(data):
-            b = data[idx]; idx += 1
-            val |= (b & 0x7F) << shift; shift += 7
-            if not (b & 0x80): break
-        return val, idx
-
-    def _step_from_record(data):
-        idx = 0
-        while idx < len(data):
-            b = data[idx]; idx += 1
-            fn = b >> 3; wt = b & 0x7
-            if fn == 2 and wt == 0:
-                val, _ = _read_varint(data, idx)
-                return val
-            if wt == 0: _, idx = _read_varint(data, idx)
-            elif wt == 1: idx += 8
-            elif wt == 2:
-                l, idx = _read_varint(data, idx); idx += l
-            elif wt == 5: idx += 4
-            else: break
+    try:
+        scalars = load_scalars_from_tfevents(tb_dir)
+        entries = scalars.get("Eval/episodic_mean_reward", [])
+        return entries[-1][0] if entries else None
+    except Exception:
         return None
-
-    last_step = None
-    for fname in os.listdir(tb_dir):
-        if "tfevents" not in fname:
-            continue
-        try:
-            with open(os.path.join(tb_dir, fname), "rb") as fh:
-                while True:
-                    header = fh.read(8)
-                    if len(header) < 8: break
-                    data_len = struct.unpack("<Q", header)[0]
-                    fh.read(4)
-                    record = fh.read(data_len)
-                    fh.read(4)
-                    if len(record) < data_len: break
-                    step = _step_from_record(record)
-                    if step is not None:
-                        last_step = step
-        except Exception:
-            pass
-    return last_step
 
 
 def is_experiment_complete(exp_name: str, n_seeds: int, n_timesteps: int) -> bool:
@@ -568,11 +534,9 @@ if __name__ == "__main__":
     if args.list:
         print(f"\n{len(experiments)} experiments:\n")
         for i, exp in enumerate(experiments):
-            done = is_experiment_complete(exp.name, n_seeds, n_timesteps)
-            status = "DONE" if done else "    "
             noise_std_m = exp.noise_pct / 100.0 * ALTITUDE_RANGE_M
             print(
-                f"  [{i:2d}] {status}  {exp.name:<38}  "
+                f"  [{i:2d}]  {exp.name:<38}  "
                 f"algo={exp.algorithm:<8}  noise={exp.noise_pct:.0f}% ({noise_std_m:.0f}m)  group={exp.wandb_group}"
             )
         raise SystemExit(0)

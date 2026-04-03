@@ -6,7 +6,7 @@ Groups are defined by the unique hyperparameter combination; the label is
 taken from exp_name when available, otherwise reconstructed from hparams.
 
 Usage:
-    python plot_sweep.py                        # plots Eval/expert_bias
+    python plot_sweep.py                        # plots Eval/normalized_expert_bias
     python plot_sweep.py --metric Eval/episodic_mean_reward
     python plot_sweep.py --metric Eval/expert_bias --smooth 5
 """
@@ -53,13 +53,25 @@ NOISY_EXPERT_REGISTRY_FILE = Path("noisy_expert_run_registry.json")
 MAIN_EXP = "ege_decay_050"
 
 # ---------------------------------------------------------------------------
-# Optimality gap (Agarwal et al. 2021) — derived from Eval/expert_bias.
-#   score       = expert_bias / OPTIMALITY_GAP_MAX   (0 = expert level)
-#   optimality_gap = max(1 - score, 0)
-# The "max theoretical performance" is OPTIMALITY_GAP_MAX units above expert.
+# Method display name — change here to rename the method everywhere in plots
+# and tables.  "Expert Decayed-Guided-Exploration"
 # ---------------------------------------------------------------------------
+METHOD_NAME = "EDGE"
+
+# ---------------------------------------------------------------------------
+# Normalised expert advantage:
+#   normalised = expert_bias / (MAX_SCORE - expert_score)
+# where expert_score = mean Eval/episodic_mean_expert_reward for that run.
+# 0 = policy matches expert; 1 = policy achieves MAX_SCORE.
+# ---------------------------------------------------------------------------
+MAX_SCORE = 10_000
+NORMALIZED_EXPERT_BIAS_METRIC = "Eval/normalized_expert_bias"
+
+# Optimality gap (Agarwal et al. 2021) — derived from Eval/expert_bias.
+#   score       = expert_bias / MAX_SCORE   (0 = expert level)
+#   optimality_gap = max(1 - score, 0)
 OPTIMALITY_GAP_METRIC = "Eval/optimality_gap"
-OPTIMALITY_GAP_MAX    = 10_000
+OPTIMALITY_GAP_MAX    = MAX_SCORE
 
 # Metrics where lower values are better (affects crossing-panel direction).
 METRIC_LOWER_IS_BETTER: frozenset[str] = frozenset({OPTIMALITY_GAP_METRIC})
@@ -67,6 +79,7 @@ METRIC_LOWER_IS_BETTER: frozenset[str] = frozenset({OPTIMALITY_GAP_METRIC})
 # Default crossing thresholds per metric (used by summary/stats functions).
 METRIC_THRESHOLDS: dict[str, list[float]] = {
     "Eval/expert_bias": [0.0, 200.0, 400.0],
+    NORMALIZED_EXPERT_BIAS_METRIC: [0.0, 0.2, 0.4],
     OPTIMALITY_GAP_METRIC: [1.0, 0.98, 0.96],
 }
 
@@ -78,24 +91,24 @@ EXP_DISPLAY_NAMES: dict[str, str] = {
     "sac_baseline":        "SAC (baseline)",
     "residual_rl":         "Residual RL",
     # Main result — canonical reference across all ablation questions
-    "ege_simple":          "EGE  ε=0.5  decay=0.15",
+    "ege_simple":          f"{METHOD_NAME}  ε=0.5  decay=0.15",
     # Decay horizon sweep
-    "ege_decay_005":       "EGE  decay=0.05",
-    "ege_decay_050":       "EGE  decay=0.50  (main)",
-    "ege_no_decay":        "EGE  no decay  (always on)",
+    "ege_decay_005":       f"{METHOD_NAME}  decay=0.05",
+    "ege_decay_050":       f"{METHOD_NAME}  decay=0.50  (main)",
+    "ege_no_decay":        f"{METHOD_NAME}  no decay  (always on)",
     # Gating style
     "ibrl_style":          "IBRL-style  argmax  (no decay)",
     "ibrl_style_decay":    "IBRL-style  argmax  decay=0.50",
     # Decay horizon sweep
-    "ege_decay_075":       "EGE  decay=0.75",
+    "ege_decay_075":       f"{METHOD_NAME}  decay=0.75",
     # Epsilon sweep (ε=0.5 anchor provided by ege_simple above)
-    "ege_eps_0.1":         "EGE  ε=0.10",
-    "ege_eps_0.25":        "EGE  ε=0.25",
-    "ege_eps_0.75":        "EGE  ε=0.75",
-    "ege_eps_0.9":         "EGE  ε=0.90",
-    "ege_eps_0.95":        "EGE  ε=0.95",
-    "ege_eps_0.99":        "EGE  ε=0.99",
-    # Noisy expert degradation study — EGE
+    "ege_eps_0.1":         f"{METHOD_NAME}  ε=0.10",
+    "ege_eps_0.25":        f"{METHOD_NAME}  ε=0.25",
+    "ege_eps_0.75":        f"{METHOD_NAME}  ε=0.75",
+    "ege_eps_0.9":         f"{METHOD_NAME}  ε=0.90",
+    "ege_eps_0.95":        f"{METHOD_NAME}  ε=0.95",
+    "ege_eps_0.99":        f"{METHOD_NAME}  ε=0.99",
+    # Noisy expert degradation study — EDGE
     "ege_noise_0pct":      "0%   (PID, reference)",
     "ege_noise_2pct":      "2%   (σ=100m)",
     "ege_noise_5pct":      "5%   (σ=250m)",
@@ -154,15 +167,25 @@ ABLATION_QUESTIONS: list[dict] = [
         "experiments": ["sac_baseline", "ege_no_decay", "ege_decay_005", "ege_simple", "ege_decay_050", "ege_decay_075"],
         # No group filter: accept runs from any group for these experiments.
         "allowed_groups": None,
+        # Degradation-curve metadata: x-axis parameter sweep (EDGE only; sac_baseline → hline).
+        "curve_experiments": ["ege_no_decay", "ege_decay_005", "ege_simple", "ege_decay_050", "ege_decay_075"],
+        "curve_x_values":    [0.0, 0.05, 0.15, 0.50, 0.75],
+        "curve_x_label":     r"Decay fraction $f_{\mathrm{decay}}$",
+        "curve_x_tick_fmt":  "{:.2f}",
     },
     {
         "key": "q2_epsilon_sensitivity",
-        "title": "Q2: How sensitive is EGE to the fixed-epsilon value?",
+        "title": f"Q2: How sensitive is {METHOD_NAME} to the fixed-epsilon value?",
         "subtitle": "ε ∈ {0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99}  (best decay from Q1)",
         "experiments": ["sac_baseline", "ege_eps_0.1", "ege_eps_0.25", MAIN_EXP, "ege_eps_0.75", "ege_eps_0.9", "ege_eps_0.95", "ege_eps_0.99"],
         # Only accept eps runs from the dedicated Q2 group (decay=0.50).
         # sac_baseline and MAIN_EXP come from baselines group.
         "allowed_groups": {"ablation_baselines_plane", "ablation_q2_epsilon_plane"},
+        # Degradation-curve metadata.
+        "curve_experiments": ["ege_eps_0.1", "ege_eps_0.25", MAIN_EXP, "ege_eps_0.75", "ege_eps_0.9", "ege_eps_0.95", "ege_eps_0.99"],
+        "curve_x_values":    [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99],
+        "curve_x_label":     r"Initial expert probability $\varepsilon_0$",
+        "curve_x_tick_fmt":  "{:.2f}",
     },
     {
         "key": "q3_gating_style",
@@ -223,19 +246,21 @@ _ABLATION_EQUIV_0PCT: dict[str, str] = {
 # Metric axis labels and titles
 METRIC_AXIS_LABELS: dict[str, str] = {
     "Eval/expert_bias":              "Expert Advantage",
+    NORMALIZED_EXPERT_BIAS_METRIC:   "Normalised Expert Advantage",
     OPTIMALITY_GAP_METRIC:           "Optimality Gap",
     "Eval/episodic_mean_reward":     "Mean Episode Return",
-    "ege_expert_action_fraction":    "EGE Expert Action Fraction",
-    "ege_value_gap":                 "EGE Value Gap",
+    "ege_expert_action_fraction":    f"{METHOD_NAME} Expert Action Fraction",
+    "ege_value_gap":                 f"{METHOD_NAME} Value Gap",
     "policy/altitude_error":         "Altitude Error",
     "temperature/alpha":             "Alpha (Temperature)",
 }
 METRIC_TITLES: dict[str, str] = {
     "Eval/expert_bias":              "Expert Advantage over Training",
+    NORMALIZED_EXPERT_BIAS_METRIC:   "Normalised Expert Advantage over Training",
     OPTIMALITY_GAP_METRIC:           "Optimality Gap over Training",
     "Eval/episodic_mean_reward":     "Episode Return over Training",
-    "ege_expert_action_fraction":    "EGE Expert Action Fraction",
-    "ege_value_gap":                 "EGE Value Gap",
+    "ege_expert_action_fraction":    f"{METHOD_NAME} Expert Action Fraction",
+    "ege_value_gap":                 f"{METHOD_NAME} Value Gap",
     "policy/altitude_error":         "Altitude Error",
     "temperature/alpha":             "Alpha (Temperature)",
 }
@@ -250,7 +275,7 @@ EXPERT_BIAS_EXPERIMENTS = {
 
 # Metrics shown in the per-experiment summary grid
 SUMMARY_METRICS = [
-    "Eval/expert_bias",
+    NORMALIZED_EXPERT_BIAS_METRIC,
     "ege_expert_action_fraction",
     "ege_value_gap",
     "policy/altitude_error",
@@ -495,6 +520,48 @@ def load_tb_data(
     return df
 
 
+def load_normalized_expert_bias(
+    registry: dict[str, dict],
+    tb_dir: Path,
+    no_cache: bool = False,
+) -> pd.DataFrame:
+    """
+    Load Eval/expert_bias and Eval/episodic_mean_expert_reward, return a
+    DataFrame with the Eval/normalized_expert_bias column.
+
+    Since expert_bias_t = policy_t - expert_t, the correct per-step formula is:
+        normalised_t = expert_bias_t / (MAX_SCORE - expert_t)
+    This requires matching expert_reward at the same (run_id, step) as bias.
+    Falls back to per-run mean expert score for any step with no matching entry.
+    """
+    print(f"  Loading 'Eval/expert_bias' from TensorBoard...")
+    df_bias = load_tb_data(registry, tb_dir, "Eval/expert_bias", no_cache=no_cache)
+    if df_bias.empty:
+        return pd.DataFrame(columns=["run_id", "exp_name", "group", "step", NORMALIZED_EXPERT_BIAS_METRIC])
+
+    print(f"  Loading 'Eval/episodic_mean_expert_reward' for normalisation...")
+    df_expert = load_tb_data(registry, tb_dir, "Eval/episodic_mean_expert_reward", no_cache=no_cache)
+
+    if not df_expert.empty:
+        # Per-step expert score: merge on (run_id, step)
+        df_expert_step = df_expert[["run_id", "step", "Eval/episodic_mean_expert_reward"]]
+        df = df_bias.merge(df_expert_step, on=["run_id", "step"], how="left")
+        # Fill any unmatched steps with the per-run mean
+        run_mean = df_expert.groupby("run_id")["Eval/episodic_mean_expert_reward"].mean()
+        df["Eval/episodic_mean_expert_reward"] = df["Eval/episodic_mean_expert_reward"].fillna(
+            df["run_id"].map(run_mean)
+        )
+    else:
+        df = df_bias.copy()
+        df["Eval/episodic_mean_expert_reward"] = float("nan")
+
+    df[NORMALIZED_EXPERT_BIAS_METRIC] = (
+        df["Eval/expert_bias"] / (MAX_SCORE - df["Eval/episodic_mean_expert_reward"])
+    )
+    df = df.drop(columns=["Eval/expert_bias", "Eval/episodic_mean_expert_reward"])
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Deduplication
 # ---------------------------------------------------------------------------
@@ -679,6 +746,7 @@ def plot_metric(
     figsize: tuple = (12, 6),
     labels: list[str] | None = None,
     ylim_bottom: float | None = None,
+    ylim_top: float | None = None,
     n_bootstrap: int = 1000,
     ci: float = 95,
     show_crossing: bool = False,
@@ -817,13 +885,19 @@ def plot_metric(
     agg_label = {"iqm": "IQM", "median": "median"}.get(aggregation, "mean")
     ax.set_title(f"{title}  ({agg_label} ± {ci:.0f}% bootstrap CI)", fontsize=13)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x/1e6:.1f}M" if x >= 1e6 else f"{int(x/1e3)}k"))
-    if ylim_bottom is not None:
-        ax.set_ylim(bottom=ylim_bottom)
+    if metric == NORMALIZED_EXPERT_BIAS_METRIC:
+        ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
+    if ylim_bottom is not None or ylim_top is not None:
+        ax.set_ylim(
+            bottom=ylim_bottom if ylim_bottom is not None else ax.get_ylim()[0],
+            top=ylim_top    if ylim_top    is not None else ax.get_ylim()[1],
+        )
 
     # Legend: seeds header (no separator row — underline drawn post-layout)
     handles, leg_labels = ax.get_legend_handles_labels()
     hdr = _Line2D([], [])
-    rank_note = "  ·  ranked by time to y=0" if show_crossing else ""
+    _zero_str = "0%" if metric == NORMALIZED_EXPERT_BIAS_METRIC else "0"
+    rank_note = f"  ·  ranked by time to y={_zero_str}" if show_crossing else ""
     n_str = f"{n_seeds_common} seeds per curve{rank_note}" if n_seeds_common else ""
     # Centre-pad header in monospace so it sits roughly in the middle
     if leg_labels:
@@ -840,14 +914,15 @@ def plot_metric(
 
     # y=0 reference line and "Policy > / < Expert" annotations —
     # only meaningful for metrics that cross zero (expert_bias).
-    is_bias_metric = metric == "Eval/expert_bias"
+    is_bias_metric = metric in {"Eval/expert_bias", NORMALIZED_EXPERT_BIAS_METRIC}
     ax.axhline(0, color="#999999", linewidth=1.1, linestyle="-", alpha=0.9)
     if is_bias_metric:
         from matplotlib.transforms import blended_transform_factory
-        blend = blended_transform_factory(ax.transAxes, ax.transData)
-        ax.text(0.97, 80,  "Policy > Expert", transform=blend,
+        # Use axes-fraction y so positions are metric-agnostic (0.75 = above zero, 0.25 = below)
+        blend = blended_transform_factory(ax.transAxes, ax.transAxes)
+        ax.text(0.97, 0.75, "Policy > Expert", transform=blend,
                 rotation=90, ha="center", va="bottom", fontsize=7.5, color="#777777")
-        ax.text(0.97, -80, "Policy < Expert", transform=blend,
+        ax.text(0.97, 0.25, "Policy < Expert", transform=blend,
                 rotation=90, ha="center", va="top",    fontsize=7.5, color="#777777")
 
     ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.6)
@@ -1129,15 +1204,16 @@ def make_latex_method_table(
     """
     Build a LaTeX table matching the method-summary plot panels.
 
-    Columns: one pair (IQM, Δ% vs baseline) per crossing threshold, one pair
-    for peak performance, and one pair for mean metric over the last
-    final_last_n_steps steps.
+    Columns: one pair (IQM, Δ% vs baseline) per crossing threshold, plus one pair
+    for mean metric over the last final_last_n_steps steps (no peak column).
     For steps-to-X, negative Δ% means faster (better).
     For performance columns, positive Δ% means higher (better).
     Censored IQM entries are annotated with †.
     """
     if thresholds is None:
         thresholds = METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0])
+
+    _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
 
     present = [e for e in experiments if e in df["label"].unique()]
     censor_at = float(df["step"].max()) if not remove_censored else None
@@ -1151,11 +1227,14 @@ def make_latex_method_table(
             return "—"
         return f"{(val - ref) / abs(ref) * 100:+.1f}\\%"
 
+    def _fmt_perf(v: float) -> str:
+        if np.isnan(v):
+            return "—"
+        return f"{v*100:.1f}\\%" if _is_norm else f"{v:.1f}"
+
     # crossing_data[lbl][i] = (center, n_censored, n_total)
-    # peak_iqm[lbl] = center
     # final_iqm[lbl] = center
     crossing_data: dict[str, list[tuple[float, int, int]]] = {}
-    peak_iqm: dict[str, float] = {}
     final_iqm: dict[str, float] = {}
 
     _invert_crossing = metric in METRIC_LOWER_IS_BETTER
@@ -1168,40 +1247,52 @@ def make_latex_method_table(
             )
             center, _, _ = _bootstrap_scalar_iqm_ci(vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
             crossing_data[lbl].append((center, n_censored, len(vals)))
-        peak_vals = _per_seed_max_perf(df, metric, lbl)
-        peak_center, _, _ = _bootstrap_scalar_iqm_ci(peak_vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
-        peak_iqm[lbl] = peak_center
         final_vals = _per_seed_final_perf(df, metric, lbl, final_last_n_steps)
         final_center, _, _ = _bootstrap_scalar_iqm_ci(final_vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
         final_iqm[lbl] = final_center
 
     ref_crossing = [crossing_data[baseline][i][0] if baseline in crossing_data else float("nan")
                     for i in range(len(thresholds))]
-    ref_peak = peak_iqm.get(baseline, float("nan"))
     ref_final = final_iqm.get(baseline, float("nan"))
+
+    # Best value per column (for bolding): crossing → min (faster); final → max
+    best_crossing = []
+    for i in range(len(thresholds)):
+        vals_i = [crossing_data[lbl][i][0] for lbl in present if not np.isnan(crossing_data[lbl][i][0])]
+        best_crossing.append(min(vals_i) if vals_i else float("nan"))
+    final_vals_all = [final_iqm[lbl] for lbl in present if not np.isnan(final_iqm[lbl])]
+    best_final = max(final_vals_all) if final_vals_all else float("nan")
+
+    # ---- Build threshold header strings ----
+    def _thr_str(t: float) -> str:
+        if _is_norm:
+            pct = int(round(t * 100))
+            return f"$y={pct}\\%$" if pct != 0 else "$y=0$"
+        return f"$y={int(t)}$"
 
     # ---- Build LaTeX ----
     thr_col_specs = "rr" * len(thresholds)
+    metric_label = "\\gls{nea}" if _is_norm else f"\\texttt{{{metric}}}"
     lines = [
         "\\begin{table}[ht]",
-        "\\centering",
-        f"\\begin{{tabular}}{{l{thr_col_specs}rrrr}}",
-        "\\toprule",
+        "    \\centering",
+        "    \\resizebox{\\textwidth}{!}{%",
+        f"    \\begin{{tabular}}{{l{thr_col_specs}rr}}",
+        "    \\toprule",
     ]
 
     thr_headers = " & ".join(
-        f"\\multicolumn{{2}}{{c}}{{Steps to $y={int(t)}$ (IQM)}}"
+        f"\\multicolumn{{2}}{{c}}{{Steps to {_thr_str(t)}}}"
         for t in thresholds
     )
     lines.append(
-        f"\\textbf{{Method}} & {thr_headers}"
-        f" & \\multicolumn{{2}}{{c}}{{\\textbf{{Peak}}}}"
-        f" & \\multicolumn{{2}}{{c}}{{\\textbf{{Avg last {final_last_n_steps//1000}k steps}}}} \\\\"
+        f"    \\textbf{{Method}} & {thr_headers}"
+        f" & \\multicolumn{{2}}{{c}}{{\\textbf{{IQM last {final_last_n_steps//1000}k steps}}}} \\\\"
     )
 
-    sub = " & ".join(["IQM & $\\Delta$\\%"] * (len(thresholds) + 2))
-    lines.append(f" & {sub} \\\\")
-    lines.append("\\midrule")
+    sub = " & ".join(["IQM & $\\Delta$\\%"] * (len(thresholds) + 1))
+    lines.append(f"     & {sub} \\\\")
+    lines.append("    \\midrule")
 
     for lbl in present:
         display = _display_name(lbl)
@@ -1215,32 +1306,37 @@ def make_latex_method_table(
             if np.isnan(center):
                 iqm_str, pct_str = "—", "—"
             else:
-                iqm_str = f"{_fmt_steps(center)}{dagger} ({n_reached}/{n_total})"
+                val_str = f"{_fmt_steps(center)}{dagger} ({n_reached}/{n_total})"
+                is_best = (not np.isnan(best_crossing[i]) and
+                           abs(center - best_crossing[i]) < 1e-3 * abs(best_crossing[i]) + 1)
+                iqm_str = f"\\textbf{{{val_str}}}" if is_best else val_str
                 pct_str = "—" if is_baseline else _pct(center, ref_crossing[i])
             row_parts += [iqm_str, pct_str]
 
-        pc = peak_iqm[lbl]
-        row_parts += [
-            f"{pc:.1f}" if not np.isnan(pc) else "—",
-            "—" if is_baseline else _pct(pc, ref_peak),
-        ]
-
         fc = final_iqm[lbl]
+        is_best_final = (not np.isnan(best_final) and not np.isnan(fc) and
+                         abs(fc - best_final) < 1e-6 * abs(best_final) + 1e-9)
+        fc_str = _fmt_perf(fc)
         row_parts += [
-            f"{fc:.1f}" if not np.isnan(fc) else "—",
+            f"\\textbf{{{fc_str}}}" if is_best_final else fc_str,
             "—" if is_baseline else _pct(fc, ref_final),
         ]
 
-        lines.append(" & ".join(row_parts) + " \\\\")
+        lines.append("    " + " & ".join(row_parts) + " \\\\")
 
+    metric_disp = "\\gls{nea}" if _is_norm else f"\\texttt{{{metric}}}"
     lines += [
-        "\\bottomrule",
-        "\\end{tabular}",
-        "\\\\[4pt]",
-        "{\\footnotesize $^\\dagger$ Some runs did not reach this threshold; "
-        "censored at training budget for IQM.}",
-        f"\\caption{{Expert advantage summary (metric: \\texttt{{{metric}}}).}}",
-        "\\label{tab:method_summary}",
+        "    \\bottomrule",
+        "    \\end{tabular}",
+        "    }",
+        "    \\\\[4pt]",
+        "    {\\footnotesize $^\\dagger$ Some runs did not reach this threshold; "
+        "censored at training budget for IQM. "
+        "$(X/Y)$ denotes the number of seeds that reached the threshold out of $Y$ total seeds.}",
+        f"    \\caption{{Expert advantage summary ({metric_disp}). "
+        f"The last column reports the IQM (inter-quartile mean) of {metric_disp} "
+        f"over the last {final_last_n_steps//1000}k environment steps, computed per seed then aggregated with IQM across seeds.}}",
+        "    \\label{tab:method_summary}",
         "\\end{table}",
     ]
     return "\n".join(lines)
@@ -1275,7 +1371,7 @@ def _scalar_iqm(vals: np.ndarray) -> float:
     return float(s[lo:hi].mean()) if hi > lo else float(s.mean())
 
 
-def _print_pairwise_tests(
+def _run_pairwise_tests(
     seed_vals: dict[str, np.ndarray],
     present: list[str],
     display: dict[str, str],
@@ -1285,25 +1381,21 @@ def _print_pairwise_tests(
     rng: np.random.Generator,
     unit: str = "",
     reference: str | None = None,
-) -> None:
+    is_norm: bool = False,
+) -> str:
     """
-    Print Tukey HSD (means) and IQM permutation test tables for one set of
-    per-seed scalar values.  `unit` is appended to numeric columns (e.g. " steps").
+    Run IQM permutation test (+ Tukey HSD printed to console) and return a
+    LaTeX subtable string for the permutation test results.
 
-    If `reference` is given, only pairs involving that group are tested.
-    Tukey HSD is still fitted on all groups (for the pooled MSE estimate) but
-    only reference rows are displayed — this is slightly conservative; Dunnett's
-    test would be exact but is not available in statsmodels.
-    For the IQM permutation test, comparisons against a single reference carry
-    no logical constraints between them, so Holm-Bonferroni is used directly
-    (Shaffer reduces to Holm in this case).
+    `unit` is appended to Δ IQM values in the console output (e.g. " steps").
+    `is_norm` formats Δ IQM as a percentage for the LaTeX table.
     """
     if reference is not None:
         pairs = [(reference, b) for b in present if b != reference]
     else:
         pairs = [(a, b) for i, a in enumerate(present) for b in present[i + 1:]]
 
-    # ---- Tukey HSD (mean-based) ----
+    # ---- Tukey HSD (mean-based) — console only ----
     values, groups = [], []
     for lbl in present:
         values.extend(seed_vals[lbl].tolist())
@@ -1329,8 +1421,6 @@ def _print_pairwise_tests(
     print("=" * 72)
 
     # ---- IQM permutation test ----
-    # With a single reference, no logical constraints exist between the tested
-    # hypotheses, so Shaffer reduces to Holm; we use Holm directly.
     raw_p: list[float] = []
     iqm_diffs: list[float] = []
     for a, b in pairs:
@@ -1348,14 +1438,12 @@ def _print_pairwise_tests(
     order = np.argsort(raw_p)
     adj_p = np.empty(len(raw_p))
     if reference is not None:
-        # Holm-Bonferroni (= Shaffer when no logical constraints between hypotheses)
         running_max = 0.0
         for rank, idx in enumerate(order):
             running_max = max(running_max, min(1.0, raw_p[idx] * (len(pairs) - rank)))
             adj_p[idx] = running_max
         correction_label = "Holm-Bonferroni"
     else:
-        # Shaffer: use logically-constrained multipliers
         t_set = _shaffer_t_values(len(present))
         running_max = 0.0
         for rank, idx in enumerate(order):
@@ -1377,6 +1465,36 @@ def _print_pairwise_tests(
         )
     print("=" * 72)
 
+    # ---- Build LaTeX subtable for permutation test ----
+    def _fmt_diff(d: float) -> str:
+        if is_norm:
+            return f"{d*100:+.1f}\\%"
+        if unit == " steps":
+            return f"{d:+,.0f} steps"
+        return f"{d:+.2f}"
+
+    title_escaped = title.replace("_", "\\_").replace("%", "\\%")
+    rows = []
+    for (a, b), diff, p in zip(pairs, iqm_diffs, adj_p):
+        sig = "\\textbf{Yes}" if p < alpha else "No"
+        rows.append(
+            f"    {display.get(a, a)} & {display.get(b, b)}"
+            f" & {_fmt_diff(diff)} & {p:.4f} & {sig} \\\\"
+        )
+
+    lines = [
+        f"\\paragraph*{{IQM permutation test + {correction_label}: {title_escaped}"
+        f"  ($\\alpha={alpha}$, {n_permutations:,} permutations)}}",
+        "\\begin{tabular}{llrrr}",
+        "\\toprule",
+        "\\textbf{Group 1} & \\textbf{Group 2} & $\\Delta$\\,IQM & $p$\\textsuperscript{adj} & Significant\\\\",
+        "\\midrule",
+    ] + rows + [
+        "\\bottomrule",
+        "\\end{tabular}",
+    ]
+    return "\n".join(lines)
+
 
 def pairwise_significance_expert_bias(
     df: pd.DataFrame,
@@ -1388,28 +1506,29 @@ def pairwise_significance_expert_bias(
     n_permutations: int = 10_000,
     seed: int = 42,
     remove_censored: bool = False,
-) -> None:
+) -> str:
     """
-    Pairwise significance tests for Eval/expert_bias.
+    Pairwise significance tests for a metric.
 
-    For each section, two tables are printed:
-    - Tukey HSD (parametric, compares group means).
-    - IQM permutation test + Shaffer correction (compares group IQMs,
-      accounts for logically impossible null-hypothesis combinations).
+    Tukey HSD (parametric) is printed to console.
+    IQM permutation test + Shaffer/Holm correction results are returned as a
+    LaTeX string (one subtable per section) ready to save as a .tex file.
 
     Sections:
     1. Asymptote: IQM over last `last_n_steps` steps per seed.
     2. Steps to threshold: per-seed first-permanent-crossing time for each
-       threshold in `thresholds` (budget-censored RMST-style, or censored seeds
-       removed if remove_censored=True).
+       threshold in `thresholds` (budget-censored, or removed if remove_censored).
     """
     if thresholds is None:
         thresholds = METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0])
 
+    _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
     present = [e for e in experiments if e in df["label"].unique()]
     display = {lbl: _display_name(lbl) for lbl in present}
     rng = np.random.default_rng(seed)
     censor_at = float(df["step"].max()) if not remove_censored else None
+
+    subtables: list[str] = []
 
     # ---- Section 1: asymptote ----
     seed_vals = {
@@ -1417,19 +1536,25 @@ def pairwise_significance_expert_bias(
         for lbl in present
     }
     reference = MAIN_EXP if MAIN_EXP in present else None
-    _print_pairwise_tests(
+    subtables.append(_run_pairwise_tests(
         seed_vals, present, display,
         title=f"last {last_n_steps // 1000}k steps of {metric}",
         alpha=alpha, n_permutations=n_permutations, rng=rng,
         reference=reference,
-    )
+        is_norm=_is_norm,
+    ))
 
     # ---- Section 2: steps to threshold ----
     censor_label = "removed" if remove_censored else "budget-censored"
     _invert_crossing = metric in METRIC_LOWER_IS_BETTER
     direction_str = "≤" if _invert_crossing else "="
     for threshold in thresholds:
-        threshold_str = f"{threshold:.2f}" if _invert_crossing else ("0" if threshold == 0 else str(int(threshold)))
+        if _invert_crossing:
+            threshold_str = f"{threshold:.2f}"
+        elif _is_norm:
+            threshold_str = f"{threshold*100:.0f}%"
+        else:
+            threshold_str = "0" if threshold == 0 else str(int(threshold))
         seed_crossing = {}
         for lbl in present:
             vals, n_censored = _per_seed_crossing(
@@ -1439,14 +1564,41 @@ def pairwise_significance_expert_bias(
             seed_crossing[lbl] = vals
             if n_censored:
                 print(f"  [{lbl}] steps-to-y{direction_str}{threshold_str}: {n_censored} seed(s) {censor_label}")
-        _print_pairwise_tests(
+        subtables.append(_run_pairwise_tests(
             seed_crossing, present, display,
             title=f"steps to y{direction_str}{threshold_str} of {metric} ({censor_label})",
             alpha=alpha, n_permutations=n_permutations, rng=rng,
             unit=" steps",
             reference=reference,
-        )
+            is_norm=False,
+        ))
     print()
+
+    metric_disp = "\\gls{nea}" if _is_norm else f"\\texttt{{{metric}}}"
+    n_methods = len(present)
+    correction = "Holm-Bonferroni" if reference is not None else "Shaffer"
+    caption = (
+        f"Pairwise IQM permutation tests for {metric_disp} "
+        f"({n_methods} methods, $\\alpha={alpha}$, {n_permutations:,} permutations per test). "
+        f"$p$-values are adjusted for multiple comparisons using {correction} correction. "
+        f"Significant differences ($p^{{\\text{{adj}}}} < {alpha}$) are shown in bold. "
+        f"The asymptote section compares IQM over the last {last_n_steps//1000}k environment steps; "
+        f"crossing-time sections compare the number of steps to first reach each threshold "
+        f"({'censored seeds removed' if remove_censored else 'budget-censored at training end'})."
+    )
+
+    full_tex = "\n\n\\bigskip\n".join(subtables)
+    full_tex = (
+        "% Auto-generated by plot_sweep.py — IQM permutation test results\n"
+        "\\begin{table}[ht]\n"
+        "\\centering\n"
+        f"{full_tex}\n"
+        "\\\\[6pt]\n"
+        f"\\caption{{{caption}}}\n"
+        "\\label{tab:permutation_tests}\n"
+        "\\end{table}\n"
+    )
+    return full_tex
 
 
 def plot_expert_bias_summary(
@@ -1455,17 +1607,18 @@ def plot_expert_bias_summary(
     experiments: list[str],
     title: str = "",
     thresholds: list[float] | None = None,
+    last_n_steps: int = 200_000,
     figsize: tuple = (14, 5),
     n_bootstrap: int = 1000,
     ci: float = 95,
     remove_censored: bool = False,
 ) -> plt.Figure:
     """
-    Multi-panel summary comparing EGE, IBRL and SAC on expert bias.
+    Multi-panel summary comparing EDGE, IBRL and SAC on expert bias.
 
     Same layout as plot_ablation_summary_stats: one panel per threshold (time to
-    first-permanent-crossing), plus a final panel ranking by peak (max) per-seed
-    performance IQM.  Row order is fixed by the experiments list.
+    first-permanent-crossing), plus a final panel showing IQM over the last
+    last_n_steps steps.  Row order is fixed by the experiments list.
     """
     if thresholds is None:
         thresholds = METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0])
@@ -1525,9 +1678,13 @@ def plot_expert_bias_summary(
                          f"{_fmt_step(center)}{suffix}  ({n_reached}/{n_total})")
             ranges.append((lo, hi))
 
+        _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
         if _invert_crossing:
             threshold_str = f"{threshold:.2f}"
             direction_str = "≤"
+        elif _is_norm:
+            threshold_str = f"{threshold*100:.0f}%"
+            direction_str = "="
         else:
             threshold_str = "0" if threshold == 0 else str(int(threshold))
             direction_str = "="
@@ -1548,23 +1705,27 @@ def plot_expert_bias_summary(
         ax.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.5)
         _fit_xlim(ax, ranges)
 
-    # ---- Peak performance panel ----
+    # ---- Final performance panel ----
     ax = axes[-1]
     ranges = []
+    _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
+    _perf_fmt = (lambda v: f"{v*100:.1f}%") if _is_norm else (lambda v: f"{v:.0f}")
     for yi, lbl in enumerate(present):
-        vals = _per_seed_max_perf(df, metric, lbl)
+        vals = _per_seed_final_perf(df, metric, lbl, last_n_steps)
         center, lo, hi = _bootstrap_scalar_iqm_ci(vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
         color = _color(lbl)
         if not np.isnan(center):
-            _draw_ci_row(ax, yi, center, lo, hi, color, f"{center:.0f}")
+            _draw_ci_row(ax, yi, center, lo, hi, color, _perf_fmt(center))
             ranges.append((lo, hi))
 
     y_label = METRIC_AXIS_LABELS.get(metric, metric)
     ax.set_yticks(np.arange(len(present)))
     ax.set_yticklabels([])
     ax.set_xlabel(y_label, fontsize=10)
+    if _is_norm:
+        ax.xaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
     ax.set_title(
-        f"Peak performance\n(IQM  ·  {ci:.0f}% bootstrap CI)",
+        f"Final performance  (last {last_n_steps//1000}k steps)\n(IQM  ·  {ci:.0f}% bootstrap CI)",
         fontsize=10,
     )
     ax.set_ylim(-0.7, len(present) - 0.3)
@@ -1659,9 +1820,13 @@ def plot_ablation_summary_stats(
                          f"{_fmt_step(center)}{suffix}  ({n_reached}/{n_total})")
             ranges.append((lo, hi))
 
+        _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
         if _invert_crossing:
             threshold_str = f"{threshold:.2f}"
             direction_str = "≤"
+        elif _is_norm:
+            threshold_str = f"{threshold*100:.0f}%"
+            direction_str = "="
         else:
             threshold_str = "0" if threshold == 0 else str(int(threshold))
             direction_str = "="
@@ -1685,18 +1850,22 @@ def plot_ablation_summary_stats(
     # ---- Final performance panel ----
     ax = axes[-1]
     ranges = []
+    _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
+    _perf_fmt = (lambda v: f"{v*100:.1f}%") if _is_norm else (lambda v: f"{v:.0f}")
     for yi, lbl in enumerate(present):
         vals = _per_seed_final_perf(df, metric, lbl, last_n_steps)
         center, lo, hi = _bootstrap_scalar_iqm_ci(vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
         color = _color(lbl)
         if not np.isnan(center):
-            _draw_ci_row(ax, yi, center, lo, hi, color, f"{center:.0f}")
+            _draw_ci_row(ax, yi, center, lo, hi, color, _perf_fmt(center))
             ranges.append((lo, hi))
 
     y_label = METRIC_AXIS_LABELS.get(metric, metric)
     ax.set_yticks(np.arange(len(present)))
     ax.set_yticklabels([])
     ax.set_xlabel(y_label, fontsize=10)
+    if _is_norm:
+        ax.xaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
     ax.set_title(
         f"Final performance  (last {last_n_steps//1000}k steps)\n(IQM  ·  {ci:.0f}% bootstrap CI)",
         fontsize=10,
@@ -1713,15 +1882,164 @@ def plot_ablation_summary_stats(
     return fig
 
 
+def plot_ablation_curve(
+    df: pd.DataFrame,
+    metric: str,
+    experiments: list[str],
+    x_values: list[float],
+    x_label: str,
+    x_tick_fmt: str = "{}",
+    baseline_exp: str = "sac_baseline",
+    thresholds: list[float] | None = None,
+    last_n_steps: int = 200_000,
+    figsize: tuple | None = None,
+    n_bootstrap: int = 1000,
+    ci: float = 95,
+    remove_censored: bool = False,
+    title: str = "",
+    color: str = "#2166AC",
+) -> plt.Figure:
+    """
+    Degradation-curve-style plot for a single-algorithm ablation sweep.
+
+    x-axis: the ablation parameter (e.g. decay fraction, epsilon).
+    One line (EDGE only) with 95% bootstrap CI band; SAC baseline as a dashed hline.
+    Panels: one per crossing threshold + one for final performance.
+    """
+    if thresholds is None:
+        thresholds = METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0])
+
+    n_cols = len(thresholds) + 1
+    if figsize is None:
+        figsize = (4.5 * n_cols, 4.5)
+
+    fig = plt.figure(figsize=figsize)
+    gs = fig.add_gridspec(1, n_cols)
+    axes = [fig.add_subplot(gs[0, i]) for i in range(n_cols)]
+
+    censor_at = float(df["step"].max()) if not remove_censored else None
+    _invert_crossing = metric in METRIC_LOWER_IS_BETTER
+    _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
+    rng = np.random.default_rng(42)
+    available = set(df["label"].unique())
+
+    # Filter to experiments that are present and align x_values accordingly.
+    paired = [(e, x) for e, x in zip(experiments, x_values) if e in available]
+    exps_present = [e for e, _ in paired]
+    xs = np.array([x for _, x in paired], dtype=float)
+
+    x_ticks = [float(x) for _, x in zip(experiments, x_values)]
+    x_tick_labels = [x_tick_fmt.format(x) for x in x_ticks]
+
+    # ---- Crossing-time panels ----
+    for panel_idx, threshold in enumerate(thresholds):
+        ax = axes[panel_idx]
+
+        centers, lo_arr, hi_arr = [], [], []
+        for exp in exps_present:
+            vals, _ = _per_seed_crossing(
+                df, metric, exp, threshold, censor_at=censor_at,
+                remove_censored=remove_censored, invert=_invert_crossing,
+            )
+            c, lo, hi = _bootstrap_scalar_iqm_ci(vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
+            centers.append(c); lo_arr.append(lo); hi_arr.append(hi)
+
+        centers = np.array(centers); lo_arr = np.array(lo_arr); hi_arr = np.array(hi_arr)
+        valid = ~np.isnan(centers)
+        if valid.any():
+            ax.plot(xs[valid], centers[valid], color=color, linewidth=1.8,
+                    marker="o", markersize=5, label=METHOD_NAME, zorder=3)
+            ax.fill_between(xs[valid], lo_arr[valid], hi_arr[valid],
+                            color=color, alpha=0.15, zorder=2)
+
+        # SAC baseline hline
+        if baseline_exp in available:
+            sac_vals, _ = _per_seed_crossing(
+                df, metric, baseline_exp, threshold,
+                censor_at=censor_at, remove_censored=remove_censored,
+                invert=_invert_crossing,
+            )
+            sac_c, _, _ = _bootstrap_scalar_iqm_ci(sac_vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
+            if not np.isnan(sac_c):
+                ax.axhline(sac_c, color="#5D6D7E", linewidth=1.2, linestyle="--",
+                           label="SAC (baseline)", zorder=1)
+
+        if _invert_crossing:
+            threshold_str, direction_str = f"{threshold:.2f}", "≤"
+        elif _is_norm:
+            threshold_str, direction_str = f"{threshold*100:.0f}%", "="
+        else:
+            threshold_str = "0" if threshold == 0 else str(int(threshold))
+            direction_str = "="
+
+        censor_note = "censored removed" if remove_censored else "†budget-censored"
+        ax.set_title(
+            f"Steps to y{direction_str}{threshold_str}\n(IQM · {ci:.0f}% CI · {censor_note})",
+            fontsize=10,
+        )
+        ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda x, _: f"{x/1e6:.1f}M" if x >= 1e6 else f"{int(x/1e3)}k")
+        )
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels(x_tick_labels, fontsize=8, rotation=45, ha="right")
+        ax.set_xlabel(x_label, fontsize=10)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.5)
+        ax.legend(fontsize=9, loc="best")
+
+    # ---- Final performance panel ----
+    ax = axes[-1]
+    y_label = METRIC_AXIS_LABELS.get(metric, metric)
+
+    centers, lo_arr, hi_arr = [], [], []
+    for exp in exps_present:
+        vals = _per_seed_final_perf(df, metric, exp, last_n_steps)
+        c, lo, hi = _bootstrap_scalar_iqm_ci(vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
+        centers.append(c); lo_arr.append(lo); hi_arr.append(hi)
+
+    centers = np.array(centers); lo_arr = np.array(lo_arr); hi_arr = np.array(hi_arr)
+    valid = ~np.isnan(centers)
+    if valid.any():
+        ax.plot(xs[valid], centers[valid], color=color, linewidth=1.8,
+                marker="o", markersize=5, label=METHOD_NAME, zorder=3)
+        ax.fill_between(xs[valid], lo_arr[valid], hi_arr[valid],
+                        color=color, alpha=0.15, zorder=2)
+
+    if baseline_exp in available:
+        sac_vals = _per_seed_final_perf(df, metric, baseline_exp, last_n_steps)
+        sac_c, _, _ = _bootstrap_scalar_iqm_ci(sac_vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
+        if not np.isnan(sac_c):
+            ax.axhline(sac_c, color="#5D6D7E", linewidth=1.2, linestyle="--",
+                       label="SAC (baseline)", zorder=1)
+
+    ax.set_title(
+        f"Final {y_label} (last {last_n_steps // 1000}k steps)\n(IQM · {ci:.0f}% bootstrap CI)",
+        fontsize=10,
+    )
+    if _is_norm:
+        ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
+    ax.set_xticks(x_ticks)
+    ax.set_xticklabels(x_tick_labels, fontsize=8, rotation=45, ha="right")
+    ax.set_xlabel(x_label, fontsize=10)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.5)
+    ax.legend(fontsize=9, loc="best")
+
+    if title:
+        fig.suptitle(title, fontsize=12, fontweight="bold", y=1.02)
+    fig.tight_layout()
+    return fig
+
+
 def plot_ablation_questions(
     registry: dict[str, dict],
     tb_dir: Path,
     out_dir: Path,
-    metric: str = "Eval/expert_bias",
+    metric: str = NORMALIZED_EXPERT_BIAS_METRIC,
     smooth: int = 1,
     n_bootstrap: int = 1000,
     ci: float = 95,
-    ylim_bottom: float = -250,
+    ylim_bottom: float = -0.05,
     remove_censored: bool = False,
     no_cache: bool = False,
 ) -> None:
@@ -1735,8 +2053,11 @@ def plot_ablation_questions(
     print("Ablation question plots")
     print("=" * 60)
 
-    print(f"  Loading '{metric}' from TensorBoard...")
-    df_full = load_tb_data(registry, tb_dir, metric, no_cache=no_cache)
+    if metric == NORMALIZED_EXPERT_BIAS_METRIC:
+        df_full = load_normalized_expert_bias(registry, tb_dir, no_cache=no_cache)
+    else:
+        print(f"  Loading '{metric}' from TensorBoard...")
+        df_full = load_tb_data(registry, tb_dir, metric, no_cache=no_cache)
     if df_full.empty:
         print(f"  No data found for metric '{metric}'. Skipping ablation plots.")
         return
@@ -1780,7 +2101,11 @@ def plot_ablation_questions(
         is_decay_q = (key == "q1_decay_horizon")
         linestyle_map = {"ege_decay_005": "--"} if is_decay_q else None
 
+        _norm_top = 1.0 if metric == NORMALIZED_EXPERT_BIAS_METRIC else None
+
         def _q_plot_metric(df, **kw):
+            if _norm_top is not None:
+                kw.setdefault("ylim_top", _norm_top)
             fig = plot_metric(df, metric=metric, smooth=smooth,
                               n_bootstrap=n_bootstrap, ci=ci,
                               color_map=ABLATION_COLOR_MAP,
@@ -1885,6 +2210,32 @@ def plot_ablation_questions(
         print(f"    Saved → {out_path}")
         plt.close(fig)
 
+        # Ablation curve (degradation-curve style) — only for questions with a
+        # single parameter swept along a numeric x-axis (Q1, Q2).
+        if "curve_experiments" in q:
+            curve_exps = [e for e in q["curve_experiments"] if e in available_q]
+            curve_xs   = [x for e, x in zip(q["curve_experiments"], q["curve_x_values"])
+                          if e in available_q]
+            if curve_exps:
+                fig = plot_ablation_curve(
+                    df_q,
+                    metric=metric,
+                    experiments=curve_exps,
+                    x_values=curve_xs,
+                    x_label=q["curve_x_label"],
+                    x_tick_fmt=q.get("curve_x_tick_fmt", "{}"),
+                    thresholds=METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0]),
+                    last_n_steps=200_000,
+                    n_bootstrap=n_bootstrap,
+                    ci=ci,
+                    remove_censored=remove_censored,
+                    title=f"{title}\n{subtitle}",
+                )
+                out_path = q_dir / f"{metric_slug}{smooth_tag}_ablation_curve.png"
+                fig.savefig(out_path, dpi=150, bbox_inches="tight")
+                print(f"    Saved → {out_path}")
+                plt.close(fig)
+
     print("\nAblation plots complete.")
 
 
@@ -1908,15 +2259,15 @@ def plot_degradation_curve(
     """
     1×(len(thresholds)+1) degradation curve: IQM statistic vs expert noise level.
 
-    One line per algorithm (EGE / IBRL / Residual RL), one colour per algorithm.
+    One line per algorithm (EDGE / IBRL / Residual RL), one colour per algorithm.
     Panels: one per crossing threshold + one for final performance.
     y-axis is autoscaled to the data (no forced zero).
     """
     if thresholds is None:
-        thresholds = [0.0, 200.0, 400.0]
+        thresholds = METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0])
 
     _ALGOS = [
-        ("EGE",         NOISY_EXPERT_EXPERIMENTS,   "#2166AC"),
+        (METHOD_NAME,   NOISY_EXPERT_EXPERIMENTS,   "#2166AC"),
         ("IBRL",        IBRL_NOISY_EXPERIMENTS,      "#F4762A"),
         ("Residual RL", RESIDUAL_NOISY_EXPERIMENTS, "#27AE60"),
     ]
@@ -1972,8 +2323,11 @@ def plot_degradation_curve(
                 ax.axhline(sac_c, color="#5D6D7E", linewidth=1.2, linestyle="--",
                            label="SAC (baseline)", zorder=1)
 
+        _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
         if _invert_crossing:
             threshold_str, direction_str = f"{threshold:.2f}", "≤"
+        elif _is_norm:
+            threshold_str, direction_str = f"{threshold*100:.0f}%", "="
         else:
             threshold_str = "0" if threshold == 0 else str(int(threshold))
             direction_str = "="
@@ -1987,7 +2341,7 @@ def plot_degradation_curve(
             mticker.FuncFormatter(lambda x, _: f"{x/1e6:.1f}M" if x >= 1e6 else f"{int(x/1e3)}k")
         )
         ax.set_xticks(NOISY_EXPERT_NOISE_PCTS)
-        ax.set_xticklabels([f"{p:.0f}%" for p in NOISY_EXPERT_NOISE_PCTS], fontsize=8)
+        ax.set_xticklabels([f"{p:.0f}%" for p in NOISY_EXPERT_NOISE_PCTS], fontsize=8, rotation=45, ha="right")
         ax.set_xlabel("Expert noise level", fontsize=10)
         ax.spines[["top", "right"]].set_visible(False)
         ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.5)
@@ -1996,6 +2350,7 @@ def plot_degradation_curve(
     # ---- Final performance panel ----
     ax = axes[-1]
     y_label = METRIC_AXIS_LABELS.get(metric, metric)
+    _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
 
     for algo_label, exps, color in _ALGOS:
         present = [(e, NOISY_EXPERT_NOISE_PCTS[i]) for i, e in enumerate(exps) if e in available]
@@ -2028,6 +2383,8 @@ def plot_degradation_curve(
         f"Final {y_label} (last {last_n_steps // 1000}k steps)\n(IQM · {ci:.0f}% bootstrap CI)",
         fontsize=10,
     )
+    if _is_norm:
+        ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
     ax.set_xticks(NOISY_EXPERT_NOISE_PCTS)
     ax.set_xticklabels([f"{p:.0f}%" for p in NOISY_EXPERT_NOISE_PCTS], fontsize=8)
     ax.set_xlabel("Expert noise level", fontsize=10)
@@ -2053,17 +2410,17 @@ def plot_noisy_expert_algo_lines(
     title: str = "",
 ) -> plt.Figure:
     """
-    1×(len(thresholds)+1) line plot comparing EGE, IBRL and Residual-RL.
+    1×(len(thresholds)+1) line plot comparing EDGE, IBRL and Residual-RL.
 
     x-axis: expert noise level (%)
     y-axis: IQM statistic — one panel per crossing threshold + one for final perf
     One line per algorithm with bootstrap CI shading.
     """
     if thresholds is None:
-        thresholds = [0.0, 200.0, 400.0]
+        thresholds = METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0])
 
     _ALGOS = [
-        ("EGE",         NOISY_EXPERT_EXPERIMENTS,    "#2166AC"),
+        (METHOD_NAME,   NOISY_EXPERT_EXPERIMENTS,    "#2166AC"),
         ("IBRL",        IBRL_NOISY_EXPERIMENTS,       "#F4762A"),
         ("Residual RL", RESIDUAL_NOISY_EXPERIMENTS,  "#27AE60"),
     ]
@@ -2113,14 +2470,17 @@ def plot_noisy_expert_algo_lines(
                 ax.fill_between(xs[valid], lo_arr[valid], hi_arr[valid],
                                 color=color, alpha=0.15, zorder=2)
 
+        _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
         if _invert_crossing:
             threshold_str, direction_str = f"{threshold:.2f}", "≤"
+        elif _is_norm:
+            threshold_str, direction_str = f"{threshold*100:.0f}%", "="
         else:
             threshold_str = "0" if threshold == 0 else str(int(threshold))
             direction_str = "="
 
         ax.set_xticks(NOISY_EXPERT_NOISE_PCTS)
-        ax.set_xticklabels([f"{p:.0f}%" for p in NOISY_EXPERT_NOISE_PCTS], fontsize=8)
+        ax.set_xticklabels([f"{p:.0f}%" for p in NOISY_EXPERT_NOISE_PCTS], fontsize=8, rotation=45, ha="right")
         ax.set_xlabel("Expert noise level", fontsize=10)
         censor_note = "censored seeds removed" if remove_censored else "†budget-censored"
         ax.set_title(
@@ -2139,6 +2499,7 @@ def plot_noisy_expert_algo_lines(
     # ---- Final performance panel ----
     ax = axes[-1]
     y_label = METRIC_AXIS_LABELS.get(metric, metric)
+    _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
 
     for algo_label, exps, color in _ALGOS:
         present = [(e, NOISY_EXPERT_NOISE_PCTS[i]) for i, e in enumerate(exps) if e in available]
@@ -2166,9 +2527,10 @@ def plot_noisy_expert_algo_lines(
             ax.fill_between(xs[valid], lo_arr[valid], hi_arr[valid],
                             color=color, alpha=0.15, zorder=2)
 
-    ax.axhline(0, color="#999999", linewidth=0.9, linestyle="--", alpha=0.7)
+    if _is_norm:
+        ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
     ax.set_xticks(NOISY_EXPERT_NOISE_PCTS)
-    ax.set_xticklabels([f"{p:.0f}%" for p in NOISY_EXPERT_NOISE_PCTS], fontsize=8)
+    ax.set_xticklabels([f"{p:.0f}%" for p in NOISY_EXPERT_NOISE_PCTS], fontsize=8, rotation=45, ha="right")
     ax.set_xlabel("Expert noise level", fontsize=10)
     ax.set_title(
         f"Final {y_label} (last {last_n_steps // 1000}k steps)\n"
@@ -2196,19 +2558,19 @@ def plot_noisy_expert_algo_rows(
     title: str = "",
 ) -> plt.Figure:
     """
-    3-row summary comparing EGE, IBRL and Residual-RL across all noise levels.
+    3-row summary comparing EDGE, IBRL and Residual-RL across all noise levels.
 
     Each row is one algorithm; within a row the y-axis lists noise levels (0%→80%)
     and the columns are: one panel per crossing threshold + one final-performance panel.
     Same noise level always gets the same colour across all rows.
     """
     if thresholds is None:
-        thresholds = [0.0, 200.0, 400.0]
+        thresholds = METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0])
 
     n_cols = len(thresholds) + 1
 
     _ALGO_ROWS = [
-        ("EGE  (ε-greedy, decay=0.50)", NOISY_EXPERT_EXPERIMENTS),
+        (f"{METHOD_NAME}  (ε-greedy, decay=0.50)", NOISY_EXPERT_EXPERIMENTS),
         ("IBRL  (argmax, no decay)",     IBRL_NOISY_EXPERIMENTS),
         ("Residual RL",                  RESIDUAL_NOISY_EXPERIMENTS),
     ]
@@ -2271,8 +2633,11 @@ def plot_noisy_expert_algo_rows(
                 if not np.isnan(lo) and not np.isnan(hi):
                     col_ranges[panel_idx].append((lo, hi))
 
+            _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
             if _invert_crossing:
                 threshold_str, direction_str = f"{threshold:.2f}", "≤"
+            elif _is_norm:
+                threshold_str, direction_str = f"{threshold*100:.0f}%", "="
             else:
                 threshold_str = "0" if threshold == 0 else str(int(threshold))
                 direction_str = "="
@@ -2304,13 +2669,15 @@ def plot_noisy_expert_algo_rows(
 
         # ---- Final performance panel ----
         ax = axes[-1]
+        _is_norm = metric == NORMALIZED_EXPERT_BIAS_METRIC
+        _perf_fmt = (lambda v: f"{v*100:.1f}%") if _is_norm else (lambda v: f"{v:.0f}")
         for yi, lbl in enumerate(present):
             vals = _per_seed_final_perf(df, metric, lbl, last_n_steps)
             center, lo, hi = _bootstrap_scalar_iqm_ci(
                 vals, n_bootstrap=n_bootstrap, ci=ci, rng=rng)
             color = _color(lbl)
             if not np.isnan(center):
-                _draw_ci_row(ax, yi, center, lo, hi, color, f"{center:.0f}")
+                _draw_ci_row(ax, yi, center, lo, hi, color, _perf_fmt(center))
                 col_ranges[-1].append((lo, hi))
 
         y_label = METRIC_AXIS_LABELS.get(metric, metric)
@@ -2324,6 +2691,8 @@ def plot_noisy_expert_algo_rows(
             )
         if row_idx == 2:
             ax.set_xlabel(y_label, fontsize=9)
+        if _is_norm:
+            ax.xaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
         ax.set_ylim(-0.7, len(present) - 0.3)
         ax.invert_yaxis()
         ax.spines[["top", "right"]].set_visible(False)
@@ -2349,11 +2718,11 @@ def plot_noisy_expert_questions(
     tb_dir: Path,
     out_dir: Path,
     ablation_registry: dict[str, dict] | None = None,
-    metric: str = "Eval/expert_bias",
+    metric: str = NORMALIZED_EXPERT_BIAS_METRIC,
     smooth: int = 1,
     n_bootstrap: int = 1000,
     ci: float = 95,
-    ylim_bottom: float = -250,
+    ylim_bottom: float = -0.05,
     remove_censored: bool = False,
     no_cache: bool = False,
 ) -> None:
@@ -2370,8 +2739,13 @@ def plot_noisy_expert_questions(
     print("Noisy expert degradation plots")
     print("=" * 60)
 
-    print(f"  Loading '{metric}' from TensorBoard...")
-    df = load_tb_data(registry, tb_dir, metric, no_cache=no_cache)
+    def _load(reg):
+        if metric == NORMALIZED_EXPERT_BIAS_METRIC:
+            return load_normalized_expert_bias(reg, tb_dir, no_cache=no_cache)
+        print(f"  Loading '{metric}' from TensorBoard...")
+        return load_tb_data(reg, tb_dir, metric, no_cache=no_cache)
+
+    df = _load(registry)
 
     # Supplement 0pct references from the ablation registry when not yet in
     # the noisy expert registry (avoids re-running identical experiments).
@@ -2382,7 +2756,7 @@ def plot_noisy_expert_questions(
         for zero_exp, ablation_name in _ABLATION_EQUIV_0PCT.items():
             if zero_exp not in present_in_noisy:
                 if df_abl is None:
-                    df_abl = load_tb_data(ablation_registry, tb_dir, metric, no_cache=no_cache)
+                    df_abl = _load(ablation_registry)
                 if not df_abl.empty:
                     df_src = df_abl[df_abl["exp_name"] == ablation_name].copy()
                     if not df_src.empty:
@@ -2391,7 +2765,7 @@ def plot_noisy_expert_questions(
                         print(f"  Supplemented {zero_exp} from ablation registry ({ablation_name}).")
         # Extract SAC baseline for reference hlines in the degradation curve.
         if df_abl is None:
-            df_abl = load_tb_data(ablation_registry, tb_dir, metric, no_cache=no_cache)
+            df_abl = _load(ablation_registry)
         if not df_abl.empty:
             _sac_rows = df_abl[df_abl["exp_name"] == "sac_baseline"].copy()
             if not _sac_rows.empty:
@@ -2423,10 +2797,14 @@ def plot_noisy_expert_questions(
     smooth_tag = f"_smooth{smooth}" if smooth > 1 else ""
     df_q = df[df["label"].isin(present)].copy()
 
-    title = "Expert Degradation: How does noise on the PID's target altitude affect EGE?"
+    title = f"Expert Degradation: How does noise on the PID's target altitude affect {METHOD_NAME}?"
     subtitle = "noise_pct ∈ {0%, 2%, 5%, 10%, 20%, 40%, 80%} of altitude range (5000 m)"
 
+    _norm_top = 1.0 if metric == NORMALIZED_EXPERT_BIAS_METRIC else None
+
     def _q_plot_metric(df_in, **kw):
+        if _norm_top is not None:
+            kw.setdefault("ylim_top", _norm_top)
         fig = plot_metric(df_in, metric=metric, smooth=smooth,
                           n_bootstrap=n_bootstrap, ci=ci,
                           color_map=NOISY_EXPERT_COLOR_MAP,
@@ -2453,7 +2831,7 @@ def plot_noisy_expert_questions(
     fig = plot_ablation_summary_stats(
         df_q, metric=metric, experiments=present,
         title=f"{title}\n{subtitle}",
-        thresholds=[0.0, 200.0, 400.0],
+        thresholds=METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0]),
         last_n_steps=200_000,
         n_bootstrap=n_bootstrap, ci=ci,
         remove_censored=remove_censored,
@@ -2463,7 +2841,7 @@ def plot_noisy_expert_questions(
     print(f"  Saved → {out_path}")
     plt.close(fig)
 
-    # 3-row comparison: EGE vs IBRL vs Residual-RL across all noise levels
+    # 3-row comparison: EDGE vs IBRL vs Residual-RL across all noise levels
     all_algo_exps = list(dict.fromkeys(
         NOISY_EXPERT_EXPERIMENTS + IBRL_NOISY_EXPERIMENTS + RESIDUAL_NOISY_EXPERIMENTS
     ))
@@ -2471,11 +2849,11 @@ def plot_noisy_expert_questions(
     if not df_all_algos.empty:
         fig = plot_noisy_expert_algo_rows(
             df_all_algos, metric=metric,
-            thresholds=[0.0, 200.0, 400.0],
+            thresholds=METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0]),
             last_n_steps=200_000,
             n_bootstrap=n_bootstrap, ci=ci,
             remove_censored=remove_censored,
-            title="Expert Degradation: EGE vs IBRL vs Residual-RL\n"
+            title=f"Expert Degradation: {METHOD_NAME} vs IBRL vs Residual-RL\n"
                   "noise_pct ∈ {0%, 2%, 5%, 10%, 20%, 40%, 80%} of altitude range",
         )
         out_path = q_dir / f"{metric_slug}{smooth_tag}_algo_rows.png"
@@ -2485,11 +2863,11 @@ def plot_noisy_expert_questions(
 
         fig = plot_noisy_expert_algo_lines(
             df_all_algos, metric=metric,
-            thresholds=[0.0, 200.0, 400.0],
+            thresholds=METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0]),
             last_n_steps=200_000,
             n_bootstrap=n_bootstrap, ci=ci,
             remove_censored=remove_censored,
-            title="Expert Degradation: EGE vs IBRL vs Residual-RL\n"
+            title=f"Expert Degradation: {METHOD_NAME} vs IBRL vs Residual-RL\n"
                   "noise_pct ∈ {0%, 2%, 5%, 10%, 20%, 40%, 80%} of altitude range",
         )
         out_path = q_dir / f"{metric_slug}{smooth_tag}_algo_lines.png"
@@ -2501,11 +2879,11 @@ def plot_noisy_expert_questions(
     fig = plot_degradation_curve(
         df_all_algos if not df_all_algos.empty else df_q,
         metric=metric,
-        thresholds=[0.0, 200.0, 400.0],
+        thresholds=METRIC_THRESHOLDS.get(metric, [0.0, 200.0, 400.0]),
         last_n_steps=200_000,
         n_bootstrap=n_bootstrap, ci=ci,
         remove_censored=remove_censored,
-        title="Expert Degradation: EGE vs IBRL vs Residual-RL\n"
+        title=f"Expert Degradation: {METHOD_NAME} vs IBRL vs Residual-RL\n"
               "noise_pct ∈ {0%, 2%, 5%, 10%, 20%, 40%, 80%} of altitude range",
         df_sac_baseline=df_sac_baseline,
     )
@@ -2530,7 +2908,7 @@ def main():
     parser.add_argument("--project", default=None,
                         help="Filter to runs from this project (e.g. ablation_plane_final_2)")
     parser.add_argument("--tb-dir", default=str(TB_DIR), help="TensorBoard root directory")
-    parser.add_argument("--metric", default="Eval/expert_bias")
+    parser.add_argument("--metric", default=NORMALIZED_EXPERT_BIAS_METRIC)
     parser.add_argument("--smooth", type=int, default=1, help="Rolling-average window (steps)")
     parser.add_argument("--n-bootstrap", type=int, default=1000, help="Bootstrap resamples for CI")
     parser.add_argument("--ci", type=float, default=95, help="Confidence level in percent (default 95)")
@@ -2569,7 +2947,7 @@ def main():
             tb_dir=tb_dir,
             out_dir=out_dir,
             ablation_registry=ablation_registry or None,
-            metric="Eval/expert_bias",
+            metric=NORMALIZED_EXPERT_BIAS_METRIC,
             smooth=args.smooth,
             n_bootstrap=args.n_bootstrap,
             ci=args.ci,
@@ -2589,16 +2967,19 @@ def main():
                         if e.get("project") == args.project}
             print(f"Project filter '{args.project}': {before} → {len(registry)} runs")
         print(f"Loading from TensorBoard ({registry_file}, {len(registry)} runs)...")
-        _tb_metric = "Eval/expert_bias" if args.metric == OPTIMALITY_GAP_METRIC else args.metric
-        df = load_tb_data(registry, tb_dir, _tb_metric, no_cache=args.no_cache)
+        if args.metric == NORMALIZED_EXPERT_BIAS_METRIC:
+            df = load_normalized_expert_bias(registry, tb_dir, no_cache=args.no_cache)
+        elif args.metric == OPTIMALITY_GAP_METRIC:
+            df = load_tb_data(registry, tb_dir, "Eval/expert_bias", no_cache=args.no_cache)
+            df[OPTIMALITY_GAP_METRIC] = np.maximum(1.0 - df["Eval/expert_bias"] / OPTIMALITY_GAP_MAX, 0.0)
+            df = df.drop(columns=["Eval/expert_bias"])
+        else:
+            df = load_tb_data(registry, tb_dir, args.metric, no_cache=args.no_cache)
         print(f"  {len(df)} scalar points, {df['run_id'].nunique()} runs, "
               f"{df['exp_name'].nunique()} experiments")
         if df.empty:
-            print(f"  No data found for metric '{_tb_metric}'. Check tag name.")
+            print(f"  No data found for metric '{args.metric}'. Check tag name.")
             return
-        if args.metric == OPTIMALITY_GAP_METRIC:
-            df[OPTIMALITY_GAP_METRIC] = np.maximum(1.0 - df["Eval/expert_bias"] / OPTIMALITY_GAP_MAX, 0.0)
-            df = df.drop(columns=["Eval/expert_bias"])
     else:
         csv_path = args.csv or CSV_FILE
         print(f"Loading {csv_path}...")
@@ -2629,54 +3010,61 @@ def main():
     metric_dir.mkdir(exist_ok=True)
     print(f"\nBasic plots will be saved to {metric_dir}/")
 
-    # For Eval/expert_bias and Eval/optimality_gap, restrict to the canonical set.
+    # For bias / normalised-bias / optimality_gap, restrict to the canonical set.
     plot_df = df
-    if args.metric in {"Eval/expert_bias", OPTIMALITY_GAP_METRIC}:
+    if args.metric in {"Eval/expert_bias", NORMALIZED_EXPERT_BIAS_METRIC, OPTIMALITY_GAP_METRIC}:
         plot_df = df[df["label"].isin(EXPERT_BIAS_EXPERIMENTS)]
         dropped = set(df["label"].unique()) - set(plot_df["label"].unique())
         if dropped:
             print(f"  expert_bias filter: dropped {dropped}")
 
+    _is_norm = args.metric == NORMALIZED_EXPERT_BIAS_METRIC
+    _ylim_top  = 1.0  if _is_norm else None
+    _focus_bottom = -0.05 if _is_norm else -250
+
     if not args.stats_only:
         print(f"\nPlotting {args.metric} — all groups...")
-        fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth, n_bootstrap=args.n_bootstrap, ci=args.ci)
+        fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth, n_bootstrap=args.n_bootstrap, ci=args.ci,
+                          ylim_top=_ylim_top)
         out_path = metric_dir / f"{metric_slug}{smooth_tag}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.close(fig)
 
-        print(f"\nPlotting {args.metric} — all groups (focus ≥ -250)...")
-        fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth, n_bootstrap=args.n_bootstrap, ci=args.ci, ylim_bottom=-250, show_crossing=False)
+        print(f"\nPlotting {args.metric} — all groups (focus ≥ {_focus_bottom})...")
+        fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth, n_bootstrap=args.n_bootstrap, ci=args.ci,
+                          ylim_bottom=_focus_bottom, ylim_top=_ylim_top, show_crossing=False)
         out_path = metric_dir / f"{metric_slug}{smooth_tag}_focus.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.close(fig)
 
-    # Rank by peak (max) rather than asymptote for expert_bias / optimality_gap.
-    if args.metric in {"Eval/expert_bias", OPTIMALITY_GAP_METRIC}:
+    # Rank by peak (max) rather than asymptote for bias / normalised-bias / optimality_gap.
+    _is_bias_family = args.metric in {"Eval/expert_bias", NORMALIZED_EXPERT_BIAS_METRIC, OPTIMALITY_GAP_METRIC}
+    if _is_bias_family:
         topn_labels = ["sac_baseline", "residual_rl", "ibrl_style", MAIN_EXP]
         topn_labels = [l for l in topn_labels if l in plot_df["label"].unique()]
     else:
         topn_labels = top_labels_by_asymptote(plot_df, metric=args.metric, last_n_steps=200_000, n=n)
 
-    # IQM and median variants — only for Eval/expert_bias and optimality_gap.
-    if args.metric in {"Eval/expert_bias", OPTIMALITY_GAP_METRIC}:
+    # IQM and median variants — only for bias / normalised-bias / optimality_gap.
+    if _is_bias_family:
         if not args.stats_only:
             print(f"  Labels for ranked plot: {topn_labels}")
             for agg in ("iqm", "median"):
                 print(f"\nPlotting {args.metric} — {agg.upper()}, all groups...")
                 fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth,
                                   n_bootstrap=args.n_bootstrap, ci=args.ci,
-                                  aggregation=agg)
+                                  ylim_top=_ylim_top, aggregation=agg)
                 out_path = metric_dir / f"{metric_slug}{smooth_tag}_{agg}.png"
                 fig.savefig(out_path, dpi=150, bbox_inches="tight")
                 print(f"Saved → {out_path}")
                 plt.close(fig)
 
-                print(f"\nPlotting {args.metric} — {agg.upper()}, focus ≥ -250...")
+                print(f"\nPlotting {args.metric} — {agg.upper()}, focus ≥ {_focus_bottom}...")
                 fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth,
                                   n_bootstrap=args.n_bootstrap, ci=args.ci,
-                                  ylim_bottom=-250, show_crossing=False,
+                                  ylim_bottom=_focus_bottom, ylim_top=_ylim_top, show_crossing=False,
                                   aggregation=agg)
                 out_path = metric_dir / f"{metric_slug}{smooth_tag}_{agg}_focus.png"
                 fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -2690,13 +3078,15 @@ def main():
             print(f"Saved → {out_path}")
             plt.close(fig)
 
-            _metric_thresholds = METRIC_THRESHOLDS.get(args.metric, [0.0, 200.0, 400.0])
+            _metric_thresholds = METRIC_THRESHOLDS.get(args.metric, [0.0, 0.2, 0.4])
             _summary_title = (
                 "Optimality Gap — Method Comparison"
                 if args.metric == OPTIMALITY_GAP_METRIC
+                else "Normalised Expert Advantage — Method Comparison"
+                if args.metric == NORMALIZED_EXPERT_BIAS_METRIC
                 else "Expert Advantage — Method Comparison"
             )
-            print(f"\nPlotting {args.metric} — EGE vs IBRL vs SAC summary (peak IQM)...")
+            print(f"\nPlotting {args.metric} — {METHOD_NAME} vs IBRL vs SAC summary (peak IQM)...")
             fig = plot_expert_bias_summary(
                 plot_df, metric=args.metric,
                 experiments=["sac_baseline", "residual_rl", "ibrl_style", MAIN_EXP],
@@ -2723,12 +3113,15 @@ def main():
             print(f"Saved → {out_path}")
 
         print(f"\nRunning pairwise significance tests on {args.metric} (last 200k steps)...")
-        pairwise_significance_expert_bias(
+        perm_tex = pairwise_significance_expert_bias(
             plot_df, metric=args.metric,
             experiments=["sac_baseline", "residual_rl", "ibrl_style", MAIN_EXP],
-            thresholds=METRIC_THRESHOLDS.get(args.metric, [0.0, 200.0, 400.0]),
+            thresholds=METRIC_THRESHOLDS.get(args.metric, [0.0, 0.2, 0.4]),
             remove_censored=args.remove_censored,
         )
+        perm_out = metric_dir / f"{metric_slug}{smooth_tag}_permutation_tests.tex"
+        perm_out.write_text(perm_tex)
+        print(f"Saved → {perm_out}")
     else:
         if not args.stats_only:
             print(f"\nPlotting {args.metric} — asymptote boxplot (top {n})...")
@@ -2756,7 +3149,7 @@ def main():
                     registry=ablation_registry,
                     tb_dir=tb_dir,
                     out_dir=out_dir,
-                    metric="Eval/expert_bias",
+                    metric=NORMALIZED_EXPERT_BIAS_METRIC,
                     smooth=args.smooth,
                     n_bootstrap=args.n_bootstrap,
                     ci=args.ci,
@@ -2776,7 +3169,7 @@ def main():
                     tb_dir=tb_dir,
                     out_dir=out_dir,
                     ablation_registry=ablation_registry or None,
-                    metric="Eval/expert_bias",
+                    metric=NORMALIZED_EXPERT_BIAS_METRIC,
                     smooth=args.smooth,
                     n_bootstrap=args.n_bootstrap,
                     ci=args.ci,

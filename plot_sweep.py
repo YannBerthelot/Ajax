@@ -99,6 +99,11 @@ EXP_DISPLAY_NAMES: dict[str, str] = {
     # Gating style
     "ibrl_style":          "IBRL-style  argmax  (no decay)",
     "ibrl_style_decay":    "IBRL-style  argmax  decay=0.50",
+    # IBRL bootstrap ablation
+    "ibrl_true":           "IBRL (argmax + bootstrap)  decay=0.50",
+    "ege_ibrl_bootstrap":  f"{METHOD_NAME} + bootstrap  decay=0.50",
+    # Noise expert control
+    "ege_noise_expert":    f"{METHOD_NAME}  uniform-noise expert",
     # Decay horizon sweep
     "ege_decay_075":       f"{METHOD_NAME}  decay=0.75",
     # Epsilon sweep (ε=0.5 anchor provided by ege_simple above)
@@ -151,6 +156,9 @@ ABLATION_COLOR_MAP: dict[str, str] = {
     "ege_no_decay":      "#C0392B",  # deep red     — no decay (always on)
     "ibrl_style":        "#F4762A",  # warm orange  — argmax, no decay
     "ibrl_style_decay":  "#E8A820",  # golden amber — argmax, decay=0.50
+    "ibrl_true":         "#B7770D",  # dark amber   — full IBRL (argmax + bootstrap)
+    "ege_ibrl_bootstrap":"#4E9AF1",  # sky blue     — EDGE + bootstrap
+    "ege_noise_expert":  "#A93226",  # dark red     — noise expert control
     "ege_eps_0.1":       "#17A8C4",  # cyan
     "ege_eps_0.25":      "#1A9B6C",  # teal green
     "ege_eps_0.75":      "#9B59B6",  # violet
@@ -194,6 +202,20 @@ ABLATION_QUESTIONS: list[dict] = [
         "experiments": ["sac_baseline", MAIN_EXP, "ibrl_style", "ibrl_style_decay"],
         # ibrl_style_decay (decay=0.50) lives in q3_gating_plane; exclude q1_value_gap_gate_plane (decay=0.15).
         "allowed_groups": {"ablation_baselines_plane", "ablation_q3_gating_plane"},
+    },
+    {
+        "key": "q4_ibrl_bootstrap",
+        "title": "Q4: Does the IBRL bootstrap modification help?",
+        "subtitle": "max(Q_policy, Q_expert) TD target — argmax gating vs EDGE, with and without",
+        "experiments": ["sac_baseline", "ibrl_style_decay", "ibrl_true", MAIN_EXP, "ege_ibrl_bootstrap"],
+        "allowed_groups": {"ablation_baselines_plane", "ablation_q3_gating_plane"},
+    },
+    {
+        "key": "q5_noise_expert",
+        "title": "Q5: Is the expert's structure necessary, or does any action diversity suffice?",
+        "subtitle": f"Real PID expert vs uniform-noise expert — same {METHOD_NAME} config (decay=0.50, ε=0.5)",
+        "experiments": ["sac_baseline", MAIN_EXP, "ege_noise_expert"],
+        "allowed_groups": {"ablation_baselines_plane"},
     },
 ]
 
@@ -916,14 +938,14 @@ def plot_metric(
     # only meaningful for metrics that cross zero (expert_bias).
     is_bias_metric = metric in {"Eval/expert_bias", NORMALIZED_EXPERT_BIAS_METRIC}
     ax.axhline(0, color="#999999", linewidth=1.1, linestyle="-", alpha=0.9)
-    if is_bias_metric:
-        from matplotlib.transforms import blended_transform_factory
-        # Use axes-fraction y so positions are metric-agnostic (0.75 = above zero, 0.25 = below)
-        blend = blended_transform_factory(ax.transAxes, ax.transAxes)
-        ax.text(0.97, 0.75, "Policy > Expert", transform=blend,
-                rotation=90, ha="center", va="bottom", fontsize=7.5, color="#777777")
-        ax.text(0.97, 0.25, "Policy < Expert", transform=blend,
-                rotation=90, ha="center", va="top",    fontsize=7.5, color="#777777")
+    # if is_bias_metric:
+    #     from matplotlib.transforms import blended_transform_factory
+    #     # Use axes-fraction y so positions are metric-agnostic (0.75 = above zero, 0.25 = below)
+    #     blend = blended_transform_factory(ax.transAxes, ax.transAxes)
+    #     ax.text(0.97, 0.75, "Policy > Expert", transform=blend,
+    #             rotation=90, ha="center", va="bottom", fontsize=7.5, color="#777777")
+    #     ax.text(0.97, 0.25, "Policy < Expert", transform=blend,
+    #             rotation=90, ha="center", va="top",    fontsize=7.5, color="#777777")
 
     ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.6)
 
@@ -2922,6 +2944,8 @@ def main():
                         help="Force re-read from TensorBoard event files, ignoring any parquet cache")
     parser.add_argument("--degradation", action="store_true",
                         help="Only generate noisy expert degradation plots (skips all other plots)")
+    parser.add_argument("--ablation-only", action="store_true",
+                        help="Only generate ablation question plots (skips all other plots)")
     args = parser.parse_args()
     n = args.top
 
@@ -2947,6 +2971,30 @@ def main():
             tb_dir=tb_dir,
             out_dir=out_dir,
             ablation_registry=ablation_registry or None,
+            metric=NORMALIZED_EXPERT_BIAS_METRIC,
+            smooth=args.smooth,
+            n_bootstrap=args.n_bootstrap,
+            ci=args.ci,
+            remove_censored=args.remove_censored,
+            no_cache=args.no_cache,
+        )
+        return
+
+    # ------------------------------------------------------------------
+    # --ablation-only: skip everything except ablation question plots
+    # ------------------------------------------------------------------
+    if args.ablation_only:
+        if not ABLATION_REGISTRY_FILE.exists():
+            print(f"ERROR: {ABLATION_REGISTRY_FILE} not found.")
+            return
+        ablation_registry = load_registry(ABLATION_REGISTRY_FILE)
+        if not ablation_registry:
+            print(f"ERROR: {ABLATION_REGISTRY_FILE} is empty.")
+            return
+        plot_ablation_questions(
+            registry=ablation_registry,
+            tb_dir=Path(args.tb_dir),
+            out_dir=Path(args.out_dir),
             metric=NORMALIZED_EXPERT_BIAS_METRIC,
             smooth=args.smooth,
             n_bootstrap=args.n_bootstrap,
@@ -3025,7 +3073,7 @@ def main():
     if not args.stats_only:
         print(f"\nPlotting {args.metric} — all groups...")
         fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth, n_bootstrap=args.n_bootstrap, ci=args.ci,
-                          ylim_top=_ylim_top)
+                          ylim_top=_ylim_top, color_map=ABLATION_COLOR_MAP)
         out_path = metric_dir / f"{metric_slug}{smooth_tag}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
@@ -3033,7 +3081,8 @@ def main():
 
         print(f"\nPlotting {args.metric} — all groups (focus ≥ {_focus_bottom})...")
         fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth, n_bootstrap=args.n_bootstrap, ci=args.ci,
-                          ylim_bottom=_focus_bottom, ylim_top=_ylim_top, show_crossing=False)
+                          ylim_bottom=_focus_bottom, ylim_top=_ylim_top, show_crossing=False,
+                          color_map=ABLATION_COLOR_MAP)
         out_path = metric_dir / f"{metric_slug}{smooth_tag}_focus.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
@@ -3055,7 +3104,8 @@ def main():
                 print(f"\nPlotting {args.metric} — {agg.upper()}, all groups...")
                 fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth,
                                   n_bootstrap=args.n_bootstrap, ci=args.ci,
-                                  ylim_top=_ylim_top, aggregation=agg)
+                                  ylim_top=_ylim_top, aggregation=agg,
+                                  color_map=ABLATION_COLOR_MAP)
                 out_path = metric_dir / f"{metric_slug}{smooth_tag}_{agg}.png"
                 fig.savefig(out_path, dpi=150, bbox_inches="tight")
                 print(f"Saved → {out_path}")
@@ -3065,7 +3115,7 @@ def main():
                 fig = plot_metric(plot_df, metric=args.metric, smooth=args.smooth,
                                   n_bootstrap=args.n_bootstrap, ci=args.ci,
                                   ylim_bottom=_focus_bottom, ylim_top=_ylim_top, show_crossing=False,
-                                  aggregation=agg)
+                                  aggregation=agg, color_map=ABLATION_COLOR_MAP)
                 out_path = metric_dir / f"{metric_slug}{smooth_tag}_{agg}_focus.png"
                 fig.savefig(out_path, dpi=150, bbox_inches="tight")
                 print(f"Saved → {out_path}")

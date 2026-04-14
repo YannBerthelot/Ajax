@@ -801,7 +801,7 @@ def pretrain_critic_bellman(
 # ---------------------------------------------------------------------------
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale", "mc_variance_threshold"])
+@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale", "mc_variance_threshold", "ibrl_bootstrap"])
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
@@ -821,6 +821,8 @@ def value_loss_function(
     alpha_blend: Optional[jax.Array] = None,
     expert_critic_params: Optional[Any] = None,
     mc_variance_threshold: Optional[float] = None,
+    next_expert_actions: Optional[jax.Array] = None,
+    ibrl_bootstrap: bool = False,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     rewards = rewards * reward_scale
 
@@ -844,6 +846,16 @@ def value_loss_function(
         x=jnp.concatenate((next_observations, next_actions), axis=-1),
     )
     min_q_target = jnp.min(q_targets, axis=0, keepdims=False)
+
+    # IBRL bootstrap: max over policy and expert next-state Q-values so the
+    # value function is consistent with the argmax action-selection policy.
+    if ibrl_bootstrap and next_expert_actions is not None:
+        q_targets_expert = predict_value(
+            critic_state=critic_states, critic_params=critic_states.target_params,
+            x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
+        )
+        min_q_target_expert = jnp.min(q_targets_expert, axis=0, keepdims=False)
+        min_q_target = jnp.maximum(min_q_target, min_q_target_expert)
 
     y_bellman = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
 
@@ -905,7 +917,7 @@ def value_loss_function(
     )
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale", "mc_variance_threshold"])
+@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale", "mc_variance_threshold", "ibrl_bootstrap"])
 def update_value_functions(
     agent_state: SACState,
     observations: jax.Array,
@@ -921,6 +933,8 @@ def update_value_functions(
     alpha_blend: Optional[jax.Array] = None,
     expert_critic_params: Optional[Any] = None,
     mc_variance_threshold: Optional[float] = None,
+    next_expert_actions: Optional[jax.Array] = None,
+    ibrl_bootstrap: bool = False,
 ) -> Tuple[SACState, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
@@ -930,6 +944,7 @@ def update_value_functions(
         agent_state.actor_state, actions, observations, next_observations,
         dones, rewards, gamma, alpha, recurrent, reward_scale, expert_q,
         v_expert_next, alpha_blend, expert_critic_params, mc_variance_threshold,
+        next_expert_actions, ibrl_bootstrap,
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -1354,6 +1369,7 @@ def is_inside_box(
         "use_critic_blend", "critic_warmup_frac", "use_box",
         "total_timesteps", "use_online_bc", "bc_coef",
         "mc_variance_threshold", "exploration_tau", "use_residual_rl",
+        "ibrl_bootstrap",
     ],
 )
 def update_agent(
@@ -1395,6 +1411,7 @@ def update_agent(
     mc_variance_threshold: Optional[float] = None,
     exploration_tau: float = 1.0,
     use_residual_rl: bool = False,
+    ibrl_bootstrap: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
@@ -1566,6 +1583,14 @@ def update_agent(
         effective_threshold_logged = jnp.zeros(())
         box_entry_rate = jnp.zeros(())
 
+    # --- IBRL bootstrap: pre-compute expert actions at next states ---
+    # Used to take max(Q_policy, Q_expert) in the TD target, keeping the value
+    # function consistent with the argmax action-selection policy during rollout.
+    next_expert_actions_for_bootstrap = None
+    if ibrl_bootstrap and expert_policy is not None:
+        _next_raw = transition.next_obs[..., :-1] if augment_obs_with_expert_action else transition.next_obs
+        next_expert_actions_for_bootstrap = jax.lax.stop_gradient(expert_policy(_next_raw))
+
     # --- Critic updates ---
     def critic_update_step(carry, _):
         agent_state = carry
@@ -1577,6 +1602,8 @@ def update_agent(
             v_expert_next=v_expert_next_blend, alpha_blend=alpha_blend_val,
             expert_critic_params=agent_state.expert_critic_params,
             mc_variance_threshold=mc_variance_threshold,
+            next_expert_actions=next_expert_actions_for_bootstrap,
+            ibrl_bootstrap=ibrl_bootstrap,
         )
         return agent_state, aux_value
 
@@ -1700,6 +1727,7 @@ def update_agent(
         "target_entropy_far",
         "mc_variance_threshold",
         "use_phi_refresh", "phi_refresh_interval", "phi_refresh_steps",
+        "ibrl_bootstrap",
     ],
 )
 def training_iteration(
@@ -1759,6 +1787,7 @@ def training_iteration(
     use_phi_refresh: bool = False,
     phi_refresh_interval: int = 500,
     phi_refresh_steps: int = 20,
+    ibrl_bootstrap: bool = False,
     # API compat
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = lambda x: 1.0,
@@ -1848,6 +1877,7 @@ def training_iteration(
             mc_variance_threshold=mc_variance_threshold,
             exploration_tau=exploration_tau,
             use_residual_rl=use_residual_rl,
+            ibrl_bootstrap=ibrl_bootstrap,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=n_epochs)
         aux = jax.tree.map(lambda x: x[-1].reshape((1,)), aux)
@@ -2012,6 +2042,9 @@ def make_train(
     use_phi_refresh: bool = False,
     phi_refresh_interval: int = 500,
     phi_refresh_steps: int = 20,
+    # IBRL bootstrap: use max(Q_policy, Q_expert) for TD target to be consistent
+    # with argmax action-selection policy (exploration_argmax=True / EGE).
+    ibrl_bootstrap: bool = False,
     # Pre-collected MC data: (obs, action, mc_return) JAX arrays.
     # When provided, the in-run expert rollout + MC-return computation is skipped.
     mc_preloaded_data: Optional[Tuple] = None,
@@ -2208,6 +2241,7 @@ def make_train(
             use_phi_refresh=use_phi_refresh,
             phi_refresh_interval=phi_refresh_interval,
             phi_refresh_steps=phi_refresh_steps,
+            ibrl_bootstrap=ibrl_bootstrap,
             **_valid_cloning_params,
         )
 

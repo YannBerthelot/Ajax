@@ -109,6 +109,8 @@ class SAC(ActorCritic):
         exploration_boltzmann: bool = False,
         fixed_exploration_prob: float = 0.5,
         exploration_argmax: bool = False,
+        # IBRL bootstrap: max(Q_policy, Q_expert) TD target consistent with argmax policy
+        ibrl_bootstrap: bool = False,
         # Distance-modulated entropy target (None = disabled)
         target_entropy_far: Optional[float] = None,
         # Online MC correction for high-variance states (None = disabled)
@@ -199,6 +201,7 @@ class SAC(ActorCritic):
         self.exploration_boltzmann = exploration_boltzmann
         self.fixed_exploration_prob = fixed_exploration_prob
         self.exploration_argmax = exploration_argmax
+        self.ibrl_bootstrap = ibrl_bootstrap
         self.target_entropy_far = target_entropy_far
         self.mc_variance_threshold = mc_variance_threshold
         self.use_phi_refresh = use_phi_refresh
@@ -246,6 +249,7 @@ class SAC(ActorCritic):
             exploration_boltzmann=self.exploration_boltzmann,
             fixed_exploration_prob=self.fixed_exploration_prob,
             exploration_argmax=self.exploration_argmax,
+            ibrl_bootstrap=self.ibrl_bootstrap,
             use_residual_rl=self.residual,
             target_entropy_far=self.target_entropy_far,
             mc_variance_threshold=self.mc_variance_threshold,

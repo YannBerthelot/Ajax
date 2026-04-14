@@ -151,6 +151,17 @@ class ExperimentConfig:
     # of the full PID controller.  None = use the full PID expert (default).
     partial_expert_steps: Optional[int] = None
 
+    # Noise expert ablation: replace the expert with a uniform-random policy
+    # to verify that the actual structure of the expert is necessary, not just
+    # the presence of any non-policy action signal.
+    use_noise_expert: bool = False
+
+    # IBRL bootstrap: modify the TD target to use max(Q_policy, Q_expert) at
+    # next states, consistent with the argmax action-selection during rollout.
+    # When True + exploration_argmax=True  → full IBRL applied to SAC.
+    # When True + EDGE gating             → test whether this addition helps or hurts.
+    use_ibrl_bootstrap: bool = False
+
 
 def build_experiments() -> List[ExperimentConfig]:
     P = WANDB_GROUPS
@@ -293,6 +304,47 @@ def build_experiments() -> List[ExperimentConfig]:
         **EGE,
         exploration_argmax=True,
         exploration_decay_frac=0.50,  # best decay from Q1
+    ))
+
+    # ==================================================================
+    # Q4: Does adding the IBRL bootstrap modification help or hurt?
+    # Full IBRL = argmax action-selection (ibrl_style_decay) + IBRL bootstrap.
+    # EDGE + IBRL bootstrap = test whether this addition is compatible with EGE.
+    # ==================================================================
+
+    # True IBRL applied to SAC: argmax gating (decay=0.5) + IBRL bootstrap.
+    exps.append(ExperimentConfig(
+        name="ibrl_true",
+        wandb_group=P["q3_gating"],
+        **EGE,
+        exploration_argmax=True,
+        exploration_decay_frac=0.50,
+        use_ibrl_bootstrap=True,
+    ))
+
+    # EDGE (decay=0.5, ε=0.5) + IBRL bootstrap — tests compatibility.
+    exps.append(ExperimentConfig(
+        name="ege_ibrl_bootstrap",
+        wandb_group=P["q3_gating"],
+        **EGE,
+        exploration_decay_frac=0.50,
+        fixed_exploration_prob=0.5,
+        use_ibrl_bootstrap=True,
+    ))
+
+    # ==================================================================
+    # Noise-expert control: uniform-random "expert" — same EDGE config as
+    # ege_decay_050 but with a structureless noise policy instead of PID.
+    # Should perform no better than sac_baseline if expert structure matters.
+    # ==================================================================
+
+    exps.append(ExperimentConfig(
+        name="ege_noise_expert",
+        wandb_group=P["baselines"],
+        **EGE,
+        exploration_decay_frac=0.50,
+        fixed_exploration_prob=0.5,
+        use_noise_expert=True,
     ))
 
     return exps
@@ -614,6 +666,25 @@ def ensure_baseline_in_project(target_project: str, baseline_project: str) -> No
 # ---------------------------------------------------------------------------
 
 
+def make_noise_expert_policy(action_dim: int):
+    """Return a uniform-noise expert policy with the given action dimension.
+
+    The returned callable has the same signature as the PID expert (obs → action)
+    and is safe to use inside JIT-compiled JAX code.  Actions are sampled
+    uniformly from [-1, 1]^action_dim using a key derived from the observation,
+    so repeated calls with the same obs return the same "random" action.
+    """
+    def _noise_policy(obs):
+        # Fold the sum of obs values into a base key to get obs-dependent randomness.
+        key = jax.random.fold_in(
+            jax.random.PRNGKey(0),
+            jnp.int32(jnp.sum(obs * 1e4)),
+        )
+        return jax.random.uniform(key, shape=obs.shape[:-1] + (action_dim,), minval=-1.0, maxval=1.0)
+
+    return _noise_policy
+
+
 def setup():
     env = Plane()
     env_params = PlaneParams(
@@ -734,7 +805,12 @@ def run_single_experiment(
         or exp.use_residual_rl
     )
 
-    if exp.partial_expert_steps is not None:
+    if exp.use_noise_expert:
+        # Noise-expert control: replace the PID expert with a uniform-random policy.
+        # eval_expert_policy stays as the full PID controller for fair comparison.
+        action_dim = get_action_dim(env, env_params)
+        agent_expert_policy = make_noise_expert_policy(action_dim)
+    elif exp.partial_expert_steps is not None:
         # Degradation 3: swap in a partial SAC actor as the expert.
         # eval_expert_policy stays as the full PID controller for fair comparison.
         agent_expert_policy = load_partial_expert_policy(exp.partial_expert_steps)
@@ -813,6 +889,7 @@ def run_single_experiment(
         exploration_boltzmann=exp.exploration_boltzmann,
         fixed_exploration_prob=exp.fixed_exploration_prob,
         exploration_argmax=exp.exploration_argmax,
+        ibrl_bootstrap=exp.use_ibrl_bootstrap,
         target_entropy_far=None,
         mc_variance_threshold=mc_variance_threshold,
         use_phi_refresh=exp.use_phi_refresh,

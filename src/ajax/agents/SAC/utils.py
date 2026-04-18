@@ -1,4 +1,5 @@
 import distrax
+import jax
 import jax.numpy as jnp
 
 # def simplex(a, b, dyna_factor):
@@ -37,6 +38,30 @@ class SquashedNormal(distrax.Transformed):
 
     def unsquashed_entropy(self):
         return self.distribution.entropy()
+
+    def log_determinant(self, u):
+        """
+        Numerically stable version of log(1 - tanh^2(u)).
+        This represents how much the tanh 'squashes' the probability volume.
+        """
+        return -2.0 * (u + jax.nn.softplus(-2.0 * u) - jnp.log(2.0))
+
+    def effective_entropy(self, key, num_samples=1):
+        """
+        Calculates the entropy proxy for the temperature (alpha) loss.
+        Combines analytical Gaussian entropy with a sampled volume correction.
+        """
+        # 1. Analytical entropy of the latent Gaussian (The 'Alive' signal)
+        latent_h = self.distribution.entropy().sum(-1)
+
+        # 2. Sample latent values 'u' to calculate the squash correction
+        u = self.distribution.sample(seed=key, sample_shape=(num_samples,))
+
+        # 3. Calculate volume change (Log-Det Jacobian)
+        correction = self.log_determinant(u).sum(-1).mean(axis=0)
+
+        # Result is scaled to your target_entropy (e.g., -2.0)
+        return latent_h + correction
 
     def mix_distributions(self, other, dyna_factor: float):
         return MixedDistribution(self, other, dyna_factor)

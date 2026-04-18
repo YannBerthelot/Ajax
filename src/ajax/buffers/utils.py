@@ -1,3 +1,5 @@
+from typing import Optional
+
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
@@ -24,38 +26,46 @@ def get_buffer(
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
+    max_timesteps: Optional[int] = None,
+    add_train_frac: Optional[bool] = None,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
-    # Get the state and action shapes for the environment
-    observation_shape, action_shape = get_state_action_shapes(
-        env_args.env,
-    )
+    """
+    Initialize the flashbax buffer state with correctly shaped dummy transitions.
 
-    # Initialize the action as a single action for a single timestep (not batched)
+    add_train_frac: whether to append the train_time_fraction scalar as the
+      last observation dimension. If None (default), inferred from max_timesteps
+      for backward compatibility. Prefer passing explicitly.
+    """
+    observation_shape, action_shape = get_state_action_shapes(env_args.env)
+    raw_observation_shape = observation_shape
+
+    # Determine whether to add the train_frac dimension
+    if add_train_frac is None:
+        add_train_frac = max_timesteps is not None
+
+    if add_train_frac:
+        observation_shape = (*observation_shape[:-1], observation_shape[-1] + 1)
+
     action = jnp.zeros(
-        (action_shape[0],),  # Shape for a single action (e.g., [action_size])
+        (action_shape[0],),
         dtype=jnp.float32 if env_args.continuous else jnp.int32,
     )
-
-    # Initialize the observation for a single timestep (shape: [observation_size])
     obsv = jnp.zeros((observation_shape[0],))
+    raw_obsv = jnp.zeros((raw_observation_shape[0],))
+    reward = jnp.zeros((1,), dtype=jnp.float32)
+    done = jnp.zeros((1,), dtype=jnp.float32)
 
-    # Initialize the reward and done flag for a single timestep
-    reward = jnp.zeros((1,), dtype=jnp.float32)  # Shape for a single reward
-    done = jnp.zeros((1,), dtype=jnp.float32)  # Shape for a single done flag
-
-    # Initialize the buffer state with a single transition
-    buffer_state = buffer.init(
+    return buffer.init(
         {
-            "obs": obsv,  # Single observation (shape: [observation_size])
-            "action": action,  # Single action (shape: [action_size])
-            "reward": reward,  # Single reward (shape: [1])
-            "terminated": done,  # Single done flag (shape: [1])
-            "truncated": done,  # Single done flag (shape: [1])
-            "raw_obs": obsv,  # Single raw observation (shape: [observation_size]
-        },
+            "obs": obsv,
+            "action": action,
+            "reward": reward,
+            "terminated": done,
+            "truncated": done,
+            "raw_obs": raw_obsv,
+            "is_expert": jnp.zeros((1,), dtype=jnp.float32),
+        }
     )
-
-    return buffer_state
 
 
 def assert_shape(x, expected_shape, name="tensor"):
@@ -64,17 +74,13 @@ def assert_shape(x, expected_shape, name="tensor"):
     ), f"{name} has shape {x.shape}, expected {expected_shape}"
 
 
-@partial(
-    jax.jit,
-    static_argnames=["buffer"],
-)
+@partial(jax.jit, static_argnames=["buffer"])
 def get_batch_from_buffer(
     buffer: BufferType,
     buffer_state,
     key,
 ):
     batch = buffer.sample(buffer_state, key).experience
-
     obs = batch.first["obs"]
     act = batch.first["action"]
     rew = batch.first["reward"]
@@ -82,5 +88,5 @@ def get_batch_from_buffer(
     terminated = batch.first["terminated"]
     truncated = batch.first["truncated"]
     raw_observations = batch.first["raw_obs"]
-
-    return obs, terminated, truncated, next_obs, rew, act, raw_observations
+    is_expert = batch.first["is_expert"]
+    return obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert

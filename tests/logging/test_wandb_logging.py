@@ -9,7 +9,6 @@ from ajax.logging.wandb_logging import (
     finish_logging,
     init_logging,
     log_variables,
-    tensorboard_writers,
 )
 
 
@@ -42,7 +41,7 @@ def test_init_logging(mock_summary_writer, mock_wandb_init, tmp_path, logging_co
     run_id = mock_wandb_init.return_value.id
     log_dir = os.path.join(str(folder), "tensorboard", run_id)
     mock_summary_writer.assert_called_once_with(log_dir=log_dir)
-    assert run_id in tensorboard_writers
+    assert run_id in tensorboard_writers  # noqa: F821
 
 
 @patch("ajax.logging.wandb_logging.wandb.log")
@@ -79,7 +78,7 @@ def test_tensorboard_logging(mock_queue_put, mock_summary_writer, mock_wandb_ini
     run_id = mock_wandb_init.return_value.id
     metrics = {"loss": jnp.array(0.5), "accuracy": jnp.array(0.9)}
     step = 10
-    tensorboard_writer = tensorboard_writers[run_id]
+    tensorboard_writer = tensorboard_writers[run_id]  # noqa: F821
 
     # Simulate logging to TensorBoard
     for key, value in metrics.items():

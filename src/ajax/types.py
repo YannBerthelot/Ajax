@@ -9,6 +9,8 @@ from flax.core.frozen_dict import FrozenDict
 from gymnax.environments.environment import Environment as GymnaxEnv
 from gymnax.environments.environment import EnvState as GymnaxEnvState
 
+from ajax.schedule import Scheduled
+
 HiddenState: TypeAlias = Union[jnp.ndarray, FrozenDict]
 EnvType: TypeAlias = Union[GymnaxEnv, BraxEnv]
 EnvStateType: TypeAlias = Union[BraxEnvState, GymnaxEnvState]
@@ -29,6 +31,10 @@ InitializationFunction: TypeAlias = Callable
 
 
 FloatOrCallable: TypeAlias = Union[float, Callable[[int], float]]
+
+# A parameter that can be either a constant or a Scheduled value.
+# Use resolve_schedulable(param, train_frac) to get the current value.
+Schedulable: TypeAlias = Union[float, Scheduled]
 
 
 @struct.dataclass

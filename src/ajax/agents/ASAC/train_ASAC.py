@@ -35,6 +35,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
@@ -128,6 +129,7 @@ def init_ASAC(
     alpha_args: AlphaConfig,
     buffer: BufferType,
     window_size: int = 10,
+    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> ASACState:
     """
     Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
@@ -159,6 +161,7 @@ def init_ASAC(
         action_value=True,
         squash=True,
         num_critics=2,
+        pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
@@ -183,6 +186,54 @@ def init_ASAC(
     )
 
 
+def compute_asac_td_target(
+    actor_state: LoadedTrainState,
+    critic_states: LoadedTrainState,
+    rng: jax.Array,
+    next_observations: jax.Array,
+    dones: jax.Array,
+    rewards: jax.Array,
+    theta: float,
+    alpha: jax.Array,
+    recurrent: bool,
+    reward_scale: float,
+) -> Tuple[jax.Array, jax.Array]:
+    """ASAC bellman target with origin-shift; returns (target, log_probs)."""
+    rewards = rewards * reward_scale
+    next_pi, _ = get_pi(
+        actor_state=actor_state,
+        actor_params=actor_state.params,
+        obs=next_observations,
+        done=dones,
+        recurrent=recurrent,
+    )
+    sample_key, _ = jax.random.split(rng)
+    next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
+    log_probs = log_probs.sum(-1, keepdims=True)
+
+    q_targets = predict_value(
+        critic_state=critic_states,
+        critic_params=critic_states.target_params,
+        x=jnp.concatenate((next_observations, next_actions), axis=-1),
+    )
+    shift_value = predict_value(
+        critic_state=critic_states,
+        critic_params=critic_states.target_params,
+        x=jnp.concatenate(
+            (
+                jnp.zeros_like(next_observations[0, :][None, :]),
+                jnp.zeros_like(next_actions[0, :][None, :]),
+            ),
+            axis=-1,
+        ),
+    )
+    shifted_q_targets = q_targets - jnp.mean(shift_value)
+    q1_target, q2_target = jnp.split(shifted_q_targets, 2, axis=0)
+    min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
+    target = jax.lax.stop_gradient(rewards - theta + (min_q_target - alpha * log_probs))
+    return target, log_probs
+
+
 @partial(jax.jit, static_argnames=["recurrent", "reward_scale"])
 def value_loss_function(
     critic_params: FrozenDict,
@@ -198,6 +249,8 @@ def value_loss_function(
     alpha: jax.Array,
     recurrent: bool,
     reward_scale: float = 5.0,  # Add reward scaling factor here
+    target_q_override: Optional[jax.Array] = None,
+    log_probs_override: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -220,66 +273,40 @@ def value_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
-    # Apply the reward scaling here
-    rewards = rewards * reward_scale
-
-    # Sample next actions from policy π(a|s_{t+1})
-
-    next_pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.params,
-        obs=next_observations,
-        done=dones,
-        recurrent=recurrent,
-    )
-    sample_key, rng = jax.random.split(rng)
-    next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
-
     # Predict Q-values from critics
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_params,
         x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
     )
-    # Target Q-values using target networks
     assert (
         critic_states.target_params is not None
     ), "Target parameters are not set in critic states."
 
-    q_targets = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.target_params,
-        x=jnp.concatenate((next_observations, next_actions), axis=-1),
-    )
+    if target_q_override is not None:
+        target_q = target_q_override
+        log_probs = (
+            log_probs_override
+            if log_probs_override is not None
+            else jnp.zeros_like(target_q)
+        )
+    else:
+        target_q, log_probs = compute_asac_td_target(
+            actor_state,
+            critic_states,
+            rng,
+            next_observations,
+            dones,
+            rewards,
+            theta,
+            alpha,
+            recurrent,
+            reward_scale,
+        )
 
-    # Target shift to pass through the origin
-    shift_value = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.target_params,
-        x=jnp.concatenate(
-            (
-                jnp.zeros_like(next_observations[0, :][None, :]),
-                jnp.zeros_like(next_actions[0, :][None, :]),
-            ),
-            axis=-1,
-        ),
-    )
-    shifted_q_targets = q_targets - jnp.mean(shift_value)
-
-    # Unpack and unsqueeze if needed
     q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
-    q1_target, q2_target = jnp.split(shifted_q_targets, 2, axis=0)
-
-    # Bellman target and losses
-    min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
-    log_probs = log_probs.sum(-1, keepdims=True)
-
-    target_q = jax.lax.stop_gradient(
-        rewards - theta + (min_q_target - alpha * log_probs),
-    )
 
     assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
-    assert min_q_target.shape == log_probs.shape
 
     loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
     loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
@@ -300,6 +327,8 @@ def value_loss_function(
         "expert_policy",
         "distance_to_stable",
         "imitation_coef_offset",
+        "obs_preprocessor",
+        "policy_action_transform",
     ],
 )
 def policy_loss_function(
@@ -316,6 +345,9 @@ def policy_loss_function(
     imitation_coef: float = 0.01,
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
+    a_expert_precomputed: Optional[jax.Array] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -333,21 +365,31 @@ def policy_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
+    obs_for_actor = (
+        obs_preprocessor(observations) if obs_preprocessor is not None else observations
+    )
     pi, _ = get_pi(
         actor_state=actor_state,
         actor_params=actor_params,
-        obs=observations,
+        obs=obs_for_actor,
         done=dones,
         recurrent=recurrent,
     )
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
 
+    _raw_obs = raw_observations if raw_observations is not None else observations
+    q_input_actions = (
+        policy_action_transform(actions, _raw_obs, a_expert_precomputed)
+        if policy_action_transform is not None
+        else actions
+    )
+
     # Predict Q-values from critics
     q_preds = predict_value(
         critic_state=critic_states,
         critic_params=critic_states.params,
-        x=jnp.hstack((observations, actions)),
+        x=jnp.hstack((observations, q_input_actions)),
     )
 
     # Unpack and unsqueeze if needed
@@ -408,10 +450,6 @@ def temperature_loss_function(
     )
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent", "reward_scale"],
-)
 def update_value_functions(
     agent_state: ASACState,
     observations: jax.Array,
@@ -421,6 +459,7 @@ def update_value_functions(
     recurrent: bool,
     rewards: jax.Array,
     reward_scale: float = 1.0,  # Add reward scaling factor here
+    target_modifier: Optional[Callable] = None,
 ) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -444,6 +483,40 @@ def update_value_functions(
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
 
+    target_q_override = None
+    log_probs_override = None
+    if target_modifier is not None:
+        target_q, log_probs = compute_asac_td_target(
+            agent_state.actor_state,
+            agent_state.critic_state,
+            value_loss_key,
+            next_observations,
+            dones,
+            rewards,
+            agent_state.theta,
+            alpha,
+            recurrent,
+            reward_scale,
+        )
+        q_preds_for_modifier = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+        )
+        target_q, _, _ = target_modifier(
+            target_q,
+            agent_state,
+            observations,
+            actions,
+            next_observations,
+            dones,
+            1.0,
+            value_loss_key,
+            q_preds_for_modifier,
+        )
+        target_q_override = jax.lax.stop_gradient(target_q)
+        log_probs_override = log_probs
+
     (loss, aux), grads = value_and_grad_fn(
         agent_state.critic_state.params,
         agent_state.critic_state,
@@ -458,6 +531,8 @@ def update_value_functions(
         alpha,
         recurrent,
         reward_scale,
+        target_q_override,
+        log_probs_override,
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -475,6 +550,8 @@ def update_value_functions(
         "expert_policy",
         "distance_to_stable",
         "imitation_coef_offset",
+        "obs_preprocessor",
+        "policy_action_transform",
     ],
 )
 def update_policy(
@@ -487,6 +564,9 @@ def update_policy(
     imitation_coef: float = 1e-3,
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
+    a_expert_precomputed: Optional[jax.Array] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -518,6 +598,9 @@ def update_policy(
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
         imitation_coef_offset=imitation_coef_offset,
+        a_expert_precomputed=a_expert_precomputed,
+        obs_preprocessor=obs_preprocessor,
+        policy_action_transform=policy_action_transform,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -644,6 +727,9 @@ def update_theta(
         "imitation_coef",
         "distance_to_stable",
         "imitation_coef_offset",
+        "target_modifier",
+        "obs_preprocessor",
+        "policy_action_transform",
     ],
 )
 def update_agent(
@@ -663,6 +749,9 @@ def update_agent(
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 0.0,
+    target_modifier: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> Tuple[ASACState, AuxiliaryLogs]:
     """
     Update the SAC agent, including critic, actor, and temperature updates.
@@ -694,6 +783,7 @@ def update_agent(
             rewards,
             actions,
             raw_observations,
+            _,
         ) = get_batch_from_buffer(
             buffer,
             agent_state.collector_state.buffer_state,
@@ -722,6 +812,11 @@ def update_agent(
         rng=rng, episode_termination_penalty=episode_termination_penalty
     )
 
+    a_expert_precomputed = None
+    if expert_policy is not None and policy_action_transform is not None:
+        _raw = raw_observations if raw_observations is not None else transition.obs
+        a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
+
     # Update Q functions
     def critic_update_step(carry, _):
         agent_state = carry
@@ -734,6 +829,7 @@ def update_agent(
             agent_state=agent_state,
             recurrent=recurrent,
             reward_scale=reward_scale,
+            target_modifier=target_modifier,
         )
 
         return agent_state, aux_value
@@ -756,6 +852,9 @@ def update_agent(
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
         imitation_coef_offset=imitation_coef_offset,
+        a_expert_precomputed=a_expert_precomputed,
+        obs_preprocessor=obs_preprocessor,
+        policy_action_transform=policy_action_transform,
     )
 
     # Adjust temperature
@@ -813,6 +912,11 @@ def update_agent(
         "distance_to_stable",
         "imitation_coef_offset",
         "action_scale",
+        "action_pipeline",
+        "eval_action_transform",
+        "target_modifier",
+        "obs_preprocessor",
+        "policy_action_transform",
     ],
 )
 def training_iteration(
@@ -840,6 +944,11 @@ def training_iteration(
     distance_to_stable: Optional[Callable] = get_one,
     imitation_coef_offset: float = 1e-3,
     action_scale: float = 1.0,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    target_modifier: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> tuple[ASACState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -871,7 +980,7 @@ def training_iteration(
         env_args=env_args,
         buffer=buffer,
         uniform=uniform,
-        action_scale=action_scale,
+        action_pipeline=action_pipeline,
     )
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=1
@@ -897,6 +1006,9 @@ def training_iteration(
             imitation_coef=imitation_coef,
             distance_to_stable=distance_to_stable,
             imitation_coef_offset=imitation_coef_offset,
+            target_modifier=target_modifier,
+            obs_preprocessor=obs_preprocessor,
+            policy_action_transform=policy_action_transform,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -954,8 +1066,8 @@ def training_iteration(
         total_timesteps,
         # avg_reward_mode=True,
         action_scale=action_scale,
-        imitation_coef=imitation_coef,
         expert_policy=expert_policy,
+        eval_action_transform=eval_action_transform,
     )
     return agent_state, metrics_to_log
 
@@ -974,6 +1086,12 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
+    pid_actor_config: Optional[PIDActorConfig] = None,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    target_modifier: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ):
     """
     Create the training function for the SAC agent.
@@ -1011,6 +1129,7 @@ def make_train(
             network_args=network_args,
             alpha_args=alpha_args,
             buffer=buffer,
+            pid_actor_config=pid_actor_config,
         )
         (
             cloning_parameters,
@@ -1052,6 +1171,11 @@ def make_train(
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
             expert_policy=expert_policy,
+            action_pipeline=action_pipeline,
+            eval_action_transform=eval_action_transform,
+            target_modifier=target_modifier,
+            obs_preprocessor=obs_preprocessor,
+            policy_action_transform=policy_action_transform,
             **cloning_parameters,
         )
 

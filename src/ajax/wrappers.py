@@ -301,7 +301,7 @@ def normalize_wrapper_factory(
                 @struct.dataclass
                 class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
                     # Inherit from the actual env_state class
-                    normalization_info: NormalizationInfo
+                    normalization_info: Optional[NormalizationInfo] = None
 
                 self.state_class = NormalizedEnvState
 
@@ -768,3 +768,22 @@ class NoiseWrapper(BraxWrapper):
         )
         state = state.replace(info=info)
         return state
+
+
+class TerminatedTruncatedWrapper(GymnaxWrapper):
+    def __init__(self, env):
+        """Set the observation transformation"""
+        super().__init__(env)
+
+    def step(
+        self,
+        key,
+        state: environment.EnvState,
+        action,
+        params: environment.EnvParams = None,
+    ):
+        """Step the env and return the transformed obs"""
+        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        truncated = state.time >= params.max_steps_in_episode
+        terminated = done * (1 - truncated)
+        return obs, state, reward, terminated, truncated, info

@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -8,6 +9,7 @@ from ajax.agents.PPO.train_PPO import make_train
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.types import EnvType, InitializationFunction
 from ajax.utils import get_and_prepare_hyperparams
 
@@ -44,6 +46,10 @@ class PPO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        pid_actor_config: Optional[PIDActorConfig] = None,
+        action_pipeline: Optional[Callable] = None,
+        eval_action_transform: Optional[Callable] = None,
+        obs_preprocessor: Optional[Callable] = None,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -99,6 +105,10 @@ class PPO(ActorCritic):
             gae_lambda=gae_lambda,
             normalize_advantage=normalize_advantage,
         )
+        self.pid_actor_config = pid_actor_config
+        self.action_pipeline = action_pipeline
+        self.eval_action_transform = eval_action_transform
+        self.obs_preprocessor = obs_preprocessor
 
     def get_make_train(self) -> Callable:
         """
@@ -107,7 +117,13 @@ class PPO(ActorCritic):
         Returns:
             Callable: A function that trains the PPO agent.
         """
-        return make_train
+        return partial(
+            make_train,
+            pid_actor_config=self.pid_actor_config,
+            action_pipeline=self.action_pipeline,
+            eval_action_transform=self.eval_action_transform,
+            obs_preprocessor=self.obs_preprocessor,
+        )
 
 
 if __name__ == "__main__":

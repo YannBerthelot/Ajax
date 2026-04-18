@@ -2,13 +2,11 @@
 
 import functools
 import json
+import multiprocessing as mp
 import os
-import queue
 import struct as pystruct
-import threading
 from collections import defaultdict
 from pathlib import Path
-from queue import Queue
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
@@ -16,7 +14,6 @@ import jax.numpy as jnp
 import wandb
 from flax.serialization import to_state_dict
 from flax.struct import dataclass as flax_dataclass
-from tensorboardX import SummaryWriter
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
 
@@ -38,20 +35,175 @@ class LoggingConfig:
     sweep: bool = False
 
 
-# Global state for async logging
-logging_queue = Queue()  # type: ignore[var-annotated]
-logging_thread = None
-stop_logging = threading.Event()
+# ---------------------------------------------------------------------------
+# Single-process sequential logging worker
+# ---------------------------------------------------------------------------
+# 'spawn' is required: we start the process AFTER JAX has initialised CUDA,
+# so 'fork' would copy a live CUDA context into the child and cause crashes.
+_mp_ctx = mp.get_context("spawn")
 
-# Global map of tensorboard writers
-tensorboard_writers: Dict[str, SummaryWriter] = {}
+_log_queue: Optional[Any] = None  # _mp_ctx.JoinableQueue at runtime
+_log_process: Optional[Any] = None  # _mp_ctx.Process at runtime
+_pending_init_msgs: list = []  # messages buffered before worker starts
+
+# Number of steps to buffer per run before calling wandb.init/finish.
+# Higher = fewer inits (cheaper) but more latency before data appears in UI.
+WANDB_LOG_BATCH_SIZE = 10
 
 
-def init_logging(
-    run_id: str,
-    logging_config: LoggingConfig,
-):
-    """Init the wandb run and optionally TensorBoard"""
+def _logging_worker(q: Any) -> None:
+    """
+    Single worker process: handles ALL run_ids sequentially.
+
+    wandb only supports one active run per process, so we cannot keep
+    multiple run objects alive concurrently.  Instead we buffer incoming
+    log entries per run_id and flush them in a single init→log*N→finish
+    cycle once WANDB_LOG_BATCH_SIZE steps have accumulated (or at shutdown).
+    This amortises the wandb.init() cost over N steps.
+
+    TensorBoard writers are kept persistently open (no init cost per step).
+
+    Message protocol:
+        ("init_wandb", run_id, project, name)      — register run metadata
+        ("init_tb",    run_id, log_dir, config_str) — open TB writer
+        ("log",        run_id, metrics, step)       — buffer one step
+        None                                        — poison pill / shutdown
+    """
+    from collections import defaultdict
+
+    import wandb as _wandb  # re-import in fresh spawned process
+    from tensorboardX import SummaryWriter as _SW
+
+    # run_id -> list of (metrics_dict, step)
+    buffers: dict = defaultdict(list)
+    # run_id -> (project, name)
+    run_info: dict = {}
+    # run_id -> bool (whether to log to wandb)
+    use_wandb_map: dict = {}
+    # run_id -> SummaryWriter
+    tb_writers: dict = {}
+
+    def flush_run(run_id: str) -> None:
+        """Flush buffered steps for one run to wandb in a single open/close."""
+        entries = buffers.get(run_id)
+        if not entries:
+            return
+        if use_wandb_map.get(run_id):
+            project, name = run_info[run_id]
+            try:
+                run = _wandb.init(
+                    project=project,
+                    name=name,
+                    id=run_id,
+                    resume="must",
+                )
+                for metrics, step in entries:
+                    run.log(metrics, step=step)
+                run.finish()
+            except Exception as exc:
+                print(f"[logging worker] wandb flush failed for {run_id}: {exc}")
+        buffers[run_id].clear()
+
+    while True:
+        try:
+            item = q.get(timeout=1.0)
+        except Exception:
+            continue
+
+        if item is None:  # poison pill — flush everything and shut down
+            q.task_done()
+            break
+
+        kind = item[0]
+
+        if kind == "init_wandb":
+            _, run_id, project, name, use_wb = item
+            run_info[run_id] = (project, name)
+            use_wandb_map[run_id] = use_wb
+            q.task_done()
+
+        elif kind == "init_tb":
+            _, run_id, log_dir, config_str = item
+            writer = _SW(log_dir=log_dir)
+            writer.add_text("config", config_str, global_step=0)
+            tb_writers[run_id] = writer
+            q.task_done()
+
+        elif kind == "log":
+            _, run_id, metrics, step = item
+            # Buffer the step for wandb (init is expensive; batch N steps)
+            buffers[run_id].append((metrics, step))
+            # Write to TensorBoard immediately (no open/close cost)
+            tb_writer = tb_writers.get(run_id)
+            if tb_writer is not None:
+                for key, value in metrics.items():
+                    try:
+                        scalar = (
+                            value.item() if hasattr(value, "item") else float(value)
+                        )
+                        tb_writer.add_scalar(key, scalar, step)
+                    except Exception:
+                        pass
+            # Flush wandb once the batch is full
+            if len(buffers[run_id]) >= WANDB_LOG_BATCH_SIZE:
+                flush_run(run_id)
+            q.task_done()
+
+    # Shutdown: flush all remaining buffered data, then close TB writers
+    for run_id in list(buffers.keys()):
+        flush_run(run_id)
+    for writer in tb_writers.values():
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+
+def start_async_logging() -> None:
+    """Spawn the logging process (once; no-op if already running)."""
+    global _log_queue, _log_process, _pending_init_msgs
+    if _log_process is None or not _log_process.is_alive():
+        _log_queue = _mp_ctx.JoinableQueue()
+        # Force CPU in the child: wandb_logging imports jax at module level,
+        # which would otherwise trigger JAX GPU pre-allocation in the worker.
+        _old = os.environ.get("JAX_PLATFORMS")
+        os.environ["JAX_PLATFORMS"] = "cpu"
+        _log_process = _mp_ctx.Process(
+            target=_logging_worker, args=(_log_queue,), daemon=True
+        )
+        _log_process.start()
+        if _old is None:
+            os.environ.pop("JAX_PLATFORMS", None)
+        else:
+            os.environ["JAX_PLATFORMS"] = _old
+        # Flush any messages that arrived before the worker started
+        for msg in _pending_init_msgs:
+            _log_queue.put(msg)
+        _pending_init_msgs.clear()
+
+
+def stop_async_logging() -> None:
+    """Drain the queue, then stop the logging process."""
+    global _log_queue, _log_process, _pending_init_msgs
+    if _log_process is not None and _log_process.is_alive() and _log_queue is not None:
+        _log_queue.put(None)  # poison pill
+        try:
+            _log_queue.join()  # wait until all task_done() calls balance put() calls
+        except Exception:
+            pass
+        _log_process.join(timeout=300)
+        if _log_process.is_alive():
+            _log_process.terminate()
+    _log_queue = None
+    _log_process = None
+    _pending_init_msgs.clear()
+
+
+def init_logging(run_id: str, logging_config: LoggingConfig) -> None:
+    """
+    Register a run: create it in the main process (so it appears in the W&B UI
+    immediately), then send metadata to the worker so it can flush batches later.
+    """
     if logging_config.use_wandb:
         wandb.init(
             project=logging_config.project_name,
@@ -59,98 +211,48 @@ def init_logging(
             id=run_id,
             resume="never",
             config=logging_config.config,
+            group=logging_config.group_name,
             reinit="finish_previous",
         )
         wandb.log({"timestep": 0})
-        # wandb.finish()
+        wandb.finish()  # worker resumes with resume="must" on each flush
         jax.debug.print(
             "Init wandb {run}", run=f"{logging_config.run_name}_{run_id}, id={run_id}"
         )
 
+    use_wb = logging_config.use_wandb and not logging_config.sweep
+
+    init_msgs: list[tuple] = []
+    if logging_config.use_wandb:
+        init_msgs.append(
+            (
+                "init_wandb",
+                run_id,
+                logging_config.project_name,
+                f"{logging_config.run_name}_{run_id}",
+                use_wb,
+            )
+        )
     if logging_config.use_tensorboard:
         log_dir = os.path.join(logging_config.folder or ".", "tensorboard", run_id)
+        config_str = json.dumps(logging_config.config, indent=2, default=str)
+        init_msgs.append(("init_tb", run_id, log_dir, config_str))
 
-        writer = SummaryWriter(log_dir=log_dir)
-        writer.add_text(
-            "config",
-            json.dumps(logging_config.config, indent=2, default=str),
-            global_step=0,
-        )
-
-        tensorboard_writers[run_id] = writer
+    for msg in init_msgs:
+        if _log_queue is not None:
+            _log_queue.put(msg)
+        else:
+            _pending_init_msgs.append(msg)
 
 
-def log_variables(variables_to_log: dict, commit: bool = True):
-    """Log variables into wandb"""
+def log_variables(variables_to_log: dict, commit: bool = True) -> None:
+    """Log variables into the currently-active wandb run (main process)."""
     wandb.log(variables_to_log, commit=commit)
 
 
-def finish_logging():
-    """Terminate the wandb run"""
+def finish_logging() -> None:
+    """Terminate the active wandb run in the main process."""
     wandb.finish()
-
-
-def start_async_logging():
-    """Start the async logging thread"""
-    global logging_thread
-    if logging_thread is None or not logging_thread.is_alive():
-        stop_logging.clear()
-        logging_thread = threading.Thread(target=_logging_worker)
-        logging_thread.daemon = True
-        logging_thread.start()
-
-
-def stop_async_logging():
-    """Stop the async logging thread and close TensorBoard writers"""
-    global logging_thread
-    if logging_thread is not None:
-        # Wait until all queued logging tasks are marked done
-        logging_queue.join()
-        stop_logging.set()
-        logging_thread.join()
-        logging_thread = None
-
-    for writer in tensorboard_writers.values():
-        writer.close()
-    # tensorboard_writers.clear()
-
-
-def _logging_worker():
-    """Worker thread that processes logging queue"""
-    while not stop_logging.is_set():
-        try:
-            item = logging_queue.get(timeout=0.1)
-            if item is None:
-                continue
-
-            run_id, metrics, step, project, name, use_wandb = item
-
-            if project is not None and use_wandb:
-                while True:
-                    try:
-                        run = wandb.init(
-                            project=project,
-                            name=f"{name} {run_id}",
-                            id=run_id,
-                            resume="must",
-                            reinit="finish_previous",
-                        )
-                        run.log(metrics, step=step)
-                        break  # success → exit retry loop
-                    except (wandb.errors.UsageError, OSError) as e:
-                        print(f"W&B log failed, retrying: {e}")
-
-            writer = tensorboard_writers.get(run_id)
-            if writer:
-                for key, value in metrics.items():
-                    writer.add_scalar(key, value.item(), step)
-
-            logging_queue.task_done()
-        except queue.Empty:
-            continue
-        except Exception as e:
-            print(f"Error in logging worker: {e}")
-            continue
 
 
 def flatten_dict(d: Dict) -> Dict:
@@ -176,28 +278,20 @@ def vmap_log(
     index: int,
     run_ids: Tuple[int],
     logging_config: LoggingConfig,
-):
-    """Log metrics from a batched setup using vmap-style parallelism"""
-    run_id = run_ids[index]
+) -> None:
+    """Forward per-seed metrics to the logging process."""
+    if _log_queue is None:
+        return None
 
+    run_id = run_ids[index]
     metrics_np = {
         k: jax.device_get(v)
         for k, v in log_metrics.items()
         if not jnp.any(jnp.isnan(v))
     }
+    step = int(metrics_np["timestep"])
 
-    step = log_metrics["timestep"]
-    logging_queue.put(
-        (
-            run_id,
-            metrics_np,
-            step,
-            logging_config.project_name,
-            logging_config.run_name,
-            logging_config.use_wandb and not logging_config.sweep,
-        )
-    )
-
+    _log_queue.put(("log", run_id, metrics_np, step))
     return None
 
 
@@ -273,27 +367,10 @@ def merge_and_upload_tensorboard_to_wandb(log_dir: str):
     Merge all TensorBoard event files in `log_dir` and upload to WandB
     with guaranteed step ordering and no duplicates.
     """
-
-    # event_files = list(Path(log_dir).glob("**/events.out.tfevents*"))
-
-    # all_events = defaultdict(list)  # {tag_name: [(step, value), ...]}
-    # import tensorboardX
-
-    # # Step 1: Read all events and collect by tag
-    # for event_file in tqdm(event_files, desc="Reading TensorBoard events"):
-    #     for e in tensorboardX.compat.v1.train.summary_iterator(str(event_file)):
-    #         if e.summary is None:
-    #             continue
-    #         for v in e.summary.value:
-    #             # Only handle scalars
-    #             if v.HasField("simple_value"):
-    #                 all_events[v.tag].append((e.step, v.simple_value))
     all_events = load_scalars_from_tfevents(log_dir)
-    # Step 2: Sort events by step per tag and remove duplicates
+    # Sort events by step per tag and remove duplicates
     for tag, values in all_events.items():
-        # Sort by step
         values.sort(key=lambda x: x[0])
-        # Deduplicate (keep last value for duplicate steps)
         deduped = []
         last_step = None
         for step, val in values:
@@ -309,10 +386,8 @@ def merge_and_upload_tensorboard_to_wandb(log_dir: str):
         for step, val in values:
             all_events_flat.append((step, tag, val))
 
-    # Sort by step
     all_events_flat.sort(key=lambda x: x[0])
 
-    # Step 3: Upload to WandB
     for step, tag, val in tqdm(all_events_flat, desc="Uploading to WandB"):
         wandb.log({tag: val}, step=step)
 
@@ -325,8 +400,7 @@ def upload_tensorboard_to_wandb(
     base_folder: Optional[str] = None,
 ):
     """
-    Upload existing TensorBoard log directories to W&B for the given run_ids,
-    then optionally clean up.
+    Upload existing TensorBoard log directories to W&B for the given run_ids.
 
     Args:
         run_ids: List of run IDs corresponding to TensorBoard runs.
@@ -351,17 +425,5 @@ def upload_tensorboard_to_wandb(
                 id=run_id,
             )
             merge_and_upload_tensorboard_to_wandb(log_dir)
-            # # Find all event files
-            # event_files = glob.glob(
-            #     os.path.join(log_dir, "**", "events*"), recursive=True
-            # )
-            # # wandb.log({"empty": 1})
-
-            # for event_file in tqdm(event_files):
-            #     for e in tf.compat.v1.train.summary_iterator(event_file):
-            #         if e.summary is not None:
-            #             wandb.tensorboard._log(e.summary, step=e.step)
-            # time.sleep(60)
-            # wandb.finish()
         except Exception as e:
             print(f"Failed to upload TensorBoard logs for run {run_id} to W&B: {e}")

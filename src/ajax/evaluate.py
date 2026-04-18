@@ -92,6 +92,10 @@ def step_environment(
     continuous,
     expert_policy=None,
     action_scale=1.0,
+    early_termination_condition=None,
+    expert_handover: bool = False,
+    train_frac: Optional[float] = None,
+    eval_action_transform: Optional[Callable] = None,
 ):
     """Return a pure function for environment stepping."""
 
@@ -105,7 +109,19 @@ def step_environment(
             actor_state, recurrent, continuous
         )(obs, done if recurrent else None)
         expert_actions = expert_policy(obs) if expert_policy is not None else 0.0
-        actions = raw_actions * action_scale + expert_actions
+
+        inside_the_box = (
+            early_termination_condition(state, env_params).reshape(-1, 1)
+            if early_termination_condition is not None
+            else 0.0
+        )
+
+        if eval_action_transform is not None:
+            actions = eval_action_transform(raw_actions, expert_actions)
+        else:
+            actions = (
+                1.0 - inside_the_box
+            ) * raw_actions + inside_the_box * expert_actions
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
@@ -114,6 +130,17 @@ def step_environment(
             mode,
             env_params,
         )
+        if train_frac is not None:
+            new_col = jnp.full((obs.shape[0], 1), train_frac)
+            obs = jnp.concatenate([obs, new_col], axis=-1)
+        # jax.debug.print(
+        #     "inside:{x}, action:{y}, expert:{z}, reward:{a}",
+        #     x=inside_the_box[0],
+        #     y=actions[0],
+        #     z=expert_actions[0],
+        #     a=new_rewards,
+        # )
+
         new_done = jnp.logical_or(new_term, new_trunc)
         still_running = 1 - done
 
@@ -142,8 +169,11 @@ def step_environment_expert(mode, env, env_params, expert_policy):
         rewards, rng, obs, done, state, entropy_sum, step_count, step_count_2, _ = carry
         rng, step_key = jax.random.split(rng)
         step_keys = (
-            jax.random.split(step_key, obs.shape[0]) if mode == "gymnax" else step_key
+            jax.random.split(step_key, obs.shape[0])
+            if mode == "gymnax" and obs.ndim > 1
+            else step_key
         )
+
         actions = expert_policy(obs)
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys, state, actions, env, mode, env_params
@@ -181,8 +211,9 @@ def while_env_not_done(carry):
         "env",
         "avg_reward_mode",
         "expert_policy",
-        "imitation_coef",
         "action_scale",
+        "early_termination_condition",
+        "eval_action_transform",
     ],
 )
 def evaluate(
@@ -198,8 +229,10 @@ def evaluate(
     avg_reward_mode: bool = False,
     num_steps_average_reward: int = int(1e4),
     expert_policy: Optional[Callable] = None,
-    imitation_coef: float = 0.0,
     action_scale: float = 1.0,
+    early_termination_condition: Optional[Callable] = None,
+    train_frac: Optional[float] = None,
+    eval_action_transform: Optional[Callable] = None,
 ) -> jax.Array:
     # Setup
     env, mode, continuous = setup_environment(
@@ -210,9 +243,25 @@ def evaluate(
         jax.random.split(reset_key, num_episodes) if mode == "gymnax" else reset_key
     )
     obs, state = reset(reset_keys, env, mode, env_params)
+    if train_frac is not None:
+        new_col = jnp.full((obs.shape[0], 1), train_frac)
+        obs_agent = jnp.concatenate([obs, new_col], axis=-1)
+    else:
+        obs_agent = obs
 
     # Initial carry
-    init_carry = (
+    init_carry_agent = (
+        jnp.zeros(num_episodes),  # rewards
+        key,
+        obs_agent,
+        jnp.zeros(num_episodes, dtype=jnp.int8),  # done
+        state,
+        jnp.zeros(1),  # entropy_sum
+        jnp.zeros(1),  # step_count
+        jnp.zeros(1),  # step_count_2
+        jnp.zeros(num_episodes),  # last reward
+    )
+    init_carry_expert = (
         jnp.zeros(num_episodes),  # rewards
         key,
         obs,
@@ -232,13 +281,16 @@ def evaluate(
         recurrent,
         actor_state,
         continuous,
-        expert_policy=expert_policy if imitation_coef > 0.0 else None,
+        expert_policy=expert_policy,
         action_scale=action_scale,
+        early_termination_condition=early_termination_condition,
+        train_frac=train_frac,
+        eval_action_transform=eval_action_transform,
     )
 
     # Main loop
     rewards, _, _, _, _, entropy_sum, step_count, step_count_2, _ = jax.lax.while_loop(
-        while_env_not_done, step_fn, init_carry
+        while_env_not_done, step_fn, init_carry_agent
     )
 
     # Optionally compute expert comparison
@@ -247,7 +299,7 @@ def evaluate(
         rewards_expert, *_ = jax.lax.while_loop(
             while_env_not_done,
             step_environment_expert(mode, env, env_params, expert_policy),
-            init_carry,
+            init_carry_expert,
         )
 
     # Optional average-reward mode
@@ -259,7 +311,7 @@ def evaluate(
             return carry, carry[-1]
 
         _, rewards_over_time = jax.lax.scan(
-            scan_step, init_carry, None, length=num_steps_average_reward
+            scan_step, init_carry_agent, None, length=num_steps_average_reward
         )
         avg_reward = rewards_over_time.mean(axis=0)
         bias = jnp.nansum(rewards_over_time - avg_reward, axis=0)

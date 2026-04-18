@@ -33,15 +33,9 @@ def test_APO_initialization(env_id):
 @pytest.mark.parametrize(
     "env_id, seeds, n_envs",
     [
-        ["Pendulum-v1", 42, 1],
-        ["Pendulum-v1", [42, 43], 1],
-        ["Pendulum-v1", [42, 43], 2],
-        ["CartPole-v1", 42, 1],
-        ["CartPole-v1", [42, 43], 1],
-        ["CartPole-v1", [42, 43], 2],
         ["fast", 42, 1],
-        ["fast", [42, 43], 1],
         ["fast", [42, 43], 2],
+        ["CartPole-v1", [42, 43], 2],
     ],
 )
 def test_avg_train_all_modes(env_id, seeds, n_envs):

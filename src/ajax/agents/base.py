@@ -1,3 +1,4 @@
+import time
 from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
@@ -115,6 +116,7 @@ class ActorCritic:
         n_timesteps: int = int(1e6),
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
+        on_ids_ready: Optional[Callable] = None,
         **kwargs,
     ) -> BaseAgentState:
         """
@@ -137,27 +139,35 @@ class ActorCritic:
         else:
             self.run_ids = []
 
+        if on_ids_ready is not None:
+            on_ids_ready(self.run_ids)
+
+        train_jit = self.get_make_train()(
+            env_args=self.env_args,
+            actor_optimizer_args=self.actor_optimizer_args,
+            critic_optimizer_args=self.critic_optimizer_args,
+            network_args=self.network_args,
+            agent_config=self.agent_config,
+            total_timesteps=n_timesteps,
+            num_episode_test=num_episode_test,
+            run_ids=self.run_ids,
+            logging_config=logging_config,
+            **kwargs,
+        )
+
         def set_key_and_train(seed, index):
             key = jax.random.PRNGKey(seed)
-
-            train_jit = self.get_make_train()(
-                env_args=self.env_args,
-                actor_optimizer_args=self.actor_optimizer_args,
-                critic_optimizer_args=self.critic_optimizer_args,
-                network_args=self.network_args,
-                agent_config=self.agent_config,
-                total_timesteps=n_timesteps,
-                num_episode_test=num_episode_test,
-                run_ids=self.run_ids,
-                logging_config=logging_config,
-                **kwargs,
-            )
-
-            agent_state, out = train_jit(key, index)
-            stop_async_logging()
-
-            return agent_state, out
+            return train_jit(key, index)
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        _t0 = time.time()
+        result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        # Block until all XLA computation and debug.callbacks complete, then
+        # drain and stop the logging worker.  Calling stop_async_logging()
+        # inside the vmapped function was wrong: it ran as a Python side effect
+        # during vmap *tracing* (before any training executed), killing the
+        # worker before any log events were queued.
+        jax.block_until_ready(result)
+        stop_async_logging()
+        return result

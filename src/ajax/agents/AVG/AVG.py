@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Optional
+from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -19,6 +19,7 @@ from ajax.logging.wandb_logging import (
     stop_async_logging,
     with_wandb_silent,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import EnvType
 
@@ -46,6 +47,13 @@ class AVG:
         beta_1: float = 0,
         beta_2: float = 0.999,
         num_critics: int = 1,
+        expert_policy: Optional[Callable] = None,
+        pid_actor_config: Optional[PIDActorConfig] = None,
+        action_pipeline: Optional[Callable] = None,
+        eval_action_transform: Optional[Callable] = None,
+        target_modifier: Optional[Callable] = None,
+        obs_preprocessor: Optional[Callable] = None,
+        policy_action_transform: Optional[Callable] = None,
     ) -> None:
         """
         Initialize the AVG agent.
@@ -123,6 +131,14 @@ class AVG:
             num_critics=num_critics,
         )
 
+        self.expert_policy = expert_policy
+        self.pid_actor_config = pid_actor_config
+        self.action_pipeline = action_pipeline
+        self.eval_action_transform = eval_action_transform
+        self.target_modifier = target_modifier
+        self.obs_preprocessor = obs_preprocessor
+        self.policy_action_transform = policy_action_transform
+
     @with_wandb_silent
     def train(
         self,
@@ -164,6 +180,13 @@ class AVG:
                 num_episode_test=num_episode_test,
                 run_ids=run_ids,
                 logging_config=logging_config,
+                expert_policy=self.expert_policy,
+                pid_actor_config=self.pid_actor_config,
+                action_pipeline=self.action_pipeline,
+                eval_action_transform=self.eval_action_transform,
+                target_modifier=self.target_modifier,
+                obs_preprocessor=self.obs_preprocessor,
+                policy_action_transform=self.policy_action_transform,
             )
 
             agent_state = train_jit(key, index)
@@ -172,7 +195,7 @@ class AVG:
 
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
-        jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
 
 
 if __name__ == "__main__":

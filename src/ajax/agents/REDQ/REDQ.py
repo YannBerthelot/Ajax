@@ -5,7 +5,7 @@ from typing import Callable, Optional, Union
 from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
+from ajax.agents.cloning import CloningConfig
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
 from ajax.buffers.utils import get_buffer
@@ -16,6 +16,7 @@ from ajax.environments.utils import (
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import AlphaConfig, NetworkConfig
 from ajax.types import EnvType
 
@@ -61,6 +62,12 @@ class REDQ(ActorCritic):
         imitation_coef: Union[float, Callable[[int], float]] = 0.0,
         distance_to_stable: Optional[Callable] = None,
         imitation_coef_offset: float = 0.0,
+        pid_actor_config: Optional[PIDActorConfig] = None,
+        action_pipeline: Optional[Callable] = None,
+        eval_action_transform: Optional[Callable] = None,
+        target_modifier: Optional[Callable] = None,
+        obs_preprocessor: Optional[Callable] = None,
+        policy_action_transform: Optional[Callable] = None,
     ) -> None:
         """
         Initialize the REDQ agent.
@@ -146,6 +153,12 @@ class REDQ(ActorCritic):
             imitation_coef_offset=imitation_coef_offset,
         )
         self.expert_policy = expert_policy
+        self.pid_actor_config = pid_actor_config
+        self.action_pipeline = action_pipeline
+        self.eval_action_transform = eval_action_transform
+        self.target_modifier = target_modifier
+        self.obs_preprocessor = obs_preprocessor
+        self.policy_action_transform = policy_action_transform
 
     def get_make_train(self) -> Callable:
         """
@@ -160,6 +173,12 @@ class REDQ(ActorCritic):
             alpha_args=self.alpha_args,
             cloning_args=self.cloning_confing,
             expert_policy=self.expert_policy,
+            pid_actor_config=self.pid_actor_config,
+            action_pipeline=self.action_pipeline,
+            eval_action_transform=self.eval_action_transform,
+            target_modifier=self.target_modifier,
+            obs_preprocessor=self.obs_preprocessor,
+            policy_action_transform=self.policy_action_transform,
         )
 
 

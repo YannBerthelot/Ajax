@@ -16,6 +16,7 @@ from ajax.logging.wandb_logging import (
     LoggingConfig,
     upload_tensorboard_to_wandb,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -47,6 +48,12 @@ class ASAC(ActorCritic):
         lstm_hidden_size: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        pid_actor_config: Optional[PIDActorConfig] = None,
+        action_pipeline: Optional[Callable] = None,
+        eval_action_transform: Optional[Callable] = None,
+        target_modifier: Optional[Callable] = None,
+        obs_preprocessor: Optional[Callable] = None,
+        policy_action_transform: Optional[Callable] = None,
     ) -> None:
         """
         Initialize the ASAC agent.
@@ -108,6 +115,13 @@ class ASAC(ActorCritic):
             n_envs=n_envs,
         )
 
+        self.pid_actor_config = pid_actor_config
+        self.action_pipeline = action_pipeline
+        self.eval_action_transform = eval_action_transform
+        self.target_modifier = target_modifier
+        self.obs_preprocessor = obs_preprocessor
+        self.policy_action_transform = policy_action_transform
+
     def get_make_train(self) -> Callable:
         """
         Create a training function for the APO agent.
@@ -115,7 +129,17 @@ class ASAC(ActorCritic):
         Returns:
             Callable: A function that trains the APO agent.
         """
-        return partial(make_train, buffer=self.buffer, alpha_args=self.alpha_args)
+        return partial(
+            make_train,
+            buffer=self.buffer,
+            alpha_args=self.alpha_args,
+            pid_actor_config=self.pid_actor_config,
+            action_pipeline=self.action_pipeline,
+            eval_action_transform=self.eval_action_transform,
+            target_modifier=self.target_modifier,
+            obs_preprocessor=self.obs_preprocessor,
+            policy_action_transform=self.policy_action_transform,
+        )
 
 
 if __name__ == "__main__":

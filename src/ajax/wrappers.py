@@ -301,7 +301,7 @@ def normalize_wrapper_factory(
                 @struct.dataclass
                 class NormalizedEnvState(BaseState):  # type: ignore[valid-type]
                     # Inherit from the actual env_state class
-                    normalization_info: NormalizationInfo
+                    normalization_info: Optional[NormalizationInfo] = None
 
                 self.state_class = NormalizedEnvState
 

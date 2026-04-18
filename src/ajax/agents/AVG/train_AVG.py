@@ -1080,17 +1080,13 @@ def make_train(
             policy_action_transform=policy_action_transform,
         )
 
-        agent_state, _ = jax.lax.scan(
+        agent_state, metrics = jax.lax.scan(
             f=training_iteration_scan_fn,
             init=agent_state,
             xs=None,
             length=num_updates,
         )
 
-        # Stop async logging if it was started
-        # if logging_config is not None:
-        #     stop_async_logging()
-
-        return agent_state
+        return agent_state, metrics
 
     return train

@@ -6,7 +6,7 @@ from gymnax import EnvParams
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
-from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
+from ajax.agents.cloning import CloningConfig
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )

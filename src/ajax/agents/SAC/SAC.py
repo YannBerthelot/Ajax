@@ -4,7 +4,7 @@ from typing import Callable, Optional, Union
 from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
+from ajax.agents.cloning import CloningConfig
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer

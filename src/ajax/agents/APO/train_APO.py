@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, Callable, Dict, Optional, Tuple
 
+import distrax
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -13,13 +14,15 @@ from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
 from ajax.agents.cloning import (
     CloningConfig,
+    compute_imitation_score,
     get_cloning_args,
     get_pre_trained_agent,
 )
-from ajax.agents.PPO.train_PPO_pre_train import PolicyAuxiliaries, update_policy
 from ajax.agents.PPO.utils import get_minibatches_from_batch
+from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
+    get_pi,
     init_collector_state,
 )
 from ajax.environments.utils import (
@@ -56,6 +59,19 @@ def get_alpha_from_params(params: FrozenDict) -> float:
 
 
 @struct.dataclass
+class PolicyAuxiliaries:
+    policy_loss: float
+    log_probs: float
+    old_log_probs: float
+    clip_fraction: float
+    entropy: float
+    distance: float
+    imitation_loss: float
+    base_loss: float
+    weighted_imitation_loss: float
+
+
+@struct.dataclass
 class ValueAuxiliaries:
     critic_loss: float
     predictions: float
@@ -66,6 +82,161 @@ class ValueAuxiliaries:
 class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+
+
+def compute_entropy_and_log_probs(pi, actions):
+    """Return new log_probs and entropy with shape normalization."""
+    if isinstance(pi, distrax.Categorical):
+        new_log_probs = jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
+        entropy = jnp.expand_dims(pi.entropy(), -1)
+    else:
+        new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
+        entropy = (
+            pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
+        )
+    return new_log_probs, entropy
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        "recurrent",
+        "advantage_normalization",
+        "expert_policy",
+        "distance_to_stable",
+        "imitation_coef_offset",
+        "obs_preprocessor",
+    ],
+)
+def policy_loss_function(
+    actor_params: FrozenDict,
+    actor_state: LoadedTrainState,
+    observations: jax.Array,
+    actions: jax.Array,
+    log_probs: jax.Array,
+    gae: jax.Array,
+    dones: Optional[jax.Array],
+    recurrent: bool,
+    clip_coef: float,
+    ent_coef: float,
+    advantage_normalization: bool,
+    raw_observations: Optional[jax.Array] = None,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 0.01,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 1e-3,
+    obs_preprocessor: Optional[Callable] = None,
+) -> Tuple[jax.Array, PolicyAuxiliaries]:
+    obs_for_actor = (
+        obs_preprocessor(observations) if obs_preprocessor is not None else observations
+    )
+    pi, _ = get_pi(
+        actor_state=actor_state,
+        actor_params=actor_params,
+        obs=obs_for_actor,
+        done=dones,
+        recurrent=recurrent,
+    )
+
+    new_log_probs, entropy = compute_entropy_and_log_probs(pi, actions)
+
+    ratio = jnp.exp(new_log_probs - log_probs)
+
+    if advantage_normalization:
+        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
+
+    assert (
+        ratio.shape[0] == gae.shape[0]
+    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    loss_actor1 = ratio * gae
+    loss_actor2 = (
+        jnp.clip(ratio, 1.0 - clip_coef, 1.0 + clip_coef) * gae
+    )
+
+    loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
+
+    clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
+
+    imitation_loss = compute_imitation_score(
+        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset
+    ).mean()
+
+    entropy_loss = entropy.mean()
+
+    total_loss = (
+        loss_actor - ent_coef * entropy_loss + imitation_coef * imitation_loss
+    ).mean()
+
+    return total_loss, PolicyAuxiliaries(
+        policy_loss=total_loss,
+        log_probs=new_log_probs.mean(),
+        old_log_probs=log_probs.mean(),
+        clip_fraction=clip_fraction,
+        entropy=entropy,
+        distance=distance_to_stable(raw_observations).mean(),
+        imitation_loss=imitation_loss.mean(),
+        base_loss=(loss_actor - ent_coef * entropy).mean(),
+        weighted_imitation_loss=imitation_coef * imitation_loss.mean(),
+    )
+
+
+POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        "recurrent",
+        "advantage_normalization",
+        "expert_policy",
+        "distance_to_stable",
+        "imitation_coef_offset",
+        "obs_preprocessor",
+    ],
+)
+def update_policy(
+    agent_state: APOState,
+    observations: jax.Array,
+    actions: jax.Array,
+    gae: jax.Array,
+    log_probs: jax.Array,
+    done: Optional[jax.Array],
+    recurrent: bool,
+    clip_coef: float,
+    ent_coef: float,
+    advantage_normalization: bool,
+    raw_observations: jax.Array,
+    expert_policy: Optional[Callable] = None,
+    imitation_coef: float = 1e-3,
+    distance_to_stable: Callable = get_one,
+    imitation_coef_offset: float = 1e-3,
+    obs_preprocessor: Optional[Callable] = None,
+) -> Tuple[APOState, Dict[str, Any]]:
+    (loss, aux), grads = POLICY_AND_GRAD_FN(
+        agent_state.actor_state.params,
+        agent_state.actor_state,
+        observations=observations,
+        actions=actions,
+        log_probs=log_probs,
+        gae=gae,
+        dones=done,
+        recurrent=recurrent,
+        clip_coef=clip_coef,
+        ent_coef=ent_coef,
+        advantage_normalization=advantage_normalization,
+        raw_observations=raw_observations,
+        expert_policy=expert_policy,
+        imitation_coef=imitation_coef,
+        distance_to_stable=distance_to_stable,
+        imitation_coef_offset=imitation_coef_offset,
+        obs_preprocessor=obs_preprocessor,
+    )
+
+    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
+    agent_state = agent_state.replace(
+        actor_state=updated_actor_state,
+    )
+    return agent_state, aux
 
 
 def create_alpha_train_state(

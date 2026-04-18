@@ -5,7 +5,7 @@ from typing import Callable, Optional, Union
 from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
+from ajax.agents.cloning import CloningConfig
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
 from ajax.buffers.utils import get_buffer

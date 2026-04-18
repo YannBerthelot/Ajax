@@ -316,23 +316,26 @@ files = [
 
 [[package]]
 name = "chex"
-version = "0.1.90"
+version = "0.1.91"
 description = "Chex: Testing made fun, in JAX!"
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.11"
 files = [
-    {file = "chex-0.1.90-py3-none-any.whl", hash = "sha256:fce3de82588f72d4796e545e574a433aa29229cbdcf792555e41bead24b704ae"},
-    {file = "chex-0.1.90.tar.gz", hash = "sha256:d3c375aeb6154b08f1cccd2bee4ed83659ee2198a6acf1160d2fe2e4a6c87b5c"},
+    {file = "chex-0.1.91-py3-none-any.whl", hash = "sha256:6fc4cbfc22301c08d4a7ef706045668410100962eba8ba6af03fa07f4e5dcf9b"},
+    {file = "chex-0.1.91.tar.gz", hash = "sha256:65367a521415ada905b8c0222b0a41a68337fcadf79a1fb6fc992dbd95dd9f76"},
 ]
 
 [package.dependencies]
-absl-py = ">=0.9.0"
-jax = ">=0.4.27"
-jaxlib = ">=0.4.27"
+absl-py = ">=2.3.1"
+jax = ">=0.7.0"
+jaxlib = ">=0.7.0"
 numpy = ">=1.24.1"
-setuptools = {version = "*", markers = "python_version >= \"3.12\""}
-toolz = ">=0.9.0"
-typing_extensions = ">=4.2.0"
+toolz = ">=1.0.0"
+typing_extensions = ">=4.15.0"
+
+[package.extras]
+docs = ["sphinx (>=6.0.0)", "sphinx-book-theme (>=1.0.1)", "sphinxcontrib-katex"]
+test = ["cloudpickle (==3.1.0)", "dm-tree (>=0.1.9)"]
 
 [[package]]
 name = "click"
@@ -1127,8 +1130,8 @@ test = ["brax", "chex", "flax", "minatar"]
 [package.source]
 type = "git"
 url = "https://github.com/YannBerthelot/gymnax.git"
-reference = "terminal_state_tracking"
-resolved_reference = "bf75295e5f6bda046feee217150ca70e9fcd98e7"
+reference = "HEAD"
+resolved_reference = "b3da390da062a2a93c3508114b6c562609c46a80"
 
 [[package]]
 name = "humanize"
@@ -1687,20 +1690,6 @@ files = [
 ]
 
 [[package]]
-name = "memory-profiler"
-version = "0.61.0"
-description = "A module for monitoring memory usage of a python program"
-optional = false
-python-versions = ">=3.5"
-files = [
-    {file = "memory_profiler-0.61.0-py3-none-any.whl", hash = "sha256:400348e61031e3942ad4d4109d18753b2fb08c2f6fb8290671c5513a34182d84"},
-    {file = "memory_profiler-0.61.0.tar.gz", hash = "sha256:4e5b73d7864a1d1292fb76a03e82a3e78ef934d06828a698d9dada76da2067b0"},
-]
-
-[package.dependencies]
-psutil = "*"
-
-[[package]]
 name = "ml-collections"
 version = "1.0.0"
 description = "ML Collections is a library of Python collections designed for ML usecases."
@@ -2257,20 +2246,6 @@ files = [
 ]
 
 [[package]]
-name = "objgraph"
-version = "3.6.2"
-description = "Draws Python object reference graphs with graphviz"
-optional = false
-python-versions = ">=3.7"
-files = [
-    {file = "objgraph-3.6.2-py3-none-any.whl", hash = "sha256:8114c97712291c3ba30d882406a384d0a7651b307ea9a06e0d83836ccde85e15"},
-    {file = "objgraph-3.6.2.tar.gz", hash = "sha256:00b9f2f40f7422e3c7f45a61c4dafdaf81f03ff0649d6eaec866f01030e51ad8"},
-]
-
-[package.extras]
-ipython = ["graphviz"]
-
-[[package]]
 name = "opt-einsum"
 version = "3.4.0"
 description = "Path optimization of einsum functions."
@@ -2620,6 +2595,28 @@ identify = ">=1.0.0"
 nodeenv = ">=0.11.1"
 pyyaml = ">=5.1"
 virtualenv = ">=20.10.0"
+
+[[package]]
+name = "probing-environments"
+version = "0.4.0"
+description = "Probing environments for RL/DeepRL algorithms debugging"
+optional = false
+python-versions = ">=3.11,<4.0"
+files = []
+develop = false
+
+[package.dependencies]
+chex = "^0.1.91"
+gymnasium = ">=1.2"
+gymnax = {git = "https://github.com/YannBerthelot/gymnax.git"}
+mypy-extensions = "^1.0.0"
+pytest = "^7.4.0"
+
+[package.source]
+type = "git"
+url = "https://github.com/YannBerthelot/ProbingEnvironments.git"
+reference = "HEAD"
+resolved_reference = "644c86d3323832130d63334312afcfbc3a02a05a"
 
 [[package]]
 name = "proglog"
@@ -4227,5 +4224,5 @@ type = ["pytest-mypy"]
 
 [metadata]
 lock-version = "2.0"
-python-versions = ">=3.11"
-content-hash = "7fd309890e5fdb0914904996269e2d641e50bfedb9da6f349e849699e2596a4f"
+python-versions = ">=3.11,<4.0"
+content-hash = "29d932b348d84aa9fe94cb5e93c13c17098ddf7a079dfd2b8ae1497d56c234ed"

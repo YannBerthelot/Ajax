@@ -6,7 +6,7 @@ authors = ["Yann Berthelot <yannberthelot1@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11"
+python = ">=3.11,<4.0"
 gymnasium = "^1.2.0"
 tqdm = "^4.65.0"
 pandas = "^2.1.1"
@@ -21,7 +21,7 @@ brax = {git = "https://github.com/YannBerthelot/brax.git", rev = "get_obs_fast_e
 mujoco = "^3.1.4"
 mujoco-mjx = "^3.1.4"
 python-dotenv = "^1.1.1"
-gymnax = {git = "https://github.com/YannBerthelot/gymnax.git", rev = "terminal_state_tracking"}
+gymnax = {git = "https://github.com/YannBerthelot/gymnax.git"}
 target-gym = "^0.3.1"
 distrax = ">=0.1.6"
 tensorboardx = "^2.6.4"
@@ -41,6 +41,7 @@ coverage = {extras = ["toml"], version = "^7.8.0"}
 pytest-mock = "^3.14.0"
 mock = "^5.1.0"
 ruff = "^0.11.6"
+probing-environments = {git = "https://github.com/YannBerthelot/ProbingEnvironments.git"}
 
 
 [tool.poetry.group.render.dependencies]

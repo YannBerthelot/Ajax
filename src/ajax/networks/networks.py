@@ -12,7 +12,7 @@ from flax.serialization import to_state_dict
 
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.agents.SAC.pid_actor import PIDActorConfig, PIDActorNetwork
+from ajax.modules.pid_actor import PIDActorConfig, PIDActorNetwork
 from ajax.networks.scanned_rnn import ScannedRNN
 from ajax.networks.utils import (
     get_adam_tx,

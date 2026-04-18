@@ -31,6 +31,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     predict_value,
 )
@@ -92,6 +93,7 @@ def compute_entropy_and_log_probs(pi, actions):
         "expert_policy",
         "distance_to_stable",
         "imitation_coef_offset",
+        "obs_preprocessor",
     ],
 )
 def policy_loss_function(
@@ -111,6 +113,7 @@ def policy_loss_function(
     imitation_coef: float = 0.01,
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -128,10 +131,13 @@ def policy_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
+    obs_for_actor = (
+        obs_preprocessor(observations) if obs_preprocessor is not None else observations
+    )
     pi, _ = get_pi(
         actor_state=actor_state,
         actor_params=actor_params,
-        obs=observations,
+        obs=obs_for_actor,
         done=dones,
         recurrent=recurrent,
     )
@@ -197,6 +203,7 @@ POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
         "expert_policy",
         "distance_to_stable",
         "imitation_coef_offset",
+        "obs_preprocessor",
     ],
 )
 def update_policy(
@@ -215,6 +222,7 @@ def update_policy(
     imitation_coef: float = 1e-3,
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -246,6 +254,7 @@ def update_policy(
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
         imitation_coef_offset=imitation_coef_offset,
+        obs_preprocessor=obs_preprocessor,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -263,6 +272,7 @@ def update_policy(
         "expert_policy",
         "distance_to_stable",
         "imitation_coef_offset",
+        "obs_preprocessor",
     ],
 )
 def update_agent(
@@ -275,6 +285,7 @@ def update_agent(
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 0.0,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> Tuple[PPOState, AuxiliaryLogs]:
     """
     Update the PPO agent, including critic, actor, and temperature updates.
@@ -347,6 +358,7 @@ def update_agent(
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
         imitation_coef_offset=imitation_coef_offset,
+        obs_preprocessor=obs_preprocessor,
     )
 
     aux = AuxiliaryLogs(
@@ -379,6 +391,9 @@ def update_agent(
         "distance_to_stable",
         "imitation_coef_offset",
         "action_scale",
+        "action_pipeline",
+        "eval_action_transform",
+        "obs_preprocessor",
     ],
 )
 def training_iteration(
@@ -404,6 +419,9 @@ def training_iteration(
     distance_to_stable: Optional[Callable] = get_one,
     imitation_coef_offset: float = 1e-3,
     action_scale: float = 1.0,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -430,6 +448,7 @@ def training_iteration(
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
+        action_pipeline=action_pipeline,
     )
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
@@ -512,6 +531,7 @@ def training_iteration(
             imitation_coef=imitation_coef,
             distance_to_stable=distance_to_stable,
             imitation_coef_offset=imitation_coef_offset,
+            obs_preprocessor=obs_preprocessor,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=num_epochs
@@ -548,6 +568,7 @@ def training_iteration(
         # avg_reward_mode=True,
         expert_policy=expert_policy,
         action_scale=action_scale,
+        eval_action_transform=eval_action_transform,
     )
 
     jax.clear_caches()
@@ -567,6 +588,10 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
+    pid_actor_config: Optional[PIDActorConfig] = None,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
 ):
     """
     Create the training function for the PPO agent.
@@ -601,6 +626,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            pid_actor_config=pid_actor_config,
         )
 
         (
@@ -641,6 +667,9 @@ def make_train(
             horizon=(logging_config.horizon if logging_config is not None else None),
             total_n_updates=num_updates,
             expert_policy=expert_policy,
+            action_pipeline=action_pipeline,
+            eval_action_transform=eval_action_transform,
+            obs_preprocessor=obs_preprocessor,
             **cloning_parameters,
         )
 

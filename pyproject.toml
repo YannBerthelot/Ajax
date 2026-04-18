@@ -51,13 +51,6 @@ wandb = "^0.19.9"
 
 
 
-[tool.poetry.group.profiling.dependencies]
-objgraph = "^3.6.2"
-memory-profiler = "^0.61.0"
-
-
-
-
 [tool.poetry.group.hyperparameters.dependencies]
 optuna = "^4.5.0"
 

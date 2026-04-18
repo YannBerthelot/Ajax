@@ -10,6 +10,7 @@ from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -60,6 +61,10 @@ class APO(ActorCritic):
         imitation_coef: Union[float, Callable[[int], float]] = 0.0,
         distance_to_stable: Optional[Callable] = None,
         imitation_coef_offset: float = 0.0,
+        pid_actor_config: Optional[PIDActorConfig] = None,
+        action_pipeline: Optional[Callable] = None,
+        eval_action_transform: Optional[Callable] = None,
+        obs_preprocessor: Optional[Callable] = None,
     ) -> None:
         """
         Initialize the APO agent.
@@ -129,6 +134,10 @@ class APO(ActorCritic):
             imitation_coef_offset=imitation_coef_offset,
         )
         self.expert_policy = expert_policy
+        self.pid_actor_config = pid_actor_config
+        self.action_pipeline = action_pipeline
+        self.eval_action_transform = eval_action_transform
+        self.obs_preprocessor = obs_preprocessor
 
     def get_make_train(self) -> Callable:
         """
@@ -141,6 +150,10 @@ class APO(ActorCritic):
             make_train,
             cloning_args=self.cloning_confing,
             expert_policy=self.expert_policy,
+            pid_actor_config=self.pid_actor_config,
+            action_pipeline=self.action_pipeline,
+            eval_action_transform=self.eval_action_transform,
+            obs_preprocessor=self.obs_preprocessor,
         )
 
 

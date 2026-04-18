@@ -5,7 +5,7 @@ from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
-from ajax.agents.SAC.pid_actor import PIDActorConfig
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer
@@ -118,6 +118,13 @@ class SAC(ActorCritic):
         phi_refresh_steps: int = 20,
         # PID actor: actor network predicts PID gains instead of raw actions.
         pid_actor_config: Optional[PIDActorConfig] = None,
+        # --- Composable hook overrides (None = build from flags above) ---
+        action_pipeline: Optional[Callable] = None,
+        target_modifier: Optional[Callable] = None,
+        obs_preprocessor: Optional[Callable] = None,
+        policy_action_transform: Optional[Callable] = None,
+        eval_action_transform: Optional[Callable] = None,
+        runtime_maintenance: Optional[Callable] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -204,6 +211,12 @@ class SAC(ActorCritic):
         self.phi_refresh_interval = phi_refresh_interval
         self.phi_refresh_steps = phi_refresh_steps
         self.pid_actor_config = pid_actor_config
+        self.action_pipeline = action_pipeline
+        self.target_modifier = target_modifier
+        self.obs_preprocessor = obs_preprocessor
+        self.policy_action_transform = policy_action_transform
+        self.eval_action_transform = eval_action_transform
+        self.runtime_maintenance = runtime_maintenance
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -251,4 +264,10 @@ class SAC(ActorCritic):
             phi_refresh_interval=self.phi_refresh_interval,
             phi_refresh_steps=self.phi_refresh_steps,
             pid_actor_config=self.pid_actor_config,
+            action_pipeline=self.action_pipeline,
+            target_modifier=self.target_modifier,
+            obs_preprocessor=self.obs_preprocessor,
+            policy_action_transform=self.policy_action_transform,
+            eval_action_transform=self.eval_action_transform,
+            runtime_maintenance=self.runtime_maintenance,
         )

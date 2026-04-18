@@ -18,7 +18,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install Poetry
         run: |
@@ -38,5 +38,9 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          poetry run coverage run -m pytest
+          poetry run coverage run -m pytest --deselect tests/agents/test_probing.py
           poetry run coverage report --fail-under=70
+
+      - name: Run cross-agent probing tests
+        run: |
+          poetry run pytest tests/agents/test_probing.py -v

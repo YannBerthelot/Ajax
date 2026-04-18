@@ -32,6 +32,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
@@ -98,6 +99,7 @@ def init_APO(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     window_size: int = 10,
+    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> APOState:
     """
     Initialize the APO agent's state, including actor, critic, alpha, and collector states.
@@ -132,6 +134,7 @@ def init_APO(
         action_value=False,
         squash=False,
         num_critics=1,
+        pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
@@ -263,6 +266,7 @@ def update_value_functions(
         "imitation_coef",
         "distance_to_stable",
         "imitation_coef_offset",
+        "obs_preprocessor",
     ],
 )
 def update_agent(
@@ -276,6 +280,7 @@ def update_agent(
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 0.0,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> Tuple[APOState, AuxiliaryLogs]:
     """
     Update the APO agent, including critic, actor, and temperature updates.
@@ -350,6 +355,7 @@ def update_agent(
         imitation_coef=imitation_coef,
         distance_to_stable=distance_to_stable,
         imitation_coef_offset=imitation_coef_offset,
+        obs_preprocessor=obs_preprocessor,
     )
 
     aux = AuxiliaryLogs(
@@ -382,6 +388,9 @@ def update_agent(
         "distance_to_stable",
         "imitation_coef_offset",
         "action_scale",
+        "action_pipeline",
+        "eval_action_transform",
+        "obs_preprocessor",
     ],
 )
 def training_iteration(
@@ -407,6 +416,9 @@ def training_iteration(
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
     action_scale: float = 1.0,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> tuple[APOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -433,6 +445,7 @@ def training_iteration(
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
+        action_pipeline=action_pipeline,
     )
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
@@ -528,6 +541,7 @@ def training_iteration(
             imitation_coef=imitation_coef,
             distance_to_stable=distance_to_stable,
             imitation_coef_offset=imitation_coef_offset,
+            obs_preprocessor=obs_preprocessor,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=num_epochs
@@ -564,6 +578,7 @@ def training_iteration(
         avg_reward_mode=True,
         expert_policy=expert_policy,
         action_scale=action_scale,
+        eval_action_transform=eval_action_transform,
     )
 
     jax.clear_caches()
@@ -583,6 +598,10 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
+    pid_actor_config: Optional[PIDActorConfig] = None,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
 ):
     """
     Create the training function for the APO agent.
@@ -618,6 +637,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            pid_actor_config=pid_actor_config,
         )
 
         # pre-train agent
@@ -656,6 +676,9 @@ def make_train(
             horizon=(logging_config.horizon if logging_config is not None else None),
             total_n_updates=num_updates,
             expert_policy=expert_policy,
+            action_pipeline=action_pipeline,
+            eval_action_transform=eval_action_transform,
+            obs_preprocessor=obs_preprocessor,
             **cloning_parameters,
         )
 

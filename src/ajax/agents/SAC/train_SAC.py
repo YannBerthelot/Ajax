@@ -19,7 +19,7 @@ from ajax.agents.cloning import (
     get_pre_trained_agent,
 )
 from ajax.agents.SAC import core
-from ajax.agents.SAC.expert import (
+from ajax.modules.expert import (
     augment_obs_if_needed,
     blend_modify_target,
     compute_behavior_kpis,
@@ -29,7 +29,7 @@ from ajax.agents.SAC.expert import (
     mc_correction_modify_target,
     residual_action_transform,
 )
-from ajax.agents.SAC.exploration import (
+from ajax.modules.exploration import (
     EDGEAuxiliaries,
     box_action_override,
     box_compute_state,
@@ -41,7 +41,7 @@ from ajax.agents.SAC.exploration import (
     edge_compute_value_gap,
     edge_fixed_gate,
 )
-from ajax.agents.SAC.pretrain import (
+from ajax.modules.pretrain import (
     MCPretrainAux,
     PhiRefreshAuxiliaries,
     collect_and_store_expert_transitions,
@@ -1478,6 +1478,13 @@ def make_train(
     mc_preloaded_data: Optional[Tuple] = None,
     # PID actor: actor network predicts PID gains instead of raw actions.
     pid_actor_config=None,
+    # --- Composable hook overrides (None = build from flags above) ---
+    action_pipeline: Optional[Callable] = None,
+    target_modifier: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    runtime_maintenance: Optional[Callable] = None,
 ):
     """
     SAC training factory.
@@ -1621,8 +1628,9 @@ def make_train(
             )
         }
 
-        # Compose the action pipeline (replaces 8 exploration flags)
-        _action_pipeline = make_action_pipeline(
+        # Compose hooks: if the caller supplied an override, use it;
+        # otherwise build the default from the legacy boolean flags.
+        _action_pipeline = action_pipeline if action_pipeline is not None else make_action_pipeline(
             expert_policy=expert_policy,
             recurrent=network_args.lstm_hidden_size is not None,
             env_args=env_args,
@@ -1641,8 +1649,7 @@ def make_train(
             total_timesteps=total_timesteps,
         )
 
-        # Compose the critic target modifier (replaces ibrl/blend/mc flags)
-        _target_modifier = make_target_modifier(
+        _target_modifier = target_modifier if target_modifier is not None else make_target_modifier(
             ibrl_bootstrap=ibrl_bootstrap,
             use_critic_blend=use_critic_blend,
             critic_warmup_frac=critic_warmup_frac,
@@ -1653,24 +1660,21 @@ def make_train(
             recurrent=network_args.lstm_hidden_size is not None,
         )
 
-        # Compose policy modifiers (replace detach/bc/residual flags)
-        _obs_preprocessor = make_policy_obs_preprocessor(
+        _obs_preprocessor = obs_preprocessor if obs_preprocessor is not None else make_policy_obs_preprocessor(
             augment_obs_with_expert_action, detach_obs_aug_action, action_shape[0],
         )
-        _policy_action_transform = make_policy_action_transform(
+        _policy_action_transform = policy_action_transform if policy_action_transform is not None else make_policy_action_transform(
             use_residual_rl, expert_policy,
         )
         _bc_loss_fn = make_bc_loss_fn(
             use_online_bc, bc_coef, critic_warmup_frac, expert_policy,
         )
 
-        # Compose eval action transform (replaces use_residual_rl/use_pid_policy in evaluate.py)
-        _eval_action_transform = make_eval_action_transform(
+        _eval_action_transform = eval_action_transform if eval_action_transform is not None else make_eval_action_transform(
             use_residual_rl=use_residual_rl, use_pid_policy=use_pid_policy,
         )
 
-        # Compose runtime maintenance (replaces use_phi_refresh flags)
-        _runtime_maintenance = make_runtime_maintenance(
+        _runtime_maintenance = runtime_maintenance if runtime_maintenance is not None else make_runtime_maintenance(
             use_phi_refresh=use_phi_refresh,
             phi_refresh_interval=phi_refresh_interval,
             phi_refresh_steps=phi_refresh_steps,

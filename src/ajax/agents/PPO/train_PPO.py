@@ -13,6 +13,7 @@ from jax.tree_util import Partial as partial
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.agents.SAC.utils import SquashedNormal
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
@@ -77,6 +78,7 @@ def init_PPO(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     window_size: int = 10,
+    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> PPOState:
     """
     Initialize the PPO agent's state, including actor, critic, alpha, and collector states.
@@ -111,6 +113,7 @@ def init_PPO(
         action_value=False,
         squash=False,
         num_critics=1,
+        pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
@@ -200,6 +203,7 @@ def policy_loss_function(
     clip_coef: float,
     ent_coef: float,
     advantage_normalization: bool,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -217,10 +221,13 @@ def policy_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
+    obs_for_actor = (
+        obs_preprocessor(observations) if obs_preprocessor is not None else observations
+    )
     pi, _ = get_pi(
         actor_state=actor_state,
         actor_params=actor_params,
-        obs=observations,
+        obs=obs_for_actor,
         done=dones,
         recurrent=recurrent,
     )
@@ -347,6 +354,7 @@ def update_policy(
     clip_coef: float,
     ent_coef: float,
     advantage_normalization: bool,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -378,6 +386,7 @@ def update_policy(
         clip_coef=clip_coef,
         ent_coef=ent_coef,
         advantage_normalization=advantage_normalization,
+        obs_preprocessor=obs_preprocessor,
     )
 
     if DEBUG:
@@ -395,6 +404,7 @@ def update_policy(
     static_argnames=[
         "recurrent",
         "agent_config",
+        "obs_preprocessor",
     ],
 )
 def update_agent(
@@ -403,6 +413,7 @@ def update_agent(
     shuffled_batch: tuple[jax.Array],
     agent_config: PPOConfig,
     recurrent: bool,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> Tuple[PPOState, AuxiliaryLogs]:
     """
     Update the PPO agent, including critic, actor, and temperature updates.
@@ -469,6 +480,7 @@ def update_agent(
         ent_coef=agent_config.ent_coef,
         clip_coef=clip_coef,
         advantage_normalization=agent_config.normalize_advantage,
+        obs_preprocessor=obs_preprocessor,
     )
 
     aux = AuxiliaryLogs(
@@ -520,6 +532,9 @@ def no_op_none(agent_state, index, timestep):
         "horizon",
         "total_timesteps",
         "n_steps",
+        "action_pipeline",
+        "eval_action_transform",
+        "obs_preprocessor",
     ],
 )
 def training_iteration(
@@ -540,6 +555,9 @@ def training_iteration(
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
 ) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -567,6 +585,7 @@ def training_iteration(
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
+        action_pipeline=action_pipeline,
     )
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
@@ -640,6 +659,7 @@ def training_iteration(
                 shuffled_batch=shuffled_batch,
                 recurrent=recurrent,
                 agent_config=agent_config,
+                obs_preprocessor=obs_preprocessor,
             )
             return agent_state, aux  # overwrite aux each time
 
@@ -675,6 +695,7 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
+        eval_action_transform=eval_action_transform,
     )
 
     # jax.clear_caches()
@@ -713,6 +734,10 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    pid_actor_config: Optional[PIDActorConfig] = None,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
 ):
     """
     Create the training function for the PPO agent.
@@ -747,6 +772,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            pid_actor_config=pid_actor_config,
         )
 
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
@@ -767,6 +793,9 @@ def make_train(
             ),
             horizon=(logging_config.horizon if logging_config is not None else None),
             total_n_updates=num_updates,
+            action_pipeline=action_pipeline,
+            eval_action_transform=eval_action_transform,
+            obs_preprocessor=obs_preprocessor,
         )
 
         agent_state, out = jax.lax.scan(

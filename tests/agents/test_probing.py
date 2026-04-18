@@ -7,8 +7,12 @@ refactoring — if these pass, the agent is functionally correct.
 """
 import pytest
 
-from ajax.agents.SAC.SAC import SAC
+from ajax.agents.APO.APO import APO
+from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.AVG.AVG import AVG
+from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ.REDQ import REDQ
+from ajax.agents.SAC.SAC import SAC
 from probing_environments.adaptors.ajax import (
     get_action,
     get_gamma,
@@ -25,13 +29,17 @@ from probing_environments.checks import (
 )
 
 
-# Q-function agents that pass all probing checks
-Q_AGENTS = [SAC, REDQ]
+# All agents
+ALL_AGENTS = [SAC, REDQ, PPO, APO, ASAC, AVG]
+# Average-reward agents: reward_discounting check doesn't apply (no gamma)
+_AVG_REWARD = {"ASAC", "AVG", "APO"}
+DISCOUNTED_AGENTS = [a for a in ALL_AGENTS if a.__name__ not in _AVG_REWARD]
+
 BUDGET_VALUE = int(1e4)
 BUDGET_POLICY = int(1e4)
 
 
-@pytest.mark.parametrize("agent_cls", Q_AGENTS, ids=lambda c: c.__name__)
+@pytest.mark.parametrize("agent_cls", ALL_AGENTS, ids=lambda c: c.__name__)
 class TestProbingValueNet:
     """Value network probing checks (critic only)."""
 
@@ -57,6 +65,11 @@ class TestProbingValueNet:
             continuous=True,
         )
 
+
+@pytest.mark.parametrize("agent_cls", DISCOUNTED_AGENTS, ids=lambda c: c.__name__)
+class TestProbingDiscounting:
+    """Reward-discounting check — only meaningful for discounted agents."""
+
     def test_reward_discounting(self, agent_cls):
         check_reward_discounting(
             agent=agent_cls,
@@ -70,7 +83,7 @@ class TestProbingValueNet:
         )
 
 
-@pytest.mark.parametrize("agent_cls", Q_AGENTS, ids=lambda c: c.__name__)
+@pytest.mark.parametrize("agent_cls", ALL_AGENTS, ids=lambda c: c.__name__)
 class TestProbingPolicy:
     """Policy network probing checks (actor + critic)."""
 

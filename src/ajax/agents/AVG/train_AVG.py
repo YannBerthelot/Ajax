@@ -13,6 +13,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
 from ajax.agents.AVG.utils import compute_td_error_scaling
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.environments.interaction import (
     Transition,
     collect_experience,
@@ -122,6 +123,7 @@ def init_AVG(
     alpha_args: AlphaConfig,
     num_critics: int = 1,
     window_size: int = 10,
+    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> AVGState:
     """
     Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
@@ -152,6 +154,7 @@ def init_AVG(
         action_value=True,
         squash=True,
         num_critics=num_critics,
+        pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
 
@@ -186,6 +189,41 @@ def init_AVG(
     )
 
 
+def compute_avg_td_target(
+    actor_state: LoadedTrainState,
+    critic_states: LoadedTrainState,
+    critic_params: FrozenDict,
+    rng: jax.Array,
+    next_observations: jax.Array,
+    dones: jax.Array,
+    rewards: jax.Array,
+    gamma: float,
+    alpha: jax.Array,
+    recurrent: bool,
+    reward_scale: float,
+) -> Tuple[jax.Array, jax.Array]:
+    """AVG bellman target (no target network, uses current critic_params)."""
+    rewards = rewards * reward_scale
+    next_pi, _ = get_pi(
+        actor_state=actor_state, actor_params=actor_state.params,
+        obs=next_observations, done=dones, recurrent=recurrent,
+    )
+    sample_key, _ = jax.random.split(rng)
+    next_actions, next_log_probs = next_pi.sample_and_log_prob(seed=sample_key)
+    next_log_probs = next_log_probs.sum(-1, keepdims=True)
+    q_target = jnp.min(
+        predict_value(
+            critic_state=critic_states, critic_params=critic_params,
+            x=jnp.concatenate((next_observations, next_actions), axis=-1),
+        ),
+        axis=0,
+    )
+    target = jax.lax.stop_gradient(
+        rewards + (1.0 - dones) * gamma * (q_target - alpha * next_log_probs),
+    )
+    return target, next_log_probs
+
+
 @partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale"])
 def value_loss_function(
     critic_params: FrozenDict,
@@ -202,6 +240,8 @@ def value_loss_function(
     recurrent: bool,
     scaling_coef: jax.Array,
     reward_scale: float = 5.0,  # Add reward scaling factor here
+    target_q_override: Optional[jax.Array] = None,
+    log_probs_override: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -224,11 +264,6 @@ def value_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
-    # Apply the reward scaling here
-    rewards = rewards * reward_scale
-
-    # Sample next actions from policy π(a|s_{t+1})
-    # Predict Q-values from critics
     q_pred = jnp.min(
         predict_value(
             critic_state=critic_states,
@@ -238,37 +273,19 @@ def value_loss_function(
         axis=0,
     )
 
-    next_pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.params,
-        obs=next_observations,
-        done=dones,
-        recurrent=recurrent,
-    )
-    sample_key, rng = jax.random.split(rng)
-    next_actions, next_log_probs = next_pi.sample_and_log_prob(seed=sample_key)
-
-    # Target Q-values using target networks
-    q_target = jnp.min(
-        predict_value(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=jnp.concatenate((next_observations, next_actions), axis=-1),
-        ),
-        axis=0,
-    )
-
-    # Bellman target and losses
-    next_log_probs = next_log_probs.sum(-1, keepdims=True)
-
-    target_q = jax.lax.stop_gradient(
-        rewards + (1.0 - dones) * gamma * (q_target - alpha * next_log_probs),
-    )
+    if target_q_override is not None:
+        target_q = target_q_override
+        next_log_probs = (
+            log_probs_override if log_probs_override is not None
+            else jnp.zeros_like(target_q)
+        )
+    else:
+        target_q, next_log_probs = compute_avg_td_target(
+            actor_state, critic_states, critic_params, rng,
+            next_observations, dones, rewards, gamma, alpha, recurrent, reward_scale,
+        )
 
     assert target_q.shape == q_pred.shape, f"{target_q.shape} != {q_pred.shape}"
-    assert (
-        q_target.shape == next_log_probs.shape
-    ), f"{q_target.shape} != {next_log_probs.shape}"
 
     delta = q_pred - target_q
     scaled_delta = delta / scaling_coef
@@ -288,7 +305,7 @@ EPS = 1e-12
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent"],
+    static_argnames=["recurrent", "obs_preprocessor", "policy_action_transform"],
 )
 def policy_loss_function(
     actor_params: FrozenDict,
@@ -299,6 +316,10 @@ def policy_loss_function(
     recurrent: bool,
     alpha: jax.Array,
     rng: jax.random.PRNGKey,
+    raw_observations: Optional[jax.Array] = None,
+    a_expert_precomputed: Optional[jax.Array] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -316,20 +337,31 @@ def policy_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
+    obs_for_actor = (
+        obs_preprocessor(observations) if obs_preprocessor is not None
+        else observations
+    )
     pi, _ = get_pi(
         actor_state=actor_state,
         actor_params=actor_params,
-        obs=observations,
+        obs=obs_for_actor,
         done=dones,
         recurrent=recurrent,
     )
     actions, log_probs = pi.sample_and_log_prob(seed=rng)
+
+    _raw_obs = raw_observations if raw_observations is not None else observations
+    q_input_actions = (
+        policy_action_transform(actions, _raw_obs, a_expert_precomputed)
+        if policy_action_transform is not None
+        else actions
+    )
     # Predict Q-values from critics
     q_pred = jnp.min(
         predict_value(
             critic_state=critic_states,
             critic_params=critic_states.params,
-            x=jnp.hstack((observations, actions)),
+            x=jnp.hstack((observations, q_input_actions)),
         ),
         axis=0,
     )
@@ -383,10 +415,6 @@ def temperature_loss_function(
     )
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent", "gamma", "reward_scale"],
-)
 def update_value_functions(
     agent_state: AVGState,
     observations: jax.Array,
@@ -397,6 +425,7 @@ def update_value_functions(
     rewards: jax.Array,
     gamma: float,
     reward_scale: float = 1.0,  # Add reward scaling factor here
+    target_modifier: Optional[Callable] = None,
 ) -> Tuple[AVGState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -420,6 +449,26 @@ def update_value_functions(
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
 
+    target_q_override = None
+    log_probs_override = None
+    if target_modifier is not None:
+        target_q, log_probs = compute_avg_td_target(
+            agent_state.actor_state, agent_state.critic_state,
+            agent_state.critic_state.params, value_loss_key,
+            next_observations, dones, rewards, gamma, alpha, recurrent, reward_scale,
+        )
+        q_preds_for_modifier = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=jnp.concatenate((observations, actions), axis=-1),
+        )
+        target_q, _, _ = target_modifier(
+            target_q, agent_state, observations, actions,
+            next_observations, dones, gamma, value_loss_key, q_preds_for_modifier,
+        )
+        target_q_override = jax.lax.stop_gradient(target_q)
+        log_probs_override = log_probs
+
     # Call the value loss function with reward scaling applied
     (loss, aux), grads = value_and_grad_fn(
         agent_state.critic_state.params,
@@ -436,6 +485,8 @@ def update_value_functions(
         recurrent,
         agent_state.scaling_coef,
         reward_scale,  # Pass reward scaling factor here
+        target_q_override,
+        log_probs_override,
     )
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
@@ -448,7 +499,7 @@ def update_value_functions(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent"],
+    static_argnames=["recurrent", "obs_preprocessor", "policy_action_transform"],
 )
 def update_policy(
     agent_state: AVGState,
@@ -457,6 +508,10 @@ def update_policy(
     observations: jax.Array,
     done: Optional[jax.Array],
     recurrent: bool,
+    raw_observations: Optional[jax.Array] = None,
+    a_expert_precomputed: Optional[jax.Array] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> Tuple[AVGState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -484,6 +539,10 @@ def update_policy(
         recurrent,
         alpha,
         policy_key,
+        raw_observations=raw_observations,
+        a_expert_precomputed=a_expert_precomputed,
+        obs_preprocessor=obs_preprocessor,
+        policy_action_transform=policy_action_transform,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -552,6 +611,10 @@ def update_temperature(
         "action_dim",
         "reward_scale",
         "num_critic_updates",
+        "expert_policy",
+        "target_modifier",
+        "obs_preprocessor",
+        "policy_action_transform",
     ],
 )
 def update_agent(
@@ -562,6 +625,10 @@ def update_agent(
     action_dim: int,
     num_critic_updates: int = 1,
     reward_scale: float = 5.0,
+    expert_policy: Optional[Callable] = None,
+    target_modifier: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> Tuple[AVGState, AuxiliaryLogs]:
     """
     Update the SAC agent, including critic, actor, and temperature updates.
@@ -582,6 +649,12 @@ def update_agent(
     transition = agent_state.collector_state.rollout
     done = jnp.logical_or(transition.terminated, transition.truncated)  # type: ignore[union-attr]
 
+    raw_observations = getattr(transition, "raw_obs", None)
+    a_expert_precomputed = None
+    if expert_policy is not None and policy_action_transform is not None:
+        _raw = raw_observations if raw_observations is not None else transition.obs
+        a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
+
     # Update Q functions
     def critic_update_step(carry, _):
         agent_state = carry
@@ -596,6 +669,7 @@ def update_agent(
             rewards=transition.reward,
             gamma=gamma,
             reward_scale=reward_scale,
+            target_modifier=target_modifier,
         )
 
         return agent_state, aux_value
@@ -615,6 +689,10 @@ def update_agent(
         observations=transition.obs,  # type: ignore[union-attr]
         done=done,
         recurrent=recurrent,
+        raw_observations=raw_observations,
+        a_expert_precomputed=a_expert_precomputed,
+        obs_preprocessor=obs_preprocessor,
+        policy_action_transform=policy_action_transform,
     )
     collector_state = agent_state.collector_state.replace(
         num_update=agent_state.collector_state.num_update + 1
@@ -755,6 +833,12 @@ def log_function(
         "lstm_hidden_size",
         "agent_config",
         "total_timesteps",
+        "expert_policy",
+        "action_pipeline",
+        "eval_action_transform",
+        "target_modifier",
+        "obs_preprocessor",
+        "policy_action_transform",
     ],
 )
 def training_iteration(
@@ -773,6 +857,12 @@ def training_iteration(
     index: Optional[int] = None,
     log: bool = False,
     verbose: bool = False,
+    expert_policy: Optional[Callable] = None,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    target_modifier: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ) -> tuple[AVGState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -802,6 +892,7 @@ def training_iteration(
         mode=mode,
         env_args=env_args,
         uniform=uniform,
+        action_pipeline=action_pipeline,
     )
     rng = agent_state.rng
     agent_state, rollout = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
@@ -824,6 +915,10 @@ def training_iteration(
             gamma=agent_config.gamma,
             action_dim=action_dim,
             reward_scale=agent_config.reward_scale,
+            expert_policy=expert_policy,
+            target_modifier=target_modifier,
+            obs_preprocessor=obs_preprocessor,
+            policy_action_transform=policy_action_transform,
         )
         agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
         aux = aux.replace(
@@ -873,6 +968,8 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
+        expert_policy=expert_policy,
+        eval_action_transform=eval_action_transform,
     )
 
     jax.clear_caches()
@@ -911,6 +1008,13 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    expert_policy: Optional[Callable] = None,
+    pid_actor_config: Optional[PIDActorConfig] = None,
+    action_pipeline: Optional[Callable] = None,
+    eval_action_transform: Optional[Callable] = None,
+    target_modifier: Optional[Callable] = None,
+    obs_preprocessor: Optional[Callable] = None,
+    policy_action_transform: Optional[Callable] = None,
 ):
     """
     Create the training function for the SAC agent.
@@ -947,6 +1051,7 @@ def make_train(
             network_args=network_args,
             alpha_args=alpha_args,
             num_critics=agent_config.num_critics,
+            pid_actor_config=pid_actor_config,
         )
 
         num_updates = total_timesteps  # // env_args.n_envs
@@ -967,6 +1072,12 @@ def make_train(
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),
+            expert_policy=expert_policy,
+            action_pipeline=action_pipeline,
+            eval_action_transform=eval_action_transform,
+            target_modifier=target_modifier,
+            obs_preprocessor=obs_preprocessor,
+            policy_action_transform=policy_action_transform,
         )
 
         agent_state, _ = jax.lax.scan(

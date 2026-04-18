@@ -113,10 +113,6 @@ class ExperimentConfig:
     expert_buffer_n_steps: int = 20_000
     expert_mix_fraction: float = 0.1
 
-    awbc_normalize: bool = True
-    awbc_use_relu: bool = True
-    fixed_awbc_lambda: Optional[float] = None
-
     mc_pretrain_n_mc_steps: int = 10_000
     mc_pretrain_n_mc_episodes: int = 1000
     mc_pretrain_n_steps: int = 5_000
@@ -825,8 +821,7 @@ def run_single_experiment(
         f"mc_pretrain={exp.use_mc_critic_pretrain}  light_critic_pretrain={exp.use_online_critic_light_pretrain}  "
         f"blend={exp.use_critic_blend}  box={exp.use_box}\n"
         f"  critics={exp.num_critics}×{exp.num_critic_updates}  "
-        f"normalize={exp.awbc_normalize}  relu={exp.awbc_use_relu}  "
-        f"fixed_λ={exp.fixed_awbc_lambda}  mix={exp.expert_mix_fraction}  "
+        f"mix={exp.expert_mix_fraction}  "
         f"policy_start={exp.policy_update_start}"
     )
 
@@ -849,9 +844,6 @@ def run_single_experiment(
         num_critic_updates=exp.num_critic_updates,
         expert_buffer_n_steps=exp.expert_buffer_n_steps,
         expert_mix_fraction=exp.expert_mix_fraction,
-        awbc_normalize=exp.awbc_normalize,
-        awbc_use_relu=exp.awbc_use_relu,
-        fixed_awbc_lambda=exp.fixed_awbc_lambda,
         online_critic_pretrain_steps=exp.online_critic_pretrain_steps,
         online_critic_pretrain_lr_scale=exp.online_critic_pretrain_lr_scale,
         policy_update_start=exp.policy_update_start,
@@ -897,9 +889,6 @@ def run_single_experiment(
         policy_update_start=exp.policy_update_start,
         alpha_update_start=exp.alpha_update_start,
         use_train_frac=exp.use_expert_warmup,  # enable train_frac obs for all expert runs
-        awbc_normalize=exp.awbc_normalize,
-        awbc_use_relu=exp.awbc_use_relu,
-        fixed_awbc_lambda=exp.fixed_awbc_lambda,
         **hp,
     )
 

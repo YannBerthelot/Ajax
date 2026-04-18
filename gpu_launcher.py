@@ -8,7 +8,7 @@ Uses `nvidia-smi --query-compute-apps` to detect active CUDA processes system-wi
 before every launch, so it won't steal a GPU that a colleague is using.
 
 Usage:
-    python gpu_launcher.py                             # all GPUs, plane_exps.py
+    python gpu_launcher.py --script ablation_study     # all GPUs, ablation suite
     python gpu_launcher.py --script ablation_study     # run the ablation suite
     python gpu_launcher.py --gpus 0 1                  # restrict to GPUs 0 and 1
     python gpu_launcher.py --dry-run                   # print plan without running
@@ -517,11 +517,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--script",
         type=str,
-        default="plane_exps",
+        default="ablation_study",
         help=(
             "Experiment script to run (without .py). "
             "Must expose build_experiments() and accept --exp-index. "
-            "Default: plane_exps. Use 'ablation_study' for the ablation suite."
+            "Default: ablation_study."
         ),
     )
     parser.add_argument(

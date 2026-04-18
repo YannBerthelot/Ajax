@@ -8,7 +8,6 @@ from flax import struct
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )

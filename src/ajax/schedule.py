@@ -12,11 +12,6 @@ ArrayLike = Union[float, jnp.ndarray]
 # ----------------------------
 
 
-from collections.abc import Callable
-from typing import Optional
-
-import jax.numpy as jnp
-
 # ----------------------------
 # Window helper
 # ----------------------------

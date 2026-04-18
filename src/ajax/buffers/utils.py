@@ -90,5 +90,3 @@ def get_batch_from_buffer(
     raw_observations = batch.first["raw_obs"]
     is_expert = batch.first["is_expert"]
     return obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert
-
-

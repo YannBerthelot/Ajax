@@ -9,8 +9,7 @@ from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
 
 
-class AuxiliaryLogsProtocol(Protocol):
-    ...
+class AuxiliaryLogsProtocol(Protocol): ...
 
 
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -146,7 +145,7 @@ def evaluate_and_log(
             eval_action_transform=eval_action_transform,
         )
         schedule = (
-            early_termination_condition.keywords["schedule"]
+            early_termination_condition.keywords["schedule"]  # type: ignore[union-attr]
             if "keywords" in dir(early_termination_condition)
             else None
         )

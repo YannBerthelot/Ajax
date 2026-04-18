@@ -21,13 +21,13 @@ Diagnostics:
 Value-threshold box:
     see exploration.py
 """
+
 from typing import Tuple
 
 import jax
 import jax.numpy as jnp
 
 from ajax.networks.networks import predict_value
-
 
 # ---------------------------------------------------------------------------
 # Critic-side target modifiers
@@ -105,7 +105,9 @@ def augment_obs_if_needed(
     if not augment or expert_policy is None:
         return observations
     a_expert = jax.lax.stop_gradient(expert_policy(raw_observations))
-    return jnp.concatenate([observations[..., :-1], a_expert, observations[..., -1:]], axis=-1)
+    return jnp.concatenate(
+        [observations[..., :-1], a_expert, observations[..., -1:]], axis=-1
+    )
 
 
 def detach_obs_expert_dims(
@@ -117,11 +119,14 @@ def detach_obs_expert_dims(
     Layout: [env_obs | a_expert | train_frac].
     The actor can read the expert hint but gradients don't flow through it.
     """
-    return jnp.concatenate([
-        observations[..., :-(action_dim + 1)],
-        jax.lax.stop_gradient(observations[..., -(action_dim + 1):-1]),
-        observations[..., -1:],
-    ], axis=-1)
+    return jnp.concatenate(
+        [
+            observations[..., : -(action_dim + 1)],
+            jax.lax.stop_gradient(observations[..., -(action_dim + 1) : -1]),
+            observations[..., -1:],
+        ],
+        axis=-1,
+    )
 
 
 def residual_action_transform(
@@ -154,9 +159,11 @@ def compute_expert_diagnostics(
     """
     q_expert = jnp.min(
         predict_value(
-            critic_state=critic_state, critic_params=critic_state.params,
+            critic_state=critic_state,
+            critic_params=critic_state.params,
             x=jnp.concatenate([observations, a_expert], axis=-1),
-        ), axis=0,
+        ),
+        axis=0,
     )
     above_expert_frac = jnp.mean((q_min >= q_expert).astype(jnp.float32))
     l2_expert = jnp.sum((jnp.tanh(pi_loc) - a_expert) ** 2, axis=-1, keepdims=True)
@@ -187,18 +194,31 @@ def compute_online_bc_loss(
                 critic_state=critic_state,
                 critic_params=expert_critic_params,
                 x=jnp.concatenate([observations, a_expert], axis=-1),
-            ), axis=0,
+            ),
+            axis=0,
         )
     )
-    v_weight = jnp.clip(
-        (v_star - expert_v_min) / (expert_v_max - expert_v_min + 1e-6),
-        0.0, 1.0,
-    ) ** 2
+    v_weight = (
+        jnp.clip(
+            (v_star - expert_v_min) / (expert_v_max - expert_v_min + 1e-6),
+            0.0,
+            1.0,
+        )
+        ** 2
+    )
     mu = jnp.tanh(pi_loc)
-    return bc_coef * bc_weight * (v_weight * jnp.sum(
-        (mu - jax.lax.stop_gradient(a_expert)) ** 2,
-        axis=-1, keepdims=True,
-    )).mean()
+    return (
+        bc_coef
+        * bc_weight
+        * (
+            v_weight
+            * jnp.sum(
+                (mu - jax.lax.stop_gradient(a_expert)) ** 2,
+                axis=-1,
+                keepdims=True,
+            )
+        ).mean()
+    )
 
 
 def compute_behavior_kpis(
@@ -210,8 +230,8 @@ def compute_behavior_kpis(
 
     Returns (altitude_error, z_dot_mean).
     """
-    altitude_error = jnp.abs(raw_obs[..., altitude_obs_idx] - raw_obs[..., target_obs_idx]).mean()
+    altitude_error = jnp.abs(
+        raw_obs[..., altitude_obs_idx] - raw_obs[..., target_obs_idx]
+    ).mean()
     z_dot_mean = jnp.abs(raw_obs[..., 2]).mean()
     return altitude_error, z_dot_mean
-
-

@@ -119,7 +119,9 @@ def step_environment(
         if eval_action_transform is not None:
             actions = eval_action_transform(raw_actions, expert_actions)
         else:
-            actions = (1.0 - inside_the_box) * raw_actions + inside_the_box * expert_actions
+            actions = (
+                1.0 - inside_the_box
+            ) * raw_actions + inside_the_box * expert_actions
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,

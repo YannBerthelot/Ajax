@@ -5,14 +5,8 @@ components (value loss, backprop, discounting, advantage, actor-critic
 coupling) are working correctly. This is the TDD baseline for the
 refactoring — if these pass, the agent is functionally correct.
 """
-import pytest
 
-from ajax.agents.APO.APO import APO
-from ajax.agents.ASAC.ASAC import ASAC
-from ajax.agents.AVG.AVG import AVG
-from ajax.agents.PPO.PPO import PPO
-from ajax.agents.REDQ.REDQ import REDQ
-from ajax.agents.SAC.SAC import SAC
+import pytest
 from probing_environments.adaptors.ajax import (
     get_action,
     get_gamma,
@@ -28,6 +22,12 @@ from probing_environments.checks import (
     check_reward_discounting,
 )
 
+from ajax.agents.APO.APO import APO
+from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.AVG.AVG import AVG
+from ajax.agents.PPO.PPO import PPO
+from ajax.agents.REDQ.REDQ import REDQ
+from ajax.agents.SAC.SAC import SAC
 
 # All agents
 ALL_AGENTS = [SAC, REDQ, PPO, APO, ASAC, AVG]
@@ -63,7 +63,9 @@ BUDGET_COUPLING = int(6e4)
 LR_COUPLING = 5e-3
 
 
-@pytest.mark.parametrize("agent_cls", _params(VALUE_NET_AGENTS), ids=lambda c: c.__name__)
+@pytest.mark.parametrize(
+    "agent_cls", _params(VALUE_NET_AGENTS), ids=lambda c: c.__name__
+)
 class TestProbingValueNet:
     """Value network probing checks (critic only)."""
 
@@ -90,7 +92,9 @@ class TestProbingValueNet:
         )
 
 
-@pytest.mark.parametrize("agent_cls", _params(DISCOUNTED_AGENTS), ids=lambda c: c.__name__)
+@pytest.mark.parametrize(
+    "agent_cls", _params(DISCOUNTED_AGENTS), ids=lambda c: c.__name__
+)
 class TestProbingDiscounting:
     """Reward-discounting check — only meaningful for discounted agents."""
 
@@ -122,7 +126,9 @@ class TestProbingPolicy:
         )
 
 
-@pytest.mark.parametrize("agent_cls", _params(COUPLING_AGENTS), ids=lambda c: c.__name__)
+@pytest.mark.parametrize(
+    "agent_cls", _params(COUPLING_AGENTS), ids=lambda c: c.__name__
+)
 class TestProbingCoupling:
     """Actor-critic coupling — value assertion excludes avg-reward agents."""
 

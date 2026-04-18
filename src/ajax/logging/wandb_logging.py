@@ -14,7 +14,6 @@ import jax.numpy as jnp
 import wandb
 from flax.serialization import to_state_dict
 from flax.struct import dataclass as flax_dataclass
-from tensorboardX import SummaryWriter
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
 
@@ -43,9 +42,9 @@ class LoggingConfig:
 # so 'fork' would copy a live CUDA context into the child and cause crashes.
 _mp_ctx = mp.get_context("spawn")
 
-_log_queue: Optional[Any] = None   # _mp_ctx.JoinableQueue at runtime
+_log_queue: Optional[Any] = None  # _mp_ctx.JoinableQueue at runtime
 _log_process: Optional[Any] = None  # _mp_ctx.Process at runtime
-_pending_init_msgs: list = []       # messages buffered before worker starts
+_pending_init_msgs: list = []  # messages buffered before worker starts
 
 # Number of steps to buffer per run before calling wandb.init/finish.
 # Higher = fewer inits (cheaper) but more latency before data appears in UI.
@@ -70,9 +69,10 @@ def _logging_worker(q: Any) -> None:
         ("log",        run_id, metrics, step)       — buffer one step
         None                                        — poison pill / shutdown
     """
+    from collections import defaultdict
+
     import wandb as _wandb  # re-import in fresh spawned process
     from tensorboardX import SummaryWriter as _SW
-    from collections import defaultdict
 
     # run_id -> list of (metrics_dict, step)
     buffers: dict = defaultdict(list)
@@ -138,7 +138,9 @@ def _logging_worker(q: Any) -> None:
             if tb_writer is not None:
                 for key, value in metrics.items():
                     try:
-                        scalar = value.item() if hasattr(value, "item") else float(value)
+                        scalar = (
+                            value.item() if hasattr(value, "item") else float(value)
+                        )
                         tb_writer.add_scalar(key, scalar, step)
                     except Exception:
                         pass
@@ -184,7 +186,7 @@ def stop_async_logging() -> None:
     """Drain the queue, then stop the logging process."""
     global _log_queue, _log_process, _pending_init_msgs
     if _log_process is not None and _log_process.is_alive() and _log_queue is not None:
-        _log_queue.put(None)   # poison pill
+        _log_queue.put(None)  # poison pill
         try:
             _log_queue.join()  # wait until all task_done() calls balance put() calls
         except Exception:
@@ -220,15 +222,17 @@ def init_logging(run_id: str, logging_config: LoggingConfig) -> None:
 
     use_wb = logging_config.use_wandb and not logging_config.sweep
 
-    init_msgs = []
+    init_msgs: list[tuple] = []
     if logging_config.use_wandb:
-        init_msgs.append((
-            "init_wandb",
-            run_id,
-            logging_config.project_name,
-            f"{logging_config.run_name}_{run_id}",
-            use_wb,
-        ))
+        init_msgs.append(
+            (
+                "init_wandb",
+                run_id,
+                logging_config.project_name,
+                f"{logging_config.run_name}_{run_id}",
+                use_wb,
+            )
+        )
     if logging_config.use_tensorboard:
         log_dir = os.path.join(logging_config.folder or ".", "tensorboard", run_id)
         config_str = json.dumps(logging_config.config, indent=2, default=str)

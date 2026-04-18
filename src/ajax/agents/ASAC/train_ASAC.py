@@ -15,7 +15,6 @@ from ajax.agents.ASAC.utils import (
     compute_episode_termination_penalty,
     get_episode_termination_penalized_rewards,
 )
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.agents.cloning import (
     CloningConfig,
     compute_imitation_score,
@@ -36,6 +35,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
@@ -201,30 +201,36 @@ def compute_asac_td_target(
     """ASAC bellman target with origin-shift; returns (target, log_probs)."""
     rewards = rewards * reward_scale
     next_pi, _ = get_pi(
-        actor_state=actor_state, actor_params=actor_state.params,
-        obs=next_observations, done=dones, recurrent=recurrent,
+        actor_state=actor_state,
+        actor_params=actor_state.params,
+        obs=next_observations,
+        done=dones,
+        recurrent=recurrent,
     )
     sample_key, _ = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
 
     q_targets = predict_value(
-        critic_state=critic_states, critic_params=critic_states.target_params,
+        critic_state=critic_states,
+        critic_params=critic_states.target_params,
         x=jnp.concatenate((next_observations, next_actions), axis=-1),
     )
     shift_value = predict_value(
-        critic_state=critic_states, critic_params=critic_states.target_params,
+        critic_state=critic_states,
+        critic_params=critic_states.target_params,
         x=jnp.concatenate(
-            (jnp.zeros_like(next_observations[0, :][None, :]),
-             jnp.zeros_like(next_actions[0, :][None, :])), axis=-1,
+            (
+                jnp.zeros_like(next_observations[0, :][None, :]),
+                jnp.zeros_like(next_actions[0, :][None, :]),
+            ),
+            axis=-1,
         ),
     )
     shifted_q_targets = q_targets - jnp.mean(shift_value)
     q1_target, q2_target = jnp.split(shifted_q_targets, 2, axis=0)
     min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
-    target = jax.lax.stop_gradient(
-        rewards - theta + (min_q_target - alpha * log_probs)
-    )
+    target = jax.lax.stop_gradient(rewards - theta + (min_q_target - alpha * log_probs))
     return target, log_probs
 
 
@@ -280,13 +286,22 @@ def value_loss_function(
     if target_q_override is not None:
         target_q = target_q_override
         log_probs = (
-            log_probs_override if log_probs_override is not None
+            log_probs_override
+            if log_probs_override is not None
             else jnp.zeros_like(target_q)
         )
     else:
         target_q, log_probs = compute_asac_td_target(
-            actor_state, critic_states, rng,
-            next_observations, dones, rewards, theta, alpha, recurrent, reward_scale,
+            actor_state,
+            critic_states,
+            rng,
+            next_observations,
+            dones,
+            rewards,
+            theta,
+            alpha,
+            recurrent,
+            reward_scale,
         )
 
     q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
@@ -351,8 +366,7 @@ def policy_loss_function(
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
     obs_for_actor = (
-        obs_preprocessor(observations) if obs_preprocessor is not None
-        else observations
+        obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
     pi, _ = get_pi(
         actor_state=actor_state,
@@ -473,9 +487,16 @@ def update_value_functions(
     log_probs_override = None
     if target_modifier is not None:
         target_q, log_probs = compute_asac_td_target(
-            agent_state.actor_state, agent_state.critic_state, value_loss_key,
-            next_observations, dones, rewards, agent_state.theta, alpha,
-            recurrent, reward_scale,
+            agent_state.actor_state,
+            agent_state.critic_state,
+            value_loss_key,
+            next_observations,
+            dones,
+            rewards,
+            agent_state.theta,
+            alpha,
+            recurrent,
+            reward_scale,
         )
         q_preds_for_modifier = predict_value(
             critic_state=agent_state.critic_state,
@@ -483,8 +504,15 @@ def update_value_functions(
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         )
         target_q, _, _ = target_modifier(
-            target_q, agent_state, observations, actions,
-            next_observations, dones, 1.0, value_loss_key, q_preds_for_modifier,
+            target_q,
+            agent_state,
+            observations,
+            actions,
+            next_observations,
+            dones,
+            1.0,
+            value_loss_key,
+            q_preds_for_modifier,
         )
         target_q_override = jax.lax.stop_gradient(target_q)
         log_probs_override = log_probs

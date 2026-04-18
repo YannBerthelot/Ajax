@@ -13,7 +13,6 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
 from ajax.agents.AVG.utils import compute_td_error_scaling
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.environments.interaction import (
     Transition,
     collect_experience,
@@ -28,6 +27,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
@@ -205,15 +205,19 @@ def compute_avg_td_target(
     """AVG bellman target (no target network, uses current critic_params)."""
     rewards = rewards * reward_scale
     next_pi, _ = get_pi(
-        actor_state=actor_state, actor_params=actor_state.params,
-        obs=next_observations, done=dones, recurrent=recurrent,
+        actor_state=actor_state,
+        actor_params=actor_state.params,
+        obs=next_observations,
+        done=dones,
+        recurrent=recurrent,
     )
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     next_log_probs = next_log_probs.sum(-1, keepdims=True)
     q_target = jnp.min(
         predict_value(
-            critic_state=critic_states, critic_params=critic_params,
+            critic_state=critic_states,
+            critic_params=critic_params,
             x=jnp.concatenate((next_observations, next_actions), axis=-1),
         ),
         axis=0,
@@ -276,13 +280,23 @@ def value_loss_function(
     if target_q_override is not None:
         target_q = target_q_override
         next_log_probs = (
-            log_probs_override if log_probs_override is not None
+            log_probs_override
+            if log_probs_override is not None
             else jnp.zeros_like(target_q)
         )
     else:
         target_q, next_log_probs = compute_avg_td_target(
-            actor_state, critic_states, critic_params, rng,
-            next_observations, dones, rewards, gamma, alpha, recurrent, reward_scale,
+            actor_state,
+            critic_states,
+            critic_params,
+            rng,
+            next_observations,
+            dones,
+            rewards,
+            gamma,
+            alpha,
+            recurrent,
+            reward_scale,
         )
 
     assert target_q.shape == q_pred.shape, f"{target_q.shape} != {q_pred.shape}"
@@ -338,8 +352,7 @@ def policy_loss_function(
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
     obs_for_actor = (
-        obs_preprocessor(observations) if obs_preprocessor is not None
-        else observations
+        obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
     pi, _ = get_pi(
         actor_state=actor_state,
@@ -453,9 +466,17 @@ def update_value_functions(
     log_probs_override = None
     if target_modifier is not None:
         target_q, log_probs = compute_avg_td_target(
-            agent_state.actor_state, agent_state.critic_state,
-            agent_state.critic_state.params, value_loss_key,
-            next_observations, dones, rewards, gamma, alpha, recurrent, reward_scale,
+            agent_state.actor_state,
+            agent_state.critic_state,
+            agent_state.critic_state.params,
+            value_loss_key,
+            next_observations,
+            dones,
+            rewards,
+            gamma,
+            alpha,
+            recurrent,
+            reward_scale,
         )
         q_preds_for_modifier = predict_value(
             critic_state=agent_state.critic_state,
@@ -463,8 +484,15 @@ def update_value_functions(
             x=jnp.concatenate((observations, actions), axis=-1),
         )
         target_q, _, _ = target_modifier(
-            target_q, agent_state, observations, actions,
-            next_observations, dones, gamma, value_loss_key, q_preds_for_modifier,
+            target_q,
+            agent_state,
+            observations,
+            actions,
+            next_observations,
+            dones,
+            gamma,
+            value_loss_key,
+            q_preds_for_modifier,
         )
         target_q_override = jax.lax.stop_gradient(target_q)
         log_probs_override = log_probs
@@ -652,7 +680,7 @@ def update_agent(
     raw_observations = getattr(transition, "raw_obs", None)
     a_expert_precomputed = None
     if expert_policy is not None and policy_action_transform is not None:
-        _raw = raw_observations if raw_observations is not None else transition.obs
+        _raw = raw_observations if raw_observations is not None else transition.obs  # type: ignore[union-attr]
         a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
 
     # Update Q functions

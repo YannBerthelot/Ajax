@@ -23,7 +23,6 @@ from ajax.agents.SAC.train_SAC import (
     update_target_networks,
     update_temperature,
 )
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
@@ -38,6 +37,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -162,8 +162,11 @@ def compute_redq_td_target(
     rewards = rewards * reward_scale
 
     next_pi, _ = get_pi(
-        actor_state=actor_state, actor_params=actor_state.params,
-        obs=next_observations, done=dones, recurrent=recurrent,
+        actor_state=actor_state,
+        actor_params=actor_state.params,
+        obs=next_observations,
+        done=dones,
+        recurrent=recurrent,
     )
     sample_key, idx_sample_key = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
@@ -234,14 +237,23 @@ def value_loss_function(
     if target_q_override is not None:
         target_q = target_q_override
         log_probs = (
-            log_probs_override if log_probs_override is not None
+            log_probs_override
+            if log_probs_override is not None
             else jnp.zeros_like(target_q)
         )
     else:
         target_q, log_probs = compute_redq_td_target(
-            actor_state, critic_states, rng,
-            next_observations, dones, rewards, gamma, alpha, recurrent,
-            subset_size, reward_scale,
+            actor_state,
+            critic_states,
+            rng,
+            next_observations,
+            dones,
+            rewards,
+            gamma,
+            alpha,
+            recurrent,
+            subset_size,
+            reward_scale,
         )
 
     total_loss = jnp.sum(
@@ -284,7 +296,7 @@ def policy_loss_function(
     a_expert_precomputed: Optional[jax.Array] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-) -> Tuple[jax.Array, PolicyAuxiliaries]:
+) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array]]:
     """
     Compute the policy loss for the actor network.
 
@@ -302,8 +314,7 @@ def policy_loss_function(
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
     obs_for_actor = (
-        obs_preprocessor(observations) if obs_preprocessor is not None
-        else observations
+        obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
     pi, _ = get_pi(
         actor_state=actor_state,
@@ -334,21 +345,29 @@ def policy_loss_function(
 
     log_probs = log_probs.sum(-1, keepdims=True)
     imitation_loss = compute_imitation_score(
-        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset,
-        q_preds=q_min, q_expert=q_min,  # unused by compute_imitation_score
+        pi,
+        expert_policy,
+        raw_observations,
+        distance_to_stable,
+        imitation_coef_offset,
+        q_preds=q_min,
+        q_expert=q_min,  # unused by compute_imitation_score
     ).mean()
 
     assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
     loss_actor = alpha * log_probs - q_min
     total_loss = (loss_actor + imitation_coef * imitation_loss).mean()
 
-    return total_loss, (PolicyAuxiliaries(
-        policy_loss=total_loss,
-        log_pi=log_probs.mean(),
-        q_mean=q_min.mean(),
-        imitation_loss=imitation_loss,
-        raw_loss=loss_actor.mean(),
-    ), log_probs)
+    return total_loss, (
+        PolicyAuxiliaries(
+            policy_loss=total_loss,
+            log_pi=log_probs.mean(),
+            q_mean=q_min.mean(),
+            imitation_loss=imitation_loss,
+            raw_loss=loss_actor.mean(),
+        ),
+        log_probs,
+    )
 
 
 def update_value_functions(
@@ -390,9 +409,17 @@ def update_value_functions(
     log_probs_override = None
     if target_modifier is not None:
         target_q, log_probs = compute_redq_td_target(
-            agent_state.actor_state, agent_state.critic_state, value_loss_key,
-            next_observations, dones, rewards * reward_scale, gamma, alpha,
-            recurrent, subset_size, 1.0,  # reward_scale already applied above
+            agent_state.actor_state,
+            agent_state.critic_state,
+            value_loss_key,
+            next_observations,
+            dones,
+            rewards * reward_scale,
+            gamma,
+            alpha,
+            recurrent,
+            subset_size,
+            1.0,  # reward_scale already applied above
         )
         q_preds_for_modifier = predict_value(
             critic_state=agent_state.critic_state,
@@ -400,8 +427,15 @@ def update_value_functions(
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         )
         target_q, _, _ = target_modifier(
-            target_q, agent_state, observations, actions,
-            next_observations, dones, gamma, value_loss_key, q_preds_for_modifier,
+            target_q,
+            agent_state,
+            observations,
+            actions,
+            next_observations,
+            dones,
+            gamma,
+            value_loss_key,
+            q_preds_for_modifier,
         )
         target_q_override = jax.lax.stop_gradient(target_q)
         log_probs_override = log_probs
@@ -458,7 +492,7 @@ def update_policy(
     a_expert_precomputed: Optional[jax.Array] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-) -> Tuple[REDQState, Dict[str, Any]]:
+) -> Tuple[REDQState, Any, jax.Array]:
     """
     Update the actor network using the policy loss.
 
@@ -678,8 +712,8 @@ def update_agent(
 
     # Adjust temperature
     effective_target_entropy = jnp.array(-float(action_dim))
-    agent_state, aux_temperature = update_temperature(
-        agent_state,
+    agent_state, aux_temperature = update_temperature(  # type: ignore[assignment]
+        agent_state,  # type: ignore[arg-type]
         log_probs=log_probs,
         effective_target_entropy=effective_target_entropy,
     )

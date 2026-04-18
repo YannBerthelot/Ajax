@@ -461,6 +461,7 @@ def collect_experience(
     )
 
     # Raw obs (needed by action_pipeline for expert policy)
+    assert agent_state.collector_state.rollout is not None
     has_raw_obs = agent_state.collector_state.rollout.raw_obs is not None
     raw_obs = (
         get_raw_obs(
@@ -474,7 +475,9 @@ def collect_experience(
 
     if action_pipeline is not None:
         # Agent-specific action pipeline (SAC with expert, EDGE, box, etc.)
-        result = action_pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+        result = action_pipeline(
+            agent_state, raw_obs, rng, uniform, mix_key, action_key
+        )
         env_action = result.env_action
         action = result.policy_action
         log_probs = result.log_probs
@@ -600,7 +603,11 @@ def collect_experience(
         cumulative_reward=(
             in_box_after * (agent_state.collector_state.cumulative_reward + reward)
         ),
-        **({"last_in_box": in_value_box.astype(jnp.float32)} if action_pipeline is not None else {}),
+        **(
+            {"last_in_box": in_value_box.astype(jnp.float32)}
+            if action_pipeline is not None
+            else {}
+        ),
     )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)

@@ -6,6 +6,7 @@ agent-state updates, training loop, make_train) are covered by the probing
 suite (``tests/agents/test_probing.py``) and the per-agent smoke tests
 (``test_sac.py``).
 """
+
 import gymnax
 import jax
 import jax.numpy as jnp
@@ -151,9 +152,7 @@ def test_temperature_loss_function_with_value_and_grad(
 
     assert jnp.isfinite(loss)
     assert isinstance(grads, FrozenDict)
-    assert all(
-        jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads)
-    )
+    assert all(jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads))
 
 
 @pytest.mark.parametrize(
@@ -211,6 +210,6 @@ def test_update_target_networks(env_config, SAC_state):
         old_target = original_target_params[key]
         new_target = updated_state.critic_state.target_params[key]
         current = original_params[key]
-        assert validate_soft_update(old_target, new_target, current, tau), (
-            f"Soft update computation is incorrect for key: {key}"
-        )
+        assert validate_soft_update(
+            old_target, new_target, current, tau
+        ), f"Soft update computation is incorrect for key: {key}"

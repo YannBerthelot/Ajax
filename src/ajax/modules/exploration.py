@@ -16,6 +16,7 @@ Both compose at the call site in collect_experience:
     action = edge_override(action, ...)        # optional
     action = box_action_override(action, ...)   # optional
 """
+
 from typing import Optional, Tuple
 
 import jax
@@ -23,7 +24,6 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.networks.networks import predict_value
-
 
 # ---------------------------------------------------------------------------
 # EDGE — Expert Decayed Guided Exploration
@@ -46,14 +46,16 @@ def edge_compute_value_gap(
             critic_state=critic_state,
             critic_params=critic_params,
             x=jnp.concatenate([obs, policy_action], axis=-1),
-        ), axis=0,
+        ),
+        axis=0,
     )
     q_expert = jnp.min(
         predict_value(
             critic_state=critic_state,
             critic_params=critic_params,
             x=jnp.concatenate([obs, expert_action], axis=-1),
-        ), axis=0,
+        ),
+        axis=0,
     )
     return q_expert - q_policy, q_policy
 
@@ -153,7 +155,7 @@ def box_compute_state(
         ),
         axis=0,
     )
-    in_box = (v_box > threshold)
+    in_box = v_box > threshold
 
     if last_in_box is None:
         last_in_box = jnp.zeros_like(in_box)
@@ -196,8 +198,9 @@ def box_modify_reward_done(
 @struct.dataclass
 class EDGEAuxiliaries:
     """EDGE diagnostics computed on the training batch."""
-    value_gap: jax.Array              # Q(s,pi*) - Q(s,pi): gate signal
-    p_expert_mean: jax.Array          # sigmoid(gap / (tau*|Q_pi|)): Boltzmann p before decay
+
+    value_gap: jax.Array  # Q(s,pi*) - Q(s,pi): gate signal
+    p_expert_mean: jax.Array  # sigmoid(gap / (tau*|Q_pi|)): Boltzmann p before decay
     expert_action_fraction: jax.Array  # fraction of batch with is_expert=1
 
 

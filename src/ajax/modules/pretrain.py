@@ -14,6 +14,7 @@ Design:
 
 All functions are pure: no hidden state, no feature flags.
 """
+
 from functools import partial
 from typing import Any, Callable, Optional, Tuple
 
@@ -32,7 +33,6 @@ from ajax.networks.networks import predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
 from ajax.types import BufferType
 
-
 # ---------------------------------------------------------------------------
 # Auxiliary dataclasses
 # ---------------------------------------------------------------------------
@@ -41,6 +41,7 @@ from ajax.types import BufferType
 @struct.dataclass
 class MCPretrainAux:
     """Diagnostics logged after MC critic pretraining."""
+
     initial_loss: jax.Array
     final_loss: jax.Array
     q_expert_mean: jax.Array
@@ -53,6 +54,7 @@ class MCPretrainAux:
 @struct.dataclass
 class PhiRefreshAuxiliaries:
     """φ* refresh diagnostics. All-zero when no refresh triggered this step."""
+
     loss_before: jax.Array
     loss_after: jax.Array
     expert_buffer_size: jax.Array
@@ -65,10 +67,20 @@ class PhiRefreshAuxiliaries:
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "gamma", "reward_scale", "n_steps",
-                    "expert_policy", "n_mc_steps", "n_mc_episodes",
-                    "mode", "env_args", "max_timesteps", "batch_size",
-                    "augment_obs_with_expert_action"],
+    static_argnames=[
+        "recurrent",
+        "gamma",
+        "reward_scale",
+        "n_steps",
+        "expert_policy",
+        "n_mc_steps",
+        "n_mc_episodes",
+        "mode",
+        "env_args",
+        "max_timesteps",
+        "batch_size",
+        "augment_obs_with_expert_action",
+    ],
 )
 def pretrain_critic_mc(
     agent_state,
@@ -106,9 +118,11 @@ def pretrain_critic_mc(
               MCPretrainAux, expert_critic_state_trained)
     """
     if preloaded_obs is not None:
-        obs_flat    = preloaded_obs
+        assert preloaded_action is not None
+        assert preloaded_mc is not None
+        obs_flat = preloaded_obs
         action_flat = preloaded_action
-        mc_flat     = preloaded_mc
+        mc_flat = preloaded_mc
         raw_obs_flat = preloaded_obs
     else:
         n_total_steps = max(1, (n_mc_steps * n_mc_episodes) // env_args.n_envs)
@@ -138,9 +152,9 @@ def pretrain_critic_mc(
         mc_returns = mc_returns[::-1]
 
         T, n_envs = rewards.shape[:2]
-        obs_flat    = all_transitions.obs.reshape(T * n_envs, -1)
+        obs_flat = all_transitions.obs.reshape(T * n_envs, -1)
         action_flat = all_transitions.action.reshape(T * n_envs, -1)
-        mc_flat     = mc_returns.reshape(T * n_envs, 1)
+        mc_flat = mc_returns.reshape(T * n_envs, 1)
         raw_obs_flat = obs_flat
 
     # Append train_frac=0.0 if max_timesteps was set
@@ -160,11 +174,13 @@ def pretrain_critic_mc(
             obs_flat = jnp.concatenate([obs_flat, a_expert_flat], axis=-1)
 
     # Batch into fixed-size chunks for regression
-    n_total   = obs_flat.shape[0]
+    n_total = obs_flat.shape[0]
     n_batches = n_total // batch_size
-    obs_batched    = obs_flat[:n_batches * batch_size].reshape(n_batches, batch_size, -1)
-    action_batched = action_flat[:n_batches * batch_size].reshape(n_batches, batch_size, -1)
-    mc_batched     = mc_flat[:n_batches * batch_size].reshape(n_batches, batch_size, 1)
+    obs_batched = obs_flat[: n_batches * batch_size].reshape(n_batches, batch_size, -1)
+    action_batched = action_flat[: n_batches * batch_size].reshape(
+        n_batches, batch_size, -1
+    )
+    mc_batched = mc_flat[: n_batches * batch_size].reshape(n_batches, batch_size, 1)
 
     # Supervised regression: Q(s, a_expert) → MC return
     def mc_loss_fn(critic_params, obs, actions, targets):
@@ -179,18 +195,23 @@ def pretrain_critic_mc(
         expert_critic_state, step = carry
         obs_b, action_b, mc_b = batch
         loss, grads = jax.value_and_grad(mc_loss_fn)(
-            expert_critic_state.params, obs_b, action_b, mc_b,
+            expert_critic_state.params,
+            obs_b,
+            action_b,
+            mc_b,
         )
         new_expert_critic_state = expert_critic_state.apply_gradients(grads=grads)
         return (new_expert_critic_state, step + 1), loss
 
     initial_loss, _ = jax.value_and_grad(mc_loss_fn)(
         expert_critic_state.params,
-        obs_batched[0], action_batched[0], mc_batched[0],
+        obs_batched[0],
+        action_batched[0],
+        mc_batched[0],
     )
 
     n_passes = max(1, n_steps // n_batches)
-    batches  = (obs_batched, action_batched, mc_batched)
+    batches = (obs_batched, action_batched, mc_batched)
 
     def one_pass(carry, _):
         return jax.lax.scan(regression_step, carry, batches)
@@ -215,15 +236,22 @@ def pretrain_critic_mc(
     v_min = q_for_stats.min()
     v_max = q_for_stats.max()
 
-    return agent_state, frozen_expert_params, obs_batched, action_batched, MCPretrainAux(
-        initial_loss=initial_loss,
-        final_loss=final_loss,
-        q_expert_mean=q_for_stats.mean(),
-        q_expert_min=q_for_stats.min(),
-        q_expert_max=q_for_stats.max(),
-        v_min=v_min,
-        v_max=v_max,
-    ), expert_critic_state
+    return (
+        agent_state,
+        frozen_expert_params,
+        obs_batched,
+        action_batched,
+        MCPretrainAux(
+            initial_loss=initial_loss,
+            final_loss=final_loss,
+            q_expert_mean=q_for_stats.mean(),
+            q_expert_min=q_for_stats.min(),
+            q_expert_max=q_for_stats.max(),
+            v_min=v_min,
+            v_max=v_max,
+        ),
+        expert_critic_state,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +273,7 @@ def pretrain_critic_online_light(
     NOT a full MC pretrain — just reduces starting point spread.
     Target network stays random and untouched.
     """
+
     def light_loss_fn(critic_params, obs, actions):
         v_expert = jax.lax.stop_gradient(
             jnp.min(
@@ -252,7 +281,8 @@ def pretrain_critic_online_light(
                     critic_state=agent_state.critic_state,
                     critic_params=agent_state.expert_critic_params,
                     x=jnp.concatenate([obs, actions], axis=-1),
-                ), axis=0,
+                ),
+                axis=0,
             )
         )
         q_online = predict_value(
@@ -308,7 +338,9 @@ def pretrain_actor_weighted_bc(
         pi, _ = get_pi(
             actor_state=agent_state.actor_state,
             actor_params=actor_params,
-            obs=obs, done=None, recurrent=recurrent,
+            obs=obs,
+            done=None,
+            recurrent=recurrent,
         )
         mu = jnp.tanh(pi.distribution.loc)
 
@@ -323,7 +355,7 @@ def pretrain_actor_weighted_bc(
             )
         )
         w = jnp.clip((v_star - v_min) / (v_max - v_min + 1e-8), 0.0, 1.0)
-        w = w ** 2
+        w = w**2
         l2 = jnp.sum((mu - a_expert) ** 2, axis=-1, keepdims=True)
         return jnp.mean(w * l2)
 
@@ -331,7 +363,9 @@ def pretrain_actor_weighted_bc(
         actor_state = carry
         obs_b, action_b = batch
         loss, grads = jax.value_and_grad(actor_bc_loss_fn)(
-            actor_state.params, obs_b, action_b,
+            actor_state.params,
+            obs_b,
+            action_b,
         )
         return actor_state.apply_gradients(grads=grads), loss
 
@@ -342,7 +376,10 @@ def pretrain_actor_weighted_bc(
         return jax.lax.scan(bc_step, carry, batches)
 
     final_actor_state, _ = jax.lax.scan(
-        one_pass, agent_state.actor_state, None, length=n_passes,
+        one_pass,
+        agent_state.actor_state,
+        None,
+        length=n_passes,
     )
     return agent_state.replace(actor_state=final_actor_state)
 
@@ -354,8 +391,14 @@ def pretrain_actor_weighted_bc(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "gamma", "reward_scale", "n_steps", "buffer",
-                    "update_value_fn"],
+    static_argnames=[
+        "recurrent",
+        "gamma",
+        "reward_scale",
+        "n_steps",
+        "buffer",
+        "update_value_fn",
+    ],
 )
 def pretrain_critic_bellman(
     agent_state,
@@ -372,25 +415,41 @@ def pretrain_critic_bellman(
     Requires update_value_fn and update_target_fn to be passed in,
     avoiding circular imports with train_SAC.
     """
+
     def critic_pretrain_step(carry, _):
         agent_state = carry
         sample_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
         (
-            observations, terminated, truncated, next_observations,
-            rewards, actions, raw_observations, _,
-        ) = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, sample_key)
+            observations,
+            terminated,
+            truncated,
+            next_observations,
+            rewards,
+            actions,
+            raw_observations,
+            _,
+        ) = get_batch_from_buffer(
+            buffer, agent_state.collector_state.buffer_state, sample_key
+        )
         dones = jnp.logical_or(terminated, truncated)
         agent_state, _ = update_value_fn(
-            observations=observations, actions=actions,
-            next_observations=next_observations, rewards=rewards,
-            dones=dones, agent_state=agent_state, recurrent=recurrent,
-            gamma=gamma, reward_scale=reward_scale,
+            observations=observations,
+            actions=actions,
+            next_observations=next_observations,
+            rewards=rewards,
+            dones=dones,
+            agent_state=agent_state,
+            recurrent=recurrent,
+            gamma=gamma,
+            reward_scale=reward_scale,
         )
         agent_state = update_target_fn(agent_state, tau=5e-4)
         return agent_state, None
 
-    agent_state, _ = jax.lax.scan(critic_pretrain_step, agent_state, None, length=n_steps)
+    agent_state, _ = jax.lax.scan(
+        critic_pretrain_step, agent_state, None, length=n_steps
+    )
     return agent_state
 
 
@@ -422,9 +481,16 @@ def refresh_phi_star(
     agent_state = agent_state.replace(rng=new_rng)
 
     # Diagnostic batch for loss_before / loss_after / expert_buffer_size
-    obs_d, terminated_d, truncated_d, next_obs_d, rewards_d, actions_d, _, is_expert_d = (
-        get_batch_from_buffer(buffer, buffer_state, diag_key)
-    )
+    (
+        obs_d,
+        terminated_d,
+        truncated_d,
+        next_obs_d,
+        rewards_d,
+        actions_d,
+        _,
+        is_expert_d,
+    ) = get_batch_from_buffer(buffer, buffer_state, diag_key)
     expert_mask_d = is_expert_d[..., 0]
     expert_buffer_size = expert_mask_d.sum()
     rewards_d = rewards_d * reward_scale
@@ -471,7 +537,9 @@ def refresh_phi_star(
             critic_params=expert_critic_state.target_params,
             x=jnp.concatenate([next_obs, a_expert_next], axis=-1),
         )
-        target = jax.lax.stop_gradient(rewards + gamma * (1.0 - dones) * jnp.min(q_next, axis=0))
+        target = jax.lax.stop_gradient(
+            rewards + gamma * (1.0 - dones) * jnp.min(q_next, axis=0)
+        )
 
         def loss_fn(params):
             q_preds = predict_value(
@@ -551,7 +619,9 @@ def collect_and_store_expert_transitions(
     n_total = flat_obs.shape[0]
 
     def add_one(buffer_state, i):
-        take = lambda x: jnp.take(x, i, axis=0, mode="clip")[None]
+        def take(x):
+            return jnp.take(x, i, axis=0, mode="clip")[None]
+
         _transition = {
             "obs": take(flat_obs),
             "action": take(flat.action),

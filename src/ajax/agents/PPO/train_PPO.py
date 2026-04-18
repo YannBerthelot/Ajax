@@ -13,7 +13,6 @@ from jax.tree_util import Partial as partial
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
@@ -29,6 +28,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
+from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,

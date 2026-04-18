@@ -16,7 +16,6 @@ applicable hook (and ``None``) and confirm construction succeeds and the
 attribute is stored. They do not run training — the probing suite covers
 end-to-end behaviour with ``None`` hooks.
 """
-from typing import Callable, Optional
 
 import pytest
 
@@ -26,7 +25,6 @@ from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
-
 
 SAC_FAMILY_HOOKS = (
     "pid_actor_config",
@@ -38,7 +36,7 @@ SAC_FAMILY_HOOKS = (
 )
 
 # SAC additionally exposes ``runtime_maintenance`` (phi-refresh hook).
-SAC_HOOKS = SAC_FAMILY_HOOKS + ("runtime_maintenance",)
+SAC_HOOKS = (*SAC_FAMILY_HOOKS, "runtime_maintenance")
 
 PPO_FAMILY_HOOKS = (
     "pid_actor_config",
@@ -66,12 +64,12 @@ def _identity_hook(*args, **kwargs):
 
 def _instantiate(agent_cls, **kwargs):
     """Build a minimal agent instance on a cheap env."""
-    common = dict(
-        env_id="Pendulum-v1",
-        n_envs=1,
-        actor_architecture=("32", "relu"),
-        critic_architecture=("32", "relu"),
-    )
+    common = {
+        "env_id": "Pendulum-v1",
+        "n_envs": 1,
+        "actor_architecture": ("32", "relu"),
+        "critic_architecture": ("32", "relu"),
+    }
     # Off-policy agents take a buffer_size; on-policy don't accept it.
     if agent_cls in (SAC, REDQ, ASAC):
         common["buffer_size"] = 1024
@@ -93,24 +91,22 @@ def test_default_hooks_are_none(agent_cls):
             # PIDActorConfig is a dataclass, not a callable; None by default.
             assert getattr(agent, hook) is None
         else:
-            assert getattr(agent, hook) is None, (
-                f"{agent_cls.__name__}.{hook} should default to None"
-            )
+            assert (
+                getattr(agent, hook) is None
+            ), f"{agent_cls.__name__}.{hook} should default to None"
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_hooks_are_stored(agent_cls):
     """Passed-in hooks are retained on the instance (for get_make_train)."""
     hook_kwargs = {
-        h: _identity_hook
-        for h in AGENT_HOOKS[agent_cls]
-        if h != "pid_actor_config"
+        h: _identity_hook for h in AGENT_HOOKS[agent_cls] if h != "pid_actor_config"
     }
     agent = _instantiate(agent_cls, **hook_kwargs)
     for h, fn in hook_kwargs.items():
-        assert getattr(agent, h) is fn, (
-            f"{agent_cls.__name__}.{h} should store the hook it was given"
-        )
+        assert (
+            getattr(agent, h) is fn
+        ), f"{agent_cls.__name__}.{h} should store the hook it was given"
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
@@ -121,9 +117,7 @@ def test_get_make_train_forwards_hooks(agent_cls):
     rather than exposing it via ``get_make_train`` (currently AVG).
     """
     hook_kwargs = {
-        h: _identity_hook
-        for h in AGENT_HOOKS[agent_cls]
-        if h != "pid_actor_config"
+        h: _identity_hook for h in AGENT_HOOKS[agent_cls] if h != "pid_actor_config"
     }
     agent = _instantiate(agent_cls, **hook_kwargs)
     if not hasattr(agent, "get_make_train"):
@@ -132,7 +126,7 @@ def test_get_make_train_forwards_hooks(agent_cls):
     # functools.partial stores kwargs on .keywords
     keywords = getattr(make_train_partial, "keywords", {})
     for h, fn in hook_kwargs.items():
-        assert h in keywords, (
-            f"{agent_cls.__name__}.get_make_train() should forward {h}"
-        )
+        assert (
+            h in keywords
+        ), f"{agent_cls.__name__}.get_make_train() should forward {h}"
         assert keywords[h] is fn

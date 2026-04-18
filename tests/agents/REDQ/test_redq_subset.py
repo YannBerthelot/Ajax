@@ -6,6 +6,7 @@ the min Q-value over that subset as the bellman target. This file
 exercises ``compute_redq_td_target`` directly at the boundary values
 (subset_size = 1 and subset_size = num_critics).
 """
+
 import gymnax
 import jax
 import jax.numpy as jnp

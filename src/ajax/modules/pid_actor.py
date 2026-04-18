@@ -17,12 +17,12 @@ The log_std head is independent of the PID structure (standard SAC).
 This is a drop-in replacement for Actor — it returns SquashedNormal(mean, std)
 and is fully compatible with residual RL (clip(a_expert + a_pid, -1, 1)).
 """
-from dataclasses import dataclass
+
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Optional, Union
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 from flax.linen.normalization import _l2_normalize
 
@@ -40,6 +40,7 @@ class PIDActorConfig:
     obs_derivative_idx: index of the derivative (e.g. altitude rate).
                         Set to None for P-only control.
     """
+
     obs_current_idx: int
     obs_target_idx: int
     obs_derivative_idx: Optional[int] = None

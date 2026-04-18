@@ -9,6 +9,7 @@ Design principle: "compose at init time, not JIT time."
   - Expert modules modify inputs/outputs of these core functions.
   - No static_argnames for feature selection — eliminates recompilation.
 """
+
 from typing import Optional, Tuple
 
 import jax
@@ -21,7 +22,6 @@ from flax.training.train_state import TrainState
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import get_pi
 from ajax.networks.networks import predict_value
-
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclasses (core diagnostics only)
@@ -97,8 +97,11 @@ def compute_td_target(
     rewards = rewards * reward_scale
 
     next_pi, _ = get_pi(
-        actor_state=actor_state, actor_params=actor_state.params,
-        obs=next_observations, done=dones, recurrent=recurrent,
+        actor_state=actor_state,
+        actor_params=actor_state.params,
+        obs=next_observations,
+        done=dones,
+        recurrent=recurrent,
     )
     sample_key, rng = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
@@ -171,8 +174,11 @@ def actor_loss_fn(
     online BC) can use them without recomputing the forward pass.
     """
     pi, _ = get_pi(
-        actor_state=actor_state, actor_params=actor_params,
-        obs=observations, done=dones, recurrent=recurrent,
+        actor_state=actor_state,
+        actor_params=actor_params,
+        obs=observations,
+        done=dones,
+        recurrent=recurrent,
     )
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
@@ -180,11 +186,13 @@ def actor_loss_fn(
 
     policy_std = (
         pi.unsquashed_stddev().mean()
-        if isinstance(pi, SquashedNormal) else pi.stddev().mean()
+        if isinstance(pi, SquashedNormal)
+        else pi.stddev().mean()
     )
 
     q_preds = predict_value(
-        critic_state=critic_state, critic_params=critic_state.params,
+        critic_state=critic_state,
+        critic_params=critic_state.params,
         x=jnp.concatenate([observations, actions], axis=-1),
     )
     q_min = jnp.min(q_preds, axis=0)
@@ -229,5 +237,6 @@ def soft_update_target_params(params, target_params, tau: float):
     """Polyak averaging: target ← τ·params + (1-τ)·target."""
     return jax.tree.map(
         lambda p, tp: tau * p + (1.0 - tau) * tp,
-        params, target_params,
+        params,
+        target_params,
     )

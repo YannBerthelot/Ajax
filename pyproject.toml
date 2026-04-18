@@ -78,7 +78,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select =  ["I", "F", "E", "W", "B", "C", "RUF"]
-ignore = ["E501"]
+ignore = ["E501", "RUF002", "RUF003"]
 fixable = ["ALL"]
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
@@ -94,7 +94,7 @@ indent-style = "space"
 
 [tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
-max-complexity = 15
+max-complexity = 20
 
 
 [tool.mypy]

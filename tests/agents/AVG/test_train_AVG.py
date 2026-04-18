@@ -5,6 +5,7 @@ AVG uses instead of a target network (``update_AVG_values``). Shared
 behaviors (loss shapes, updates, training loop, make_train) are covered
 by the probing suite and the smoke test in ``test_AVG.py``.
 """
+
 import gymnax
 import jax
 import jax.numpy as jnp

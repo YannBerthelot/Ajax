@@ -13,7 +13,6 @@ class NormalizationInfo:
     mean_2: jnp.array
 
 
-
 @partial(struct.dataclass, kw_only=True)
 class AVGState(BaseAgentState):
     """The agent properties to be carried over iterations of environment interaction and updates"""

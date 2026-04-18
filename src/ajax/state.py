@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Tuple, Type, Union
+from typing import Any, Callable, Optional, Tuple, Type, TypeVar, Union
 
 import flashbax as fbx
 import flax
@@ -52,8 +52,6 @@ class RollinEpisodicMeanRewardState(RollingMeanState):
     cumulative_reward: jnp.ndarray
 
 
-from typing import TypeVar
-
 T = TypeVar("T")
 
 
@@ -90,7 +88,7 @@ class LoadedStateMixin:
 
 def make_loaded_state_class(base_cls: Type[T]) -> Type[T]:
     @partial(struct.dataclass, kw_only=True)
-    class LoadedEnvState(base_cls, LoadedStateMixin):
+    class LoadedEnvState(base_cls, LoadedStateMixin):  # type: ignore[valid-type,misc]
         train_time_fraction: float = flax.struct.field(pytree_node=False)
 
         @property
@@ -158,7 +156,7 @@ class CollectorState:
     last_in_box: Optional[jnp.ndarray] = None
 
     @property
-    def train_time_fraction(self) -> float:
+    def train_time_fraction(self) -> Optional[float]:
         if self.max_timesteps is None:
             return None
         return self.timestep / self.max_timesteps
@@ -172,7 +170,7 @@ class CollectorState:
         return load_state(self._env_state, train_time_fraction=self.train_time_fraction)
 
     @env_state.setter
-    def env_state(self, value) -> LoadedStateMixin:
+    def env_state(self, value) -> None:
         self._env_state = value
         # LoadedEnvState(
         #     value, train_time_fraction=self.train_time_fraction

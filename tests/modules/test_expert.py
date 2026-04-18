@@ -248,17 +248,17 @@ def test_compute_online_bc_loss_decays_after_warmup():
         return jnp.stack([batch], axis=0)
 
     critic_state = _fake_critic_state(apply_fn)
-    common = dict(
-        pi_loc=jnp.zeros((3, 2)),
-        a_expert=jnp.ones((3, 2)),
-        critic_state=critic_state,
-        expert_critic_params={"e": 0.0},
-        observations=jnp.zeros((3, 4)),
-        critic_warmup_frac=0.5,
-        expert_v_min=jnp.asarray(0.0),
-        expert_v_max=jnp.asarray(1.0),
-        bc_coef=1.0,
-    )
+    common = {
+        "pi_loc": jnp.zeros((3, 2)),
+        "a_expert": jnp.ones((3, 2)),
+        "critic_state": critic_state,
+        "expert_critic_params": {"e": 0.0},
+        "observations": jnp.zeros((3, 4)),
+        "critic_warmup_frac": 0.5,
+        "expert_v_min": jnp.asarray(0.0),
+        "expert_v_max": jnp.asarray(1.0),
+        "bc_coef": 1.0,
+    }
     loss_during = compute_online_bc_loss(train_frac=jnp.asarray(0.0), **common)
     loss_after = compute_online_bc_loss(train_frac=jnp.asarray(0.9), **common)
     assert float(loss_during) > 0.0
@@ -268,8 +268,6 @@ def test_compute_online_bc_loss_decays_after_warmup():
 def test_compute_behavior_kpis_altitude_error_and_z_dot():
     # raw_obs layout: [current, _, z_dot, target]
     raw = jnp.array([[1.0, 0.0, -0.3, 4.0]])
-    alt_err, z_dot = compute_behavior_kpis(
-        raw, altitude_obs_idx=0, target_obs_idx=3
-    )
+    alt_err, z_dot = compute_behavior_kpis(raw, altitude_obs_idx=0, target_obs_idx=3)
     assert float(alt_err) == pytest.approx(3.0)
     assert float(z_dot) == pytest.approx(0.3)

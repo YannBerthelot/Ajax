@@ -149,9 +149,7 @@ def policy_loss_function(
         ratio.shape[0] == gae.shape[0]
     ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     loss_actor1 = ratio * gae
-    loss_actor2 = (
-        jnp.clip(ratio, 1.0 - clip_coef, 1.0 + clip_coef) * gae
-    )
+    loss_actor2 = jnp.clip(ratio, 1.0 - clip_coef, 1.0 + clip_coef) * gae
 
     loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
 

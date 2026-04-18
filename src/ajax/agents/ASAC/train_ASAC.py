@@ -872,7 +872,6 @@ def training_iteration(
         env_args=env_args,
         buffer=buffer,
         uniform=uniform,
-        action_scale=action_scale,
     )
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=1
@@ -955,7 +954,6 @@ def training_iteration(
         total_timesteps,
         # avg_reward_mode=True,
         action_scale=action_scale,
-        imitation_coef=imitation_coef,
         expert_policy=expert_policy,
     )
     return agent_state, metrics_to_log

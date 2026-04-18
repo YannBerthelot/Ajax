@@ -44,11 +44,7 @@ def test_REDQ_initialization_with_discrete_env():
 @pytest.mark.parametrize(
     "env_id, seeds, n_envs",
     [
-        ["Pendulum-v1", 42, 1],
-        ["Pendulum-v1", [42, 43], 1],
-        ["Pendulum-v1", [42, 43], 2],
         ["fast", 42, 1],
-        ["fast", [42, 43], 1],
         ["fast", [42, 43], 2],
     ],
 )

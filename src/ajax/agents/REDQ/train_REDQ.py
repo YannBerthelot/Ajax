@@ -304,20 +304,21 @@ def policy_loss_function(
 
     log_probs = log_probs.sum(-1, keepdims=True)
     imitation_loss = compute_imitation_score(
-        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset
+        pi, expert_policy, raw_observations, distance_to_stable, imitation_coef_offset,
+        q_preds=q_min, q_expert=q_min,  # unused by compute_imitation_score
     ).mean()
 
     assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
     loss_actor = alpha * log_probs - q_min
     total_loss = (loss_actor + imitation_coef * imitation_loss).mean()
 
-    return total_loss, PolicyAuxiliaries(
+    return total_loss, (PolicyAuxiliaries(
         policy_loss=total_loss,
         log_pi=log_probs.mean(),
         q_mean=q_min.mean(),
         imitation_loss=imitation_loss,
         raw_loss=loss_actor.mean(),
-    )
+    ), log_probs)
 
 
 @partial(
@@ -419,7 +420,7 @@ def update_policy(
     value_and_grad_fn = jax.value_and_grad(policy_loss_function, has_aux=True)
     log_alpha = agent_state.alpha.params["log_alpha"]
     alpha = jnp.exp(log_alpha)
-    (loss, aux), grads = value_and_grad_fn(
+    (loss, (aux, log_probs)), grads = value_and_grad_fn(
         agent_state.actor_state.params,
         agent_state.actor_state,
         agent_state.critic_state,
@@ -440,7 +441,7 @@ def update_policy(
         rng=rng,
         actor_state=updated_actor_state,
     )
-    return agent_state, aux
+    return agent_state, aux, log_probs
 
 
 @partial(
@@ -589,7 +590,7 @@ def update_agent(
     aux_value = jax.tree.map(lambda x: x[-1], aux_value)  # keep only final state
 
     # Update policy
-    agent_state, aux_policy = update_policy(
+    agent_state, aux_policy, log_probs = update_policy(
         observations=transition.obs,
         done=dones,
         agent_state=agent_state,
@@ -602,13 +603,11 @@ def update_agent(
     )
 
     # Adjust temperature
-    target_entropy = -action_dim
+    effective_target_entropy = jnp.array(-float(action_dim))
     agent_state, aux_temperature = update_temperature(
         agent_state,
-        observations=transition.obs,
-        target_entropy=target_entropy,
-        recurrent=recurrent,
-        dones=dones,
+        log_probs=log_probs,
+        effective_target_entropy=effective_target_entropy,
     )
 
     # Update target networks
@@ -707,8 +706,6 @@ def training_iteration(
         env_args=env_args,
         buffer=buffer,
         uniform=uniform,
-        expert_policy=expert_policy,
-        action_scale=action_scale,
     )
 
     agent_state, transition = jax.lax.scan(
@@ -792,7 +789,6 @@ def training_iteration(
         log_frequency,
         total_timesteps,
         expert_policy=expert_policy,
-        imitation_coef=imitation_coef,
         action_scale=action_scale,
     )
 

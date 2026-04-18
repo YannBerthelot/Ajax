@@ -59,7 +59,6 @@ from ajax.plane.plane_exps_utils import (
     get_policy_score,
     load_hyperparams,
 )
-from ajax.stable_utils import get_expert_policy
 
 # ---------------------------------------------------------------------------
 # Project / group config
@@ -114,7 +113,7 @@ def make_noisy_expert_policy(env, env_params, noise_pct: float):
     noise_pct  — noise std as % of the altitude range (ALTITUDE_RANGE_M).
     noise_pct = 0  →  identical to the clean PID (same object, no overhead).
     """
-    base_policy = get_expert_policy(env, env_params)
+    base_policy = env.expert_policy
     if noise_pct == 0.0:
         return base_policy
 
@@ -359,7 +358,7 @@ def setup():
         with open("expert_policy.pkl", "rb") as f:
             pid_policy = pickle.load(f)
     else:
-        pid_policy = get_expert_policy(env, env_params)
+        pid_policy = env.expert_policy
         with open("expert_policy.pkl", "wb") as f:
             pickle.dump(pid_policy, f)
 
@@ -535,8 +534,10 @@ if __name__ == "__main__":
         print(f"\n{len(experiments)} experiments:\n")
         for i, exp in enumerate(experiments):
             noise_std_m = exp.noise_pct / 100.0 * ALTITUDE_RANGE_M
+            done = is_experiment_complete(exp.name, n_seeds, n_timesteps)
+            status = "DONE" if done else "    "
             print(
-                f"  [{i:2d}]  {exp.name:<38}  "
+                f"  [{i:2d}] {status}  {exp.name:<38}  "
                 f"algo={exp.algorithm:<8}  noise={exp.noise_pct:.0f}% ({noise_std_m:.0f}m)  group={exp.wandb_group}"
             )
         raise SystemExit(0)

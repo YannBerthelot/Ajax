@@ -5,6 +5,7 @@ from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.train_PPO_pre_train import CloningConfig
+from ajax.agents.SAC.pid_actor import PIDActorConfig
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer
@@ -59,6 +60,8 @@ class SAC(ActorCritic):
         action_scale: float = 1.0,
         early_termination_condition: Optional[Callable] = None,
         residual: bool = False,
+        # PID policy: execute expert action directly (no actor used for env interaction)
+        use_pid_policy: bool = False,
         fixed_alpha: bool = False,
         num_critics: int = 2,
         # --- Expert guidance (all disabled by default) ---
@@ -66,9 +69,7 @@ class SAC(ActorCritic):
         num_critic_updates: int = 1,
         expert_buffer_n_steps: int = 20_000,
         expert_mix_fraction: float = 0.1,
-        # AWBC proximity decay (proximity_scale=None = no decay)
         box_threshold: float = 500.0,
-        proximity_scale: Optional[float] = None,
         altitude_obs_idx: int = 1,
         target_obs_idx: int = 6,
         # MC critic pretraining (unbiased, replaces Bellman pretraining)
@@ -84,10 +85,6 @@ class SAC(ActorCritic):
         augment_obs_with_expert_action: bool = False,
         # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
         use_bellman_critic_pretrain: bool = False,
-        # AWBC ablation flags
-        awbc_normalize: bool = True,
-        awbc_use_relu: bool = True,
-        fixed_awbc_lambda: Optional[float] = None,
         detach_obs_aug_action: bool = False,
         # Train-fraction conditioning: append timestep/total_timesteps to obs
         use_train_frac: bool = False,
@@ -102,7 +99,7 @@ class SAC(ActorCritic):
         # Online decaying BC term (active for all MC pretrain runs unless disabled)
         use_online_bc: bool = True,
         bc_coef: float = 1.0,
-        # Expert-guided exploration
+        # EDGE (Expert Decayed Guided Exploration)
         use_expert_guided_exploration: bool = False,
         exploration_decay_frac: float = 0.30,
         exploration_tau: float = 1.0,
@@ -119,6 +116,8 @@ class SAC(ActorCritic):
         use_phi_refresh: bool = False,
         phi_refresh_interval: int = 500,
         phi_refresh_steps: int = 20,
+        # PID actor: actor network predicts PID gains instead of raw actions.
+        pid_actor_config: Optional[PIDActorConfig] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -165,13 +164,13 @@ class SAC(ActorCritic):
         self.eval_expert_policy = eval_expert_policy
         self.early_termination_condition = early_termination_condition
         self.residual = residual
+        self.use_pid_policy = use_pid_policy
         self.fixed_alpha = fixed_alpha
         self.use_expert_guidance = use_expert_guidance
         self.num_critic_updates = num_critic_updates
         self.expert_buffer_n_steps = expert_buffer_n_steps
         self.expert_mix_fraction = expert_mix_fraction
         self.box_threshold = box_threshold
-        self.proximity_scale = proximity_scale
         self.altitude_obs_idx = altitude_obs_idx
         self.target_obs_idx = target_obs_idx
         self.use_mc_critic_pretrain = use_mc_critic_pretrain
@@ -183,9 +182,6 @@ class SAC(ActorCritic):
         self.online_critic_pretrain_lr_scale = online_critic_pretrain_lr_scale
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
         self.use_bellman_critic_pretrain = use_bellman_critic_pretrain
-        self.awbc_normalize = awbc_normalize
-        self.awbc_use_relu = awbc_use_relu
-        self.fixed_awbc_lambda = fixed_awbc_lambda
         self.detach_obs_aug_action = detach_obs_aug_action
         self.use_train_frac = use_train_frac
         self.policy_update_start = policy_update_start
@@ -207,6 +203,7 @@ class SAC(ActorCritic):
         self.use_phi_refresh = use_phi_refresh
         self.phi_refresh_interval = phi_refresh_interval
         self.phi_refresh_steps = phi_refresh_steps
+        self.pid_actor_config = pid_actor_config
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -214,13 +211,13 @@ class SAC(ActorCritic):
             buffer=self.buffer, alpha_args=self.alpha_args, cloning_args=self.cloning_confing,
             expert_policy=self.expert_policy, eval_expert_policy=self.eval_expert_policy,
             early_termination_condition=self.early_termination_condition,
-            residual=self.residual, fixed_alpha=self.fixed_alpha,
+            residual=self.residual, use_pid_policy=self.use_pid_policy, fixed_alpha=self.fixed_alpha,
             num_critics=self.num_critics,
             use_expert_guidance=self.use_expert_guidance,
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,
             expert_mix_fraction=self.expert_mix_fraction,
-            box_threshold=self.box_threshold, proximity_scale=self.proximity_scale,
+            box_threshold=self.box_threshold,
             altitude_obs_idx=self.altitude_obs_idx, target_obs_idx=self.target_obs_idx,
             use_mc_critic_pretrain=self.use_mc_critic_pretrain,
             mc_pretrain_n_mc_steps=self.mc_pretrain_n_mc_steps,
@@ -231,9 +228,6 @@ class SAC(ActorCritic):
             online_critic_pretrain_lr_scale=self.online_critic_pretrain_lr_scale,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
             use_bellman_critic_pretrain=self.use_bellman_critic_pretrain,
-            awbc_normalize=self.awbc_normalize,
-            awbc_use_relu=self.awbc_use_relu,
-            fixed_awbc_lambda=self.fixed_awbc_lambda,
             detach_obs_aug_action=self.detach_obs_aug_action,
             use_train_frac=self.use_train_frac,
             policy_update_start=self.policy_update_start,
@@ -256,4 +250,5 @@ class SAC(ActorCritic):
             use_phi_refresh=self.use_phi_refresh,
             phi_refresh_interval=self.phi_refresh_interval,
             phi_refresh_steps=self.phi_refresh_steps,
+            pid_actor_config=self.pid_actor_config,
         )

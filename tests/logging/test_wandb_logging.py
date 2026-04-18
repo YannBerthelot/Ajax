@@ -9,7 +9,6 @@ from ajax.logging.wandb_logging import (
     finish_logging,
     init_logging,
     log_variables,
-    tensorboard_writers,
 )
 
 

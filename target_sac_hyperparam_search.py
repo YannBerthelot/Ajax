@@ -284,7 +284,6 @@ def run_worker(
     from ajax.early_termination_wrapper import EarlyTerminationWrapper
     from ajax.logging.wandb_logging import LoggingConfig
     from ajax.plane.plane_exps_utils import get_mode
-    from ajax.stable_utils import get_expert_policy
 
     tb = _tb_folder(params.trial_number, phase2=phase2)
 
@@ -299,7 +298,7 @@ def run_worker(
         with open("expert_policy.pkl", "rb") as f:
             expert_policy = pickle.load(f)
     else:
-        expert_policy = get_expert_policy(env, env_params)
+        expert_policy = env.expert_policy
         with open("expert_policy.pkl", "wb") as f:
             pickle.dump(expert_policy, f)
 

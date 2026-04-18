@@ -121,9 +121,14 @@ def get_experiment_names(script_name: str, extra_args: List[str] = []) -> List[s
     for line in result.stdout.splitlines():
         line = line.strip()
         # Lines look like: "[ 0] exp_name   project=..."
+        # or with completion status: "[ 0] DONE  exp_name  group=..."
         if line.startswith("[") and "]" in line:
             after_bracket = line.split("]", 1)[1].strip()
-            name = after_bracket.split()[0]
+            tokens = after_bracket.split()
+            if not tokens:
+                continue
+            # Skip the "DONE" status prefix added by --list when an experiment is complete.
+            name = tokens[1] if tokens[0] == "DONE" and len(tokens) > 1 else tokens[0]
             names.append(name)
     if not names:
         raise RuntimeError(

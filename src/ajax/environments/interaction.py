@@ -11,7 +11,6 @@ from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import init_buffer
 from ajax.environments.utils import get_state_action_shapes, maybe_append_train_frac
-from ajax.networks.networks import predict_value
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -131,7 +130,7 @@ def step(
 
         time = state.time if hasattr(state, "time") else state.t
         truncated = time >= env_params.max_steps_in_episode - 1  # type: ignore[union-attr]
-        if action.ndim > 1:
+        if rng.ndim > 1:
             out = jax.vmap(
                 step_wrapper,
                 in_axes=(0, 0, 0, None),
@@ -433,21 +432,7 @@ def get_buffer_action_and_env_action(
 
 @partial(
     jax.jit,
-    static_argnames=[
-        "recurrent",
-        "mode",
-        "env_args",
-        "buffer",
-        "expert_policy",
-        "expert_fraction",
-        "augment_obs_with_expert_action",
-        "use_box",
-        "use_expert_guided_exploration",
-        "exploration_decay_frac",
-        "exploration_boltzmann",
-        "exploration_argmax",
-        "use_residual_rl",
-    ],
+    static_argnames=["recurrent", "mode", "env_args", "buffer", "action_pipeline"],
 )
 def collect_experience(
     agent_state: BaseAgentState,
@@ -457,34 +442,17 @@ def collect_experience(
     env_args: EnvironmentConfig,
     buffer: Optional[BufferType] = None,
     uniform: bool = False,
-    expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
-    action_scale: float = 1.0,
-    gamma: Optional[float] = None,
-    expert_fraction: float = 0.7,
-    augment_obs_with_expert_action: bool = False,
-    use_box: bool = False,
-    box_v_min: float = 0.0,
-    box_v_max: float = 0.0,
-    total_timesteps: int = 1,
-    use_expert_guided_exploration: bool = False,
-    exploration_decay_frac: float = 0.30,
-    exploration_tau: float = 1.0,
-    exploration_boltzmann: bool = False,
-    fixed_exploration_prob: float = 0.5,
-    exploration_argmax: bool = False,
-    use_residual_rl: bool = False,
+    action_pipeline: Optional[Callable] = None,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
-    During warmup (uniform=True):
-      - If expert_policy is provided: randomly picks expert or uniform action
-        (controlled by expert_fraction) for BOTH env step and buffer write,
-        ensuring reward is consistent with the action stored.
-      - If expert_policy is None (vanilla SAC): pure uniform random action.
-
-    After warmup:
-      - Policy action, with expert override inside the box when expert_policy
-        is provided and the environment has a trunc_condition.
+    Args:
+        action_pipeline: Optional callable that handles agent-specific action
+            selection (obs augmentation, expert exploration, residual RL, etc.).
+            When None, uses vanilla behavior: uniform during warmup, policy after.
+            Signature: (agent_state, raw_obs, rng, uniform, mix_key, action_key)
+                -> ActionPipelineResult(env_action, policy_action, log_probs,
+                   is_expert_flag, in_value_box, entry_bonus, rng)
     """
     rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
 
@@ -492,7 +460,7 @@ def collect_experience(
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
 
-    # Raw obs (needed for expert policy and augmentation — must come before actor call)
+    # Raw obs (needed by action_pipeline for expert policy)
     has_raw_obs = agent_state.collector_state.rollout.raw_obs is not None
     raw_obs = (
         get_raw_obs(
@@ -504,181 +472,33 @@ def collect_experience(
         else None
     )
 
-    # --- Value-threshold box logic ---
-    if use_box and agent_state.expert_critic_params is not None:
-        # Compute effective threshold with curriculum
-        train_frac = agent_state.collector_state.timestep / total_timesteps
-        effective_threshold = box_v_min + (box_v_max - box_v_min) * train_frac
-
-        # Compute V_expert using frozen critic
-        obs_for_box = agent_state.collector_state.last_obs
-        raw_for_box = raw_obs if raw_obs is not None else obs_for_box[..., :-1]
-        a_box = jax.lax.stop_gradient(expert_policy(raw_for_box))
-        v_box = jnp.min(
-            predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.expert_critic_params,
-                x=jnp.concatenate([obs_for_box, a_box], axis=-1),
-            ),
-            axis=0,
-        )
-        in_value_box = (v_box > effective_threshold)  # shape (n_envs, 1)
-
-        last_in_box = agent_state.collector_state.last_in_box
-        if last_in_box is None:
-            last_in_box = jnp.zeros_like(in_value_box)
-
-        # Terminal reward bonus on entry (outside→inside transition)
-        entry_bonus = jnp.where(
-            (last_in_box < 0.5) & (in_value_box > 0.5),
-            v_box,
-            jnp.zeros_like(v_box),
-        )
+    if action_pipeline is not None:
+        # Agent-specific action pipeline (SAC with expert, EDGE, box, etc.)
+        result = action_pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+        env_action = result.env_action
+        action = result.policy_action
+        log_probs = result.log_probs
+        is_expert_flag = result.is_expert_flag
+        in_value_box = result.in_value_box
+        entry_bonus = result.entry_bonus
+        rng = result.rng
     else:
-        in_value_box = jnp.zeros(
-            (env_args.n_envs, 1), dtype=jnp.float32
+        # Vanilla: uniform during warmup, policy action after
+        action, log_probs = get_action_and_log_probs(
+            action_key=action_key,
+            agent_state=agent_state,
+            recurrent=recurrent,
+            uniform=False,
         )
+        uniform_action = jax.random.uniform(
+            mix_key, minval=-1.0, maxval=1.0, shape=action.shape
+        )
+        env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
+        is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
+        in_value_box = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
         entry_bonus = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
 
-    # If obs augmentation is enabled, temporarily replace last_obs with the
-    # augmented version so the actor sees [obs | a_expert | train_frac].
-    # The buffer still receives the original (unaugmented) last_obs below.
-    if augment_obs_with_expert_action and expert_policy is not None:
-        _raw_for_aug = raw_obs if raw_obs is not None else agent_state.collector_state.last_obs
-        _a_expert = jax.lax.stop_gradient(expert_policy(_raw_for_aug))
-        _last_obs = agent_state.collector_state.last_obs
-        # Layout: [env_obs | a_expert | train_frac]  (train_frac is the last dim)
-        _augmented_obs = jnp.concatenate(
-            [_last_obs[..., :-1], _a_expert, _last_obs[..., -1:]], axis=-1
-        )
-        _agent_state_for_actor = agent_state.replace(
-            collector_state=agent_state.collector_state.replace(last_obs=_augmented_obs)
-        )
-    else:
-        _agent_state_for_actor = agent_state
-
-    # Policy action (used post-warmup)
-    action, log_probs = get_action_and_log_probs(
-        action_key=action_key,
-        agent_state=_agent_state_for_actor,
-        recurrent=recurrent,
-        uniform=False,  # never blend here — we handle warmup explicitly below
-    )
-
-    # --- Compute env_action ---
-    # During warmup: expert/uniform mix (or pure uniform if no expert)
-    # After warmup: policy action with optional in-box expert override
-    uniform_action = jax.random.uniform(
-        mix_key, minval=-1.0, maxval=1.0, shape=action.shape
-    )
-
-    if expert_policy is not None:
-        expert_action = jax.lax.stop_gradient(expert_policy(raw_obs))
-
-        # In-box expert override for post-warmup steps
-        in_box = (
-            env_args.env.trunc_condition(
-                agent_state.collector_state.env_state, env_args.env_params
-            )
-            if "trunc_condition" in dir(env_args.env)
-            else jnp.zeros_like(action[..., :1])
-        )
-        if use_residual_rl:
-            # Residual RL (Johannink et al.): policy outputs a residual correction
-            # added on top of the expert action, then clipped to valid action range.
-            post_warmup_action = jnp.clip(expert_action + action, -1.0, 1.0)
-        else:
-            post_warmup_action = (1 - in_box) * action + in_box * expert_action
-
-        # Expert-guided exploration: value-gap-based stochastic substitution.
-        # Uses frozen φ* (expert_critic_params) when available for a stable reference;
-        # falls back to the live critic when φ* is not present (e.g. no MC pre-train).
-        # Decays to zero after exploration_decay_frac of training.
-        if use_expert_guided_exploration:
-            obs_for_ege = agent_state.collector_state.last_obs
-            # Use frozen φ* as the reference critic when available (Q2 ablation gate).
-            ege_critic_params = (
-                agent_state.expert_critic_params
-                if agent_state.expert_critic_params is not None
-                else agent_state.critic_state.params
-            )
-            q_policy = jnp.min(
-                predict_value(
-                    critic_state=agent_state.critic_state,
-                    critic_params=ege_critic_params,
-                    x=jnp.concatenate([obs_for_ege, action], axis=-1),
-                ), axis=0,
-            )
-            q_expert_ege = jnp.min(
-                predict_value(
-                    critic_state=agent_state.critic_state,
-                    critic_params=ege_critic_params,
-                    x=jnp.concatenate([obs_for_ege, expert_action], axis=-1),
-                ), axis=0,
-            )
-            gap = q_expert_ege - q_policy
-            train_frac_ege = agent_state.collector_state.timestep / total_timesteps
-            # decay_frac=0.0 means never decay (gate stays active for full training)
-            if exploration_decay_frac == 0.0:
-                decay = jnp.ones_like(train_frac_ege)
-            else:
-                decay = jnp.maximum(1.0 - train_frac_ege / exploration_decay_frac, 0.0)
-            if exploration_argmax:
-                # IBRL-style: deterministically pick expert when Q(s, π*(s)) > Q(s, π(s))
-                use_expert_ege = (gap > 0.0) & (decay > 0.0)
-            elif exploration_boltzmann:
-                # Adaptive value-gap gate: p ∝ sigmoid(gap / τ·|Q|)
-                q_scale = jax.lax.stop_gradient(jnp.abs(q_policy).mean() + 1e-6)
-                p_expert_state = jax.nn.sigmoid(gap / (exploration_tau * q_scale))
-                p_expert_final = decay * p_expert_state
-                rng, ege_key = jax.random.split(rng)
-                use_expert_ege = jax.random.uniform(ege_key, shape=p_expert_final.shape) < p_expert_final
-            else:
-                # Fixed-epsilon: constant probability regardless of value gap
-                p_expert_final = decay * fixed_exploration_prob
-                rng, ege_key = jax.random.split(rng)
-                use_expert_ege = jax.random.uniform(ege_key, shape=p_expert_final.shape) < p_expert_final
-            post_warmup_action = jnp.where(use_expert_ege, expert_action, post_warmup_action)
-
-        # Warmup mix: expert_fraction of steps use expert, rest use uniform.
-        # Residual RL uses pure uniform warmup (matching vanilla SAC) since the
-        # expert is only meant to serve as a base for post-warmup residual actions.
-        if use_residual_rl:
-            warmup_action = uniform_action
-            use_expert_this_step = jnp.zeros((), dtype=jnp.bool_)
-        else:
-            use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
-            warmup_action = jnp.where(use_expert_this_step, expert_action, uniform_action)
-
-        # Track whether the stored action came from the expert (for buffer logging)
-        _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
-        if use_expert_guided_exploration:
-            _post_expert = jnp.maximum(_post_expert, use_expert_ege.astype(jnp.float32))
-        if use_box:
-            _post_expert = jnp.maximum(_post_expert, in_value_box.astype(jnp.float32))
-        _warmup_expert = jnp.ones_like(action[..., :1], dtype=jnp.float32) * use_expert_this_step.astype(jnp.float32)
-        is_expert_flag = jax.lax.cond(uniform, lambda: _warmup_expert, lambda: _post_expert)
-    else:
-        # No expert — vanilla SAC:
-        #   warmup: pure uniform random
-        #   post-warmup: policy action only (no in-box override)
-        expert_action = jnp.zeros_like(action)  # never sent to env
-        in_box = jnp.zeros_like(action[..., :1])
-        post_warmup_action = action
-        warmup_action = uniform_action
-        is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
-
-    env_action = jax.lax.cond(
-        uniform,                          # True during warmup
-        lambda: warmup_action,
-        lambda: post_warmup_action,
-    )
-
-    # Inside box: override with expert action
-    if use_box and expert_policy is not None:
-        env_action = jnp.where(in_value_box, expert_action, env_action)
-
-    buffer_action = env_action            # always store what the env actually received
+    buffer_action = env_action
 
     # --- Step environment ---
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
@@ -702,7 +522,7 @@ def collect_experience(
         ),
     )
 
-    # Recompute in_box AFTER step for reward accumulation logic
+    # in_box_after for buffer write suppression and cumulative reward tracking
     in_box_after = (
         env_args.env.trunc_condition(
             agent_state.collector_state.env_state, env_args.env_params
@@ -713,10 +533,11 @@ def collect_experience(
 
     raw_next_obs = info["obs_st"] if "obs_st" in info else obsv
 
-    # --- Box reward/termination modification ---
-    if use_box:
-        reward = reward + entry_bonus[..., 0]
-        terminated = jnp.logical_or(terminated.astype(bool), entry_bonus[..., 0] > 0).astype(terminated.dtype)
+    # Box reward/termination modification (no-op when entry_bonus is zeros)
+    reward = reward + entry_bonus[..., 0]
+    terminated = jnp.logical_or(
+        terminated.astype(bool), entry_bonus[..., 0] > 0
+    ).astype(terminated.dtype)
 
     # --- Buffer write ---
     buffer_state = agent_state.collector_state.buffer_state
@@ -755,7 +576,7 @@ def collect_experience(
         raw_obs=raw_obs,
         next_obs=raw_next_obs,
         log_prob=log_probs,
-        inside_box=in_value_box if use_box else None,
+        inside_box=in_value_box if action_pipeline is not None else None,
     )
 
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
@@ -779,7 +600,7 @@ def collect_experience(
         cumulative_reward=(
             in_box_after * (agent_state.collector_state.cumulative_reward + reward)
         ),
-        last_in_box=in_value_box.astype(jnp.float32),
+        **({"last_in_box": in_value_box.astype(jnp.float32)} if action_pipeline is not None else {}),
     )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)

@@ -202,7 +202,6 @@ if __name__ == "__main__":
     from target_gym import Plane, PlaneParams
 
     from ajax.plane.plane_exps_utils import load_hyperparams
-    from ajax.stable_utils import get_expert_policy
     from ajax.environments.create import prepare_env
     from ajax.state import EnvironmentConfig
 
@@ -229,7 +228,7 @@ if __name__ == "__main__":
         with open("expert_policy.pkl", "rb") as f:
             expert_policy = pickle.load(f)
     else:
-        expert_policy = get_expert_policy(env_raw, env_params)
+        expert_policy = env_raw.expert_policy
         with open("expert_policy.pkl", "wb") as f:
             pickle.dump(expert_policy, f)
 

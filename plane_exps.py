@@ -23,7 +23,6 @@ from ajax.plane.plane_exps_utils import (
     get_policy_score,
     load_hyperparams,
 )
-from ajax.stable_utils import get_expert_policy
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +154,7 @@ def setup():
         with open("expert_policy.pkl", "rb") as f:
             expert_policy = pickle.load(f)
     else:
-        expert_policy = get_expert_policy(env, env_params)
+        expert_policy = env.expert_policy
         with open("expert_policy.pkl", "wb") as f:
             pickle.dump(expert_policy, f)
 

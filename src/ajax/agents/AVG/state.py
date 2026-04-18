@@ -13,8 +13,6 @@ class NormalizationInfo:
     mean_2: jnp.array
 
 
-one = jnp.ones(1)
-
 
 @partial(struct.dataclass, kw_only=True)
 class AVGState(BaseAgentState):

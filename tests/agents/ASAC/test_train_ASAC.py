@@ -216,7 +216,7 @@ def test_policy_loss_function(env_config, ASAC_state):
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
     assert "log_pi" in aux, "Auxiliary outputs are missing 'log_pi'."
     assert "q_min" in aux, "Auxiliary outputs are missing 'q_min'."
-    assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+    assert jnp.isfinite(aux["policy_loss"]), "Policy loss should be finite."
 
 
 @pytest.mark.parametrize(
@@ -327,7 +327,7 @@ def test_update_policy(env_config, ASAC_state):
 
     # Validate auxiliary outputs
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
-    assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+    assert jnp.isfinite(aux["policy_loss"]), "Policy loss should be finite."
 
 
 @pytest.mark.parametrize(

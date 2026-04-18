@@ -53,7 +53,6 @@ from ajax.plane.plane_exps_utils import (
     load_hyperparams,
 )
 from ajax.environments.utils import get_action_dim
-from ajax.stable_utils import get_expert_policy
 from partial_expert_train import (
     PARTIAL_EXPERT_STEPS,
     train_and_save_partial_expert,
@@ -262,7 +261,7 @@ def setup():
         with open("expert_policy.pkl", "rb") as f:
             pid_policy = pickle.load(f)
     else:
-        pid_policy = get_expert_policy(env, env_params)
+        pid_policy = env.expert_policy
         with open("expert_policy.pkl", "wb") as f:
             pickle.dump(pid_policy, f)
 

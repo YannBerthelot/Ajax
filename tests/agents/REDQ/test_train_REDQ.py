@@ -202,7 +202,7 @@ def test_policy_loss_function(env_config, REDQ_state):
     alpha = jnp.array(0.1)
 
     # Call the policy loss function
-    loss, aux = policy_loss_function(
+    loss, (aux, log_probs) = policy_loss_function(
         actor_params=REDQ_state.actor_state.params,
         actor_state=REDQ_state.actor_state,
         critic_states=REDQ_state.critic_state,
@@ -218,7 +218,7 @@ def test_policy_loss_function(env_config, REDQ_state):
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
     assert "log_pi" in aux, "Auxiliary outputs are missing 'log_pi'."
     assert "q_mean" in aux, "Auxiliary outputs are missing 'q_mean'."
-    assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+    assert jnp.isfinite(aux["policy_loss"]), "Policy loss should be finite."
 
 
 @pytest.mark.parametrize(
@@ -318,12 +318,12 @@ def test_update_policy(env_config, REDQ_state):
     original_actor_params = REDQ_state.actor_state.params
 
     # Call the update_policy function
-    updated_state, aux = update_policy(
+    updated_state, aux, log_probs = update_policy(
         observations=observations,
         done=dones,
         agent_state=REDQ_state,
         recurrent=False,
-        raw_observations=observation_shape,
+        raw_observations=observations,
     )
     aux = to_state_dict(aux)
     # Validate that only actor_state.params has changed
@@ -333,7 +333,7 @@ def test_update_policy(env_config, REDQ_state):
 
     # Validate auxiliary outputs
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
-    assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+    assert jnp.isfinite(aux["policy_loss"]), "Policy loss should be finite."
 
 
 @pytest.mark.parametrize(

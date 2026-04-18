@@ -300,14 +300,14 @@ def get_cloning_args(
 )
 def compute_imitation_score(
     pi: distrax.Distribution,
-    expert_policy: Callable,
+    expert_policy: Optional[Callable],
     raw_observations: jax.Array,
     distance_to_stable: Callable,
     imitation_coef_offset: float,
-    q_preds: jax.Array,
-    q_expert: jax.Array,
+    q_preds: Optional[jax.Array] = None,
+    q_expert: Optional[jax.Array] = None,
 ) -> jax.Array:
-    if isinstance(pi, distrax.Categorical):
+    if isinstance(pi, distrax.Categorical) or expert_policy is None:
         return jnp.zeros(1)
 
     expert_action = jax.lax.stop_gradient(expert_policy(raw_observations))

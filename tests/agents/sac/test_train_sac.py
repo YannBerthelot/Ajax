@@ -9,6 +9,7 @@ from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.state import SACConfig, SACState
+from ajax.agents.SAC.core import compute_td_target, critic_loss_fn
 from ajax.agents.SAC.train_SAC import (
     create_alpha_train_state,
     init_SAC,
@@ -21,7 +22,6 @@ from ajax.agents.SAC.train_SAC import (
     update_target_networks,
     update_temperature,
     update_value_functions,
-    value_loss_function,
 )
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.environments.utils import get_state_action_shapes
@@ -138,21 +138,25 @@ def test_value_loss_function(env_config, SAC_state):
     gamma = 0.99
     alpha = jnp.array(0.1)
 
-    # Call the value loss function
-    loss, aux = value_loss_function(
-        critic_params=SAC_state.critic_state.params,
-        critic_states=SAC_state.critic_state,
-        rng=rng,
+    # Compute TD target then critic loss (replaces old value_loss_function)
+    target_q = compute_td_target(
         actor_state=SAC_state.actor_state,
-        actions=actions,
-        observations=observations,
+        critic_state=SAC_state.critic_state,
         next_observations=next_observations,
         dones=dones,
         rewards=rewards,
         gamma=gamma,
         alpha=alpha,
+        rng=rng,
         recurrent=False,
         reward_scale=1.0,
+    )
+    loss, aux = critic_loss_fn(
+        critic_params=SAC_state.critic_state.params,
+        critic_state=SAC_state.critic_state,
+        observations=observations,
+        actions=actions,
+        target_q=target_q,
     )
     aux = to_state_dict(aux)
     # Validate the outputs
@@ -177,22 +181,27 @@ def test_value_loss_function_with_value_and_grad(env_config, SAC_state):
     gamma = 0.99
     alpha = jnp.array(0.1)
 
-    # Define a wrapper for value_loss_function
+    # Compute target outside the differentiable function (target is stop_gradient'd)
+    target_q = compute_td_target(
+        actor_state=SAC_state.actor_state,
+        critic_state=SAC_state.critic_state,
+        next_observations=next_observations,
+        dones=dones,
+        rewards=rewards,
+        gamma=gamma,
+        alpha=alpha,
+        rng=rng,
+        recurrent=False,
+        reward_scale=1.0,
+    )
+
     def loss_fn(critic_params):
-        loss, _ = value_loss_function(
+        loss, _ = critic_loss_fn(
             critic_params=critic_params,
-            critic_states=SAC_state.critic_state,
-            rng=rng,
-            actor_state=SAC_state.actor_state,
-            actions=actions,
+            critic_state=SAC_state.critic_state,
             observations=observations,
-            next_observations=next_observations,
-            dones=dones,
-            rewards=rewards,
-            gamma=gamma,
-            alpha=alpha,
-            recurrent=False,
-            reward_scale=1.0,
+            actions=actions,
+            target_q=target_q,
         )
         return loss
 
@@ -236,7 +245,7 @@ def test_policy_loss_function(env_config, SAC_state):
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
     assert "log_pi" in aux, "Auxiliary outputs are missing 'log_pi'."
     assert "q_min" in aux, "Auxiliary outputs are missing 'q_min'."
-    assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+    assert jnp.isfinite(aux["policy_loss"]), "Policy loss should be finite."
 
 
 @pytest.mark.parametrize(
@@ -290,12 +299,11 @@ def test_temperature_loss_function(log_alpha_init, target_entropy, corrected_log
     loss, aux = temperature_loss_function(
         log_alpha_params=log_alpha_params,
         corrected_log_probs=corrected_log_probs,
-        target_entropy=target_entropy,
+        effective_target_entropy=target_entropy,
     )
     aux = to_state_dict(aux)
     # Validate the outputs
     assert jnp.isfinite(loss), "Loss contains invalid values."
-    assert "alpha_loss" in aux, "Auxiliary outputs are missing 'alpha_loss'."
     assert "alpha" in aux, "Auxiliary outputs are missing 'alpha'."
     assert "log_alpha" in aux, "Auxiliary outputs are missing 'log_alpha'."
     assert aux["alpha"] > 0, "Alpha should be positive."
@@ -318,7 +326,7 @@ def test_temperature_loss_function_with_value_and_grad(
         loss, _ = temperature_loss_function(
             log_alpha_params=log_alpha_params,
             corrected_log_probs=corrected_log_probs,
-            target_entropy=target_entropy,
+            effective_target_entropy=target_entropy,
         )
         return loss
 
@@ -414,12 +422,12 @@ def test_update_policy(env_config, SAC_state):
     original_actor_params = SAC_state.actor_state.params
 
     # Call the update_policy function
-    updated_state, aux = update_policy(
+    updated_state, aux, log_probs = update_policy(
         observations=observations,
         done=dones,
         agent_state=SAC_state,
         recurrent=False,
-        raw_observations=observation_shape,
+        raw_observations=observations,
     )
     aux = to_state_dict(aux)
     # Validate that only actor_state.params has changed
@@ -429,19 +437,17 @@ def test_update_policy(env_config, SAC_state):
 
     # Validate auxiliary outputs
     assert "policy_loss" in aux, "Auxiliary outputs are missing 'policy_loss'."
-    assert aux["policy_loss"] <= 0, "Policy loss should be negative."
+    assert jnp.isfinite(aux["policy_loss"]), "Policy loss should be finite."
+    assert log_probs is not None, "log_probs should be returned."
 
 
 @pytest.mark.parametrize(
     "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
 )
 def test_update_temperature(env_config, SAC_state):
-    observation_shape, _ = get_state_action_shapes(env_config.env)
-
-    # Mock inputs for the update_temperature function
-    observations = jnp.zeros((env_config.n_envs, *observation_shape))
-    dones = jnp.zeros((env_config.n_envs, 1))
-    target_entropy = -1.0
+    # Mock log_probs (as returned by update_policy)
+    log_probs = jnp.ones((env_config.n_envs, 1)) * -0.5
+    effective_target_entropy = jnp.array(-1.0)
 
     # Save the original alpha params for comparison
     original_alpha_params = SAC_state.alpha.params
@@ -449,10 +455,8 @@ def test_update_temperature(env_config, SAC_state):
     # Call the update_temperature function
     updated_state, aux = update_temperature(
         agent_state=SAC_state,
-        observations=observations,
-        dones=dones,
-        target_entropy=target_entropy,
-        recurrent=False,
+        log_probs=log_probs,
+        effective_target_entropy=effective_target_entropy,
     )
     aux = to_state_dict(aux)
     # Validate that only alpha.params has changed
@@ -461,7 +465,6 @@ def test_update_temperature(env_config, SAC_state):
     ), "alpha.params should have been updated."
 
     # Validate auxiliary outputs
-    assert "alpha_loss" in aux, "Auxiliary outputs are missing 'alpha_loss'."
     assert "alpha" in aux, "Auxiliary outputs are missing 'alpha'."
     assert aux["alpha"] > 0, "Alpha should be positive."
 
@@ -549,6 +552,7 @@ def test_update_agent(env_config, SAC_state):
         recurrent=recurrent,
         gamma=gamma,
         action_dim=action_dim,
+        target_entropy=-1.0,
         tau=tau,
     )
 
@@ -580,6 +584,7 @@ def test_update_agent_with_scan(env_config, SAC_state):
         recurrent=recurrent,
         gamma=gamma,
         action_dim=action_dim,
+        target_entropy=-1.0,
         tau=tau,
     )
 

@@ -176,3 +176,14 @@ def make_scheduled(
         value=x,
         schedule_fn=schedule_picker(schedule_name),
     )
+
+
+def resolve_schedulable(param, train_frac: float = 0.0):
+    """Resolve a Schedulable parameter to its current value.
+
+    If param is a Scheduled, evaluates at train_frac.
+    If param is a plain scalar, returns it unchanged.
+    """
+    if isinstance(param, Scheduled):
+        return param.at(train_frac)
+    return param

@@ -221,7 +221,7 @@ def test_get_action_and_new_agent_state(
 
     collector_state = CollectorState(
         rng=rng,
-        env_state=env_state,
+        _env_state=env_state,
         last_obs=obs,
         last_terminated=jnp.zeros((n_envs,)),
         last_truncated=jnp.zeros((n_envs,)),
@@ -347,7 +347,7 @@ def test_get_action_and_new_agent_state_recurrent_without_done(
 
     collector_state = CollectorState(
         rng=rng,
-        env_state=env_state,
+        _env_state=env_state,
         last_obs=obs,
         last_terminated=jnp.zeros((n_envs,)),
         last_truncated=jnp.zeros((n_envs,)),

@@ -30,6 +30,10 @@ InitializationFunction: TypeAlias = Callable
 
 FloatOrCallable: TypeAlias = Union[float, Callable[[int], float]]
 
+# A parameter that can be either a constant or a Scheduled value.
+# Use resolve_schedulable(param, train_frac) to get the current value.
+Schedulable: TypeAlias = Union[float, "Scheduled"]
+
 
 @struct.dataclass
 class NormalizationInfo:

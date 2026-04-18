@@ -49,7 +49,6 @@ from ajax.plane.plane_exps_utils import (
 )
 from ajax.environments.create import prepare_env
 from ajax.environments.utils import get_action_dim
-from ajax.stable_utils import get_expert_policy
 from ajax.state import EnvironmentConfig
 from mc_pretrain_collect import (
     MC_DATA_PATH,
@@ -697,7 +696,7 @@ def setup():
         with open("expert_policy.pkl", "rb") as f:
             expert_policy = pickle.load(f)
     else:
-        expert_policy = get_expert_policy(env, env_params)
+        expert_policy = env.expert_policy
         with open("expert_policy.pkl", "wb") as f:
             pickle.dump(expert_policy, f)
 

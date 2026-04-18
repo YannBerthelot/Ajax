@@ -96,7 +96,7 @@ def test_get_batch_from_buffer(buffer_state_fixture):
     key = jax.random.PRNGKey(0)
 
     # Sample a batch from the buffer
-    obs, terminated, truncated, next_obs, reward, action, raw_obs = (
+    obs, terminated, truncated, next_obs, reward, action, raw_obs, is_expert = (
         get_batch_from_buffer(buffer, buffer_state, key)
     )
 
@@ -108,3 +108,4 @@ def test_get_batch_from_buffer(buffer_state_fixture):
     assert reward.shape == (batch_size, 1)
     assert action.shape == (batch_size, *action_shape)
     assert raw_obs.shape == (batch_size, *observation_shape)
+    assert is_expert.shape == (batch_size, 1)

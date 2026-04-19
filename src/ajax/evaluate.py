@@ -108,20 +108,20 @@ def step_environment(
         raw_actions, entropy = get_deterministic_action_and_entropy_fn(
             actor_state, recurrent, continuous
         )(obs, done if recurrent else None)
-        expert_actions = expert_policy(obs) if expert_policy is not None else 0.0
 
-        inside_the_box = (
-            early_termination_condition(state, env_params).reshape(-1, 1)
-            if early_termination_condition is not None
-            else 0.0
-        )
-
-        if eval_action_transform is not None:
-            actions = eval_action_transform(raw_actions, expert_actions)
+        if eval_action_transform is not None or early_termination_condition is not None:
+            expert_actions = expert_policy(obs) if expert_policy is not None else 0.0
+            inside_the_box = (
+                early_termination_condition(state, env_params).reshape(-1, 1)
+                if early_termination_condition is not None
+                else 0.0
+            )
+            if eval_action_transform is not None:
+                actions = eval_action_transform(raw_actions, expert_actions)
+            else:
+                actions = (1.0 - inside_the_box) * raw_actions + inside_the_box * expert_actions
         else:
-            actions = (
-                1.0 - inside_the_box
-            ) * raw_actions + inside_the_box * expert_actions
+            actions = raw_actions
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
@@ -163,10 +163,10 @@ def step_environment(
 
 
 def step_environment_expert(mode, env, env_params, expert_policy):
-    """Step function for expert policy."""
+    """Step function for expert policy. expert_policy must be a FunctionalExpertPolicy."""
 
     def fn(carry):
-        rewards, rng, obs, done, state, entropy_sum, step_count, step_count_2, _ = carry
+        rewards, rng, obs, done, state, entropy_sum, step_count, step_count_2, _, expert_state = carry
         rng, step_key = jax.random.split(rng)
         step_keys = (
             jax.random.split(step_key, obs.shape[0])
@@ -174,7 +174,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             else step_key
         )
 
-        actions = expert_policy(obs)
+        actions, new_expert_state = expert_policy(expert_state, obs)
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys, state, actions, env, mode, env_params
         )
@@ -190,6 +190,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             step_count + still_running.mean(),
             step_count_2 + 1,
             new_rewards,
+            new_expert_state,
         )
 
     return fn
@@ -271,6 +272,7 @@ def evaluate(
         jnp.zeros(1),  # step_count
         jnp.zeros(1),  # step_count_2
         jnp.zeros(num_episodes),  # last reward
+        expert_policy.init_state(num_episodes) if expert_policy is not None else None,  # expert_state
     )
 
     # Choose step function

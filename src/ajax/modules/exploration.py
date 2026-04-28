@@ -120,6 +120,159 @@ def edge_fixed_gate(
 
 
 # ---------------------------------------------------------------------------
+# Quality-aware (LCB) gate — uses inter-critic disagreement to weight choice
+# ---------------------------------------------------------------------------
+
+
+def edge_compute_lcb_scores(
+    obs: jax.Array,
+    policy_action: jax.Array,
+    expert_action: jax.Array,
+    critic_state,
+    critic_params,
+    beta: jax.Array,
+) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    """Lower-confidence-bound scores for each candidate action.
+
+    Returns (score_expert, score_policy, q_policy_mean, mu_actor,
+    mu_expert, sigma_actor, sigma_expert).
+
+    score(a) = Q_min(s,a) - beta * (Q_max(s,a) - Q_min(s,a))
+
+    With twin (or n) critics, Q_max - Q_min approximates epistemic
+    disagreement. LCB penalises uncertain candidates: low-disagreement
+    (well-estimated) actions get scored close to their min-Q; high-
+    disagreement (OOD) actions get a hefty penalty. The action_pipeline
+    consumer typically gates on (score_e > score_p), optionally
+    stochastically via a softmax over the difference.
+
+    The trailing four returns are diagnostic per-batch summaries
+    (mean/std of the critic ensemble for each candidate action) used
+    for live telemetry — they are not consumed by the gate itself.
+    """
+    q_e = predict_value(
+        critic_state=critic_state,
+        critic_params=critic_params,
+        x=jnp.concatenate([obs, expert_action], axis=-1),
+    )
+    q_p = predict_value(
+        critic_state=critic_state,
+        critic_params=critic_params,
+        x=jnp.concatenate([obs, policy_action], axis=-1),
+    )
+    q_min_e = jnp.min(q_e, axis=0)
+    q_max_e = jnp.max(q_e, axis=0)
+    q_min_p = jnp.min(q_p, axis=0)
+    q_max_p = jnp.max(q_p, axis=0)
+    score_e = q_min_e - beta * (q_max_e - q_min_e)
+    score_p = q_min_p - beta * (q_max_p - q_min_p)
+    # Diagnostics (mean/std across the critic ensemble axis 0).
+    mu_p = jnp.mean(q_p, axis=0)
+    mu_e = jnp.mean(q_e, axis=0)
+    sigma_p = jnp.std(q_p, axis=0)
+    sigma_e = jnp.std(q_e, axis=0)
+    return score_e, score_p, q_min_p, mu_p, mu_e, sigma_p, sigma_e
+
+
+def edge_lcb_gate(
+    score_expert: jax.Array,
+    score_policy: jax.Array,
+    rng: jax.Array,
+    temperature: float,
+) -> Tuple[jax.Array, jax.Array]:
+    """Stochastic Boltzmann gate over LCB scores.
+
+    p(use_expert) = sigmoid((score_e - score_p) / temperature).
+
+    Hard threshold (argmax) creates a self-fulfilling expert preference:
+    expert always wins → buffer all expert → critic never learns Q for
+    policy actions → expert keeps winning. The stochastic version ensures
+    policy occasionally gets sampled, breaking the inertia.
+
+    Temperature → 0 recovers argmax; → ∞ recovers uniform mixing.
+    """
+    delta = (score_expert - score_policy) / jnp.maximum(temperature, 1e-6)
+    p_expert = jax.nn.sigmoid(delta)
+    rng, key = jax.random.split(rng)
+    use_expert = jax.random.uniform(key, shape=p_expert.shape) < p_expert
+    return use_expert, rng
+
+
+def edge_compute_thompson_stats(
+    obs: jax.Array,
+    policy_action: jax.Array,
+    expert_action: jax.Array,
+    critic_state,
+    critic_params,
+) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    """Per-action Q mean / std across critic ensemble.
+
+    Returns (mu_e, sigma_e, mu_p, sigma_p, mu_p) where the last item keeps
+    the call-signature parity with edge_compute_lcb_scores (q_policy summary
+    consumed downstream as the critic-side training signal).
+    """
+    q_e = predict_value(
+        critic_state=critic_state,
+        critic_params=critic_params,
+        x=jnp.concatenate([obs, expert_action], axis=-1),
+    )
+    q_p = predict_value(
+        critic_state=critic_state,
+        critic_params=critic_params,
+        x=jnp.concatenate([obs, policy_action], axis=-1),
+    )
+    mu_e = jnp.mean(q_e, axis=0)
+    sigma_e = jnp.std(q_e, axis=0)
+    mu_p = jnp.mean(q_p, axis=0)
+    sigma_p = jnp.std(q_p, axis=0)
+    return mu_e, sigma_e, mu_p, sigma_p, mu_p
+
+
+def edge_thompson_gate(
+    mu_e: jax.Array,
+    sigma_e: jax.Array,
+    mu_p: jax.Array,
+    sigma_p: jax.Array,
+    rng: jax.Array,
+    temperature: float = 1.0,
+    epsilon_floor: float = 0.0,
+) -> Tuple[jax.Array, jax.Array]:
+    """Thompson-sampling gate, with optional epsilon floor on policy picks.
+
+    Treat each candidate's Q as Gaussian(mu, (temperature * sigma)^2),
+    draw one sample per side, pick whichever is larger. Equivalent to
+    p(use_expert) = Phi((mu_e - mu_p) / (T * sqrt(sigma_e^2 + sigma_p^2)))
+    in expectation, but stochastic per-step (which is what we want for
+    exploration: the gate itself injects noise rather than deferring to a
+    fixed rule).
+
+    Symmetric: high uncertainty on either side widens the gate, never
+    biasing it. Confident estimates dominate. With both sigmas → 0 we
+    recover deterministic argmax.
+
+    epsilon_floor: with this probability, force the policy regardless of
+    the Thompson outcome. Required when the expert dominates by many
+    sigmas (Phi -> 1 -> Thompson never picks the policy -> the critic
+    never sees policy actions in its updates -> Q for policy actions
+    stays stale -> the gate can never flip even if the policy improves).
+    Set carefully on brittle envs: too high crashes the agent, too low
+    starves the policy of evaluation data. ~0.001-0.05 is a sane range.
+    """
+    rng, key_e, key_p, key_floor = jax.random.split(rng, 4)
+    scale = jnp.maximum(temperature, 1e-6)
+    q_tilde_e = mu_e + scale * sigma_e * jax.random.normal(key_e, mu_e.shape)
+    q_tilde_p = mu_p + scale * sigma_p * jax.random.normal(key_p, mu_p.shape)
+    use_expert_thompson = q_tilde_e > q_tilde_p
+    if epsilon_floor > 0.0:
+        force_policy = jax.random.uniform(key_floor, mu_e.shape) < epsilon_floor
+        use_expert = jnp.where(force_policy, jnp.zeros_like(use_expert_thompson),
+                               use_expert_thompson)
+    else:
+        use_expert = use_expert_thompson
+    return use_expert, rng
+
+
+# ---------------------------------------------------------------------------
 # Box — value-threshold expert override
 # ---------------------------------------------------------------------------
 
@@ -202,6 +355,13 @@ class EDGEAuxiliaries:
     value_gap: jax.Array  # Q(s,pi*) - Q(s,pi): gate signal
     p_expert_mean: jax.Array  # sigmoid(gap / (tau*|Q_pi|)): Boltzmann p before decay
     expert_action_fraction: jax.Array  # fraction of batch with is_expert=1
+    # Live gating telemetry (per-step batch means from the latest
+    # collect_experience call, NOT from the replay batch). Useful for
+    # studying gate dynamics over training; NaN for vanilla SAC.
+    live_expert_frac: jax.Array
+    live_q_advantage: jax.Array       # mean(mu_actor - mu_expert), LCB/Thompson only
+    live_critic_sigma_actor: jax.Array
+    live_critic_sigma_expert: jax.Array
 
 
 def compute_edge_diagnostics(
@@ -217,4 +377,10 @@ def compute_edge_diagnostics(
         value_gap=q_gap.flatten(),
         p_expert_mean=jnp.atleast_1d(p_expert.mean()),
         expert_action_fraction=jnp.atleast_1d(expert_frac_in_buffer),
+        # Inner-update diag returns NaN; the outer aggregator overwrites
+        # these with the actual values from collector_state.last_*.
+        live_expert_frac=jnp.array([jnp.nan]),
+        live_q_advantage=jnp.array([jnp.nan]),
+        live_critic_sigma_actor=jnp.array([jnp.nan]),
+        live_critic_sigma_expert=jnp.array([jnp.nan]),
     )

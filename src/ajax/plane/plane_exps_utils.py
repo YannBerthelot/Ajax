@@ -60,18 +60,25 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams) -> float:
     """Run policy for 1000 episodes and return mean episodic return."""
     key = jax.random.PRNGKey(0)
 
+    has_state = hasattr(policy, "init_state")
+
     def run_episode(key):
         obs, state = env.reset(key, env_params)
+        expert_state = policy.init_state(1) if has_state else None
 
         def step_fn(carry, _):
-            obs, state = carry
-            action = policy(obs)
+            obs, state, expert_state = carry
+            if has_state:
+                action, expert_state = policy(expert_state, obs[None])
+                action = action[0]
+            else:
+                action = policy(obs)
             obs, state, reward, done, info = env.step(key, state, action, env_params)
-            return (obs, state), (reward, done)
+            return (obs, state, expert_state), (reward, done)
 
         _, (rewards, dones) = jax.lax.scan(
             f=step_fn,
-            init=(obs, state),
+            init=(obs, state, expert_state),
             xs=None,
             length=env_params.max_steps_in_episode,
         )
@@ -109,7 +116,9 @@ def process_hyperparams(hpp: dict) -> dict:
 
 
 def load_hyperparams(agent: str = "PPO", env_id: str = "Plane") -> dict:
-    file_name = f"hyperparams/ajax_{agent.lower()}.yml"
+    from pathlib import Path
+    _ajax_root = Path(__file__).parents[3]
+    file_name = _ajax_root / "hyperparams" / f"ajax_{agent.lower()}.yml"
     with open(file_name) as stream:
         try:
             hyperparams_data = yaml.load(stream, Loader=yaml.FullLoader)

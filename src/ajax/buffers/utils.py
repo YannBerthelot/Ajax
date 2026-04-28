@@ -28,6 +28,8 @@ def init_buffer(
     env_args: EnvironmentConfig,
     max_timesteps: Optional[int] = None,
     add_train_frac: Optional[bool] = None,
+    action_dim_override: Optional[int] = None,
+    expert_state_aug_dim: int = 0,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
@@ -35,8 +37,13 @@ def init_buffer(
     add_train_frac: whether to append the train_time_fraction scalar as the
       last observation dimension. If None (default), inferred from max_timesteps
       for backward compatibility. Prefer passing explicitly.
+    expert_state_aug_dim: extra trailing obs dims reserved for the
+      flattened expert internal state when running with
+      `augment_obs_with_expert_state=True`. 0 disables.
     """
     observation_shape, action_shape = get_state_action_shapes(env_args.env)
+    if action_dim_override is not None:
+        action_shape = (action_dim_override,)
     raw_observation_shape = observation_shape
 
     # Determine whether to add the train_frac dimension
@@ -45,6 +52,12 @@ def init_buffer(
 
     if add_train_frac:
         observation_shape = (*observation_shape[:-1], observation_shape[-1] + 1)
+
+    if expert_state_aug_dim > 0:
+        observation_shape = (
+            *observation_shape[:-1],
+            observation_shape[-1] + expert_state_aug_dim,
+        )
 
     action = jnp.zeros(
         (action_shape[0],),

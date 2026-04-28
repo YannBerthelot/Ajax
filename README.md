@@ -27,8 +27,10 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | **APO**   | Ma et al., *Average-Reward Reinforcement Learning with Trust Region Methods*, 2021 — [arXiv:2106.03442](https://arxiv.org/abs/2106.03442) |
 
 ### Environment Compatibility
-- **Gymnax** and **Brax** (with full termination vs truncation handling).
+- **Gymnax**, **Brax**, and **MuJoCo Playground** (with full termination vs truncation handling).
 - Parallel environments via `n_envs`.
+- Env lookup is by id: a gymnax id (e.g. `"Pendulum-v1"`) routes to gymnax, a playground id (e.g. `"HopperHop"`, `"CheetahRun"`, `"Go1JoystickFlatTerrain"`) routes to playground, and a brax id (e.g. `"ant"`, `"halfcheetah"`, `"humanoid"`) routes to brax. Brax and playground have disjoint env sets — both backends are kept side-by-side rather than one superseding the other.
+- Terminal observations on truncation are preserved in `state.info["final_obs"]` via an Ajax-supplied `FinalObsWrapper`, so PPO/SAC value bootstrap is correct at time-limit truncations.
 
 ### Replay Buffer
 - Trajectory storage and sampling via **flashbax**.

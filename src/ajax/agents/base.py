@@ -117,6 +117,7 @@ class ActorCritic:
         num_episode_test: int = 10,
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
+        initial_state: Optional[BaseAgentState] = None,
         **kwargs,
     ) -> BaseAgentState:
         """
@@ -155,14 +156,36 @@ class ActorCritic:
             **kwargs,
         )
 
-        def set_key_and_train(seed, index):
-            key = jax.random.PRNGKey(seed)
-            return train_jit(key, index)
+        if initial_state is None:
+            def set_key_and_train(seed, index):
+                key = jax.random.PRNGKey(seed)
+                return train_jit(key, index)
 
-        index = jnp.arange(len(seed))
-        seed = jnp.array(seed)
-        _t0 = time.time()
-        result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+            index = jnp.arange(len(seed))
+            seed = jnp.array(seed)
+            _t0 = time.time()
+            result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+        else:
+            # Resume path. ``agent.train()`` returns a 2-tuple ``(state, metrics)``;
+            # accept either form of ``initial_state`` and strip the metrics if
+            # provided so the inner train_jit receives only the agent state.
+            if isinstance(initial_state, tuple) and len(initial_state) == 2:
+                initial_state = initial_state[0]
+
+            def set_key_and_train_resume(seed, index, state):
+                key = jax.random.PRNGKey(seed)
+                return train_jit(
+                    key, index,
+                    initial_state=state,
+                    resume_from_state=True,
+                )
+
+            index = jnp.arange(len(seed))
+            seed = jnp.array(seed)
+            _t0 = time.time()
+            result = jax.vmap(
+                set_key_and_train_resume, in_axes=(0, 0, 0)
+            )(seed, index, initial_state)
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()
         # inside the vmapped function was wrong: it ran as a Python side effect

@@ -1,8 +1,24 @@
+import jax
+import jax.numpy as jnp
 import pytest
 from gymnax import make as make_gymnax_env
 
 from ajax.environments.create import build_env_from_id, prepare_env
 from ajax.wrappers import NormalizeVecObservationBrax, NormalizeVecObservationGymnax
+
+
+def _playground_available():
+    try:
+        import mujoco_playground  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+requires_playground = pytest.mark.skipif(
+    not _playground_available(), reason="mujoco_playground not installed"
+)
 
 
 @pytest.mark.parametrize(
@@ -69,3 +85,37 @@ def test_prepare_env(
             assert isinstance(env, NormalizeVecObservationBrax) or isinstance(
                 env.env, NormalizeVecObservationBrax
             )
+
+
+@requires_playground
+def test_build_playground_env_preserves_final_obs():
+    """Playground path must expose info['final_obs'] so PPO/SAC bootstrap on
+    V(s_final), not V(s_reset), at truncation. Uses a tiny episode length so
+    truncation fires quickly."""
+    env, _ = build_env_from_id("HopperHop", n_envs=2, episode_length=5)
+    state = jax.jit(env.reset)(jax.random.PRNGKey(0))
+    assert "final_obs" in state.info
+    step_fn = jax.jit(env.step)
+    for _ in range(5):
+        state = step_fn(state, jnp.zeros((2, env.action_size)))
+    assert bool(jnp.all(state.done == 1.0))
+    assert bool(jnp.all(state.info["truncation"] == 1.0))
+    # At truncation, obs is reset obs but final_obs is the real pre-reset obs.
+    diff = jnp.abs(state.obs - state.info["final_obs"]).sum()
+    assert float(diff) > 1e-3
+
+
+def test_build_brax_env_preserves_final_obs():
+    env, _ = build_env_from_id("inverted_pendulum", n_envs=2, episode_length=5)
+    state = jax.jit(env.reset)(jax.random.PRNGKey(0))
+    assert "final_obs" in state.info
+    step_fn = jax.jit(env.step)
+    for _ in range(5):
+        state = step_fn(state, jnp.zeros((2, env.action_size)))
+    assert "truncation" in state.info
+
+
+@requires_playground
+def test_playground_unknown_env_raises():
+    with pytest.raises(ValueError):
+        build_env_from_id("NotARealPlaygroundEnv")

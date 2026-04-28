@@ -25,6 +25,7 @@ from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
+from ajax.agents.SafeSAC.SafeSAC import SafeSAC
 
 SAC_FAMILY_HOOKS = (
     "pid_actor_config",
@@ -35,8 +36,16 @@ SAC_FAMILY_HOOKS = (
     "policy_action_transform",
 )
 
-# SAC additionally exposes ``runtime_maintenance`` (phi-refresh hook).
-SAC_HOOKS = (*SAC_FAMILY_HOOKS, "runtime_maintenance")
+# SAC additionally exposes ``runtime_maintenance`` (phi-refresh hook)
+# and loss-augmentation hooks folded into the single Adam step.
+SAC_HOOKS = (
+    *SAC_FAMILY_HOOKS,
+    "runtime_maintenance",
+    "extra_actor_loss_fn",
+    "extra_critic_loss_fn",
+    "init_transform",
+    "auxiliary_update",
+)
 
 PPO_FAMILY_HOOKS = (
     "pid_actor_config",
@@ -45,12 +54,23 @@ PPO_FAMILY_HOOKS = (
     "obs_preprocessor",
 )
 
+# PPO additionally exposes init_transform / auxiliary_update / extra_eval_metrics.
+PPO_HOOKS = (
+    *PPO_FAMILY_HOOKS,
+    "init_transform",
+    "auxiliary_update",
+    "extra_eval_metrics",
+    "extra_actor_loss_fn",
+    "extra_critic_loss_fn",
+)
+
 AGENT_HOOKS = {
     SAC: SAC_HOOKS,
+    SafeSAC: SAC_HOOKS,
     REDQ: SAC_FAMILY_HOOKS,
     ASAC: SAC_FAMILY_HOOKS,
     AVG: SAC_FAMILY_HOOKS,
-    PPO: PPO_FAMILY_HOOKS,
+    PPO: PPO_HOOKS,
     APO: PPO_FAMILY_HOOKS,
 }
 
@@ -71,7 +91,7 @@ def _instantiate(agent_cls, **kwargs):
         "critic_architecture": ("32", "relu"),
     }
     # Off-policy agents take a buffer_size; on-policy don't accept it.
-    if agent_cls in (SAC, REDQ, ASAC):
+    if agent_cls in (SAC, SafeSAC, REDQ, ASAC):
         common["buffer_size"] = 1024
         common["batch_size"] = 32
     if agent_cls in (PPO, APO):

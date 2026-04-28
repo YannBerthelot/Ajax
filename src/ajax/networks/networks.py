@@ -33,6 +33,12 @@ class Encoder(nn.Module):
     penultimate_normalization: bool = False
     kernel_init: Optional[str] = None
     bias_init: Optional[str] = None
+    # When True, skip both LayerNorm and L2 normalization at the encoder
+    # output. Required for identity-pass-through to be learnable, e.g.
+    # when the actor input includes the expert action and BC must be
+    # able to copy it to the output. Default False preserves the
+    # existing LayerNorm behaviour for all other call sites.
+    disable_output_norm: bool = False
 
     def setup(self):
         layers = parse_architecture(
@@ -43,6 +49,8 @@ class Encoder(nn.Module):
 
     def __call__(self, x):
         features = self.network(x)
+        if self.disable_output_norm:
+            return features
         if self.penultimate_normalization:
             return _l2_normalize(features, axis=1)
         return self.norm(features)
@@ -214,6 +222,7 @@ def get_initialized_actor_critic(
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     pid_actor_config: Optional[PIDActorConfig] = None,
+    action_dim_override: Optional[int] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
     Create actor and critic networks.
@@ -231,7 +240,11 @@ def get_initialized_actor_critic(
     All other expert-guidance is handled at the loss level (value
     constraint, online BC) so the architecture is always a plain Actor/MultiCritic.
     """
-    action_dim = get_action_dim(env_config.env, env_config.env_params)
+    action_dim = (
+        action_dim_override
+        if action_dim_override is not None
+        else get_action_dim(env_config.env, env_config.env_params)
+    )
 
     if pid_actor_config is not None:
         actor = PIDActorNetwork(
@@ -278,6 +291,8 @@ def get_initialized_actor_critic(
         observation_shape = tuple(_obs_shape)
 
     init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
+    if action_dim_override is not None:
+        action_shape = (action_dim_override,)
     init_action = jnp.zeros((env_config.n_envs, *action_shape))
 
     actor_state = init_network_state(
@@ -377,4 +392,16 @@ def predict_value(
     critic_params: FrozenDict,
     x: jax.Array,
 ) -> jax.Array:
+    # Agent-side obs normalisation: x = concat([obs, action]); we slice
+    # the leading obs_dim, normalise it, and recombine. The action stays
+    # raw (already in [-1, 1]). Stats live on critic_state.obs_norm_info,
+    # synced from CollectorState after every online collection step.
+    obs_norm_info = getattr(critic_state, "obs_norm_info", None)
+    if obs_norm_info is not None and obs_norm_info.var is not None:
+        from ajax.agents.obs_norm import apply_obs_norm
+        obs_dim = obs_norm_info.mean.shape[-1]
+        obs_part = x[..., :obs_dim]
+        act_part = x[..., obs_dim:]
+        obs_part = apply_obs_norm(obs_part, obs_norm_info)
+        x = jnp.concatenate([obs_part, act_part], axis=-1)
     return critic_state.apply_fn(critic_params, x)

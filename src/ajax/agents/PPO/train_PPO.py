@@ -8,6 +8,7 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
+from functools import partial as std_partial
 from jax.tree_util import Partial as partial
 
 from ajax.agents.PPO.state import PPOConfig, PPOState
@@ -141,6 +142,8 @@ def value_loss_function(
     value_targets: jax.Array,
     dones: jax.Array,
     recurrent: bool,
+    agent_state: Optional[Any] = None,
+    extra_loss_fn: Optional[Callable] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -174,11 +177,8 @@ def value_loss_function(
     )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
 
     loss = 0.5 * jnp.mean((v_preds - value_targets) ** 2)  # classic MSE
-    # jax.debug.print(
-    #     "v_preds:{v_preds}, value_targets:{value_targets}",
-    #     v_preds=v_preds.mean(),
-    #     value_targets=value_targets.mean(),
-    # )
+    if extra_loss_fn is not None:
+        loss = loss + extra_loss_fn(critic_params, critic_states, agent_state)
 
     return loss, ValueAuxiliaries(
         critic_loss=loss,
@@ -204,6 +204,7 @@ def policy_loss_function(
     ent_coef: float,
     advantage_normalization: bool,
     obs_preprocessor: Optional[Callable] = None,
+    extra_loss_fn: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -276,6 +277,8 @@ def policy_loss_function(
     )
 
     total_loss = loss_actor - ent_coef * entropy
+    if extra_loss_fn is not None:
+        total_loss = total_loss + extra_loss_fn(actor_params, actor_state)
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -290,6 +293,30 @@ VALUE_AND_GRAD_FN = jax.value_and_grad(value_loss_function, has_aux=True)
 POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
 
 
+def _value_and_grad_with_extra(extra_loss_fn):
+    """Return value_and_grad of value_loss_function with ``extra_loss_fn`` bound
+    by closure so it doesn't have to be passed as an arg through jax's flatten.
+    """
+    def bound(critic_params, critic_states, observations, value_targets, dones, recurrent, agent_state):
+        return value_loss_function(
+            critic_params, critic_states, observations, value_targets, dones,
+            recurrent, agent_state=agent_state, extra_loss_fn=extra_loss_fn,
+        )
+    return jax.value_and_grad(bound, has_aux=True)
+
+
+def _policy_value_and_grad_with_extra(extra_loss_fn):
+    def bound(actor_params, actor_state, observations, actions, log_probs, gae,
+              dones, recurrent, clip_coef, ent_coef, advantage_normalization,
+              obs_preprocessor):
+        return policy_loss_function(
+            actor_params, actor_state, observations, actions, log_probs, gae,
+            dones, recurrent, clip_coef, ent_coef, advantage_normalization,
+            obs_preprocessor, extra_loss_fn=extra_loss_fn,
+        )
+    return jax.value_and_grad(bound, has_aux=True)
+
+
 # @partial(
 #     jax.jit,
 #     static_argnames=["recurrent"],
@@ -300,6 +327,7 @@ def update_value_functions(
     value_targets: jax.Array,
     dones: Optional[jax.Array],
     recurrent: bool,
+    extra_critic_loss_fn: Optional[Callable] = None,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -319,14 +347,30 @@ def update_value_functions(
         Tuple[PPOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
 
-    (loss, aux), grads = VALUE_AND_GRAD_FN(
-        agent_state.critic_state.params,
-        agent_state.critic_state,
-        observations,
-        value_targets,
-        dones,
-        recurrent,
+    grad_fn = (
+        VALUE_AND_GRAD_FN
+        if extra_critic_loss_fn is None
+        else _value_and_grad_with_extra(extra_critic_loss_fn)
     )
+    if extra_critic_loss_fn is None:
+        (loss, aux), grads = grad_fn(
+            agent_state.critic_state.params,
+            agent_state.critic_state,
+            observations,
+            value_targets,
+            dones,
+            recurrent,
+        )
+    else:
+        (loss, aux), grads = grad_fn(
+            agent_state.critic_state.params,
+            agent_state.critic_state,
+            observations,
+            value_targets,
+            dones,
+            recurrent,
+            agent_state,
+        )
     # jax.debug.print("Critic loss: {loss_val}", loss_val=loss)
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
@@ -355,6 +399,7 @@ def update_policy(
     ent_coef: float,
     advantage_normalization: bool,
     obs_preprocessor: Optional[Callable] = None,
+    extra_actor_loss_fn: Optional[Callable] = None,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -374,20 +419,41 @@ def update_policy(
         jax.debug.callback(check_no_nan, actions, 2)
         jax.debug.callback(check_no_nan, observations, 3)
         jax.debug.callback(check_no_nan, gae, 4)
-    (loss, aux), grads = POLICY_AND_GRAD_FN(
-        agent_state.actor_state.params,
-        agent_state.actor_state,
-        observations=observations,
-        actions=actions,
-        log_probs=log_probs,
-        gae=gae,
-        dones=done,
-        recurrent=recurrent,
-        clip_coef=clip_coef,
-        ent_coef=ent_coef,
-        advantage_normalization=advantage_normalization,
-        obs_preprocessor=obs_preprocessor,
+    grad_fn = (
+        POLICY_AND_GRAD_FN
+        if extra_actor_loss_fn is None
+        else _policy_value_and_grad_with_extra(extra_actor_loss_fn)
     )
+    if extra_actor_loss_fn is None:
+        (loss, aux), grads = grad_fn(
+            agent_state.actor_state.params,
+            agent_state.actor_state,
+            observations=observations,
+            actions=actions,
+            log_probs=log_probs,
+            gae=gae,
+            dones=done,
+            recurrent=recurrent,
+            clip_coef=clip_coef,
+            ent_coef=ent_coef,
+            advantage_normalization=advantage_normalization,
+            obs_preprocessor=obs_preprocessor,
+        )
+    else:
+        (loss, aux), grads = grad_fn(
+            agent_state.actor_state.params,
+            agent_state.actor_state,
+            observations,
+            actions,
+            log_probs,
+            gae,
+            done,
+            recurrent,
+            clip_coef,
+            ent_coef,
+            advantage_normalization,
+            obs_preprocessor,
+        )
 
     if DEBUG:
         jax.debug.callback(check_no_nan, loss, 5)
@@ -414,6 +480,8 @@ def update_agent(
     agent_config: PPOConfig,
     recurrent: bool,
     obs_preprocessor: Optional[Callable] = None,
+    extra_actor_loss_fn: Optional[Callable] = None,
+    extra_critic_loss_fn: Optional[Callable] = None,
 ) -> Tuple[PPOState, AuxiliaryLogs]:
     """
     Update the PPO agent, including critic, actor, and temperature updates.
@@ -460,6 +528,7 @@ def update_agent(
         value_targets=value_targets,
         dones=dones,
         recurrent=recurrent,
+        extra_critic_loss_fn=extra_critic_loss_fn,
     )
 
     # Update policy
@@ -481,6 +550,7 @@ def update_agent(
         clip_coef=clip_coef,
         advantage_normalization=agent_config.normalize_advantage,
         obs_preprocessor=obs_preprocessor,
+        extra_actor_loss_fn=extra_actor_loss_fn,
     )
 
     aux = AuxiliaryLogs(
@@ -535,6 +605,11 @@ def no_op_none(agent_state, index, timestep):
         "action_pipeline",
         "eval_action_transform",
         "obs_preprocessor",
+        "auxiliary_update",
+        "extra_eval_metrics",
+        "extra_actor_loss_fn",
+        "extra_critic_loss_fn",
+        "reward_shaping_fn",
     ],
 )
 def training_iteration(
@@ -558,6 +633,11 @@ def training_iteration(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
+    auxiliary_update: Optional[Callable] = None,
+    extra_eval_metrics: Optional[Callable] = None,
+    extra_actor_loss_fn: Optional[Callable] = None,
+    extra_critic_loss_fn: Optional[Callable] = None,
+    reward_shaping_fn: Optional[Callable] = None,
 ) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -601,10 +681,15 @@ def training_iteration(
         x=transition.next_obs,
     ).squeeze(0)
 
+    if reward_shaping_fn is not None:
+        shaped_rewards = transition.reward + reward_shaping_fn(agent_state, transition)
+    else:
+        shaped_rewards = transition.reward
+
     gae, value_targets = _compute_gae(
         values=values,
         next_values=next_values,
-        rewards=transition.reward,
+        rewards=shaped_rewards,
         terminateds=transition.terminated,
         truncateds=transition.truncated,
         gamma=agent_config.gamma,
@@ -652,16 +737,87 @@ def training_iteration(
     def do_update(
         agent_state: PPOState, num_epochs: int
     ) -> tuple[PPOState, AuxiliaryLogs]:
+        # Build grad fns ONCE with extra_loss_fns captured in closure, so the
+        # scan body never has to pass function-typed kwargs across function-
+        # call boundaries (which jax rejects inside a traced scan body).
+        critic_grad_fn = (
+            VALUE_AND_GRAD_FN
+            if extra_critic_loss_fn is None
+            else _value_and_grad_with_extra(extra_critic_loss_fn)
+        )
+        actor_grad_fn = (
+            POLICY_AND_GRAD_FN
+            if extra_actor_loss_fn is None
+            else _policy_value_and_grad_with_extra(extra_actor_loss_fn)
+        )
+
         def body_fn(agent_state, _):
-            agent_state, aux = update_agent(
-                agent_state,
-                None,
-                shuffled_batch=shuffled_batch,
-                recurrent=recurrent,
-                agent_config=agent_config,
-                obs_preprocessor=obs_preprocessor,
+            (
+                observations,
+                actions,
+                terminated,
+                truncated,
+                value_targets_mb,
+                gae_mb,
+                log_probs_mb,
+            ) = shuffled_batch
+            dones = jnp.logical_or(terminated, truncated)
+
+            # critic update
+            if extra_critic_loss_fn is None:
+                (_v_loss, v_aux), v_grads = critic_grad_fn(
+                    agent_state.critic_state.params,
+                    agent_state.critic_state,
+                    observations,
+                    value_targets_mb,
+                    dones,
+                    recurrent,
+                )
+            else:
+                (_v_loss, v_aux), v_grads = critic_grad_fn(
+                    agent_state.critic_state.params,
+                    agent_state.critic_state,
+                    observations,
+                    value_targets_mb,
+                    dones,
+                    recurrent,
+                    agent_state,
+                )
+            agent_state = agent_state.replace(
+                critic_state=agent_state.critic_state.apply_gradients(grads=v_grads)
             )
-            return agent_state, aux  # overwrite aux each time
+
+            # actor update
+            clip_coef = (
+                agent_config.clip_range(agent_state.collector_state.timestep)
+                if callable(agent_config.clip_range)
+                else agent_config.clip_range
+            )
+            (_p_loss, p_aux), p_grads = actor_grad_fn(
+                agent_state.actor_state.params,
+                agent_state.actor_state,
+                observations,
+                actions,
+                log_probs_mb,
+                gae_mb,
+                dones,
+                recurrent,
+                clip_coef,
+                agent_config.ent_coef,
+                agent_config.normalize_advantage,
+                obs_preprocessor,
+            )
+            agent_state = agent_state.replace(
+                actor_state=agent_state.actor_state.apply_gradients(grads=p_grads)
+            )
+
+            aux = AuxiliaryLogs(
+                policy=p_aux,
+                value=ValueAuxiliaries(
+                    **{k: v.flatten() for k, v in to_state_dict(v_aux).items()}
+                ),
+            )
+            return agent_state, aux
 
         agent_state, aux = jax.lax.scan(
             f=body_fn, init=agent_state, xs=None, length=num_epochs
@@ -681,6 +837,13 @@ def training_iteration(
 
     agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
 
+    if auxiliary_update is not None:
+        aux_rng, rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng)
+        agent_state, auxiliary_metrics = auxiliary_update(agent_state, aux_rng)
+    else:
+        auxiliary_metrics = {}
+
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -696,7 +859,10 @@ def training_iteration(
         log_frequency,
         total_timesteps,
         eval_action_transform=eval_action_transform,
+        extra_eval_metrics=extra_eval_metrics,
     )
+
+    metrics_to_log = {**metrics_to_log, **auxiliary_metrics}
 
     # jax.clear_caches()
     # gc.collect()
@@ -738,6 +904,12 @@ def make_train(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
+    init_transform: Optional[Callable] = None,
+    auxiliary_update: Optional[Callable] = None,
+    extra_eval_metrics: Optional[Callable] = None,
+    extra_actor_loss_fn: Optional[Callable] = None,
+    extra_critic_loss_fn: Optional[Callable] = None,
+    reward_shaping_fn: Optional[Callable] = None,
 ):
     """
     Create the training function for the PPO agent.
@@ -766,14 +938,17 @@ def make_train(
     @partial(jax.jit)
     def train(key, index: Optional[int] = None):
         """Train the PPO agent."""
+        key, init_key, transform_key = jax.random.split(key, 3)
         agent_state = init_PPO(
-            key=key,
+            key=init_key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             pid_actor_config=pid_actor_config,
         )
+        if init_transform is not None:
+            agent_state = init_transform(agent_state, transform_key)
 
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
         training_iteration_scan_fn = partial(
@@ -796,6 +971,11 @@ def make_train(
             action_pipeline=action_pipeline,
             eval_action_transform=eval_action_transform,
             obs_preprocessor=obs_preprocessor,
+            auxiliary_update=auxiliary_update,
+            extra_eval_metrics=extra_eval_metrics,
+            extra_actor_loss_fn=extra_actor_loss_fn,
+            extra_critic_loss_fn=extra_critic_loss_fn,
+            reward_shaping_fn=reward_shaping_fn,
         )
 
         agent_state, out = jax.lax.scan(

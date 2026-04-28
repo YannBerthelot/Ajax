@@ -154,6 +154,29 @@ class CollectorState:
     cumulative_reward: Optional[jnp.ndarray] = None
     max_timesteps: Optional[int] = None
     last_in_box: Optional[jnp.ndarray] = None
+    # Batched internal state of a stateful expert policy (e.g. PID integrator).
+    # None when no expert is used. Threaded through collection so integral/
+    # derivative terms aren't reset every env step.
+    expert_state: Optional[Any] = None
+    # Agent-side running normalization stats for the FULL augmented obs
+    # (env_obs + flatten(expert_state)). Updated only at collection time
+    # (online and BC); read-only at apply_fn / eval. Lives in collector
+    # so it's part of agent_state and threads through naturally. None
+    # disables normalization.
+    obs_norm_info: Optional[NormalizationInfo] = None
+    # Live gating telemetry (per-step batch means from the latest
+    # collect_experience call). Plumbed into SACAux for tensorboard.
+    # NaN until the first collection step. last_expert_frac is universal;
+    # the other three only populate for LCB / Thompson gates.
+    last_expert_frac: float = jnp.nan
+    last_q_advantage: float = jnp.nan
+    last_critic_sigma_actor: float = jnp.nan
+    last_critic_sigma_expert: float = jnp.nan
+    # Per-env step counter within the current episode. Incremented on
+    # every env step, reset to 0 on done. Used by jsrl_curriculum to
+    # decide whether the expert acts (step_in_episode < H_t) or the
+    # learner does. Shape: (n_envs,). Zero-initialized.
+    step_in_episode: Optional[jnp.ndarray] = None
 
     @property
     def train_time_fraction(self) -> Optional[float]:
@@ -182,6 +205,13 @@ class LoadedTrainState(TrainState):
     hidden_state: Optional[Any] = None
     recurrent: bool = False
     target_params: Optional[flax.core.FrozenDict] = None
+    # Read-only mirror of CollectorState.obs_norm_info, synced after every
+    # online collection step. ``get_pi`` / ``predict_value`` read this and
+    # normalise obs before the forward pass, so downstream callers stay
+    # unchanged. None disables normalisation. Critic networks slice the
+    # obs portion of the (obs, action) input before normalising — the
+    # action portion stays raw.
+    obs_norm_info: Optional[NormalizationInfo] = None
 
     def soft_update(self, tau):
         new_target_params = optax.incremental_update(

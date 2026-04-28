@@ -70,12 +70,37 @@ def get_raw_env(env: EnvType) -> EnvType:
     """Get the raw environment from the given environment."""
     if hasattr(env, "_env"):
         return get_raw_env(env._env)
+    if hasattr(env, "env"):
+        return get_raw_env(env.env)
     return env
 
 
-def check_env_is_brax(env) -> bool:
+def check_env_is_playground(env) -> bool:
     env = get_raw_env(env)
-    return isinstance(env, BraxEnv) or "brax" in str(type(env)).lower()
+    if "mujoco_playground" in str(type(env)).lower():
+        return True
+    # Catch external subclasses of mujoco_playground's MjxEnv that live
+    # outside the mujoco_playground package (e.g. SafetyExperiments'
+    # AntMjx) by walking the MRO and looking for any class declared in the
+    # mujoco_playground namespace.
+    try:
+        for cls in type(env).__mro__:
+            if "mujoco_playground" in cls.__module__:
+                return True
+    except AttributeError:
+        pass
+    return False
+
+
+def check_env_is_brax(env) -> bool:
+    raw = get_raw_env(env)
+    if isinstance(raw, BraxEnv) or "brax" in str(type(raw)).lower():
+        return True
+    # Treat mujoco_playground envs as brax-compatible: same State API
+    # (obs, reward, done, info), same observation_size / action_size, same
+    # wrap_for_brax_training stack. The only difference is state.data vs
+    # state.pipeline_state, handled where accessed.
+    return check_env_is_playground(raw)
 
 
 def check_env_is_gymnax(env) -> bool:
@@ -84,7 +109,12 @@ def check_env_is_gymnax(env) -> bool:
 
 
 def get_env_type(env: EnvType) -> str:
-    """Get the type of the environment."""
+    """Get the type of the environment.
+
+    Playground envs return "brax": they share the same State API, wrapper
+    stack, and training code path. The only divergence is state.data vs
+    state.pipeline_state, branched on via check_env_is_playground where needed.
+    """
     if check_env_is_brax(env):
         return "brax"
     if check_env_is_gymnax(env):

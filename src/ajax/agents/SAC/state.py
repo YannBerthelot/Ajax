@@ -17,6 +17,8 @@ class SACState(BaseAgentState):
     expert_v_max: Optional[Any] = None
     # Mutable φ* state for periodic self-consistent refresh (None when refresh disabled)
     expert_critic_state: Optional[LoadedTrainState] = None
+    # Optional safety V-head (used by SafeSAC via init_transform/auxiliary_update hooks)
+    safety_critic_state: Optional[LoadedTrainState] = None
 
 
 @struct.dataclass

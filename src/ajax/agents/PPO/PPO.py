@@ -50,6 +50,12 @@ class PPO(ActorCritic):
         action_pipeline: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
         obs_preprocessor: Optional[Callable] = None,
+        init_transform: Optional[Callable] = None,
+        auxiliary_update: Optional[Callable] = None,
+        extra_eval_metrics: Optional[Callable] = None,
+        extra_actor_loss_fn: Optional[Callable] = None,
+        extra_critic_loss_fn: Optional[Callable] = None,
+        reward_shaping_fn: Optional[Callable] = None,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -109,6 +115,12 @@ class PPO(ActorCritic):
         self.action_pipeline = action_pipeline
         self.eval_action_transform = eval_action_transform
         self.obs_preprocessor = obs_preprocessor
+        self.init_transform = init_transform
+        self.auxiliary_update = auxiliary_update
+        self.extra_eval_metrics = extra_eval_metrics
+        self.extra_actor_loss_fn = extra_actor_loss_fn
+        self.extra_critic_loss_fn = extra_critic_loss_fn
+        self.reward_shaping_fn = reward_shaping_fn
 
     def get_make_train(self) -> Callable:
         """
@@ -123,6 +135,12 @@ class PPO(ActorCritic):
             action_pipeline=self.action_pipeline,
             eval_action_transform=self.eval_action_transform,
             obs_preprocessor=self.obs_preprocessor,
+            init_transform=self.init_transform,
+            auxiliary_update=self.auxiliary_update,
+            extra_eval_metrics=self.extra_eval_metrics,
+            extra_actor_loss_fn=self.extra_actor_loss_fn,
+            extra_critic_loss_fn=self.extra_critic_loss_fn,
+            reward_shaping_fn=self.reward_shaping_fn,
         )
 
 

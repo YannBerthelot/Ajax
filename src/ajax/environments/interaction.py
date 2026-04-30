@@ -246,6 +246,7 @@ def get_pi(
     # after every online collection step. None disables normalisation.
     if getattr(actor_state, "obs_norm_info", None) is not None:
         from ajax.agents.obs_norm import apply_obs_norm
+
         obs = apply_obs_norm(obs, actor_state.obs_norm_info)
     obs = maybe_add_axis(obs, recurrent)
     done = maybe_add_axis(done, recurrent)
@@ -488,8 +489,14 @@ def get_buffer_action_and_env_action(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "mode", "env_args", "buffer",
-                     "action_pipeline", "next_expert_fn"],
+    static_argnames=[
+        "recurrent",
+        "mode",
+        "env_args",
+        "buffer",
+        "action_pipeline",
+        "next_expert_fn",
+    ],
 )
 def collect_experience(
     agent_state: BaseAgentState,
@@ -524,6 +531,7 @@ def collect_experience(
     # divide-by-≈0 in apply_obs_norm.
     if agent_state.collector_state.obs_norm_info is not None:
         from ajax.agents.obs_norm import update_obs_norm
+
         _, _new_obs_norm = update_obs_norm(
             agent_state.collector_state.last_obs,
             agent_state.collector_state.obs_norm_info,
@@ -639,8 +647,7 @@ def collect_experience(
     # (SAC with expert_policy). Other agents leave them out so their
     # buffer schema stays unchanged.
     _a_expert_for_buf = (
-        _a_expert if _a_expert is not None
-        else jnp.zeros_like(buffer_action)
+        _a_expert if _a_expert is not None else jnp.zeros_like(buffer_action)
     )
     if next_expert_fn is not None:
         _next_a_expert_for_buf = jax.lax.stop_gradient(
@@ -689,9 +696,7 @@ def collect_experience(
         and agent_state.collector_state.last_obs.shape[-1]
         == raw_next_obs.shape[-1] + _next_state_aug.shape[-1]
     ):
-        next_obs_for_buffer = jnp.concatenate(
-            [raw_next_obs, _next_state_aug], axis=-1
-        )
+        next_obs_for_buffer = jnp.concatenate([raw_next_obs, _next_state_aug], axis=-1)
     else:
         next_obs_for_buffer = raw_next_obs
 
@@ -722,9 +727,7 @@ def collect_experience(
     # actor and critic see the right Markov state. Detect by shape parity
     # with the buffer-stored next_obs above.
     new_last_obs = (
-        next_obs_for_buffer
-        if next_obs_for_buffer.shape[-1] != obsv.shape[-1]
-        else obsv
+        next_obs_for_buffer if next_obs_for_buffer.shape[-1] != obsv.shape[-1] else obsv
     )
 
     # Live gating telemetry (per-step batch means).
@@ -745,7 +748,7 @@ def collect_experience(
     # of shape (n_envs,) at agent setup).
     _prev_step_in_ep = agent_state.collector_state.step_in_episode
     if _prev_step_in_ep is not None:
-        _ep_done = (terminated.astype(jnp.bool_) | truncated.astype(jnp.bool_))
+        _ep_done = terminated.astype(jnp.bool_) | truncated.astype(jnp.bool_)
         _ep_done = _ep_done.reshape(_prev_step_in_ep.shape)
         _new_step_in_ep = jnp.where(
             _ep_done, jnp.zeros_like(_prev_step_in_ep), _prev_step_in_ep + 1
@@ -772,16 +775,8 @@ def collect_experience(
             if action_pipeline is not None
             else {}
         ),
-        **(
-            {"expert_state": new_expert_state}
-            if new_expert_state is not None
-            else {}
-        ),
-        **(
-            {"step_in_episode": _new_step_in_ep}
-            if _new_step_in_ep is not None
-            else {}
-        ),
+        **({"expert_state": new_expert_state} if new_expert_state is not None else {}),
+        **({"step_in_episode": _new_step_in_ep} if _new_step_in_ep is not None else {}),
     )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
@@ -791,7 +786,10 @@ def collect_experience(
 @partial(
     jax.jit,
     static_argnames=[
-        "expert_policy", "mode", "env_args", "n_timesteps",
+        "expert_policy",
+        "mode",
+        "env_args",
+        "n_timesteps",
         "augment_obs_with_expert_state",
     ],
 )
@@ -993,7 +991,9 @@ def init_collector_state(
 
     buffer_state = (
         init_buffer(
-            buffer, env_args, max_timesteps,
+            buffer,
+            env_args,
+            max_timesteps,
             add_train_frac=add_train_frac,
             action_dim_override=action_dim_override,
             expert_state_aug_dim=expert_state_aug_dim,
@@ -1005,6 +1005,7 @@ def init_collector_state(
     obs_norm_info = None
     if normalize_obs_running:
         from ajax.agents.obs_norm import init_agent_obs_norm
+
         obs_norm_info = init_agent_obs_norm(env_args.n_envs, last_obs.shape[-1])
 
     return CollectorState(

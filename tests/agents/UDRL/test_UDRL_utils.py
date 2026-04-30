@@ -3,7 +3,6 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from ajax.agents.UDRL.utils import (
     compute_returns_to_go_horizons,
@@ -40,7 +39,9 @@ def test_compute_returns_to_go_horizons_discount():
 
 def test_compute_returns_to_go_horizons_multi_env():
     """Two parallel segments with different termination structures."""
-    rewards = jnp.array([[[1.0], [10.0]], [[2.0], [20.0]], [[3.0], [30.0]]])  # (T, n_envs, 1)
+    rewards = jnp.array(
+        [[[1.0], [10.0]], [[2.0], [20.0]], [[3.0], [30.0]]]
+    )  # (T, n_envs, 1)
     dones = jnp.array([[[0.0], [1.0]], [[0.0], [0.0]], [[0.0], [0.0]]])
     rtg, horizon = compute_returns_to_go_horizons(rewards, dones, gamma=1.0)
     # env 0: no done, full sum
@@ -58,8 +59,12 @@ def test_update_command_decay():
     reward = jnp.array([1.0, 2.0])
     done = jnp.array([0.0, 0.0])
     new_d_r, new_d_h = update_command(
-        prev_d_r, prev_d_h, reward, done,
-        return_init=100.0, horizon_init=50.0,
+        prev_d_r,
+        prev_d_h,
+        reward,
+        done,
+        return_init=100.0,
+        horizon_init=50.0,
     )
     np.testing.assert_allclose(np.array(new_d_r), [9.0, 3.0])
     np.testing.assert_allclose(np.array(new_d_h), [19.0, 9.0])
@@ -72,8 +77,12 @@ def test_update_command_reset_on_done():
     reward = jnp.array([1.0, 2.0])
     done = jnp.array([1.0, 0.0])
     new_d_r, new_d_h = update_command(
-        prev_d_r, prev_d_h, reward, done,
-        return_init=100.0, horizon_init=50.0,
+        prev_d_r,
+        prev_d_h,
+        reward,
+        done,
+        return_init=100.0,
+        horizon_init=50.0,
     )
     np.testing.assert_allclose(np.array(new_d_r), [100.0, 3.0])
     np.testing.assert_allclose(np.array(new_d_h), [50.0, 9.0])
@@ -86,8 +95,12 @@ def test_update_command_horizon_floor():
     reward = jnp.array([0.0])
     done = jnp.array([0.0])
     _, new_d_h = update_command(
-        prev_d_r, prev_d_h, reward, done,
-        return_init=100.0, horizon_init=50.0,
+        prev_d_r,
+        prev_d_h,
+        reward,
+        done,
+        return_init=100.0,
+        horizon_init=50.0,
     )
     np.testing.assert_allclose(np.array(new_d_h), [1.0])
 
@@ -99,7 +112,8 @@ def test_update_command_jax_pure():
     prev_d_h = jnp.array([20.0])
     reward = jnp.array([1.0])
     done = jnp.array([0.0])
-    new_d_r, new_d_h = f(prev_d_r, prev_d_h, reward, done,
-                         return_init=100.0, horizon_init=50.0)
+    new_d_r, new_d_h = f(
+        prev_d_r, prev_d_h, reward, done, return_init=100.0, horizon_init=50.0
+    )
     assert new_d_r.shape == (1,)
     assert new_d_h.shape == (1,)

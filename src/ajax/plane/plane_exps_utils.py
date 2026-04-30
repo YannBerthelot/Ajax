@@ -117,6 +117,7 @@ def process_hyperparams(hpp: dict) -> dict:
 
 def load_hyperparams(agent: str = "PPO", env_id: str = "Plane") -> dict:
     from pathlib import Path
+
     _ajax_root = Path(__file__).parents[3]
     file_name = _ajax_root / "hyperparams" / f"ajax_{agent.lower()}.yml"
     with open(file_name) as stream:

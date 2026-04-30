@@ -14,14 +14,13 @@ on-policy supervised-learning loop close in shape to PPO.
 """
 
 from collections.abc import Sequence
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import distrax
 import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
-from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.utils import SquashedNormal
@@ -144,14 +143,16 @@ def _udrl_collect_step(
     )
     action, log_probs = pi.sample_and_log_prob(seed=action_key)
 
-    new_env_obs, new_env_state, reward, terminated, truncated, _ = jax.lax.stop_gradient(
-        step(
-            rng_step,
-            cs.env_state,
-            action,
-            env_args.env,
-            mode,
-            env_args.env_params,
+    new_env_obs, new_env_state, reward, terminated, truncated, _ = (
+        jax.lax.stop_gradient(
+            step(
+                rng_step,
+                cs.env_state,
+                action,
+                env_args.env,
+                mode,
+                env_args.env_params,
+            )
         )
     )
     done = jnp.logical_or(terminated.astype(bool), truncated.astype(bool)).astype(

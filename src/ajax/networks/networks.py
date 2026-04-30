@@ -399,6 +399,7 @@ def predict_value(
     obs_norm_info = getattr(critic_state, "obs_norm_info", None)
     if obs_norm_info is not None and obs_norm_info.var is not None:
         from ajax.agents.obs_norm import apply_obs_norm
+
         obs_dim = obs_norm_info.mean.shape[-1]
         obs_part = x[..., :obs_dim]
         act_part = x[..., obs_dim:]

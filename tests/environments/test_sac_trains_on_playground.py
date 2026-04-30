@@ -23,6 +23,7 @@ import pytest
 def _playground_available():
     try:
         import mujoco_playground  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -43,9 +44,7 @@ def test_sac_trains_on_playground_env_smoke():
     from ajax.agents.SAC.SAC import SAC
     from ajax.environments.create import build_env_from_id
 
-    env, env_params = build_env_from_id(
-        "CheetahRun", n_envs=1, episode_length=200
-    )
+    env, env_params = build_env_from_id("CheetahRun", n_envs=1, episode_length=200)
     agent = SAC(env_id=env, env_params=env_params)
     # Returns (state, metrics); we only care that it completes.
     result = agent.train(seed=[0], n_timesteps=300, num_episode_test=1)

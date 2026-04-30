@@ -165,15 +165,15 @@ def test_evaluate_done_masking_no_accumulation_past_done():
     equivalent of while_loop's early exit, and the correctness condition the
     while_loop->scan conversion must preserve."""
     env, env_params, state = _eval_pendulum()
-    kwargs = dict(
-        env=env,
-        actor_state=state.actor_state,
-        num_episodes=4,
-        rng=jax.random.PRNGKey(7),
-        env_params=env_params,
-        recurrent=False,
-        lstm_hidden_size=None,
-    )
+    kwargs = {
+        "env": env,
+        "actor_state": state.actor_state,
+        "num_episodes": 4,
+        "rng": jax.random.PRNGKey(7),
+        "env_params": env_params,
+        "recurrent": False,
+        "lstm_hidden_size": None,
+    }
     # Baseline (natural length — 200 for Pendulum).
     r_base, *_ = evaluate(**kwargs)
     # Over-long length (2x). If done-masking is correct, rewards match.

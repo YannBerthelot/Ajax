@@ -12,7 +12,6 @@ from ajax.environments.utils import (
 )
 from ajax.wrappers import AutoResetWrapper, FinalObsWrapper, NoiseWrapper, get_wrappers
 
-
 # External callers (e.g. SafetyExperiments) can register a custom builder for
 # a playground env id here, overriding the default wrapper stack below. The
 # builder signature is (n_envs, episode_length) -> env with `_ajax_env_id`
@@ -60,13 +59,13 @@ def _build_playground_env(env_id: str, n_envs: int, episode_length: int):
     if env_id in _PLAYGROUND_BUILDERS:
         return _PLAYGROUND_BUILDERS[env_id](n_envs, episode_length)
 
+    import jax as _jax
     from brax.envs.wrappers import training as brax_training
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
     from ajax.wrappers import BatchRngWrapper
 
-    import jax as _jax
     _overrides = {"impl": "jax"} if _jax.default_backend() == "cpu" else None
     env = registry.load(env_id, config_overrides=_overrides)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=1)
@@ -116,18 +115,24 @@ def build_env_from_id(
     # (e.g. a custom MJX env composed from our own MJCF). Honour the
     # builder registry before falling through to the upstream registry.
     if env_id in _PLAYGROUND_BUILDERS:
-        return _build_playground_env(env_id, n_envs=n_envs, episode_length=episode_length), None
+        return _build_playground_env(
+            env_id, n_envs=n_envs, episode_length=episode_length
+        ), None
 
     try:
         from mujoco_playground import registry as mp_registry
 
         if env_id in mp_registry.ALL_ENVS:
-            return _build_playground_env(env_id, n_envs=n_envs, episode_length=episode_length), None
+            return _build_playground_env(
+                env_id, n_envs=n_envs, episode_length=episode_length
+            ), None
     except ImportError:
         pass
 
     if env_id in _BRAX_BUILDERS or env_id in list(brax.envs._envs.keys()):
-        return _build_brax_env(env_id, n_envs=n_envs, episode_length=episode_length), None
+        return _build_brax_env(
+            env_id, n_envs=n_envs, episode_length=episode_length
+        ), None
     raise ValueError(f"Environment {env_id} not found in gymnax or brax")
 
 

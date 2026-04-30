@@ -31,9 +31,7 @@ def test_TD3_initialization():
 
 def test_TD3_initialization_with_discrete_env():
     """TD3 must reject discrete action spaces."""
-    with pytest.raises(
-        ValueError, match="TD3 only supports continuous action spaces."
-    ):
+    with pytest.raises(ValueError, match="TD3 only supports continuous action spaces."):
         TD3(env_id="CartPole-v1")
 
 

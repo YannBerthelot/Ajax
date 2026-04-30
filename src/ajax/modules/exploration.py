@@ -265,8 +265,9 @@ def edge_thompson_gate(
     use_expert_thompson = q_tilde_e > q_tilde_p
     if epsilon_floor > 0.0:
         force_policy = jax.random.uniform(key_floor, mu_e.shape) < epsilon_floor
-        use_expert = jnp.where(force_policy, jnp.zeros_like(use_expert_thompson),
-                               use_expert_thompson)
+        use_expert = jnp.where(
+            force_policy, jnp.zeros_like(use_expert_thompson), use_expert_thompson
+        )
     else:
         use_expert = use_expert_thompson
     return use_expert, rng
@@ -359,7 +360,7 @@ class EDGEAuxiliaries:
     # collect_experience call, NOT from the replay batch). Useful for
     # studying gate dynamics over training; NaN for vanilla SAC.
     live_expert_frac: jax.Array
-    live_q_advantage: jax.Array       # mean(mu_actor - mu_expert), LCB/Thompson only
+    live_q_advantage: jax.Array  # mean(mu_actor - mu_expert), LCB/Thompson only
     live_critic_sigma_actor: jax.Array
     live_critic_sigma_expert: jax.Array
 

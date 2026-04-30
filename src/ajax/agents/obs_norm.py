@@ -13,9 +13,9 @@ env step, in the collector. The env wrapper can't see those dims, so
 its running stats don't cover them. Agent-side normalization wraps the
 full augmented vector.
 """
+
 from typing import Optional, Tuple
 
-import jax
 import jax.numpy as jnp
 
 from ajax.utils import online_normalize
@@ -43,15 +43,16 @@ def update_obs_norm(
         obs, info.count, info.mean, info.mean_2, train=True
     )
     new_info = NormalizationInfo(
-        count=count, mean=mean, mean_2=mean_2, var=var,
+        count=count,
+        mean=mean,
+        mean_2=mean_2,
+        var=var,
         returns=info.returns,
     )
     return new_obs, new_info
 
 
-def apply_obs_norm(
-    obs: jnp.ndarray, info: Optional[NormalizationInfo]
-) -> jnp.ndarray:
+def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.ndarray:
     """Normalize ``obs`` using existing stats (no update). Used at every
     actor/critic ``apply_fn`` site that consumes obs sampled from the
     buffer or carried by the eval scan, so stats updates stay localised
@@ -88,5 +89,9 @@ def seed_obs_norm_from_dataset(
     mean_2_b = var_b * n
     count_b = jnp.full((n_envs, 1), float(n))
     return NormalizationInfo(
-        count=count_b, mean=mean_b, mean_2=mean_2_b, var=var_b, returns=None,
+        count=count_b,
+        mean=mean_b,
+        mean_2=mean_2_b,
+        var=var_b,
+        returns=None,
     )

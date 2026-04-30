@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax import struct
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import orthogonal
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
@@ -88,6 +88,140 @@ def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     return x.reshape(n_batches, batch_size, *x.shape[1:])
 
 
+def _reset_actor_heads(
+    bc_actor_state: train_state.TrainState,
+    rng: jax.Array,
+    reset_log_std_after_bc: bool,
+    reset_actor_head_after_bc: bool,
+) -> train_state.TrainState:
+    """Reset the log_std and/or mean head subtrees of an actor TrainState.
+
+    Reset values mirror Actor.setup() in networks.py.
+    """
+    from flax.core import freeze, unfreeze
+
+    mean_kernel_init_orig = orthogonal(0.01)
+
+    def _reset_subtrees(d, rng_key):
+        if not hasattr(d, "items") and not isinstance(d, dict):
+            return d, rng_key
+        out = {}
+        for k, v in d.items():
+            if (
+                k == "log_std"
+                and isinstance(v, dict)
+                and (reset_log_std_after_bc or reset_actor_head_after_bc)
+            ):
+                new_sub = {}
+                for sub_k, sub_v in v.items():
+                    if sub_k == "kernel":
+                        new_sub[sub_k] = jnp.zeros_like(sub_v)
+                    elif sub_k == "bias":
+                        new_sub[sub_k] = jnp.full_like(sub_v, -1.0)
+                    else:
+                        new_sub[sub_k] = sub_v
+                out[k] = new_sub
+            elif k == "mean" and isinstance(v, dict) and reset_actor_head_after_bc:
+                new_sub = {}
+                for sub_k, sub_v in v.items():
+                    if sub_k == "kernel":
+                        rng_key, subkey = jax.random.split(rng_key)
+                        new_sub[sub_k] = mean_kernel_init_orig(
+                            subkey, sub_v.shape, sub_v.dtype
+                        )
+                    elif sub_k == "bias":
+                        new_sub[sub_k] = jnp.zeros_like(sub_v)
+                    else:
+                        new_sub[sub_k] = sub_v
+                out[k] = new_sub
+            elif isinstance(v, dict):
+                out[k], rng_key = _reset_subtrees(v, rng_key)
+            else:
+                out[k] = v
+        return out, rng_key
+
+    new_params_dict = unfreeze(bc_actor_state.params)
+    new_params_dict, _ = _reset_subtrees(new_params_dict, rng)
+    return bc_actor_state.replace(params=freeze(new_params_dict))
+
+
+def _critic_pretrain(
+    bc_critic_state: train_state.TrainState,
+    obs: jnp.ndarray,
+    actions: jnp.ndarray,
+    rewards: jnp.ndarray,
+    terminated: jnp.ndarray,
+    rng: jax.Array,
+    gamma: float,
+    critic_epochs: int,
+    critic_batch_size: int,
+) -> Tuple[train_state.TrainState, jnp.ndarray]:
+    """MC critic pretrain over (T, n_envs) trajectories. Returns (state, per-epoch losses)."""
+    rew_flat = rewards
+    term_flat = terminated.astype(jnp.float32)
+    if rew_flat.ndim == term_flat.ndim:
+        pass
+    elif rew_flat.ndim == term_flat.ndim + 1 and rew_flat.shape[-1] == 1:
+        rew_flat = rew_flat.squeeze(-1)
+    elif term_flat.ndim == rew_flat.ndim + 1 and term_flat.shape[-1] == 1:
+        term_flat = term_flat.squeeze(-1)
+
+    def _backward_step(carry_G, x):
+        r, term = x
+        G = r + gamma * carry_G * (1.0 - term)
+        return G, G
+
+    _, returns_to_go = jax.lax.scan(
+        _backward_step,
+        jnp.zeros(rew_flat.shape[1:]),
+        (rew_flat[::-1], term_flat[::-1]),
+    )
+    returns_to_go = returns_to_go[::-1]
+
+    flat_obs = obs.reshape((-1,) + obs.shape[2:])
+    flat_act = actions.reshape((-1,) + actions.shape[2:])
+    flat_G = returns_to_go.reshape((-1,))
+
+    def critic_loss_fn(params, batch_obs, batch_actions, batch_G):
+        x = jnp.concatenate([batch_obs, jax.lax.stop_gradient(batch_actions)], axis=-1)
+        q_preds = bc_critic_state.apply_fn(params, x)
+        target = batch_G[None, :, None]
+        return jnp.mean((q_preds - target) ** 2)
+
+    def critic_train_step(state, batch_obs, batch_actions, batch_G):
+        loss, grads = jax.value_and_grad(critic_loss_fn)(
+            state.params, batch_obs, batch_actions, batch_G
+        )
+        return state.apply_gradients(grads=grads), loss
+
+    def critic_epoch_step(carry, rng_epoch):
+        state = carry
+        perm = jax.random.permutation(rng_epoch, flat_obs.shape[0])
+        obs_shuffled = flat_obs[perm]
+        act_shuffled = flat_act[perm]
+        G_shuffled = flat_G[perm]
+
+        obs_batches = batchify(obs_shuffled, critic_batch_size)
+        act_batches = batchify(act_shuffled, critic_batch_size)
+        G_batches = batchify(G_shuffled, critic_batch_size)
+
+        def batch_step(carry, batch):
+            state = carry
+            b_obs, b_act, b_G = batch
+            new_state, loss = critic_train_step(state, b_obs, b_act, b_G)
+            return new_state, loss
+
+        state, batch_losses = jax.lax.scan(
+            batch_step,
+            state,
+            (obs_batches, act_batches, G_batches),
+        )
+        return state, jnp.mean(batch_losses)
+
+    rng_epochs = jax.random.split(rng, critic_epochs)
+    return jax.lax.scan(critic_epoch_step, bc_critic_state, rng_epochs)
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -138,7 +272,13 @@ def pre_train(
     bc_loss_type: str = "nll",
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
-) -> Tuple[train_state.TrainState, train_state.TrainState, Dict[str, jnp.ndarray]]:
+) -> Tuple[
+    train_state.TrainState,
+    train_state.TrainState,
+    Dict[str, jnp.ndarray],
+    jnp.ndarray,
+    jnp.ndarray,
+]:
     """
     Pre-train actor (behavioral cloning) and critic (TD(0)) from a dataset of transitions.
     Returns trained states and metrics dict with per-epoch actor/critic losses.
@@ -185,6 +325,7 @@ def pre_train(
             # entropy collapse on saturated samples, where scale → 0 would
             # otherwise dominate the loss).
             from ajax.agents.SAC.utils import SquashedNormal
+
             eps = bc_action_clip_eps
             if isinstance(pi, SquashedNormal):
                 # Clip the action into the squash domain so tanh^{-1}
@@ -252,53 +393,12 @@ def pre_train(
         #   only the encoder BC-warmed; head is random → natural entropy
         #   → α stays sane; trunk features encode expert-relevant info)
         if reset_log_std_after_bc or reset_actor_head_after_bc:
-            from flax.core import freeze, unfreeze
-            # Reset values mirror Actor.setup() in networks.py.
-            mean_kernel_init_orig = orthogonal(0.01)
-            mean_bias_init_orig = constant(0.0)
-            new_params = bc_actor_state.params
-
-            def _reset_subtrees(d, rng_key):
-                if not hasattr(d, "items") and not isinstance(d, dict):
-                    return d, rng_key
-                out = {}
-                for k, v in d.items():
-                    if k == "log_std" and isinstance(v, dict) and (
-                        reset_log_std_after_bc or reset_actor_head_after_bc
-                    ):
-                        new_sub = {}
-                        for sub_k, sub_v in v.items():
-                            if sub_k == "kernel":
-                                new_sub[sub_k] = jnp.zeros_like(sub_v)
-                            elif sub_k == "bias":
-                                new_sub[sub_k] = jnp.full_like(sub_v, -1.0)
-                            else:
-                                new_sub[sub_k] = sub_v
-                        out[k] = new_sub
-                    elif k == "mean" and isinstance(v, dict) and reset_actor_head_after_bc:
-                        new_sub = {}
-                        for sub_k, sub_v in v.items():
-                            if sub_k == "kernel":
-                                rng_key, subkey = jax.random.split(rng_key)
-                                new_sub[sub_k] = mean_kernel_init_orig(
-                                    subkey, sub_v.shape, sub_v.dtype
-                                )
-                            elif sub_k == "bias":
-                                new_sub[sub_k] = jnp.zeros_like(sub_v)
-                            else:
-                                new_sub[sub_k] = sub_v
-                        out[k] = new_sub
-                    elif isinstance(v, dict):
-                        out[k], rng_key = _reset_subtrees(v, rng_key)
-                    else:
-                        out[k] = v
-                return out, rng_key
-
             rng, reset_key = jax.random.split(rng)
-            new_params_dict = unfreeze(new_params)
-            new_params_dict, _ = _reset_subtrees(new_params_dict, reset_key)
-            bc_actor_state = bc_actor_state.replace(
-                params=freeze(new_params_dict)
+            bc_actor_state = _reset_actor_heads(
+                bc_actor_state,
+                reset_key,
+                reset_log_std_after_bc,
+                reset_actor_head_after_bc,
             )
 
     # --------------------------
@@ -316,78 +416,17 @@ def pre_train(
             params=critic_state.params,
             tx=optax.adam(critic_lr),
         )
-
-        # Compute returns-to-go via reverse scan. dataset shapes are
-        # (n_timesteps, n_envs, ...); reduce by leading axis.
-        rew_flat = rewards  # (T, n_envs) or (T, n_envs, 1)
-        term_flat = terminated.astype(jnp.float32)
-        if rew_flat.ndim == term_flat.ndim:
-            pass  # ok
-        elif rew_flat.ndim == term_flat.ndim + 1 and rew_flat.shape[-1] == 1:
-            rew_flat = rew_flat.squeeze(-1)
-        elif term_flat.ndim == rew_flat.ndim + 1 and term_flat.shape[-1] == 1:
-            term_flat = term_flat.squeeze(-1)
-
-        def _backward_step(carry_G, x):
-            r, term = x
-            G = r + gamma * carry_G * (1.0 - term)
-            return G, G
-
-        _, returns_to_go = jax.lax.scan(
-            _backward_step,
-            jnp.zeros(rew_flat.shape[1:]),
-            (rew_flat[::-1], term_flat[::-1]),
-        )
-        returns_to_go = returns_to_go[::-1]  # (T, n_envs)
-
-        # Flatten across (T, n_envs) so all transitions are independent samples
-        flat_obs = obs.reshape((-1,) + obs.shape[2:])
-        flat_act = actions.reshape((-1,) + actions.shape[2:])
-        flat_G = returns_to_go.reshape((-1,))
-
-        def critic_loss_fn(params, batch_obs, batch_actions, batch_G):
-            x = jnp.concatenate(
-                [batch_obs, jax.lax.stop_gradient(batch_actions)], axis=-1
-            )
-            q_preds = bc_critic_state.apply_fn(params, x)
-            # q_preds: (num_critics, batch, 1); target broadcast to same shape
-            target = batch_G[None, :, None]
-            return jnp.mean((q_preds - target) ** 2)
-
-        def critic_train_step(state, batch_obs, batch_actions, batch_G):
-            loss, grads = jax.value_and_grad(critic_loss_fn)(
-                state.params, batch_obs, batch_actions, batch_G
-            )
-            return state.apply_gradients(grads=grads), loss
-
-        def critic_epoch_step(carry, rng_epoch):
-            state = carry
-            perm = jax.random.permutation(rng_epoch, flat_obs.shape[0])
-            obs_shuffled = flat_obs[perm]
-            act_shuffled = flat_act[perm]
-            G_shuffled = flat_G[perm]
-
-            obs_batches = batchify(obs_shuffled, critic_batch_size)
-            act_batches = batchify(act_shuffled, critic_batch_size)
-            G_batches = batchify(G_shuffled, critic_batch_size)
-
-            def batch_step(carry, batch):
-                state = carry
-                b_obs, b_act, b_G = batch
-                new_state, loss = critic_train_step(state, b_obs, b_act, b_G)
-                return new_state, loss
-
-            state, batch_losses = jax.lax.scan(
-                batch_step,
-                state,
-                (obs_batches, act_batches, G_batches),
-            )
-            return state, jnp.mean(batch_losses)
-
         rng, rng_critic = jax.random.split(rng)
-        rng_epochs = jax.random.split(rng_critic, critic_epochs)
-        bc_critic_state, critic_losses = jax.lax.scan(
-            critic_epoch_step, bc_critic_state, rng_epochs
+        bc_critic_state, critic_losses = _critic_pretrain(
+            bc_critic_state,
+            obs,
+            actions,
+            rewards,
+            terminated,
+            rng_critic,
+            gamma,
+            critic_epochs,
+            critic_batch_size,
         )
         metrics["critic_loss"] = critic_losses
     else:
@@ -400,7 +439,10 @@ def pre_train(
     if not skip_critic:
         # Sync target_params too if the critic state has them (TD3, SAC).
         new_critic_params = bc_critic_state.params
-        if hasattr(critic_state, "target_params") and critic_state.target_params is not None:
+        if (
+            hasattr(critic_state, "target_params")
+            and critic_state.target_params is not None
+        ):
             critic_state = critic_state.replace(
                 params=new_critic_params, target_params=new_critic_params
             )
@@ -462,6 +504,7 @@ def get_pre_trained_agent(
     new_state = agent_state.replace(actor_state=actor_state, critic_state=critic_state)
     if agent_state.collector_state.obs_norm_info is not None:
         from ajax.wrappers import NormalizationInfo
+
         n_envs = agent_state.collector_state.obs_norm_info.mean.shape[0]
         n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
         var = obs_std**2

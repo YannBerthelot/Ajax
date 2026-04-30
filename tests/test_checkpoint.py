@@ -1,7 +1,6 @@
 """Tests for ajax.checkpoint: save/load and resume-training round-trip."""
 
 import os
-import tempfile
 
 import jax
 import jax.numpy as jnp
@@ -106,9 +105,9 @@ def test_agent_train_returns_tuple_shape():
 
     agent = SAC(env_id="Pendulum-v1")
     out = agent.train(seed=[0], n_timesteps=100, num_episode_test=1)
-    assert isinstance(out, tuple), (
-        f"agent.train() was expected to return a 2-tuple; got {type(out)}"
-    )
+    assert isinstance(
+        out, tuple
+    ), f"agent.train() was expected to return a 2-tuple; got {type(out)}"
     assert len(out) == 2, f"expected (state, metrics); got length {len(out)}"
     state, _metrics = out
     assert state.actor_state is not None
@@ -125,7 +124,10 @@ def test_resume_accepts_tuple_initial_state(tmp_path):
     first = agent.train(seed=[0], n_timesteps=100, num_episode_test=1)
     # Pass the tuple directly (not state_only).
     second = agent.train(
-        seed=[0], n_timesteps=100, num_episode_test=1, initial_state=first,
+        seed=[0],
+        n_timesteps=100,
+        num_episode_test=1,
+        initial_state=first,
     )
     assert second is not None
 
@@ -138,17 +140,8 @@ def test_sac_short_train_then_resume_preserves_return(tmp_path):
     This is the critical test: it exercises ``agent.train(initial_state=...)``
     and the ``resume_from_state=True`` branch inside ``make_train``.
     """
-    import gymnax
-    from flax.serialization import to_state_dict
 
     from ajax.agents.SAC.SAC import SAC
-    from ajax.state import (
-        AlphaConfig,
-        BufferConfig,
-        EnvironmentConfig,
-        NetworkConfig,
-        OptimizerConfig,
-    )
 
     env_id = "Pendulum-v1"
     seeds = [0]

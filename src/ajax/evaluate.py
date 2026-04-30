@@ -57,9 +57,7 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
                 ajax_env_id, n_envs=num_episodes, episode_length=1000
             )
         else:
-            env = _build_brax_env(
-                ajax_env_id, n_envs=num_episodes, episode_length=1000
-            )
+            env = _build_brax_env(ajax_env_id, n_envs=num_episodes, episode_length=1000)
         env = clip_wrapper(env)
     else:
         env = env.unwrapped if hasattr(env, "unwrapped") else env
@@ -166,9 +164,8 @@ def step_environment(
         # at zeros while training saw an evolving integrator, causing a
         # silent train/eval distribution mismatch.
         _need_expert_call = (
-            (augment_obs_with_expert_action or augment_obs_with_expert_state)
-            and expert_policy is not None
-        )
+            augment_obs_with_expert_action or augment_obs_with_expert_state
+        ) and expert_policy is not None
         if _need_expert_call:
             if expert_is_stateful:
                 _aug_expert_action, _aug_new_expert_state = expert_policy(
@@ -195,6 +192,7 @@ def step_environment(
         # is the state that has NOT yet seen obs t.
         if augment_obs_with_expert_state and expert_is_stateful:
             from ajax.environments.interaction import flatten_expert_state
+
             _es_flat = flatten_expert_state(expert_state)
             if _es_flat is not None:
                 obs_for_actor = jnp.concatenate(
@@ -210,7 +208,9 @@ def step_environment(
             actions, new_expert_state = expert_policy.step_with_gains(
                 expert_state, obs, gains
             )
-        elif eval_action_transform is not None or early_termination_condition is not None:
+        elif (
+            eval_action_transform is not None or early_termination_condition is not None
+        ):
             if expert_policy is not None:
                 if expert_is_stateful:
                     expert_actions, new_expert_state = expert_policy(expert_state, obs)
@@ -230,7 +230,9 @@ def step_environment(
                     raw_actions, expert_actions, obs, agent_state
                 )
             else:
-                actions = (1.0 - inside_the_box) * raw_actions + inside_the_box * expert_actions
+                actions = (
+                    1.0 - inside_the_box
+                ) * raw_actions + inside_the_box * expert_actions
         else:
             actions = raw_actions
             # If we already advanced the expert state for obs augmentation,
@@ -296,7 +298,18 @@ def step_environment_expert(mode, env, env_params, expert_policy):
     """Step function for expert policy. expert_policy must be a FunctionalExpertPolicy."""
 
     def fn(carry):
-        rewards, rng, obs, done, state, entropy_sum, step_count, step_count_2, _, expert_state = carry
+        (
+            rewards,
+            rng,
+            obs,
+            done,
+            state,
+            entropy_sum,
+            step_count,
+            step_count_2,
+            _,
+            expert_state,
+        ) = carry
         rng, step_key = jax.random.split(rng)
         step_keys = (
             jax.random.split(step_key, obs.shape[0])
@@ -407,11 +420,13 @@ def evaluate(
     _expert_is_stateful = expert_policy is not None and hasattr(
         expert_policy, "init_state"
     )
-    _init_agent_expert_state = (
-        expert_policy.init_state(num_episodes)
-        if _expert_is_stateful
-        else jnp.zeros((1,))  # dummy; unused when expert is stateless
-    )
+    if _expert_is_stateful:
+        assert expert_policy is not None
+        _init_agent_expert_state = expert_policy.init_state(num_episodes)
+    else:
+        _init_agent_expert_state = jnp.zeros(
+            (1,)
+        )  # dummy; unused when expert is stateless
     init_carry_agent = (
         jnp.zeros(num_episodes),  # rewards
         key,
@@ -463,7 +478,8 @@ def evaluate(
     # `still_running = 1 - done`, so iterating past the natural termination
     # of every lane is a no-op on the accumulated reward/entropy/step_count.
     steps_bound = (
-        int(max_eval_steps) if max_eval_steps is not None
+        int(max_eval_steps)
+        if max_eval_steps is not None
         else _infer_max_eval_steps(env, env_params)
     )
 

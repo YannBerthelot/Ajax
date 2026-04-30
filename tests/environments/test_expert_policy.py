@@ -208,9 +208,7 @@ def test_pre_train_actor_converges():
         # pre_train standardises obs internally; apply the same transform
         # at eval so the actor sees the input distribution it was trained on.
         std_obs = (dataset.obs[i] - obs_mean) / obs_std
-        pred_action = trained_actor.apply_fn(
-            trained_actor.params, std_obs
-        ).mean()
+        pred_action = trained_actor.apply_fn(trained_actor.params, std_obs).mean()
         assert jnp.allclose(pred_action, dataset.action[i], atol=0.3)
 
 

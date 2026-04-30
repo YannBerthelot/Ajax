@@ -4,8 +4,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.UDRL.UDRL import UDRL
 from ajax.agents.UDRL.state import UDRLConfig
+from ajax.agents.UDRL.UDRL import UDRL
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 
@@ -53,9 +53,7 @@ def test_UDRL_train_updates_actor_params():
     def any_diff(a, b):
         leaves_a = jax.tree_util.tree_leaves(a)
         leaves_b = jax.tree_util.tree_leaves(b)
-        return any(
-            not jnp.allclose(la, lb) for la, lb in zip(leaves_a, leaves_b)
-        )
+        return any(not jnp.allclose(la, lb) for la, lb in zip(leaves_a, leaves_b))
 
     assert any_diff(state.actor_state.params, fresh_state.actor_state.params)
 

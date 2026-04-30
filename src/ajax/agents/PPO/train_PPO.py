@@ -8,7 +8,6 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from functools import partial as std_partial
 from jax.tree_util import Partial as partial
 
 from ajax.agents.PPO.state import PPOConfig, PPOState
@@ -297,23 +296,61 @@ def _value_and_grad_with_extra(extra_loss_fn):
     """Return value_and_grad of value_loss_function with ``extra_loss_fn`` bound
     by closure so it doesn't have to be passed as an arg through jax's flatten.
     """
-    def bound(critic_params, critic_states, observations, value_targets, dones, recurrent, agent_state):
+
+    def bound(
+        critic_params,
+        critic_states,
+        observations,
+        value_targets,
+        dones,
+        recurrent,
+        agent_state,
+    ):
         return value_loss_function(
-            critic_params, critic_states, observations, value_targets, dones,
-            recurrent, agent_state=agent_state, extra_loss_fn=extra_loss_fn,
+            critic_params,
+            critic_states,
+            observations,
+            value_targets,
+            dones,
+            recurrent,
+            agent_state=agent_state,
+            extra_loss_fn=extra_loss_fn,
         )
+
     return jax.value_and_grad(bound, has_aux=True)
 
 
 def _policy_value_and_grad_with_extra(extra_loss_fn):
-    def bound(actor_params, actor_state, observations, actions, log_probs, gae,
-              dones, recurrent, clip_coef, ent_coef, advantage_normalization,
-              obs_preprocessor):
+    def bound(
+        actor_params,
+        actor_state,
+        observations,
+        actions,
+        log_probs,
+        gae,
+        dones,
+        recurrent,
+        clip_coef,
+        ent_coef,
+        advantage_normalization,
+        obs_preprocessor,
+    ):
         return policy_loss_function(
-            actor_params, actor_state, observations, actions, log_probs, gae,
-            dones, recurrent, clip_coef, ent_coef, advantage_normalization,
-            obs_preprocessor, extra_loss_fn=extra_loss_fn,
+            actor_params,
+            actor_state,
+            observations,
+            actions,
+            log_probs,
+            gae,
+            dones,
+            recurrent,
+            clip_coef,
+            ent_coef,
+            advantage_normalization,
+            obs_preprocessor,
+            extra_loss_fn=extra_loss_fn,
         )
+
     return jax.value_and_grad(bound, has_aux=True)
 
 

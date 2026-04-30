@@ -359,6 +359,7 @@ class SAC(ActorCritic):
         # when the augmentation is off.
         if augment_obs_with_expert_state and expert_policy is not None:
             from ajax.environments.interaction import expert_state_dim
+
             self.expert_state_aug_dim = expert_state_dim(expert_policy)
         else:
             self.expert_state_aug_dim = 0

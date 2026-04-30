@@ -52,7 +52,5 @@ def compute_returns_to_go_horizons(
         return (G, h), (G, h)
 
     init = (jnp.zeros_like(rewards[0]), jnp.zeros_like(rewards[0]))
-    _, (G_seq, h_seq) = jax.lax.scan(
-        step, init, (rewards[::-1], dones[::-1])
-    )
+    _, (G_seq, h_seq) = jax.lax.scan(step, init, (rewards[::-1], dones[::-1]))
     return G_seq[::-1], h_seq[::-1]

@@ -119,7 +119,9 @@ def compute_td_target(
 
     if next_action_transform is not None:
         next_actions_for_q = next_action_transform(
-            next_actions, next_observations, next_a_expert,
+            next_actions,
+            next_observations,
+            next_a_expert,
         )
     else:
         next_actions_for_q = next_actions

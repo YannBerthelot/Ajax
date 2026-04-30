@@ -18,7 +18,6 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
-from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
 from ajax.agents.cloning import (
@@ -26,6 +25,7 @@ from ajax.agents.cloning import (
     get_cloning_args,
     get_pre_trained_agent,
 )
+from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
@@ -41,7 +41,6 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
-from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import predict_value
 from ajax.state import (
@@ -53,7 +52,6 @@ from ajax.state import (
 )
 from ajax.types import BufferType
 from ajax.utils import get_one
-
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclasses (for logging)

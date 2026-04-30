@@ -181,19 +181,24 @@ def pre_train(
     def actor_loss_fn(params, batch_obs, batch_actions):
         pi = bc_actor_state.apply_fn(params, batch_obs)
         if bc_loss_type == "nll":
-            # NLL on the SquashedNormal with action clipped to (-1+eps, 1-eps)
-            # and log_std lower-clipped at bc_min_log_std. Clip on the action
-            # keeps tanh^{-1} finite inside log_prob; the log_std clip
-            # prevents entropy collapse on saturated samples (which would
-            # otherwise let scale → 0 and dominate the loss).
+            # NLL with log_std lower-clipped at bc_min_log_std (prevents
+            # entropy collapse on saturated samples, where scale → 0 would
+            # otherwise dominate the loss).
             from ajax.agents.SAC.utils import SquashedNormal
             eps = bc_action_clip_eps
-            target = jnp.clip(batch_actions, -1.0 + eps, 1.0 - eps)
-            loc = pi.distribution.loc
-            scale = pi.distribution.scale
-            scale = jnp.maximum(scale, jnp.exp(bc_min_log_std))
-            pi_clipped = SquashedNormal(loc, scale)
-            return -pi_clipped.log_prob(target).sum(-1, keepdims=True).mean()
+            if isinstance(pi, SquashedNormal):
+                # Clip the action into the squash domain so tanh^{-1}
+                # inside log_prob stays finite.
+                target = jnp.clip(batch_actions, -1.0 + eps, 1.0 - eps)
+                loc = pi.distribution.loc
+                scale = jnp.maximum(pi.distribution.scale, jnp.exp(bc_min_log_std))
+                pi_clipped = SquashedNormal(loc, scale)
+                return -pi_clipped.log_prob(target).sum(-1, keepdims=True).mean()
+            # Plain Normal (no squashing): no action clipping needed.
+            loc = pi.loc
+            scale = jnp.maximum(pi.scale, jnp.exp(bc_min_log_std))
+            pi_clipped = distrax.Normal(loc, scale)
+            return -pi_clipped.log_prob(batch_actions).sum(-1, keepdims=True).mean()
         # Legacy MSE on unsquashed mean targeting atanh(clipped expert).
         # Collapses on heavily-saturated PID experts (see CloningConfig
         # docstring). Kept as a fallback.

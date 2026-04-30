@@ -25,6 +25,18 @@ class Transition:
     raw_obs: Optional[jnp.ndarray] = None
     log_prob: Optional[jnp.ndarray] = None
     inside_box: Optional[jnp.ndarray] = None
+    # Expert action computed at collection time, with the correct (stateful)
+    # expert internal state. None for methods that don't need it. Read by
+    # the residual-RL actor loss so the actor's Q-gradient evaluates at
+    # the same a_expert the critic was trained on, instead of recomputing
+    # the expert with a fresh zero state on a buffer-sampled obs.
+    a_expert: Optional[jnp.ndarray] = None
+    # Expert action at the *next* observation s_{t+1}. Needed by the
+    # residual-RL TD target so the bootstrap Q is evaluated on the same
+    # residual-transformed action distribution the critic was trained
+    # on (clip(a_expert + scale * a_pi, -1, 1)). Without this the target
+    # is OOD for the critic and training diverges.
+    next_a_expert: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

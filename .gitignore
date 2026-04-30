@@ -195,3 +195,5 @@ hp_results/
 plots/
 *.csv
 plots_safe/
+.claude
+.plot_cache

@@ -435,13 +435,12 @@ def get_raw_obs(
     if mode == "gymnax":
         return maybe_vmap(env.get_obs, vmap_on)(env_state)
     if check_env_is_playground(env):
-        import inspect
-
-        raw = get_raw_env(env)
-        n_params = len(inspect.signature(raw._get_obs).parameters)
-        if n_params >= 2:
-            return maybe_vmap(raw._get_obs, vmap_on)(env_state.data, env_state.info)
-        return maybe_vmap(raw._get_obs, vmap_on)(env_state.data)
+        # env_state.obs is already the post-wrapper observation (e.g. with
+        # safety-wrapper augmentations). Recomputing it via the raw env's
+        # `_get_obs(env_state.data)` would strip those augmentations and
+        # mismatch the buffer schema (which was sized from the wrapped
+        # `env.observation_size`). Trust the env's own bookkeeping.
+        return env_state.obs
     # Brax: prefer env._get_obs for pre-normalization obs. Some minimal envs
     # (brax `fast`) don't expose `_get_obs`; fall back to env_state.obs.
     if not hasattr(get_raw_env(env), "_get_obs"):
@@ -489,7 +488,8 @@ def get_buffer_action_and_env_action(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "mode", "env_args", "buffer", "action_pipeline"],
+    static_argnames=["recurrent", "mode", "env_args", "buffer",
+                     "action_pipeline", "next_expert_fn"],
 )
 def collect_experience(
     agent_state: BaseAgentState,
@@ -500,6 +500,7 @@ def collect_experience(
     buffer: Optional[BufferType] = None,
     uniform: bool = False,
     action_pipeline: Optional[Callable] = None,
+    next_expert_fn: Optional[Callable] = None,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
@@ -566,12 +567,14 @@ def collect_experience(
         _live_q_advantage = getattr(result, "q_advantage", None)
         _live_sigma_actor = getattr(result, "critic_sigma_actor", None)
         _live_sigma_expert = getattr(result, "critic_sigma_expert", None)
+        _a_expert = getattr(result, "a_expert", None)
     else:
         new_expert_state = None
         _buffer_action_override = None
         _live_q_advantage = None
         _live_sigma_actor = None
         _live_sigma_expert = None
+        _a_expert = None
         # Vanilla: uniform during warmup, policy action after
         action, log_probs = get_action_and_log_probs(
             action_key=action_key,
@@ -630,6 +633,22 @@ def collect_experience(
         terminated.astype(bool), entry_bonus[..., 0] > 0
     ).astype(terminated.dtype)
 
+    # Compute a_expert and next_a_expert once; reused both for the
+    # buffer write and the on-policy Transition object below. Only
+    # included in the buffer write when next_expert_fn is provided
+    # (SAC with expert_policy). Other agents leave them out so their
+    # buffer schema stays unchanged.
+    _a_expert_for_buf = (
+        _a_expert if _a_expert is not None
+        else jnp.zeros_like(buffer_action)
+    )
+    if next_expert_fn is not None:
+        _next_a_expert_for_buf = jax.lax.stop_gradient(
+            next_expert_fn(new_expert_state, raw_next_obs)
+        )
+    else:
+        _next_a_expert_for_buf = jnp.zeros_like(buffer_action)
+
     # --- Buffer write ---
     buffer_state = agent_state.collector_state.buffer_state
     if buffer_state is not None and buffer is not None:
@@ -642,6 +661,9 @@ def collect_experience(
             "raw_obs": raw_obs,
             "is_expert": is_expert_flag,
         }
+        if next_expert_fn is not None:
+            _transition["a_expert"] = _a_expert_for_buf
+            _transition["next_a_expert"] = _next_a_expert_for_buf
         should_write = jnp.logical_or(
             uniform,
             jnp.logical_not(
@@ -673,7 +695,6 @@ def collect_experience(
     else:
         next_obs_for_buffer = raw_next_obs
 
-    # Transition for on-policy mix (keeps policy action, not env_action)
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
         action=action,
@@ -684,6 +705,8 @@ def collect_experience(
         next_obs=next_obs_for_buffer,
         log_prob=log_probs,
         inside_box=in_value_box if action_pipeline is not None else None,
+        a_expert=_a_expert_for_buf,
+        next_a_expert=_next_a_expert_for_buf,
     )
 
     new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
@@ -910,6 +933,7 @@ def init_collector_state(
     action_dim_override: Optional[int] = None,
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
+    include_expert_fields: bool = False,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -952,6 +976,12 @@ def init_collector_state(
         truncated=jnp.ones((env_args.n_envs, 1)),
         log_prob=jnp.ones((env_args.n_envs, *action_shape)),
         raw_obs=jnp.ones((env_args.n_envs, *obs_shape)),
+        # Buffer schema must include a_expert and next_a_expert so
+        # collected transitions can store the expert action computed
+        # with the correct stateful expert state at both s_t and
+        # s_{t+1}. The residual-RL TD target reads next_a_expert.
+        a_expert=jnp.zeros((env_args.n_envs, *action_shape)),
+        next_a_expert=jnp.zeros((env_args.n_envs, *action_shape)),
     )
     episodic_return_state = init_rolling_mean(
         window_size=window_size,
@@ -967,6 +997,7 @@ def init_collector_state(
             add_train_frac=add_train_frac,
             action_dim_override=action_dim_override,
             expert_state_aug_dim=expert_state_aug_dim,
+            include_expert_fields=include_expert_fields,
         )
         if buffer is not None
         else None

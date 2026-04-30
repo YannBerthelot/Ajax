@@ -113,6 +113,12 @@ class ActionPipelineResult(NamedTuple):
     q_advantage: Optional[jax.Array] = None        # mean(mu_actor - mu_expert)
     critic_sigma_actor: Optional[jax.Array] = None  # mean(sigma_actor)
     critic_sigma_expert: Optional[jax.Array] = None # mean(sigma_expert)
+    # Expert action computed at this step with the correct (stateful) expert
+    # internal state. Stored in the Transition so the residual-RL actor
+    # loss can read it back instead of recomputing the expert with a fresh
+    # zero state on a buffer-sampled obs (which silently drops the
+    # integrator state for stateful PIDs).
+    a_expert: Optional[jax.Array] = None
 
 
 def make_action_pipeline(
@@ -529,9 +535,34 @@ def make_action_pipeline(
             critic_sigma_actor=_diag_sigma_actor,
             critic_sigma_expert=_diag_sigma_expert,
             buffer_action=_buffer_action_field,
+            a_expert=expert_action,
         )
 
     return pipeline
+
+
+def make_next_expert_fn(expert_policy):
+    """Build a callable that returns ``a_expert(s_{t+1}, expert_state_{t+1})``.
+
+    The action pipeline already produced the post-step expert state
+    while consuming s_t; we feed it back together with raw s_{t+1} to
+    get the expert action that *would have been taken at the next
+    step*. Stored in the buffer so the residual-RL TD target evaluates
+    the bootstrap Q on the same residual-transformed action
+    distribution the critic was trained on. Returns None when the
+    expert is not provided (so collect_experience writes zeros).
+    """
+    if expert_policy is None:
+        return None
+    expert_is_stateful = hasattr(expert_policy, "init_state")
+
+    def next_expert_fn(post_step_expert_state, raw_next_obs):
+        if expert_is_stateful and post_step_expert_state is not None:
+            a_next, _ = expert_policy(post_step_expert_state, raw_next_obs)
+            return a_next
+        return expert_policy(raw_next_obs)
+
+    return next_expert_fn
 
 
 # ---------------------------------------------------------------------------
@@ -1022,6 +1053,7 @@ def init_SAC(
             expert_state_aug_dim if augment_obs_with_expert_state else 0
         ),
         normalize_obs_running=normalize_obs_running,
+        include_expert_fields=expert_policy is not None,
     )
     if collector_state.obs_norm_info is not None:
         # Seed actor/critic with the initial (zero) stats so get_pi /
@@ -1096,11 +1128,15 @@ def update_value_functions(
     expert_q: Optional[jax.Array] = None,
     target_modifier: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    next_action_transform: Optional[Callable] = None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
 
-    # 1. Core Bellman target (pure SAC)
+    # 1. Core Bellman target (pure SAC). Pass next_action_transform so
+    # residual RL evaluates the bootstrap critic at the same residual-
+    # transformed action distribution the critic was trained on.
     target_q = core.compute_td_target(
         actor_state=agent_state.actor_state,
         critic_state=agent_state.critic_state,
@@ -1112,6 +1148,8 @@ def update_value_functions(
         rng=value_loss_key,
         recurrent=recurrent,
         reward_scale=reward_scale,
+        next_action_transform=next_action_transform,
+        next_a_expert=next_a_expert,
     )
 
     # 2. Q predictions for diagnostics
@@ -1511,6 +1549,15 @@ def update_agent(
         ) = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, sample_key
         )
+        # Aligned a_expert / next_a_expert (same sample_key, same
+        # slices) when the buffer was initialised with expert fields.
+        if expert_policy is not None:
+            from ajax.buffers.utils import get_expert_fields_from_buffer
+            a_expert_buf, next_a_expert_buf = get_expert_fields_from_buffer(
+                buffer, agent_state.collector_state.buffer_state, sample_key
+            )
+        else:
+            a_expert_buf, next_a_expert_buf = None, None
         expert_frac_in_buffer = is_expert.mean()
         original_transition = Transition(
             observations,
@@ -1520,6 +1567,8 @@ def update_agent(
             truncated,
             next_observations,
             raw_obs=raw_observations,
+            a_expert=a_expert_buf,
+            next_a_expert=next_a_expert_buf,
         )
 
         if additional_transition is not None and transition_mix_fraction < 1.0:
@@ -1563,6 +1612,10 @@ def update_agent(
         ) = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, expert_sample_key
         )
+        from ajax.buffers.utils import get_expert_fields_from_buffer
+        exp_a_expert, exp_next_a_expert = get_expert_fields_from_buffer(
+            buffer, agent_state.collector_state.buffer_state, expert_sample_key
+        )
 
         n_total = transition.obs.shape[0]
         n_expert = floor(expert_mix_fraction * n_total)
@@ -1581,6 +1634,8 @@ def update_agent(
             truncated=_cat(transition.truncated, exp_truncated),
             next_obs=_cat(transition.next_obs, exp_next_obs),
             raw_obs=_cat(transition.raw_obs, exp_raw_obs),
+            a_expert=_cat(transition.a_expert, exp_a_expert),
+            next_a_expert=_cat(transition.next_a_expert, exp_next_a_expert),
         )
 
     dones = jnp.logical_or(transition.terminated, transition.truncated)
@@ -1617,7 +1672,14 @@ def update_agent(
             if transition.raw_obs is not None
             else transition.obs[..., :-1]
         )
-        a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
+        # Prefer the a_expert stored in the buffer at collection time
+        # (computed with the correct stateful expert internal state).
+        # Fall back to a fresh stateless expert call only if the buffer
+        # transition predates the schema change (legacy run).
+        if transition.a_expert is not None:
+            a_expert_precomputed = jax.lax.stop_gradient(transition.a_expert)
+        else:
+            a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
         # transition.obs is already augmented at this point if augment_obs_with_expert_action
         expert_q = jax.lax.stop_gradient(
             jnp.min(
@@ -1654,6 +1716,18 @@ def update_agent(
         ).mean()
 
     # --- Critic updates ---
+    # For residual RL: apply the same residual transform to the
+    # bootstrap action in the TD target so the critic is queried in-
+    # distribution. policy_action_transform expects a_expert at s_t,
+    # but at the target it must use a_expert at s_{t+1} = next_a_expert.
+    _next_action_transform = policy_action_transform
+    _next_a_expert_for_target = (
+        transition.next_a_expert
+        if transition.next_a_expert is not None
+        and policy_action_transform is not None
+        else None
+    )
+
     def critic_update_step(carry, _):
         agent_state = carry
         agent_state, aux_value = update_value_functions(
@@ -1669,6 +1743,8 @@ def update_agent(
             expert_q=expert_q,
             target_modifier=target_modifier,
             extra_critic_loss_fn=extra_critic_loss_fn,
+            next_action_transform=_next_action_transform,
+            next_a_expert=_next_a_expert_for_target,
         )
         return agent_state, aux_value
 
@@ -1839,6 +1915,7 @@ def training_iteration(
     auxiliary_update: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
     pid_gain_policy: bool = False,
+    next_expert_fn: Optional[Callable] = None,
     # API compat
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = lambda x: 1.0,
@@ -1855,6 +1932,7 @@ def training_iteration(
         buffer=buffer,
         uniform=uniform,
         action_pipeline=action_pipeline,
+        next_expert_fn=next_expert_fn,
     )
 
     agent_state, transition = collect_scan_fn(agent_state, None)
@@ -2479,6 +2557,7 @@ def make_train(
             bc_loss_fn=_bc_loss_fn,
             eval_action_transform=_eval_action_transform,
             pid_gain_policy=use_pid_policy,
+            next_expert_fn=make_next_expert_fn(expert_policy),
             runtime_maintenance=_runtime_maintenance,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,

@@ -132,13 +132,16 @@ def detach_obs_expert_dims(
 def residual_action_transform(
     actions: jax.Array,
     a_expert: jax.Array,
+    scale: float = 1.0,
 ) -> jax.Array:
-    """Residual RL: executed action is clip(a_expert + a_pi, -1, 1).
+    """Residual RL: executed action is clip(a_expert + scale * a_pi, -1, 1).
 
     The critic was trained on (s, executed_action) tuples, so the policy
     gradient must flow through Q(s, executed_action), not Q(s, a_pi).
+    ``scale`` follows Johannink et al. 2019; values < 1 keep the initial
+    behaviour close to the expert when the policy is randomly initialised.
     """
-    return jnp.clip(a_expert + actions, -1.0, 1.0)
+    return jnp.clip(a_expert + scale * actions, -1.0, 1.0)
 
 
 # ---------------------------------------------------------------------------

@@ -88,11 +88,21 @@ def compute_td_target(
     rng: jax.Array,
     recurrent: bool,
     reward_scale: float = 1.0,
+    next_action_transform=None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> jax.Array:
     """Pure SAC Bellman target: r + γ(1-d)(min Q_target(s', π(s')) - α log π).
 
-    Returns stop-gradient'd target. Expert modules can modify this
-    (IBRL, critic blend, MC correction) before it enters the critic loss.
+    ``next_action_transform`` is an optional callable applied to the
+    sampled next action before the target critic sees it. Used by
+    residual RL so the bootstrap is queried at the same residual-
+    transformed action distribution the critic was trained on:
+    ``a_target = clip(a_expert(s_{t+1}) + scale * pi(s_{t+1}), -1, 1)``.
+    Without this the target Q is OOD and training diverges.
+
+    Returns stop-gradient'd target. Expert modules can further modify
+    this (IBRL, critic blend, MC correction) before it enters the
+    critic loss.
     """
     rewards = rewards * reward_scale
 
@@ -107,10 +117,19 @@ def compute_td_target(
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
 
+    if next_action_transform is not None:
+        next_actions_for_q = next_action_transform(
+            next_actions,
+            next_observations,
+            next_a_expert,
+        )
+    else:
+        next_actions_for_q = next_actions
+
     q_targets = predict_value(
         critic_state=critic_state,
         critic_params=critic_state.target_params,
-        x=jnp.concatenate((next_observations, next_actions), axis=-1),
+        x=jnp.concatenate((next_observations, next_actions_for_q), axis=-1),
     )
     min_q_target = jnp.min(q_targets, axis=0, keepdims=False)
 

@@ -37,22 +37,37 @@ def prepare_metrics(aux):
     return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
 
 
-def no_op(agent_state, aux, *args):  # TODO : build from auxiliary logs?
-    fake_metrics_to_log = {
-        "timestep": -1,  # must be int
-        "Eval/episodic mean reward": jnp.nan,
-        "Eval/episodic mean expert reward": jnp.nan,
-        "Eval/expert bias": jnp.nan,
-        "Eval/episodic entropy": jnp.nan,
-        "Eval/mean average reward": jnp.nan,
-        "Eval/mean episodic length": jnp.nan,
-        "Eval/mean bias": jnp.nan,
-        "Train/episodic mean reward": jnp.nan,
-        "Schedule": jnp.nan,
-    }
-    aux_keys = flatten_dict(to_state_dict(aux)).keys()
-    fake_metrics_to_log.update(dict.fromkeys(aux_keys, jnp.nan))
-    return fake_metrics_to_log
+def _make_no_op(extra_eval_metrics=None):
+    def no_op(agent_state, aux, *args):
+        fake_metrics_to_log = {
+            "timestep": -1,  # must be int
+            "Eval/episodic mean reward": jnp.nan,
+            "Eval/episodic mean expert reward": jnp.nan,
+            "Eval/expert bias": jnp.nan,
+            "Eval/episodic entropy": jnp.nan,
+            "Eval/mean average reward": jnp.nan,
+            "Eval/mean episodic length": jnp.nan,
+            "Eval/mean bias": jnp.nan,
+            "Train/episodic mean reward": jnp.nan,
+            "Schedule": jnp.nan,
+        }
+        aux_keys = flatten_dict(to_state_dict(aux)).keys()
+        fake_metrics_to_log.update(dict.fromkeys(aux_keys, jnp.nan))
+        if extra_eval_metrics is not None:
+            shape_tree = jax.eval_shape(
+                extra_eval_metrics, agent_state, jax.random.PRNGKey(0)
+            )
+            extras_nan = jax.tree_util.tree_map(
+                lambda s: jnp.full(s.shape, jnp.nan, s.dtype), shape_tree
+            )
+            fake_metrics_to_log.update(extras_nan)
+        return fake_metrics_to_log
+
+    return no_op
+
+
+def no_op(agent_state, aux, *args):
+    return _make_no_op(None)(agent_state, aux, *args)
 
 
 def no_op_none(agent_state, index, timestep):
@@ -78,6 +93,10 @@ def no_op_none(agent_state, index, timestep):
         "sweep",
         "early_termination_condition",
         "eval_action_transform",
+        "extra_eval_metrics",
+        "pid_gain_policy",
+        "augment_obs_with_expert_action",
+        "augment_obs_with_expert_state",
     ],
 )
 def evaluate_and_log(
@@ -101,12 +120,19 @@ def evaluate_and_log(
     early_termination_condition: Optional[Callable] = None,
     train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
+    extra_eval_metrics: Optional[Callable] = None,
+    pid_gain_policy: bool = False,
+    augment_obs_with_expert_action: bool = False,
+    augment_obs_with_expert_state: bool = False,
 ):
     timestep = agent_state.collector_state.timestep
 
     def run_and_log(
         agent_state: BaseAgentState, aux: AuxiliaryLogsProtocol, index: int
     ):
+        # Deterministic evaluation: eval_rng is fixed at init_PPO and never
+        # advanced across iterations, so each eval uses identical initial
+        # conditions (per-seed).
         eval_key = agent_state.eval_rng
         obs_normalization = (
             "obs_normalization_info" in agent_state.collector_state.env_state.info
@@ -143,6 +169,10 @@ def evaluate_and_log(
             early_termination_condition=early_termination_condition,
             train_frac=train_frac,
             eval_action_transform=eval_action_transform,
+            agent_state=agent_state,
+            pid_gain_policy=pid_gain_policy,
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
+            augment_obs_with_expert_state=augment_obs_with_expert_state,
         )
         schedule = (
             early_termination_condition.keywords["schedule"]  # type: ignore[union-attr]
@@ -179,6 +209,11 @@ def evaluate_and_log(
 
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
 
+        if extra_eval_metrics is not None:
+            extra_key, _ = jax.random.split(eval_key)
+            extras = extra_eval_metrics(agent_state, extra_key)
+            metrics_to_log.update(extras)
+
         if verbose:
             jax.debug.print(
                 (
@@ -194,9 +229,6 @@ def evaluate_and_log(
             jax.debug.callback(log_fn, metrics_to_log, index)
 
         return metrics_to_log
-
-    _, eval_rng = jax.random.split(agent_state.eval_rng)
-    agent_state = agent_state.replace(eval_rng=eval_rng)
 
     log_flag = (
         timestep - (agent_state.n_logs * log_frequency) >= log_frequency
@@ -217,7 +249,10 @@ def evaluate_and_log(
     )
     flag = jnp.logical_and(flag, close_to_end_flag)
 
-    metrics_to_log = jax.lax.cond(flag, run_and_log, no_op, agent_state, aux, index)
+    no_op_branch = _make_no_op(extra_eval_metrics)
+    metrics_to_log = jax.lax.cond(
+        flag, run_and_log, no_op_branch, agent_state, aux, index
+    )
 
     agent_state = agent_state.replace(
         n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)

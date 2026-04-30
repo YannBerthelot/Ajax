@@ -11,6 +11,14 @@ import numpy as np
 from brax.envs import Env as BraxEnv
 from brax.envs.base import State
 from brax.envs.base import Wrapper as BraxWrapper
+
+try:
+    from mujoco_playground._src.mjx_env import State as _PlaygroundState
+
+    _StateClasses: tuple = (State, _PlaygroundState)
+except ImportError:
+    _PlaygroundState = None
+    _StateClasses = (State,)
 from flax import struct
 from flax.serialization import to_state_dict
 from gymnasium import core
@@ -238,7 +246,7 @@ def get_obs_from_state(state: State | Tuple, mode: str) -> jax.Array:
                 return obs
             case (obs, _, _, _, _):
                 return obs
-    elif mode == "brax" and isinstance(state, State):
+    elif mode == "brax" and isinstance(state, _StateClasses):
         return state.obs
 
 
@@ -248,7 +256,7 @@ def get_obs_and_reward_and_done_from_state(
 ) -> jax.Array:
     if mode == "gymnax" and isinstance(state, tuple):
         return state[0], state[2], state[3]
-    elif mode == "brax" and isinstance(state, State):
+    elif mode == "brax" and isinstance(state, _StateClasses):
         return state.obs, state.reward, state.done
 
 
@@ -310,7 +318,7 @@ def normalize_wrapper_factory(
             self, state: State | Tuple, obs: jax.Array, norm_info, mode: str
         ):
             """Helper function to update state immutably"""
-            if mode == "brax" and isinstance(state, State):
+            if mode == "brax" and isinstance(state, _StateClasses):
                 return state.replace(
                     obs=obs,
                     info={
@@ -335,7 +343,7 @@ def normalize_wrapper_factory(
             mode: str,
         ):
             """Helper function to update state immutably"""
-            if mode == "brax" and isinstance(state, State):
+            if mode == "brax" and isinstance(state, _StateClasses):
                 return state.replace(
                     obs=obs,
                     reward=reward,
@@ -750,9 +758,7 @@ class NoiseWrapper(BraxWrapper):
         noisy_obs = add_gaussian_noise(obsv, obs_key, scale=self.scale)
         noisy_reward = add_gaussian_noise(reward, reward_key, scale=self.scale)
         # TODO : find how to infer done from the noisy obs?
-        state = state.replace(
-            pipeline_state=state.pipeline_state, obs=noisy_obs, reward=noisy_reward
-        )
+        state = state.replace(obs=noisy_obs, reward=noisy_reward)
         print("noising output")
 
         return state
@@ -767,6 +773,73 @@ class NoiseWrapper(BraxWrapper):
             rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
         )
         state = state.replace(info=info)
+        return state
+
+
+class BatchRngWrapper:
+    """Splits an unbatched PRNG key into n_envs keys on reset.
+
+    Playground's `BraxAutoResetWrapper.reset` assumes `rng` is already shape
+    (n_envs, 2) so it can `jax.vmap(jax.random.split)(rng)`. Ajax callers pass
+    a single unbatched key, so this adapter bridges the two conventions.
+    """
+
+    def __init__(self, env, n_envs: int):
+        self.env = env
+        self.n_envs = n_envs
+
+    def __getattr__(self, name):
+        if name == "__setstate__":
+            raise AttributeError(name)
+        return getattr(self.env, name)
+
+    @property
+    def unwrapped(self):
+        return getattr(self.env, "unwrapped", self.env)
+
+    def reset(self, rng):
+        if rng.ndim == 1:
+            rng = jax.random.split(rng, self.n_envs)
+        return self.env.reset(rng)
+
+    def step(self, state, action):
+        return self.env.step(state, action)
+
+
+class FinalObsWrapper:
+    """Stashes state.obs in state.info['final_obs'] on every reset/step.
+
+    Place this directly below an auto-reset wrapper in the stack. The auto-reset
+    wrapper overwrites state.obs with the reset observation on `done`, so
+    without this the pre-reset observation is lost — breaking correct value
+    bootstrapping on truncation (PPO/SAC need V(s_T) at truncation, not
+    V(s_reset)). With this wrapper, downstream code can read
+    state.info['final_obs'] to recover the terminal observation.
+
+    Backend-agnostic: duck-typed passthrough that works for both brax State
+    and mujoco_playground State (both expose `.obs` and `.info`).
+    """
+
+    def __init__(self, env):
+        self.env = env
+
+    def __getattr__(self, name):
+        if name == "__setstate__":
+            raise AttributeError(name)
+        return getattr(self.env, name)
+
+    @property
+    def unwrapped(self):
+        return getattr(self.env, "unwrapped", self.env)
+
+    def reset(self, rng):
+        state = self.env.reset(rng)
+        state.info["final_obs"] = state.obs
+        return state
+
+    def step(self, state, action):
+        state = self.env.step(state, action)
+        state.info["final_obs"] = state.obs
         return state
 
 

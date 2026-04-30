@@ -9,3 +9,36 @@ Plane:
   batch_size: 256
   arch_width: 256
   max_grad_norm: 1.0
+Plane3DHeading:
+  actor_learning_rate: 0.0003231382981219751
+  critic_learning_rate: 0.00029013817050919016
+  alpha_learning_rate: 0.00013528416439041955
+  gamma: 0.9776321687948719
+  tau: 0.015439279359802542
+  alpha_init: 0.08046961712223624
+  target_entropy_per_dim: -0.548071363203408
+  batch_size: 256
+  arch_width: 256
+  max_grad_norm: null
+Plane3DCircle:
+  actor_learning_rate: 0.0005633417844294313
+  critic_learning_rate: 0.0002069110830809784
+  alpha_learning_rate: 0.0001668708076490747
+  gamma: 0.9983437729211494
+  tau: 0.0008535701933300202
+  alpha_init: 0.38726947595633304
+  target_entropy_per_dim: -0.7105868670066502
+  batch_size: 256
+  arch_width: 256
+  max_grad_norm: 1.0
+CheetahRun:
+  actor_learning_rate: 0.0009711272246041886
+  critic_learning_rate: 0.00014138941288968364
+  alpha_learning_rate: 0.00039276313272387813
+  gamma: 0.9810458348422996
+  tau: 0.04353101563867079
+  alpha_init: 1.1171076838057548
+  target_entropy_per_dim: -0.8143509220976761
+  batch_size: 256
+  arch_width: 256
+  max_grad_norm: 1.0

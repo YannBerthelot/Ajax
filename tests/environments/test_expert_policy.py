@@ -189,7 +189,7 @@ def test_pre_train_actor_converges():
     critic_state = create_dummy_critic_state()
     dataset = expand_dataset(create_dummy_dataset(), repeat=1)
     key = jax.random.PRNGKey(42)
-    trained_actor, trained_critic, metrics = pre_train(
+    trained_actor, trained_critic, metrics, obs_mean, obs_std = pre_train(
         key,
         actor_state,
         critic_state,
@@ -205,9 +205,10 @@ def test_pre_train_actor_converges():
     actor_losses = jnp.array(metrics["actor_loss"])
     assert actor_losses[-1] <= actor_losses[0]
     for i in range(2):
-        pred_action = trained_actor.apply_fn(
-            trained_actor.params, dataset.obs[i]
-        ).mean()
+        # pre_train standardises obs internally; apply the same transform
+        # at eval so the actor sees the input distribution it was trained on.
+        std_obs = (dataset.obs[i] - obs_mean) / obs_std
+        pred_action = trained_actor.apply_fn(trained_actor.params, std_obs).mean()
         assert jnp.allclose(pred_action, dataset.action[i], atol=0.3)
 
 
@@ -278,7 +279,7 @@ def test_pre_train_vmap_compatible():
         in_axes=(0, 0, 0),
     )
 
-    trained_actors, trained_critics, metrics = batched_pre_train(
+    trained_actors, trained_critics, metrics, _obs_mean, _obs_std = batched_pre_train(
         rngs, actor_states, critic_states
     )
 

@@ -56,8 +56,8 @@ from ajax.modules.exploration import (
     compute_edge_diagnostics,
     edge_argmax_gate,
     edge_boltzmann_gate,
-    edge_compute_decay,
     edge_compute_asym_scores,
+    edge_compute_decay,
     edge_compute_lcb_scores,
     edge_compute_thompson_stats,
     edge_compute_value_gap,
@@ -419,9 +419,11 @@ def make_action_pipeline(
                 # Asymmetric variant (r_edge_bow): LCB on expert arm,
                 # UCB on policy arm. Inverts the over-conservative
                 # penalty of symmetric LCB at policy-exploration states.
-                _scores_fn = (edge_compute_asym_scores
-                              if lcb_asymmetric
-                              else edge_compute_lcb_scores)
+                _scores_fn = (
+                    edge_compute_asym_scores
+                    if lcb_asymmetric
+                    else edge_compute_lcb_scores
+                )
                 (
                     score_e,
                     score_p,

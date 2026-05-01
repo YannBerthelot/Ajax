@@ -1,6 +1,5 @@
 from typing import Optional
 
-import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents.UDRL.buffer import SegmentBuffer

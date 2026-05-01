@@ -36,7 +36,6 @@ from ajax.agents.UDRL.buffer import (
 from ajax.agents.UDRL.state import UDRLConfig, UDRLState
 from ajax.agents.UDRL.utils import (
     compute_returns_to_go_horizons,
-    update_command,
 )
 from ajax.environments.interaction import (
     get_pi,
@@ -264,9 +263,7 @@ def _udrl_collect_step(
     )
 
 
-def _scale_obs_command(
-    obs: jax.Array, scale_r: float, scale_h: float
-) -> jax.Array:
+def _scale_obs_command(obs: jax.Array, scale_r: float, scale_h: float) -> jax.Array:
     """Multiply the trailing 2 obs dims (the (dr, dh) command) by per-axis
     scaling factors. The buffer / decay logic uses raw values; the actor
     sees the scaled view at every forward pass (paper §appendix)."""
@@ -443,6 +440,7 @@ def training_iteration(
     ).astype(jnp.float32)
 
     # 2. Append the segment to the replay buffer.
+    assert agent_state.buffer is not None
     new_buffer = add_segment(
         agent_state.buffer,
         obs=rollout.obs,
@@ -470,8 +468,8 @@ def training_iteration(
     tau = agent_config.command_target_tau
     new_target_r = (1.0 - tau) * agent_state.command_target_return + tau * proposal_r
     new_target_std = (
-        (1.0 - tau) * agent_state.command_target_return_std + tau * proposal_std
-    )
+        1.0 - tau
+    ) * agent_state.command_target_return_std + tau * proposal_std
     new_target_h = (1.0 - tau) * agent_state.command_target_horizon + tau * proposal_h
 
     # 4. Train: sample (s, a, dr, dh) from the buffer and fit the actor

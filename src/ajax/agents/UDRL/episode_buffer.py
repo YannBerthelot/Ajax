@@ -76,9 +76,7 @@ def insert_episode(
     lowest_idx = jnp.argmin(buffer.returns)
     lowest_return = buffer.returns[lowest_idx]
     insert_idx = jnp.where(is_full, lowest_idx, buffer.fill_count)
-    should_insert = jnp.logical_or(
-        jnp.logical_not(is_full), ep_return > lowest_return
-    )
+    should_insert = jnp.logical_or(jnp.logical_not(is_full), ep_return > lowest_return)
 
     # Prefix-sum the reward stream up-front (zeros past length, so cum stays
     # flat there — fine because sampling restricts t1, t2 <= ep_length).
@@ -96,29 +94,19 @@ def insert_episode(
         slot_value(ep_obs.astype(buffer.obs.dtype), buffer.obs[insert_idx])
     )
     actions = buffer.actions.at[insert_idx].set(
-        slot_value(
-            ep_actions.astype(buffer.actions.dtype), buffer.actions[insert_idx]
-        )
+        slot_value(ep_actions.astype(buffer.actions.dtype), buffer.actions[insert_idx])
     )
     rewards = buffer.rewards.at[insert_idx].set(
-        slot_value(
-            ep_rewards.astype(buffer.rewards.dtype), buffer.rewards[insert_idx]
-        )
+        slot_value(ep_rewards.astype(buffer.rewards.dtype), buffer.rewards[insert_idx])
     )
     cum_rewards = buffer.cum_rewards.at[insert_idx].set(
-        slot_value(
-            cum.astype(buffer.cum_rewards.dtype), buffer.cum_rewards[insert_idx]
-        )
+        slot_value(cum.astype(buffer.cum_rewards.dtype), buffer.cum_rewards[insert_idx])
     )
     lengths = buffer.lengths.at[insert_idx].set(
-        slot_value(
-            ep_length.astype(buffer.lengths.dtype), buffer.lengths[insert_idx]
-        )
+        slot_value(ep_length.astype(buffer.lengths.dtype), buffer.lengths[insert_idx])
     )
     returns = buffer.returns.at[insert_idx].set(
-        slot_value(
-            ep_return.astype(buffer.returns.dtype), buffer.returns[insert_idx]
-        )
+        slot_value(ep_return.astype(buffer.returns.dtype), buffer.returns[insert_idx])
     )
     fill_count = jnp.where(
         jnp.logical_and(should_insert, jnp.logical_not(is_full)),

@@ -91,7 +91,9 @@ def add_segment(
         actions=buffer.actions.at[slot].set(actions.astype(buffer.actions.dtype)),
         rewards=buffer.rewards.at[slot].set(rewards.astype(buffer.rewards.dtype)),
         dones=buffer.dones.at[slot].set(dones.astype(buffer.dones.dtype)),
-        cum_rewards=buffer.cum_rewards.at[slot].set(cum.astype(buffer.cum_rewards.dtype)),
+        cum_rewards=buffer.cum_rewards.at[slot].set(
+            cum.astype(buffer.cum_rewards.dtype)
+        ),
         write_idx=(buffer.write_idx + 1) % capacity,
         fill_count=jnp.minimum(buffer.fill_count + 1, capacity),
     )
@@ -126,7 +128,7 @@ def sample_training_batch(
 
     Returns (obs_with_cmd, action, dr, dh) each with leading axis ``batch_size``.
     """
-    B, T, n_envs = buffer.obs.shape[0], buffer.obs.shape[1], buffer.obs.shape[2]
+    T, n_envs = buffer.obs.shape[1], buffer.obs.shape[2]
 
     rng, k_slot, k_env, k_t1, k_t2 = jax.random.split(rng, 5)
     valid = jnp.maximum(buffer.fill_count, 1)
@@ -138,7 +140,9 @@ def sample_training_batch(
         return _first_done_at_or_after(buffer.dones[slot_i, :, env_i, 0], t1_i)
 
     end_idx = jax.vmap(_end)(slot, env_idx, t1)
-    span = jnp.maximum(end_idx + 1 - (t1 + 1), 0) + 1  # at least 1: t2 ∈ [t1+1, end_idx+1]
+    span = (
+        jnp.maximum(end_idx + 1 - (t1 + 1), 0) + 1
+    )  # at least 1: t2 ∈ [t1+1, end_idx+1]
     t2 = t1 + 1 + jax.random.randint(k_t2, (batch_size,), 0, span)
     t2 = jnp.minimum(t2, T)  # clamp for safety
 
@@ -166,7 +170,7 @@ def topk_command_stats(
     that signals an episode terminating at step t. We accumulate per-(env,
     slot) running rewards/horizons and emit them at done positions.
     """
-    B, T, n_envs = buffer.obs.shape[0], buffer.obs.shape[1], buffer.obs.shape[2]
+    B = buffer.obs.shape[0]
     rewards = buffer.rewards  # (B, T, n_envs, 1)
     dones = buffer.dones  # (B, T, n_envs, 1)
 

@@ -116,6 +116,7 @@ class SAC(ActorCritic):
         lcb_beta_init: float = 1.0,
         lcb_beta_decay_k: float = 2.0,
         lcb_temperature: float = 1.0,
+        lcb_asymmetric: bool = False,
         # ε-floor on Thompson: minimum probability of picking the policy
         # regardless of the Thompson sample. Required when expert
         # dominates by many σ_critic units (Thompson otherwise never
@@ -349,6 +350,7 @@ class SAC(ActorCritic):
         self.lcb_beta_init = lcb_beta_init
         self.lcb_beta_decay_k = lcb_beta_decay_k
         self.lcb_temperature = lcb_temperature
+        self.lcb_asymmetric = lcb_asymmetric
         self.expert_fraction = expert_fraction
         self.epsilon_floor = epsilon_floor
         self.augment_obs_with_expert_state = augment_obs_with_expert_state
@@ -446,6 +448,7 @@ class SAC(ActorCritic):
             lcb_beta_init=self.lcb_beta_init,
             lcb_beta_decay_k=self.lcb_beta_decay_k,
             lcb_temperature=self.lcb_temperature,
+            lcb_asymmetric=self.lcb_asymmetric,
             ibrl_bootstrap=self.ibrl_bootstrap,
             use_residual_rl=self.residual,
             residual_scale=self.residual_scale,

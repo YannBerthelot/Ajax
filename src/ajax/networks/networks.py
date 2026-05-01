@@ -56,6 +56,49 @@ class Encoder(nn.Module):
         return self.norm(features)
 
 
+class CNNEncoder(nn.Module):
+    """Conv encoder for image observations packed flat as ``(H*W*C + extra_dim,)``.
+
+    The flat layout (rather than native NHWC) keeps Ajax's existing collector
+    and command-augmentation paths working unchanged: extra trailing scalar
+    dims (e.g. UDRL's (d_r, d_h) command) are concatenated to the embedding
+    AFTER the convolutions, so the conv stack only sees the image.
+
+    The image is assumed to be stored in NHWC order: a Flatten wrapper in
+    user code must transpose a stack-first array (T, H, W) into (H, W, T)
+    before flattening so reshape(H, W, C) recovers the right layout.
+    """
+
+    image_shape: Tuple[int, int, int]  # (H, W, C)
+    extra_obs_dim: int = 0
+    channels: Tuple[int, ...] = (16, 32)
+    kernel_sizes: Tuple[int, ...] = (4, 3)
+    strides: Tuple[int, ...] = (2, 2)
+    feature_dim: int = 128
+
+    @nn.compact
+    def __call__(self, x):
+        H, W, C = self.image_shape
+        img_flat = H * W * C
+        if self.extra_obs_dim > 0:
+            img = x[..., :img_flat]
+            extra = x[..., img_flat:]
+        else:
+            img = x
+            extra = None
+        img = img.reshape(*x.shape[:-1], H, W, C)
+        for c, k, s in zip(self.channels, self.kernel_sizes, self.strides):
+            img = nn.Conv(c, kernel_size=(k, k), strides=(s, s))(img)
+            img = nn.relu(img)
+        # Flatten the spatial+channel dims while preserving leading batch dims.
+        img = img.reshape(*img.shape[:-3], -1)
+        feat = nn.Dense(self.feature_dim)(img)
+        feat = nn.relu(feat)
+        if extra is not None:
+            feat = jnp.concatenate([feat, extra], axis=-1)
+        return feat
+
+
 class Actor(nn.Module):
     """
     Standard SAC actor. Expert guidance is handled at the loss level, not in the
@@ -71,14 +114,27 @@ class Actor(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Optional CNN encoder. When `cnn_image_shape` is provided, the encoder
+    # treats obs as `(*batch, H*W*C + cnn_extra_obs_dim)` flat: the image
+    # portion is reshaped to NHWC, run through a small conv stack, then
+    # any trailing scalar dims (e.g. UDRL command) are concatenated to the
+    # embedding before the heads. None keeps the legacy MLP encoder.
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None
+    cnn_extra_obs_dim: int = 0
 
     def setup(self):
-        self.encoder = Encoder(
-            input_architecture=self.input_architecture,
-            penultimate_normalization=self.penultimate_normalization,
-            kernel_init=self.encoder_kernel_init,
-            bias_init=self.encoder_bias_init,
-        )
+        if self.cnn_image_shape is not None:
+            self.encoder = CNNEncoder(
+                image_shape=self.cnn_image_shape,
+                extra_obs_dim=self.cnn_extra_obs_dim,
+            )
+        else:
+            self.encoder = Encoder(
+                input_architecture=self.input_architecture,
+                penultimate_normalization=self.penultimate_normalization,
+                kernel_init=self.encoder_kernel_init,
+                bias_init=self.encoder_bias_init,
+            )
         if self.kernel_init is None:
             kernel_init = orthogonal(1.0)
         else:
@@ -223,6 +279,7 @@ def get_initialized_actor_critic(
     extra_obs_dim: int = 0,
     pid_actor_config: Optional[PIDActorConfig] = None,
     action_dim_override: Optional[int] = None,
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
     Create actor and critic networks.
@@ -266,6 +323,8 @@ def get_initialized_actor_critic(
             bias_init=actor_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=extra_obs_dim,
         )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,

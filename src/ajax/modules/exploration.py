@@ -174,6 +174,62 @@ def edge_compute_lcb_scores(
     return score_e, score_p, q_min_p, mu_p, mu_e, sigma_p, sigma_e
 
 
+def edge_compute_asym_scores(
+    obs: jax.Array,
+    policy_action: jax.Array,
+    expert_action: jax.Array,
+    critic_state,
+    critic_params,
+    beta: jax.Array,
+) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    """Asymmetric pessimism scores: LCB on expert arm, UCB on policy arm.
+
+    Used by ``r_edge_bow`` (and any caller that opts into
+    ``lcb_asymmetric=True``) to fix the over-conservative gate behavior
+    of the symmetric LCB variant. With symmetric LCB, the disagreement
+    penalty hits both arms; in regions where the policy is exploring
+    *beyond* the expert's tube, the policy arm is over-penalized
+    precisely where it most needs to be allowed to flail and learn.
+
+    Asymmetric scoring inverts that: the policy arm is rewarded for
+    ensemble disagreement (UCB), so the gate hands control to the
+    policy whenever its critic is genuinely uncertain (which is also
+    when fresh on-policy Bellman anchors are most valuable). The
+    expert arm keeps the LCB pessimism so the gate stays conservative
+    about following an unreliable expert.
+
+    score_expert = Q_min(s, a_exp) - beta * (Q_max - Q_min)   (LCB)
+    score_policy = Q_max(s, a_pi)  + beta * (Q_max - Q_min)   (UCB)
+
+    Returns the same 7-tuple shape as ``edge_compute_lcb_scores`` so
+    consumers can swap in this function without changing the rest of
+    the pipeline.
+    """
+    q_e = predict_value(
+        critic_state=critic_state,
+        critic_params=critic_params,
+        x=jnp.concatenate([obs, expert_action], axis=-1),
+    )
+    q_p = predict_value(
+        critic_state=critic_state,
+        critic_params=critic_params,
+        x=jnp.concatenate([obs, policy_action], axis=-1),
+    )
+    q_min_e = jnp.min(q_e, axis=0)
+    q_max_e = jnp.max(q_e, axis=0)
+    q_min_p = jnp.min(q_p, axis=0)
+    q_max_p = jnp.max(q_p, axis=0)
+    # LCB on expert (conservative about following an unreliable expert),
+    # UCB on policy (give the policy credit for its uncertainty).
+    score_e = q_min_e - beta * (q_max_e - q_min_e)
+    score_p = q_max_p + beta * (q_max_p - q_min_p)
+    mu_p = jnp.mean(q_p, axis=0)
+    mu_e = jnp.mean(q_e, axis=0)
+    sigma_p = jnp.std(q_p, axis=0)
+    sigma_e = jnp.std(q_e, axis=0)
+    return score_e, score_p, q_min_p, mu_p, mu_e, sigma_p, sigma_e
+
+
 def edge_lcb_gate(
     score_expert: jax.Array,
     score_policy: jax.Array,

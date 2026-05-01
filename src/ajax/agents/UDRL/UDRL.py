@@ -4,7 +4,7 @@ optimizer configs and forwards them to a per-agent ``make_train``.
 """
 
 from functools import partial
-from typing import Optional
+from typing import Optional, Tuple
 
 from gymnax import EnvParams
 
@@ -34,9 +34,21 @@ class UDRL(ActorCritic):
         n_epochs: int = 4,
         command_return_init: float = 1.0,
         command_horizon_init: float = 100.0,
+        command_topk: int = 32,
+        command_return_boost: float = 1.0,
+        command_target_tau: float = 1.0,
+        command_scale_r: float = 0.02,
+        command_scale_h: float = 0.01,
+        buffer_capacity: int = 64,
+        n_updates_per_iter: int = 64,
         bc_loss_type: str = "nll",
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        # If set, use a CNN encoder. Image is assumed to be packed as
+        # ``(*batch, H*W*C + 2)`` flat — the last 2 dims are the UDRL
+        # command, which is concatenated to the CNN embedding after the
+        # convolutions. None keeps the legacy MLP encoder.
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "UDRL"})
@@ -61,8 +73,16 @@ class UDRL(ActorCritic):
             n_epochs=n_epochs,
             command_return_init=command_return_init,
             command_horizon_init=command_horizon_init,
+            command_topk=command_topk,
+            command_return_boost=command_return_boost,
+            command_target_tau=command_target_tau,
+            command_scale_r=command_scale_r,
+            command_scale_h=command_scale_h,
+            buffer_capacity=buffer_capacity,
+            n_updates_per_iter=n_updates_per_iter,
             bc_loss_type=bc_loss_type,
         )
+        self.cnn_image_shape = cnn_image_shape
 
     def get_make_train(self):
-        return partial(make_train)
+        return partial(make_train, cnn_image_shape=self.cnn_image_shape)

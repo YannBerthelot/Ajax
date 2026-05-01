@@ -57,6 +57,7 @@ from ajax.modules.exploration import (
     edge_argmax_gate,
     edge_boltzmann_gate,
     edge_compute_decay,
+    edge_compute_asym_scores,
     edge_compute_lcb_scores,
     edge_compute_thompson_stats,
     edge_compute_value_gap,
@@ -143,6 +144,14 @@ def make_action_pipeline(
     lcb_beta_decay_k=2.0,
     lcb_temperature=1.0,
     epsilon_floor=0.0,
+    # When True, the LCB gate uses asymmetric pessimism: LCB on the
+    # expert arm (conservative about following an unreliable expert),
+    # UCB on the policy arm (give the policy credit for its uncertainty
+    # so the gate hands control whenever the critic is unsure about
+    # a policy action). Fixes the symmetric LCB's tendency to over-
+    # penalize the policy in its own exploration regions. Set by the
+    # ``r_edge_bow`` method.
+    lcb_asymmetric=False,
     # Action transforms
     use_residual_rl=False,
     residual_scale=1.0,
@@ -407,6 +416,12 @@ def make_action_pipeline(
                     1.0,
                 )
                 beta_eff = lcb_beta_init * jnp.power(1.0 - progress, lcb_beta_decay_k)
+                # Asymmetric variant (r_edge_bow): LCB on expert arm,
+                # UCB on policy arm. Inverts the over-conservative
+                # penalty of symmetric LCB at policy-exploration states.
+                _scores_fn = (edge_compute_asym_scores
+                              if lcb_asymmetric
+                              else edge_compute_lcb_scores)
                 (
                     score_e,
                     score_p,
@@ -415,7 +430,7 @@ def make_action_pipeline(
                     _mu_e,
                     _sigma_p,
                     _sigma_e,
-                ) = edge_compute_lcb_scores(
+                ) = _scores_fn(
                     obs_for_edge,
                     action,
                     expert_action,
@@ -2170,6 +2185,7 @@ def make_train(
     lcb_beta_decay_k: float = 2.0,
     lcb_temperature: float = 1.0,
     epsilon_floor: float = 0.0,
+    lcb_asymmetric: bool = False,
     expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
@@ -2436,6 +2452,7 @@ def make_train(
                 exploration_argmax=exploration_argmax,
                 fixed_exploration_prob=fixed_exploration_prob,
                 exploration_lcb=exploration_lcb,
+                lcb_asymmetric=lcb_asymmetric,
                 exploration_thompson=exploration_thompson,
                 expert_fraction=expert_fraction,
                 lcb_beta_init=lcb_beta_init,

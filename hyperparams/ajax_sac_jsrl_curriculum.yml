@@ -1,0 +1,11 @@
+CheetahRun:
+  actor_learning_rate: 0.0001141772670215625
+  critic_learning_rate: 0.0003522288835421342
+  alpha_learning_rate: 0.00012705790438233196
+  gamma: 0.9856362891791224
+  tau: 0.033312759379737295
+  alpha_init: 1.9966223190991508
+  target_entropy_per_dim: -0.2827147171030776
+  batch_size: 512
+  arch_width: 512
+  max_grad_norm: 0.5

@@ -253,13 +253,11 @@ def _maybe_noise_obs(env, obsv, env_state, rng):
         noise_key = jax.random.fold_in(rng, jnp.int32(0))
         noise = jax.random.normal(noise_key, shape=obsv.shape)
     else:
-        noise_key_per_env = jax.vmap(
-            lambda k: jax.random.fold_in(k, jnp.int32(0))
-        )(rng)
+        noise_key_per_env = jax.vmap(lambda k: jax.random.fold_in(k, jnp.int32(0)))(rng)
         per_env_obs_shape = obsv.shape[1:]
-        noise = jax.vmap(
-            lambda k: jax.random.normal(k, shape=per_env_obs_shape)
-        )(noise_key_per_env)
+        noise = jax.vmap(lambda k: jax.random.normal(k, shape=per_env_obs_shape))(
+            noise_key_per_env
+        )
     noisy_obs = obsv + jnp.asarray(sigma) * jnp.asarray(obs_std) * noise
     if hasattr(env_state, "replace") and hasattr(env_state, "obs"):
         env_state = env_state.replace(obs=noisy_obs)

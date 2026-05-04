@@ -220,6 +220,130 @@ class Critic(nn.Module):
         return self.model(self.encoder(x))
 
 
+class MultiHeadCritic(Critic):
+    """Critic with a shared encoder and one or more *additional* value heads.
+
+    A drop-in subclass of :class:`Critic` that keeps the original
+    ``__call__(x) -> primary head`` for backward compatibility, and
+    exposes named extra heads via :meth:`apply_head` and
+    :meth:`apply_all_heads`. All heads read from the same encoder
+    output, so gradients on any head shape the shared encoder.
+
+    Use case
+    --------
+    Multi-objective value learning where one head trains by some
+    primary signal (e.g. SAC's TD target on Q) and additional heads
+    train by complementary signals (e.g. an analytical safety predicate
+    on a state-value head, used by SafeSAC's shield). Sharing the
+    encoder means the safety geometry is preserved under online TD
+    updates because both losses compete for the same parameters,
+    rather than the safety prior living in a separate frozen module
+    that the task critic is only loosely coupled to via distillation.
+
+    Composability with :class:`MultiCritic`
+    ---------------------------------------
+    ``MultiCritic`` ``vmap``s a target module across an ensemble axis.
+    Pass ``MultiHeadCritic`` as the target and each ensemble member
+    will carry its own copy of every head. For SAC's twin-Q ensemble
+    one can either (a) read a particular head from a particular
+    ensemble member, or (b) aggregate the head across the ensemble
+    (e.g. ``min`` over Q for the conservative target, ``mean`` over
+    V_safety for the shield).
+
+    Parameters
+    ----------
+    extra_head_names : Tuple[str, ...]
+        Names of additional heads beyond the primary one.
+    extra_head_dims  : Tuple[int, ...]
+        Output dimensionalities, parallel to ``extra_head_names``.
+        Use ``1`` for scalar value heads.
+
+    Examples
+    --------
+    >>> critic = MultiHeadCritic(
+    ...     input_architecture=("256", "relu", "256", "relu"),
+    ...     extra_head_names=("v_safety",),
+    ...     extra_head_dims=(1,),
+    ... )
+    >>> q = critic.apply(params, obs)  # primary head
+    >>> v_safety = critic.apply(params, obs, head="v_safety", method=critic.apply_head)
+    >>> all_heads = critic.apply(params, obs, method=critic.apply_all_heads)
+    >>> # all_heads = {"primary": ..., "v_safety": ...}
+    """
+
+    extra_head_names: Tuple[str, ...] = ()
+    extra_head_dims: Tuple[int, ...] = ()
+
+    def setup(self):
+        super().setup()  # builds self.encoder + self.model (primary head)
+        if len(self.extra_head_names) != len(self.extra_head_dims):
+            raise ValueError(
+                "extra_head_names and extra_head_dims must have the same "
+                "length, got "
+                f"{len(self.extra_head_names)} and {len(self.extra_head_dims)}"
+            )
+        kernel_init = (
+            orthogonal(1.0)
+            if self.kernel_init is None
+            else parse_initialization(self.kernel_init)
+        )
+        bias_init = (
+            constant(0.0)
+            if self.bias_init is None
+            else parse_initialization(self.bias_init)
+        )
+        # Flax registers submodule attributes by name. Use setattr with
+        # a stable ``head_<name>`` prefix (a dict-of-modules attribute
+        # would not be auto-registered).
+        for name, dim in zip(self.extra_head_names, self.extra_head_dims):
+            setattr(
+                self,
+                self._extra_attr(name),
+                nn.Dense(dim, kernel_init=kernel_init, bias_init=bias_init),
+            )
+
+    @staticmethod
+    def _extra_attr(name: str) -> str:
+        return f"head_{name}"
+
+    def _extra_head(self, name: str):
+        return getattr(self, self._extra_attr(name))
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        # Backward-compat: return the primary head's output only. We
+        # also evaluate the extra heads on a dummy zero so Flax sees
+        # them during init and registers their params; the result is
+        # multiplied by 0 and added so the forward output is unchanged.
+        feat = self.encoder(x)
+        primary = self.model(feat)
+        if self.is_initializing() and self.extra_head_names:
+            for name in self.extra_head_names:
+                _ = self._extra_head(name)(feat)
+        return primary
+
+    def apply_head(self, x: jax.Array, head: str) -> jax.Array:
+        """Run the encoder + a specific named head.
+
+        ``head="primary"`` (or any name not in ``extra_head_names``)
+        returns the primary head's output. Otherwise the named extra
+        head's output.
+        """
+        feat = self.encoder(x)
+        if head in self.extra_head_names:
+            return self._extra_head(head)(feat)
+        return self.model(feat)
+
+    def apply_all_heads(self, x: jax.Array) -> dict:
+        """Run the encoder once and return all heads' outputs as a dict
+        keyed by head name. The primary head is keyed under
+        ``"primary"``."""
+        feat = self.encoder(x)
+        out = {"primary": self.model(feat)}
+        for name in self.extra_head_names:
+            out[name] = self._extra_head(name)(feat)
+        return out
+
+
 class MultiCritic(nn.Module):
     """
     Ensemble of critics. Using num=4 is recommended for this setting:
@@ -256,6 +380,69 @@ class MultiCritic(nn.Module):
         )(*args, **kwargs)
 
 
+class MultiHeadMultiCritic(nn.Module):
+    """Ensemble of :class:`MultiHeadCritic` (each ensemble member has the
+    same set of extra heads).
+
+    Mirrors :class:`MultiCritic` but vmaps over ``MultiHeadCritic``
+    instead of ``Critic``. Output of the primary head is shape
+    ``(num, ...)`` (same as MultiCritic). The extra heads can be read
+    per-ensemble-member via ``apply_head_ensemble`` / ``apply_all_heads_ensemble``.
+
+    Aggregation policy is left to the caller: SAC's twin-Q convention
+    is ``min`` over the ensemble for the Bellman target; for a safety
+    head the right aggregation is task-dependent (``mean`` for an
+    averaged shield value, ``min`` for a conservative one).
+    """
+
+    input_architecture: Sequence[Union[str, ActivationFunction]]
+    num: int = 4
+    extra_head_names: Tuple[str, ...] = ()
+    extra_head_dims: Tuple[int, ...] = ()
+    penultimate_normalization: bool = False
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    bias_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+
+    def setup(self):
+        # Build the vmapped target ONCE with all relevant methods
+        # exposed for ensembling. Each ensemble member has its own
+        # params (variable_axes) and its own init RNG (split_rngs).
+        Vmapped = nn.vmap(
+            target=MultiHeadCritic,
+            in_axes=None,
+            out_axes=0,
+            variable_axes={"params": 0},
+            split_rngs={"params": True},
+            axis_size=self.num,
+            methods=("__call__", "apply_head", "apply_all_heads"),
+        )
+        self.ensemble = Vmapped(
+            input_architecture=self.input_architecture,
+            penultimate_normalization=self.penultimate_normalization,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            encoder_kernel_init=self.encoder_kernel_init,
+            encoder_bias_init=self.encoder_bias_init,
+            extra_head_names=self.extra_head_names,
+            extra_head_dims=self.extra_head_dims,
+        )
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return self.ensemble(x)
+
+    def apply_head_ensemble(self, x: jax.Array, head: str) -> jax.Array:
+        """Per-ensemble-member output of a specific named head, shape
+        ``(num, ...)``."""
+        return self.ensemble.apply_head(x, head)
+
+    def apply_all_heads_ensemble(self, x: jax.Array) -> dict:
+        """Per-ensemble-member output of every head, returned as a
+        ``{head_name -> (num, ...)}`` dict."""
+        return self.ensemble.apply_all_heads(x)
+
+
 def get_initialized_actor_critic(
     key: jax.Array,
     env_config: EnvironmentConfig,
@@ -280,6 +467,8 @@ def get_initialized_actor_critic(
     pid_actor_config: Optional[PIDActorConfig] = None,
     action_dim_override: Optional[int] = None,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+    extra_critic_head_names: Tuple[str, ...] = (),
+    extra_critic_head_dims: Tuple[int, ...] = (),
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
     Create actor and critic networks.
@@ -326,15 +515,36 @@ def get_initialized_actor_critic(
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=extra_obs_dim,
         )
-    critic = MultiCritic(
-        input_architecture=network_config.critic_architecture,
-        penultimate_normalization=network_config.penultimate_normalization,
-        num=num_critics,
-        kernel_init=critic_kernel_init,
-        bias_init=critic_bias_init,
-        encoder_kernel_init=encoder_kernel_init,
-        encoder_bias_init=encoder_bias_init,
-    )
+    if extra_critic_head_names:
+        # SafeSAC and other multi-objective subclasses want one or more
+        # extra value heads sharing the SAC critic's encoder. The
+        # ensemble structure (num critics) is preserved; each member
+        # carries the same set of heads.
+        critic = MultiHeadMultiCritic(
+            input_architecture=network_config.critic_architecture,
+            penultimate_normalization=network_config.penultimate_normalization,
+            num=num_critics,
+            extra_head_names=tuple(extra_critic_head_names),
+            extra_head_dims=tuple(
+                extra_critic_head_dims
+                if extra_critic_head_dims
+                else (1,) * len(extra_critic_head_names)
+            ),
+            kernel_init=critic_kernel_init,
+            bias_init=critic_bias_init,
+            encoder_kernel_init=encoder_kernel_init,
+            encoder_bias_init=encoder_bias_init,
+        )
+    else:
+        critic = MultiCritic(
+            input_architecture=network_config.critic_architecture,
+            penultimate_normalization=network_config.penultimate_normalization,
+            num=num_critics,
+            kernel_init=critic_kernel_init,
+            bias_init=critic_bias_init,
+            encoder_kernel_init=encoder_kernel_init,
+            encoder_bias_init=encoder_bias_init,
+        )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
     critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))

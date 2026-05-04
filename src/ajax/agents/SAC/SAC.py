@@ -68,6 +68,12 @@ class SAC(ActorCritic):
         use_pid_policy: bool = False,
         fixed_alpha: bool = False,
         num_critics: int = 2,
+        # Multi-objective critic: extra value heads sharing the SAC
+        # critic's encoder. SafeSAC sets this to ("v_safety",) so the
+        # safety value lives on the same encoder as the Q-heads, with
+        # both heads' gradients shaping the encoder during training.
+        extra_critic_head_names: tuple = (),
+        extra_critic_head_dims: tuple = (),
         # --- Expert guidance (all disabled by default) ---
         use_expert_guidance: bool = False,
         num_critic_updates: int = 1,
@@ -287,6 +293,8 @@ class SAC(ActorCritic):
             buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs
         )
         self.num_critics = num_critics
+        self.extra_critic_head_names = tuple(extra_critic_head_names)
+        self.extra_critic_head_dims = tuple(extra_critic_head_dims)
         self.cloning_confing = CloningConfig(
             actor_epochs=actor_cloning_epochs,
             critic_epochs=critic_cloning_epochs,
@@ -403,6 +411,8 @@ class SAC(ActorCritic):
             use_pid_policy=self.use_pid_policy,
             fixed_alpha=self.fixed_alpha,
             num_critics=self.num_critics,
+            extra_critic_head_names=self.extra_critic_head_names,
+            extra_critic_head_dims=self.extra_critic_head_dims,
             use_expert_guidance=self.use_expert_guidance,
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,

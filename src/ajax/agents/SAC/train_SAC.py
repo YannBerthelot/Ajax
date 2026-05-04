@@ -1022,6 +1022,8 @@ def init_SAC(
     expert_state_aug_dim: int = 0,
     pid_actor_config=None,
     action_dim_override: Optional[int] = None,
+    extra_critic_head_names: Tuple[str, ...] = (),
+    extra_critic_head_dims: Tuple[int, ...] = (),
     normalize_obs_running: bool = False,
     jsrl_curriculum: bool = False,
 ) -> SACState:
@@ -1057,6 +1059,8 @@ def init_SAC(
         extra_obs_dim=extra_obs_dim,
         pid_actor_config=pid_actor_config,
         action_dim_override=action_dim_override,
+        extra_critic_head_names=extra_critic_head_names,
+        extra_critic_head_dims=extra_critic_head_dims,
     )
 
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
@@ -1938,6 +1942,10 @@ def training_iteration(
     imitation_coef: float = 0.0,
     distance_to_stable: Callable = lambda x: 1.0,
     imitation_coef_offset: float = 0.0,
+    # Eval-suppression mode: when True, evaluate_and_log only fires evals
+    # in the last 20% of training. Use for HPO phases where the only
+    # number that matters is the final-window IQM.
+    sweep: bool = False,
 ) -> tuple[SACState, None]:
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
@@ -2096,6 +2104,7 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
+        sweep=sweep,
         expert_policy=eval_expert_policy,
         action_scale=action_scale,
         early_termination_condition=early_termination_condition,
@@ -2140,6 +2149,8 @@ def make_train(
     residual: bool = False,
     fixed_alpha: bool = False,
     num_critics: int = 2,
+    extra_critic_head_names: Tuple[str, ...] = (),
+    extra_critic_head_dims: Tuple[int, ...] = (),
     expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
     expert_mix_fraction: float = 0.1,
@@ -2295,6 +2306,8 @@ def make_train(
                 action_dim_override=action_dim_override,
                 normalize_obs_running=normalize_obs_running,
                 jsrl_curriculum=jsrl_curriculum,
+                extra_critic_head_names=extra_critic_head_names,
+                extra_critic_head_dims=extra_critic_head_dims,
             )
 
         # Init-only steps (transform + MC pretrain). Skipped on resume so we
@@ -2561,6 +2574,7 @@ def make_train(
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),
+            sweep=(logging_config.sweep if logging_config is not None else False),
             horizon=(logging_config.horizon if logging_config is not None else None),
             expert_policy=expert_policy,
             eval_expert_policy=_eval_expert_policy,

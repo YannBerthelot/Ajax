@@ -265,9 +265,8 @@ class MultiHeadCritic(Critic):
     ...     extra_head_names=("v_safety",),
     ...     extra_head_dims=(1,),
     ... )
-    >>> q = critic.apply(params, obs)              # primary head
-    >>> v_safety = critic.apply(
-    ...     params, obs, head="v_safety", method=critic.apply_head)
+    >>> q = critic.apply(params, obs)  # primary head
+    >>> v_safety = critic.apply(params, obs, head="v_safety", method=critic.apply_head)
     >>> all_heads = critic.apply(params, obs, method=critic.apply_all_heads)
     >>> # all_heads = {"primary": ..., "v_safety": ...}
     """
@@ -298,7 +297,8 @@ class MultiHeadCritic(Critic):
         # would not be auto-registered).
         for name, dim in zip(self.extra_head_names, self.extra_head_dims):
             setattr(
-                self, self._extra_attr(name),
+                self,
+                self._extra_attr(name),
                 nn.Dense(dim, kernel_init=kernel_init, bias_init=bias_init),
             )
 

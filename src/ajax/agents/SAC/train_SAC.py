@@ -124,6 +124,15 @@ class ActionPipelineResult(NamedTuple):
     a_expert: Optional[jax.Array] = None
 
 
+def _apply_lcb_gate(
+    score_e, score_p, rng, lcb_temperature, argmax,
+):
+    """Pick LCB gate: argmax (deterministic) or softmax (default)."""
+    if argmax:
+        return edge_lcb_argmax_gate(score_e, score_p, rng)
+    return edge_lcb_gate(score_e, score_p, rng, lcb_temperature)
+
+
 def make_action_pipeline(
     expert_policy,
     recurrent,
@@ -447,19 +456,10 @@ def make_action_pipeline(
                     edge_critic_params,
                     beta_eff,
                 )
-                if exploration_argmax_lcb:
-                    # Argmax-LCB corner of the 2x2: deterministic gate
-                    # over LCB scores. Skips the softmax sampling.
-                    use_expert_edge, rng = edge_lcb_argmax_gate(
-                        score_e, score_p, rng,
-                    )
-                else:
-                    use_expert_edge, rng = edge_lcb_gate(
-                        score_e,
-                        score_p,
-                        rng,
-                        lcb_temperature,
-                    )
+                use_expert_edge, rng = _apply_lcb_gate(
+                    score_e, score_p, rng,
+                    lcb_temperature, exploration_argmax_lcb,
+                )
                 # gap kept for diagnostic logging compat
                 gap = score_e - score_p
                 # Live LCB telemetry (mean over batch).

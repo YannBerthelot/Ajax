@@ -125,7 +125,11 @@ class ActionPipelineResult(NamedTuple):
 
 
 def _apply_lcb_gate(
-    score_e, score_p, rng, lcb_temperature, argmax,
+    score_e,
+    score_p,
+    rng,
+    lcb_temperature,
+    argmax,
 ):
     """Pick LCB gate: argmax (deterministic) or softmax (default)."""
     if argmax:
@@ -457,8 +461,11 @@ def make_action_pipeline(
                     beta_eff,
                 )
                 use_expert_edge, rng = _apply_lcb_gate(
-                    score_e, score_p, rng,
-                    lcb_temperature, exploration_argmax_lcb,
+                    score_e,
+                    score_p,
+                    rng,
+                    lcb_temperature,
+                    exploration_argmax_lcb,
                 )
                 # gap kept for diagnostic logging compat
                 gap = score_e - score_p

@@ -118,6 +118,7 @@ class SAC(ActorCritic):
         exploration_argmax: bool = False,
         # Quality-aware (LCB) gate
         exploration_lcb: bool = False,
+        exploration_argmax_lcb: bool = False,
         exploration_thompson: bool = False,
         lcb_beta_init: float = 1.0,
         lcb_beta_decay_k: float = 2.0,
@@ -354,6 +355,7 @@ class SAC(ActorCritic):
         self.fixed_exploration_prob = fixed_exploration_prob
         self.exploration_argmax = exploration_argmax
         self.exploration_lcb = exploration_lcb
+        self.exploration_argmax_lcb = exploration_argmax_lcb
         self.exploration_thompson = exploration_thompson
         self.lcb_beta_init = lcb_beta_init
         self.lcb_beta_decay_k = lcb_beta_decay_k
@@ -445,6 +447,7 @@ class SAC(ActorCritic):
             fixed_exploration_prob=self.fixed_exploration_prob,
             exploration_argmax=self.exploration_argmax,
             exploration_lcb=self.exploration_lcb,
+            exploration_argmax_lcb=self.exploration_argmax_lcb,
             exploration_thompson=self.exploration_thompson,
             expert_fraction=self.expert_fraction,
             epsilon_floor=self.epsilon_floor,

@@ -618,6 +618,7 @@ def collect_experience(
         _live_q_advantage = getattr(result, "q_advantage", None)
         _live_sigma_actor = getattr(result, "critic_sigma_actor", None)
         _live_sigma_expert = getattr(result, "critic_sigma_expert", None)
+        _live_p_expert_max = getattr(result, "p_expert_max", None)
         _a_expert = getattr(result, "a_expert", None)
     else:
         new_expert_state = None
@@ -625,6 +626,7 @@ def collect_experience(
         _live_q_advantage = None
         _live_sigma_actor = None
         _live_sigma_expert = None
+        _live_p_expert_max = None
         _a_expert = None
         # Vanilla: uniform during warmup, policy action after
         action, log_probs = get_action_and_log_probs(
@@ -783,6 +785,8 @@ def collect_experience(
         _gate_diag_updates["last_critic_sigma_actor"] = _live_sigma_actor
     if _live_sigma_expert is not None:
         _gate_diag_updates["last_critic_sigma_expert"] = _live_sigma_expert
+    if _live_p_expert_max is not None:
+        _gate_diag_updates["last_p_expert_max"] = _live_p_expert_max
 
     # Per-env step_in_episode counter for JSRL curriculum: increment
     # by 1 each step, reset to 0 on episode end (terminated|truncated).

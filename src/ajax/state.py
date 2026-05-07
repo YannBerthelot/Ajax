@@ -184,6 +184,11 @@ class CollectorState:
     last_q_advantage: float = jnp.nan
     last_critic_sigma_actor: float = jnp.nan
     last_critic_sigma_expert: float = jnp.nan
+    # Empirical max of the LCB gate's expert-arm probability over the
+    # last collection batch. Diagnostic for the Coverage Lemma's gap-
+    # bound hypothesis: a uniform p_max < 1 over training implies the
+    # bounded-gap precondition holds on the visited support.
+    last_p_expert_max: float = jnp.nan
     # Per-env step counter within the current episode. Incremented on
     # every env step, reset to 0 on done. Used by jsrl_curriculum to
     # decide whether the expert acts (step_in_episode < H_t) or the

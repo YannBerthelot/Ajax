@@ -62,6 +62,7 @@ from ajax.modules.exploration import (
     edge_compute_thompson_stats,
     edge_compute_value_gap,
     edge_fixed_gate,
+    edge_lcb_argmax_gate,
     edge_lcb_gate,
     edge_thompson_gate,
 )
@@ -114,12 +115,26 @@ class ActionPipelineResult(NamedTuple):
     q_advantage: Optional[jax.Array] = None  # mean(mu_actor - mu_expert)
     critic_sigma_actor: Optional[jax.Array] = None  # mean(sigma_actor)
     critic_sigma_expert: Optional[jax.Array] = None  # mean(sigma_expert)
+    p_expert_max: Optional[jax.Array] = None  # max(p_t) of LCB softmax gate
     # Expert action computed at this step with the correct (stateful) expert
     # internal state. Stored in the Transition so the residual-RL actor
     # loss can read it back instead of recomputing the expert with a fresh
     # zero state on a buffer-sampled obs (which silently drops the
     # integrator state for stateful PIDs).
     a_expert: Optional[jax.Array] = None
+
+
+def _apply_lcb_gate(
+    score_e,
+    score_p,
+    rng,
+    lcb_temperature,
+    argmax,
+):
+    """Pick LCB gate: argmax (deterministic) or softmax (default)."""
+    if argmax:
+        return edge_lcb_argmax_gate(score_e, score_p, rng)
+    return edge_lcb_gate(score_e, score_p, rng, lcb_temperature)
 
 
 def make_action_pipeline(
@@ -139,6 +154,10 @@ def make_action_pipeline(
     fixed_exploration_prob=0.5,
     # Quality-aware (LCB) gate — alternative to argmax/boltzmann/fixed
     exploration_lcb=False,
+    # Variant of the LCB path that swaps the softmax gate for a
+    # deterministic argmax (score_e > score_p) while keeping LCB
+    # scoring. Populates the (argmax, LCB) corner of the 2x2 ablation.
+    exploration_argmax_lcb=False,
     exploration_thompson=False,
     lcb_beta_init=1.0,
     lcb_beta_decay_k=2.0,
@@ -210,6 +229,7 @@ def make_action_pipeline(
         _diag_q_advantage = jnp.nan
         _diag_sigma_actor = jnp.nan
         _diag_sigma_expert = jnp.nan
+        _diag_p_expert_max = jnp.nan
 
         # --- Gain-policy short-circuit ---
         if gain_policy_mode:
@@ -440,11 +460,12 @@ def make_action_pipeline(
                     edge_critic_params,
                     beta_eff,
                 )
-                use_expert_edge, rng = edge_lcb_gate(
+                use_expert_edge, rng = _apply_lcb_gate(
                     score_e,
                     score_p,
                     rng,
                     lcb_temperature,
+                    exploration_argmax_lcb,
                 )
                 # gap kept for diagnostic logging compat
                 gap = score_e - score_p
@@ -452,6 +473,15 @@ def make_action_pipeline(
                 _diag_q_advantage = jnp.mean(_mu_p - _mu_e)
                 _diag_sigma_actor = jnp.mean(_sigma_p)
                 _diag_sigma_expert = jnp.mean(_sigma_e)
+                # Coverage Lemma diagnostic: max(p_expert) over the
+                # collection batch. With softmax gate, this is
+                # max sigmoid((score_e - score_p) / tau); with the
+                # argmax_lcb variant the empirical max is in {0, 1}.
+                _diag_p_expert_max = jnp.max(
+                    jax.nn.sigmoid(
+                        (score_e - score_p) / jnp.maximum(lcb_temperature, 1e-6)
+                    )
+                )
             else:
                 gap, q_policy = edge_compute_value_gap(
                     obs_for_edge,
@@ -554,6 +584,7 @@ def make_action_pipeline(
             q_advantage=_diag_q_advantage,
             critic_sigma_actor=_diag_sigma_actor,
             critic_sigma_expert=_diag_sigma_expert,
+            p_expert_max=_diag_p_expert_max,
             buffer_action=_buffer_action_field,
             a_expert=expert_action,
         )
@@ -2049,6 +2080,9 @@ def training_iteration(
                 live_critic_sigma_expert=jnp.atleast_1d(
                     agent_state.collector_state.last_critic_sigma_expert
                 ),
+                live_p_expert_max=jnp.atleast_1d(
+                    agent_state.collector_state.last_p_expert_max
+                ),
             ),
             # Override the zeros from update_agent with the actual refresh diagnostics
             phi_refresh=PhiRefreshAuxiliaries(
@@ -2193,6 +2227,7 @@ def make_train(
     exploration_argmax: bool = False,
     # Quality-aware (LCB) gate
     exploration_lcb: bool = False,
+    exploration_argmax_lcb: bool = False,
     exploration_thompson: bool = False,
     lcb_beta_init: float = 1.0,
     lcb_beta_decay_k: float = 2.0,
@@ -2467,6 +2502,7 @@ def make_train(
                 exploration_argmax=exploration_argmax,
                 fixed_exploration_prob=fixed_exploration_prob,
                 exploration_lcb=exploration_lcb,
+                exploration_argmax_lcb=exploration_argmax_lcb,
                 lcb_asymmetric=lcb_asymmetric,
                 exploration_thompson=exploration_thompson,
                 expert_fraction=expert_fraction,

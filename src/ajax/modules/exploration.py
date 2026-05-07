@@ -230,6 +230,23 @@ def edge_compute_asym_scores(
     return score_e, score_p, q_min_p, mu_p, mu_e, sigma_p, sigma_e
 
 
+def edge_lcb_argmax_gate(
+    score_expert: jax.Array,
+    score_policy: jax.Array,
+    rng: jax.Array,
+) -> Tuple[jax.Array, jax.Array]:
+    """Deterministic argmax gate over LCB scores.
+
+    use_expert = score_e > score_p.
+
+    Compared to ``edge_lcb_gate`` (softmax), this collapses the gate to
+    a hard threshold while preserving the LCB scoring (mu - beta*sigma)
+    so the (gating form, scoring rule) ablation can vary one axis at
+    a time. Used by the ``argmax_lcb`` corner of the 2x2.
+    """
+    return score_expert > score_policy, rng
+
+
 def edge_lcb_gate(
     score_expert: jax.Array,
     score_policy: jax.Array,
@@ -419,6 +436,7 @@ class EDGEAuxiliaries:
     live_q_advantage: jax.Array  # mean(mu_actor - mu_expert), LCB/Thompson only
     live_critic_sigma_actor: jax.Array
     live_critic_sigma_expert: jax.Array
+    live_p_expert_max: jax.Array  # max(p_t) of LCB softmax gate, NaN otherwise
 
 
 def compute_edge_diagnostics(
@@ -440,4 +458,5 @@ def compute_edge_diagnostics(
         live_q_advantage=jnp.array([jnp.nan]),
         live_critic_sigma_actor=jnp.array([jnp.nan]),
         live_critic_sigma_expert=jnp.array([jnp.nan]),
+        live_p_expert_max=jnp.array([jnp.nan]),
     )

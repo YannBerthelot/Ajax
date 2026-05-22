@@ -399,6 +399,10 @@ class BaseAgentState:
     n_updates: int = 0
     n_logs: int = 0
     index: Optional[int] = None
+    # Per-extension pytree state (one entry per Extension in the agent's
+    # ExtensionStack; `()` -> no extensions / all stateless). See
+    # `ajax.extensions.base`.
+    ext_state: tuple = ()
 
     def replace(self, *args, **kwargs):  # To make mypy happy
         """Replace fields in the dataclass with new values."""

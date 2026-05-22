@@ -8,6 +8,7 @@ import wandb
 from gymnax import EnvParams
 
 from ajax.environments.create import prepare_env
+from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -46,6 +47,7 @@ class ActorCritic:
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[tuple] = None,
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the PPO agent.
@@ -111,6 +113,13 @@ class ActorCritic:
         )
 
         self.agent_config = BaseAgentConfig()
+
+        # Composable research features (expert guidance, instrumentation,
+        # …). The stack is static — agents thread it into make_train as a
+        # static argument and fold it at the phase points of their
+        # training step. An empty stack is a true no-op. See
+        # `ajax.extensions.base`.
+        self.extension_stack = ExtensionStack(extensions)
 
     def get_make_train(self) -> Callable:
         raise NotImplementedError

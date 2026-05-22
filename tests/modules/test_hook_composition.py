@@ -15,6 +15,14 @@ These tests are API-contract tests: construct each agent with each
 applicable hook (and ``None``) and confirm construction succeeds and the
 attribute is stored. They do not run training — the probing suite covers
 end-to-end behaviour with ``None`` hooks.
+
+Phase 2 of the agent-architecture rework introduced an additional
+``extensions=`` surface for SAC (Phase 1 added the framework; Phase 2
+migrated SAC). Behaviour-equivalence between the legacy SAC hook flags
+and the new extension surface is verified in
+``tests/extensions/test_sac_extensions_equivalence.py``. The hook
+attributes themselves remain accepted for backward compatibility, so
+the API-contract tests below keep passing across the migration.
 """
 
 import pytest

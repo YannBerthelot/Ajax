@@ -1322,6 +1322,161 @@ def training_iteration(
 
 
 # ---------------------------------------------------------------------------
+# Extension-stack → make_train kwargs translation
+# ---------------------------------------------------------------------------
+
+
+def _resolve_extension_stack(
+    extensions: Sequence,
+) -> dict:
+    """Translate an :class:`ExtensionStack` into ``make_train`` kwargs.
+
+    Plain SAC corresponds to an empty stack ⇒ this returns ``{}`` ⇒
+    every legacy flag stays at its default ⇒ byte-identical behaviour to
+    the pre-refactor ``train_SAC.py`` (the parity gate).
+
+    Each known extension type maps onto the existing flag(s) it
+    represents; unknown extensions are ignored at this layer (they may
+    still drive the cleanly-folded phases — see ``training_iteration``).
+    The mapping is deliberately a flat dict so an agent's ``make_train``
+    keyword surface stays the single source of truth.
+    """
+    from ajax.extensions.expert import (
+        ExpertGuidance,
+        ExpertObsAugmentation,
+        JSRLCurriculum,
+        OnlineBC,
+        ResidualPolicy,
+        first_of_type,
+    )
+    from ajax.extensions.exploration import EDGEExploration
+    from ajax.extensions.pretrain import (
+        BellmanPretrain,
+        MCPretrain,
+        PhiRefresh,
+    )
+    from ajax.extensions.target_mods import (
+        IBRL,
+        CriticBlend,
+        LCBGatedBootstrap,
+        MCVarianceCorrection,
+        ValueBox,
+    )
+
+    out: dict = {}
+    eg = first_of_type(extensions, ExpertGuidance)
+    if eg is not None:
+        out["expert_policy"] = eg.expert_policy
+        out["use_expert_guidance"] = eg.use_expert_guidance
+        out["expert_fraction"] = eg.expert_fraction
+        out["expert_buffer_n_steps"] = eg.expert_buffer_n_steps
+        out["expert_mix_fraction"] = eg.expert_mix_fraction
+
+    obs_aug = first_of_type(extensions, ExpertObsAugmentation)
+    if obs_aug is not None:
+        out["augment_obs_with_expert_action"] = True
+        out["detach_obs_aug_action"] = obs_aug.detach
+        out.setdefault("expert_policy", obs_aug.expert_policy)
+
+    bc = first_of_type(extensions, OnlineBC)
+    if bc is not None:
+        out["use_online_bc"] = True
+        out["bc_coef"] = bc.bc_coef
+        out["critic_warmup_frac"] = bc.critic_warmup_frac
+        out.setdefault("expert_policy", bc.expert_policy)
+    else:
+        # ``train_SAC.py`` defaults ``use_online_bc=True`` (the BC term is
+        # active iff an expert + MC pre-training are also present, so this
+        # default is harmless when no expert is configured). Mirror that.
+        out.setdefault("use_online_bc", True)
+
+    res = first_of_type(extensions, ResidualPolicy)
+    if res is not None:
+        out["use_residual_rl"] = True
+        out["residual_scale"] = res.scale
+        out.setdefault("expert_policy", res.expert_policy)
+
+    jsrl = first_of_type(extensions, JSRLCurriculum)
+    if jsrl is not None:
+        out["jsrl_curriculum"] = True
+        out["jsrl_episode_length"] = jsrl.episode_length
+        out["jsrl_decay_frac"] = jsrl.decay_frac
+        out.setdefault("expert_policy", jsrl.expert_policy)
+
+    edge = first_of_type(extensions, EDGEExploration)
+    if edge is not None:
+        out["use_expert_guided_exploration"] = True
+        out["exploration_decay_frac"] = edge.decay_frac
+        out["exploration_tau"] = edge.tau
+        out["fixed_exploration_prob"] = edge.fixed_prob
+        out["lcb_beta_init"] = edge.lcb_beta_init
+        out["lcb_beta_decay_k"] = edge.lcb_beta_decay_k
+        out["lcb_temperature"] = edge.lcb_temperature
+        out["lcb_asymmetric"] = edge.lcb_asymmetric
+        out["epsilon_floor"] = edge.epsilon_floor
+        out["exploration_argmax"] = edge.gate == "argmax"
+        out["exploration_boltzmann"] = edge.gate == "boltzmann"
+        out["exploration_lcb"] = edge.gate == "lcb"
+        out["exploration_argmax_lcb"] = edge.gate == "argmax_lcb"
+        out["exploration_thompson"] = edge.gate == "thompson"
+        out.setdefault("expert_policy", edge.expert_policy)
+
+    ibrl = first_of_type(extensions, IBRL)
+    if ibrl is not None:
+        out["ibrl_bootstrap"] = True
+        out.setdefault("expert_policy", ibrl.expert_policy)
+
+    lcb_b = first_of_type(extensions, LCBGatedBootstrap)
+    if lcb_b is not None:
+        out["lcb_gated_bootstrap"] = True
+        out.setdefault("lcb_beta_init", lcb_b.lcb_beta_init)
+        out.setdefault("lcb_beta_decay_k", lcb_b.lcb_beta_decay_k)
+        out.setdefault("lcb_temperature", lcb_b.lcb_temperature)
+        out.setdefault("expert_policy", lcb_b.expert_policy)
+
+    blend = first_of_type(extensions, CriticBlend)
+    if blend is not None:
+        out["use_critic_blend"] = True
+        out.setdefault("critic_warmup_frac", blend.critic_warmup_frac)
+        out.setdefault("expert_policy", blend.expert_policy)
+
+    mcvc = first_of_type(extensions, MCVarianceCorrection)
+    if mcvc is not None:
+        out["mc_variance_threshold"] = mcvc.threshold
+
+    box = first_of_type(extensions, ValueBox)
+    if box is not None:
+        out["use_box"] = True
+        out.setdefault("expert_policy", box.expert_policy)
+
+    mcp = first_of_type(extensions, MCPretrain)
+    if mcp is not None:
+        out["use_mc_critic_pretrain"] = True
+        out["mc_pretrain_n_mc_steps"] = mcp.n_mc_steps
+        out["mc_pretrain_n_mc_episodes"] = mcp.n_mc_episodes
+        out["mc_pretrain_n_steps"] = mcp.n_steps
+        out["use_online_critic_light_pretrain"] = mcp.use_online_light
+        out["online_critic_pretrain_steps"] = mcp.online_light_steps
+        out["online_critic_pretrain_lr_scale"] = mcp.online_light_lr_scale
+        out.setdefault("expert_policy", mcp.expert_policy)
+
+    bp = first_of_type(extensions, BellmanPretrain)
+    if bp is not None:
+        out["use_bellman_critic_pretrain"] = True
+        out["mc_pretrain_n_steps"] = bp.n_steps
+        out.setdefault("expert_policy", bp.expert_policy)
+
+    pr = first_of_type(extensions, PhiRefresh)
+    if pr is not None:
+        out["use_phi_refresh"] = True
+        out["phi_refresh_interval"] = pr.interval
+        out["phi_refresh_steps"] = pr.steps
+        out.setdefault("expert_policy", pr.expert_policy)
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Training factory
 # ---------------------------------------------------------------------------
 
@@ -1447,6 +1602,8 @@ def make_train(
     init_transform: Optional[Callable] = None,
     auxiliary_update: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
+    # --- Extension framework (new surface) ---
+    extensions: Sequence = (),
 ):
     """
     SAC training factory.
@@ -1456,7 +1613,107 @@ def make_train(
     eval_expert_policy: used ONLY for eval logging (expert bias metric).
                         Always passed regardless of whether training uses expert.
                         Defaults to expert_policy if not set explicitly.
+    extensions:         the new composable-research-features surface
+                        (Phase 2 of the agent-architecture rework). Any
+                        :class:`~ajax.extensions.base.Extension` in the
+                        sequence resolves to the matching legacy flag(s)
+                        via :func:`_resolve_extension_stack`. The legacy
+                        kwargs above remain accepted for backward
+                        compatibility; explicit kwargs always win.
     """
+    # Translate the Extension stack into the legacy flag surface.
+    # Extensions OWN the parameters they expose: any value an extension
+    # supplies (an :class:`OnlineBC`'s ``bc_coef``, a
+    # :class:`JSRLCurriculum`'s ``episode_length``, …) overrides the
+    # legacy default of the same flag. Empty stack ⇒ {} ⇒ no overrides
+    # ⇒ plain-SAC behaviour byte-identical to the pre-refactor flag path
+    # (the parity gate). Callers that want a hybrid configuration should
+    # express it via the extension list rather than mixing the two
+    # surfaces.
+    if extensions:
+        _resolved = _resolve_extension_stack(extensions)
+        _locals = {**locals(), **_resolved}
+        # rebind every flag the resolver owns so it propagates into the
+        # downstream init/scan calls.
+        expert_policy = _locals.get("expert_policy", expert_policy)
+        eval_expert_policy = _locals.get("eval_expert_policy", eval_expert_policy)
+        use_expert_guidance = _locals.get("use_expert_guidance", use_expert_guidance)
+        expert_buffer_n_steps = _locals.get(
+            "expert_buffer_n_steps", expert_buffer_n_steps
+        )
+        expert_mix_fraction = _locals.get("expert_mix_fraction", expert_mix_fraction)
+        expert_fraction = _locals.get("expert_fraction", expert_fraction)
+        augment_obs_with_expert_action = _locals.get(
+            "augment_obs_with_expert_action", augment_obs_with_expert_action
+        )
+        detach_obs_aug_action = _locals.get(
+            "detach_obs_aug_action", detach_obs_aug_action
+        )
+        use_online_bc = _locals.get("use_online_bc", use_online_bc)
+        bc_coef = _locals.get("bc_coef", bc_coef)
+        critic_warmup_frac = _locals.get("critic_warmup_frac", critic_warmup_frac)
+        use_residual_rl = _locals.get("use_residual_rl", use_residual_rl)
+        residual_scale = _locals.get("residual_scale", residual_scale)
+        jsrl_curriculum = _locals.get("jsrl_curriculum", jsrl_curriculum)
+        jsrl_episode_length = _locals.get("jsrl_episode_length", jsrl_episode_length)
+        jsrl_decay_frac = _locals.get("jsrl_decay_frac", jsrl_decay_frac)
+        use_expert_guided_exploration = _locals.get(
+            "use_expert_guided_exploration", use_expert_guided_exploration
+        )
+        exploration_decay_frac = _locals.get(
+            "exploration_decay_frac", exploration_decay_frac
+        )
+        exploration_tau = _locals.get("exploration_tau", exploration_tau)
+        fixed_exploration_prob = _locals.get(
+            "fixed_exploration_prob", fixed_exploration_prob
+        )
+        lcb_beta_init = _locals.get("lcb_beta_init", lcb_beta_init)
+        lcb_beta_decay_k = _locals.get("lcb_beta_decay_k", lcb_beta_decay_k)
+        lcb_temperature = _locals.get("lcb_temperature", lcb_temperature)
+        lcb_asymmetric = _locals.get("lcb_asymmetric", lcb_asymmetric)
+        epsilon_floor = _locals.get("epsilon_floor", epsilon_floor)
+        exploration_argmax = _locals.get("exploration_argmax", exploration_argmax)
+        exploration_boltzmann = _locals.get(
+            "exploration_boltzmann", exploration_boltzmann
+        )
+        exploration_lcb = _locals.get("exploration_lcb", exploration_lcb)
+        exploration_argmax_lcb = _locals.get(
+            "exploration_argmax_lcb", exploration_argmax_lcb
+        )
+        exploration_thompson = _locals.get("exploration_thompson", exploration_thompson)
+        ibrl_bootstrap = _locals.get("ibrl_bootstrap", ibrl_bootstrap)
+        lcb_gated_bootstrap = _locals.get("lcb_gated_bootstrap", lcb_gated_bootstrap)
+        use_critic_blend = _locals.get("use_critic_blend", use_critic_blend)
+        mc_variance_threshold = _locals.get(
+            "mc_variance_threshold", mc_variance_threshold
+        )
+        use_box = _locals.get("use_box", use_box)
+        use_mc_critic_pretrain = _locals.get(
+            "use_mc_critic_pretrain", use_mc_critic_pretrain
+        )
+        mc_pretrain_n_mc_steps = _locals.get(
+            "mc_pretrain_n_mc_steps", mc_pretrain_n_mc_steps
+        )
+        mc_pretrain_n_mc_episodes = _locals.get(
+            "mc_pretrain_n_mc_episodes", mc_pretrain_n_mc_episodes
+        )
+        mc_pretrain_n_steps = _locals.get("mc_pretrain_n_steps", mc_pretrain_n_steps)
+        use_online_critic_light_pretrain = _locals.get(
+            "use_online_critic_light_pretrain", use_online_critic_light_pretrain
+        )
+        online_critic_pretrain_steps = _locals.get(
+            "online_critic_pretrain_steps", online_critic_pretrain_steps
+        )
+        online_critic_pretrain_lr_scale = _locals.get(
+            "online_critic_pretrain_lr_scale", online_critic_pretrain_lr_scale
+        )
+        use_bellman_critic_pretrain = _locals.get(
+            "use_bellman_critic_pretrain", use_bellman_critic_pretrain
+        )
+        use_phi_refresh = _locals.get("use_phi_refresh", use_phi_refresh)
+        phi_refresh_interval = _locals.get("phi_refresh_interval", phi_refresh_interval)
+        phi_refresh_steps = _locals.get("phi_refresh_steps", phi_refresh_steps)
+
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
     _eval_expert_policy = (

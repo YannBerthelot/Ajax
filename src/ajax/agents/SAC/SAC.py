@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
@@ -12,6 +13,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
+from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import AlphaConfig, NetworkConfig
 from ajax.types import EnvType
@@ -219,6 +221,8 @@ class SAC(ActorCritic):
         init_transform: Optional[Callable] = None,
         auxiliary_update: Optional[Callable] = None,
         extra_eval_metrics: Optional[Callable] = None,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
@@ -235,6 +239,7 @@ class SAC(ActorCritic):
             lstm_hidden_size=lstm_hidden_size,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            extensions=extensions,
         )
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate, alpha_init=alpha_init
@@ -489,4 +494,5 @@ class SAC(ActorCritic):
             init_transform=self.init_transform,
             auxiliary_update=self.auxiliary_update,
             extra_eval_metrics=self.extra_eval_metrics,
+            extensions=tuple(self.extension_stack.extensions),
         )

@@ -33,7 +33,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
-from ajax.perf_utils import train_jit
+from ajax.perf_utils import build_resumable_train
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -994,11 +994,12 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @train_jit
-    def train(key, index: Optional[int] = None):
-        """Train the PPO agent."""
-        key, init_key, transform_key = jax.random.split(key, 3)
-        agent_state = init_PPO(
+    num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
+
+    def init_fn(key, index):
+        # Preserve the original RNG layout: key -> (_, init_key, _).
+        _, init_key, _transform_key = jax.random.split(key, 3)
+        return init_PPO(
             key=init_key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
@@ -1006,11 +1007,15 @@ def make_train(
             network_args=network_args,
             pid_actor_config=pid_actor_config,
         )
-        if init_transform is not None:
-            agent_state = init_transform(agent_state, transform_key)
 
-        num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
-        training_iteration_scan_fn = partial(
+    def _init_transform(agent_state, key):
+        # One-shot transform consumes ``transform_key`` (the 3rd split of
+        # the original key) so RNG matches the pre-refactor layout.
+        _, _init_key, transform_key = jax.random.split(key, 3)
+        return init_transform(agent_state, transform_key)
+
+    def make_scan_fn(_agent_state, _resume_from_state, _key, index):
+        return partial(
             training_iteration,
             recurrent=network_args.lstm_hidden_size is not None,
             agent_config=agent_config,
@@ -1037,13 +1042,9 @@ def make_train(
             reward_shaping_fn=reward_shaping_fn,
         )
 
-        agent_state, out = jax.lax.scan(
-            f=training_iteration_scan_fn,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
-        )
-
-        return agent_state, out
-
-    return train
+    return build_resumable_train(
+        init_fn=init_fn,
+        make_scan_fn=make_scan_fn,
+        num_updates=num_updates,
+        init_transform=_init_transform if init_transform is not None else None,
+    )

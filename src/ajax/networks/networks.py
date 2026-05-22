@@ -1,5 +1,5 @@
 from collections.abc import Callable, Sequence
-from typing import Optional, Tuple, Union
+from typing import NamedTuple, Optional, Tuple, Union
 
 import distrax
 import flax.linen as nn
@@ -88,7 +88,11 @@ class CNNEncoder(nn.Module):
             extra = None
         img = img.reshape(*x.shape[:-1], H, W, C)
         for c, k, s in zip(self.channels, self.kernel_sizes, self.strides):
-            img = nn.Conv(c, kernel_size=(k, k), strides=(s, s))(img)
+            # Each kernel/stride entry may be an int (square) or an (h, w)
+            # tuple -- the latter for non-square images (e.g. octax's 64x32).
+            ks = k if isinstance(k, tuple) else (k, k)
+            st = s if isinstance(s, tuple) else (s, s)
+            img = nn.Conv(c, kernel_size=ks, strides=st)(img)
             img = nn.relu(img)
         # Flatten the spatial+channel dims while preserving leading batch dims.
         img = img.reshape(*img.shape[:-3], -1)
@@ -97,6 +101,40 @@ class CNNEncoder(nn.Module):
         if extra is not None:
             feat = jnp.concatenate([feat, extra], axis=-1)
         return feat
+
+
+class CNNSpec(NamedTuple):
+    """CNN encoder architecture: conv stack + projection width.
+
+    Defaults match :class:`CNNEncoder`'s own defaults, so ``CNNSpec()``
+    reproduces the legacy encoder. Each ``kernel_sizes`` / ``strides``
+    entry may be an ``int`` (square) or an ``(h, w)`` tuple. A
+    ``NamedTuple`` -> hashable, so it is safe as a flax module field and
+    as a :class:`NetworkConfig` field.
+    """
+
+    channels: Tuple[int, ...] = (16, 32)
+    kernel_sizes: Tuple = (4, 3)
+    strides: Tuple = (2, 2)
+    feature_dim: int = 128
+
+
+def build_cnn_encoder(image_shape, extra_obs_dim=0, cnn_spec=None):
+    """Build a :class:`CNNEncoder` from an optional :class:`CNNSpec`.
+
+    ``cnn_spec=None`` -> ``CNNEncoder``'s default architecture. The single
+    place that turns a (shape, spec) pair into an encoder, so every
+    network module wires the CNN identically.
+    """
+    spec = cnn_spec if cnn_spec is not None else CNNSpec()
+    return CNNEncoder(
+        image_shape=image_shape,
+        extra_obs_dim=extra_obs_dim,
+        channels=spec.channels,
+        kernel_sizes=spec.kernel_sizes,
+        strides=spec.strides,
+        feature_dim=spec.feature_dim,
+    )
 
 
 class Actor(nn.Module):
@@ -121,12 +159,12 @@ class Actor(nn.Module):
     # embedding before the heads. None keeps the legacy MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
+    cnn_spec: Optional[CNNSpec] = None
 
     def setup(self):
         if self.cnn_image_shape is not None:
-            self.encoder = CNNEncoder(
-                image_shape=self.cnn_image_shape,
-                extra_obs_dim=self.cnn_extra_obs_dim,
+            self.encoder = build_cnn_encoder(
+                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
             )
         else:
             self.encoder = Encoder(
@@ -194,12 +232,25 @@ class Critic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+    # When set, the encoder is a `CNNEncoder` over flat image obs rather
+    # than the MLP `Encoder`. See `NetworkConfig.cnn_image_shape`. Valid
+    # only for state-value critics (obs-only input); an action-value
+    # critic concatenates the action, which the CNN reshape does not
+    # expect, so SAC-style Q(s,a) critics keep the MLP encoder.
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None
+    cnn_extra_obs_dim: int = 0
+    cnn_spec: Optional[CNNSpec] = None
 
     def setup(self):
-        self.encoder = Encoder(
-            input_architecture=self.input_architecture,
-            penultimate_normalization=self.penultimate_normalization,
-        )
+        if self.cnn_image_shape is not None:
+            self.encoder = build_cnn_encoder(
+                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
+            )
+        else:
+            self.encoder = Encoder(
+                input_architecture=self.input_architecture,
+                penultimate_normalization=self.penultimate_normalization,
+            )
         kernel_init = (
             orthogonal(1.0)
             if self.kernel_init is None
@@ -379,6 +430,9 @@ class MultiCritic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None
+    cnn_extra_obs_dim: int = 0
+    cnn_spec: Optional[CNNSpec] = None
 
     def setup(self):
         Vmapped = nn.vmap(
@@ -391,12 +445,15 @@ class MultiCritic(nn.Module):
             methods=("__call__", "apply_encoder"),
         )
         self.ensemble = Vmapped(
-            self.input_architecture,
-            self.penultimate_normalization,
-            self.kernel_init,
-            self.bias_init,
-            self.encoder_kernel_init,
-            self.encoder_bias_init,
+            input_architecture=self.input_architecture,
+            penultimate_normalization=self.penultimate_normalization,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            encoder_kernel_init=self.encoder_kernel_init,
+            encoder_bias_init=self.encoder_bias_init,
+            cnn_image_shape=self.cnn_image_shape,
+            cnn_extra_obs_dim=self.cnn_extra_obs_dim,
+            cnn_spec=self.cnn_spec,
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -535,6 +592,15 @@ def get_initialized_actor_critic(
         else get_action_dim(env_config.env, env_config.env_params)
     )
 
+    # Resolve the CNN encoder spec: an explicit arg (UDRL passes one)
+    # takes precedence, else fall back to the NetworkConfig field (the
+    # path SAC/PPO use). A CNN critic is only valid for state-value
+    # critics; an action-value critic (SAC's Q(s,a)) keeps the MLP.
+    if cnn_image_shape is None:
+        cnn_image_shape = network_config.cnn_image_shape
+    critic_cnn_image_shape = None if action_value else cnn_image_shape
+    cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
+
     if pid_actor_config is not None:
         actor = PIDActorNetwork(
             input_architecture=network_config.actor_architecture,
@@ -557,6 +623,7 @@ def get_initialized_actor_critic(
             encoder_bias_init=encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=extra_obs_dim,
+            cnn_spec=cnn_spec,
         )
     if extra_critic_head_names:
         # SafeSAC and other multi-objective subclasses want one or more
@@ -587,6 +654,9 @@ def get_initialized_actor_critic(
             bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            cnn_image_shape=critic_cnn_image_shape,
+            cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
         )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))

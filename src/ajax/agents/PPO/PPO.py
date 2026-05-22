@@ -56,6 +56,10 @@ class PPO(ActorCritic):
         extra_actor_loss_fn: Optional[Callable] = None,
         extra_critic_loss_fn: Optional[Callable] = None,
         reward_shaping_fn: Optional[Callable] = None,
+        # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
+        cnn_image_shape: Optional[tuple] = None,
+        cnn_extra_obs_dim: int = 0,
+        cnn_spec: Optional[tuple] = None,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -99,6 +103,9 @@ class PPO(ActorCritic):
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
         )
 
         self.agent_config = PPOConfig(

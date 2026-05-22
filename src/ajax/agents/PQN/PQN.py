@@ -49,6 +49,10 @@ class PQN(ActorCritic):
         td_loss_fn: Optional[Callable] = None,
         # Extra eval metrics: (agent_state, key) -> dict, logged each eval.
         extra_eval_metrics: Optional[Callable] = None,
+        # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
+        cnn_image_shape: Optional[tuple] = None,
+        cnn_extra_obs_dim: int = 0,
+        cnn_spec: Optional[tuple] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "PQN"})
@@ -66,6 +70,9 @@ class PQN(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
         )
 
         if check_if_environment_has_continuous_actions(self.env_args.env):

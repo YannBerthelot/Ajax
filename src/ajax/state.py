@@ -423,6 +423,17 @@ class NetworkConfig:
     critic_bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Optional CNN encoder for image observations. When `cnn_image_shape`
+    # is set, networks treat obs as a flat `(H*W*C + cnn_extra_obs_dim,)`
+    # vector: the image portion is reshaped to NHWC and run through a conv
+    # stack (see `CNNEncoder`), any trailing scalar dims are concatenated
+    # after. None keeps the legacy MLP encoder.
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None
+    cnn_extra_obs_dim: int = 0
+    # Conv architecture for the CNN encoder (a `networks.CNNSpec`, kept as
+    # a loose `tuple` annotation to avoid a networks<->state import cycle).
+    # None -> CNNEncoder's default architecture.
+    cnn_spec: Optional[tuple] = None
 
 
 @struct.dataclass

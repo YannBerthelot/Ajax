@@ -41,7 +41,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
-from ajax.perf_utils import train_jit
+from ajax.perf_utils import build_resumable_train
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 # ---------------------------------------------------------------------------
@@ -260,9 +260,11 @@ def make_train(
             total_timesteps=total_timesteps,
         )
 
-    @train_jit
-    def train(key, index: Optional[int] = None):
-        agent_state = init_PQN(
+    # One iteration consumes n_envs * n_steps environment steps.
+    num_updates = total_timesteps // (env_args.n_envs * agent_config.n_steps) + 1
+
+    def init_fn(key, index):
+        return init_PQN(
             key=key,
             env_args=env_args,
             optimizer_args=critic_optimizer_args,
@@ -270,10 +272,8 @@ def make_train(
             n_actions=n_actions,
         )
 
-        # One iteration consumes n_envs * n_steps environment steps.
-        num_updates = total_timesteps // (env_args.n_envs * agent_config.n_steps) + 1
-
-        training_iteration_scan_fn = partial(
+    def make_scan_fn(_agent_state, _resume_from_state, _key, index):
+        return partial(
             training_iteration,
             recurrent=recurrent,
             agent_config=agent_config,
@@ -294,12 +294,8 @@ def make_train(
             extra_eval_metrics=extra_eval_metrics,
         )
 
-        agent_state, out = jax.lax.scan(
-            f=training_iteration_scan_fn,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
-        )
-        return agent_state, out
-
-    return train
+    return build_resumable_train(
+        init_fn=init_fn,
+        make_scan_fn=make_scan_fn,
+        num_updates=num_updates,
+    )

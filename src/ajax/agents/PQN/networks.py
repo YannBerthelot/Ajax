@@ -9,13 +9,14 @@ unchanged.
 """
 
 from collections.abc import Sequence
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
 from flax.linen.initializers import constant, orthogonal
 
 from ajax.agents.DQN.networks import GreedyQPolicy
+from ajax.networks.networks import build_cnn_encoder
 from ajax.networks.utils import parse_activation, parse_initialization
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -55,13 +56,24 @@ class PQNNetwork(nn.Module):
     penultimate_normalization: bool = False
     kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Optional CNN front-end for image obs (see `NetworkConfig.cnn_image_shape`).
+    # When set, a `CNNEncoder` maps the flat image obs to features, and the
+    # LayerNorm-MLP stack below runs on those features.
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None
+    cnn_extra_obs_dim: int = 0
+    cnn_spec: Optional[tuple] = None
 
     @nn.compact
     def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
         del raw_obs
         kernel_init = _resolve_init(self.kernel_init, orthogonal(2.0**0.5))
         bias_init = _resolve_init(self.bias_init, constant(0.0))
-        x = obs
+        if self.cnn_image_shape is not None:
+            x = build_cnn_encoder(
+                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
+            )(obs)
+        else:
+            x = obs
         for layer in self.input_architecture:
             if str(layer).isnumeric():
                 x = nn.Dense(int(layer), kernel_init=kernel_init, bias_init=bias_init)(
@@ -70,6 +82,10 @@ class PQNNetwork(nn.Module):
                 x = nn.LayerNorm()(x)
             else:
                 x = parse_activation(layer)(x)
+        # Penultimate (post-activation) features, exposed for
+        # plasticity/conditioning probes. `sow` is a no-op unless the
+        # caller marks "intermediates" mutable -- zero training cost.
+        self.sow("intermediates", "encoder_features", x)
         q_values = nn.Dense(
             self.n_actions, kernel_init=orthogonal(1.0), bias_init=constant(0.0)
         )(x)

@@ -14,7 +14,7 @@ the raw Q-vector via ``.q_values``.
 """
 
 from collections.abc import Sequence
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
@@ -23,7 +23,7 @@ from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_state_action_shapes
-from ajax.networks.networks import Encoder, init_network_state
+from ajax.networks.networks import Encoder, build_cnn_encoder, init_network_state
 from ajax.networks.utils import get_adam_tx, parse_initialization
 from ajax.state import (
     EnvironmentConfig,
@@ -83,6 +83,20 @@ class GreedyQPolicy:
         return jnp.take_along_axis(log_p, value[..., None], axis=-1)[..., 0]
 
 
+def _build_q_encoder(module: nn.Module) -> nn.Module:
+    """Encoder for a Q-network: a `CNNEncoder` over flat image obs when
+    `cnn_image_shape` is set (architecture from `cnn_spec`), else the
+    legacy MLP `Encoder`."""
+    if module.cnn_image_shape is not None:
+        return build_cnn_encoder(
+            module.cnn_image_shape, module.cnn_extra_obs_dim, module.cnn_spec
+        )
+    return Encoder(
+        input_architecture=module.input_architecture,
+        penultimate_normalization=module.penultimate_normalization,
+    )
+
+
 class QNetwork(nn.Module):
     """Encoder + linear head producing one Q-value per discrete action."""
 
@@ -91,12 +105,13 @@ class QNetwork(nn.Module):
     penultimate_normalization: bool = False
     kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Optional CNN encoder for image obs -- see `NetworkConfig.cnn_image_shape`.
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None
+    cnn_extra_obs_dim: int = 0
+    cnn_spec: Optional[tuple] = None
 
     def setup(self):
-        self.encoder = Encoder(
-            input_architecture=self.input_architecture,
-            penultimate_normalization=self.penultimate_normalization,
-        )
+        self.encoder = _build_q_encoder(self)
         kernel_init = (
             orthogonal(1.0)
             if self.kernel_init is None
@@ -113,7 +128,12 @@ class QNetwork(nn.Module):
 
     def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
         del raw_obs
-        return GreedyQPolicy(self.head(self.encoder(obs)))
+        features = self.encoder(obs)
+        # Penultimate encoder features, exposed for plasticity/conditioning
+        # probes. `sow` is a no-op unless the caller marks "intermediates"
+        # mutable, so it costs nothing during training.
+        self.sow("intermediates", "encoder_features", features)
+        return GreedyQPolicy(self.head(features))
 
 
 class DuelingQNetwork(nn.Module):
@@ -135,12 +155,13 @@ class DuelingQNetwork(nn.Module):
     penultimate_normalization: bool = False
     kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Optional CNN encoder for image obs -- see `NetworkConfig.cnn_image_shape`.
+    cnn_image_shape: Optional[Tuple[int, int, int]] = None
+    cnn_extra_obs_dim: int = 0
+    cnn_spec: Optional[tuple] = None
 
     def setup(self):
-        self.encoder = Encoder(
-            input_architecture=self.input_architecture,
-            penultimate_normalization=self.penultimate_normalization,
-        )
+        self.encoder = _build_q_encoder(self)
         kernel_init = (
             orthogonal(1.0)
             if self.kernel_init is None
@@ -159,6 +180,8 @@ class DuelingQNetwork(nn.Module):
     def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
         del raw_obs
         features = self.encoder(obs)
+        # See QNetwork.__call__: zero-cost probe seam for conditioning metrics.
+        self.sow("intermediates", "encoder_features", features)
         value = self.value_head(features)
         advantage = self.advantage_head(features)
         q_values = value + advantage - jnp.mean(advantage, axis=-1, keepdims=True)
@@ -193,6 +216,9 @@ def get_initialized_q_network(
         input_architecture=network_config.critic_architecture,
         n_actions=n_actions,
         penultimate_normalization=network_config.penultimate_normalization,
+        cnn_image_shape=network_config.cnn_image_shape,
+        cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
+        cnn_spec=network_config.cnn_spec,
     )
     tx = get_adam_tx(**to_state_dict(optimizer_config))
     observation_shape, _ = get_state_action_shapes(env_config.env)

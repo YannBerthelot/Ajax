@@ -79,7 +79,7 @@ from ajax.networks.networks import (
     get_initialized_critic,
     predict_value,
 )
-from ajax.perf_utils import final_aux_scan, train_jit
+from ajax.perf_utils import build_resumable_train, final_aux_scan
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -2341,60 +2341,54 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @train_jit
-    def train(
-        key,
-        index: Optional[int] = None,
-        initial_state=None,
-        resume_from_state: bool = False,
-    ):
-        """Train one seed. When ``resume_from_state=True``, skip init_SAC and
-        use ``initial_state`` as the starting point (loaded from a checkpoint).
-        """
+    # Cloning parameters are a pure function of the (closure-constant)
+    # cloning_args + total_timesteps, so resolve them once here: they are
+    # needed both by the fresh-init pretraining and by the scan partial.
+    cloning_parameters, pre_train_n_steps = get_cloning_args(
+        cloning_args, total_timesteps
+    )
+    num_updates = total_timesteps // env_args.n_envs
+
+    # ------------------------------------------------------------------
+    # Fresh-init path: build the agent state and run all one-shot
+    # initialization (init_transform, MC / Bellman critic pretraining,
+    # behavioural-cloning pretraining). This is *only* invoked on a fresh
+    # run; on resume the shared helper reuses ``initial_state`` directly
+    # so none of this expensive one-shot work is re-run.
+    # ------------------------------------------------------------------
+    def init_fn(key, index):
+        """Build a fresh SAC agent state with all one-shot pretraining."""
         init_key, expert_key, transform_key = jax.random.split(key, 3)
 
-        if resume_from_state:
-            agent_state = initial_state
-        else:
-            agent_state = init_SAC(
-                key=init_key,
-                env_args=env_args,
-                actor_optimizer_args=actor_optimizer_args,
-                critic_optimizer_args=critic_optimizer_args,
-                network_args=network_args,
-                alpha_args=alpha_args,
-                buffer=buffer,
-                expert_policy=expert_policy,
-                max_timesteps=total_timesteps if use_train_frac else None,
-                num_critics=num_critics,
-                expert_buffer_n_steps=(
-                    expert_buffer_n_steps if expert_policy is not None else 0
-                ),
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                augment_obs_with_expert_state=augment_obs_with_expert_state,
-                expert_state_aug_dim=expert_state_aug_dim,
-                pid_actor_config=pid_actor_config,
-                action_dim_override=action_dim_override,
-                normalize_obs_running=normalize_obs_running,
-                jsrl_curriculum=jsrl_curriculum,
-                extra_critic_head_names=extra_critic_head_names,
-                extra_critic_head_dims=extra_critic_head_dims,
-            )
+        agent_state = init_SAC(
+            key=init_key,
+            env_args=env_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            alpha_args=alpha_args,
+            buffer=buffer,
+            expert_policy=expert_policy,
+            max_timesteps=total_timesteps if use_train_frac else None,
+            num_critics=num_critics,
+            expert_buffer_n_steps=(
+                expert_buffer_n_steps if expert_policy is not None else 0
+            ),
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
+            augment_obs_with_expert_state=augment_obs_with_expert_state,
+            expert_state_aug_dim=expert_state_aug_dim,
+            pid_actor_config=pid_actor_config,
+            action_dim_override=action_dim_override,
+            normalize_obs_running=normalize_obs_running,
+            jsrl_curriculum=jsrl_curriculum,
+            extra_critic_head_names=extra_critic_head_names,
+            extra_critic_head_dims=extra_critic_head_dims,
+        )
 
-        # Init-only steps (transform + MC pretrain). Skipped on resume so we
-        # don't re-run expensive one-shot initialization when continuing a
-        # previously-trained run from a checkpoint.
-        if init_transform is not None and not resume_from_state:
+        if init_transform is not None:
             agent_state = init_transform(agent_state, transform_key)
 
-        _box_v_min = jnp.array(0.0)
-        _box_v_max = jnp.array(0.0)
-
-        if (
-            expert_policy is not None
-            and use_mc_critic_pretrain
-            and not resume_from_state
-        ):
+        if expert_policy is not None and use_mc_critic_pretrain:
             expert_critic_state = get_initialized_critic(
                 key=expert_key,
                 env_config=env_args,
@@ -2443,9 +2437,9 @@ def make_train(
                 if use_phi_refresh
                 else None,
             )
-            if use_box:
-                _box_v_min = mc_aux.v_min
-                _box_v_max = mc_aux.v_max
+            # ``use_box`` value-box bounds == the MC-pretrain v_min/v_max,
+            # which are already persisted on ``agent_state`` above; the
+            # scan-fn builder reads them back from there (see make_scan_fn).
             jax.debug.print(
                 "[MC pretrain] loss: {i:.4f} -> {f:.4f}  |  "
                 "Q(s,a*) mean={qm:.1f}  min={qn:.1f}  max={qx:.1f}",
@@ -2485,9 +2479,6 @@ def make_train(
                 "[Bellman pretrain] done ({n} steps)", n=mc_pretrain_n_steps
             )
 
-        cloning_parameters, pre_train_n_steps = get_cloning_args(
-            cloning_args, total_timesteps
-        )
         if pre_train_n_steps > 0:
             agent_state = get_pre_trained_agent(
                 agent_state,
@@ -2503,21 +2494,42 @@ def make_train(
                 augment_obs_with_expert_state=augment_obs_with_expert_state,
             )
 
-        num_updates = total_timesteps // env_args.n_envs
-        _, action_shape = get_state_action_shapes(env_args.env)
+        return agent_state
 
-        _valid_cloning_params = {
-            k: v
-            for k, v in cloning_parameters.items()
-            if k
-            in (
-                "n_epochs",
-                "transition_mix_fraction",
-                "imitation_coef",
-                "distance_to_stable",
-                "imitation_coef_offset",
-            )
-        }
+    # ------------------------------------------------------------------
+    # Per-iteration scan body. Built once at trace time *after*
+    # init/resume is resolved so the value-box bounds can be read off the
+    # resolved ``agent_state``. On the fresh-init path the MC-pretrain
+    # block above stored those bounds on ``expert_v_min/expert_v_max``;
+    # on resume they are left at 0.0, matching the pre-refactor behaviour
+    # (the original ``train`` defaulted ``_box_v_min/_box_v_max`` to 0.0
+    # and only overwrote them inside the fresh-init MC-pretrain branch).
+    # ------------------------------------------------------------------
+    _, action_shape = get_state_action_shapes(env_args.env)
+
+    _valid_cloning_params = {
+        k: v
+        for k, v in cloning_parameters.items()
+        if k
+        in (
+            "n_epochs",
+            "transition_mix_fraction",
+            "imitation_coef",
+            "distance_to_stable",
+            "imitation_coef_offset",
+        )
+    }
+
+    def make_scan_fn(agent_state, resume_from_state, key, index):
+        # Value-box bounds: on a fresh ``use_box`` run they equal the
+        # MC-pretrain v_min/v_max persisted on the agent state; on resume
+        # (or when no MC pretrain ran) they default to 0.0.
+        if use_box and not resume_from_state:
+            _box_v_min = agent_state.expert_v_min
+            _box_v_max = agent_state.expert_v_max
+        else:
+            _box_v_min = jnp.array(0.0)
+            _box_v_max = jnp.array(0.0)
 
         # Compose hooks: if the caller supplied an override, use it;
         # otherwise build the default from the legacy boolean flags.
@@ -2691,12 +2703,10 @@ def make_train(
             new_carry, _metrics = training_iteration_scan_fn(carry, x)
             return new_carry, None
 
-        agent_state, _ = jax.lax.scan(
-            f=_scan_body_no_ys,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
-        )
-        return agent_state, None
+        return _scan_body_no_ys
 
-    return train
+    return build_resumable_train(
+        init_fn=init_fn,
+        make_scan_fn=make_scan_fn,
+        num_updates=num_updates,
+    )

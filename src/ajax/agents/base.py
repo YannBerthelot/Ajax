@@ -43,6 +43,9 @@ class ActorCritic:
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        cnn_image_shape: Optional[tuple] = None,
+        cnn_extra_obs_dim: int = 0,
+        cnn_spec: Optional[tuple] = None,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -91,6 +94,9 @@ class ActorCritic:
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
         )
 
         self.actor_optimizer_args = OptimizerConfig(

@@ -3026,7 +3026,7 @@ virtualenv = ">=20.10.0"
 
 [[package]]
 name = "probing-environments"
-version = "0.4.0"
+version = "0.5.0"
 description = "Probing environments for RL/DeepRL algorithms debugging"
 optional = false
 python-versions = ">=3.11,<4.0"
@@ -3044,7 +3044,7 @@ pytest = "^7.4.0"
 type = "git"
 url = "https://github.com/YannBerthelot/ProbingEnvironments.git"
 reference = "HEAD"
-resolved_reference = "644c86d3323832130d63334312afcfbc3a02a05a"
+resolved_reference = "fbee68588b120e15c8081dba8a5a59ecfe7347f6"
 
 [[package]]
 name = "proglog"

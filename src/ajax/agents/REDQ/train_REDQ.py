@@ -17,7 +17,7 @@ from ajax.agents.cloning import (
     get_pre_trained_agent,
 )
 from ajax.agents.REDQ.state import REDQConfig, REDQState
-from ajax.agents.SAC.train_SAC import (
+from ajax.agents.SAC.sac import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     update_target_networks,

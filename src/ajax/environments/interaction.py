@@ -125,6 +125,11 @@ def reset(
         env_state = env.reset(rng)  # ✅ no vmap
         obsv = env_state.obs
     obsv, env_state = _maybe_noise_obs(env, obsv, env_state, rng)
+    # Observations feed neural networks and a float32-schema replay buffer.
+    # Some envs (e.g. the discrete probing envs) emit integer observations;
+    # coerce to float32 here so every downstream consumer is consistent.
+    # No-op for the float-obs envs (gymnax classic control, brax).
+    obsv = obsv.astype(jnp.float32)
     return obsv, env_state
 
 
@@ -220,6 +225,12 @@ def step(
         raise ValueError(f"Unrecognized mode for step {mode}")
 
     obsv, env_state = _maybe_noise_obs(env, obsv, env_state, rng)
+    # See reset(): keep observations float32 regardless of the env's
+    # native obs dtype so networks and the replay buffer stay consistent.
+    # The reward is coerced too -- some envs emit integer rewards, which
+    # otherwise mismatch the float32 buffer schema and eval scan carry.
+    obsv = obsv.astype(jnp.float32)
+    reward = reward.astype(jnp.float32)
     return obsv, env_state, reward, terminated, truncated, info
 
 
@@ -487,7 +498,19 @@ def get_raw_obs(
         return env_state.obs
     # Brax: prefer env._get_obs for pre-normalization obs. Some minimal envs
     # (brax `fast`) don't expose `_get_obs`; fall back to env_state.obs.
-    if not hasattr(get_raw_env(env), "_get_obs"):
+    raw_env = get_raw_env(env)
+    if not hasattr(raw_env, "_get_obs"):
+        return env_state.obs
+    # Some brax envs (e.g. humanoid) have `_get_obs(pipeline_state, action)`
+    # and cannot be recomputed without the action; env_state.obs already
+    # holds the correct pre-normalization observation -> trust it.
+    import inspect
+
+    try:
+        n_obs_params = len(inspect.signature(raw_env._get_obs).parameters)
+    except (TypeError, ValueError):
+        n_obs_params = 1
+    if n_obs_params > 1:
         return env_state.obs
     return maybe_vmap(env._get_obs, vmap_on)(env_state.pipeline_state)
 
@@ -599,6 +622,10 @@ def collect_experience(
         if has_raw_obs
         else None
     )
+    # raw_obs is written to the float32-schema buffer; coerce int obs
+    # (e.g. discrete probing envs) so flashbax's dtype check passes.
+    if raw_obs is not None:
+        raw_obs = raw_obs.astype(jnp.float32)
 
     if action_pipeline is not None:
         # Agent-specific action pipeline (SAC with expert, EDGE, box, etc.)

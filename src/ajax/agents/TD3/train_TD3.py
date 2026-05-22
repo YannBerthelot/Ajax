@@ -20,6 +20,7 @@ from flax import struct
 from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.cloning import (
     CloningConfig,
     get_cloning_args,
@@ -688,10 +689,13 @@ def training_iteration(
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
         )
-        agent_state, aux = jax.lax.scan(
-            update_scan_fn, agent_state, xs=None, length=n_epochs
+        # See ajax.perf_utils.final_aux_scan: carry-only scan, no leading
+        # scan axis materialised on device. Reshape to (1,) preserves
+        # the downstream metric-flattening contract.
+        agent_state, aux = final_aux_scan(
+            update_scan_fn, agent_state, length=n_epochs,
         )
-        aux = jax.tree.map(lambda x: x[-1].reshape((1,)), aux)
+        aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
         return agent_state, aux
 
     def fill_with_nan(dataclass):
@@ -776,7 +780,7 @@ def make_train(
             exploration_noise=agent_config.exploration_noise,
         )
 
-    @partial(jax.jit)
+    @train_jit
     def train(key, index: Optional[int] = None):
         init_key, expert_key = jax.random.split(key)
         agent_state = init_TD3(

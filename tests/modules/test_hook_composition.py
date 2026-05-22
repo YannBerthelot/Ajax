@@ -22,7 +22,9 @@ import pytest
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PPO.PPO import PPO
+from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.SafeSAC.SafeSAC import SafeSAC
@@ -64,6 +66,23 @@ PPO_HOOKS = (
     "extra_critic_loss_fn",
 )
 
+# DQN is value-based and discrete: no actor-side or SAC-family hooks.
+# Its variants (Double DQN, Huber) are exposed as Optional[Callable] hooks.
+DQN_HOOKS = (
+    "action_pipeline",
+    "eval_action_transform",
+    "td_target_fn",
+    "td_loss_fn",
+)
+
+# PQN is value-based and discrete too; on-policy, so no Double-DQN-style
+# target hook -- just exploration, eval transform and the TD loss.
+PQN_HOOKS = (
+    "action_pipeline",
+    "eval_action_transform",
+    "td_loss_fn",
+)
+
 AGENT_HOOKS = {
     SAC: SAC_HOOKS,
     SafeSAC: SAC_HOOKS,
@@ -72,6 +91,8 @@ AGENT_HOOKS = {
     AVG: SAC_FAMILY_HOOKS,
     PPO: PPO_HOOKS,
     APO: PPO_FAMILY_HOOKS,
+    DQN: DQN_HOOKS,
+    PQN: PQN_HOOKS,
 }
 
 
@@ -84,6 +105,28 @@ def _identity_hook(*args, **kwargs):
 
 def _instantiate(agent_cls, **kwargs):
     """Build a minimal agent instance on a cheap env."""
+    if agent_cls is DQN:
+        # DQN is discrete-only and takes a single `architecture`.
+        common = {
+            "env_id": "CartPole-v1",
+            "n_envs": 1,
+            "architecture": ("32", "relu"),
+            "buffer_size": 1024,
+            "batch_size": 32,
+        }
+        common.update(kwargs)
+        return agent_cls(**common)
+    if agent_cls is PQN:
+        # PQN is discrete-only, on-policy (no buffer), single `architecture`.
+        common = {
+            "env_id": "CartPole-v1",
+            "n_envs": 2,
+            "architecture": ("32", "relu"),
+            "n_steps": 8,
+            "num_minibatches": 2,
+        }
+        common.update(kwargs)
+        return agent_cls(**common)
     common = {
         "env_id": "Pendulum-v1",
         "n_envs": 1,

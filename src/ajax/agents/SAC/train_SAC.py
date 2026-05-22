@@ -11,6 +11,7 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.cloning import (
     CloningConfig,
     get_cloning_args,
@@ -1206,14 +1207,21 @@ def update_value_functions(
         next_a_expert=next_a_expert,
     )
 
-    # 2. Q predictions for diagnostics
-    q_preds_for_var = predict_value(
-        critic_state=agent_state.critic_state,
-        critic_params=agent_state.critic_state.params,
-        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-    )
+    # 2. Q predictions for expert-path diagnostics. Only computed when a
+    # consumer exists (target_modifier feeds them in for IBRL/blend/MC, or
+    # expert_q is set so q_gap can be reported). The gradient-bearing pass
+    # inside critic_loss_fn already exposes var_preds via core_aux.
+    needs_expert_q_preds = target_modifier is not None or expert_q is not None
+    if needs_expert_q_preds:
+        q_preds_for_var = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=jnp.concatenate(
+                (observations, jax.lax.stop_gradient(actions)), axis=-1
+            ),
+        )
 
-    # 3. Expert target modifiers (IBRL → blend → MC correction)
+    # 3. Expert target modifiers (IBRL, blend, MC correction)
     alpha_blend_logged = jnp.zeros(1)
     mc_correction_frac = jnp.zeros(1)
     if target_modifier is not None:
@@ -1230,13 +1238,15 @@ def update_value_functions(
         )
 
     # 4. Core critic loss (MSE against composed target), optionally augmented
-    #    with an extra loss term that receives (params, critic_state) -> scalar.
+    #    with an extra loss term. The hook receives
+    #    (params, critic_state, obs, act, target_q) -> scalar so it can
+    #    recompute the batch residual (e.g. an EVarEst variance penalty).
     #    The extra loss is added inside the same value_and_grad so the single
     #    Adam step sees a combined gradient direction (coeff matters).
     def _critic_loss(params, critic_state, obs, act, tgt):
         loss, core_aux = core.critic_loss_fn(params, critic_state, obs, act, tgt)
         if extra_critic_loss_fn is not None:
-            loss = loss + extra_critic_loss_fn(params, critic_state)
+            loss = loss + extra_critic_loss_fn(params, critic_state, obs, act, tgt)
         return loss, core_aux
 
     (loss, core_aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
@@ -1247,14 +1257,15 @@ def update_value_functions(
         target_q,
     )
 
-    # 5. Assemble full ValueAuxiliaries with expert diagnostics
-    q_pred_min_full = jnp.min(q_preds_for_var, axis=0)
-    q_expert_mean = expert_q.mean().flatten() if expert_q is not None else jnp.zeros(1)
-    q_gap = (
-        (expert_q - q_pred_min_full).mean().flatten()
-        if expert_q is not None
-        else jnp.zeros(1)
-    )
+    # 5. Assemble full ValueAuxiliaries with expert diagnostics.
+    # q_pred_min_full only feeds q_gap, which is itself gated on expert_q.
+    if expert_q is not None:
+        q_pred_min_full = jnp.min(q_preds_for_var, axis=0)
+        q_expert_mean = expert_q.mean().flatten()
+        q_gap = (expert_q - q_pred_min_full).mean().flatten()
+    else:
+        q_expert_mean = jnp.zeros(1)
+        q_gap = jnp.zeros(1)
 
     aux = ValueAuxiliaries(
         critic_loss=core_aux.critic_loss,
@@ -1583,6 +1594,11 @@ def update_agent(
     bc_loss_fn: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    # Optional Hindsight-Experience-Replay relabel. Signature
+    # (rng, transition) -> transition. Applied to the finalised sampled
+    # batch before any expert mixing / learner use. Default None ⇒ the
+    # batch is untouched and this path is byte-identical to before.
+    her_relabel_fn: Optional[Callable] = None,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
@@ -1628,9 +1644,15 @@ def update_agent(
             len_original = len(observations)
             n_from_buffer = floor(transition_mix_fraction * len_original)
             n_from_online = len_original - n_from_buffer
+            # Generate sample indices once and reuse across leaves: the
+            # previous form called jax.random.choice once per leaf with
+            # the same sample_key, which produces identical indices per
+            # leaf but pays the index-generation cost N_leaves times.
+            mix_idx = jax.random.randint(
+                sample_key, (n_from_online,), 0, len_original
+            )
             additional_transition = jax.tree.map(
-                lambda x: jax.random.choice(sample_key, x, shape=(n_from_online,)),
-                additional_transition,
+                lambda x: x[mix_idx], additional_transition,
             )
             transition = jax.tree.map(
                 lambda x, y: (
@@ -1650,6 +1672,16 @@ def update_agent(
         expert_frac_in_buffer = jnp.zeros(())
     else:
         raise ValueError("Either buffer or additional_transition must be provided.")
+
+    # --- Hindsight Experience Replay relabel ---
+    # Opt-in. The caller-supplied fn rewrites the goal portion of
+    # obs/next_obs and recomputes reward in closed form, turning
+    # arbitrary achieved outcomes into on-target successes. No-op when
+    # her_relabel_fn is None.
+    if her_relabel_fn is not None:
+        rng, her_key = jax.random.split(rng)
+        agent_state = agent_state.replace(rng=rng)
+        transition = her_relabel_fn(her_key, transition)
 
     # --- Expert batch mixing ---
     if expert_mix_fraction > 0.0 and expert_policy is not None:
@@ -1781,15 +1813,14 @@ def update_agent(
         else None
     )
 
-    def critic_update_step(carry, _):
-        agent_state = carry
-        agent_state, aux_value = update_value_functions(
+    def _one_critic_update(s):
+        return update_value_functions(
             observations=transition.obs,
             actions=transition.action,
             next_observations=transition.next_obs,
             rewards=transition.reward,
             dones=dones,
-            agent_state=agent_state,
+            agent_state=s,
             recurrent=recurrent,
             gamma=gamma,
             reward_scale=reward_scale,
@@ -1799,12 +1830,15 @@ def update_agent(
             next_action_transform=_next_action_transform,
             next_a_expert=_next_a_expert_for_target,
         )
-        return agent_state, aux_value
 
-    agent_state, aux_value_seq = jax.lax.scan(
-        critic_update_step, agent_state, None, length=num_critic_updates
+    # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
+    # last-step aux without materialising the full ys axis.
+    def critic_update_step(state, _):
+        return _one_critic_update(state)
+
+    agent_state, aux_value = final_aux_scan(
+        critic_update_step, agent_state, length=num_critic_updates,
     )
-    aux_value = jax.tree.map(lambda x: x[-1], aux_value_seq)
 
     # --- Policy update — returns log_probs for temperature reuse ---
     train_frac = agent_state.collector_state.timestep / total_timesteps
@@ -1965,6 +1999,7 @@ def training_iteration(
     runtime_maintenance: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    her_relabel_fn: Optional[Callable] = None,
     auxiliary_update: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
     pid_gain_policy: bool = False,
@@ -2042,6 +2077,7 @@ def training_iteration(
             bc_loss_fn=bc_loss_fn,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
+            her_relabel_fn=her_relabel_fn,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -2280,6 +2316,7 @@ def make_train(
     runtime_maintenance: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    her_relabel_fn: Optional[Callable] = None,
     init_transform: Optional[Callable] = None,
     auxiliary_update: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
@@ -2305,7 +2342,7 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @partial(jax.jit, static_argnames=("resume_from_state",))
+    @train_jit
     def train(
         key,
         index: Optional[int] = None,
@@ -2640,6 +2677,7 @@ def make_train(
             runtime_maintenance=_runtime_maintenance,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
+            her_relabel_fn=her_relabel_fn,
             auxiliary_update=auxiliary_update,
             extra_eval_metrics=extra_eval_metrics,
             **_valid_cloning_params,

@@ -48,6 +48,7 @@ class REDQ(ActorCritic):
         num_critic_updates: int = 20,
         num_critics: int = 10,
         subset_size: int = 2,
+        repulsion_coef: float = 0.0,
         lstm_hidden_size: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
@@ -132,6 +133,7 @@ class REDQ(ActorCritic):
             num_critic_updates=num_critic_updates,
             num_critics=num_critics,
             subset_size=subset_size,
+            repulsion_coef=repulsion_coef,
         )
 
         self.buffer = get_buffer(

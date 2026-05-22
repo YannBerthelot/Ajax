@@ -10,6 +10,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.cloning import (
     CloningConfig,
     compute_imitation_score,
@@ -68,6 +69,95 @@ class ValueAuxiliaries:
     critic_loss: jax.Array
     target_q: jax.Array
     log_probs: jax.Array
+    repulsion_loss: jax.Array
+    # Scale-free ensemble divergence diagnostics (stop_gradient'd). Unlike
+    # repulsion_loss (self-normalised by the median-heuristic bandwidth, so
+    # ~O(1) regardless of actual spread), these reveal whether the ensemble
+    # genuinely diversified in function space.
+    ensemble_q_std: jax.Array
+    mean_pairwise_q_dist: jax.Array
+
+
+def q_ensemble_divergence(q_preds: jax.Array) -> Tuple[jax.Array, jax.Array]:
+    """Scale-free diagnostics for how spread out the critic ensemble is.
+
+    Returns ``(ensemble_q_std, mean_pairwise_q_dist)``:
+      * ensemble_q_std: std across the critic axis of the per-(s,a) Q
+        prediction, averaged over the batch.
+      * mean_pairwise_q_dist: mean L2 distance between the flattened
+        per-critic Q-vectors over all off-diagonal pairs.
+
+    Both are computed on stop_gradient'd predictions — they are telemetry
+    only and must not contribute to the critic gradient.
+    """
+    q = jax.lax.stop_gradient(q_preds)
+    n = q.shape[0]
+    q_std = jnp.std(q, axis=0).mean()
+
+    feats = q.reshape(n, -1)
+    diffs = feats[:, None, :] - feats[None, :, :]
+    dists = jnp.sqrt(jnp.sum(diffs ** 2, axis=-1) + 1e-12)
+    off_diag_sum = dists.sum() - jnp.trace(dists)
+    mean_pairwise = off_diag_sum / (n * (n - 1))
+    return q_std, mean_pairwise
+
+
+def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
+    """Function-space SVGD-style RBF kernel repulsion penalty.
+
+    q_preds has shape ``(num_critics, batch, ...)``. Each ensemble member's
+    output is flattened to a feature vector; pairwise squared distances feed
+    an RBF kernel with the median-heuristic bandwidth (Liu & Wang 2017).
+    The returned scalar is the mean kernel value over all pairs — minimising
+    it pushes members apart in function space.
+
+    The bandwidth `h` is stop_gradient'd so the kernel adapts to the current
+    spread of predictions without contributing a confounding gradient term.
+    """
+    n = q_preds.shape[0]
+    feats = q_preds.reshape(n, -1)
+    diffs = feats[:, None, :] - feats[None, :, :]
+    sq_dists = jnp.sum(diffs ** 2, axis=-1)
+    # Median heuristic over off-diagonal pairs. n*(n-1) off-diagonal entries;
+    # `jnp.median` over the full matrix is fine because diagonal zeros are
+    # only n out of n^2 and the median is dominated by the off-diagonal mass
+    # for n >= 4. The +1e-8 floor avoids divide-by-zero at init when all
+    # critics happen to predict identical values.
+    h = jax.lax.stop_gradient(
+        jnp.median(sq_dists) / (jnp.log(jnp.asarray(n, dtype=feats.dtype)) + 1e-8)
+        + 1e-8
+    )
+    kernel = jnp.exp(-sq_dists / h)
+    return kernel.mean()
+
+
+def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
+    """Function-space SVGD-style RBF kernel repulsion penalty.
+
+    q_preds has shape ``(num_critics, batch, ...)``. Each ensemble member's
+    output is flattened to a feature vector; pairwise squared distances feed
+    an RBF kernel with the median-heuristic bandwidth (Liu & Wang 2017).
+    The returned scalar is the mean kernel value over all pairs — minimising
+    it pushes members apart in function space.
+
+    The bandwidth `h` is stop_gradient'd so the kernel adapts to the current
+    spread of predictions without contributing a confounding gradient term.
+    """
+    n = q_preds.shape[0]
+    feats = q_preds.reshape(n, -1)
+    diffs = feats[:, None, :] - feats[None, :, :]
+    sq_dists = jnp.sum(diffs ** 2, axis=-1)
+    # Median heuristic over off-diagonal pairs. n*(n-1) off-diagonal entries;
+    # `jnp.median` over the full matrix is fine because diagonal zeros are
+    # only n out of n^2 and the median is dominated by the off-diagonal mass
+    # for n >= 4. The +1e-8 floor avoids divide-by-zero at init when all
+    # critics happen to predict identical values.
+    h = jax.lax.stop_gradient(
+        jnp.median(sq_dists) / (jnp.log(jnp.asarray(n, dtype=feats.dtype)) + 1e-8)
+        + 1e-8
+    )
+    kernel = jnp.exp(-sq_dists / h)
+    return kernel.mean()
 
 
 @struct.dataclass
@@ -204,6 +294,7 @@ def value_loss_function(
     reward_scale: float = 5.0,  # Add reward scaling factor here
     target_q_override: Optional[jax.Array] = None,
     log_probs_override: Optional[jax.Array] = None,
+    repulsion_coef: float = 0.0,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -256,15 +347,23 @@ def value_loss_function(
             reward_scale,
         )
 
-    total_loss = jnp.sum(
+    bellman_loss = jnp.sum(
         jnp.mean((q_preds - target_q) ** 2, axis=tuple(range(1, q_preds.ndim)))
         / q_preds.ndim
     )
+
+    repulsion = q_kernel_repulsion(q_preds)
+    total_loss = bellman_loss + repulsion_coef * repulsion
+
+    q_std, mean_pairwise_q_dist = q_ensemble_divergence(q_preds)
 
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
         target_q=target_q.mean().flatten(),
         log_probs=log_probs.mean().flatten(),
+        repulsion_loss=repulsion.flatten(),
+        ensemble_q_std=q_std.flatten(),
+        mean_pairwise_q_dist=mean_pairwise_q_dist.flatten(),
     )
 
 
@@ -382,6 +481,7 @@ def update_value_functions(
     subset_size: int,
     reward_scale: float = 1.0,  # Add reward scaling factor here
     target_modifier: Optional[Callable] = None,
+    repulsion_coef: float = 0.0,
 ) -> Tuple[REDQState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -458,6 +558,7 @@ def update_value_functions(
         reward_scale,
         target_q_override,
         log_probs_override,
+        repulsion_coef,
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -556,6 +657,7 @@ def update_policy(
         "target_modifier",
         "obs_preprocessor",
         "policy_action_transform",
+        "repulsion_coef",
     ],
 )
 def update_agent(
@@ -579,6 +681,7 @@ def update_agent(
     target_modifier: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    repulsion_coef: float = 0.0,
 ) -> Tuple[REDQState, AuxiliaryLogs]:
     """
     Update the REDQ agent, including critic, actor, and temperature updates.
@@ -681,18 +784,18 @@ def update_agent(
             reward_scale=reward_scale,
             subset_size=subset_size,
             target_modifier=target_modifier,
+            repulsion_coef=repulsion_coef,
         )
         agent_state = update_target_networks(agent_state, tau=tau)
 
         return agent_state, aux_value
 
-    agent_state, aux_value = jax.lax.scan(
-        critic_update_step,
-        agent_state,
-        None,
-        length=num_critic_updates,
+    # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
+    # last-step aux without materialising the leading scan axis on
+    # device. Same pattern as SAC's critic-update scan.
+    agent_state, aux_value = final_aux_scan(
+        critic_update_step, agent_state, length=num_critic_updates,
     )
-    aux_value = jax.tree.map(lambda x: x[-1], aux_value)  # keep only final state
 
     # Update policy
     agent_state, aux_policy, log_probs = update_policy(
@@ -856,6 +959,7 @@ def training_iteration(
             target_modifier=target_modifier,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
+            repulsion_coef=agent_config.repulsion_coef,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -963,7 +1067,7 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @partial(jax.jit)
+    @train_jit
     def train(key, index: Optional[int] = None):
         """Train the REDQ agent."""
         init_key, expert_key = jax.random.split(key)

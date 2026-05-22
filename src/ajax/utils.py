@@ -19,7 +19,7 @@ def replace_zeros_with_ones(x: jnp.ndarray) -> jnp.ndarray:
 
 @partial(
     jax.jit,
-    static_argnames=["train", "eps", "shift"],
+    static_argnames=["train", "eps", "shift", "nan_safe"],
 )
 def online_normalize(
     x: jnp.array,
@@ -30,17 +30,27 @@ def online_normalize(
     train: bool = True,
     shift: bool = True,
     returns: Optional[jax.Array] = None,
+    nan_safe: bool = True,
 ) -> tuple[jnp.array, int, float, float, float]:
+    """Welford-style running mean / var update.
+
+    ``nan_safe`` (static): when True (default), reductions skip NaN
+    entries via ``jnp.nanmean``. This is load-bearing for AVG, which
+    feeds NaN-sentinel values for non-terminal transitions in
+    ``G_return`` ([agents/AVG/utils.py:41-55](src/ajax/agents/AVG/utils.py#L41-L55)).
+    Set to False at call sites that pass guaranteed-clean data (e.g. the
+    agent-side obs normalizer) to drop the per-reduction mask cost.
+    """
     input_x = x
+    _mean = jnp.nanmean if nan_safe else jnp.mean
 
     if train:
         x = x if returns is None else returns
         x = x.reshape(1, -1) if len(x.shape) < 2 else x
-        # assert jnp.ndim(mean) == 2, f"Mean must be 2D, got {jnp.ndim(mean)}D"
 
         batch_size = x.shape[0]
-        batch_mean = jnp.nanmean(x, axis=0, keepdims=True)
-        batch_mean_2 = jnp.nanmean((x - batch_mean) ** 2, axis=0, keepdims=True)
+        batch_mean = _mean(x, axis=0, keepdims=True)
+        batch_mean_2 = _mean((x - batch_mean) ** 2, axis=0, keepdims=True)
 
         total_count = count + batch_size
 
@@ -56,7 +66,7 @@ def online_normalize(
 
     variance = mean_2 / count
     std = jnp.sqrt(variance + eps)
-    x_norm = (input_x - jnp.nanmean(mean, axis=0) * shift) / jnp.nanmean(std, axis=0)
+    x_norm = (input_x - _mean(mean, axis=0) * shift) / _mean(std, axis=0)
 
     x_norm = x_norm.reshape(input_x.shape)  # Ensure output shape matches input shape
     assert (

@@ -10,6 +10,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.agents.SAC.utils import SquashedNormal
@@ -876,8 +877,23 @@ def training_iteration(
 
     if auxiliary_update is not None:
         aux_rng, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
+        # Stash the full stacked rollout (T, n_envs, *) into
+        # collector_state.rollout so the auxiliary_update hook gets the
+        # whole iteration's experience, not just the last single
+        # transition. collect_experience's leading-iteration check
+        # only reads ``rollout is not None`` and ``rollout.raw_obs is
+        # not None``, both of which are unaffected by adding a time
+        # axis. Restored to the latest single transition after the
+        # aux step so we don't leak the stacked shape downstream.
+        latest = agent_state.collector_state.rollout
+        agent_state = agent_state.replace(
+            rng=rng,
+            collector_state=agent_state.collector_state.replace(rollout=transition),
+        )
         agent_state, auxiliary_metrics = auxiliary_update(agent_state, aux_rng)
+        agent_state = agent_state.replace(
+            collector_state=agent_state.collector_state.replace(rollout=latest),
+        )
     else:
         auxiliary_metrics = {}
 
@@ -972,7 +988,7 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @partial(jax.jit)
+    @train_jit
     def train(key, index: Optional[int] = None):
         """Train the PPO agent."""
         key, init_key, transform_key = jax.random.split(key, 3)

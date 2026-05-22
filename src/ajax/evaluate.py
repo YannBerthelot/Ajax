@@ -61,7 +61,13 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
         env = clip_wrapper(env)
     else:
         env = env.unwrapped if hasattr(env, "unwrapped") else env
-        env = clip_wrapper(env)
+        # ClipAction clamps actions to [-1, 1] -- correct for continuous
+        # control, but wrong for discrete action spaces (it would clip a
+        # discrete index like action=3 down to 1.0). Only wrap continuous
+        # gymnax envs. Brax envs are always continuous, so that branch is
+        # left untouched above.
+        if continuous:
+            env = clip_wrapper(env)
 
     if norm_info is not None:
         norm_info = repeat_first_entry(norm_info, num_repeats=num_episodes)

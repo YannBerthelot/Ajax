@@ -1,0 +1,3 @@
+{"agent": "SAC", "env": "Pendulum-v1", "trial": 0, "n_envs": 4, "timesteps": 8000, "compile_s": 6.69, "measured_s": 1.901, "steps_per_s": 4209.1, "tag": "rework", "git_sha": "1fc4be3", "jax_backend": "cpu"}
+{"agent": "SAC", "env": "Pendulum-v1", "trial": 1, "n_envs": 4, "timesteps": 8000, "compile_s": 6.69, "measured_s": 1.873, "steps_per_s": 4271.7, "tag": "rework", "git_sha": "1fc4be3", "jax_backend": "cpu"}
+{"agent": "SAC", "env": "Pendulum-v1", "trial": 2, "n_envs": 4, "timesteps": 8000, "compile_s": 6.69, "measured_s": 1.907, "steps_per_s": 4194.9, "tag": "rework", "git_sha": "1fc4be3", "jax_backend": "cpu"}

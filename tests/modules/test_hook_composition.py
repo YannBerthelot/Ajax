@@ -73,14 +73,17 @@ DQN_HOOKS = (
     "eval_action_transform",
     "td_target_fn",
     "td_loss_fn",
+    "extra_eval_metrics",
 )
 
 # PQN is value-based and discrete too; on-policy, so no Double-DQN-style
-# target hook -- just exploration, eval transform and the TD loss.
+# target hook -- just exploration, eval transform, the TD loss and the
+# extra-eval-metrics hook.
 PQN_HOOKS = (
     "action_pipeline",
     "eval_action_transform",
     "td_loss_fn",
+    "extra_eval_metrics",
 )
 
 AGENT_HOOKS = {

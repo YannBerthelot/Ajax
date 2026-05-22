@@ -47,6 +47,8 @@ class PQN(ActorCritic):
         eval_action_transform: Optional[Callable] = None,
         # TD loss: None -> MSE. Pass make_huber_td_loss(delta) for Huber.
         td_loss_fn: Optional[Callable] = None,
+        # Extra eval metrics: (agent_state, key) -> dict, logged each eval.
+        extra_eval_metrics: Optional[Callable] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "PQN"})
@@ -88,6 +90,7 @@ class PQN(ActorCritic):
         self.action_pipeline = action_pipeline
         self.eval_action_transform = eval_action_transform
         self.td_loss_fn = td_loss_fn
+        self.extra_eval_metrics = extra_eval_metrics
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -98,4 +101,5 @@ class PQN(ActorCritic):
             action_pipeline=self.action_pipeline,
             eval_action_transform=self.eval_action_transform,
             td_loss_fn=self.td_loss_fn,
+            extra_eval_metrics=self.extra_eval_metrics,
         )

@@ -10,7 +10,6 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
-from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.agents.SAC.utils import SquashedNormal
@@ -34,6 +33,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
+from ajax.perf_utils import train_jit
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -178,7 +178,13 @@ def value_loss_function(
 
     loss = 0.5 * jnp.mean((v_preds - value_targets) ** 2)  # classic MSE
     if extra_loss_fn is not None:
-        loss = loss + extra_loss_fn(critic_params, critic_states, agent_state)
+        # Hook receives (critic_params, critic_states, observations,
+        # value_targets, agent_state) so it can recompute the value
+        # residual (v_preds - value_targets) -- e.g. an EVarEst variance
+        # penalty. The residual then matches this MSE term bit-for-bit.
+        loss = loss + extra_loss_fn(
+            critic_params, critic_states, observations, value_targets, agent_state
+        )
 
     return loss, ValueAuxiliaries(
         critic_loss=loss,

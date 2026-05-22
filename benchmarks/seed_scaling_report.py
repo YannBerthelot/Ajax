@@ -41,15 +41,17 @@ def main(path: str | None = None):
         median_t = measured[len(measured) // 2]
         min_t = measured[0]
         median_peak = peaks[len(peaks) // 2]
-        rows.append({
-            "n": n,
-            "median_s": median_t,
-            "min_s": min_t,
-            "peak_mb": median_peak / (1024 * 1024),
-        })
+        rows.append(
+            {
+                "n": n,
+                "median_s": median_t,
+                "min_s": min_t,
+                "peak_mb": median_peak / (1024 * 1024),
+            }
+        )
 
     base_median = rows[0]["median_s"]
-    base_peak = rows[0]["peak_mb"]
+    rows[0]["peak_mb"]
     base_n = rows[0]["n"]
 
     print(f"Per-seed scaling (baseline: n_seeds={base_n})")

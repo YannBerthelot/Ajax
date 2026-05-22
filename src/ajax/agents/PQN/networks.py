@@ -20,6 +20,22 @@ from ajax.networks.utils import parse_activation, parse_initialization
 from ajax.types import ActivationFunction, InitializationFunction
 
 
+def _resolve_init(
+    spec: Optional[Union[str, InitializationFunction]],
+    default: InitializationFunction,
+) -> InitializationFunction:
+    """Resolve an init spec to a callable.
+
+    ``None`` -> ``default``; a string -> looked up via ``parse_initialization``;
+    an already-callable initializer is returned unchanged.
+    """
+    if spec is None:
+        return default
+    if isinstance(spec, str):
+        return parse_initialization(spec)
+    return spec
+
+
 class PQNNetwork(nn.Module):
     """MLP Q-network with LayerNorm after each hidden Dense layer.
 
@@ -43,22 +59,14 @@ class PQNNetwork(nn.Module):
     @nn.compact
     def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
         del raw_obs
-        kernel_init = (
-            orthogonal(2.0**0.5)
-            if self.kernel_init is None
-            else parse_initialization(self.kernel_init)
-        )
-        bias_init = (
-            constant(0.0)
-            if self.bias_init is None
-            else parse_initialization(self.bias_init)
-        )
+        kernel_init = _resolve_init(self.kernel_init, orthogonal(2.0**0.5))
+        bias_init = _resolve_init(self.bias_init, constant(0.0))
         x = obs
         for layer in self.input_architecture:
             if str(layer).isnumeric():
-                x = nn.Dense(
-                    int(layer), kernel_init=kernel_init, bias_init=bias_init
-                )(x)
+                x = nn.Dense(int(layer), kernel_init=kernel_init, bias_init=bias_init)(
+                    x
+                )
                 x = nn.LayerNorm()(x)
             else:
                 x = parse_activation(layer)(x)

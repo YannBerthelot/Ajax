@@ -107,7 +107,9 @@ class QNetwork(nn.Module):
             if self.bias_init is None
             else parse_initialization(self.bias_init)
         )
-        self.head = nn.Dense(self.n_actions, kernel_init=kernel_init, bias_init=bias_init)
+        self.head = nn.Dense(
+            self.n_actions, kernel_init=kernel_init, bias_init=bias_init
+        )
 
     def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
         del raw_obs

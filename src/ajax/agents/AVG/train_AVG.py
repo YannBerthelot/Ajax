@@ -11,7 +11,6 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
 from ajax.agents.AVG.utils import compute_td_error_scaling
 from ajax.environments.interaction import (
@@ -34,6 +33,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
+from ajax.perf_utils import train_jit
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,

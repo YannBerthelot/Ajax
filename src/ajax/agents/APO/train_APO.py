@@ -10,7 +10,6 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
 from ajax.agents.cloning import (
@@ -42,6 +41,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
+from ajax.perf_utils import train_jit
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,

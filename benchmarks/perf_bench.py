@@ -34,7 +34,7 @@ import platform
 import subprocess
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 @dataclass
@@ -81,16 +81,16 @@ def _git_state() -> Dict[str, Any]:
 def _build_agent(scenario: str, n_envs: int, learning_starts: int):
     from ajax.agents.SAC.SAC import SAC
 
-    common = dict(
-        env_id="Pendulum-v1",
-        n_envs=n_envs,
-        learning_starts=learning_starts,
-        actor_architecture=("64", "relu", "64", "relu"),
-        critic_architecture=("64", "relu", "64", "relu"),
-        batch_size=256,
-        buffer_size=10_000,
-        num_critics=2,
-    )
+    common = {
+        "env_id": "Pendulum-v1",
+        "n_envs": n_envs,
+        "learning_starts": learning_starts,
+        "actor_architecture": ("64", "relu", "64", "relu"),
+        "critic_architecture": ("64", "relu", "64", "relu"),
+        "batch_size": 256,
+        "buffer_size": 10_000,
+        "num_critics": 2,
+    }
     if scenario == "pure_sac":
         return SAC(**common)
     if scenario == "obs_norm_sac":
@@ -129,6 +129,7 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
         # Heavier per-seed footprint than Pendulum, useful for testing
         # where seed scaling saturates.
         from target_gym import Plane3DCircle
+
         return SAC(
             env_id=Plane3DCircle(),
             n_envs=n_envs,
@@ -260,8 +261,15 @@ def _seed_arg(seed_base: int, n_seeds: int):
 
 
 def _run_one_trial(
-    *, tag: str, scenario: str, trial: int, timesteps: int,
-    warmup_timesteps: int, n_envs: int, n_seeds: int, seed: int,
+    *,
+    tag: str,
+    scenario: str,
+    trial: int,
+    timesteps: int,
+    warmup_timesteps: int,
+    n_envs: int,
+    n_seeds: int,
+    seed: int,
 ) -> TrialResult:
     import jax
 
@@ -276,7 +284,9 @@ def _run_one_trial(
 
     # Warmup: triggers JIT compile for this exact (shape, n_seeds)
     # signature, plus a few real training steps so the cache is hot.
-    agent = _build_agent(scenario, n_envs=n_envs, learning_starts=min(50, warmup_timesteps // 2))
+    agent = _build_agent(
+        scenario, n_envs=n_envs, learning_starts=min(50, warmup_timesteps // 2)
+    )
     t0 = time.perf_counter()
     agent.train(seed=_seed_arg(seed, n_seeds), n_timesteps=warmup_timesteps)
     jax.block_until_ready(getattr(agent, "_last_state", 0))
@@ -292,7 +302,9 @@ def _run_one_trial(
         except Exception:
             pass
 
-    agent = _build_agent(scenario, n_envs=n_envs, learning_starts=min(50, timesteps // 4))
+    agent = _build_agent(
+        scenario, n_envs=n_envs, learning_starts=min(50, timesteps // 4)
+    )
     t0 = time.perf_counter()
     agent.train(seed=_seed_arg(seed + 1, n_seeds), n_timesteps=timesteps)
     jax.block_until_ready(getattr(agent, "_last_state", 0))
@@ -330,28 +342,51 @@ def _run_one_trial(
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--tag", required=True, help="label for this run (e.g. baseline, patch1)")
-    p.add_argument("--scenario", default="pure_sac",
-                   choices=["pure_sac", "obs_norm_sac", "stress_sac",
-                            "stress_sac_utd", "p3dcircle_sac",
-                            "p3dcircle_edge_qa", "p3dcircle_edge_qa_hpo"])
+    p.add_argument(
+        "--tag", required=True, help="label for this run (e.g. baseline, patch1)"
+    )
+    p.add_argument(
+        "--scenario",
+        default="pure_sac",
+        choices=[
+            "pure_sac",
+            "obs_norm_sac",
+            "stress_sac",
+            "stress_sac_utd",
+            "p3dcircle_sac",
+            "p3dcircle_edge_qa",
+            "p3dcircle_edge_qa_hpo",
+        ],
+    )
     p.add_argument("--timesteps", type=int, default=4000)
     p.add_argument("--warmup-timesteps", type=int, default=200)
     p.add_argument("--trials", type=int, default=3)
     p.add_argument("--n-envs", type=int, default=4)
-    p.add_argument("--n-seeds", type=int, default=1,
-                   help="Number of seeds to vmap-train in parallel.")
+    p.add_argument(
+        "--n-seeds",
+        type=int,
+        default=1,
+        help="Number of seeds to vmap-train in parallel.",
+    )
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--out", default=os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "results.jsonl"))
+    p.add_argument(
+        "--out",
+        default=os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "results.jsonl"
+        ),
+    )
     args = p.parse_args()
 
     results = []
     for trial in range(args.trials):
         r = _run_one_trial(
-            tag=args.tag, scenario=args.scenario, trial=trial,
-            timesteps=args.timesteps, warmup_timesteps=args.warmup_timesteps,
-            n_envs=args.n_envs, n_seeds=args.n_seeds,
+            tag=args.tag,
+            scenario=args.scenario,
+            trial=trial,
+            timesteps=args.timesteps,
+            warmup_timesteps=args.warmup_timesteps,
+            n_envs=args.n_envs,
+            n_seeds=args.n_seeds,
             seed=args.seed + 1000 * trial,
         )
         line = json.dumps(asdict(r))

@@ -33,9 +33,7 @@ def test_PQN_initialization():
 
 def test_PQN_initialization_with_continuous_env():
     """PQN must reject continuous action spaces."""
-    with pytest.raises(
-        ValueError, match="PQN only supports discrete action spaces."
-    ):
+    with pytest.raises(ValueError, match="PQN only supports discrete action spaces."):
         PQN(env_id="Pendulum-v1")
 
 

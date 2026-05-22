@@ -20,7 +20,6 @@ from flax import struct
 from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
-from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.cloning import (
     CloningConfig,
     get_cloning_args,
@@ -44,6 +43,7 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import predict_value
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -693,7 +693,9 @@ def training_iteration(
         # scan axis materialised on device. Reshape to (1,) preserves
         # the downstream metric-flattening contract.
         agent_state, aux = final_aux_scan(
-            update_scan_fn, agent_state, length=n_epochs,
+            update_scan_fn,
+            agent_state,
+            length=n_epochs,
         )
         aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
         return agent_state, aux

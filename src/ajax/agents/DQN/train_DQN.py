@@ -410,6 +410,7 @@ def update_agent(
         "eval_action_transform",
         "td_target_fn",
         "td_loss_fn",
+        "extra_eval_metrics",
     ],
 )
 def training_iteration(
@@ -432,6 +433,7 @@ def training_iteration(
     eval_action_transform: Optional[Callable] = None,
     td_target_fn: Callable = compute_dqn_td_target,
     td_loss_fn: Callable = mse_td_loss,
+    extra_eval_metrics: Optional[Callable] = None,
 ) -> Tuple[DQNState, Any]:
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
@@ -493,6 +495,7 @@ def training_iteration(
         log_frequency,
         total_timesteps,
         eval_action_transform=eval_action_transform,
+        extra_eval_metrics=extra_eval_metrics,
     )
     return agent_state, metrics_to_log
 
@@ -521,6 +524,7 @@ def make_train(
     td_target_fn: Optional[Callable] = None,
     td_loss_fn: Optional[Callable] = None,
     q_network_cls: Optional[type] = None,
+    extra_eval_metrics: Optional[Callable] = None,
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
@@ -580,6 +584,7 @@ def make_train(
             eval_action_transform=eval_action_transform,
             td_target_fn=td_target_fn,
             td_loss_fn=td_loss_fn,
+            extra_eval_metrics=extra_eval_metrics,
         )
 
         agent_state, out = jax.lax.scan(

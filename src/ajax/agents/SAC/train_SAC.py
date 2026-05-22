@@ -11,7 +11,6 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.cloning import (
     CloningConfig,
     get_cloning_args,
@@ -80,6 +79,7 @@ from ajax.networks.networks import (
     get_initialized_critic,
     predict_value,
 )
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -1216,9 +1216,7 @@ def update_value_functions(
         q_preds_for_var = predict_value(
             critic_state=agent_state.critic_state,
             critic_params=agent_state.critic_state.params,
-            x=jnp.concatenate(
-                (observations, jax.lax.stop_gradient(actions)), axis=-1
-            ),
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         )
 
     # 3. Expert target modifiers (IBRL, blend, MC correction)
@@ -1648,11 +1646,10 @@ def update_agent(
             # previous form called jax.random.choice once per leaf with
             # the same sample_key, which produces identical indices per
             # leaf but pays the index-generation cost N_leaves times.
-            mix_idx = jax.random.randint(
-                sample_key, (n_from_online,), 0, len_original
-            )
+            mix_idx = jax.random.randint(sample_key, (n_from_online,), 0, len_original)
             additional_transition = jax.tree.map(
-                lambda x: x[mix_idx], additional_transition,
+                lambda x: x[mix_idx],
+                additional_transition,
             )
             transition = jax.tree.map(
                 lambda x, y: (
@@ -1837,7 +1834,9 @@ def update_agent(
         return _one_critic_update(state)
 
     agent_state, aux_value = final_aux_scan(
-        critic_update_step, agent_state, length=num_critic_updates,
+        critic_update_step,
+        agent_state,
+        length=num_critic_updates,
     )
 
     # --- Policy update — returns log_probs for temperature reuse ---

@@ -10,7 +10,6 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
-from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.cloning import (
     CloningConfig,
     compute_imitation_score,
@@ -43,6 +42,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -96,7 +96,7 @@ def q_ensemble_divergence(q_preds: jax.Array) -> Tuple[jax.Array, jax.Array]:
 
     feats = q.reshape(n, -1)
     diffs = feats[:, None, :] - feats[None, :, :]
-    dists = jnp.sqrt(jnp.sum(diffs ** 2, axis=-1) + 1e-12)
+    dists = jnp.sqrt(jnp.sum(diffs**2, axis=-1) + 1e-12)
     off_diag_sum = dists.sum() - jnp.trace(dists)
     mean_pairwise = off_diag_sum / (n * (n - 1))
     return q_std, mean_pairwise
@@ -117,36 +117,7 @@ def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
     n = q_preds.shape[0]
     feats = q_preds.reshape(n, -1)
     diffs = feats[:, None, :] - feats[None, :, :]
-    sq_dists = jnp.sum(diffs ** 2, axis=-1)
-    # Median heuristic over off-diagonal pairs. n*(n-1) off-diagonal entries;
-    # `jnp.median` over the full matrix is fine because diagonal zeros are
-    # only n out of n^2 and the median is dominated by the off-diagonal mass
-    # for n >= 4. The +1e-8 floor avoids divide-by-zero at init when all
-    # critics happen to predict identical values.
-    h = jax.lax.stop_gradient(
-        jnp.median(sq_dists) / (jnp.log(jnp.asarray(n, dtype=feats.dtype)) + 1e-8)
-        + 1e-8
-    )
-    kernel = jnp.exp(-sq_dists / h)
-    return kernel.mean()
-
-
-def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
-    """Function-space SVGD-style RBF kernel repulsion penalty.
-
-    q_preds has shape ``(num_critics, batch, ...)``. Each ensemble member's
-    output is flattened to a feature vector; pairwise squared distances feed
-    an RBF kernel with the median-heuristic bandwidth (Liu & Wang 2017).
-    The returned scalar is the mean kernel value over all pairs — minimising
-    it pushes members apart in function space.
-
-    The bandwidth `h` is stop_gradient'd so the kernel adapts to the current
-    spread of predictions without contributing a confounding gradient term.
-    """
-    n = q_preds.shape[0]
-    feats = q_preds.reshape(n, -1)
-    diffs = feats[:, None, :] - feats[None, :, :]
-    sq_dists = jnp.sum(diffs ** 2, axis=-1)
+    sq_dists = jnp.sum(diffs**2, axis=-1)
     # Median heuristic over off-diagonal pairs. n*(n-1) off-diagonal entries;
     # `jnp.median` over the full matrix is fine because diagonal zeros are
     # only n out of n^2 and the median is dominated by the off-diagonal mass
@@ -794,7 +765,9 @@ def update_agent(
     # last-step aux without materialising the leading scan axis on
     # device. Same pattern as SAC's critic-update scan.
     agent_state, aux_value = final_aux_scan(
-        critic_update_step, agent_state, length=num_critic_updates,
+        critic_update_step,
+        agent_state,
+        length=num_critic_updates,
     )
 
     # Update policy

@@ -108,6 +108,7 @@ def init_PQN(
         "action_pipeline",
         "eval_action_transform",
         "td_loss_fn",
+        "extra_eval_metrics",
     ],
 )
 def training_iteration(
@@ -128,6 +129,7 @@ def training_iteration(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     td_loss_fn: Callable = mse_td_loss,
+    extra_eval_metrics: Optional[Callable] = None,
 ) -> Tuple[PQNState, Any]:
     # 1. Collect an on-policy rollout of n_steps across the parallel envs.
     collect_scan_fn = partial(
@@ -209,6 +211,7 @@ def training_iteration(
         log_frequency,
         total_timesteps,
         eval_action_transform=eval_action_transform,
+        extra_eval_metrics=extra_eval_metrics,
     )
     return agent_state, metrics_to_log
 
@@ -234,6 +237,7 @@ def make_train(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     td_loss_fn: Optional[Callable] = None,
+    extra_eval_metrics: Optional[Callable] = None,
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
@@ -267,9 +271,7 @@ def make_train(
         )
 
         # One iteration consumes n_envs * n_steps environment steps.
-        num_updates = (
-            total_timesteps // (env_args.n_envs * agent_config.n_steps) + 1
-        )
+        num_updates = total_timesteps // (env_args.n_envs * agent_config.n_steps) + 1
 
         training_iteration_scan_fn = partial(
             training_iteration,
@@ -289,6 +291,7 @@ def make_train(
             action_pipeline=action_pipeline,
             eval_action_transform=eval_action_transform,
             td_loss_fn=td_loss_fn,
+            extra_eval_metrics=extra_eval_metrics,
         )
 
         agent_state, out = jax.lax.scan(

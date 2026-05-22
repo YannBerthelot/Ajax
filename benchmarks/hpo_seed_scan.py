@@ -17,7 +17,6 @@ import os
 import sys
 from collections import defaultdict
 
-
 PHASE_TIMESTEPS = {1: 300_000, 2: 1_000_000, 3: 1_000_000}
 
 
@@ -48,11 +47,16 @@ def _scan(hp_results_root: str):
                 # Skip degenerate trials (pruned / errored fast).
                 if elapsed < 5:
                     continue
-                rows.append({
-                    "env": env, "method": method, "phase": int(phase),
-                    "n_seeds": int(n_seeds), "elapsed_s": float(elapsed),
-                    "trial": fn.replace("_result.json", ""),
-                })
+                rows.append(
+                    {
+                        "env": env,
+                        "method": method,
+                        "phase": int(phase),
+                        "n_seeds": int(n_seeds),
+                        "elapsed_s": float(elapsed),
+                        "trial": fn.replace("_result.json", ""),
+                    }
+                )
     return rows
 
 
@@ -68,13 +72,19 @@ def _summarise(rows):
         med = elapsed_sorted[len(elapsed_sorted) // 2]
         n_steps = PHASE_TIMESTEPS.get(phase, 0)
         time_per_seed = med / n
-        time_per_seed_per_kstep = (med / n) / (n_steps / 1e3) if n_steps else 0
-        out.append({
-            "env": env, "method": method, "phase": phase, "n_seeds": n,
-            "n_trials": len(elapsed), "median_s": med,
-            "time_per_seed_s": time_per_seed,
-            "us_per_seed_per_step": (med / n) / max(n_steps, 1) * 1e6,
-        })
+        (med / n) / (n_steps / 1e3) if n_steps else 0
+        out.append(
+            {
+                "env": env,
+                "method": method,
+                "phase": phase,
+                "n_seeds": n,
+                "n_trials": len(elapsed),
+                "median_s": med,
+                "time_per_seed_s": time_per_seed,
+                "us_per_seed_per_step": (med / n) / max(n_steps, 1) * 1e6,
+            }
+        )
     return out
 
 
@@ -126,6 +136,10 @@ def main(root: str):
 
 if __name__ == "__main__":
     sys.exit(
-        main(sys.argv[1] if len(sys.argv) > 1
-             else "/home/yberthel/AjaxExperiments/hp_results") or 0
+        main(
+            sys.argv[1]
+            if len(sys.argv) > 1
+            else "/home/yberthel/AjaxExperiments/hp_results"
+        )
+        or 0
     )

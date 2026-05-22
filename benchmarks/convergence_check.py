@@ -38,10 +38,14 @@ def _eval_returns(agent, final_state, eval_seed: int, num_episodes: int) -> List
     of the trained actor states). Returns the per-seed mean return.
     """
     import jax
-    import jax.numpy as jnp
+
     from ajax.evaluate import evaluate
 
-    actor_state = final_state.actor_state if hasattr(final_state, "actor_state") else final_state[0].actor_state
+    actor_state = (
+        final_state.actor_state
+        if hasattr(final_state, "actor_state")
+        else final_state[0].actor_state
+    )
 
     if isinstance(final_state, tuple):
         actor_state = final_state[0].actor_state
@@ -71,31 +75,52 @@ def _eval_returns(agent, final_state, eval_seed: int, num_episodes: int) -> List
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--tag", required=True, help="Mode label (fp32 / bf16_nets / bf16_full)")
+    p.add_argument(
+        "--tag", required=True, help="Mode label (fp32 / bf16_nets / bf16_full)"
+    )
     p.add_argument("--env", default="Pendulum-v1")
     p.add_argument("--n-timesteps", type=int, default=30_000)
-    p.add_argument("--seeds", default="0,1,2,3,4,5,6,7",
-                   help="Comma-separated seed list; same seeds across modes for matched comparison.")
+    p.add_argument(
+        "--seeds",
+        default="0,1,2,3,4,5,6,7",
+        help="Comma-separated seed list; same seeds across modes for matched comparison.",
+    )
     p.add_argument("--eval-episodes", type=int, default=10)
     p.add_argument("--n-envs", type=int, default=4)
     p.add_argument("--num-critics", type=int, default=2)
     p.add_argument("--arch-width", type=int, default=64)
-    p.add_argument("--learning-starts", type=int, default=None,
-                   help="Override SAC learning_starts (default: min(2000, n_timesteps//10)).")
-    p.add_argument("--params-json", default=None,
-                   help="Load HPO-tuned SAC hyperparams from a trial_NNN_params.json. "
-                        "Overrides --arch-width / --num-critics if those are set in the file.")
-    p.add_argument("--out", default=os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "convergence.jsonl"))
-    p.add_argument("--match-hpo-metric", action="store_true",
-                   help="Wire a LoggingConfig + tensorboard during training "
-                        "and report the last logged Eval/episodic_mean_reward "
-                        "scalar (the metric AjaxExperiments' "
-                        "`read_final_metric` reads), in addition to the "
-                        "fresh post-training eval.")
-    p.add_argument("--tb-folder", default=None,
-                   help="Tensorboard folder for --match-hpo-metric. "
-                        "Default: a per-tag temp dir.")
+    p.add_argument(
+        "--learning-starts",
+        type=int,
+        default=None,
+        help="Override SAC learning_starts (default: min(2000, n_timesteps//10)).",
+    )
+    p.add_argument(
+        "--params-json",
+        default=None,
+        help="Load HPO-tuned SAC hyperparams from a trial_NNN_params.json. "
+        "Overrides --arch-width / --num-critics if those are set in the file.",
+    )
+    p.add_argument(
+        "--out",
+        default=os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "convergence.jsonl"
+        ),
+    )
+    p.add_argument(
+        "--match-hpo-metric",
+        action="store_true",
+        help="Wire a LoggingConfig + tensorboard during training "
+        "and report the last logged Eval/episodic_mean_reward "
+        "scalar (the metric AjaxExperiments' "
+        "`read_final_metric` reads), in addition to the "
+        "fresh post-training eval.",
+    )
+    p.add_argument(
+        "--tb-folder",
+        default=None,
+        help="Tensorboard folder for --match-hpo-metric. Default: a per-tag temp dir.",
+    )
     args = p.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
@@ -107,6 +132,7 @@ def main():
 
     # Import after env vars are read.
     import jax
+
     from ajax.agents.SAC.SAC import SAC
 
     # Resolve env. For AjaxExperiments / target_gym envs we delegate
@@ -118,6 +144,7 @@ def main():
     env_params_override = None
     try:
         import sys as _sys
+
         if "/home/yberthel/AjaxExperiments" not in _sys.path:
             _sys.path.insert(0, "/home/yberthel/AjaxExperiments")
         from envs import make_env_by_name as _make_env_by_name
@@ -149,19 +176,19 @@ def main():
         else min(2000, args.n_timesteps // 10)
     )
 
-    sac_kwargs = dict(
-        env_id=env_id_arg,
-        n_envs=args.n_envs,
-        learning_starts=learning_starts,
-        actor_architecture=arch,
-        critic_architecture=arch,
-        num_critics=num_critics,
-        batch_size=int(hp.get("batch_size") or 256),
-        buffer_size=int(min(1e5, args.n_timesteps)),
+    sac_kwargs = {
+        "env_id": env_id_arg,
+        "n_envs": args.n_envs,
+        "learning_starts": learning_starts,
+        "actor_architecture": arch,
+        "critic_architecture": arch,
+        "num_critics": num_critics,
+        "batch_size": int(hp.get("batch_size") or 256),
+        "buffer_size": int(min(1e5, args.n_timesteps)),
         # Match HPO `_build_method_kwargs("sac")`: agent-side running
         # obs normalisation is on by default for the HPO study.
-        normalize_obs_running=True,
-    )
+        "normalize_obs_running": True,
+    }
     if env_params_override is not None:
         sac_kwargs["env_params"] = env_params_override
     # Whitelist of HPO keys SAC accepts directly. Skip keys that are
@@ -192,11 +219,10 @@ def main():
     captured_run_ids: list = []
     if args.match_hpo_metric:
         import tempfile
+
         from ajax.logging.wandb_logging import LoggingConfig
 
-        tb_folder = args.tb_folder or tempfile.mkdtemp(
-            prefix=f"ajax_conv_{args.tag}_"
-        )
+        tb_folder = args.tb_folder or tempfile.mkdtemp(prefix=f"ajax_conv_{args.tag}_")
         logging_config = LoggingConfig(
             project_name=f"convergence_{args.tag}",
             run_name=f"{args.tag}_{args.env}",
@@ -212,27 +238,28 @@ def main():
         def _capture_ids(ids):
             captured_run_ids.extend(ids)
 
-        train_kwargs = {"on_ids_ready": _capture_ids,
-                        "logging_config": logging_config}
+        train_kwargs = {"on_ids_ready": _capture_ids, "logging_config": logging_config}
     else:
         train_kwargs = {}
 
     t0 = time.perf_counter()
-    final = agent.train(seed=seeds, n_timesteps=args.n_timesteps,
-                        **train_kwargs)
+    final = agent.train(seed=seeds, n_timesteps=args.n_timesteps, **train_kwargs)
     jax.block_until_ready(final)
     train_s = time.perf_counter() - t0
 
     t1 = time.perf_counter()
     per_seed_returns = _eval_returns(
-        agent, final, eval_seed=12345, num_episodes=args.eval_episodes,
+        agent,
+        final,
+        eval_seed=12345,
+        num_episodes=args.eval_episodes,
     )
     eval_s = time.perf_counter() - t1
 
     n = len(per_seed_returns)
     mean = sum(per_seed_returns) / n
     var = sum((r - mean) ** 2 for r in per_seed_returns) / max(n - 1, 1)
-    std = var ** 0.5
+    std = var**0.5
 
     # Re-implement HPO's read_final_metric: load the last logged
     # Eval/episodic_mean_reward per run_id, average across seeds.

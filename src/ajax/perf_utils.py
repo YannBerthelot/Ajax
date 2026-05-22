@@ -98,13 +98,9 @@ def final_aux_scan(
         return (new_carry, aux), None
 
     # Sample xs at index 0 if it is a per-step pytree, otherwise use None.
-    sample_x = (
-        jax.tree.map(lambda a: a[0], xs) if xs is not None else None
-    )
+    sample_x = jax.tree.map(lambda a: a[0], xs) if xs is not None else None
     aux_shape = jax.eval_shape(lambda c: body(c, sample_x)[1], init_carry)
-    init_aux = jax.tree.map(
-        lambda s: jnp.zeros(s.shape, s.dtype), aux_shape
-    )
+    init_aux = jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), aux_shape)
     (final_carry, last_aux), _ = jax.lax.scan(
         _wrapped, (init_carry, init_aux), xs=xs, length=length
     )

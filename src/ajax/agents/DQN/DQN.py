@@ -55,6 +55,8 @@ class DQN(ActorCritic):
         # Q-network module: None -> QNetwork. Pass DuelingQNetwork
         # (from DQN.networks) for the dueling architecture.
         q_network_cls: Optional[type] = None,
+        # Extra eval metrics: (agent_state, key) -> dict, logged each eval.
+        extra_eval_metrics: Optional[Callable] = None,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "DQN"})
@@ -97,6 +99,7 @@ class DQN(ActorCritic):
         self.td_target_fn = td_target_fn
         self.td_loss_fn = td_loss_fn
         self.q_network_cls = q_network_cls
+        self.extra_eval_metrics = extra_eval_metrics
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -110,4 +113,5 @@ class DQN(ActorCritic):
             td_target_fn=self.td_target_fn,
             td_loss_fn=self.td_loss_fn,
             q_network_cls=self.q_network_cls,
+            extra_eval_metrics=self.extra_eval_metrics,
         )

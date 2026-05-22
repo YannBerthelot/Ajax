@@ -27,7 +27,19 @@ from ajax.extensions.expert import (
     OnlineBC,
     ResidualPolicy,
 )
-from ajax.extensions.target_mods import IBRL
+from ajax.extensions.exploration import EDGEExploration
+from ajax.extensions.pretrain import (
+    BellmanPretrain,
+    MCPretrain,
+    PhiRefresh,
+)
+from ajax.extensions.target_mods import (
+    IBRL,
+    CriticBlend,
+    LCBGatedBootstrap,
+    MCVarianceCorrection,
+    ValueBox,
+)
 
 # --------------------------------------------------------------------------
 # Test infrastructure
@@ -240,9 +252,7 @@ def test_jsrl_curriculum_matches_legacy_flag():
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            JSRLCurriculum(
-                expert_policy=expert, episode_length=50, decay_frac=0.5
-            ),
+            JSRLCurriculum(expert_policy=expert, episode_length=50, decay_frac=0.5),
         ),
     )
     s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
@@ -298,6 +308,295 @@ def test_expert_obs_aug_constructs_and_trains():
     )
     state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     assert state is not None
+
+
+# --------------------------------------------------------------------------
+# EDGE exploration — six gate variants. Each maps onto a different action-
+# pipeline gate function (see ajax.modules.exploration), so all six are
+# materially distinct code paths and worth pinning under the equivalence
+# contract.
+# --------------------------------------------------------------------------
+def _edge_legacy_kwargs(gate: str) -> dict:
+    """Map a gate name to its legacy-flag set (mirrors _resolve_extension_stack)."""
+    return {
+        "exploration_argmax": gate == "argmax",
+        "exploration_boltzmann": gate == "boltzmann",
+        "exploration_lcb": gate == "lcb",
+        "exploration_argmax_lcb": gate == "argmax_lcb",
+        "exploration_thompson": gate == "thompson",
+    }
+
+
+@pytest.mark.parametrize(
+    "gate", ["fixed", "argmax", "boltzmann", "lcb", "argmax_lcb", "thompson"]
+)
+def test_edge_exploration_matches_legacy_flags(gate: str):
+    expert = _noise_expert()
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_expert_guided_exploration=True,
+        **_edge_legacy_kwargs(gate),
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            EDGEExploration(expert_policy=expert, gate=gate),
+        ),
+    )
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, f"edge_{gate}")
+
+
+# --------------------------------------------------------------------------
+# LCB-gated bootstrap — target modifier that soft-blends policy/expert
+# next-actions by an LCB score (``lcb_gated_bootstrap=True``).
+# --------------------------------------------------------------------------
+def test_lcb_gated_bootstrap_matches_legacy_flag():
+    expert = _noise_expert()
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        lcb_gated_bootstrap=True,
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            LCBGatedBootstrap(expert_policy=expert),
+        ),
+    )
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, "lcb_gated_bootstrap")
+
+
+# --------------------------------------------------------------------------
+# MC critic pre-training (``use_mc_critic_pretrain=True``). Tiny config:
+# small MC rollouts + few regression steps + few online-light steps so the
+# test stays fast.
+# --------------------------------------------------------------------------
+_MC_KW = {
+    "n_mc_steps": 200,
+    "n_mc_episodes": 4,
+    "n_steps": 20,
+    "online_light_steps": 5,
+}
+_MC_LEGACY_KW = {
+    "mc_pretrain_n_mc_steps": _MC_KW["n_mc_steps"],
+    "mc_pretrain_n_mc_episodes": _MC_KW["n_mc_episodes"],
+    "mc_pretrain_n_steps": _MC_KW["n_steps"],
+    "online_critic_pretrain_steps": _MC_KW["online_light_steps"],
+}
+
+
+def test_mc_pretrain_matches_legacy_flag():
+    expert = _noise_expert()
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_mc_critic_pretrain=True,
+        **_MC_LEGACY_KW,
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            MCPretrain(expert_policy=expert, **_MC_KW),
+        ),
+    )
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, "mc_pretrain")
+
+
+# --------------------------------------------------------------------------
+# Bellman critic pre-training (``use_bellman_critic_pretrain=True``).
+#
+# Quirk: the legacy ``pretrain_critic_bellman`` path is currently broken
+# under JIT — it calls a non-static ``update_target_fn`` inside a jitted
+# init_fn, which raises ``TypeError: Error interpreting argument [...] as
+# an abstract array``. Reproducible without any extension surface (just
+# ``SAC(..., use_bellman_critic_pretrain=True)``). This is unrelated to
+# the extension-resolver mapping under test here, so this test verifies
+# the resolver wiring directly (mirroring the
+# ``test_online_bc_matches_legacy_flag`` / ``test_expert_obs_aug_*``
+# pattern) rather than running training end-to-end.
+# --------------------------------------------------------------------------
+def test_bellman_pretrain_resolver_wiring():
+    from ajax.agents.SAC.sac import _resolve_extension_stack
+
+    expert = _noise_expert()
+    resolved = _resolve_extension_stack(
+        (
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            BellmanPretrain(expert_policy=expert, n_steps=20),
+        )
+    )
+    assert resolved.get("use_bellman_critic_pretrain") is True
+    assert resolved.get("mc_pretrain_n_steps") == 20
+    assert resolved.get("expert_policy") is expert
+
+
+# --------------------------------------------------------------------------
+# CriticBlend — warmup-decaying blend with the frozen expert critic value.
+# Requires MC pre-training (which populates ``expert_critic_params``).
+# --------------------------------------------------------------------------
+def test_critic_blend_matches_legacy_flag():
+    expert = _noise_expert()
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_mc_critic_pretrain=True,
+        use_critic_blend=True,
+        critic_warmup_frac=0.5,
+        **_MC_LEGACY_KW,
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            MCPretrain(expert_policy=expert, **_MC_KW),
+            CriticBlend(expert_policy=expert, critic_warmup_frac=0.5),
+        ),
+    )
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, "critic_blend")
+
+
+# --------------------------------------------------------------------------
+# MCVarianceCorrection — replace high-variance Bellman targets with the
+# MC oracle when ensemble σ exceeds ``threshold``. Requires MC pre-training.
+# Note: the threshold must be low enough that the correction actually fires
+# at the tiny scale of this test — use 0.0 so it triggers on every batch.
+# --------------------------------------------------------------------------
+def test_mc_variance_correction_matches_legacy_flag():
+    expert = _noise_expert()
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_mc_critic_pretrain=True,
+        mc_variance_threshold=0.0,
+        **_MC_LEGACY_KW,
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            MCPretrain(expert_policy=expert, **_MC_KW),
+            MCVarianceCorrection(threshold=0.0),
+        ),
+    )
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, "mc_variance_correction")
+
+
+# --------------------------------------------------------------------------
+# ValueBox (``use_box=True``) — collection-time override of the policy
+# action with the expert's whenever V_expert(s) exceeds a curriculum
+# threshold. v_min/v_max come from MC pre-training, so MCPretrain must be
+# present in the stack.
+# --------------------------------------------------------------------------
+def test_value_box_matches_legacy_flag():
+    expert = _noise_expert()
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_mc_critic_pretrain=True,
+        use_box=True,
+        **_MC_LEGACY_KW,
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            MCPretrain(expert_policy=expert, **_MC_KW),
+            ValueBox(expert_policy=expert),
+        ),
+    )
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, "value_box")
+
+
+# --------------------------------------------------------------------------
+# PhiRefresh (``use_phi_refresh=True``) — periodic self-consistent refresh
+# of the frozen expert critic during training. Requires MC pre-training
+# (which creates the refreshable φ*). Use a tiny interval so the refresh
+# actually fires within _TIMESTEPS=80.
+# --------------------------------------------------------------------------
+def test_phi_refresh_matches_legacy_flag():
+    expert = _noise_expert()
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_mc_critic_pretrain=True,
+        use_phi_refresh=True,
+        phi_refresh_interval=30,
+        phi_refresh_steps=2,
+        **_MC_LEGACY_KW,
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
+            ExpertGuidance(
+                expert_policy=expert,
+                expert_buffer_n_steps=0,
+                expert_mix_fraction=0.0,
+            ),
+            MCPretrain(expert_policy=expert, **_MC_KW),
+            PhiRefresh(expert_policy=expert, interval=30, steps=2),
+        ),
+    )
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, "phi_refresh")
 
 
 if __name__ == "__main__":

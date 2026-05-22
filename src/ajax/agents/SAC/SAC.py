@@ -215,6 +215,7 @@ class SAC(ActorCritic):
         runtime_maintenance: Optional[Callable] = None,
         extra_actor_loss_fn: Optional[Callable] = None,
         extra_critic_loss_fn: Optional[Callable] = None,
+        her_relabel_fn: Optional[Callable] = None,
         init_transform: Optional[Callable] = None,
         auxiliary_update: Optional[Callable] = None,
         extra_eval_metrics: Optional[Callable] = None,
@@ -396,6 +397,7 @@ class SAC(ActorCritic):
         self.runtime_maintenance = runtime_maintenance
         self.extra_actor_loss_fn = extra_actor_loss_fn
         self.extra_critic_loss_fn = extra_critic_loss_fn
+        self.her_relabel_fn = her_relabel_fn
         self.init_transform = init_transform
         self.auxiliary_update = auxiliary_update
         self.extra_eval_metrics = extra_eval_metrics
@@ -483,6 +485,7 @@ class SAC(ActorCritic):
             runtime_maintenance=self.runtime_maintenance,
             extra_actor_loss_fn=self.extra_actor_loss_fn,
             extra_critic_loss_fn=self.extra_critic_loss_fn,
+            her_relabel_fn=self.her_relabel_fn,
             init_transform=self.init_transform,
             auxiliary_update=self.auxiliary_update,
             extra_eval_metrics=self.extra_eval_metrics,

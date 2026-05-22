@@ -10,6 +10,7 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
 from ajax.agents.cloning import (
@@ -796,7 +797,7 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @partial(jax.jit)
+    @train_jit
     def train(key, index: Optional[int] = None):
         """Train the APO agent."""
         init_key, expert_key = jax.random.split(key)

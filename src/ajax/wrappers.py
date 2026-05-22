@@ -225,6 +225,16 @@ class VecEnv(GymnaxWrapper):
 def init_norm_info(
     batch_size: int, obs_shape: tuple, returns: bool = False
 ) -> NormalizationInfo:
+    """Initialise running stats with leading axis ``batch_size``.
+
+    The leading axis is *redundant* (online_normalize collapses it on
+    every update, so rows carry identical values) but it is load-bearing
+    for env-side callers: env-side stats live inside the env state
+    pytree, which Brax's ``VmapWrapper`` vmaps over the n_envs axis.
+    Shrinking the stats to ``(1, *)`` would break that vmap with a
+    mismatched-axis error. Agent-side callers should pass
+    ``batch_size=1`` instead (see ``init_agent_obs_norm``).
+    """
     count = jnp.zeros((batch_size, 1))
     mean = jnp.zeros((batch_size, *obs_shape))
     mean_2 = jnp.zeros((batch_size, *obs_shape))

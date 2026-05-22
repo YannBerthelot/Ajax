@@ -219,6 +219,15 @@ class Critic(nn.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         return self.model(self.encoder(x))
 
+    def apply_encoder(self, x: jax.Array) -> jax.Array:
+        """Expose the encoder's features alone, without the value head.
+
+        Used by auxiliary representation-shaping losses (VAE, RSSM) that
+        need to push gradients into the shared encoder while owning
+        their own decoder/prior/posterior heads.
+        """
+        return self.encoder(x)
+
 
 class MultiHeadCritic(Critic):
     """Critic with a shared encoder and one or more *additional* value heads.
@@ -343,6 +352,17 @@ class MultiHeadCritic(Critic):
             out[name] = self._extra_head(name)(feat)
         return out
 
+    def apply_encoder(self, x: jax.Array) -> jax.Array:
+        """Expose the shared encoder's features alone, without any head.
+
+        Used by auxiliary representation-shaping losses (VAE, RSSM)
+        that need to push gradients into the shared encoder while
+        owning their own decoder/prior/posterior heads. Returning the
+        normalised feature vector keeps the latent geometry identical
+        to what the Q heads and ``v_safety`` head see.
+        """
+        return self.encoder(x)
+
 
 class MultiCritic(nn.Module):
     """
@@ -360,24 +380,37 @@ class MultiCritic(nn.Module):
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
 
-    @nn.compact
-    def __call__(self, *args, **kwargs):
-        ensemble = nn.vmap(
+    def setup(self):
+        Vmapped = nn.vmap(
             target=Critic,
             in_axes=None,
             out_axes=0,
             variable_axes={"params": 0},
             split_rngs={"params": True},
             axis_size=self.num,
+            methods=("__call__", "apply_encoder"),
         )
-        return ensemble(
+        self.ensemble = Vmapped(
             self.input_architecture,
             self.penultimate_normalization,
             self.kernel_init,
             self.bias_init,
             self.encoder_kernel_init,
             self.encoder_bias_init,
-        )(*args, **kwargs)
+        )
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return self.ensemble(x)
+
+    def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
+        """Per-ensemble-member encoder features, shape ``(num, ..., d)``.
+
+        Auxiliary modules (VAE, RSSM) consume these features to drive
+        gradients back through the shared encoder. Callers typically
+        average across the ensemble axis since the encoder sees
+        identical inputs and only diverges via its init RNG.
+        """
+        return self.ensemble.apply_encoder(x)
 
 
 class MultiHeadMultiCritic(nn.Module):
@@ -416,7 +449,7 @@ class MultiHeadMultiCritic(nn.Module):
             variable_axes={"params": 0},
             split_rngs={"params": True},
             axis_size=self.num,
-            methods=("__call__", "apply_head", "apply_all_heads"),
+            methods=("__call__", "apply_head", "apply_all_heads", "apply_encoder"),
         )
         self.ensemble = Vmapped(
             input_architecture=self.input_architecture,
@@ -441,6 +474,16 @@ class MultiHeadMultiCritic(nn.Module):
         """Per-ensemble-member output of every head, returned as a
         ``{head_name -> (num, ...)}`` dict."""
         return self.ensemble.apply_all_heads(x)
+
+    def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
+        """Per-ensemble-member encoder features, shape ``(num, ..., d)``.
+
+        Auxiliary modules (VAE, RSSM) consume these features to drive
+        gradients back through the shared encoder. Callers typically
+        aggregate across the ensemble axis (mean) since the encoder
+        sees identical inputs and only diverges due to its init RNG.
+        """
+        return self.ensemble.apply_encoder(x)
 
 
 def get_initialized_actor_critic(
@@ -559,10 +602,14 @@ def get_initialized_actor_critic(
         _obs_shape[-1] += obs_extra
         observation_shape = tuple(_obs_shape)
 
-    init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
+    # Flax network.init only reads init_x's shape to infer param shapes;
+    # the leading batch dim can be 1. Allocating (n_envs, ...) just
+    # materialised an n_envs× larger zero tensor for no benefit, and
+    # matters when n_envs is large or obs are high-dim (images).
+    init_obs = jnp.zeros((1, *observation_shape))
     if action_dim_override is not None:
         action_shape = (action_dim_override,)
-    init_action = jnp.zeros((env_config.n_envs, *action_shape))
+    init_action = jnp.zeros((1, *action_shape))
 
     actor_state = init_network_state(
         init_x=init_obs,
@@ -614,8 +661,8 @@ def get_initialized_critic(
         _obs_shape[-1] += obs_extra
         observation_shape = tuple(_obs_shape)
 
-    init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
-    init_action = jnp.zeros((env_config.n_envs, *action_shape))
+    init_obs = jnp.zeros((1, *observation_shape))
+    init_action = jnp.zeros((1, *action_shape))
 
     return init_network_state(
         init_x=jnp.hstack([init_obs, init_action]),

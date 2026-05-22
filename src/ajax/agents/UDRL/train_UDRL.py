@@ -26,6 +26,7 @@ from flax import struct
 from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
+from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.UDRL.buffer import (
     add_segment,
@@ -547,7 +548,7 @@ def make_train(
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     recurrent = network_args.lstm_hidden_size is not None
 
-    @partial(jax.jit, static_argnames=("resume_from_state",))
+    @train_jit
     def train(
         key: jax.Array,
         index: Optional[int] = None,

@@ -23,9 +23,12 @@ training functions consume; see :func:`ajax.agents.SAC.sac.make_train`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
-from ajax.extensions.base import Extension
+import jax
+
+from ajax.extensions.base import Extension, ExtensionContext
+from ajax.modules.expert import compute_online_bc_loss, residual_action_transform
 
 
 @dataclass(frozen=True)
@@ -70,13 +73,64 @@ class OnlineBC(Extension):
 
     Equivalent to the ``use_online_bc`` additive actor-loss term: a
     ``bc_coef · w(s) · ||μ_θ(s) - a_expert||²`` penalty that decays to
-    zero once ``train_frac`` exceeds ``critic_warmup_frac``.
+    zero once ``train_frac`` exceeds ``critic_warmup_frac``. The
+    behaviour is identical to the pre-refactor ``make_bc_loss_fn``
+    builder: the term is silently skipped when
+    ``agent_state.expert_critic_params is None`` (i.e.
+    :class:`MCPretrain` hasn't run), which keeps a stack with only this
+    extension a no-op rather than an error.
+
+    The actor-loss call site folds every extension via
+    ``stack.actor_loss(...)``; this method reads ``pi_loc``,
+    ``a_expert``, ``observations`` and ``train_frac`` from ``batch``
+    (populated by :func:`policy_loss_function` in
+    ``ajax.agents.SAC.sac``).
     """
 
     expert_policy: Callable
     bc_coef: float = 1.0
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
+
+    def actor_loss(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: Any,
+        ctx: ExtensionContext,
+    ) -> Any:
+        del agent_state, ext_state, ctx
+        # ``policy_loss_function`` (in ``ajax.agents.SAC.sac``) is what
+        # populates ``batch`` here. Every operand the legacy
+        # ``compute_online_bc_loss`` consumes is threaded through that
+        # dict so this method needs nothing off ``agent_state`` — see
+        # the Phase 2b commit notes on actor-loss plumbing.
+        expert_critic_params = batch.get("expert_critic_params", None)
+        a_expert = batch.get("a_expert", None)
+        train_frac = batch.get("train_frac", None)
+        # Mirror legacy ``bc_loss_fn is not None and
+        # expert_critic_params is not None`` gate: no-op when MC
+        # pre-training hasn't supplied φ*, or when ``critic_warmup_frac
+        # <= 0`` (the BC term would always be zero anyway).
+        if (
+            expert_critic_params is None
+            or a_expert is None
+            or train_frac is None
+            or self.critic_warmup_frac <= 0
+        ):
+            return 0.0
+        return compute_online_bc_loss(
+            batch["pi_loc"],
+            a_expert,
+            batch["critic_state"],
+            expert_critic_params,
+            batch["observations"],
+            train_frac,
+            self.critic_warmup_frac,
+            batch["expert_v_min"],
+            batch["expert_v_max"],
+            self.bc_coef,
+        )
 
 
 @dataclass(frozen=True)
@@ -86,11 +140,20 @@ class ResidualPolicy(Extension):
     The executed action is ``clip(a_expert + scale·a_pi, -1, 1)``. The
     actor's policy gradient and the TD-target bootstrap both flow through
     the residual transform. Equivalent to ``use_residual_rl``.
+
+    The actor-loss / TD-target call sites pull this extension's
+    :meth:`transform_action` helper directly off the stack; the
+    collection-time substitution stays with ``make_action_pipeline``
+    via the legacy ``use_residual_rl=True`` flag the resolver echoes.
     """
 
     expert_policy: Callable
     scale: float = 1.0
     name: str = "residual_policy"
+
+    def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
+        """``clip(a_expert + scale·a_pi, -1, 1)`` — the residual mix."""
+        return residual_action_transform(actions, a_expert, scale=self.scale)
 
 
 @dataclass(frozen=True)

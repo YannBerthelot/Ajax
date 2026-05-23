@@ -46,11 +46,12 @@ SAC_FAMILY_HOOKS = (
     "policy_action_transform",
 )
 
-# SAC additionally exposes ``runtime_maintenance`` (phi-refresh hook)
-# and loss-augmentation hooks folded into the single Adam step.
+# SAC additionally exposes loss-augmentation hooks folded into the single
+# Adam step. The pre-Phase-2b ``runtime_maintenance`` hook was migrated to
+# :meth:`PhiRefresh.post_update`; the SAC.__init__ surface no longer
+# accepts it.
 SAC_HOOKS = (
     *SAC_FAMILY_HOOKS,
-    "runtime_maintenance",
     "extra_actor_loss_fn",
     "extra_critic_loss_fn",
     "init_transform",

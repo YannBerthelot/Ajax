@@ -23,9 +23,7 @@ import jax.numpy as jnp
 
 from ajax.environments.interaction import get_action_and_log_probs
 from ajax.modules.expert import (
-    compute_online_bc_loss,
     detach_obs_expert_dims,
-    residual_action_transform,
 )
 from ajax.modules.exploration import (
     box_action_override,
@@ -42,10 +40,6 @@ from ajax.modules.exploration import (
     edge_lcb_argmax_gate,
     edge_lcb_gate,
     edge_thompson_gate,
-)
-from ajax.modules.pretrain import (
-    PhiRefreshAuxiliaries,
-    refresh_phi_star,
 )
 
 # ---------------------------------------------------------------------------
@@ -594,113 +588,6 @@ def make_policy_obs_preprocessor(
         return detach_obs_expert_dims(observations, action_dim)
 
     return preprocess
-
-
-def make_policy_action_transform(
-    use_residual_rl, expert_policy, residual_scale: float = 1.0
-):
-    """Compose policy action transform: residual RL.
-
-    Returns None for vanilla SAC. When provided, transforms actions
-    before Q evaluation in the actor loss. ``residual_scale`` follows
-    Johannink et al. 2019: executed action is
-    ``clip(a_expert + residual_scale * a_pi, -1, 1)``.
-    """
-    if not use_residual_rl or expert_policy is None:
-        return None
-
-    def transform(actions, raw_obs, a_expert_precomputed):
-        a_exp = (
-            a_expert_precomputed
-            if a_expert_precomputed is not None
-            else jax.lax.stop_gradient(expert_policy(raw_obs))
-        )
-        return residual_action_transform(actions, a_exp, scale=residual_scale)
-
-    return transform
-
-
-def make_bc_loss_fn(use_online_bc, bc_coef, critic_warmup_frac, expert_policy):
-    """Compose online decaying BC loss.
-
-    Returns None when BC is disabled. Captures bc_coef and critic_warmup_frac
-    in the closure so they don't need to be threaded through the call chain.
-    """
-    if not use_online_bc or expert_policy is None or critic_warmup_frac <= 0:
-        return None
-
-    def compute(
-        pi_loc,
-        a_expert,
-        critic_state,
-        expert_critic_params,
-        observations,
-        train_frac,
-        expert_v_min,
-        expert_v_max,
-    ):
-        return compute_online_bc_loss(
-            pi_loc,
-            a_expert,
-            critic_state,
-            expert_critic_params,
-            observations,
-            train_frac,
-            critic_warmup_frac,
-            expert_v_min,
-            expert_v_max,
-            bc_coef,
-        )
-
-    return compute
-
-
-# ---------------------------------------------------------------------------
-# Runtime maintenance — composable periodic φ* refresh
-# ---------------------------------------------------------------------------
-
-
-def make_runtime_maintenance(
-    use_phi_refresh=False,
-    phi_refresh_interval=500,
-    phi_refresh_steps=20,
-    gamma=0.99,
-    reward_scale=1.0,
-    expert_policy=None,
-    buffer=None,
-):
-    """Compose periodic runtime maintenance (φ* refresh).
-
-    Returns None when phi_refresh is disabled. When provided, runs
-    self-consistent Bellman steps on expert buffer transitions periodically.
-    Replaces use_phi_refresh, phi_refresh_interval, phi_refresh_steps
-    in training_iteration.
-    """
-    if not use_phi_refresh or expert_policy is None:
-        return None
-
-    _zero = PhiRefreshAuxiliaries(
-        loss_before=jnp.zeros(1),
-        loss_after=jnp.zeros(1),
-        expert_buffer_size=jnp.zeros(1),
-    )
-
-    def maintenance(agent_state):
-        return jax.lax.cond(
-            agent_state.collector_state.timestep % phi_refresh_interval == 0,
-            lambda s: refresh_phi_star(
-                s,
-                buffer,
-                phi_refresh_steps,
-                gamma,
-                reward_scale,
-                expert_policy,
-            ),
-            lambda s: (s, _zero),
-            operand=agent_state,
-        )
-
-    return maintenance
 
 
 # ---------------------------------------------------------------------------

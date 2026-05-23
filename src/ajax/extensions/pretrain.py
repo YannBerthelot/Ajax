@@ -20,9 +20,12 @@ is delegated to the unchanged pure functions in
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable, Optional
 
-from ajax.extensions.base import Extension
+import jax
+
+from ajax.extensions.base import Extension, ExtensionContext
+from ajax.modules.pretrain import refresh_phi_star
 
 
 @dataclass(frozen=True)
@@ -68,12 +71,61 @@ class PhiRefresh(Extension):
     ``steps`` self-consistent Bellman updates on expert-flagged buffer
     transitions, keeping ``φ*`` aligned with the live data distribution.
     Requires :class:`MCPretrain` (which creates the refreshable ``φ*``).
+
+    ``buffer``, ``gamma`` and ``reward_scale`` are populated by the
+    SAC training factory's auto-append shim from
+    ``agent_config.gamma`` / ``agent_config.reward_scale`` / the agent
+    ``buffer``. User-constructed ``PhiRefresh()`` instances leave them
+    ``None``; the SAC factory copies the resolved values onto the
+    instance with ``dataclasses.replace`` so the ``post_update`` math
+    has everything it needs without threading per-step kwargs through
+    the phase API.
     """
 
     expert_policy: Callable
     interval: int = 500
     steps: int = 20
+    buffer: Any = None
+    gamma: Optional[float] = None
+    reward_scale: Optional[float] = None
     name: str = "phi_refresh"
+
+    def post_update(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        ctx: ExtensionContext,
+    ) -> tuple[Any, Any]:
+        # ``post_update`` runs once per ``do_update`` (after the collect
+        # step, before the inner gradient-step scan). The interval gate
+        # below is byte-equivalent to the pre-refactor
+        # ``make_runtime_maintenance`` callable: refresh whenever
+        # ``timestep % interval == 0``; otherwise pass through unchanged.
+        del ctx
+        if self.buffer is None or self.gamma is None or self.reward_scale is None:
+            # Unconfigured PhiRefresh — no-op (the SAC factory's
+            # auto-append shim is what populates these fields).
+            return agent_state, ext_state
+        interval = self.interval
+        steps = self.steps
+        gamma = self.gamma
+        reward_scale = self.reward_scale
+        expert_policy = self.expert_policy
+        buffer = self.buffer
+
+        def _do_refresh(s: Any) -> Any:
+            new_s, _aux = refresh_phi_star(
+                s, buffer, steps, gamma, reward_scale, expert_policy
+            )
+            return new_s
+
+        new_state = jax.lax.cond(
+            agent_state.collector_state.timestep % interval == 0,
+            _do_refresh,
+            lambda s: s,
+            operand=agent_state,
+        )
+        return new_state, ext_state
 
 
 __all__ = ["MCPretrain", "BellmanPretrain", "PhiRefresh"]

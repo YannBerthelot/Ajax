@@ -213,7 +213,6 @@ class SAC(ActorCritic):
         obs_preprocessor: Optional[Callable] = None,
         policy_action_transform: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
-        runtime_maintenance: Optional[Callable] = None,
         extra_actor_loss_fn: Optional[Callable] = None,
         extra_critic_loss_fn: Optional[Callable] = None,
         her_relabel_fn: Optional[Callable] = None,
@@ -397,7 +396,6 @@ class SAC(ActorCritic):
         self.obs_preprocessor = obs_preprocessor
         self.policy_action_transform = policy_action_transform
         self.eval_action_transform = eval_action_transform
-        self.runtime_maintenance = runtime_maintenance
         self.extra_actor_loss_fn = extra_actor_loss_fn
         self.extra_critic_loss_fn = extra_critic_loss_fn
         self.her_relabel_fn = her_relabel_fn
@@ -484,7 +482,6 @@ class SAC(ActorCritic):
             obs_preprocessor=self.obs_preprocessor,
             policy_action_transform=self.policy_action_transform,
             eval_action_transform=self.eval_action_transform,
-            runtime_maintenance=self.runtime_maintenance,
             extra_actor_loss_fn=self.extra_actor_loss_fn,
             extra_critic_loss_fn=self.extra_critic_loss_fn,
             her_relabel_fn=self.her_relabel_fn,

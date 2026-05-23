@@ -33,12 +33,9 @@ from ajax.environments.utils import (
 )
 from ajax.extensions._sac_hooks import (
     make_action_pipeline,
-    make_bc_loss_fn,
     make_eval_action_transform,
     make_next_expert_fn,
-    make_policy_action_transform,
     make_policy_obs_preprocessor,
-    make_runtime_maintenance,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.log import evaluate_and_log
@@ -479,7 +476,9 @@ def policy_loss_function(
     # Composed policy modifiers (replace 6 boolean flags)
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    ext_state: tuple = (),
+    total_timesteps: int = 1,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """SAC actor loss with composable expert modifiers.
 
@@ -487,7 +486,7 @@ def policy_loss_function(
     1. Pre-process: obs_preprocessor (detach expert-action dims)
     2. Core: forward pass → sample → Q eval → α·log π - Q
     3. Modifier: policy_action_transform (residual RL before Q eval)
-    4. Modifier: bc_loss_fn (online decaying BC term)
+    4. Modifier: extension_stack.actor_loss (e.g. OnlineBC term)
     5. Diagnostics: expert Q gap, L2 distance, behavior KPIs
     """
     _raw_obs = (
@@ -534,8 +533,16 @@ def policy_loss_function(
     loss_actor = alpha * log_probs - q_min
 
     # 4. Expert diagnostics and BC loss
+    # OnlineBC is the only :class:`Extension` that currently contributes
+    # an ``actor_loss`` term; trigger the precomputed-a_expert path
+    # whenever that extension is present so the BC math finds its
+    # operand (the legacy ``needs_bc`` gate keyed on a non-None
+    # ``bc_loss_fn`` callable, which is gone now).
     needs_expert = expert_policy is not None and use_expert_guidance
-    needs_bc = bc_loss_fn is not None and expert_critic_params is not None
+    has_online_bc = extension_stack is not None and any(
+        ext.name == "online_bc" for ext in extension_stack.extensions
+    )
+    needs_bc = has_online_bc and expert_critic_params is not None
 
     if needs_expert or needs_bc:
         a_expert = (
@@ -562,17 +569,38 @@ def policy_loss_function(
         q_expert_logged = jnp.zeros(())
         above_expert_frac = jnp.zeros(())
 
-    # Online decaying BC term
-    if needs_bc:
-        bc_term = bc_loss_fn(
-            pi.distribution.loc,
-            a_expert,
-            critic_states,
-            expert_critic_params,
-            observations,
-            train_frac,
-            expert_v_min,
-            expert_v_max,
+    # Additive actor-loss terms — folded through ``stack.actor_loss``.
+    # Each extension reads what it needs out of the ``batch`` dict
+    # (OnlineBC: pi_loc, a_expert, train_frac, critic_state,
+    # expert_critic_params, expert_v_min/v_max). When the relevant
+    # operands are missing (e.g. ``expert_critic_params is None`` ⇒ MC
+    # pre-training hasn't run) the extension's own gate returns 0.0,
+    # so this path is a silent no-op in that case — matching the
+    # pre-refactor ``bc_loss_fn`` builder, which simply returned
+    # ``None``. Empty stack ⇒ 0.0 too.
+    if extension_stack is not None and extension_stack.extensions:
+        ext_batch = {
+            "pi_loc": pi.distribution.loc,
+            "a_expert": a_expert,
+            "observations": observations,
+            "train_frac": train_frac,
+            "critic_state": critic_states,
+            "expert_critic_params": expert_critic_params,
+            "expert_v_min": expert_v_min,
+            "expert_v_max": expert_v_max,
+        }
+        ext_ctx = ExtensionContext(
+            step=jnp.asarray(0),
+            rng=rng,
+            total_steps=total_timesteps,
+        )
+        # The actor-loss extensions (OnlineBC) read every operand off
+        # ``batch``; agent_state and ext_state are passed for API
+        # symmetry. The ext_state tuple must match the stack's
+        # ``init_states`` shape (one entry per extension) so the
+        # ExtensionStack fold can index it.
+        bc_term = jnp.asarray(
+            extension_stack.actor_loss(None, ext_state, ext_batch, ext_ctx)
         )
     else:
         bc_term = jnp.zeros(())
@@ -616,7 +644,8 @@ def update_policy(
     # Composed policy modifiers
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
     extra_actor_loss_fn: Optional[Callable] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
     """Returns (new_state, aux, log_probs) — log_probs reused by update_temperature
@@ -651,7 +680,9 @@ def update_policy(
         expert_v_max=agent_state.expert_v_max,
         obs_preprocessor=obs_preprocessor,
         policy_action_transform=policy_action_transform,
-        bc_loss_fn=bc_loss_fn,
+        extension_stack=extension_stack,
+        ext_state=agent_state.ext_state,
+        total_timesteps=total_timesteps,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -758,7 +789,6 @@ def update_agent(
     extension_stack: Optional[ExtensionStack] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
     # Optional Hindsight-Experience-Replay relabel. Signature
@@ -913,10 +943,17 @@ def update_agent(
     # Avoids computing expert_policy twice (once here, once inside policy_loss_function)
     expert_q = None
     a_expert_precomputed = None
+    # ``has_online_bc`` mirrors the legacy ``bc_loss_fn is not None``
+    # gate now that the BC term lives on
+    # :meth:`OnlineBC.actor_loss`. Triggering the precomputed-a_expert
+    # path whenever the extension is present preserves the original
+    # numerical path even when MC pretrain hasn't (yet) populated
+    # ``expert_critic_params``.
+    has_online_bc = extension_stack is not None and any(
+        ext.name == "online_bc" for ext in extension_stack.extensions
+    )
     needs_expert = expert_policy is not None and (
-        use_expert_guidance
-        or policy_action_transform is not None
-        or bc_loss_fn is not None
+        use_expert_guidance or policy_action_transform is not None or has_online_bc
     )
     if needs_expert:
         _raw = (
@@ -1026,7 +1063,8 @@ def update_agent(
         train_frac=train_frac,
         obs_preprocessor=obs_preprocessor,
         policy_action_transform=policy_action_transform,
-        bc_loss_fn=bc_loss_fn,
+        extension_stack=extension_stack,
+        total_timesteps=total_timesteps,
         extra_actor_loss_fn=extra_actor_loss_fn,
     )
     agent_state = jax.lax.cond(
@@ -1164,9 +1202,7 @@ def training_iteration(
     extension_stack: Optional[ExtensionStack] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
-    runtime_maintenance: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
     her_relabel_fn: Optional[Callable] = None,
@@ -1201,16 +1237,27 @@ def training_iteration(
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
-        # Periodic φ* refresh via composed runtime maintenance
-        _zero_phi = PhiRefreshAuxiliaries(
+        # ExtensionStack.post_update — PhiRefresh owns the periodic
+        # interval gate + self-consistent refresh of
+        # ``agent_state.expert_critic_params``. Other extensions'
+        # post_update defaults to identity; empty stack ⇒ no-op. The
+        # ``phi_refresh_aux`` diagnostics are observability-only and
+        # report zeros now; they'll be re-added via ``eval_metrics``.
+        phi_refresh_aux = PhiRefreshAuxiliaries(
             loss_before=jnp.zeros(1),
             loss_after=jnp.zeros(1),
             expert_buffer_size=jnp.zeros(1),
         )
-        if runtime_maintenance is not None:
-            agent_state, phi_refresh_aux = runtime_maintenance(agent_state)
-        else:
-            phi_refresh_aux = _zero_phi
+        if extension_stack is not None and extension_stack.extensions:
+            _post_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=agent_state.rng,
+                total_steps=total_timesteps,
+            )
+            agent_state, _new_ext_state = extension_stack.post_update(
+                agent_state, agent_state.ext_state, _post_ctx
+            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
 
         update_scan_fn = partial(
             update_agent,
@@ -1244,7 +1291,6 @@ def training_iteration(
             extension_stack=extension_stack,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
-            bc_loss_fn=bc_loss_fn,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
             her_relabel_fn=her_relabel_fn,
@@ -1422,15 +1468,14 @@ def _resolve_extension_stack(
 
     bc = first_of_type(extensions, OnlineBC)
     if bc is not None:
-        out["use_online_bc"] = True
-        out["bc_coef"] = bc.bc_coef
-        out["critic_warmup_frac"] = bc.critic_warmup_frac
+        # OnlineBC.actor_loss owns the BC term math now; we only echo
+        # the secondary params it shares with the rest of make_train
+        # (``critic_warmup_frac`` is also read by ``CriticBlend``'s
+        # warmup schedule). The legacy ``use_online_bc=True`` flag
+        # toggle is dropped — the math runs from the extension stack,
+        # not from the flag-driven builder (which is gone).
+        out.setdefault("critic_warmup_frac", bc.critic_warmup_frac)
         out.setdefault("expert_policy", bc.expert_policy)
-    else:
-        # ``train_SAC.py`` defaults ``use_online_bc=True`` (the BC term is
-        # active iff an expert + MC pre-training are also present, so this
-        # default is harmless when no expert is configured). Mirror that.
-        out.setdefault("use_online_bc", True)
 
     res = first_of_type(extensions, ResidualPolicy)
     if res is not None:
@@ -1589,6 +1634,109 @@ def _auto_append_target_mod_extensions(
     return tuple(out)
 
 
+def _auto_append_policy_extensions(
+    extensions: Sequence,
+    *,
+    use_online_bc: bool,
+    bc_coef: float,
+    critic_warmup_frac: float,
+    use_residual_rl: bool,
+    residual_scale: float,
+    use_phi_refresh: bool,
+    phi_refresh_interval: int,
+    phi_refresh_steps: int,
+    expert_policy: Optional[Callable],
+    buffer: Any,
+    gamma: float,
+    reward_scale: float,
+) -> tuple:
+    """Append OnlineBC / ResidualPolicy / PhiRefresh from legacy flags.
+
+    The three features (``use_online_bc`` / ``use_residual_rl`` /
+    ``use_phi_refresh``) now live on their :class:`Extension` phase
+    methods (``actor_loss`` / a transform helper / ``post_update``).
+    This helper preserves byte-identical behaviour for callers that
+    still wire them through the legacy flag surface: when the matching
+    extension is absent we append it; for PhiRefresh we also copy the
+    SAC factory's resolved ``buffer`` / ``gamma`` / ``reward_scale``
+    onto the instance so ``post_update`` has everything it needs (the
+    pre-refactor builder closed over those values).
+    """
+    import dataclasses
+
+    from ajax.extensions.expert import OnlineBC, ResidualPolicy
+    from ajax.extensions.pretrain import PhiRefresh
+
+    out = list(extensions)
+
+    def _has(cls: type) -> bool:
+        return any(isinstance(e, cls) for e in out)
+
+    if use_online_bc and expert_policy is not None and not _has(OnlineBC):
+        out.append(
+            OnlineBC(
+                expert_policy=expert_policy,
+                bc_coef=bc_coef,
+                critic_warmup_frac=critic_warmup_frac,
+            )
+        )
+    if use_residual_rl and expert_policy is not None and not _has(ResidualPolicy):
+        out.append(ResidualPolicy(expert_policy=expert_policy, scale=residual_scale))
+    if use_phi_refresh and expert_policy is not None and not _has(PhiRefresh):
+        out.append(
+            PhiRefresh(
+                expert_policy=expert_policy,
+                interval=phi_refresh_interval,
+                steps=phi_refresh_steps,
+            )
+        )
+
+    # PhiRefresh needs ``buffer`` / ``gamma`` / ``reward_scale`` to
+    # actually run — fill them in for any instance (auto-appended or
+    # user-constructed) that left them unset. dataclasses.replace
+    # builds a new frozen instance so the JIT cache key stays sound.
+    for i, ext in enumerate(out):
+        if isinstance(ext, PhiRefresh) and ext.buffer is None and buffer is not None:
+            out[i] = dataclasses.replace(
+                ext, buffer=buffer, gamma=gamma, reward_scale=reward_scale
+            )
+
+    return tuple(out)
+
+
+def _build_residual_policy_transform(
+    extensions: Sequence,
+    expert_policy: Optional[Callable],
+) -> Optional[Callable]:
+    """Build the legacy actor-loss / TD-target residual transform.
+
+    ResidualPolicy owns the ``clip(a_expert + scale·a_pi, -1, 1)`` math
+    via :meth:`ResidualPolicy.transform_action`; the
+    ``policy_action_transform`` consumer in :func:`policy_loss_function`
+    and the ``next_action_transform`` consumer in
+    :func:`update_value_functions` still take a thin callable, so we
+    build it here off the first :class:`ResidualPolicy` in the stack.
+    Returns ``None`` when no ResidualPolicy is present — that branch
+    deactivates the actor-loss / TD-target residual transform exactly
+    like the pre-refactor ``make_policy_action_transform`` builder did.
+    """
+    from ajax.extensions.expert import ResidualPolicy, first_of_type
+
+    rp = first_of_type(extensions, ResidualPolicy)
+    if rp is None or expert_policy is None:
+        return None
+
+    def transform(actions, raw_obs, a_expert_precomputed):
+        a_exp = (
+            a_expert_precomputed
+            if a_expert_precomputed is not None
+            else jax.lax.stop_gradient(expert_policy(raw_obs))
+        )
+        return rp.transform_action(actions, a_exp)
+
+    return transform
+
+
 # ---------------------------------------------------------------------------
 # Training factory
 # ---------------------------------------------------------------------------
@@ -1707,7 +1855,6 @@ def make_train(
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
-    runtime_maintenance: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
     her_relabel_fn: Optional[Callable] = None,
@@ -1846,6 +1993,27 @@ def make_train(
         lcb_beta_decay_k=lcb_beta_decay_k,
         lcb_temperature=lcb_temperature,
         expert_policy=expert_policy,
+    )
+
+    # Same shim as above for the three policy / post-update extensions
+    # migrated in this commit: OnlineBC.actor_loss, ResidualPolicy's
+    # actor-loss / TD-target transform, and PhiRefresh.post_update.
+    # The legacy ``make_bc_loss_fn`` / ``make_policy_action_transform``
+    # / ``make_runtime_maintenance`` builders are gone.
+    extensions = _auto_append_policy_extensions(
+        extensions,
+        use_online_bc=use_online_bc,
+        bc_coef=bc_coef,
+        critic_warmup_frac=critic_warmup_frac,
+        use_residual_rl=use_residual_rl,
+        residual_scale=residual_scale,
+        use_phi_refresh=use_phi_refresh,
+        phi_refresh_interval=phi_refresh_interval,
+        phi_refresh_steps=phi_refresh_steps,
+        expert_policy=expert_policy,
+        buffer=buffer,
+        gamma=agent_config.gamma,
+        reward_scale=agent_config.reward_scale,
     )
 
     # If no separate eval policy provided, fall back to the training policy
@@ -2121,20 +2289,18 @@ def make_train(
                 action_shape[0],
             )
         )
+        # ResidualPolicy owns the ``clip(a_expert + scale·a_pi, -1, 1)``
+        # math via :meth:`ResidualPolicy.transform_action`. The actor-
+        # loss / TD-target call sites still consume a thin callable
+        # (signature ``(actions, raw_obs, a_expert_precomputed) ->
+        # actions``); we build it here off the first
+        # :class:`ResidualPolicy` in the stack so the math lives on the
+        # Extension and the legacy ``make_policy_action_transform``
+        # builder is gone. ``None`` ⇒ pure SAC actor loss.
         _policy_action_transform = (
             policy_action_transform
             if policy_action_transform is not None
-            else make_policy_action_transform(
-                use_residual_rl,
-                expert_policy,
-                residual_scale=residual_scale,
-            )
-        )
-        _bc_loss_fn = make_bc_loss_fn(
-            use_online_bc,
-            bc_coef,
-            critic_warmup_frac,
-            expert_policy,
+            else _build_residual_policy_transform(extensions, expert_policy)
         )
 
         _eval_action_transform = (
@@ -2147,19 +2313,14 @@ def make_train(
             )
         )
 
-        _runtime_maintenance = (
-            runtime_maintenance
-            if runtime_maintenance is not None
-            else make_runtime_maintenance(
-                use_phi_refresh=use_phi_refresh,
-                phi_refresh_interval=phi_refresh_interval,
-                phi_refresh_steps=phi_refresh_steps,
-                gamma=agent_config.gamma,
-                reward_scale=agent_config.reward_scale,
-                expert_policy=expert_policy,
-                buffer=buffer,
-            )
-        )
+        # Periodic φ* refresh now lives on
+        # :meth:`PhiRefresh.post_update`; the SAC loop folds
+        # ``stack.post_update(...)`` inside ``training_iteration`` at
+        # the start of each ``do_update``. The legacy
+        # ``runtime_maintenance`` builder is gone — the auto-append
+        # shim below has already copied ``buffer`` /
+        # ``agent_config.gamma`` / ``agent_config.reward_scale`` onto
+        # any PhiRefresh instance in ``extensions``.
 
         training_iteration_scan_fn = partial(
             training_iteration,
@@ -2204,11 +2365,9 @@ def make_train(
             extension_stack=_extension_stack,
             obs_preprocessor=_obs_preprocessor,
             policy_action_transform=_policy_action_transform,
-            bc_loss_fn=_bc_loss_fn,
             eval_action_transform=_eval_action_transform,
             pid_gain_policy=use_pid_policy,
             next_expert_fn=make_next_expert_fn(expert_policy),
-            runtime_maintenance=_runtime_maintenance,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
             her_relabel_fn=her_relabel_fn,

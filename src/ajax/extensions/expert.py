@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import jax
+import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.modules.expert import compute_online_bc_loss, residual_action_transform
@@ -164,12 +165,45 @@ class JSRLCurriculum(Extension):
     learner does. ``H_t`` decays linearly from ``episode_length`` to 0
     over the first ``decay_frac`` fraction of training. Equivalent to
     ``jsrl_curriculum`` in ``train_SAC.py``.
+
+    The :meth:`action` phase owns the per-episode substitution. It reads
+    ``post_warmup_action`` and ``expert_action`` off the SAC action
+    pipeline's batch dict (the same dict :class:`EDGEExploration` and
+    :class:`~ajax.extensions.target_mods.ValueBox` use) and per-env
+    ``step_in_episode`` off ``agent_state.collector_state``; the SAC
+    pipeline still owns the ``step_in_episode`` increment/reset (in
+    :func:`collect_experience`).
     """
 
     expert_policy: Callable
     episode_length: int = 1000
     decay_frac: float = 0.5
     name: str = "jsrl_curriculum"
+
+    def action(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        obs: Any,
+        rng: jax.Array,
+        ctx: ExtensionContext,
+    ) -> jax.Array | None:
+        """Substitute the expert action while ``step_in_episode < H_t``."""
+        del ext_state, rng
+        post_warmup_action = obs["post_warmup_action"]
+        expert_action = obs["expert_action"]
+
+        total_timesteps = max(int(ctx.total_steps), 1)
+        global_t = agent_state.collector_state.timestep
+        train_frac = global_t / jnp.maximum(total_timesteps, 1)
+        curriculum_progress = jnp.clip(train_frac / self.decay_frac, 0.0, 1.0)
+        H_t = self.episode_length * (1.0 - curriculum_progress)
+        step_in_ep = agent_state.collector_state.step_in_episode
+        use_expert_jsrl = step_in_ep.astype(jnp.float32) < H_t
+        use_expert_jsrl = use_expert_jsrl.reshape(
+            (-1,) + (1,) * (post_warmup_action.ndim - 1)
+        )
+        return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
 
 
 def first_of_type(stack, cls) -> Optional[Extension]:

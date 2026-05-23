@@ -43,6 +43,11 @@ from ajax.modules.expert import (
     blend_modify_target,
     mc_correction_modify_target,
 )
+from ajax.modules.exploration import (
+    box_action_override,
+    box_compute_state,
+    box_compute_threshold,
+)
 from ajax.networks.networks import predict_value
 
 
@@ -301,10 +306,67 @@ class ValueBox(Extension):
     whenever the frozen-expert value ``V_expert(s)`` exceeds a curriculum
     threshold that ramps from ``v_min`` to ``v_max`` over training.
     Requires MC pre-training (which supplies ``v_min`` / ``v_max``).
+
+    The :meth:`action` phase owns the override math. It reads the
+    pre-computed per-step quantities off the SAC action pipeline's batch
+    dict (``policy_action``, ``expert_action``, the running
+    ``post_warmup_action``, the box bounds ``box_v_min`` / ``box_v_max``
+    and the previous step's ``last_in_box`` flag) and writes
+    ``in_value_box`` / ``entry_bonus`` back into the dict so the pipeline
+    can record them on the transition. The substitution itself is
+    ``box_action_override`` from :mod:`ajax.modules.exploration` and is
+    applied AFTER the warmup/post-warmup choice — matching the legacy
+    ``make_action_pipeline`` ordering byte-for-byte.
     """
 
     expert_policy: Callable
     name: str = "value_box"
+
+    def action(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        obs: Any,
+        rng: jax.Array,
+        ctx: ExtensionContext,
+    ) -> jax.Array | None:
+        """Override with ``a_expert`` inside the value box.
+
+        ``obs`` is the SAC action pipeline's per-step batch dict (see
+        :mod:`ajax.extensions.exploration` for the convention). ``box_v_min``
+        and ``box_v_max`` come from the MC-pretrain v_min/v_max written
+        onto :class:`SACState`. Returns the action with the in-box rows
+        replaced by the expert action; writes ``in_value_box`` and
+        ``entry_bonus`` into ``obs`` for pipeline-side bookkeeping
+        (buffer-write suppression, reward shaping, ``is_expert_flag``).
+        """
+        del ext_state, rng, ctx
+        env_action = obs["env_action"]
+        expert_action = obs["expert_action"]
+        box_v_min = obs["box_v_min"]
+        box_v_max = obs["box_v_max"]
+        total_timesteps = obs["total_timesteps"]
+
+        train_frac = agent_state.collector_state.timestep / total_timesteps
+        threshold = box_compute_threshold(box_v_min, box_v_max, train_frac)
+        last_obs = agent_state.collector_state.last_obs
+        raw_obs = obs.get("raw_obs", None)
+        raw_for_box = raw_obs if raw_obs is not None else last_obs[..., :-1]
+        in_value_box, entry_bonus, _ = box_compute_state(
+            last_obs,
+            raw_for_box,
+            self.expert_policy,
+            agent_state.critic_state,
+            agent_state.expert_critic_params,
+            threshold,
+            agent_state.collector_state.last_in_box,
+        )
+        obs["in_value_box"] = in_value_box
+        obs["entry_bonus"] = entry_bonus
+        # ValueBox lives at the end of the action chain (legacy ordering:
+        # AFTER the warmup vs post-warmup ``jax.lax.cond``). It rewrites
+        # ``env_action`` directly.
+        return box_action_override(env_action, expert_action, in_value_box)
 
 
 __all__ = [

@@ -1483,29 +1483,33 @@ def _resolve_extension_stack(
         out["residual_scale"] = res.scale
         out.setdefault("expert_policy", res.expert_policy)
 
+    # JSRLCurriculum, EDGEExploration and ValueBox own their
+    # collection-time substitution math on their Extension's
+    # :meth:`action` phase method; the SAC action pipeline dispatches
+    # them in the canonical legacy ordering (EDGE → JSRL → warmup
+    # cond → ValueBox). The opposite direction (legacy-flag →
+    # auto-appended extension) is handled by
+    # :func:`_auto_append_action_extensions`. We still echo the
+    # secondary parameters they share with other consumers
+    # (``expert_policy``, the LCB shape parameters consumed by the
+    # target-side ``LCBGatedBootstrap``, etc.) so the new surface
+    # stays byte-identical to the legacy flag path.
     jsrl = first_of_type(extensions, JSRLCurriculum)
     if jsrl is not None:
+        # ``jsrl_curriculum`` is still echoed because it gates a
+        # separate SAC-side concern: ``init_SAC`` initialises a
+        # per-env ``step_in_episode`` counter only when this flag is
+        # set (the counter is then maintained by
+        # :func:`collect_experience` and read by
+        # :meth:`JSRLCurriculum.action`).
         out["jsrl_curriculum"] = True
-        out["jsrl_episode_length"] = jsrl.episode_length
-        out["jsrl_decay_frac"] = jsrl.decay_frac
         out.setdefault("expert_policy", jsrl.expert_policy)
 
     edge = first_of_type(extensions, EDGEExploration)
     if edge is not None:
-        out["use_expert_guided_exploration"] = True
-        out["exploration_decay_frac"] = edge.decay_frac
-        out["exploration_tau"] = edge.tau
-        out["fixed_exploration_prob"] = edge.fixed_prob
-        out["lcb_beta_init"] = edge.lcb_beta_init
-        out["lcb_beta_decay_k"] = edge.lcb_beta_decay_k
-        out["lcb_temperature"] = edge.lcb_temperature
-        out["lcb_asymmetric"] = edge.lcb_asymmetric
-        out["epsilon_floor"] = edge.epsilon_floor
-        out["exploration_argmax"] = edge.gate == "argmax"
-        out["exploration_boltzmann"] = edge.gate == "boltzmann"
-        out["exploration_lcb"] = edge.gate == "lcb"
-        out["exploration_argmax_lcb"] = edge.gate == "argmax_lcb"
-        out["exploration_thompson"] = edge.gate == "thompson"
+        out.setdefault("lcb_beta_init", edge.lcb_beta_init)
+        out.setdefault("lcb_beta_decay_k", edge.lcb_beta_decay_k)
+        out.setdefault("lcb_temperature", edge.lcb_temperature)
         out.setdefault("expert_policy", edge.expert_policy)
 
     # IBRL / LCBGatedBootstrap / CriticBlend / MCVarianceCorrection
@@ -1539,6 +1543,14 @@ def _resolve_extension_stack(
 
     box = first_of_type(extensions, ValueBox)
     if box is not None:
+        # ValueBox.action owns the override / bookkeeping math, but the
+        # ``use_box`` flag is still echoed because it gates a separate
+        # SAC-side concern: the resolution of ``_box_v_min`` /
+        # ``_box_v_max`` from the MC-pretrain ``expert_v_min/v_max``
+        # inside ``make_scan_fn`` (and the corresponding
+        # ``init_SAC(use_box=...)`` plumbing). Without the echo a
+        # stack-only ``ValueBox(...)`` would silently see bounds=0.0
+        # ⇒ threshold=0 ⇒ override-everywhere, which is wrong.
         out["use_box"] = True
         out.setdefault("expert_policy", box.expert_policy)
 
@@ -1700,6 +1712,98 @@ def _auto_append_policy_extensions(
             out[i] = dataclasses.replace(
                 ext, buffer=buffer, gamma=gamma, reward_scale=reward_scale
             )
+
+    return tuple(out)
+
+
+def _auto_append_action_extensions(
+    extensions: Sequence,
+    *,
+    use_box: bool,
+    use_expert_guided_exploration: bool,
+    exploration_argmax: bool,
+    exploration_boltzmann: bool,
+    exploration_lcb: bool,
+    exploration_argmax_lcb: bool,
+    exploration_thompson: bool,
+    exploration_decay_frac: float,
+    exploration_tau: float,
+    fixed_exploration_prob: float,
+    lcb_beta_init: float,
+    lcb_beta_decay_k: float,
+    lcb_temperature: float,
+    lcb_asymmetric: bool,
+    epsilon_floor: float,
+    jsrl_curriculum: bool,
+    jsrl_episode_length: int,
+    jsrl_decay_frac: float,
+    expert_policy: Optional[Callable],
+) -> tuple:
+    """Append EDGE / ValueBox / JSRL from legacy flags.
+
+    The three collection-time action-substitution features
+    (``use_expert_guided_exploration``, ``use_box``, ``jsrl_curriculum``)
+    now live on their :class:`Extension` :meth:`action` phase method.
+    This helper preserves byte-identical behaviour for callers that
+    still wire them through the legacy flag surface: when the matching
+    extension is absent we append it. The EDGE ``gate`` is resolved
+    from whichever exclusive ``exploration_*`` flag is set (the same
+    mutex the pre-refactor pipeline enforced implicitly through its
+    if/elif ladder).
+    """
+    from ajax.extensions.expert import JSRLCurriculum
+    from ajax.extensions.exploration import EDGEExploration
+    from ajax.extensions.target_mods import ValueBox
+
+    out = list(extensions)
+
+    def _has(cls: type) -> bool:
+        return any(isinstance(e, cls) for e in out)
+
+    if (
+        use_expert_guided_exploration
+        and expert_policy is not None
+        and not _has(EDGEExploration)
+    ):
+        # Resolve the gate from the four mutually-exclusive ``exploration_*``
+        # flags in the order the pre-refactor pipeline checked them:
+        # thompson → lcb → argmax_lcb → boltzmann → argmax → fixed.
+        if exploration_thompson:
+            _gate = "thompson"
+        elif exploration_lcb:
+            _gate = "lcb"
+        elif exploration_argmax_lcb:
+            _gate = "argmax_lcb"
+        elif exploration_boltzmann:
+            _gate = "boltzmann"
+        elif exploration_argmax:
+            _gate = "argmax"
+        else:
+            _gate = "fixed"
+        out.append(
+            EDGEExploration(
+                expert_policy=expert_policy,
+                gate=_gate,
+                decay_frac=exploration_decay_frac,
+                tau=exploration_tau,
+                fixed_prob=fixed_exploration_prob,
+                lcb_beta_init=lcb_beta_init,
+                lcb_beta_decay_k=lcb_beta_decay_k,
+                lcb_temperature=lcb_temperature,
+                lcb_asymmetric=lcb_asymmetric,
+                epsilon_floor=epsilon_floor,
+            )
+        )
+    if use_box and expert_policy is not None and not _has(ValueBox):
+        out.append(ValueBox(expert_policy=expert_policy))
+    if jsrl_curriculum and expert_policy is not None and not _has(JSRLCurriculum):
+        out.append(
+            JSRLCurriculum(
+                expert_policy=expert_policy,
+                episode_length=jsrl_episode_length,
+                decay_frac=jsrl_decay_frac,
+            )
+        )
 
     return tuple(out)
 
@@ -2016,6 +2120,35 @@ def make_train(
         reward_scale=agent_config.reward_scale,
     )
 
+    # Same shim for the three collection-time action-substitution
+    # extensions migrated in this commit: EDGEExploration.action /
+    # ValueBox.action / JSRLCurriculum.action. The legacy 14 inline
+    # if/elif branches of ``make_action_pipeline`` are gone; the
+    # pipeline now dispatches the extensions in canonical order
+    # (EDGE → JSRL → warmup cond → ValueBox).
+    extensions = _auto_append_action_extensions(
+        extensions,
+        use_box=use_box,
+        use_expert_guided_exploration=use_expert_guided_exploration,
+        exploration_argmax=exploration_argmax,
+        exploration_boltzmann=exploration_boltzmann,
+        exploration_lcb=exploration_lcb,
+        exploration_argmax_lcb=exploration_argmax_lcb,
+        exploration_thompson=exploration_thompson,
+        exploration_decay_frac=exploration_decay_frac,
+        exploration_tau=exploration_tau,
+        fixed_exploration_prob=fixed_exploration_prob,
+        lcb_beta_init=lcb_beta_init,
+        lcb_beta_decay_k=lcb_beta_decay_k,
+        lcb_temperature=lcb_temperature,
+        lcb_asymmetric=lcb_asymmetric,
+        epsilon_floor=epsilon_floor,
+        jsrl_curriculum=jsrl_curriculum,
+        jsrl_episode_length=jsrl_episode_length,
+        jsrl_decay_frac=jsrl_decay_frac,
+        expert_policy=expert_policy,
+    )
+
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
     _eval_expert_policy = (
@@ -2233,8 +2366,21 @@ def make_train(
             _box_v_min = jnp.array(0.0)
             _box_v_max = jnp.array(0.0)
 
+        # The collection-time substitution extensions (EDGE / ValueBox /
+        # JSRL) and the four target-mod extensions (IBRL /
+        # LCBGatedBootstrap / CriticBlend / MCVarianceCorrection) now
+        # fold through the ExtensionStack — collection-time via
+        # ``stack.action(...)`` (the action pipeline dispatches in the
+        # canonical legacy ordering), TD-target via ``stack.on_target``.
+        _extension_stack = ExtensionStack(extensions)
+
         # Compose hooks: if the caller supplied an override, use it;
-        # otherwise build the default from the legacy boolean flags.
+        # otherwise build the default. The EDGE / ValueBox / JSRL gate
+        # math has moved out — the pipeline now only carries the
+        # SAC-side bookkeeping (warmup mix, ``is_expert_flag``,
+        # ``buffer_action``, expert-state threading) plus the
+        # gain-policy short-circuit. The migrated features run via the
+        # extension stack passed in here.
         _action_pipeline = (
             action_pipeline
             if action_pipeline is not None
@@ -2242,43 +2388,18 @@ def make_train(
                 expert_policy=expert_policy,
                 recurrent=network_args.lstm_hidden_size is not None,
                 env_args=env_args,
-                use_box=use_box,
+                extension_stack=_extension_stack,
                 box_v_min=_box_v_min,
                 box_v_max=_box_v_max,
-                use_expert_guided_exploration=use_expert_guided_exploration,
-                exploration_decay_frac=exploration_decay_frac,
-                exploration_tau=exploration_tau,
-                exploration_boltzmann=exploration_boltzmann,
-                exploration_argmax=exploration_argmax,
-                fixed_exploration_prob=fixed_exploration_prob,
-                exploration_lcb=exploration_lcb,
-                exploration_argmax_lcb=exploration_argmax_lcb,
-                lcb_asymmetric=lcb_asymmetric,
-                exploration_thompson=exploration_thompson,
                 expert_fraction=expert_fraction,
-                lcb_beta_init=lcb_beta_init,
-                lcb_beta_decay_k=lcb_beta_decay_k,
-                lcb_temperature=lcb_temperature,
-                epsilon_floor=epsilon_floor,
                 use_residual_rl=use_residual_rl,
                 residual_scale=residual_scale,
-                jsrl_curriculum=jsrl_curriculum,
-                jsrl_episode_length=jsrl_episode_length,
-                jsrl_decay_frac=jsrl_decay_frac,
                 use_pid_policy=use_pid_policy,
                 augment_obs_with_expert_action=augment_obs_with_expert_action,
                 store_policy_action=store_policy_action,
                 total_timesteps=total_timesteps,
             )
         )
-
-        # The four target-mod extensions (IBRL / LCBGatedBootstrap /
-        # CriticBlend / MCVarianceCorrection) now fold through the
-        # ExtensionStack's ``on_target`` phase. We pass the resolved
-        # stack down to ``update_value_functions`` so it can call
-        # ``stack.on_target(...)`` directly — the old ``target_modifier``
-        # callable plumbing is gone.
-        _extension_stack = ExtensionStack(extensions)
 
         _obs_preprocessor = (
             obs_preprocessor

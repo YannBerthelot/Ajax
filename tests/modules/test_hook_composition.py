@@ -46,12 +46,20 @@ SAC_FAMILY_HOOKS = (
     "policy_action_transform",
 )
 
-# SAC additionally exposes loss-augmentation hooks folded into the single
-# Adam step. The pre-Phase-2b ``runtime_maintenance`` hook was migrated to
-# :meth:`PhiRefresh.post_update`; the SAC.__init__ surface no longer
-# accepts it.
+# SAC-specific hook list. Phase 2b migrated several SAC hooks to Extension
+# phase methods and removed the matching kwargs from ``SAC.__init__``:
+#   - ``target_modifier``       → ``Extension.on_target`` (commit 1408a95)
+#   - ``runtime_maintenance``   → ``PhiRefresh.post_update`` (commit af86ca0)
+# The other SAC-family agents (REDQ / ASAC / AVG) still accept these as
+# callable hooks (their own ``__init__`` signatures are independent), so
+# ``SAC_FAMILY_HOOKS`` above is unchanged. The SAC-specific list below
+# excludes the migrated hooks.
 SAC_HOOKS = (
-    *SAC_FAMILY_HOOKS,
+    "pid_actor_config",
+    "action_pipeline",
+    "eval_action_transform",
+    "obs_preprocessor",
+    "policy_action_transform",
     "extra_actor_loss_fn",
     "extra_critic_loss_fn",
     "init_transform",

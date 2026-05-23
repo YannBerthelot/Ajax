@@ -186,7 +186,11 @@ def step(
         # jax.debug.print("Action: {action}", action=action)
         if len(out) == 5:
             obsv, env_state, reward, done, info = out
-            truncated = info["truncated"]
+            # Some gymnax envs (e.g. Pendulum-v1 in 0.0.9) emit only
+            # {"discount": ...} and no "truncated" field. Fall back to the
+            # time-based estimate computed before the step call above so
+            # episode termination still works on stock gymnax envs.
+            truncated = info.get("truncated", truncated)
             # type: ignore[union-attr]
             terminated = done * (1 - truncated)
             terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)

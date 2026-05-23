@@ -21,12 +21,10 @@ from typing import Any, NamedTuple, Optional
 import jax
 import jax.numpy as jnp
 
-from ajax.environments.interaction import get_action_and_log_probs, get_pi
+from ajax.environments.interaction import get_action_and_log_probs
 from ajax.modules.expert import (
-    blend_modify_target,
     compute_online_bc_loss,
     detach_obs_expert_dims,
-    mc_correction_modify_target,
     residual_action_transform,
 )
 from ajax.modules.exploration import (
@@ -49,7 +47,6 @@ from ajax.modules.pretrain import (
     PhiRefreshAuxiliaries,
     refresh_phi_star,
 )
-from ajax.networks.networks import predict_value
 
 # ---------------------------------------------------------------------------
 # Action pipeline — composable exploration for collect_experience
@@ -576,187 +573,6 @@ def make_next_expert_fn(expert_policy):
         return expert_policy(raw_next_obs)
 
     return next_expert_fn
-
-
-# ---------------------------------------------------------------------------
-# Critic target modifier — composable IBRL / blend / MC correction
-# ---------------------------------------------------------------------------
-
-
-def make_target_modifier(
-    ibrl_bootstrap=False,
-    lcb_gated_bootstrap=False,
-    lcb_beta_init=1.0,
-    lcb_beta_decay_k=2.0,
-    lcb_temperature=1.0,
-    use_critic_blend=False,
-    critic_warmup_frac=0.15,
-    mc_variance_threshold=None,
-    expert_policy=None,
-    total_timesteps=1,
-    augment_obs_with_expert_action=False,
-    recurrent=False,
-):
-    """Compose critic target modifiers: IBRL → blend → MC correction.
-
-    Returns None when no modifiers are active. When provided, the modifier
-    replaces 6 params in update_value_functions with a single callable.
-    Boolean flags are resolved at Python level (trace time).
-    """
-    has_ibrl = ibrl_bootstrap and expert_policy is not None
-    has_lcb_bootstrap = lcb_gated_bootstrap and expert_policy is not None
-    has_blend = use_critic_blend and expert_policy is not None
-    has_mc = mc_variance_threshold is not None
-
-    if not (has_ibrl or has_lcb_bootstrap or has_blend or has_mc):
-        return None
-
-    def modifier(
-        target_q,
-        agent_state,
-        observations,
-        actions,
-        next_observations,
-        dones,
-        gamma,
-        rng,
-        q_preds,
-    ):
-        alpha_blend_logged = jnp.zeros(1)
-        mc_correction_frac = jnp.zeros(1)
-
-        if has_ibrl:
-            _next_raw = (
-                next_observations[..., :-1]
-                if augment_obs_with_expert_action
-                else next_observations
-            )
-            next_expert_actions = jax.lax.stop_gradient(expert_policy(_next_raw))
-            q_targets_expert = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
-            )
-            min_q_expert = jnp.min(q_targets_expert, axis=0, keepdims=False)
-
-            next_pi, _ = get_pi(
-                actor_state=agent_state.actor_state,
-                actor_params=agent_state.actor_state.params,
-                obs=next_observations,
-                done=dones,
-                recurrent=recurrent,
-            )
-            ibrl_key, _ = jax.random.split(rng)
-            next_actions_ibrl, _ = next_pi.sample_and_log_prob(seed=ibrl_key)
-            q_targets_policy = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_actions_ibrl), axis=-1),
-            )
-            min_q_policy = jnp.min(q_targets_policy, axis=0, keepdims=False)
-
-            gap = jax.lax.stop_gradient(
-                gamma * (1.0 - dones) * jnp.maximum(min_q_expert - min_q_policy, 0.0)
-            )
-            target_q = target_q + gap
-
-        if has_lcb_bootstrap:
-            # LCB-gated bootstrap: at s', score each candidate by
-            #   score(a) = Q_min(s', a) - β · (Q_max(s', a) - Q_min(s', a))
-            # then soft-blend the policy and expert TD targets by
-            #   P_expert = σ((score_e - score_p) / lcb_temperature).
-            # When critic is confident on expert (low expert σ) and
-            # uncertain on policy (high policy σ), we lean toward the
-            # expert. As critic confidence grows on policy actions, we
-            # lean toward the policy. Same gate as action selection,
-            # applied at the bootstrap target — "LCB everywhere".
-            _next_raw = (
-                next_observations[..., :-1]
-                if augment_obs_with_expert_action
-                else next_observations
-            )
-            next_expert_actions = jax.lax.stop_gradient(expert_policy(_next_raw))
-            q_targets_expert = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
-            )
-            next_pi_lcb, _ = get_pi(
-                actor_state=agent_state.actor_state,
-                actor_params=agent_state.actor_state.params,
-                obs=next_observations,
-                done=dones,
-                recurrent=recurrent,
-            )
-            lcb_key, _ = jax.random.split(rng)
-            next_actions_lcb, _ = next_pi_lcb.sample_and_log_prob(seed=lcb_key)
-            q_targets_policy = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_actions_lcb), axis=-1),
-            )
-            q_min_e = jnp.min(q_targets_expert, axis=0, keepdims=False)
-            q_max_e = jnp.max(q_targets_expert, axis=0, keepdims=False)
-            q_min_p = jnp.min(q_targets_policy, axis=0, keepdims=False)
-            q_max_p = jnp.max(q_targets_policy, axis=0, keepdims=False)
-            # Anneal beta over training same as the action-selection gate.
-            train_frac = jnp.clip(
-                agent_state.collector_state.timestep / jnp.maximum(total_timesteps, 1),
-                0.0,
-                1.0,
-            )
-            beta_eff = lcb_beta_init * jnp.power(1.0 - train_frac, lcb_beta_decay_k)
-            score_e = q_min_e - beta_eff * (q_max_e - q_min_e)
-            score_p = q_min_p - beta_eff * (q_max_p - q_min_p)
-            p_expert = jax.nn.sigmoid(
-                (score_e - score_p) / jnp.maximum(lcb_temperature, 1e-6)
-            )
-            # Bellman target with the LCB-gated next action. We blend the
-            # min-Q part only (entropy term stays on the policy branch
-            # since the expert is deterministic — log_prob is undefined).
-            min_q_lcb = (1.0 - p_expert) * q_min_p + p_expert * q_min_e
-            gap_lcb = jax.lax.stop_gradient(
-                gamma * (1.0 - dones) * (min_q_lcb - q_min_p)
-            )
-            target_q = target_q + gap_lcb
-
-        if has_blend and agent_state.expert_critic_params is not None:
-            next_raw = next_observations[..., :-1]
-            a_expert_next = jax.lax.stop_gradient(expert_policy(next_raw))
-            v_expert_next = jax.lax.stop_gradient(
-                jnp.min(
-                    predict_value(
-                        critic_state=agent_state.critic_state,
-                        critic_params=agent_state.expert_critic_params,
-                        x=jnp.concatenate([next_observations, a_expert_next], axis=-1),
-                    ),
-                    axis=0,
-                )
-            )
-            train_frac = agent_state.collector_state.timestep / total_timesteps
-            alpha_blend_val = jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
-            target_q, alpha_blend_logged = blend_modify_target(
-                target_q,
-                v_expert_next,
-                alpha_blend_val,
-            )
-            target_q = jax.lax.stop_gradient(target_q)
-
-        if has_mc and agent_state.expert_critic_params is not None:
-            q_var = q_preds.var(axis=0)[..., 0]
-            target_q, mc_correction_frac = mc_correction_modify_target(
-                target_q,
-                agent_state.critic_state,
-                agent_state.expert_critic_params,
-                observations,
-                actions,
-                q_var,
-                mc_variance_threshold,
-            )
-
-        return target_q, alpha_blend_logged, mc_correction_frac
-
-    return modifier
 
 
 # ---------------------------------------------------------------------------

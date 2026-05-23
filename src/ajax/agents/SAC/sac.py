@@ -39,8 +39,8 @@ from ajax.extensions._sac_hooks import (
     make_policy_action_transform,
     make_policy_obs_preprocessor,
     make_runtime_maintenance,
-    make_target_modifier,
 )
+from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -78,6 +78,23 @@ from ajax.state import (
     Transition,
 )
 from ajax.types import BufferType
+
+# Extension `name` attributes for the four target-mod extensions
+# implemented in :mod:`ajax.extensions.target_mods`. Used by
+# ``update_value_functions`` to decide whether to materialise
+# ``q_preds_for_var`` (only ``MCVarianceCorrection`` actually needs it,
+# but the legacy code path conservatively computed it whenever any
+# target modifier was active — keep the same trigger set so the parity
+# tolerance is undisturbed).
+_TARGET_MOD_NAMES = frozenset(
+    {
+        "ibrl",
+        "lcb_gated_bootstrap",
+        "critic_blend",
+        "mc_variance_correction",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclasses for logging
@@ -309,7 +326,9 @@ def update_value_functions(
     gamma: float,
     reward_scale: float = 1.0,
     expert_q: Optional[jax.Array] = None,
-    target_modifier: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
+    augment_obs_with_expert_action: bool = False,
     extra_critic_loss_fn: Optional[Callable] = None,
     next_action_transform: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
@@ -336,10 +355,14 @@ def update_value_functions(
     )
 
     # 2. Q predictions for expert-path diagnostics. Only computed when a
-    # consumer exists (target_modifier feeds them in for IBRL/blend/MC, or
-    # expert_q is set so q_gap can be reported). The gradient-bearing pass
-    # inside critic_loss_fn already exposes var_preds via core_aux.
-    needs_expert_q_preds = target_modifier is not None or expert_q is not None
+    # consumer exists (the target-mod ExtensionStack feeds them in via the
+    # ``q_preds`` batch entry for MCVarianceCorrection, or expert_q is set
+    # so q_gap can be reported). The gradient-bearing pass inside
+    # critic_loss_fn already exposes var_preds via core_aux.
+    has_target_mods = extension_stack is not None and any(
+        ext.name in _TARGET_MOD_NAMES for ext in extension_stack.extensions
+    )
+    needs_expert_q_preds = has_target_mods or expert_q is not None
     if needs_expert_q_preds:
         q_preds_for_var = predict_value(
             critic_state=agent_state.critic_state,
@@ -347,20 +370,38 @@ def update_value_functions(
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         )
 
-    # 3. Expert target modifiers (IBRL, blend, MC correction)
+    # 3. Expert target modifiers fold through the ExtensionStack
+    # (IBRL → LCBGatedBootstrap → CriticBlend → MCVarianceCorrection).
+    # The two diagnostic scalars `alpha_blend_logged` and
+    # `mc_correction_frac` that used to be threaded out of the
+    # `make_target_modifier` callable are dropped for now — they are pure
+    # observability (not exercised by parity / equivalence tests) and
+    # will be re-added cleanly via the `eval_metrics` phase. See
+    # Phase 2b commit notes.
     alpha_blend_logged = jnp.zeros(1)
     mc_correction_frac = jnp.zeros(1)
-    if target_modifier is not None:
-        target_q, alpha_blend_logged, mc_correction_frac = target_modifier(
-            target_q,
-            agent_state,
-            observations,
-            actions,
-            next_observations,
-            dones,
-            gamma,
-            value_loss_key,
-            q_preds_for_var,
+    if has_target_mods:
+        # `has_target_mods` already asserts `extension_stack is not
+        # None` — assert it again for mypy.
+        assert extension_stack is not None
+        batch = {
+            "observations": observations,
+            "actions": actions,
+            "next_observations": next_observations,
+            "dones": dones,
+            "rng_key": value_loss_key,
+            "q_preds": q_preds_for_var,
+            "gamma": gamma,
+            "augment_obs_with_expert_action": augment_obs_with_expert_action,
+            "recurrent": recurrent,
+        }
+        ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=value_loss_key,
+            total_steps=total_timesteps,
+        )
+        target_q = extension_stack.on_target(
+            agent_state, agent_state.ext_state, batch, target_q, ctx
         )
 
     # 4. Core critic loss (MSE against composed target), optionally augmented
@@ -714,7 +755,7 @@ def update_agent(
     target_entropy_ramp_frac: float = 0.5,
     exploration_tau: float = 1.0,
     # Composed modules
-    target_modifier: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
     bc_loss_fn: Optional[Callable] = None,
@@ -950,7 +991,9 @@ def update_agent(
             gamma=gamma,
             reward_scale=reward_scale,
             expert_q=expert_q,
-            target_modifier=target_modifier,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
             extra_critic_loss_fn=extra_critic_loss_fn,
             next_action_transform=_next_action_transform,
             next_a_expert=_next_a_expert_for_target,
@@ -1118,7 +1161,7 @@ def training_iteration(
     target_entropy_ramp_frac: float = 0.5,
     # Composed modules (replace boolean flags)
     action_pipeline: Optional[Callable] = None,
-    target_modifier: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
     bc_loss_fn: Optional[Callable] = None,
@@ -1198,7 +1241,7 @@ def training_iteration(
             target_entropy_initial=target_entropy_initial,
             target_entropy_ramp_frac=target_entropy_ramp_frac,
             exploration_tau=exploration_tau,
-            target_modifier=target_modifier,
+            extension_stack=extension_stack,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
             bc_loss_fn=bc_loss_fn,
@@ -1359,7 +1402,6 @@ def _resolve_extension_stack(
         IBRL,
         CriticBlend,
         LCBGatedBootstrap,
-        MCVarianceCorrection,
         ValueBox,
     )
 
@@ -1421,14 +1463,25 @@ def _resolve_extension_stack(
         out["exploration_thompson"] = edge.gate == "thompson"
         out.setdefault("expert_policy", edge.expert_policy)
 
+    # IBRL / LCBGatedBootstrap / CriticBlend / MCVarianceCorrection
+    # implement their TD-target math on their Extension's ``on_target``
+    # method; the SAC loop folds them via ``stack.on_target(...)``. The
+    # opposite direction (legacy-flag → auto-appended extension) is
+    # handled by ``_auto_append_target_mod_extensions``.
+    #
+    # We DO still echo the secondary parameters each extension owns into
+    # the resolver dict — e.g. ``critic_warmup_frac`` is also consumed by
+    # the online-BC loss schedule (``make_bc_loss_fn``), and the LCB
+    # bootstrap shares its ``lcb_*`` hyperparameters with the
+    # action-selection gate (``make_action_pipeline``). Without these
+    # echoes the new surface would silently diverge from the legacy flag
+    # path even though the target-mod math itself is byte-identical.
     ibrl = first_of_type(extensions, IBRL)
     if ibrl is not None:
-        out["ibrl_bootstrap"] = True
         out.setdefault("expert_policy", ibrl.expert_policy)
 
     lcb_b = first_of_type(extensions, LCBGatedBootstrap)
     if lcb_b is not None:
-        out["lcb_gated_bootstrap"] = True
         out.setdefault("lcb_beta_init", lcb_b.lcb_beta_init)
         out.setdefault("lcb_beta_decay_k", lcb_b.lcb_beta_decay_k)
         out.setdefault("lcb_temperature", lcb_b.lcb_temperature)
@@ -1436,13 +1489,8 @@ def _resolve_extension_stack(
 
     blend = first_of_type(extensions, CriticBlend)
     if blend is not None:
-        out["use_critic_blend"] = True
         out.setdefault("critic_warmup_frac", blend.critic_warmup_frac)
         out.setdefault("expert_policy", blend.expert_policy)
-
-    mcvc = first_of_type(extensions, MCVarianceCorrection)
-    if mcvc is not None:
-        out["mc_variance_threshold"] = mcvc.threshold
 
     box = first_of_type(extensions, ValueBox)
     if box is not None:
@@ -1474,6 +1522,71 @@ def _resolve_extension_stack(
         out.setdefault("expert_policy", pr.expert_policy)
 
     return out
+
+
+def _auto_append_target_mod_extensions(
+    extensions: Sequence,
+    *,
+    ibrl_bootstrap: bool,
+    lcb_gated_bootstrap: bool,
+    use_critic_blend: bool,
+    mc_variance_threshold: Optional[float],
+    critic_warmup_frac: float,
+    lcb_beta_init: float,
+    lcb_beta_decay_k: float,
+    lcb_temperature: float,
+    expert_policy: Optional[Callable],
+) -> tuple:
+    """Append target-mod extensions for legacy flags that lack a matching one.
+
+    The four target-mod features (``ibrl_bootstrap`` / ``lcb_gated_
+    bootstrap`` / ``use_critic_blend`` / ``mc_variance_threshold``) now
+    live exclusively on their :class:`Extension` ``on_target`` method.
+    When a user still wires them through the legacy flag surface, and
+    the matching extension is not already in ``extensions``, this helper
+    constructs and appends it in the canonical order
+    (IBRL → LCBGatedBootstrap → CriticBlend → MCVarianceCorrection) so
+    the resulting ``stack.on_target(...)`` fold reproduces the
+    pre-refactor ``make_target_modifier`` behaviour byte-identically.
+    """
+    from ajax.extensions.target_mods import (
+        IBRL,
+        CriticBlend,
+        LCBGatedBootstrap,
+        MCVarianceCorrection,
+    )
+
+    out = list(extensions)
+
+    def _has(cls: type) -> bool:
+        return any(isinstance(e, cls) for e in out)
+
+    if ibrl_bootstrap and expert_policy is not None and not _has(IBRL):
+        out.append(IBRL(expert_policy=expert_policy))
+    if (
+        lcb_gated_bootstrap
+        and expert_policy is not None
+        and not _has(LCBGatedBootstrap)
+    ):
+        out.append(
+            LCBGatedBootstrap(
+                expert_policy=expert_policy,
+                lcb_beta_init=lcb_beta_init,
+                lcb_beta_decay_k=lcb_beta_decay_k,
+                lcb_temperature=lcb_temperature,
+            )
+        )
+    if use_critic_blend and expert_policy is not None and not _has(CriticBlend):
+        out.append(
+            CriticBlend(
+                expert_policy=expert_policy,
+                critic_warmup_frac=critic_warmup_frac,
+            )
+        )
+    if mc_variance_threshold is not None and not _has(MCVarianceCorrection):
+        out.append(MCVarianceCorrection(threshold=mc_variance_threshold))
+
+    return tuple(out)
 
 
 # ---------------------------------------------------------------------------
@@ -1591,7 +1704,6 @@ def make_train(
     action_dim_override: Optional[int] = None,
     # --- Composable hook overrides (None = build from flags above) ---
     action_pipeline: Optional[Callable] = None,
-    target_modifier: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
@@ -1714,6 +1826,28 @@ def make_train(
         phi_refresh_interval = _locals.get("phi_refresh_interval", phi_refresh_interval)
         phi_refresh_steps = _locals.get("phi_refresh_steps", phi_refresh_steps)
 
+    # Back-compat: when a legacy target-mod flag is set and the matching
+    # Extension is not already in ``extensions``, auto-append it. This is
+    # the shim that keeps `SAC(..., ibrl_bootstrap=True)` /
+    # `lcb_gated_bootstrap=True` / `use_critic_blend=True` /
+    # `mc_variance_threshold=...` producing the same numerics as before
+    # the migration — the implementation now lives on the Extension's
+    # ``on_target`` method and the SAC loop folds the stack via
+    # ``stack.on_target(...)`` (the `make_target_modifier` builder was
+    # deleted). No-op when an explicit extension is already supplied.
+    extensions = _auto_append_target_mod_extensions(
+        extensions,
+        ibrl_bootstrap=ibrl_bootstrap,
+        lcb_gated_bootstrap=lcb_gated_bootstrap,
+        use_critic_blend=use_critic_blend,
+        mc_variance_threshold=mc_variance_threshold,
+        critic_warmup_frac=critic_warmup_frac,
+        lcb_beta_init=lcb_beta_init,
+        lcb_beta_decay_k=lcb_beta_decay_k,
+        lcb_temperature=lcb_temperature,
+        expert_policy=expert_policy,
+    )
+
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
     _eval_expert_policy = (
@@ -1772,6 +1906,21 @@ def make_train(
 
         if init_transform is not None:
             agent_state = init_transform(agent_state, transform_key)
+
+        # Initialise the per-extension state tuple to match the stack
+        # built in make_scan_fn (one entry per Extension in `extensions`).
+        # The four target-mod extensions are stateless (``init_state`` →
+        # ``()``) so this is one ``()`` entry per extension — no pytree
+        # overhead — but it keeps the index used by
+        # ``ExtensionStack.on_target`` in range. Splitting a sub-key off
+        # ``init_key`` keeps the stateless path deterministic even when a
+        # future stateful extension consumes randomness.
+        if extensions:
+            _ext_key, _ = jax.random.split(init_key)
+            _stack = ExtensionStack(extensions)
+            agent_state = agent_state.replace(
+                ext_state=_stack.init_states(agent_state, _ext_key)
+            )
 
         if expert_policy is not None and use_mc_critic_pretrain:
             expert_critic_state = get_initialized_critic(
@@ -1955,24 +2104,13 @@ def make_train(
             )
         )
 
-        _target_modifier = (
-            target_modifier
-            if target_modifier is not None
-            else make_target_modifier(
-                ibrl_bootstrap=ibrl_bootstrap,
-                lcb_gated_bootstrap=lcb_gated_bootstrap,
-                lcb_beta_init=lcb_beta_init,
-                lcb_beta_decay_k=lcb_beta_decay_k,
-                lcb_temperature=lcb_temperature,
-                use_critic_blend=use_critic_blend,
-                critic_warmup_frac=critic_warmup_frac,
-                mc_variance_threshold=mc_variance_threshold,
-                expert_policy=expert_policy,
-                total_timesteps=total_timesteps,
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                recurrent=network_args.lstm_hidden_size is not None,
-            )
-        )
+        # The four target-mod extensions (IBRL / LCBGatedBootstrap /
+        # CriticBlend / MCVarianceCorrection) now fold through the
+        # ExtensionStack's ``on_target`` phase. We pass the resolved
+        # stack down to ``update_value_functions`` so it can call
+        # ``stack.on_target(...)`` directly — the old ``target_modifier``
+        # callable plumbing is gone.
+        _extension_stack = ExtensionStack(extensions)
 
         _obs_preprocessor = (
             obs_preprocessor
@@ -2063,7 +2201,7 @@ def make_train(
             target_entropy_initial=target_entropy_initial,
             target_entropy_ramp_frac=target_entropy_ramp_frac,
             action_pipeline=_action_pipeline,
-            target_modifier=_target_modifier,
+            extension_stack=_extension_stack,
             obs_preprocessor=_obs_preprocessor,
             policy_action_transform=_policy_action_transform,
             bc_loss_fn=_bc_loss_fn,

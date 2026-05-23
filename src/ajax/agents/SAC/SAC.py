@@ -210,7 +210,6 @@ class SAC(ActorCritic):
         pid_actor_config: Optional[PIDActorConfig] = None,
         # --- Composable hook overrides (None = build from flags above) ---
         action_pipeline: Optional[Callable] = None,
-        target_modifier: Optional[Callable] = None,
         obs_preprocessor: Optional[Callable] = None,
         policy_action_transform: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
@@ -395,7 +394,6 @@ class SAC(ActorCritic):
         self.phi_refresh_steps = phi_refresh_steps
         self.pid_actor_config = pid_actor_config
         self.action_pipeline = action_pipeline
-        self.target_modifier = target_modifier
         self.obs_preprocessor = obs_preprocessor
         self.policy_action_transform = policy_action_transform
         self.eval_action_transform = eval_action_transform
@@ -483,7 +481,6 @@ class SAC(ActorCritic):
             pid_actor_config=self.pid_actor_config,
             action_dim_override=self.action_dim_override,
             action_pipeline=self.action_pipeline,
-            target_modifier=self.target_modifier,
             obs_preprocessor=self.obs_preprocessor,
             policy_action_transform=self.policy_action_transform,
             eval_action_transform=self.eval_action_transform,

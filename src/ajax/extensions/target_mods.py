@@ -1,11 +1,12 @@
 """TD-target modifier research features as composable :class:`Extension`s.
 
 These reshape the SAC Bellman target before it enters the critic loss
-(the ``on_target`` phase). Each is behaviour-equivalent to the
-corresponding flag-gated path of the pre-refactor ``train_SAC.py``; the
-SAC training factory reads the extension stack and assembles the single
-``target_modifier`` callable the proven ``update_value_functions``
-consumes.
+(the ``on_target`` phase). The four target-mod extensions each implement
+their math directly on :meth:`Extension.on_target`; the SAC loop folds
+them through ``stack.on_target(...)``. The pre-refactor flag-driven
+``make_target_modifier`` builder used to assemble the same four pieces
+into a single callable — that builder has been removed; the math lives
+here.
 
 * :class:`IBRL`               — ``ibrl_bootstrap``: add the positive gap
   ``γ(1-d)·max(Q_expert - Q_policy, 0)`` so the value function matches an
@@ -18,14 +19,39 @@ consumes.
   high-ensemble-variance Bellman targets with the MC-pretrained oracle.
 * :class:`ValueBox`           — ``use_box``: value-threshold expert
   action override during collection (the ``action`` phase).
+
+The ``batch`` argument to ``on_target`` is a dict carrying every input
+each modifier needs, threaded through by ``update_value_functions`` in
+``ajax.agents.SAC.sac``:
+
+``observations``, ``actions``, ``next_observations``, ``dones``,
+``rng_key``, ``q_preds``, ``gamma``, ``augment_obs_with_expert_action``,
+``recurrent``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
-from ajax.extensions.base import Extension
+import jax
+import jax.numpy as jnp
+
+from ajax.environments.interaction import get_pi
+from ajax.extensions.base import Extension, ExtensionContext
+from ajax.modules.expert import (
+    blend_modify_target,
+    mc_correction_modify_target,
+)
+from ajax.networks.networks import predict_value
+
+
+def _next_raw(batch: dict) -> jax.Array:
+    """Strip the trailing expert-action dims if obs is augmented."""
+    next_obs = batch["next_observations"]
+    if batch.get("augment_obs_with_expert_action", False):
+        return next_obs[..., :-1]
+    return next_obs
 
 
 @dataclass(frozen=True)
@@ -39,6 +65,53 @@ class IBRL(Extension):
 
     expert_policy: Callable
     name: str = "ibrl"
+
+    def on_target(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: dict,
+        target: jax.Array,
+        ctx: ExtensionContext,
+    ) -> jax.Array:
+        del ext_state
+        next_observations = batch["next_observations"]
+        dones = batch["dones"]
+        gamma = batch["gamma"]
+        rng = batch["rng_key"]
+        recurrent = batch.get("recurrent", False)
+
+        next_expert_actions = jax.lax.stop_gradient(
+            self.expert_policy(_next_raw(batch))
+        )
+        q_targets_expert = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
+        )
+        min_q_expert = jnp.min(q_targets_expert, axis=0, keepdims=False)
+
+        next_pi, _ = get_pi(
+            actor_state=agent_state.actor_state,
+            actor_params=agent_state.actor_state.params,
+            obs=next_observations,
+            done=dones,
+            recurrent=recurrent,
+        )
+        ibrl_key, _ = jax.random.split(rng)
+        next_actions_ibrl, _ = next_pi.sample_and_log_prob(seed=ibrl_key)
+        q_targets_policy = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_actions_ibrl), axis=-1),
+        )
+        min_q_policy = jnp.min(q_targets_policy, axis=0, keepdims=False)
+
+        gap = jax.lax.stop_gradient(
+            gamma * (1.0 - dones) * jnp.maximum(min_q_expert - min_q_policy, 0.0)
+        )
+        del ctx
+        return target + gap
 
 
 @dataclass(frozen=True)
@@ -56,6 +129,77 @@ class LCBGatedBootstrap(Extension):
     lcb_temperature: float = 1.0
     name: str = "lcb_gated_bootstrap"
 
+    def on_target(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: dict,
+        target: jax.Array,
+        ctx: ExtensionContext,
+    ) -> jax.Array:
+        del ext_state
+        # LCB-gated bootstrap: at s', score each candidate by
+        #   score(a) = Q_min(s', a) - β · (Q_max(s', a) - Q_min(s', a))
+        # then soft-blend the policy and expert TD targets by
+        #   P_expert = σ((score_e - score_p) / lcb_temperature).
+        next_observations = batch["next_observations"]
+        dones = batch["dones"]
+        gamma = batch["gamma"]
+        rng = batch["rng_key"]
+        recurrent = batch.get("recurrent", False)
+
+        next_expert_actions = jax.lax.stop_gradient(
+            self.expert_policy(_next_raw(batch))
+        )
+        q_targets_expert = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
+        )
+        next_pi_lcb, _ = get_pi(
+            actor_state=agent_state.actor_state,
+            actor_params=agent_state.actor_state.params,
+            obs=next_observations,
+            done=dones,
+            recurrent=recurrent,
+        )
+        lcb_key, _ = jax.random.split(rng)
+        next_actions_lcb, _ = next_pi_lcb.sample_and_log_prob(seed=lcb_key)
+        q_targets_policy = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_actions_lcb), axis=-1),
+        )
+        q_min_e = jnp.min(q_targets_expert, axis=0, keepdims=False)
+        q_max_e = jnp.max(q_targets_expert, axis=0, keepdims=False)
+        q_min_p = jnp.min(q_targets_policy, axis=0, keepdims=False)
+        q_max_p = jnp.max(q_targets_policy, axis=0, keepdims=False)
+        # Anneal beta over training same as the action-selection gate. Use
+        # the agent_state's collector_state.timestep / total_timesteps so
+        # the rate matches the pre-refactor make_target_modifier exactly
+        # (ctx.step / ctx.total_steps would also work but we keep the
+        # historical numerics by reading the same fields).
+        total_timesteps = max(int(ctx.total_steps), 1)
+        train_frac = jnp.clip(
+            agent_state.collector_state.timestep / total_timesteps,
+            0.0,
+            1.0,
+        )
+        beta_eff = self.lcb_beta_init * jnp.power(
+            1.0 - train_frac, self.lcb_beta_decay_k
+        )
+        score_e = q_min_e - beta_eff * (q_max_e - q_min_e)
+        score_p = q_min_p - beta_eff * (q_max_p - q_min_p)
+        p_expert = jax.nn.sigmoid(
+            (score_e - score_p) / jnp.maximum(self.lcb_temperature, 1e-6)
+        )
+        # Bellman target with the LCB-gated next action. We blend the
+        # min-Q part only (entropy term stays on the policy branch since
+        # the expert is deterministic — log_prob is undefined).
+        min_q_lcb = (1.0 - p_expert) * q_min_p + p_expert * q_min_e
+        gap_lcb = jax.lax.stop_gradient(gamma * (1.0 - dones) * (min_q_lcb - q_min_p))
+        return target + gap_lcb
+
 
 @dataclass(frozen=True)
 class CriticBlend(Extension):
@@ -70,6 +214,43 @@ class CriticBlend(Extension):
     critic_warmup_frac: float = 0.15
     name: str = "critic_blend"
 
+    def on_target(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: dict,
+        target: jax.Array,
+        ctx: ExtensionContext,
+    ) -> jax.Array:
+        del ext_state
+        # No-op when the frozen expert critic has not been populated (no
+        # MC pre-training in the stack). Matches the pre-refactor guard
+        # `if has_blend and agent_state.expert_critic_params is not None`.
+        if agent_state.expert_critic_params is None:
+            return target
+
+        next_observations = batch["next_observations"]
+        # CriticBlend always strips the trailing expert-action dim
+        # (matches the pre-refactor `next_raw = next_observations[..., :-1]`
+        # path, which was unconditional in the blend branch).
+        next_raw = next_observations[..., :-1]
+        a_expert_next = jax.lax.stop_gradient(self.expert_policy(next_raw))
+        v_expert_next = jax.lax.stop_gradient(
+            jnp.min(
+                predict_value(
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.expert_critic_params,
+                    x=jnp.concatenate([next_observations, a_expert_next], axis=-1),
+                ),
+                axis=0,
+            )
+        )
+        total_timesteps = max(int(ctx.total_steps), 1)
+        train_frac = agent_state.collector_state.timestep / total_timesteps
+        alpha_blend_val = jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
+        target_new, _ = blend_modify_target(target, v_expert_next, alpha_blend_val)
+        return jax.lax.stop_gradient(target_new)
+
 
 @dataclass(frozen=True)
 class MCVarianceCorrection(Extension):
@@ -82,6 +263,34 @@ class MCVarianceCorrection(Extension):
 
     threshold: float
     name: str = "mc_variance_correction"
+
+    def on_target(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: dict,
+        target: jax.Array,
+        ctx: ExtensionContext,
+    ) -> jax.Array:
+        del ext_state, ctx
+        # Same guard as the legacy `has_mc and expert_critic_params is not
+        # None` branch — silent no-op without MC pre-training.
+        if agent_state.expert_critic_params is None:
+            return target
+        observations = batch["observations"]
+        actions = batch["actions"]
+        q_preds = batch["q_preds"]
+        q_var = q_preds.var(axis=0)[..., 0]
+        target_new, _ = mc_correction_modify_target(
+            target,
+            agent_state.critic_state,
+            agent_state.expert_critic_params,
+            observations,
+            actions,
+            q_var,
+            self.threshold,
+        )
+        return target_new
 
 
 @dataclass(frozen=True)

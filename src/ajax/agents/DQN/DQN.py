@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional
 
@@ -8,6 +9,7 @@ from ajax.agents.DQN.state import DQNConfig
 from ajax.agents.DQN.train_DQN import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
+from ajax.extensions.base import Extension
 from ajax.types import EnvType
 
 
@@ -61,6 +63,8 @@ class DQN(ActorCritic):
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[tuple] = None,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "DQN"})
@@ -82,6 +86,7 @@ class DQN(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            extensions=extensions,
         )
 
         if check_if_environment_has_continuous_actions(self.env_args.env):
@@ -121,4 +126,5 @@ class DQN(ActorCritic):
             td_loss_fn=self.td_loss_fn,
             q_network_cls=self.q_network_cls,
             extra_eval_metrics=self.extra_eval_metrics,
+            extensions=tuple(self.extension_stack.extensions),
         )

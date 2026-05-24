@@ -39,6 +39,7 @@ from ajax.environments.interaction import (
     should_use_uniform_sampling,
 )
 from ajax.environments.utils import check_env_is_gymnax, get_action_dim
+from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -319,6 +320,8 @@ def q_loss_fn(
         "reward_scale",
         "td_target_fn",
         "td_loss_fn",
+        "extension_stack",
+        "total_timesteps",
     ],
 )
 def update_agent(
@@ -331,6 +334,8 @@ def update_agent(
     reward_scale: float,
     td_target_fn: Callable,
     td_loss_fn: Callable,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[DQNState, AuxiliaryLogs]:
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
@@ -360,13 +365,56 @@ def update_agent(
         reward_scale=reward_scale,
     )
 
-    (_, value_aux), grads = jax.value_and_grad(q_loss_fn, has_aux=True)(
+    # Extension fold: TD-target shaping (analogous to SAC's
+    # ``stack.on_target``). Empty stack ⇒ identity. Each extension reads
+    # the standard DQN target operands off the batch dict.
+    if extension_stack is not None and extension_stack.extensions:
+        _tgt_rng, rng2 = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng2)
+        _tgt_ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=_tgt_rng,
+            total_steps=total_timesteps,
+        )
+        _tgt_batch = {
+            "observations": observations,
+            "actions": actions,
+            "next_observations": next_observations,
+            "rewards": rewards,
+            "dones": dones,
+            "gamma": gamma,
+            "reward_scale": reward_scale,
+        }
+        target_q = extension_stack.on_target(
+            agent_state, agent_state.ext_state, _tgt_batch, target_q, _tgt_ctx
+        )
+
+    def _q_loss(params, q_state, obs, act, tgt):
+        loss, core_aux = q_loss_fn(params, q_state, obs, act, tgt, td_loss_fn)
+        # Additive extension critic-loss term (summed over stack).
+        if extension_stack is not None and extension_stack.extensions:
+            _cl_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=agent_state.rng,
+                total_steps=total_timesteps,
+            )
+            _cl_batch = {
+                "observations": obs,
+                "actions": act,
+                "targets": tgt,
+                "q_state": q_state,
+            }
+            loss = loss + extension_stack.critic_loss(
+                agent_state, agent_state.ext_state, _cl_batch, _cl_ctx
+            )
+        return loss, core_aux
+
+    (_, value_aux), grads = jax.value_and_grad(_q_loss, has_aux=True)(
         agent_state.actor_state.params,
         agent_state.actor_state,
         observations,
         actions,
         target_q,
-        td_loss_fn,
     )
     q_state = agent_state.actor_state.apply_gradients(grads=grads)
 
@@ -411,6 +459,7 @@ def update_agent(
         "td_target_fn",
         "td_loss_fn",
         "extra_eval_metrics",
+        "extension_stack",
     ],
 )
 def training_iteration(
@@ -434,6 +483,7 @@ def training_iteration(
     td_target_fn: Callable = compute_dqn_td_target,
     td_loss_fn: Callable = mse_td_loss,
     extra_eval_metrics: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
 ) -> Tuple[DQNState, Any]:
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
@@ -462,12 +512,30 @@ def training_iteration(
             reward_scale=agent_config.reward_scale,
             td_target_fn=td_target_fn,
             td_loss_fn=td_loss_fn,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
         )
         # Carry-only scan: only the final-step aux is materialised.
         agent_state, aux = final_aux_scan(
             update_scan_fn, agent_state, length=agent_config.n_gradient_steps
         )
         aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
+
+        # Extension post_update — folded once per training_iteration, after
+        # the gradient-step scan, so phi-refresh-style hooks see the
+        # updated agent_state. Empty stack ⇒ identity.
+        if extension_stack is not None and extension_stack.extensions:
+            _pu_rng, rng2 = jax.random.split(agent_state.rng)
+            agent_state = agent_state.replace(rng=rng2)
+            _pu_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=_pu_rng,
+                total_steps=total_timesteps,
+            )
+            agent_state, _new_ext_state = extension_stack.post_update(
+                agent_state, agent_state.ext_state, _pu_ctx
+            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
         return agent_state, aux
 
     def skip_update(agent_state):
@@ -480,6 +548,9 @@ def training_iteration(
         operand=agent_state,
     )
 
+    _merged_extra_eval = _wrap_extra_eval_metrics(
+        extra_eval_metrics, extension_stack, total_timesteps
+    )
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -495,9 +566,44 @@ def training_iteration(
         log_frequency,
         total_timesteps,
         eval_action_transform=eval_action_transform,
-        extra_eval_metrics=extra_eval_metrics,
+        extra_eval_metrics=_merged_extra_eval,
     )
     return agent_state, metrics_to_log
+
+
+def _wrap_extra_eval_metrics(
+    user_fn: Optional[Callable],
+    extension_stack: Optional[ExtensionStack],
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Merge user ``extra_eval_metrics`` with ``ExtensionStack.eval_metrics``.
+
+    Both surfaces continue to work side-by-side; the user callable runs
+    first, then the stack's per-extension ``eval_metrics`` are folded in.
+    Keys collide last-write-wins. Returns ``None`` when both are inactive
+    so :func:`ajax.log.evaluate_and_log` keeps its zero-overhead branch.
+    """
+    if user_fn is None and (extension_stack is None or not extension_stack.extensions):
+        return None
+
+    def merged(agent_state, rng):
+        out: dict = {}
+        if user_fn is not None:
+            out.update(user_fn(agent_state, rng))
+        if extension_stack is not None and extension_stack.extensions:
+            _ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=rng,
+                total_steps=total_timesteps,
+            )
+            out.update(
+                extension_stack.eval_metrics(
+                    agent_state, agent_state.ext_state, rng, _ctx
+                )
+            )
+        return out
+
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +631,7 @@ def make_train(
     td_loss_fn: Optional[Callable] = None,
     q_network_cls: Optional[type] = None,
     extra_eval_metrics: Optional[Callable] = None,
+    extensions: Sequence = (),
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
@@ -552,8 +659,10 @@ def make_train(
 
     num_updates = total_timesteps // env_args.n_envs
 
+    extension_stack = ExtensionStack(extensions) if extensions else None
+
     def init_fn(key, index):
-        return init_DQN(
+        agent_state = init_DQN(
             key=key,
             env_args=env_args,
             optimizer_args=critic_optimizer_args,
@@ -562,6 +671,21 @@ def make_train(
             n_actions=n_actions,
             q_network_cls=q_network_cls,
         )
+        if extension_stack is not None:
+            _ext_key, _pre_key = jax.random.split(key)
+            agent_state = agent_state.replace(
+                ext_state=extension_stack.init_states(agent_state, _ext_key)
+            )
+            _pre_ctx = ExtensionContext(
+                step=jnp.asarray(0),
+                rng=_pre_key,
+                total_steps=total_timesteps,
+            )
+            agent_state, _new_ext_state = extension_stack.pretrain(
+                agent_state, agent_state.ext_state, _pre_ctx
+            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
+        return agent_state
 
     def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         return partial(
@@ -585,6 +709,7 @@ def make_train(
             td_target_fn=td_target_fn,
             td_loss_fn=td_loss_fn,
             extra_eval_metrics=extra_eval_metrics,
+            extension_stack=extension_stack,
         )
 
     return build_resumable_train(

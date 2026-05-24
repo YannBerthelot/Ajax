@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional
 
@@ -7,6 +8,7 @@ from ajax.agents.base import ActorCritic
 from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
+from ajax.extensions.base import Extension
 from ajax.types import EnvType
 
 
@@ -53,6 +55,8 @@ class PQN(ActorCritic):
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[tuple] = None,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "PQN"})
@@ -73,6 +77,7 @@ class PQN(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            extensions=extensions,
         )
 
         if check_if_environment_has_continuous_actions(self.env_args.env):
@@ -109,4 +114,5 @@ class PQN(ActorCritic):
             eval_action_transform=self.eval_action_transform,
             td_loss_fn=self.td_loss_fn,
             extra_eval_metrics=self.extra_eval_metrics,
+            extensions=tuple(self.extension_stack.extensions),
         )

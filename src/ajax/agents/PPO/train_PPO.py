@@ -22,6 +22,7 @@ from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
+from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -630,6 +631,125 @@ def no_op_none(agent_state, index, timestep):
     pass
 
 
+# ---------------------------------------------------------------------------
+# Extension-stack composition helpers
+# ---------------------------------------------------------------------------
+def _compose_extra_critic_loss(
+    user_fn: Optional[Callable],
+    extension_stack: Optional[ExtensionStack],
+    agent_state: PPOState,
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Combine the user ``extra_critic_loss_fn`` with stack.critic_loss.
+
+    Returns ``None`` (so the agent skips the extra-loss code path) when
+    no contribution exists. The returned callable matches the signature
+    expected by :func:`value_loss_function`:
+    ``(critic_params, critic_states, observations, value_targets,
+    agent_state) -> scalar``. ``agent_state`` is the iteration-time
+    state captured by closure; the per-minibatch ``agent_state`` is also
+    passed through but the stack reads ``ext_state`` off the closure
+    instance for determinism.
+    """
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+    if user_fn is None and not has_stack:
+        return None
+
+    def combined(critic_params, critic_states, observations, value_targets, _astate):
+        loss: jax.Array | float = 0.0
+        if user_fn is not None:
+            loss = loss + user_fn(
+                critic_params, critic_states, observations, value_targets, _astate
+            )
+        if has_stack:
+            assert extension_stack is not None
+            _ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=agent_state.rng,
+                total_steps=total_timesteps,
+            )
+            _batch = {
+                "observations": observations,
+                "targets": value_targets,
+                "critic_params": critic_params,
+                "critic_state": critic_states,
+            }
+            loss = loss + extension_stack.critic_loss(
+                agent_state, agent_state.ext_state, _batch, _ctx
+            )
+        return loss
+
+    return combined
+
+
+def _compose_extra_actor_loss(
+    user_fn: Optional[Callable],
+    extension_stack: Optional[ExtensionStack],
+    agent_state: PPOState,
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Combine the user ``extra_actor_loss_fn`` with stack.actor_loss.
+
+    Returns ``None`` when nothing contributes. The returned callable
+    matches the signature expected by :func:`policy_loss_function`:
+    ``(actor_params, actor_state) -> scalar``.
+    """
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+    if user_fn is None and not has_stack:
+        return None
+
+    def combined(actor_params, actor_state):
+        loss: jax.Array | float = 0.0
+        if user_fn is not None:
+            loss = loss + user_fn(actor_params, actor_state)
+        if has_stack:
+            assert extension_stack is not None
+            _ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=agent_state.rng,
+                total_steps=total_timesteps,
+            )
+            _batch = {
+                "actor_params": actor_params,
+                "actor_state": actor_state,
+            }
+            loss = loss + extension_stack.actor_loss(
+                agent_state, agent_state.ext_state, _batch, _ctx
+            )
+        return loss
+
+    return combined
+
+
+def _wrap_extra_eval_metrics(
+    user_fn: Optional[Callable],
+    extension_stack: Optional[ExtensionStack],
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Merge user ``extra_eval_metrics`` with ``ExtensionStack.eval_metrics``."""
+    if user_fn is None and (extension_stack is None or not extension_stack.extensions):
+        return None
+
+    def merged(agent_state, rng):
+        out: dict = {}
+        if user_fn is not None:
+            out.update(user_fn(agent_state, rng))
+        if extension_stack is not None and extension_stack.extensions:
+            _ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=rng,
+                total_steps=total_timesteps,
+            )
+            out.update(
+                extension_stack.eval_metrics(
+                    agent_state, agent_state.ext_state, rng, _ctx
+                )
+            )
+        return out
+
+    return merged
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -654,6 +774,7 @@ def no_op_none(agent_state, index, timestep):
         "extra_actor_loss_fn",
         "extra_critic_loss_fn",
         "reward_shaping_fn",
+        "extension_stack",
     ],
 )
 def training_iteration(
@@ -682,6 +803,7 @@ def training_iteration(
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
     reward_shaping_fn: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
 ) -> tuple[PPOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -740,6 +862,34 @@ def training_iteration(
         gae_lambda=agent_config.gae_lambda,
     )
 
+    # Extension on_target: reshape the value targets after GAE
+    # computation. Caveat: PPO's actor uses ``gae`` (advantage) directly
+    # rather than the value target, so on_target acts on the critic
+    # regression target only — analogous to DQN's TD-target shaping.
+    # Empty stack ⇒ identity.
+    if extension_stack is not None and extension_stack.extensions:
+        _tgt_rng, _ppo_rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_ppo_rng)
+        _tgt_ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=_tgt_rng,
+            total_steps=total_timesteps,
+        )
+        _tgt_batch = {
+            "observations": transition.obs,
+            "next_observations": transition.next_obs,
+            "rewards": shaped_rewards,
+            "terminated": transition.terminated,
+            "truncated": transition.truncated,
+            "gae": gae,
+            "values": values,
+            "next_values": next_values,
+            "gamma": agent_config.gamma,
+        }
+        value_targets = extension_stack.on_target(
+            agent_state, agent_state.ext_state, _tgt_batch, value_targets, _tgt_ctx
+        )
+
     batch = (
         transition.obs,
         (
@@ -781,18 +931,39 @@ def training_iteration(
     def do_update(
         agent_state: PPOState, num_epochs: int
     ) -> tuple[PPOState, AuxiliaryLogs]:
+        # Compose extra-loss callables with the extension-stack additive
+        # terms. Each combined callable's signature matches what
+        # ``_value_and_grad_with_extra`` / ``_policy_value_and_grad_with_extra``
+        # expect (matches the legacy hook signature exactly).
+        # ``agent_state`` is captured by closure so the extensions can
+        # read ``ext_state``; the resulting closure is a fresh callable
+        # each ``do_update`` call so the scan body never sees mutable
+        # python state.
+        _composed_critic_extra = _compose_extra_critic_loss(
+            extra_critic_loss_fn,
+            extension_stack,
+            agent_state,
+            total_timesteps,
+        )
+        _composed_actor_extra = _compose_extra_actor_loss(
+            extra_actor_loss_fn,
+            extension_stack,
+            agent_state,
+            total_timesteps,
+        )
+
         # Build grad fns ONCE with extra_loss_fns captured in closure, so the
         # scan body never has to pass function-typed kwargs across function-
         # call boundaries (which jax rejects inside a traced scan body).
         critic_grad_fn = (
             VALUE_AND_GRAD_FN
-            if extra_critic_loss_fn is None
-            else _value_and_grad_with_extra(extra_critic_loss_fn)
+            if _composed_critic_extra is None
+            else _value_and_grad_with_extra(_composed_critic_extra)
         )
         actor_grad_fn = (
             POLICY_AND_GRAD_FN
-            if extra_actor_loss_fn is None
-            else _policy_value_and_grad_with_extra(extra_actor_loss_fn)
+            if _composed_actor_extra is None
+            else _policy_value_and_grad_with_extra(_composed_actor_extra)
         )
 
         def body_fn(agent_state, _):
@@ -808,7 +979,7 @@ def training_iteration(
             dones = jnp.logical_or(terminated, truncated)
 
             # critic update
-            if extra_critic_loss_fn is None:
+            if _composed_critic_extra is None:
                 (_v_loss, v_aux), v_grads = critic_grad_fn(
                     agent_state.critic_state.params,
                     agent_state.critic_state,
@@ -881,6 +1052,21 @@ def training_iteration(
 
     agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
 
+    # Extension post_update — folded after the per-iteration update loop.
+    # Empty stack ⇒ identity.
+    if extension_stack is not None and extension_stack.extensions:
+        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_pu_rng2)
+        _pu_ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=_pu_rng,
+            total_steps=total_timesteps,
+        )
+        agent_state, _new_ext_state = extension_stack.post_update(
+            agent_state, agent_state.ext_state, _pu_ctx
+        )
+        agent_state = agent_state.replace(ext_state=_new_ext_state)
+
     if auxiliary_update is not None:
         aux_rng, rng = jax.random.split(agent_state.rng)
         # Stash the full stacked rollout (T, n_envs, *) into
@@ -903,6 +1089,9 @@ def training_iteration(
     else:
         auxiliary_metrics = {}
 
+    _merged_extra_eval = _wrap_extra_eval_metrics(
+        extra_eval_metrics, extension_stack, total_timesteps
+    )
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -918,7 +1107,7 @@ def training_iteration(
         log_frequency,
         total_timesteps,
         eval_action_transform=eval_action_transform,
-        extra_eval_metrics=extra_eval_metrics,
+        extra_eval_metrics=_merged_extra_eval,
     )
 
     metrics_to_log = {**metrics_to_log, **auxiliary_metrics}
@@ -969,6 +1158,7 @@ def make_train(
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
     reward_shaping_fn: Optional[Callable] = None,
+    extensions: Sequence = (),
 ):
     """
     Create the training function for the PPO agent.
@@ -996,10 +1186,12 @@ def make_train(
 
     num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 
+    extension_stack = ExtensionStack(extensions) if extensions else None
+
     def init_fn(key, index):
         # Preserve the original RNG layout: key -> (_, init_key, _).
         _, init_key, _transform_key = jax.random.split(key, 3)
-        return init_PPO(
+        agent_state = init_PPO(
             key=init_key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
@@ -1007,6 +1199,25 @@ def make_train(
             network_args=network_args,
             pid_actor_config=pid_actor_config,
         )
+        if extension_stack is not None:
+            # Reuse the unused 3rd split for ext init/pretrain RNG so the
+            # legacy (1st, 2nd) slots are unchanged — preserves byte-
+            # identical numerics for any code that derived its RNG from
+            # the first two splits.
+            _ext_key, _pre_key = jax.random.split(_transform_key)
+            agent_state = agent_state.replace(
+                ext_state=extension_stack.init_states(agent_state, _ext_key)
+            )
+            _pre_ctx = ExtensionContext(
+                step=jnp.asarray(0),
+                rng=_pre_key,
+                total_steps=total_timesteps,
+            )
+            agent_state, _new_ext_state = extension_stack.pretrain(
+                agent_state, agent_state.ext_state, _pre_ctx
+            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
+        return agent_state
 
     def _init_transform(agent_state, key):
         # One-shot transform consumes ``transform_key`` (the 3rd split of
@@ -1040,6 +1251,7 @@ def make_train(
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
             reward_shaping_fn=reward_shaping_fn,
+            extension_stack=extension_stack,
         )
 
     return build_resumable_train(

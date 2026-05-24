@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
@@ -6,6 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train
+from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
@@ -60,6 +62,8 @@ class PPO(ActorCritic):
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[tuple] = None,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the PPO agent.
@@ -106,6 +110,7 @@ class PPO(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            extensions=extensions,
         )
 
         self.agent_config = PPOConfig(
@@ -148,6 +153,7 @@ class PPO(ActorCritic):
             extra_actor_loss_fn=self.extra_actor_loss_fn,
             extra_critic_loss_fn=self.extra_critic_loss_fn,
             reward_shaping_fn=self.reward_shaping_fn,
+            extensions=tuple(self.extension_stack.extensions),
         )
 
 

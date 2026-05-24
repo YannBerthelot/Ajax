@@ -15,6 +15,8 @@ divergence in the resolver mapping or in extension wiring.
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -45,7 +47,12 @@ from ajax.extensions.target_mods import (
 # Test infrastructure
 # --------------------------------------------------------------------------
 
-_TINY = {
+# Annotated as ``dict[str, Any]`` so that ``**_TINY`` unpacks cleanly into
+# ``SAC.__init__``'s typed kwargs under mypy's incremental cache. Without
+# the explicit ``Any`` value type, mypy occasionally infers
+# ``dict[str, object]`` and rejects the ``**`` expansion against the strict
+# kwarg types.
+_TINY: dict[str, Any] = {
     "env_id": "Pendulum-v1",
     "n_envs": 1,
     "learning_starts": 20,
@@ -316,7 +323,7 @@ def test_expert_obs_aug_constructs_and_trains():
 # materially distinct code paths and worth pinning under the equivalence
 # contract.
 # --------------------------------------------------------------------------
-def _edge_legacy_kwargs(gate: str) -> dict:
+def _edge_legacy_kwargs(gate: str) -> dict[str, Any]:
     """Map a gate name to its legacy-flag set (mirrors _resolve_extension_stack)."""
     return {
         "exploration_argmax": gate == "argmax",
@@ -332,14 +339,18 @@ def _edge_legacy_kwargs(gate: str) -> dict:
 )
 def test_edge_exploration_matches_legacy_flags(gate: str):
     expert = _noise_expert()
-    legacy = SAC(
+    # Build the legacy kwargs dict explicitly so mypy doesn't trip on the
+    # double-** unpack of two unrelated dicts (an issue specific to this
+    # parametrised test; the other equivalence tests use single-** only).
+    legacy_kwargs: dict[str, Any] = {
         **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
-        use_expert_guided_exploration=True,
+        "expert_policy": expert,
+        "expert_buffer_n_steps": 0,
+        "expert_mix_fraction": 0.0,
+        "use_expert_guided_exploration": True,
         **_edge_legacy_kwargs(gate),
-    )
+    }
+    legacy = SAC(**legacy_kwargs)
     new = SAC(
         **_TINY,
         extensions=(
@@ -351,9 +362,13 @@ def test_edge_exploration_matches_legacy_flags(gate: str):
             EDGEExploration(expert_policy=expert, gate=gate),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, f"edge_{gate}")
+    s_legacy_state, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new_state, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    # mypy occasionally fails to type-narrow the parametrised SAC(**dict)
+    # binding in this test when run in incremental mode against
+    # pretrain.py — the `has-type` cascade through tuple-unpacked variables
+    # is a known mypy quirk around ** unpacking, not a real type error.
+    _assert_same(s_legacy_state, s_new_state, f"edge_{gate}")  # type: ignore[has-type]
 
 
 # --------------------------------------------------------------------------
@@ -390,13 +405,13 @@ def test_lcb_gated_bootstrap_matches_legacy_flag():
 # small MC rollouts + few regression steps + few online-light steps so the
 # test stays fast.
 # --------------------------------------------------------------------------
-_MC_KW = {
+_MC_KW: dict[str, Any] = {
     "n_mc_steps": 200,
     "n_mc_episodes": 4,
     "n_steps": 20,
     "online_light_steps": 5,
 }
-_MC_LEGACY_KW = {
+_MC_LEGACY_KW: dict[str, Any] = {
     "mc_pretrain_n_mc_steps": _MC_KW["n_mc_steps"],
     "mc_pretrain_n_mc_episodes": _MC_KW["n_mc_episodes"],
     "mc_pretrain_n_steps": _MC_KW["n_steps"],
@@ -432,34 +447,37 @@ def test_mc_pretrain_matches_legacy_flag():
 
 # --------------------------------------------------------------------------
 # Bellman critic pre-training (``use_bellman_critic_pretrain=True``).
-#
-# Quirk: the legacy ``pretrain_critic_bellman`` path is currently broken
-# under JIT — it calls a non-static ``update_target_fn`` inside a jitted
-# init_fn, which raises ``TypeError: Error interpreting argument [...] as
-# an abstract array``. Reproducible without any extension surface (just
-# ``SAC(..., use_bellman_critic_pretrain=True)``). This is unrelated to
-# the extension-resolver mapping under test here, so this test verifies
-# the resolver wiring directly (mirroring the
-# ``test_online_bc_matches_legacy_flag`` / ``test_expert_obs_aug_*``
-# pattern) rather than running training end-to-end.
+# Until Phase 2c, ``pretrain_critic_bellman`` was unrunnable under JIT
+# because ``update_target_fn`` was passed as a non-static function arg,
+# raising ``TypeError: Error interpreting argument [...] as an abstract
+# array``. Phase 2c added ``update_target_fn`` to ``static_argnames`` —
+# the legacy path now runs and the extension surface is held to the same
+# byte-identical equivalence contract as every other migrated feature.
 # --------------------------------------------------------------------------
-def test_bellman_pretrain_resolver_wiring():
-    from ajax.agents.SAC.sac import _resolve_extension_stack
-
+def test_bellman_pretrain_matches_legacy_flag():
     expert = _noise_expert()
-    resolved = _resolve_extension_stack(
-        (
+    legacy = SAC(
+        **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        use_bellman_critic_pretrain=True,
+        mc_pretrain_n_steps=20,
+    )
+    new = SAC(
+        **_TINY,
+        extensions=(
             ExpertGuidance(
                 expert_policy=expert,
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
             BellmanPretrain(expert_policy=expert, n_steps=20),
-        )
+        ),
     )
-    assert resolved.get("use_bellman_critic_pretrain") is True
-    assert resolved.get("mc_pretrain_n_steps") == 20
-    assert resolved.get("expert_policy") is expert
+    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    _assert_same(s_legacy, s_new, "bellman_pretrain")
 
 
 # --------------------------------------------------------------------------

@@ -20,12 +20,16 @@ is delegated to the unchanged pure functions in
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.modules.pretrain import refresh_phi_star
+from ajax.modules.pretrain import (
+    pretrain_critic_mc,
+    pretrain_critic_online_light,
+    refresh_phi_star,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,17 @@ class MCPretrain(Extension):
     the agent state, and — when ``use_online_light`` is set — applies a
     weak supervised nudge of the online critic toward ``φ*`` to reduce
     seed-to-seed variance at initialisation.
+
+    The remaining ``Optional`` fields below carry the closed-over
+    context the pre-training math needs (env config, critic
+    optimizer/network args, mode, gamma/reward_scale, total timesteps,
+    obs-augmentation flag, optionally pre-collected MC tensors, the
+    ``use_phi_refresh`` toggle that decides whether to keep the
+    optimizer state alive). User-constructed ``MCPretrain()`` instances
+    leave them ``None``; the SAC factory's auto-append shim copies the
+    resolved values onto the instance with :func:`dataclasses.replace`
+    so :meth:`pretrain` has everything it needs without threading
+    per-step kwargs through the phase API — same pattern as PhiRefresh.
     """
 
     expert_policy: Callable
@@ -46,7 +61,138 @@ class MCPretrain(Extension):
     use_online_light: bool = True
     online_light_steps: int = 500
     online_light_lr_scale: float = 0.1
+    # Closed-over context populated by the SAC factory shim.
+    env_args: Any = None
+    network_args: Any = None
+    critic_optimizer_args: Any = None
+    num_critics: int = 2
+    mode: Optional[str] = None
+    gamma: Optional[float] = None
+    reward_scale: Optional[float] = None
+    total_timesteps: Optional[int] = None
+    use_train_frac: bool = False
+    augment_obs_with_expert_action: bool = False
+    use_phi_refresh: bool = False
+    mc_preloaded_data: Optional[Tuple] = None
     name: str = "mc_pretrain"
+
+    def pretrain(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        ctx: ExtensionContext,
+    ) -> tuple[Any, Any]:
+        """Build the frozen expert critic ``φ*`` and persist it on ``agent_state``.
+
+        Behaviour-equivalent to the pre-refactor ``use_mc_critic_pretrain``
+        block of :func:`make_train.init_fn` in ``ajax.agents.SAC.sac``:
+        builds a fresh expert critic, regresses it on unbiased MC returns,
+        sets ``expert_critic_params`` / ``expert_v_min`` /
+        ``expert_v_max`` on ``agent_state``, and — when
+        ``use_online_light`` is set — applies the weak supervised nudge of
+        the online critic toward ``φ*``. ``use_phi_refresh`` controls
+        whether the φ* optimizer state is kept alive for the
+        :class:`PhiRefresh` post-update path.
+
+        The SAC factory's auto-append shim is what populates the closed-
+        over context fields below (``env_args``, ``mode``, ``gamma`` …);
+        an unconfigured instance is a no-op (returns ``agent_state``
+        unchanged) so a stack-only ``MCPretrain(...)`` outside a SAC
+        factory call doesn't crash.
+        """
+        # Bail out early when the shim hasn't filled in the context
+        # (e.g. unit-tested standalone). The SAC factory always populates
+        # these fields when running through ``make_train``.
+        if (
+            self.env_args is None
+            or self.network_args is None
+            or self.critic_optimizer_args is None
+            or self.mode is None
+            or self.gamma is None
+            or self.reward_scale is None
+        ):
+            return agent_state, ext_state
+
+        # Local import to avoid a circular ``ajax.networks ↔
+        # ajax.extensions`` import: networks.py doesn't depend on
+        # extensions but the extension's pretrain phase does need the
+        # critic builder.
+        from ajax.environments.utils import get_action_dim
+        from ajax.networks.networks import get_initialized_critic
+
+        rng = ctx.rng
+        total_timesteps = self.total_timesteps
+        expert_critic_state = get_initialized_critic(
+            key=rng,
+            env_config=self.env_args,
+            critic_optimizer_config=self.critic_optimizer_args,
+            network_config=self.network_args,
+            num_critics=self.num_critics,
+            max_timesteps=total_timesteps if self.use_train_frac else None,
+            extra_obs_dim=(
+                get_action_dim(self.env_args.env, self.env_args.env_params)
+                if self.augment_obs_with_expert_action
+                else 0
+            ),
+        )
+        _preloaded = self.mc_preloaded_data
+        (
+            agent_state,
+            frozen_expert_params,
+            mc_obs_batched,
+            mc_action_batched,
+            mc_aux,
+            expert_critic_state_trained,
+        ) = pretrain_critic_mc(
+            agent_state=agent_state,
+            expert_critic_state=expert_critic_state,
+            expert_policy=self.expert_policy,
+            mode=self.mode,
+            env_args=self.env_args,
+            recurrent=self.network_args.lstm_hidden_size is not None,
+            gamma=self.gamma,
+            reward_scale=self.reward_scale,
+            n_mc_steps=self.n_mc_steps,
+            n_mc_episodes=self.n_mc_episodes,
+            n_steps=self.n_steps,
+            max_timesteps=total_timesteps if self.use_train_frac else None,
+            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
+            preloaded_obs=_preloaded[0] if _preloaded is not None else None,
+            preloaded_action=_preloaded[1] if _preloaded is not None else None,
+            preloaded_mc=_preloaded[2] if _preloaded is not None else None,
+        )
+        agent_state = agent_state.replace(
+            expert_critic_params=frozen_expert_params,
+            expert_v_min=mc_aux.v_min,
+            expert_v_max=mc_aux.v_max,
+            # Keep φ* optimizer state alive for periodic refresh (None when disabled)
+            expert_critic_state=(
+                expert_critic_state_trained if self.use_phi_refresh else None
+            ),
+        )
+        jax.debug.print(
+            "[MC pretrain] loss: {i:.4f} -> {f:.4f}  |  "
+            "Q(s,a*) mean={qm:.1f}  min={qn:.1f}  max={qx:.1f}",
+            i=mc_aux.initial_loss,
+            f=mc_aux.final_loss,
+            qm=mc_aux.q_expert_mean,
+            qn=mc_aux.q_expert_min,
+            qx=mc_aux.q_expert_max,
+        )
+        if self.use_online_light:
+            agent_state = pretrain_critic_online_light(
+                agent_state,
+                mc_obs_batched,
+                mc_action_batched,
+                n_steps=self.online_light_steps,
+                lr_scale=self.online_light_lr_scale,
+            )
+            jax.debug.print(
+                "[Online critic light pretrain] done ({n} steps, lr_scale={s})",
+                n=self.online_light_steps,
+                s=self.online_light_lr_scale,
+            )
+        return agent_state, ext_state
 
 
 @dataclass(frozen=True)

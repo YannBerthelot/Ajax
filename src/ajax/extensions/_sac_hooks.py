@@ -1,17 +1,20 @@
-"""SAC research-feature hook builders (extracted from train_SAC.py).
+"""SAC action pipeline + ``next_expert_fn`` helper.
 
-These ``make_*`` functions are the *implementations* of SAC's remaining
-research-feature hooks — collection-time action selection, obs
-preprocessing, and the eval-time action transform. Each feature whose
-math has been migrated to a real :class:`~ajax.extensions.base.\
-Extension` phase method has its inline branch deleted here; what
-remains is SAC-side bookkeeping (``is_expert_flag`` / ``buffer_action``
-/ expert-state threading), gain-policy short-circuit, obs augmentation,
-and warmup expert/uniform mixing.
+After Phase 2b every SAC research feature whose math could be moved
+onto a real :class:`~ajax.extensions.base.Extension` phase method
+(``on_target`` / ``actor_loss`` / ``action`` / ``eval_action`` /
+``post_update`` / ``pretrain`` / ``on_obs``) has done so. What remains
+in this module is the SAC-specific *action pipeline* glue —
+collection-time bookkeeping (``is_expert_flag`` / ``buffer_action`` /
+expert-state threading), the gain-policy short-circuit, construction-
+time obs augmentation, warmup expert/uniform mixing — plus the small
+helper that builds ``next_expert_fn``. The pipeline dispatches the
+collection-time substitution extensions (EDGEExploration /
+JSRLCurriculum / ValueBox) via their :meth:`Extension.action` method.
 
 :mod:`ajax.agents.SAC.sac` reads an :class:`~ajax.extensions.base.\
-ExtensionStack` and calls these builders to assemble the composable hook
-callables the proven training functions consume. The thin
+ExtensionStack` and calls these helpers to assemble the action
+pipeline the proven training functions consume. The thin
 :class:`~ajax.extensions.base.Extension` config classes live in
 ``ajax/extensions/{expert,target_mods,exploration,pretrain}.py``; this
 module is their shared private machinery.
@@ -24,9 +27,6 @@ import jax.numpy as jnp
 
 from ajax.environments.interaction import get_action_and_log_probs
 from ajax.extensions.base import ExtensionContext, ExtensionStack
-from ajax.modules.expert import (
-    detach_obs_expert_dims,
-)
 
 # ---------------------------------------------------------------------------
 # Action pipeline — composable exploration for collect_experience
@@ -541,49 +541,3 @@ def make_next_expert_fn(expert_policy):
         return expert_policy(raw_next_obs)
 
     return next_expert_fn
-
-
-# ---------------------------------------------------------------------------
-# Policy modifiers — composable obs preprocessing, action transform, BC loss
-# ---------------------------------------------------------------------------
-
-
-def make_policy_obs_preprocessor(
-    augment_obs_with_expert_action, detach_obs_aug_action, action_dim
-):
-    """Compose obs preprocessing for policy: stop-gradient expert-action dims.
-
-    Returns None when not needed (no augmentation or no detach).
-    """
-    if not (augment_obs_with_expert_action and detach_obs_aug_action):
-        return None
-
-    def preprocess(observations):
-        return detach_obs_expert_dims(observations, action_dim)
-
-    return preprocess
-
-
-# ---------------------------------------------------------------------------
-# Eval action transform — composable residual RL / PID for evaluate.py
-# ---------------------------------------------------------------------------
-
-
-def make_eval_action_transform(
-    use_residual_rl=False, use_pid_policy=False, residual_scale: float = 1.0
-):
-    """Compose eval-time action transform for residual RL.
-
-    Returns None for vanilla SAC (default box-based handover in evaluate.py).
-    Gain-mode pid_policy is handled directly in evaluate.step_environment via
-    the pid_gain_policy flag (needs expert_state access), not through here.
-    """
-    if use_pid_policy:
-        return None
-    if use_residual_rl:
-
-        def transform(raw_actions, expert_actions, obs, agent_state):
-            return jnp.clip(expert_actions + residual_scale * raw_actions, -1.0, 1.0)
-
-        return transform
-    return None

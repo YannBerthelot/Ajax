@@ -33,9 +33,7 @@ from ajax.environments.utils import (
 )
 from ajax.extensions._sac_hooks import (
     make_action_pipeline,
-    make_eval_action_transform,
     make_next_expert_fn,
-    make_policy_obs_preprocessor,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.log import evaluate_and_log
@@ -57,12 +55,9 @@ from ajax.modules.pretrain import (
     PhiRefreshAuxiliaries,
     collect_and_store_expert_transitions,
     pretrain_critic_bellman,
-    pretrain_critic_mc,
-    pretrain_critic_online_light,
 )
 from ajax.networks.networks import (
     get_initialized_actor_critic,
-    get_initialized_critic,
     predict_value,
 )
 from ajax.perf_utils import build_resumable_train, final_aux_scan
@@ -493,10 +488,23 @@ def policy_loss_function(
         raw_observations if raw_observations is not None else observations[..., :-1]
     )
 
-    # 1. Pre-process: optionally detach expert-action dims in augmented obs
-    obs_for_actor = (
-        obs_preprocessor(observations) if obs_preprocessor is not None else observations
-    )
+    # 1. Pre-process: optionally detach expert-action dims in augmented obs.
+    # User-passed ``obs_preprocessor`` callable wins; otherwise the
+    # ExtensionStack's ``on_obs`` fold runs (ExpertObsAugmentation owns
+    # the stop-gradient on expert-action dims via its :meth:`on_obs`
+    # method — the legacy ``make_policy_obs_preprocessor`` builder is
+    # gone). Empty stack ⇒ identity.
+    if obs_preprocessor is not None:
+        obs_for_actor = obs_preprocessor(observations)
+    elif extension_stack is not None and extension_stack.extensions:
+        _on_obs_ctx = ExtensionContext(
+            step=jnp.asarray(0),
+            rng=rng,
+            total_steps=total_timesteps,
+        )
+        obs_for_actor = extension_stack.on_obs(observations, ext_state, _on_obs_ctx)
+    else:
+        obs_for_actor = observations
 
     # 2. Core forward pass + sample
     pi, _ = get_pi(
@@ -1462,8 +1470,14 @@ def _resolve_extension_stack(
 
     obs_aug = first_of_type(extensions, ExpertObsAugmentation)
     if obs_aug is not None:
+        # ExpertObsAugmentation.on_obs owns the runtime stop-gradient on
+        # the expert-action obs dims; the
+        # ``augment_obs_with_expert_action`` flag is still echoed because
+        # it gates a separate SAC-side concern: ``init_SAC`` /
+        # ``collect_experience`` change the network input dim when set.
+        # The ``detach_obs_aug_action`` flag is dropped — :meth:`on_obs`
+        # reads ``self.detach`` directly.
         out["augment_obs_with_expert_action"] = True
-        out["detach_obs_aug_action"] = obs_aug.detach
         out.setdefault("expert_policy", obs_aug.expert_policy)
 
     bc = first_of_type(extensions, OnlineBC)
@@ -1556,13 +1570,12 @@ def _resolve_extension_stack(
 
     mcp = first_of_type(extensions, MCPretrain)
     if mcp is not None:
-        out["use_mc_critic_pretrain"] = True
-        out["mc_pretrain_n_mc_steps"] = mcp.n_mc_steps
-        out["mc_pretrain_n_mc_episodes"] = mcp.n_mc_episodes
-        out["mc_pretrain_n_steps"] = mcp.n_steps
-        out["use_online_critic_light_pretrain"] = mcp.use_online_light
-        out["online_critic_pretrain_steps"] = mcp.online_light_steps
-        out["online_critic_pretrain_lr_scale"] = mcp.online_light_lr_scale
+        # MCPretrain.pretrain owns the MC critic pre-training math;
+        # the legacy ``use_mc_critic_pretrain`` + sizing flags are
+        # dropped from the echo (the auto-append shim is a no-op when
+        # the extension is already in the stack, so triggering it is
+        # unnecessary). Same pattern as the EDGE / OnlineBC /
+        # JSRLCurriculum / ValueBox branches above.
         out.setdefault("expert_policy", mcp.expert_policy)
 
     bp = first_of_type(extensions, BellmanPretrain)
@@ -1808,6 +1821,145 @@ def _auto_append_action_extensions(
     return tuple(out)
 
 
+def _auto_append_pretrain_extensions(
+    extensions: Sequence,
+    *,
+    use_mc_critic_pretrain: bool,
+    mc_pretrain_n_mc_steps: int,
+    mc_pretrain_n_mc_episodes: int,
+    mc_pretrain_n_steps: int,
+    use_online_critic_light_pretrain: bool,
+    online_critic_pretrain_steps: int,
+    online_critic_pretrain_lr_scale: float,
+    expert_policy: Optional[Callable],
+    env_args: Any,
+    network_args: Any,
+    critic_optimizer_args: Any,
+    num_critics: int,
+    mode: str,
+    gamma: float,
+    reward_scale: float,
+    total_timesteps: int,
+    use_train_frac: bool,
+    augment_obs_with_expert_action: bool,
+    use_phi_refresh: bool,
+    mc_preloaded_data: Optional[Tuple],
+) -> tuple:
+    """Append :class:`MCPretrain` from legacy flags + fill closed-over context.
+
+    The MC critic pre-training math now lives on :meth:`MCPretrain.pretrain`.
+    This helper preserves byte-identical behaviour for callers that still
+    wire it through the legacy ``use_mc_critic_pretrain`` flag surface:
+    when the flag is set and no :class:`MCPretrain` is in ``extensions``,
+    we append one with the legacy sizing kwargs. Additionally, we copy
+    the SAC factory's resolved env/network/critic-optimizer config + the
+    runtime context (``mode`` / ``gamma`` / ``reward_scale`` / ``total_
+    timesteps`` / ``use_train_frac`` / ``augment_obs_with_expert_action``
+    / ``use_phi_refresh`` / ``mc_preloaded_data``) onto any MCPretrain
+    instance in the stack — :meth:`pretrain` needs them to call the
+    underlying pure functions in :mod:`ajax.modules.pretrain` (same
+    pattern as PhiRefresh's buffer/gamma/reward_scale fill-in).
+    """
+    import dataclasses
+
+    from ajax.extensions.pretrain import MCPretrain
+
+    out = list(extensions)
+
+    def _has(cls: type) -> bool:
+        return any(isinstance(e, cls) for e in out)
+
+    if use_mc_critic_pretrain and expert_policy is not None and not _has(MCPretrain):
+        out.append(
+            MCPretrain(
+                expert_policy=expert_policy,
+                n_mc_steps=mc_pretrain_n_mc_steps,
+                n_mc_episodes=mc_pretrain_n_mc_episodes,
+                n_steps=mc_pretrain_n_steps,
+                use_online_light=use_online_critic_light_pretrain,
+                online_light_steps=online_critic_pretrain_steps,
+                online_light_lr_scale=online_critic_pretrain_lr_scale,
+            )
+        )
+
+    # Fill the closed-over context on any MCPretrain instance that left
+    # it unset (user-constructed or just auto-appended). dataclasses.replace
+    # builds a new frozen instance so the JIT cache key stays sound.
+    for i, ext in enumerate(out):
+        if isinstance(ext, MCPretrain) and ext.env_args is None:
+            out[i] = dataclasses.replace(
+                ext,
+                env_args=env_args,
+                network_args=network_args,
+                critic_optimizer_args=critic_optimizer_args,
+                num_critics=num_critics,
+                mode=mode,
+                gamma=gamma,
+                reward_scale=reward_scale,
+                total_timesteps=total_timesteps,
+                use_train_frac=use_train_frac,
+                augment_obs_with_expert_action=augment_obs_with_expert_action,
+                use_phi_refresh=use_phi_refresh,
+                mc_preloaded_data=mc_preloaded_data,
+            )
+
+    return tuple(out)
+
+
+def _auto_append_obs_extensions(
+    extensions: Sequence,
+    *,
+    augment_obs_with_expert_action: bool,
+    detach_obs_aug_action: bool,
+    action_dim: int,
+    expert_policy: Optional[Callable],
+) -> tuple:
+    """Append :class:`ExpertObsAugmentation` from legacy flags + fill action_dim.
+
+    The runtime stop-gradient on the expert-action obs dims now lives on
+    :meth:`ExpertObsAugmentation.on_obs`. This helper preserves
+    byte-identical behaviour for callers that still wire it through the
+    legacy ``augment_obs_with_expert_action`` / ``detach_obs_aug_action``
+    flag surface: when ``augment_obs_with_expert_action`` is set and no
+    :class:`ExpertObsAugmentation` is in ``extensions``, we append one.
+    Additionally, we copy the resolved ``action_dim`` onto any
+    :class:`ExpertObsAugmentation` instance in the stack — its
+    :meth:`on_obs` needs the action-dim to know where the ``a_expert``
+    slice starts inside the augmented layout ``[env_obs | a_expert |
+    train_frac]``. User-constructed instances may leave ``action_dim=0``
+    and rely on the factory to fill it in (dataclasses.replace).
+    """
+    import dataclasses
+
+    from ajax.extensions.expert import ExpertObsAugmentation
+
+    out = list(extensions)
+
+    def _has(cls: type) -> bool:
+        return any(isinstance(e, cls) for e in out)
+
+    if (
+        augment_obs_with_expert_action
+        and expert_policy is not None
+        and not _has(ExpertObsAugmentation)
+    ):
+        out.append(
+            ExpertObsAugmentation(
+                expert_policy=expert_policy,
+                detach=detach_obs_aug_action,
+                action_dim=action_dim,
+            )
+        )
+
+    # Fill action_dim on any ExpertObsAugmentation that left it unset
+    # (user-constructed) so :meth:`on_obs` can slice the augmented obs.
+    for i, ext in enumerate(out):
+        if isinstance(ext, ExpertObsAugmentation) and ext.action_dim == 0:
+            out[i] = dataclasses.replace(ext, action_dim=action_dim)
+
+    return tuple(out)
+
+
 def _build_residual_policy_transform(
     extensions: Sequence,
     expert_policy: Optional[Callable],
@@ -1837,6 +1989,38 @@ def _build_residual_policy_transform(
             else jax.lax.stop_gradient(expert_policy(raw_obs))
         )
         return rp.transform_action(actions, a_exp)
+
+    return transform
+
+
+def _build_residual_policy_eval_transform(
+    extensions: Sequence,
+    *,
+    use_pid_policy: bool,
+) -> Optional[Callable]:
+    """Build the eval-time residual transform off :class:`ResidualPolicy`.
+
+    The legacy ``make_eval_action_transform`` builder is gone;
+    :meth:`ResidualPolicy.eval_action` owns the eval-time ``clip(a_expert
+    + scale·a_pi, -1, 1)`` math. The
+    :func:`ajax.evaluate.step_environment` call site still consumes a
+    thin callable (signature ``(raw, expert, obs, agent_state) ->
+    actions``); we build it here off the first :class:`ResidualPolicy`
+    in the stack. Returns ``None`` when no ResidualPolicy is present or
+    when ``use_pid_policy`` is set (gain-mode handles its eval transform
+    directly inside ``step_environment``).
+    """
+    from ajax.extensions.expert import ResidualPolicy, first_of_type
+
+    if use_pid_policy:
+        return None
+    rp = first_of_type(extensions, ResidualPolicy)
+    if rp is None:
+        return None
+
+    def transform(raw_actions, expert_actions, obs, agent_state):
+        del obs, agent_state
+        return rp.transform_action(raw_actions, expert_actions)
 
     return transform
 
@@ -2149,6 +2333,28 @@ def make_train(
         expert_policy=expert_policy,
     )
 
+    # Same shim for :class:`ExpertObsAugmentation`. The runtime
+    # stop-gradient on the augmented-obs expert-action dims lives on
+    # :meth:`ExpertObsAugmentation.on_obs`; the construction-time obs
+    # augmentation itself (which changes the network input dim) is still
+    # driven by the legacy ``augment_obs_with_expert_action`` flag (it
+    # affects ``init_SAC`` / ``collect_experience`` / the augmented
+    # training batch). The shim also fills in ``action_dim`` on any
+    # ExpertObsAugmentation instance in the stack — :meth:`on_obs` needs
+    # it to slice the augmented obs layout.
+    _resolved_action_dim = (
+        action_dim_override
+        if action_dim_override is not None
+        else get_action_dim(env_args.env, env_args.env_params)
+    )
+    extensions = _auto_append_obs_extensions(
+        extensions,
+        augment_obs_with_expert_action=augment_obs_with_expert_action,
+        detach_obs_aug_action=detach_obs_aug_action,
+        action_dim=_resolved_action_dim,
+        expert_policy=expert_policy,
+    )
+
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
     _eval_expert_policy = (
@@ -2157,6 +2363,38 @@ def make_train(
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+
+    # Same shim for :class:`MCPretrain`. The Monte-Carlo critic
+    # pre-training math now lives on :meth:`MCPretrain.pretrain` and is
+    # invoked from ``init_fn`` via ``stack.pretrain(...)`` (skipped on
+    # resume — same single-shot init slot the legacy block used). The
+    # auto-append shim fills the closed-over context (env / network /
+    # critic-optimizer config + ``mode`` / ``gamma`` / ``reward_scale``
+    # / ``total_timesteps`` / …) onto any MCPretrain instance in
+    # ``extensions`` so the phase method has everything it needs.
+    extensions = _auto_append_pretrain_extensions(
+        extensions,
+        use_mc_critic_pretrain=use_mc_critic_pretrain,
+        mc_pretrain_n_mc_steps=mc_pretrain_n_mc_steps,
+        mc_pretrain_n_mc_episodes=mc_pretrain_n_mc_episodes,
+        mc_pretrain_n_steps=mc_pretrain_n_steps,
+        use_online_critic_light_pretrain=use_online_critic_light_pretrain,
+        online_critic_pretrain_steps=online_critic_pretrain_steps,
+        online_critic_pretrain_lr_scale=online_critic_pretrain_lr_scale,
+        expert_policy=expert_policy,
+        env_args=env_args,
+        network_args=network_args,
+        critic_optimizer_args=critic_optimizer_args,
+        num_critics=num_critics,
+        mode=mode,
+        gamma=agent_config.gamma,
+        reward_scale=agent_config.reward_scale,
+        total_timesteps=total_timesteps,
+        use_train_frac=use_train_frac,
+        augment_obs_with_expert_action=augment_obs_with_expert_action,
+        use_phi_refresh=use_phi_refresh,
+        mc_preloaded_data=mc_preloaded_data,
+    )
 
     if logging_config is not None:
         start_async_logging()
@@ -2223,81 +2461,32 @@ def make_train(
                 ext_state=_stack.init_states(agent_state, _ext_key)
             )
 
-        if expert_policy is not None and use_mc_critic_pretrain:
-            expert_critic_state = get_initialized_critic(
-                key=expert_key,
-                env_config=env_args,
-                critic_optimizer_config=critic_optimizer_args,
-                network_config=network_args,
-                num_critics=num_critics,
-                max_timesteps=total_timesteps if use_train_frac else None,
-                extra_obs_dim=(
-                    get_action_dim(env_args.env, env_args.env_params)
-                    if augment_obs_with_expert_action
-                    else 0
-                ),
+        # MC critic pre-training now lives on
+        # :meth:`MCPretrain.pretrain`. The ExtensionStack fold is the
+        # framework-standard wiring point: when an :class:`MCPretrain`
+        # is in ``extensions`` it populates
+        # ``agent_state.expert_critic_params`` + ``expert_v_min/v_max``
+        # (and optionally ``expert_critic_state`` for PhiRefresh);
+        # otherwise the fold is identity. Empty stack ⇒ no-op. The
+        # ``expert_key`` here threads the same byte-identical RNG slot
+        # the legacy inline block consumed for
+        # ``get_initialized_critic``. ``ext_state`` was already
+        # populated above and is overwritten with the fold's result so
+        # any state changes a pretrain phase makes propagate.
+        if extensions:
+            _stack_for_pretrain = ExtensionStack(extensions)
+            _pretrain_ctx = ExtensionContext(
+                step=jnp.asarray(0),
+                rng=expert_key,
+                total_steps=total_timesteps,
             )
-            _preloaded = mc_preloaded_data  # None or (obs, action, mc) JAX arrays
-            (
-                agent_state,
-                frozen_expert_params,
-                mc_obs_batched,
-                mc_action_batched,
-                mc_aux,
-                expert_critic_state_trained,
-            ) = pretrain_critic_mc(
-                agent_state=agent_state,
-                expert_critic_state=expert_critic_state,
-                expert_policy=expert_policy,
-                mode=mode,
-                env_args=env_args,
-                recurrent=network_args.lstm_hidden_size is not None,
-                gamma=agent_config.gamma,
-                reward_scale=agent_config.reward_scale,
-                n_mc_steps=mc_pretrain_n_mc_steps,
-                n_mc_episodes=mc_pretrain_n_mc_episodes,
-                n_steps=mc_pretrain_n_steps,
-                max_timesteps=total_timesteps if use_train_frac else None,
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                preloaded_obs=_preloaded[0] if _preloaded is not None else None,
-                preloaded_action=_preloaded[1] if _preloaded is not None else None,
-                preloaded_mc=_preloaded[2] if _preloaded is not None else None,
+            agent_state, _new_ext_state = _stack_for_pretrain.pretrain(
+                agent_state, agent_state.ext_state, _pretrain_ctx
             )
-            agent_state = agent_state.replace(
-                expert_critic_params=frozen_expert_params,
-                expert_v_min=mc_aux.v_min,
-                expert_v_max=mc_aux.v_max,
-                # Keep φ* optimizer state alive for periodic refresh (None when disabled)
-                expert_critic_state=expert_critic_state_trained
-                if use_phi_refresh
-                else None,
-            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
             # ``use_box`` value-box bounds == the MC-pretrain v_min/v_max,
-            # which are already persisted on ``agent_state`` above; the
-            # scan-fn builder reads them back from there (see make_scan_fn).
-            jax.debug.print(
-                "[MC pretrain] loss: {i:.4f} -> {f:.4f}  |  "
-                "Q(s,a*) mean={qm:.1f}  min={qn:.1f}  max={qx:.1f}",
-                i=mc_aux.initial_loss,
-                f=mc_aux.final_loss,
-                qm=mc_aux.q_expert_mean,
-                qn=mc_aux.q_expert_min,
-                qx=mc_aux.q_expert_max,
-            )
-
-            if use_online_critic_light_pretrain:
-                agent_state = pretrain_critic_online_light(
-                    agent_state,
-                    mc_obs_batched,
-                    mc_action_batched,
-                    n_steps=online_critic_pretrain_steps,
-                    lr_scale=online_critic_pretrain_lr_scale,
-                )
-                jax.debug.print(
-                    "[Online critic light pretrain] done ({n} steps, lr_scale={s})",
-                    n=online_critic_pretrain_steps,
-                    s=online_critic_pretrain_lr_scale,
-                )
+            # which are persisted on ``agent_state`` above; the scan-fn
+            # builder reads them back from there (see make_scan_fn).
 
         if expert_policy is not None and use_bellman_critic_pretrain:
             agent_state = pretrain_critic_bellman(
@@ -2401,15 +2590,16 @@ def make_train(
             )
         )
 
-        _obs_preprocessor = (
-            obs_preprocessor
-            if obs_preprocessor is not None
-            else make_policy_obs_preprocessor(
-                augment_obs_with_expert_action,
-                detach_obs_aug_action,
-                action_shape[0],
-            )
-        )
+        # ExpertObsAugmentation owns the actor-side stop-gradient on the
+        # expert-action obs dims via :meth:`ExpertObsAugmentation.on_obs`.
+        # The fold runs inside ``policy_loss_function`` from the
+        # ExtensionStack when no explicit ``obs_preprocessor`` callable
+        # is passed — so we only forward the user override here. The
+        # legacy ``make_policy_obs_preprocessor`` builder is gone; the
+        # auto-append shim above has copied the resolved ``action_dim``
+        # onto any ExpertObsAugmentation instance in ``extensions``.
+        _obs_preprocessor = obs_preprocessor
+
         # ResidualPolicy owns the ``clip(a_expert + scale·a_pi, -1, 1)``
         # math via :meth:`ResidualPolicy.transform_action`. The actor-
         # loss / TD-target call sites still consume a thin callable
@@ -2424,13 +2614,20 @@ def make_train(
             else _build_residual_policy_transform(extensions, expert_policy)
         )
 
+        # ResidualPolicy.eval_action owns the eval-time
+        # ``clip(a_expert + scale·a_pi, -1, 1)`` math; the legacy
+        # ``make_eval_action_transform`` builder is gone. The
+        # evaluate.step_environment call site still consumes a thin
+        # callable (signature ``(raw, expert, obs, agent_state) ->
+        # actions``); we build it here off the first
+        # :class:`ResidualPolicy` in the stack so the math lives on the
+        # Extension. ``None`` ⇒ default box-based handover.
         _eval_action_transform = (
             eval_action_transform
             if eval_action_transform is not None
-            else make_eval_action_transform(
-                use_residual_rl=use_residual_rl,
+            else _build_residual_policy_eval_transform(
+                extensions,
                 use_pid_policy=use_pid_policy,
-                residual_scale=residual_scale,
             )
         )
 

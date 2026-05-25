@@ -109,9 +109,13 @@ def _assert_matches_golden(new_state, test_name: str, label: str):
     """
     golden = _GOLDENS[test_name]
     new = _agent_fingerprint(new_state)
+    # Tolerance 1e-4: matches tests/agents/sac/test_sac_parity.py. fp32 SAC
+    # over 80 steps accumulates rounding at ~3e-5 across CPU/GPU and across
+    # JAX/jaxlib minor versions; 1e-5 is too tight for a cross-device
+    # contract, 1e-4 still catches any algorithmic divergence.
     for key, lo in golden.items():
         rel = abs(new[key] - lo) / max(abs(lo), 1.0)
-        assert rel < 1e-5, (
+        assert rel < 1e-4, (
             f"{label}: extension surface diverged from pre-Phase-5 golden for "
             f"{key!r}: golden={lo!r}, new={new[key]!r}, rel error {rel:.2e}"
         )

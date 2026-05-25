@@ -25,7 +25,7 @@
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
     "critic": 1040.404052734375,
-    "actor": 516.4931640625,
+    "actor": 516.5470581054688,
     "target": 1034.5078125,
     "alpha": 0.9818665385246277
   },

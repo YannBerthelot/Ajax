@@ -1,11 +1,21 @@
 import time
+import uuid
 from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
-import wandb
 from gymnax import EnvParams
+
+# Defensive: a broken wandb install must not crash Ajax imports —
+# downstream callers using TensorBoard-only (use_wandb=False) should
+# still work. ``wandb.util.generate_id()`` is only reached when a
+# ``LoggingConfig`` was passed; in that branch we fall back to
+# ``uuid.uuid4().hex`` if wandb didn't import.
+try:
+    import wandb  # type: ignore[import-untyped]
+except ImportError:
+    wandb = None  # type: ignore[assignment]
 
 from ajax.environments.create import prepare_env
 from ajax.extensions.base import Extension, ExtensionStack
@@ -148,7 +158,12 @@ class ActorCritic:
 
         if logging_config is not None:
             logging_config.config.update(self.config)
-            self.run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
+            _gen_id = (
+                wandb.util.generate_id
+                if wandb is not None
+                else lambda: uuid.uuid4().hex
+            )
+            self.run_ids = [_gen_id() for _ in range(len(seed))]
             for run_id in self.run_ids:
                 init_logging(run_id, logging_config)
 

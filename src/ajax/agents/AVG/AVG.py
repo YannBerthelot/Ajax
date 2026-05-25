@@ -1,10 +1,17 @@
+import uuid
 from collections.abc import Sequence
 from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
-import wandb
 from gymnax import EnvParams
+
+# Defensive: see ajax/agents/base.py for rationale (broken wandb install
+# must not crash Ajax imports — TensorBoard-only runs should still work).
+try:
+    import wandb  # type: ignore[import-untyped]
+except ImportError:
+    wandb = None  # type: ignore[assignment]
 
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
@@ -172,7 +179,12 @@ class AVG:
 
         if logging_config is not None:
             logging_config.config.update(self.config)
-            run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
+            _gen_id = (
+                wandb.util.generate_id
+                if wandb is not None
+                else lambda: uuid.uuid4().hex
+            )
+            run_ids = [_gen_id() for _ in range(len(seed))]
             for run_id in run_ids:
                 init_logging(run_id, logging_config)
         else:

@@ -11,7 +11,24 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import wandb
+
+# wandb is imported defensively: a broken wandb install (e.g. partial
+# protobuf upgrade leaving ``wandb.proto.wandb_telemetry_pb2.Deprecated``
+# missing) would otherwise crash every Ajax import — and therefore every
+# downstream consumer (EVAREST run.py, every script that does
+# ``from ajax import SAC``) — even when wandb is never actually called
+# (TensorBoard-only runs set ``use_wandb=False``). When the import
+# fails, ``wandb`` is bound to ``None`` and callers that gate on
+# ``logging_config.use_wandb`` continue to work. Functions that try to
+# call ``wandb.X`` with no install raise a clear AttributeError instead
+# of a confusing import-time crash.
+try:
+    import wandb  # type: ignore[import-untyped]
+except ImportError as _wandb_import_err:
+    wandb = None  # type: ignore[assignment]
+    _WANDB_IMPORT_ERROR: Optional[str] = str(_wandb_import_err)
+else:
+    _WANDB_IMPORT_ERROR = None
 from flax.serialization import to_state_dict
 from flax.struct import dataclass as flax_dataclass
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
@@ -71,7 +88,16 @@ def _logging_worker(q: Any) -> None:
     """
     from collections import defaultdict
 
-    import wandb as _wandb  # re-import in fresh spawned process
+    # Defensive re-import: a broken wandb in the spawned worker subprocess
+    # would kill the whole logging chain (which then propagates back to
+    # the main training process via the multiprocessing Queue closure).
+    # When wandb is unavailable we still want TensorBoard logging to work,
+    # so swallow the ImportError and bind _wandb=None. ``flush_run`` already
+    # gates wandb.init/log on use_wandb_map[run_id], so None is safe.
+    try:
+        import wandb as _wandb  # re-import in fresh spawned process
+    except ImportError:
+        _wandb = None  # type: ignore[assignment]
     from tensorboardX import SummaryWriter as _SW
 
     # run_id -> list of (metrics_dict, step)

@@ -15,7 +15,7 @@ class DQNState(BaseAgentState):
     """
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class DQNConfig(BaseAgentConfig):
     """Static DQN hyperparameters carried through the compiled train loop."""
 

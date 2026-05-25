@@ -40,6 +40,7 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    zeros_like_abstract_pytree,
 )
 
 PROFILER_PATH = "./tensorboard"
@@ -836,6 +837,17 @@ def training_iteration(
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
     )  # transition = s_t, a_t, r_{s_t -> s_{t+1}}, s_{t+1}, d_{s_t -> s_{t+1}}
+
+    # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout on
+    # ``agent_state.last_rollout`` so cross-agent measurement extensions
+    # (EVarEst-style probes) can read an on-state-visitation batch
+    # without triggering a fresh rollout per eval. Off by default — the
+    # placeholder allocated in ``make_train`` keeps the scan carry's
+    # pytree structure stable; when disabled, ``last_rollout`` stays
+    # ``None`` and this branch is skipped (zero extra cost).
+    if getattr(agent_config, "expose_recent_rollout", False):
+        agent_state = agent_state.replace(last_rollout=transition)
+
     values = predict_value(
         critic_state=agent_state.critic_state,
         critic_params=agent_state.critic_state.params,
@@ -1217,6 +1229,28 @@ def make_train(
                 agent_state, agent_state.ext_state, _pre_ctx
             )
             agent_state = agent_state.replace(ext_state=_new_ext_state)
+        # Gap A: pre-allocate the ``last_rollout`` placeholder with the
+        # exact shape/dtype of one ``(T, n_envs, ...)`` rollout so the
+        # JIT-traced scan body sees a stable pytree carry from iteration
+        # zero. ``None``-vs-``Transition`` would otherwise change the
+        # carry structure on the first iteration and crash the scan.
+        if getattr(agent_config, "expose_recent_rollout", False):
+            _trace_scan = partial(
+                collect_experience,
+                recurrent=network_args.lstm_hidden_size is not None,
+                mode=mode,
+                env_args=env_args,
+                action_pipeline=action_pipeline,
+            )
+            _, _trans_abs = jax.eval_shape(
+                lambda st: jax.lax.scan(
+                    _trace_scan, st, xs=None, length=agent_config.n_steps
+                ),
+                agent_state,
+            )
+            agent_state = agent_state.replace(
+                last_rollout=zeros_like_abstract_pytree(_trans_abs)
+            )
         return agent_state
 
     def _init_transform(agent_state, key):

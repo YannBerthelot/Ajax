@@ -57,6 +57,10 @@ class PQN(ActorCritic):
         cnn_spec: Optional[tuple] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # rollout transition on ``agent_state.last_rollout``. Off by
+        # default — see :attr:`BaseAgentState.last_rollout`.
+        expose_recent_rollout: bool = False,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "PQN"})
@@ -95,6 +99,7 @@ class PQN(ActorCritic):
             n_epochs=n_epochs,
             num_minibatches=num_minibatches,
             reward_scale=reward_scale,
+            expose_recent_rollout=expose_recent_rollout,
         )
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end

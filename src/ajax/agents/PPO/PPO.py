@@ -64,6 +64,12 @@ class PPO(ActorCritic):
         cnn_spec: Optional[tuple] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # rollout transition on ``agent_state.last_rollout`` so
+        # measurement extensions can read an on-state-visitation batch
+        # without forcing a fresh rollout per eval. Off by default —
+        # see :attr:`BaseAgentState.last_rollout`.
+        expose_recent_rollout: bool = False,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -122,6 +128,7 @@ class PPO(ActorCritic):
             n_epochs=n_epochs,
             gae_lambda=gae_lambda,
             normalize_advantage=normalize_advantage,
+            expose_recent_rollout=expose_recent_rollout,
         )
         self.pid_actor_config = pid_actor_config
         self.action_pipeline = action_pipeline

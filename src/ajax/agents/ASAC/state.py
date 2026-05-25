@@ -13,7 +13,7 @@ class ASACState(BaseAgentState):
     theta: float
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class ASACConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

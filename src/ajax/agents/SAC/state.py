@@ -28,7 +28,7 @@ class SACState(BaseAgentState):
     aux_state: Optional[LoadedTrainState] = None
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class SACConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

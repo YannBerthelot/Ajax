@@ -40,6 +40,7 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    zeros_like_abstract_pytree,
 )
 
 PROFILER_PATH = "./tensorboard"
@@ -926,6 +927,14 @@ def training_iteration(
     rng = agent_state.rng
     agent_state, rollout = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
 
+    # Gap A: expose the freshly collected ``(T=1, n_envs, ...)`` rollout
+    # on ``agent_state.last_rollout`` BEFORE the T-axis is squeezed, so
+    # measurement extensions see the same ``(T, n_envs, ...)`` layout
+    # as the other on-policy agents (PPO / PQN / APO). Off by default —
+    # see :attr:`BaseAgentState.last_rollout`.
+    if getattr(agent_config, "expose_recent_rollout", False):
+        agent_state = agent_state.replace(last_rollout=rollout)
+
     rollout = jax.tree.map(
         squeeze_dim_0, rollout
     )  # Remove first dim as we only have one transition
@@ -1085,6 +1094,27 @@ def make_train(
 
         num_updates = total_timesteps  # // env_args.n_envs
         _, action_shape = get_state_action_shapes(env_args.env)
+
+        # Gap A: pre-allocate the ``last_rollout`` placeholder so the
+        # scan-carry pytree structure is stable from iteration zero.
+        # AVG collects ``length=1`` per iteration, so the placeholder
+        # carries a leading ``T=1`` axis (matching the pre-squeeze
+        # rollout the training_iteration stashes).
+        if getattr(agent_config, "expose_recent_rollout", False):
+            _trace_scan = partial(
+                collect_experience,
+                recurrent=network_args.lstm_hidden_size is not None,
+                mode=mode,
+                env_args=env_args,
+                action_pipeline=action_pipeline,
+            )
+            _, _trans_abs = jax.eval_shape(
+                lambda st: jax.lax.scan(_trace_scan, st, xs=None, length=1),
+                agent_state,
+            )
+            agent_state = agent_state.replace(
+                last_rollout=zeros_like_abstract_pytree(_trans_abs)
+            )
 
         training_iteration_scan_fn = partial(
             training_iteration,

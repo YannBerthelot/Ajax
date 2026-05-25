@@ -65,6 +65,10 @@ class APO(ActorCritic):
         action_pipeline: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
         obs_preprocessor: Optional[Callable] = None,
+        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # rollout transition on ``agent_state.last_rollout``. Off by
+        # default — see :attr:`BaseAgentState.last_rollout`.
+        expose_recent_rollout: bool = False,
     ) -> None:
         """
         Initialize the APO agent.
@@ -120,6 +124,7 @@ class APO(ActorCritic):
             normalize_advantage=normalize_advantage,
             alpha=alpha,
             nu=nu,
+            expose_recent_rollout=expose_recent_rollout,
         )
         self.cloning_confing = CloningConfig(
             actor_epochs=actor_cloning_epochs,

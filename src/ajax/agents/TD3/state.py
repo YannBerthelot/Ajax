@@ -9,7 +9,7 @@ class TD3State(BaseAgentState):
     """TD3 carries only actor + critic + collector (no temperature, no expert state)."""
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class TD3Config(BaseAgentConfig):
     gamma: float
     tau: float = 0.005

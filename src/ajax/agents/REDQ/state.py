@@ -11,7 +11,7 @@ class REDQState(BaseAgentState):
     alpha: LoadedTrainState  # Temperature parameter
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class REDQConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

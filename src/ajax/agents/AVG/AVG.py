@@ -54,6 +54,10 @@ class AVG:
         target_modifier: Optional[Callable] = None,
         obs_preprocessor: Optional[Callable] = None,
         policy_action_transform: Optional[Callable] = None,
+        # Gap A (Phase 4a): expose the most recent ``(T=1, n_envs, ...)``
+        # rollout transition on ``agent_state.last_rollout``. Off by
+        # default — see :attr:`BaseAgentState.last_rollout`.
+        expose_recent_rollout: bool = False,
     ) -> None:
         """
         Initialize the AVG agent.
@@ -129,6 +133,7 @@ class AVG:
             target_entropy=target_entropy,
             reward_scale=reward_scale,
             num_critics=num_critics,
+            expose_recent_rollout=expose_recent_rollout,
         )
 
         self.expert_policy = expert_policy

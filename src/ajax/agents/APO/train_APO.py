@@ -47,6 +47,7 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    zeros_like_abstract_pytree,
 )
 from ajax.utils import get_one
 
@@ -621,6 +622,12 @@ def training_iteration(
         collect_scan_fn, agent_state, xs=None, length=n_steps
     )
 
+    # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout
+    # on ``agent_state.last_rollout`` for downstream measurement
+    # extensions. Off by default — see :attr:`BaseAgentState.last_rollout`.
+    if getattr(agent_config, "expose_recent_rollout", False):
+        agent_state = agent_state.replace(last_rollout=transition)
+
     values = predict_value(
         critic_state=agent_state.critic_state,
         critic_params=agent_state.critic_state.params,
@@ -825,6 +832,25 @@ def make_train(
                 agent_config,
                 actor_optimizer_args,
                 critic_optimizer_args,
+            )
+        # Gap A: pre-allocate the ``last_rollout`` placeholder so the
+        # scan-carry pytree structure is stable from iteration zero.
+        if getattr(agent_config, "expose_recent_rollout", False):
+            _trace_scan = partial(
+                collect_experience,
+                recurrent=network_args.lstm_hidden_size is not None,
+                mode=mode,
+                env_args=env_args,
+                action_pipeline=action_pipeline,
+            )
+            _, _trans_abs = jax.eval_shape(
+                lambda st: jax.lax.scan(
+                    _trace_scan, st, xs=None, length=agent_config.n_steps
+                ),
+                agent_state,
+            )
+            agent_state = agent_state.replace(
+                last_rollout=zeros_like_abstract_pytree(_trans_abs)
             )
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 

@@ -42,6 +42,21 @@ class Transition:
         return self.obs.shape[0] if self.obs.ndim > 0 else 1
 
 
+def zeros_like_abstract_pytree(abstract_tree: Any) -> Any:
+    """Allocate a concrete zero-filled pytree mirroring the per-leaf
+    shape/dtype of an abstract pytree (as returned by ``jax.eval_shape``).
+
+    Used by the on-policy agents (PPO / PQN / APO / AVG) to pre-allocate
+    the ``last_rollout`` placeholder on :class:`BaseAgentState` so the
+    JIT-traced scan body sees a stable pytree carry from iteration zero
+    — see :attr:`BaseAgentState.last_rollout`.
+    """
+    return jax.tree_util.tree_map(
+        lambda leaf: jnp.zeros(leaf.shape, dtype=leaf.dtype),
+        abstract_tree,
+    )
+
+
 @struct.dataclass
 class EnvironmentConfig:
     env: EnvType
@@ -403,6 +418,30 @@ class BaseAgentState:
     # ExtensionStack; `()` -> no extensions / all stateless). See
     # `ajax.extensions.base`.
     ext_state: tuple = ()
+    # Most recent rollout produced by the on-policy collector
+    # (PPO / PQN / APO / AVG), exposed at the top level of agent_state
+    # for cross-agent measurement extensions (EVarEst-style probes that
+    # need an on-state-visitation batch but should not trigger a fresh
+    # rollout per eval — analogous to the replay buffer for off-policy
+    # agents).
+    #
+    # Trade-off:
+    #   - ``expose_recent_rollout=False`` (default) → ``last_rollout``
+    #     stays ``None``: zero new pytree leaves, identical JIT trace,
+    #     zero memory cost.
+    #   - ``expose_recent_rollout=True`` → carries the full
+    #     ``(T, n_envs, ...)`` :class:`Transition` produced by the
+    #     iteration's ``collect_experience`` scan. Adds the rollout's
+    #     leaves to the carry pytree (extra memory ≈ one rollout's
+    #     worth; extra JIT trace cost ≈ one ``replace`` per iteration).
+    #     A static-shape placeholder is pre-allocated at ``make_train``
+    #     time so the scan-carry pytree structure stays stable from
+    #     iteration zero.
+    #
+    # Off-policy agents (SAC / DQN / REDQ / TD3 / ASAC / UDRL …)
+    # already expose a replay buffer via ``collector_state.buffer_state``
+    # and do not touch this field.
+    last_rollout: Optional[Any] = None
 
     def replace(self, *args, **kwargs):  # To make mypy happy
         """Replace fields in the dataclass with new values."""
@@ -411,7 +450,15 @@ class BaseAgentState:
 
 @struct.dataclass
 class BaseAgentConfig:
-    pass
+    # Opt-in flag for on-policy agents (PPO, PQN, APO, AVG) to write the
+    # most recent ``(T, n_envs, ...)`` rollout transition onto
+    # ``BaseAgentState.last_rollout`` after each collection. Off by
+    # default so the JIT trace and pytree shape are identical to the
+    # legacy path. See :attr:`BaseAgentState.last_rollout` for the full
+    # trade-off and rationale. Independent of any specific Extension's
+    # hyperparameters — this is an algorithm-level resource-allocation
+    # switch (whether to retain the rollout for downstream readers).
+    expose_recent_rollout: bool = False
 
 
 @struct.dataclass

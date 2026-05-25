@@ -1419,419 +1419,53 @@ def training_iteration(
 
 
 # ---------------------------------------------------------------------------
-# Extension-stack → make_train kwargs translation
+# Extension-stack context injection
 # ---------------------------------------------------------------------------
+#
+# Phase 5: the back-compat translation layer that turned legacy flag kwargs
+# into auto-appended Extensions is gone. ``extensions=`` is the sole
+# surface for composing research features on SAC; the matching legacy
+# kwargs (``ibrl_bootstrap``, ``use_critic_blend``, ``use_online_bc``,
+# ``use_phi_refresh``, ``use_mc_critic_pretrain``, the ``exploration_*``
+# + ``lcb_*`` family, etc.) were removed.
+#
+# What remains in this module is context injection: a handful of
+# Extension types (``MCPretrain``, ``PhiRefresh``, ``ExpertObsAugmentation``)
+# close over SAC-factory-only context (env / network / optimizer config,
+# resolved action_dim, the shared buffer / gamma / reward_scale) that the
+# user can't supply at construction time. The factory fills it in here.
 
 
-def _resolve_extension_stack(
-    extensions: Sequence,
-) -> dict:
-    """Translate an :class:`ExtensionStack` into ``make_train`` kwargs.
-
-    Plain SAC corresponds to an empty stack ⇒ this returns ``{}`` ⇒
-    every legacy flag stays at its default ⇒ byte-identical behaviour to
-    the pre-refactor ``train_SAC.py`` (the parity gate).
-
-    Each known extension type maps onto the existing flag(s) it
-    represents; unknown extensions are ignored at this layer (they may
-    still drive the cleanly-folded phases — see ``training_iteration``).
-    The mapping is deliberately a flat dict so an agent's ``make_train``
-    keyword surface stays the single source of truth.
-    """
-    from ajax.extensions.expert import (
-        ExpertGuidance,
-        ExpertObsAugmentation,
-        JSRLCurriculum,
-        OnlineBC,
-        ResidualPolicy,
-        first_of_type,
-    )
-    from ajax.extensions.exploration import EDGEExploration
-    from ajax.extensions.pretrain import (
-        BellmanPretrain,
-        MCPretrain,
-        PhiRefresh,
-    )
-    from ajax.extensions.target_mods import (
-        IBRL,
-        CriticBlend,
-        LCBGatedBootstrap,
-        ValueBox,
-    )
-
-    out: dict = {}
-    eg = first_of_type(extensions, ExpertGuidance)
-    if eg is not None:
-        out["expert_policy"] = eg.expert_policy
-        out["use_expert_guidance"] = eg.use_expert_guidance
-        out["expert_fraction"] = eg.expert_fraction
-        out["expert_buffer_n_steps"] = eg.expert_buffer_n_steps
-        out["expert_mix_fraction"] = eg.expert_mix_fraction
-
-    obs_aug = first_of_type(extensions, ExpertObsAugmentation)
-    if obs_aug is not None:
-        # ExpertObsAugmentation.on_obs owns the runtime stop-gradient on
-        # the expert-action obs dims; the
-        # ``augment_obs_with_expert_action`` flag is still echoed because
-        # it gates a separate SAC-side concern: ``init_SAC`` /
-        # ``collect_experience`` change the network input dim when set.
-        # The ``detach_obs_aug_action`` flag is dropped — :meth:`on_obs`
-        # reads ``self.detach`` directly.
-        out["augment_obs_with_expert_action"] = True
-        out.setdefault("expert_policy", obs_aug.expert_policy)
-
-    bc = first_of_type(extensions, OnlineBC)
-    if bc is not None:
-        # OnlineBC.actor_loss owns the BC term math now; we only echo
-        # the secondary params it shares with the rest of make_train
-        # (``critic_warmup_frac`` is also read by ``CriticBlend``'s
-        # warmup schedule). The legacy ``use_online_bc=True`` flag
-        # toggle is dropped — the math runs from the extension stack,
-        # not from the flag-driven builder (which is gone).
-        out.setdefault("critic_warmup_frac", bc.critic_warmup_frac)
-        out.setdefault("expert_policy", bc.expert_policy)
-
-    res = first_of_type(extensions, ResidualPolicy)
-    if res is not None:
-        out["use_residual_rl"] = True
-        out["residual_scale"] = res.scale
-        out.setdefault("expert_policy", res.expert_policy)
-
-    # JSRLCurriculum, EDGEExploration and ValueBox own their
-    # collection-time substitution math on their Extension's
-    # :meth:`action` phase method; the SAC action pipeline dispatches
-    # them in the canonical legacy ordering (EDGE → JSRL → warmup
-    # cond → ValueBox). The opposite direction (legacy-flag →
-    # auto-appended extension) is handled by
-    # :func:`_auto_append_action_extensions`. We still echo the
-    # secondary parameters they share with other consumers
-    # (``expert_policy``, the LCB shape parameters consumed by the
-    # target-side ``LCBGatedBootstrap``, etc.) so the new surface
-    # stays byte-identical to the legacy flag path.
-    jsrl = first_of_type(extensions, JSRLCurriculum)
-    if jsrl is not None:
-        # ``jsrl_curriculum`` is still echoed because it gates a
-        # separate SAC-side concern: ``init_SAC`` initialises a
-        # per-env ``step_in_episode`` counter only when this flag is
-        # set (the counter is then maintained by
-        # :func:`collect_experience` and read by
-        # :meth:`JSRLCurriculum.action`).
-        out["jsrl_curriculum"] = True
-        out.setdefault("expert_policy", jsrl.expert_policy)
-
-    edge = first_of_type(extensions, EDGEExploration)
-    if edge is not None:
-        out.setdefault("lcb_beta_init", edge.lcb_beta_init)
-        out.setdefault("lcb_beta_decay_k", edge.lcb_beta_decay_k)
-        out.setdefault("lcb_temperature", edge.lcb_temperature)
-        out.setdefault("expert_policy", edge.expert_policy)
-
-    # IBRL / LCBGatedBootstrap / CriticBlend / MCVarianceCorrection
-    # implement their TD-target math on their Extension's ``on_target``
-    # method; the SAC loop folds them via ``stack.on_target(...)``. The
-    # opposite direction (legacy-flag → auto-appended extension) is
-    # handled by ``_auto_append_target_mod_extensions``.
-    #
-    # We DO still echo the secondary parameters each extension owns into
-    # the resolver dict — e.g. ``critic_warmup_frac`` is also consumed by
-    # the online-BC loss schedule (``make_bc_loss_fn``), and the LCB
-    # bootstrap shares its ``lcb_*`` hyperparameters with the
-    # action-selection gate (``make_action_pipeline``). Without these
-    # echoes the new surface would silently diverge from the legacy flag
-    # path even though the target-mod math itself is byte-identical.
-    ibrl = first_of_type(extensions, IBRL)
-    if ibrl is not None:
-        out.setdefault("expert_policy", ibrl.expert_policy)
-
-    lcb_b = first_of_type(extensions, LCBGatedBootstrap)
-    if lcb_b is not None:
-        out.setdefault("lcb_beta_init", lcb_b.lcb_beta_init)
-        out.setdefault("lcb_beta_decay_k", lcb_b.lcb_beta_decay_k)
-        out.setdefault("lcb_temperature", lcb_b.lcb_temperature)
-        out.setdefault("expert_policy", lcb_b.expert_policy)
-
-    blend = first_of_type(extensions, CriticBlend)
-    if blend is not None:
-        out.setdefault("critic_warmup_frac", blend.critic_warmup_frac)
-        out.setdefault("expert_policy", blend.expert_policy)
-
-    box = first_of_type(extensions, ValueBox)
-    if box is not None:
-        # ValueBox.action owns the override / bookkeeping math, but the
-        # ``use_box`` flag is still echoed because it gates a separate
-        # SAC-side concern: the resolution of ``_box_v_min`` /
-        # ``_box_v_max`` from the MC-pretrain ``expert_v_min/v_max``
-        # inside ``make_scan_fn`` (and the corresponding
-        # ``init_SAC(use_box=...)`` plumbing). Without the echo a
-        # stack-only ``ValueBox(...)`` would silently see bounds=0.0
-        # ⇒ threshold=0 ⇒ override-everywhere, which is wrong.
-        out["use_box"] = True
-        out.setdefault("expert_policy", box.expert_policy)
-
-    mcp = first_of_type(extensions, MCPretrain)
-    if mcp is not None:
-        # MCPretrain.pretrain owns the MC critic pre-training math;
-        # the legacy ``use_mc_critic_pretrain`` + sizing flags are
-        # dropped from the echo (the auto-append shim is a no-op when
-        # the extension is already in the stack, so triggering it is
-        # unnecessary). Same pattern as the EDGE / OnlineBC /
-        # JSRLCurriculum / ValueBox branches above.
-        out.setdefault("expert_policy", mcp.expert_policy)
-
-    bp = first_of_type(extensions, BellmanPretrain)
-    if bp is not None:
-        out["use_bellman_critic_pretrain"] = True
-        out["mc_pretrain_n_steps"] = bp.n_steps
-        out.setdefault("expert_policy", bp.expert_policy)
-
-    pr = first_of_type(extensions, PhiRefresh)
-    if pr is not None:
-        out["use_phi_refresh"] = True
-        out["phi_refresh_interval"] = pr.interval
-        out["phi_refresh_steps"] = pr.steps
-        out.setdefault("expert_policy", pr.expert_policy)
-
-    return out
-
-
-def _auto_append_target_mod_extensions(
+def _inject_policy_extensions_context(
     extensions: Sequence,
     *,
-    ibrl_bootstrap: bool,
-    lcb_gated_bootstrap: bool,
-    use_critic_blend: bool,
-    mc_variance_threshold: Optional[float],
-    critic_warmup_frac: float,
-    lcb_beta_init: float,
-    lcb_beta_decay_k: float,
-    lcb_temperature: float,
-    expert_policy: Optional[Callable],
-) -> tuple:
-    """Append target-mod extensions for legacy flags that lack a matching one.
-
-    The four target-mod features (``ibrl_bootstrap`` / ``lcb_gated_
-    bootstrap`` / ``use_critic_blend`` / ``mc_variance_threshold``) now
-    live exclusively on their :class:`Extension` ``on_target`` method.
-    When a user still wires them through the legacy flag surface, and
-    the matching extension is not already in ``extensions``, this helper
-    constructs and appends it in the canonical order
-    (IBRL → LCBGatedBootstrap → CriticBlend → MCVarianceCorrection) so
-    the resulting ``stack.on_target(...)`` fold reproduces the
-    pre-refactor ``make_target_modifier`` behaviour byte-identically.
-    """
-    from ajax.extensions.target_mods import (
-        IBRL,
-        CriticBlend,
-        LCBGatedBootstrap,
-        MCVarianceCorrection,
-    )
-
-    out = list(extensions)
-
-    def _has(cls: type) -> bool:
-        return any(isinstance(e, cls) for e in out)
-
-    if ibrl_bootstrap and expert_policy is not None and not _has(IBRL):
-        out.append(IBRL(expert_policy=expert_policy))
-    if (
-        lcb_gated_bootstrap
-        and expert_policy is not None
-        and not _has(LCBGatedBootstrap)
-    ):
-        out.append(
-            LCBGatedBootstrap(
-                expert_policy=expert_policy,
-                lcb_beta_init=lcb_beta_init,
-                lcb_beta_decay_k=lcb_beta_decay_k,
-                lcb_temperature=lcb_temperature,
-            )
-        )
-    if use_critic_blend and expert_policy is not None and not _has(CriticBlend):
-        out.append(
-            CriticBlend(
-                expert_policy=expert_policy,
-                critic_warmup_frac=critic_warmup_frac,
-            )
-        )
-    if mc_variance_threshold is not None and not _has(MCVarianceCorrection):
-        out.append(MCVarianceCorrection(threshold=mc_variance_threshold))
-
-    return tuple(out)
-
-
-def _auto_append_policy_extensions(
-    extensions: Sequence,
-    *,
-    use_online_bc: bool,
-    bc_coef: float,
-    critic_warmup_frac: float,
-    use_residual_rl: bool,
-    residual_scale: float,
-    use_phi_refresh: bool,
-    phi_refresh_interval: int,
-    phi_refresh_steps: int,
-    expert_policy: Optional[Callable],
     buffer: Any,
     gamma: float,
     reward_scale: float,
 ) -> tuple:
-    """Append OnlineBC / ResidualPolicy / PhiRefresh from legacy flags.
+    """Fill PhiRefresh buffer/gamma/reward_scale from the SAC factory.
 
-    The three features (``use_online_bc`` / ``use_residual_rl`` /
-    ``use_phi_refresh``) now live on their :class:`Extension` phase
-    methods (``actor_loss`` / a transform helper / ``post_update``).
-    This helper preserves byte-identical behaviour for callers that
-    still wire them through the legacy flag surface: when the matching
-    extension is absent we append it; for PhiRefresh we also copy the
-    SAC factory's resolved ``buffer`` / ``gamma`` / ``reward_scale``
-    onto the instance so ``post_update`` has everything it needs (the
-    pre-refactor builder closed over those values).
+    PhiRefresh.post_update closes over ``buffer`` / ``gamma`` /
+    ``reward_scale`` — the user can't supply them at construction time
+    because the factory resolves them. dataclasses.replace builds a new
+    frozen instance so the JIT cache key stays sound.
     """
     import dataclasses
 
-    from ajax.extensions.expert import OnlineBC, ResidualPolicy
     from ajax.extensions.pretrain import PhiRefresh
 
     out = list(extensions)
-
-    def _has(cls: type) -> bool:
-        return any(isinstance(e, cls) for e in out)
-
-    if use_online_bc and expert_policy is not None and not _has(OnlineBC):
-        out.append(
-            OnlineBC(
-                expert_policy=expert_policy,
-                bc_coef=bc_coef,
-                critic_warmup_frac=critic_warmup_frac,
-            )
-        )
-    if use_residual_rl and expert_policy is not None and not _has(ResidualPolicy):
-        out.append(ResidualPolicy(expert_policy=expert_policy, scale=residual_scale))
-    if use_phi_refresh and expert_policy is not None and not _has(PhiRefresh):
-        out.append(
-            PhiRefresh(
-                expert_policy=expert_policy,
-                interval=phi_refresh_interval,
-                steps=phi_refresh_steps,
-            )
-        )
-
-    # PhiRefresh needs ``buffer`` / ``gamma`` / ``reward_scale`` to
-    # actually run — fill them in for any instance (auto-appended or
-    # user-constructed) that left them unset. dataclasses.replace
-    # builds a new frozen instance so the JIT cache key stays sound.
     for i, ext in enumerate(out):
         if isinstance(ext, PhiRefresh) and ext.buffer is None and buffer is not None:
             out[i] = dataclasses.replace(
                 ext, buffer=buffer, gamma=gamma, reward_scale=reward_scale
             )
-
     return tuple(out)
 
 
-def _auto_append_action_extensions(
+def _inject_pretrain_extensions_context(
     extensions: Sequence,
     *,
-    use_box: bool,
-    use_expert_guided_exploration: bool,
-    exploration_argmax: bool,
-    exploration_boltzmann: bool,
-    exploration_lcb: bool,
-    exploration_argmax_lcb: bool,
-    exploration_thompson: bool,
-    exploration_decay_frac: float,
-    exploration_tau: float,
-    fixed_exploration_prob: float,
-    lcb_beta_init: float,
-    lcb_beta_decay_k: float,
-    lcb_temperature: float,
-    lcb_asymmetric: bool,
-    epsilon_floor: float,
-    jsrl_curriculum: bool,
-    jsrl_episode_length: int,
-    jsrl_decay_frac: float,
-    expert_policy: Optional[Callable],
-) -> tuple:
-    """Append EDGE / ValueBox / JSRL from legacy flags.
-
-    The three collection-time action-substitution features
-    (``use_expert_guided_exploration``, ``use_box``, ``jsrl_curriculum``)
-    now live on their :class:`Extension` :meth:`action` phase method.
-    This helper preserves byte-identical behaviour for callers that
-    still wire them through the legacy flag surface: when the matching
-    extension is absent we append it. The EDGE ``gate`` is resolved
-    from whichever exclusive ``exploration_*`` flag is set (the same
-    mutex the pre-refactor pipeline enforced implicitly through its
-    if/elif ladder).
-    """
-    from ajax.extensions.expert import JSRLCurriculum
-    from ajax.extensions.exploration import EDGEExploration
-    from ajax.extensions.target_mods import ValueBox
-
-    out = list(extensions)
-
-    def _has(cls: type) -> bool:
-        return any(isinstance(e, cls) for e in out)
-
-    if (
-        use_expert_guided_exploration
-        and expert_policy is not None
-        and not _has(EDGEExploration)
-    ):
-        # Resolve the gate from the four mutually-exclusive ``exploration_*``
-        # flags in the order the pre-refactor pipeline checked them:
-        # thompson → lcb → argmax_lcb → boltzmann → argmax → fixed.
-        if exploration_thompson:
-            _gate = "thompson"
-        elif exploration_lcb:
-            _gate = "lcb"
-        elif exploration_argmax_lcb:
-            _gate = "argmax_lcb"
-        elif exploration_boltzmann:
-            _gate = "boltzmann"
-        elif exploration_argmax:
-            _gate = "argmax"
-        else:
-            _gate = "fixed"
-        out.append(
-            EDGEExploration(
-                expert_policy=expert_policy,
-                gate=_gate,
-                decay_frac=exploration_decay_frac,
-                tau=exploration_tau,
-                fixed_prob=fixed_exploration_prob,
-                lcb_beta_init=lcb_beta_init,
-                lcb_beta_decay_k=lcb_beta_decay_k,
-                lcb_temperature=lcb_temperature,
-                lcb_asymmetric=lcb_asymmetric,
-                epsilon_floor=epsilon_floor,
-            )
-        )
-    if use_box and expert_policy is not None and not _has(ValueBox):
-        out.append(ValueBox(expert_policy=expert_policy))
-    if jsrl_curriculum and expert_policy is not None and not _has(JSRLCurriculum):
-        out.append(
-            JSRLCurriculum(
-                expert_policy=expert_policy,
-                episode_length=jsrl_episode_length,
-                decay_frac=jsrl_decay_frac,
-            )
-        )
-
-    return tuple(out)
-
-
-def _auto_append_pretrain_extensions(
-    extensions: Sequence,
-    *,
-    use_mc_critic_pretrain: bool,
-    mc_pretrain_n_mc_steps: int,
-    mc_pretrain_n_mc_episodes: int,
-    mc_pretrain_n_steps: int,
-    use_online_critic_light_pretrain: bool,
-    online_critic_pretrain_steps: int,
-    online_critic_pretrain_lr_scale: float,
-    expert_policy: Optional[Callable],
     env_args: Any,
     network_args: Any,
     critic_optimizer_args: Any,
@@ -1842,49 +1476,29 @@ def _auto_append_pretrain_extensions(
     total_timesteps: int,
     use_train_frac: bool,
     augment_obs_with_expert_action: bool,
-    use_phi_refresh: bool,
     mc_preloaded_data: Optional[Tuple],
 ) -> tuple:
-    """Append :class:`MCPretrain` from legacy flags + fill closed-over context.
+    """Fill MCPretrain's closed-over context from the SAC factory.
 
-    The MC critic pre-training math now lives on :meth:`MCPretrain.pretrain`.
-    This helper preserves byte-identical behaviour for callers that still
-    wire it through the legacy ``use_mc_critic_pretrain`` flag surface:
-    when the flag is set and no :class:`MCPretrain` is in ``extensions``,
-    we append one with the legacy sizing kwargs. Additionally, we copy
-    the SAC factory's resolved env/network/critic-optimizer config + the
-    runtime context (``mode`` / ``gamma`` / ``reward_scale`` / ``total_
-    timesteps`` / ``use_train_frac`` / ``augment_obs_with_expert_action``
-    / ``use_phi_refresh`` / ``mc_preloaded_data``) onto any MCPretrain
-    instance in the stack — :meth:`pretrain` needs them to call the
-    underlying pure functions in :mod:`ajax.modules.pretrain` (same
-    pattern as PhiRefresh's buffer/gamma/reward_scale fill-in).
+    :meth:`MCPretrain.pretrain` needs env/network/critic-optimizer config
+    + the runtime context (``mode`` / ``gamma`` / ``reward_scale`` /
+    ``total_timesteps`` / ``use_train_frac`` /
+    ``augment_obs_with_expert_action`` / ``mc_preloaded_data``) to call
+    the underlying pure functions in :mod:`ajax.modules.pretrain`. The
+    user can't supply these at construction time because the factory
+    resolves them — same pattern as PhiRefresh.
+
+    The ``use_phi_refresh`` attribute on each MCPretrain is inferred
+    from the stack itself: True iff a :class:`PhiRefresh` extension is
+    present (so MCPretrain knows to persist the trained critic state
+    for PhiRefresh to consume).
     """
     import dataclasses
 
-    from ajax.extensions.pretrain import MCPretrain
+    from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 
     out = list(extensions)
-
-    def _has(cls: type) -> bool:
-        return any(isinstance(e, cls) for e in out)
-
-    if use_mc_critic_pretrain and expert_policy is not None and not _has(MCPretrain):
-        out.append(
-            MCPretrain(
-                expert_policy=expert_policy,
-                n_mc_steps=mc_pretrain_n_mc_steps,
-                n_mc_episodes=mc_pretrain_n_mc_episodes,
-                n_steps=mc_pretrain_n_steps,
-                use_online_light=use_online_critic_light_pretrain,
-                online_light_steps=online_critic_pretrain_steps,
-                online_light_lr_scale=online_critic_pretrain_lr_scale,
-            )
-        )
-
-    # Fill the closed-over context on any MCPretrain instance that left
-    # it unset (user-constructed or just auto-appended). dataclasses.replace
-    # builds a new frozen instance so the JIT cache key stays sound.
+    _use_phi_refresh = any(isinstance(e, PhiRefresh) for e in out)
     for i, ext in enumerate(out):
         if isinstance(ext, MCPretrain) and ext.env_args is None:
             out[i] = dataclasses.replace(
@@ -1899,64 +1513,32 @@ def _auto_append_pretrain_extensions(
                 total_timesteps=total_timesteps,
                 use_train_frac=use_train_frac,
                 augment_obs_with_expert_action=augment_obs_with_expert_action,
-                use_phi_refresh=use_phi_refresh,
+                use_phi_refresh=_use_phi_refresh,
                 mc_preloaded_data=mc_preloaded_data,
             )
-
     return tuple(out)
 
 
-def _auto_append_obs_extensions(
+def _inject_obs_extensions_context(
     extensions: Sequence,
     *,
-    augment_obs_with_expert_action: bool,
-    detach_obs_aug_action: bool,
     action_dim: int,
-    expert_policy: Optional[Callable],
 ) -> tuple:
-    """Append :class:`ExpertObsAugmentation` from legacy flags + fill action_dim.
+    """Fill ExpertObsAugmentation.action_dim from the SAC factory.
 
-    The runtime stop-gradient on the expert-action obs dims now lives on
-    :meth:`ExpertObsAugmentation.on_obs`. This helper preserves
-    byte-identical behaviour for callers that still wire it through the
-    legacy ``augment_obs_with_expert_action`` / ``detach_obs_aug_action``
-    flag surface: when ``augment_obs_with_expert_action`` is set and no
-    :class:`ExpertObsAugmentation` is in ``extensions``, we append one.
-    Additionally, we copy the resolved ``action_dim`` onto any
-    :class:`ExpertObsAugmentation` instance in the stack — its
-    :meth:`on_obs` needs the action-dim to know where the ``a_expert``
-    slice starts inside the augmented layout ``[env_obs | a_expert |
-    train_frac]``. User-constructed instances may leave ``action_dim=0``
-    and rely on the factory to fill it in (dataclasses.replace).
+    :meth:`ExpertObsAugmentation.on_obs` needs ``action_dim`` to know
+    where the ``a_expert`` slice starts inside the augmented obs layout
+    ``[env_obs | a_expert | train_frac]``. User-constructed instances
+    may leave ``action_dim=0`` and rely on the factory to fill it in.
     """
     import dataclasses
 
     from ajax.extensions.expert import ExpertObsAugmentation
 
     out = list(extensions)
-
-    def _has(cls: type) -> bool:
-        return any(isinstance(e, cls) for e in out)
-
-    if (
-        augment_obs_with_expert_action
-        and expert_policy is not None
-        and not _has(ExpertObsAugmentation)
-    ):
-        out.append(
-            ExpertObsAugmentation(
-                expert_policy=expert_policy,
-                detach=detach_obs_aug_action,
-                action_dim=action_dim,
-            )
-        )
-
-    # Fill action_dim on any ExpertObsAugmentation that left it unset
-    # (user-constructed) so :meth:`on_obs` can slice the augmented obs.
     for i, ext in enumerate(out):
         if isinstance(ext, ExpertObsAugmentation) and ext.action_dim == 0:
             out[i] = dataclasses.replace(ext, action_dim=action_dim)
-
     return tuple(out)
 
 
@@ -2058,49 +1640,29 @@ def make_train(
     box_threshold: float = 500.0,
     altitude_obs_idx: int = 1,
     target_obs_idx: int = 6,
-    # MC critic pretraining (replaces Bellman pretraining)
-    use_mc_critic_pretrain: bool = False,
-    mc_pretrain_n_mc_steps: int = 10_000,
-    mc_pretrain_n_mc_episodes: int = 100,
+    # MC sizing kwarg threaded into the inline Bellman-pretrain block
+    # below (``use_bellman_critic_pretrain``). MCPretrain extensions own
+    # the equivalent for the MC path inside ``MCPretrain(n_steps=...)``.
     mc_pretrain_n_steps: int = 5_000,
-    # Online critic light pre-regression (requires MC critic pretrain)
-    use_online_critic_light_pretrain: bool = True,
-    online_critic_pretrain_steps: int = 500,
-    online_critic_pretrain_lr_scale: float = 0.1,
     # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
     use_bellman_critic_pretrain: bool = False,
-    # Expert-guided policy loss terms
+    # Expert obs augmentation: changes init_SAC / collect_experience
+    # network input dim. The runtime stop-gradient on the augmented dims
+    # lives on :meth:`ExpertObsAugmentation.on_obs`.
     augment_obs_with_expert_action: bool = False,
-    detach_obs_aug_action: bool = False,
     # Train-fraction conditioning: append timestep/total_timesteps to obs
     use_train_frac: bool = False,
     # Update start thresholds
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
-    # Blended Bellman target (replaces potential-based shaping)
-    use_critic_blend: bool = False,
-    critic_warmup_frac: float = 0.15,
-    # Value-threshold box (v_min/v_max inferred from MC pretraining)
+    # Value-threshold box (v_min/v_max inferred from MC pretraining).
+    # Threads into ``make_scan_fn`` to resolve _box_v_min/_box_v_max from
+    # the agent state. The ValueBox.action math lives on the extension.
     use_box: bool = False,
-    # Online decaying BC term (active for all MC pretrain runs unless disabled)
-    use_online_bc: bool = True,
-    bc_coef: float = 1.0,
-    # EDGE (Expert Decayed Guided Exploration): stochastic expert substitution during collection
-    use_expert_guided_exploration: bool = False,
-    exploration_decay_frac: float = 0.30,
+    # EDGE softmax-temperature for non-LCB gates. Threaded into
+    # ``training_iteration`` for telemetry; the EDGEExploration extension
+    # also reads it via its own ``tau`` field.
     exploration_tau: float = 1.0,
-    exploration_boltzmann: bool = False,
-    fixed_exploration_prob: float = 0.5,
-    exploration_argmax: bool = False,
-    # Quality-aware (LCB) gate
-    exploration_lcb: bool = False,
-    exploration_argmax_lcb: bool = False,
-    exploration_thompson: bool = False,
-    lcb_beta_init: float = 1.0,
-    lcb_beta_decay_k: float = 2.0,
-    lcb_temperature: float = 1.0,
-    epsilon_floor: float = 0.0,
-    lcb_asymmetric: bool = False,
     expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
@@ -2108,29 +1670,20 @@ def make_train(
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
     store_policy_action: bool = False,
-    lcb_gated_bootstrap: bool = False,
-    # Residual RL (Johannink et al.): execute clip(a_expert + scale * a_pi, -1, 1)
+    # Residual RL (Johannink et al.): execute clip(a_expert + scale * a_pi, -1, 1).
+    # Threads into ``make_action_pipeline``; the ResidualPolicy extension
+    # owns the actor-loss / TD-target transform via :meth:`transform_action`.
     use_residual_rl: bool = False,
     residual_scale: float = 1.0,
     # True JSRL (Uchendu et al. 2023): per-episode curriculum handoff.
-    # Expert acts while step_in_episode < H_t; H_t decays from
-    # jsrl_episode_length to 0 over jsrl_decay_frac * T_total.
+    # The flag gates the ``step_in_episode`` counter init in
+    # :func:`init_SAC`; the curriculum math lives on
+    # :class:`JSRLCurriculum`.action.
     jsrl_curriculum: bool = False,
-    jsrl_episode_length: int = 1000,
-    jsrl_decay_frac: float = 0.5,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
     # Distance-modulated entropy target (None = disabled)
     target_entropy_far: Optional[float] = None,
-    # Online MC correction for high-variance critic states (None = disabled)
-    mc_variance_threshold: Optional[float] = None,
-    # Periodic self-consistent φ* refresh via expert-flagged buffer transitions
-    use_phi_refresh: bool = False,
-    phi_refresh_interval: int = 500,
-    phi_refresh_steps: int = 20,
-    # IBRL bootstrap: use max(Q_policy, Q_expert) for TD target to be consistent
-    # with argmax action-selection policy (exploration_argmax=True / EDGE).
-    ibrl_bootstrap: bool = False,
     # Pre-collected MC data: (obs, action, mc_return) JAX arrays.
     # When provided, the in-run expert rollout + MC-return computation is skipped.
     mc_preloaded_data: Optional[Tuple] = None,
@@ -2138,7 +1691,7 @@ def make_train(
     pid_actor_config=None,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
     action_dim_override: Optional[int] = None,
-    # --- Composable hook overrides (None = build from flags above) ---
+    # --- Composable hook overrides (None = build from extensions / defaults) ---
     action_pipeline: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
@@ -2149,211 +1702,50 @@ def make_train(
     init_transform: Optional[Callable] = None,
     auxiliary_update: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
-    # --- Extension framework (new surface) ---
+    # --- Extension framework (the research-features surface) ---
     extensions: Sequence = (),
 ):
-    """
-    SAC training factory.
+    """SAC training factory.
 
-    expert_policy:      used for training (warmup seeding, critic
-                        pre-training). Pass None for true vanilla SAC.
+    expert_policy:      used for training (warmup seeding, expert buffer
+                        prefill, residual / JSRL collection-time
+                        substitution). Pass None for true vanilla SAC.
     eval_expert_policy: used ONLY for eval logging (expert bias metric).
-                        Always passed regardless of whether training uses expert.
-                        Defaults to expert_policy if not set explicitly.
-    extensions:         the new composable-research-features surface
-                        (Phase 2 of the agent-architecture rework). Any
-                        :class:`~ajax.extensions.base.Extension` in the
-                        sequence resolves to the matching legacy flag(s)
-                        via :func:`_resolve_extension_stack`. The legacy
-                        kwargs above remain accepted for backward
-                        compatibility; explicit kwargs always win.
+                        Defaults to ``expert_policy`` if unset.
+    extensions:         composable research features. Each
+                        :class:`~ajax.extensions.base.Extension`
+                        instance owns its own math via the phase
+                        methods (``on_target`` / ``actor_loss`` /
+                        ``action`` / ``pretrain`` / ``post_update`` /
+                        ``on_obs`` / ``init_state``). The SAC loop
+                        folds the stack at each phase. See
+                        :mod:`ajax.extensions` for the catalogue
+                        (``IBRL``, ``LCBGatedBootstrap``, ``CriticBlend``,
+                        ``MCVarianceCorrection``, ``ValueBox``,
+                        ``OnlineBC``, ``ResidualPolicy``, ``PhiRefresh``,
+                        ``EDGEExploration``, ``JSRLCurriculum``,
+                        ``ExpertGuidance``, ``ExpertObsAugmentation``,
+                        ``MCPretrain``, ``BellmanPretrain``).
+
+    Several kwargs above are kept on the function signature because they
+    thread into init / collection / pipeline at a level the extension
+    framework doesn't reach yet (``use_residual_rl``, ``jsrl_curriculum``,
+    ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
+    ``augment_obs_with_expert_action``, ``use_train_frac``,
+    ``normalize_obs_running``, ``store_policy_action``,
+    ``extra_critic_head_*``, etc.). They mirror the corresponding
+    extension's "static" flag where applicable.
     """
-    # Translate the Extension stack into the legacy flag surface.
-    # Extensions OWN the parameters they expose: any value an extension
-    # supplies (an :class:`OnlineBC`'s ``bc_coef``, a
-    # :class:`JSRLCurriculum`'s ``episode_length``, …) overrides the
-    # legacy default of the same flag. Empty stack ⇒ {} ⇒ no overrides
-    # ⇒ plain-SAC behaviour byte-identical to the pre-refactor flag path
-    # (the parity gate). Callers that want a hybrid configuration should
-    # express it via the extension list rather than mixing the two
-    # surfaces.
-    if extensions:
-        _resolved = _resolve_extension_stack(extensions)
-        _locals = {**locals(), **_resolved}
-        # rebind every flag the resolver owns so it propagates into the
-        # downstream init/scan calls.
-        expert_policy = _locals.get("expert_policy", expert_policy)
-        eval_expert_policy = _locals.get("eval_expert_policy", eval_expert_policy)
-        use_expert_guidance = _locals.get("use_expert_guidance", use_expert_guidance)
-        expert_buffer_n_steps = _locals.get(
-            "expert_buffer_n_steps", expert_buffer_n_steps
-        )
-        expert_mix_fraction = _locals.get("expert_mix_fraction", expert_mix_fraction)
-        expert_fraction = _locals.get("expert_fraction", expert_fraction)
-        augment_obs_with_expert_action = _locals.get(
-            "augment_obs_with_expert_action", augment_obs_with_expert_action
-        )
-        detach_obs_aug_action = _locals.get(
-            "detach_obs_aug_action", detach_obs_aug_action
-        )
-        use_online_bc = _locals.get("use_online_bc", use_online_bc)
-        bc_coef = _locals.get("bc_coef", bc_coef)
-        critic_warmup_frac = _locals.get("critic_warmup_frac", critic_warmup_frac)
-        use_residual_rl = _locals.get("use_residual_rl", use_residual_rl)
-        residual_scale = _locals.get("residual_scale", residual_scale)
-        jsrl_curriculum = _locals.get("jsrl_curriculum", jsrl_curriculum)
-        jsrl_episode_length = _locals.get("jsrl_episode_length", jsrl_episode_length)
-        jsrl_decay_frac = _locals.get("jsrl_decay_frac", jsrl_decay_frac)
-        use_expert_guided_exploration = _locals.get(
-            "use_expert_guided_exploration", use_expert_guided_exploration
-        )
-        exploration_decay_frac = _locals.get(
-            "exploration_decay_frac", exploration_decay_frac
-        )
-        exploration_tau = _locals.get("exploration_tau", exploration_tau)
-        fixed_exploration_prob = _locals.get(
-            "fixed_exploration_prob", fixed_exploration_prob
-        )
-        lcb_beta_init = _locals.get("lcb_beta_init", lcb_beta_init)
-        lcb_beta_decay_k = _locals.get("lcb_beta_decay_k", lcb_beta_decay_k)
-        lcb_temperature = _locals.get("lcb_temperature", lcb_temperature)
-        lcb_asymmetric = _locals.get("lcb_asymmetric", lcb_asymmetric)
-        epsilon_floor = _locals.get("epsilon_floor", epsilon_floor)
-        exploration_argmax = _locals.get("exploration_argmax", exploration_argmax)
-        exploration_boltzmann = _locals.get(
-            "exploration_boltzmann", exploration_boltzmann
-        )
-        exploration_lcb = _locals.get("exploration_lcb", exploration_lcb)
-        exploration_argmax_lcb = _locals.get(
-            "exploration_argmax_lcb", exploration_argmax_lcb
-        )
-        exploration_thompson = _locals.get("exploration_thompson", exploration_thompson)
-        ibrl_bootstrap = _locals.get("ibrl_bootstrap", ibrl_bootstrap)
-        lcb_gated_bootstrap = _locals.get("lcb_gated_bootstrap", lcb_gated_bootstrap)
-        use_critic_blend = _locals.get("use_critic_blend", use_critic_blend)
-        mc_variance_threshold = _locals.get(
-            "mc_variance_threshold", mc_variance_threshold
-        )
-        use_box = _locals.get("use_box", use_box)
-        use_mc_critic_pretrain = _locals.get(
-            "use_mc_critic_pretrain", use_mc_critic_pretrain
-        )
-        mc_pretrain_n_mc_steps = _locals.get(
-            "mc_pretrain_n_mc_steps", mc_pretrain_n_mc_steps
-        )
-        mc_pretrain_n_mc_episodes = _locals.get(
-            "mc_pretrain_n_mc_episodes", mc_pretrain_n_mc_episodes
-        )
-        mc_pretrain_n_steps = _locals.get("mc_pretrain_n_steps", mc_pretrain_n_steps)
-        use_online_critic_light_pretrain = _locals.get(
-            "use_online_critic_light_pretrain", use_online_critic_light_pretrain
-        )
-        online_critic_pretrain_steps = _locals.get(
-            "online_critic_pretrain_steps", online_critic_pretrain_steps
-        )
-        online_critic_pretrain_lr_scale = _locals.get(
-            "online_critic_pretrain_lr_scale", online_critic_pretrain_lr_scale
-        )
-        use_bellman_critic_pretrain = _locals.get(
-            "use_bellman_critic_pretrain", use_bellman_critic_pretrain
-        )
-        use_phi_refresh = _locals.get("use_phi_refresh", use_phi_refresh)
-        phi_refresh_interval = _locals.get("phi_refresh_interval", phi_refresh_interval)
-        phi_refresh_steps = _locals.get("phi_refresh_steps", phi_refresh_steps)
-
-    # Back-compat: when a legacy target-mod flag is set and the matching
-    # Extension is not already in ``extensions``, auto-append it. This is
-    # the shim that keeps `SAC(..., ibrl_bootstrap=True)` /
-    # `lcb_gated_bootstrap=True` / `use_critic_blend=True` /
-    # `mc_variance_threshold=...` producing the same numerics as before
-    # the migration — the implementation now lives on the Extension's
-    # ``on_target`` method and the SAC loop folds the stack via
-    # ``stack.on_target(...)`` (the `make_target_modifier` builder was
-    # deleted). No-op when an explicit extension is already supplied.
-    extensions = _auto_append_target_mod_extensions(
-        extensions,
-        ibrl_bootstrap=ibrl_bootstrap,
-        lcb_gated_bootstrap=lcb_gated_bootstrap,
-        use_critic_blend=use_critic_blend,
-        mc_variance_threshold=mc_variance_threshold,
-        critic_warmup_frac=critic_warmup_frac,
-        lcb_beta_init=lcb_beta_init,
-        lcb_beta_decay_k=lcb_beta_decay_k,
-        lcb_temperature=lcb_temperature,
-        expert_policy=expert_policy,
-    )
-
-    # Same shim as above for the three policy / post-update extensions
-    # migrated in this commit: OnlineBC.actor_loss, ResidualPolicy's
-    # actor-loss / TD-target transform, and PhiRefresh.post_update.
-    # The legacy ``make_bc_loss_fn`` / ``make_policy_action_transform``
-    # / ``make_runtime_maintenance`` builders are gone.
-    extensions = _auto_append_policy_extensions(
-        extensions,
-        use_online_bc=use_online_bc,
-        bc_coef=bc_coef,
-        critic_warmup_frac=critic_warmup_frac,
-        use_residual_rl=use_residual_rl,
-        residual_scale=residual_scale,
-        use_phi_refresh=use_phi_refresh,
-        phi_refresh_interval=phi_refresh_interval,
-        phi_refresh_steps=phi_refresh_steps,
-        expert_policy=expert_policy,
-        buffer=buffer,
-        gamma=agent_config.gamma,
-        reward_scale=agent_config.reward_scale,
-    )
-
-    # Same shim for the three collection-time action-substitution
-    # extensions migrated in this commit: EDGEExploration.action /
-    # ValueBox.action / JSRLCurriculum.action. The legacy 14 inline
-    # if/elif branches of ``make_action_pipeline`` are gone; the
-    # pipeline now dispatches the extensions in canonical order
-    # (EDGE → JSRL → warmup cond → ValueBox).
-    extensions = _auto_append_action_extensions(
-        extensions,
-        use_box=use_box,
-        use_expert_guided_exploration=use_expert_guided_exploration,
-        exploration_argmax=exploration_argmax,
-        exploration_boltzmann=exploration_boltzmann,
-        exploration_lcb=exploration_lcb,
-        exploration_argmax_lcb=exploration_argmax_lcb,
-        exploration_thompson=exploration_thompson,
-        exploration_decay_frac=exploration_decay_frac,
-        exploration_tau=exploration_tau,
-        fixed_exploration_prob=fixed_exploration_prob,
-        lcb_beta_init=lcb_beta_init,
-        lcb_beta_decay_k=lcb_beta_decay_k,
-        lcb_temperature=lcb_temperature,
-        lcb_asymmetric=lcb_asymmetric,
-        epsilon_floor=epsilon_floor,
-        jsrl_curriculum=jsrl_curriculum,
-        jsrl_episode_length=jsrl_episode_length,
-        jsrl_decay_frac=jsrl_decay_frac,
-        expert_policy=expert_policy,
-    )
-
-    # Same shim for :class:`ExpertObsAugmentation`. The runtime
-    # stop-gradient on the augmented-obs expert-action dims lives on
-    # :meth:`ExpertObsAugmentation.on_obs`; the construction-time obs
-    # augmentation itself (which changes the network input dim) is still
-    # driven by the legacy ``augment_obs_with_expert_action`` flag (it
-    # affects ``init_SAC`` / ``collect_experience`` / the augmented
-    # training batch). The shim also fills in ``action_dim`` on any
-    # ExpertObsAugmentation instance in the stack — :meth:`on_obs` needs
-    # it to slice the augmented obs layout.
-    _resolved_action_dim = (
-        action_dim_override
-        if action_dim_override is not None
-        else get_action_dim(env_args.env, env_args.env_params)
-    )
-    extensions = _auto_append_obs_extensions(
-        extensions,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        detach_obs_aug_action=detach_obs_aug_action,
-        action_dim=_resolved_action_dim,
-        expert_policy=expert_policy,
-    )
+    # Phase 5: the back-compat shim that turned legacy boolean kwargs
+    # into auto-appended Extensions (``_resolve_extension_stack`` +
+    # ``_auto_append_*`` + the ``_locals.get(...)`` rebinding block) was
+    # stripped. ``extensions=`` is now the sole surface for composing
+    # research features (target modifiers, online-BC, PhiRefresh, EDGE,
+    # MCPretrain, …). What remains is context injection: filling
+    # SAC-factory-only fields (env / network / critic-optimizer config,
+    # resolved action_dim, the shared buffer / gamma / reward_scale)
+    # onto a few Extension instances that can't know them at
+    # construction time.
 
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
@@ -2364,24 +1756,17 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
-    # Same shim for :class:`MCPretrain`. The Monte-Carlo critic
-    # pre-training math now lives on :meth:`MCPretrain.pretrain` and is
-    # invoked from ``init_fn`` via ``stack.pretrain(...)`` (skipped on
-    # resume — same single-shot init slot the legacy block used). The
-    # auto-append shim fills the closed-over context (env / network /
-    # critic-optimizer config + ``mode`` / ``gamma`` / ``reward_scale``
-    # / ``total_timesteps`` / …) onto any MCPretrain instance in
-    # ``extensions`` so the phase method has everything it needs.
-    extensions = _auto_append_pretrain_extensions(
+    # Inject the SAC-factory-only context onto the PhiRefresh / MCPretrain
+    # / ExpertObsAugmentation extensions in the stack (no-op for stacks
+    # that don't include them).
+    extensions = _inject_policy_extensions_context(
         extensions,
-        use_mc_critic_pretrain=use_mc_critic_pretrain,
-        mc_pretrain_n_mc_steps=mc_pretrain_n_mc_steps,
-        mc_pretrain_n_mc_episodes=mc_pretrain_n_mc_episodes,
-        mc_pretrain_n_steps=mc_pretrain_n_steps,
-        use_online_critic_light_pretrain=use_online_critic_light_pretrain,
-        online_critic_pretrain_steps=online_critic_pretrain_steps,
-        online_critic_pretrain_lr_scale=online_critic_pretrain_lr_scale,
-        expert_policy=expert_policy,
+        buffer=buffer,
+        gamma=agent_config.gamma,
+        reward_scale=agent_config.reward_scale,
+    )
+    extensions = _inject_pretrain_extensions_context(
+        extensions,
         env_args=env_args,
         network_args=network_args,
         critic_optimizer_args=critic_optimizer_args,
@@ -2392,8 +1777,16 @@ def make_train(
         total_timesteps=total_timesteps,
         use_train_frac=use_train_frac,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
-        use_phi_refresh=use_phi_refresh,
         mc_preloaded_data=mc_preloaded_data,
+    )
+    _resolved_action_dim = (
+        action_dim_override
+        if action_dim_override is not None
+        else get_action_dim(env_args.env, env_args.env_params)
+    )
+    extensions = _inject_obs_extensions_context(
+        extensions,
+        action_dim=_resolved_action_dim,
     )
 
     if logging_config is not None:

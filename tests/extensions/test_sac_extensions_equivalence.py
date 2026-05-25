@@ -1,20 +1,28 @@
 """Behaviour-equivalence tests for the SAC ``extensions=`` surface.
 
 For each migrated extension, configuring SAC via the new
-``extensions=[...]`` surface must produce byte-identical numerics to
-configuring SAC via the equivalent legacy boolean-flag surface. This is
-the behaviour-preservation contract for Phase 2 of the agent-architecture
-rework: the resolver in :mod:`ajax.agents.SAC.sac._resolve_extension_stack`
-translates each :class:`~ajax.extensions.base.Extension` config object
-into the matching legacy ``make_train`` kwargs.
+``extensions=[...]`` surface must produce a byte-identical
+:func:`_agent_fingerprint` to the pre-Phase-5 legacy-flag surface.
+
+Phase 5 stripped the legacy back-compat shim (``_resolve_extension_stack``,
+``_auto_append_*`` helpers, the ``_locals.get(...)`` rebinding block,
+and the matching ``SAC.__init__`` / ``make_train`` kwargs). The
+pre-Phase-5 tests compared ``SAC(**legacy_flags)`` against
+``SAC(extensions=[...])`` and asserted ``_assert_same(legacy_state,
+new_state)``. After Phase 5 the legacy-flag SAC is unconstructible, so
+each test now asserts the new (extension) surface against the
+pre-Phase-5 ``_agent_fingerprint`` checksum captured into
+``_sac_equivalence_goldens.json``.
 
 The tests deliberately use a tiny config so they run in a few seconds on
 CPU; the checksum is a strong-enough fingerprint to catch any silent
-divergence in the resolver mapping or in extension wiring.
+divergence in extension wiring.
 """
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import jax
@@ -64,6 +72,10 @@ _TINY: dict[str, Any] = {
 _TIMESTEPS = 80
 _SEED = 0
 
+_GOLDENS_PATH = Path(__file__).parent / "_sac_equivalence_goldens.json"
+with _GOLDENS_PATH.open() as _fh:
+    _GOLDENS: dict[str, dict[str, float]] = json.load(_fh)
+
 
 def _checksum(tree) -> float:
     leaves = jax.tree_util.tree_leaves(tree)
@@ -85,14 +97,23 @@ def _agent_fingerprint(state) -> dict:
     }
 
 
-def _assert_same(legacy_state, new_state, label: str):
-    legacy = _agent_fingerprint(legacy_state)
+def _assert_matches_golden(new_state, test_name: str, label: str):
+    """Assert ``_agent_fingerprint(new_state)`` matches the captured golden.
+
+    Goldens were captured pre-Phase-5 by running the (then-still-extant)
+    legacy-flag SAC side and writing the fingerprint dict to
+    ``_sac_equivalence_goldens.json``. This is the same byte-identical
+    equivalence contract the pre-Phase-5 ``_assert_same(legacy, new)``
+    expressed; the only change is that the legacy side is now a fixed
+    checksum instead of a freshly-trained legacy SAC.
+    """
+    golden = _GOLDENS[test_name]
     new = _agent_fingerprint(new_state)
-    for key, lo in legacy.items():
+    for key, lo in golden.items():
         rel = abs(new[key] - lo) / max(abs(lo), 1.0)
         assert rel < 1e-5, (
-            f"{label}: extension surface diverged from legacy flags for {key!r}: "
-            f"legacy={lo!r}, new={new[key]!r}, rel error {rel:.2e}"
+            f"{label}: extension surface diverged from pre-Phase-5 golden for "
+            f"{key!r}: golden={lo!r}, new={new[key]!r}, rel error {rel:.2e}"
         )
 
 
@@ -127,30 +148,35 @@ def _noise_expert(seed: int = 0):
 
 
 # --------------------------------------------------------------------------
-# Plain SAC: empty stack equals no extensions equals legacy defaults
+# Plain SAC: empty stack equals pre-Phase-5 legacy defaults
 # --------------------------------------------------------------------------
 def test_empty_stack_matches_legacy_plain_sac():
-    legacy = SAC(**_TINY)
     new = SAC(**_TINY, extensions=())
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "empty_stack")
+    _assert_matches_golden(
+        s_new, "test_empty_stack_matches_legacy_plain_sac", "empty_stack"
+    )
 
 
 # --------------------------------------------------------------------------
-# Expert-guidance base extension equals legacy ``expert_policy=``
+# Expert-guidance base extension equals pre-Phase-5 ``expert_policy=``.
+#
+# Phase 5: SAC's ``expert_policy`` / ``expert_buffer_n_steps`` /
+# ``expert_mix_fraction`` / ``use_expert_guidance`` kwargs were kept on
+# the class because they thread into collection / cloning / init_SAC at
+# a level the extension framework doesn't reach. Callers using
+# :class:`ExpertGuidance` must pass them to SAC as well — the extension
+# carries them only for the (currently unused) post-Phase-5
+# auto-extraction path.
 # --------------------------------------------------------------------------
 def test_expert_guidance_matches_legacy_expert_policy():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
         use_expert_guidance=False,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -160,35 +186,30 @@ def test_expert_guidance_matches_legacy_expert_policy():
             ),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "expert_guidance")
+    _assert_matches_golden(
+        s_new, "test_expert_guidance_matches_legacy_expert_policy", "expert_guidance"
+    )
 
 
 # --------------------------------------------------------------------------
-# Online-BC equals legacy ``use_online_bc=True``
+# Online-BC equals pre-Phase-5 ``use_online_bc=True``
 # --------------------------------------------------------------------------
 def test_online_bc_matches_legacy_flag():
-    """OnlineBC behaves like ``use_online_bc=True`` (the legacy default).
+    """OnlineBC behaves like the pre-Phase-5 ``use_online_bc=True`` flag.
 
     BC is only active when ``expert_critic_params`` is populated (MC
     pre-training). Without MC pre-training the BC term is silently
-    skipped — so this test exercises the resolver wiring rather than the
+    skipped — so this test exercises the extension wiring rather than the
     BC term itself; the BC math is already covered by
     ``tests/modules/test_expert.py``.
     """
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        use_online_bc=True,
-        bc_coef=0.5,
-        critic_warmup_frac=0.5,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -198,9 +219,8 @@ def test_online_bc_matches_legacy_flag():
             OnlineBC(expert_policy=expert, bc_coef=0.5, critic_warmup_frac=0.5),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "online_bc")
+    _assert_matches_golden(s_new, "test_online_bc_matches_legacy_flag", "online_bc")
 
 
 # --------------------------------------------------------------------------
@@ -208,16 +228,16 @@ def test_online_bc_matches_legacy_flag():
 # --------------------------------------------------------------------------
 def test_residual_policy_matches_legacy_use_residual_rl():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
+        # ``residual`` on the SAC class still routes the residual-policy
+        # flag onto network init and the action pipeline; mirror it for
+        # an honest equivalence check against the golden.
         residual=True,
         residual_scale=0.5,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -226,15 +246,11 @@ def test_residual_policy_matches_legacy_use_residual_rl():
             ),
             ResidualPolicy(expert_policy=expert, scale=0.5),
         ),
-        # ``residual`` on the SAC class still routes the residual-policy
-        # flag onto network init; mirror it on both sides for an honest
-        # equivalence check.
-        residual=True,
-        residual_scale=0.5,
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "residual_policy")
+    _assert_matches_golden(
+        s_new, "test_residual_policy_matches_legacy_use_residual_rl", "residual_policy"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -242,17 +258,14 @@ def test_residual_policy_matches_legacy_use_residual_rl():
 # --------------------------------------------------------------------------
 def test_jsrl_curriculum_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
+        # ``jsrl_curriculum`` on the SAC class still gates the per-env
+        # ``step_in_episode`` counter init inside :func:`init_SAC`.
         jsrl_curriculum=True,
-        jsrl_episode_length=50,
-        jsrl_decay_frac=0.5,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -262,9 +275,10 @@ def test_jsrl_curriculum_matches_legacy_flag():
             JSRLCurriculum(expert_policy=expert, episode_length=50, decay_frac=0.5),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "jsrl_curriculum")
+    _assert_matches_golden(
+        s_new, "test_jsrl_curriculum_matches_legacy_flag", "jsrl_curriculum"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -272,15 +286,11 @@ def test_jsrl_curriculum_matches_legacy_flag():
 # --------------------------------------------------------------------------
 def test_ibrl_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        ibrl_bootstrap=True,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -290,9 +300,8 @@ def test_ibrl_matches_legacy_flag():
             IBRL(expert_policy=expert),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "ibrl")
+    _assert_matches_golden(s_new, "test_ibrl_matches_legacy_flag", "ibrl")
 
 
 # --------------------------------------------------------------------------
@@ -304,6 +313,14 @@ def test_expert_obs_aug_constructs_and_trains():
     expert = _noise_expert()
     agent = SAC(
         **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
+        # The ``augment_obs_with_expert_action`` flag is still required on
+        # the SAC class because it changes the network input dim (init_SAC
+        # / collect_experience). The :class:`ExpertObsAugmentation`
+        # extension carries the runtime ``detach`` stop-gradient.
+        augment_obs_with_expert_action=True,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -323,36 +340,16 @@ def test_expert_obs_aug_constructs_and_trains():
 # materially distinct code paths and worth pinning under the equivalence
 # contract.
 # --------------------------------------------------------------------------
-def _edge_legacy_kwargs(gate: str) -> dict[str, Any]:
-    """Map a gate name to its legacy-flag set (mirrors _resolve_extension_stack)."""
-    return {
-        "exploration_argmax": gate == "argmax",
-        "exploration_boltzmann": gate == "boltzmann",
-        "exploration_lcb": gate == "lcb",
-        "exploration_argmax_lcb": gate == "argmax_lcb",
-        "exploration_thompson": gate == "thompson",
-    }
-
-
 @pytest.mark.parametrize(
     "gate", ["fixed", "argmax", "boltzmann", "lcb", "argmax_lcb", "thompson"]
 )
 def test_edge_exploration_matches_legacy_flags(gate: str):
     expert = _noise_expert()
-    # Build the legacy kwargs dict explicitly so mypy doesn't trip on the
-    # double-** unpack of two unrelated dicts (an issue specific to this
-    # parametrised test; the other equivalence tests use single-** only).
-    legacy_kwargs: dict[str, Any] = {
-        **_TINY,
-        "expert_policy": expert,
-        "expert_buffer_n_steps": 0,
-        "expert_mix_fraction": 0.0,
-        "use_expert_guided_exploration": True,
-        **_edge_legacy_kwargs(gate),
-    }
-    legacy = SAC(**legacy_kwargs)
     new = SAC(
         **_TINY,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -362,30 +359,29 @@ def test_edge_exploration_matches_legacy_flags(gate: str):
             EDGEExploration(expert_policy=expert, gate=gate),
         ),
     )
-    s_legacy_state, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    s_new_state, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     # mypy occasionally fails to type-narrow the parametrised SAC(**dict)
     # binding in this test when run in incremental mode against
     # pretrain.py — the `has-type` cascade through tuple-unpacked variables
-    # is a known mypy quirk around ** unpacking, not a real type error.
-    _assert_same(s_legacy_state, s_new_state, f"edge_{gate}")  # type: ignore[has-type]
+    # is a known mypy quirk around ``**`` unpacking, not a real type error.
+    _assert_matches_golden(
+        s_new,  # type: ignore[has-type]
+        f"test_edge_exploration_matches_legacy_flags[{gate}]",
+        f"edge_{gate}",
+    )
 
 
 # --------------------------------------------------------------------------
 # LCB-gated bootstrap — target modifier that soft-blends policy/expert
-# next-actions by an LCB score (``lcb_gated_bootstrap=True``).
+# next-actions by an LCB score.
 # --------------------------------------------------------------------------
 def test_lcb_gated_bootstrap_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        lcb_gated_bootstrap=True,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -395,15 +391,17 @@ def test_lcb_gated_bootstrap_matches_legacy_flag():
             LCBGatedBootstrap(expert_policy=expert),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "lcb_gated_bootstrap")
+    _assert_matches_golden(
+        s_new,
+        "test_lcb_gated_bootstrap_matches_legacy_flag",
+        "lcb_gated_bootstrap",
+    )
 
 
 # --------------------------------------------------------------------------
-# MC critic pre-training (``use_mc_critic_pretrain=True``). Tiny config:
-# small MC rollouts + few regression steps + few online-light steps so the
-# test stays fast.
+# MC critic pre-training. Tiny config: small MC rollouts + few regression
+# steps + few online-light steps so the test stays fast.
 # --------------------------------------------------------------------------
 _MC_KW: dict[str, Any] = {
     "n_mc_steps": 200,
@@ -411,26 +409,15 @@ _MC_KW: dict[str, Any] = {
     "n_steps": 20,
     "online_light_steps": 5,
 }
-_MC_LEGACY_KW: dict[str, Any] = {
-    "mc_pretrain_n_mc_steps": _MC_KW["n_mc_steps"],
-    "mc_pretrain_n_mc_episodes": _MC_KW["n_mc_episodes"],
-    "mc_pretrain_n_steps": _MC_KW["n_steps"],
-    "online_critic_pretrain_steps": _MC_KW["online_light_steps"],
-}
 
 
 def test_mc_pretrain_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        use_mc_critic_pretrain=True,
-        **_MC_LEGACY_KW,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -440,32 +427,26 @@ def test_mc_pretrain_matches_legacy_flag():
             MCPretrain(expert_policy=expert, **_MC_KW),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "mc_pretrain")
+    _assert_matches_golden(s_new, "test_mc_pretrain_matches_legacy_flag", "mc_pretrain")
 
 
 # --------------------------------------------------------------------------
-# Bellman critic pre-training (``use_bellman_critic_pretrain=True``).
-# Until Phase 2c, ``pretrain_critic_bellman`` was unrunnable under JIT
-# because ``update_target_fn`` was passed as a non-static function arg,
-# raising ``TypeError: Error interpreting argument [...] as an abstract
-# array``. Phase 2c added ``update_target_fn`` to ``static_argnames`` —
-# the legacy path now runs and the extension surface is held to the same
-# byte-identical equivalence contract as every other migrated feature.
+# Bellman critic pre-training.
 # --------------------------------------------------------------------------
 def test_bellman_pretrain_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
+        # ``use_bellman_critic_pretrain`` and ``mc_pretrain_n_steps`` are
+        # kept on the SAC class because the inline Bellman-pretrain block
+        # in :func:`make_train` reads them. The BellmanPretrain extension
+        # mirrors them.
         use_bellman_critic_pretrain=True,
         mc_pretrain_n_steps=20,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -475,9 +456,10 @@ def test_bellman_pretrain_matches_legacy_flag():
             BellmanPretrain(expert_policy=expert, n_steps=20),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "bellman_pretrain")
+    _assert_matches_golden(
+        s_new, "test_bellman_pretrain_matches_legacy_flag", "bellman_pretrain"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -486,18 +468,11 @@ def test_bellman_pretrain_matches_legacy_flag():
 # --------------------------------------------------------------------------
 def test_critic_blend_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        use_mc_critic_pretrain=True,
-        use_critic_blend=True,
-        critic_warmup_frac=0.5,
-        **_MC_LEGACY_KW,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -506,32 +481,30 @@ def test_critic_blend_matches_legacy_flag():
             ),
             MCPretrain(expert_policy=expert, **_MC_KW),
             CriticBlend(expert_policy=expert, critic_warmup_frac=0.5),
+            # The pre-Phase-5 legacy default ``use_online_bc=True`` ⇒
+            # auto-appended an :class:`OnlineBC` whenever MC pretraining
+            # ran. The golden was captured under that default, so add it
+            # explicitly here to match.
+            OnlineBC(expert_policy=expert, bc_coef=1.0, critic_warmup_frac=0.5),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "critic_blend")
+    _assert_matches_golden(
+        s_new, "test_critic_blend_matches_legacy_flag", "critic_blend"
+    )
 
 
 # --------------------------------------------------------------------------
 # MCVarianceCorrection — replace high-variance Bellman targets with the
 # MC oracle when ensemble σ exceeds ``threshold``. Requires MC pre-training.
-# Note: the threshold must be low enough that the correction actually fires
-# at the tiny scale of this test — use 0.0 so it triggers on every batch.
 # --------------------------------------------------------------------------
 def test_mc_variance_correction_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        use_mc_critic_pretrain=True,
-        mc_variance_threshold=0.0,
-        **_MC_LEGACY_KW,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -542,30 +515,31 @@ def test_mc_variance_correction_matches_legacy_flag():
             MCVarianceCorrection(threshold=0.0),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "mc_variance_correction")
+    _assert_matches_golden(
+        s_new,
+        "test_mc_variance_correction_matches_legacy_flag",
+        "mc_variance_correction",
+    )
 
 
 # --------------------------------------------------------------------------
-# ValueBox (``use_box=True``) — collection-time override of the policy
-# action with the expert's whenever V_expert(s) exceeds a curriculum
-# threshold. v_min/v_max come from MC pre-training, so MCPretrain must be
-# present in the stack.
+# ValueBox — collection-time override of the policy action with the
+# expert's whenever V_expert(s) exceeds a curriculum threshold. v_min/v_max
+# come from MC pre-training, so MCPretrain must be present in the stack.
 # --------------------------------------------------------------------------
 def test_value_box_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        use_mc_critic_pretrain=True,
+        # ``use_box`` on the SAC class is kept because it gates the
+        # ``_box_v_min/_box_v_max`` resolution from MC-pretrain
+        # ``expert_v_min/v_max`` inside :func:`make_scan_fn`. The
+        # ValueBox extension owns the override math via :meth:`action`.
         use_box=True,
-        **_MC_LEGACY_KW,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -576,32 +550,23 @@ def test_value_box_matches_legacy_flag():
             ValueBox(expert_policy=expert),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "value_box")
+    _assert_matches_golden(s_new, "test_value_box_matches_legacy_flag", "value_box")
 
 
 # --------------------------------------------------------------------------
-# PhiRefresh (``use_phi_refresh=True``) — periodic self-consistent refresh
-# of the frozen expert critic during training. Requires MC pre-training
-# (which creates the refreshable φ*). Use a tiny interval so the refresh
-# actually fires within _TIMESTEPS=80.
+# PhiRefresh — periodic self-consistent refresh of the frozen expert critic
+# during training. Requires MC pre-training (which creates the refreshable
+# φ*). Use a tiny interval so the refresh actually fires within
+# _TIMESTEPS=80.
 # --------------------------------------------------------------------------
 def test_phi_refresh_matches_legacy_flag():
     expert = _noise_expert()
-    legacy = SAC(
+    new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        use_mc_critic_pretrain=True,
-        use_phi_refresh=True,
-        phi_refresh_interval=30,
-        phi_refresh_steps=2,
-        **_MC_LEGACY_KW,
-    )
-    new = SAC(
-        **_TINY,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -612,9 +577,8 @@ def test_phi_refresh_matches_legacy_flag():
             PhiRefresh(expert_policy=expert, interval=30, steps=2),
         ),
     )
-    s_legacy, _ = legacy.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_same(s_legacy, s_new, "phi_refresh")
+    _assert_matches_golden(s_new, "test_phi_refresh_matches_legacy_flag", "phi_refresh")
 
 
 if __name__ == "__main__":

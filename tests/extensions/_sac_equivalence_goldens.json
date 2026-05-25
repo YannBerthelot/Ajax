@@ -1,0 +1,117 @@
+{
+  "test_empty_stack_matches_legacy_plain_sac": {
+    "critic": 1039.704833984375,
+    "actor": 516.6134033203125,
+    "target": 1034.4404296875,
+    "alpha": 0.9818665385246277
+  },
+  "test_expert_guidance_matches_legacy_expert_policy": {
+    "critic": 1040.20849609375,
+    "actor": 516.5799560546875,
+    "target": 1034.5042724609375,
+    "alpha": 0.9818665385246277
+  },
+  "test_online_bc_matches_legacy_flag": {
+    "critic": 1040.20849609375,
+    "actor": 516.5799560546875,
+    "target": 1034.5042724609375,
+    "alpha": 0.9818665385246277
+  },
+  "test_residual_policy_matches_legacy_use_residual_rl": {
+    "critic": 1039.5411376953125,
+    "actor": 516.5390625,
+    "target": 1034.4080810546875,
+    "alpha": 0.9818665385246277
+  },
+  "test_jsrl_curriculum_matches_legacy_flag": {
+    "critic": 1040.404052734375,
+    "actor": 516.4931640625,
+    "target": 1034.5078125,
+    "alpha": 0.9818665385246277
+  },
+  "test_ibrl_matches_legacy_flag": {
+    "critic": 1039.890869140625,
+    "actor": 516.5668334960938,
+    "target": 1034.472412109375,
+    "alpha": 0.9818665385246277
+  },
+  "test_expert_obs_aug_constructs_and_trains": "not_applicable",
+  "test_edge_exploration_matches_legacy_flags[fixed]": {
+    "critic": 1040.4013671875,
+    "actor": 516.5614624023438,
+    "target": 1034.4903564453125,
+    "alpha": 0.9818665385246277
+  },
+  "test_edge_exploration_matches_legacy_flags[argmax]": {
+    "critic": 1040.6134033203125,
+    "actor": 516.4998168945312,
+    "target": 1034.5184326171875,
+    "alpha": 0.9818665385246277
+  },
+  "test_edge_exploration_matches_legacy_flags[boltzmann]": {
+    "critic": 1040.4013671875,
+    "actor": 516.5614624023438,
+    "target": 1034.4903564453125,
+    "alpha": 0.9818665385246277
+  },
+  "test_edge_exploration_matches_legacy_flags[lcb]": {
+    "critic": 1040.6650390625,
+    "actor": 516.59375,
+    "target": 1034.503173828125,
+    "alpha": 0.9818665385246277
+  },
+  "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
+    "critic": 1040.403076171875,
+    "actor": 516.7294921875,
+    "target": 1034.51025390625,
+    "alpha": 0.9818665385246277
+  },
+  "test_edge_exploration_matches_legacy_flags[thompson]": {
+    "critic": 1040.529296875,
+    "actor": 516.607421875,
+    "target": 1034.489990234375,
+    "alpha": 0.9818665385246277
+  },
+  "test_lcb_gated_bootstrap_matches_legacy_flag": {
+    "critic": 1040.1083984375,
+    "actor": 516.5672607421875,
+    "target": 1034.48828125,
+    "alpha": 0.9818665385246277
+  },
+  "test_mc_pretrain_matches_legacy_flag": {
+    "critic": 1040.19677734375,
+    "actor": 516.6692504882812,
+    "target": 1034.5113525390625,
+    "alpha": 0.9818665385246277
+  },
+  "test_bellman_pretrain_matches_legacy_flag": {
+    "critic": 1040.4034423828125,
+    "actor": 516.4015502929688,
+    "target": 1034.5047607421875,
+    "alpha": 0.9818665385246277
+  },
+  "test_critic_blend_matches_legacy_flag": {
+    "critic": 1040.1705322265625,
+    "actor": 516.6276245117188,
+    "target": 1034.4945068359375,
+    "alpha": 0.9818665385246277
+  },
+  "test_mc_variance_correction_matches_legacy_flag": {
+    "critic": 1036.53662109375,
+    "actor": 516.6285400390625,
+    "target": 1034.21484375,
+    "alpha": 0.9818665385246277
+  },
+  "test_value_box_matches_legacy_flag": {
+    "critic": 1042.1890869140625,
+    "actor": 516.8798217773438,
+    "target": 1034.7490234375,
+    "alpha": 0.9818665385246277
+  },
+  "test_phi_refresh_matches_legacy_flag": {
+    "critic": 1040.5963134765625,
+    "actor": 516.7206420898438,
+    "target": 1034.5205078125,
+    "alpha": 0.9818665385246277
+  }
+}

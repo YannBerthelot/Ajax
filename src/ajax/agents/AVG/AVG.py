@@ -13,6 +13,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
+from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -58,6 +59,8 @@ class AVG:
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the AVG agent.
@@ -143,6 +146,10 @@ class AVG:
         self.target_modifier = target_modifier
         self.obs_preprocessor = obs_preprocessor
         self.policy_action_transform = policy_action_transform
+        # Composable research features (mirrors ActorCritic base). AVG
+        # defines its own __init__ rather than inheriting from
+        # ActorCritic, so the stack is built here.
+        self.extension_stack = ExtensionStack(extensions)
 
     @with_wandb_silent
     def train(
@@ -192,6 +199,7 @@ class AVG:
                 target_modifier=self.target_modifier,
                 obs_preprocessor=self.obs_preprocessor,
                 policy_action_transform=self.policy_action_transform,
+                extensions=tuple(self.extension_stack.extensions),
             )
 
             agent_state = train_jit(key, index)

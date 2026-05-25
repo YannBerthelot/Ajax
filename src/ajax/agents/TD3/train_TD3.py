@@ -35,6 +35,7 @@ from ajax.environments.interaction import (
     should_use_uniform_sampling,
 )
 from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
+from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -143,6 +144,37 @@ def make_default_action_pipeline(env_args, recurrent: bool, exploration_noise: f
         )
 
     return pipeline
+
+
+# ---------------------------------------------------------------------------
+# Extension-stack composition helpers
+# ---------------------------------------------------------------------------
+
+
+def _wrap_extra_eval_metrics_td3(
+    extension_stack: Optional[ExtensionStack],
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Wrap ``ExtensionStack.eval_metrics`` into the ``extra_eval_metrics``
+    callable shape expected by :func:`ajax.log.evaluate_and_log`.
+
+    Returns ``None`` when no extension contributes — preserves the zero-
+    overhead branch.
+    """
+    if extension_stack is None or not extension_stack.extensions:
+        return None
+
+    def merged(agent_state, rng):
+        _ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=rng,
+            total_steps=total_timesteps,
+        )
+        return extension_stack.eval_metrics(
+            agent_state, agent_state.ext_state, rng, _ctx
+        )
+
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +312,8 @@ def update_value_functions(
     target_noise_clip: float,
     reward_scale: float,
     target_modifier: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[TD3State, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
 
@@ -316,13 +350,54 @@ def update_value_functions(
         )
         target_q = jax.lax.stop_gradient(target_q)
 
-    (loss, aux), grads = jax.value_and_grad(value_loss_function, has_aux=True)(
+    # Extension fold: TD-target shaping (analogous to SAC's ``stack.on_target``).
+    # Empty stack ⇒ identity.
+    if extension_stack is not None and extension_stack.extensions:
+        _tgt_ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=value_loss_key,
+            total_steps=total_timesteps,
+        )
+        _tgt_batch = {
+            "observations": observations,
+            "actions": actions,
+            "next_observations": next_observations,
+            "rewards": rewards,
+            "dones": dones,
+            "gamma": gamma,
+            "reward_scale": reward_scale,
+        }
+        target_q = extension_stack.on_target(
+            agent_state, agent_state.ext_state, _tgt_batch, target_q, _tgt_ctx
+        )
+        target_q = jax.lax.stop_gradient(target_q)
+
+    def _critic_loss(params, c_state, obs, act, tgt):
+        loss, core_aux = value_loss_function(params, c_state, obs, act, tgt, recurrent)
+        if extension_stack is not None and extension_stack.extensions:
+            _cl_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=value_loss_key,
+                total_steps=total_timesteps,
+            )
+            _cl_batch = {
+                "observations": obs,
+                "actions": act,
+                "targets": tgt,
+                "critic_params": params,
+                "critic_state": c_state,
+            }
+            loss = loss + extension_stack.critic_loss(
+                agent_state, agent_state.ext_state, _cl_batch, _cl_ctx
+            )
+        return loss, core_aux
+
+    (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
         agent_state.critic_state.params,
         agent_state.critic_state,
         observations,
         actions,
         target_q,
-        recurrent,
     )
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     return agent_state.replace(rng=rng, critic_state=updated_critic_state), aux
@@ -419,22 +494,44 @@ def update_policy(
     a_expert_precomputed: Optional[jax.Array] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[TD3State, PolicyAuxiliaries]:
-    (loss, aux), grads = jax.value_and_grad(policy_loss_function, has_aux=True)(
+    def _actor_loss(params):
+        loss, core_aux = policy_loss_function(
+            params,
+            agent_state.actor_state,
+            agent_state.critic_state,
+            observations,
+            dones,
+            recurrent,
+            raw_observations,
+            expert_policy,
+            imitation_coef,
+            distance_to_stable,
+            imitation_coef_offset,
+            a_expert_precomputed,
+            obs_preprocessor,
+            policy_action_transform,
+        )
+        if extension_stack is not None and extension_stack.extensions:
+            _al_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=agent_state.rng,
+                total_steps=total_timesteps,
+            )
+            _al_batch = {
+                "observations": observations,
+                "actor_params": params,
+                "actor_state": agent_state.actor_state,
+            }
+            loss = loss + extension_stack.actor_loss(
+                agent_state, agent_state.ext_state, _al_batch, _al_ctx
+            )
+        return loss, core_aux
+
+    (loss, aux), grads = jax.value_and_grad(_actor_loss, has_aux=True)(
         agent_state.actor_state.params,
-        agent_state.actor_state,
-        agent_state.critic_state,
-        observations,
-        dones,
-        recurrent,
-        raw_observations,
-        expert_policy,
-        imitation_coef,
-        distance_to_stable,
-        imitation_coef_offset,
-        a_expert_precomputed,
-        obs_preprocessor,
-        policy_action_transform,
     )
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
     return agent_state.replace(actor_state=updated_actor_state), aux
@@ -475,6 +572,8 @@ def update_target_networks(agent_state: TD3State, tau: float) -> TD3State:
         "target_modifier",
         "obs_preprocessor",
         "policy_action_transform",
+        "extension_stack",
+        "total_timesteps",
     ],
 )
 def update_agent(
@@ -495,6 +594,8 @@ def update_agent(
     target_modifier: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[TD3State, AuxiliaryLogs]:
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
@@ -537,6 +638,8 @@ def update_agent(
         target_noise_clip=target_noise_clip,
         reward_scale=reward_scale,
         target_modifier=target_modifier,
+        extension_stack=extension_stack,
+        total_timesteps=total_timesteps,
     )
 
     # Delayed policy + target update
@@ -556,6 +659,8 @@ def update_agent(
             a_expert_precomputed=a_expert_precomputed,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
         )
         agent_state = update_target_networks(agent_state, tau=tau)
         return agent_state, policy_aux
@@ -621,6 +726,7 @@ def update_agent(
         "target_modifier",
         "obs_preprocessor",
         "policy_action_transform",
+        "extension_stack",
     ],
 )
 def training_iteration(
@@ -652,6 +758,7 @@ def training_iteration(
     target_modifier: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
 ) -> tuple[TD3State, Any]:
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
@@ -688,6 +795,8 @@ def training_iteration(
             target_modifier=target_modifier,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
         )
         # See ajax.perf_utils.final_aux_scan: carry-only scan, no leading
         # scan axis materialised on device. Reshape to (1,) preserves
@@ -698,6 +807,21 @@ def training_iteration(
             length=n_epochs,
         )
         aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
+
+        # Extension post_update — folded once per training_iteration, after
+        # the gradient-step scan. Empty stack ⇒ identity.
+        if extension_stack is not None and extension_stack.extensions:
+            _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
+            agent_state = agent_state.replace(rng=_pu_rng2)
+            _pu_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=_pu_rng,
+                total_steps=total_timesteps,
+            )
+            agent_state, _new_ext_state = extension_stack.post_update(
+                agent_state, agent_state.ext_state, _pu_ctx
+            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
         return agent_state, aux
 
     def fill_with_nan(dataclass):
@@ -721,6 +845,7 @@ def training_iteration(
         operand=agent_state,
     )
 
+    _extra_eval = _wrap_extra_eval_metrics_td3(extension_stack, total_timesteps)
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -738,6 +863,7 @@ def training_iteration(
         expert_policy=expert_policy,
         action_scale=action_scale,
         eval_action_transform=eval_action_transform,
+        extra_eval_metrics=_extra_eval,
     )
     return agent_state, metrics_to_log
 
@@ -766,6 +892,7 @@ def make_train(
     target_modifier: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    extensions: Sequence = (),
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
@@ -781,6 +908,8 @@ def make_train(
             recurrent=recurrent,
             exploration_noise=agent_config.exploration_noise,
         )
+
+    extension_stack = ExtensionStack(extensions) if extensions else None
 
     @train_jit
     def train(key, index: Optional[int] = None):
@@ -813,6 +942,21 @@ def make_train(
                 critic_optimizer_args,
             )
 
+        if extension_stack is not None:
+            _ext_key, _pre_key = jax.random.split(expert_key)
+            agent_state = agent_state.replace(
+                ext_state=extension_stack.init_states(agent_state, _ext_key)
+            )
+            _pre_ctx = ExtensionContext(
+                step=jnp.asarray(0),
+                rng=_pre_key,
+                total_steps=total_timesteps,
+            )
+            agent_state, _new_ext_state = extension_stack.pretrain(
+                agent_state, agent_state.ext_state, _pre_ctx
+            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
+
         num_updates = total_timesteps // env_args.n_envs
         _, action_shape = get_state_action_shapes(env_args.env)
 
@@ -839,6 +983,7 @@ def make_train(
             target_modifier=target_modifier,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
+            extension_stack=extension_stack,
             **cloning_parameters,
         )
 

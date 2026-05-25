@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
@@ -7,6 +8,7 @@ from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
@@ -69,6 +71,8 @@ class APO(ActorCritic):
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the APO agent.
@@ -112,6 +116,7 @@ class APO(ActorCritic):
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            extensions=extensions,
         )
 
         self.agent_config = APOConfig(
@@ -159,6 +164,7 @@ class APO(ActorCritic):
             action_pipeline=self.action_pipeline,
             eval_action_transform=self.eval_action_transform,
             obs_preprocessor=self.obs_preprocessor,
+            extensions=tuple(self.extension_stack.extensions),
         )
 
 

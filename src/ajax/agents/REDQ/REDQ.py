@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
@@ -13,6 +14,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
+from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
@@ -69,6 +71,8 @@ class REDQ(ActorCritic):
         target_modifier: Optional[Callable] = None,
         obs_preprocessor: Optional[Callable] = None,
         policy_action_transform: Optional[Callable] = None,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the REDQ agent.
@@ -106,6 +110,7 @@ class REDQ(ActorCritic):
             lstm_hidden_size=lstm_hidden_size,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            extensions=extensions,
         )
 
         self.alpha_args = AlphaConfig(
@@ -181,6 +186,7 @@ class REDQ(ActorCritic):
             target_modifier=self.target_modifier,
             obs_preprocessor=self.obs_preprocessor,
             policy_action_transform=self.policy_action_transform,
+            extensions=tuple(self.extension_stack.extensions),
         )
 
 

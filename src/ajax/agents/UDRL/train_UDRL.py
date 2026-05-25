@@ -46,6 +46,7 @@ from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
+from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.perf_utils import train_jit
 from ajax.state import (
@@ -423,6 +424,8 @@ def training_iteration(
     mode: str,
     agent_config: UDRLConfig,
     recurrent: bool,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[UDRLState, UDRLAuxiliaries]:
     # 1. Collect one rollout segment (Algorithm 4).
     collect_fn = partial(
@@ -490,18 +493,49 @@ def training_iteration(
         obs_b = _scale_obs_command(
             obs_b, agent_config.command_scale_r, agent_config.command_scale_h
         )
-        loss, grads = _actor_value_and_grad(
-            a_state.actor_state.params,
-            a_state.actor_state,
-            obs_b,
-            act_b,
-            agent_config.bc_loss_type,
-        )
+
+        def _loss(params):
+            loss = actor_loss_fn(
+                params, a_state.actor_state, obs_b, act_b, agent_config.bc_loss_type
+            )
+            if extension_stack is not None and extension_stack.extensions:
+                _al_ctx = ExtensionContext(
+                    step=a_state.collector_state.timestep,
+                    rng=key,
+                    total_steps=total_timesteps,
+                )
+                _al_batch = {
+                    "observations": obs_b,
+                    "actions": act_b,
+                    "actor_params": params,
+                    "actor_state": a_state.actor_state,
+                }
+                loss = loss + extension_stack.actor_loss(
+                    a_state, a_state.ext_state, _al_batch, _al_ctx
+                )
+            return loss
+
+        loss, grads = jax.value_and_grad(_loss)(a_state.actor_state.params)
         new_actor_state = a_state.actor_state.apply_gradients(grads=grads)
         return a_state.replace(actor_state=new_actor_state), loss
 
     update_keys = jax.random.split(train_rng, agent_config.n_updates_per_iter)
     agent_state, update_losses = jax.lax.scan(update_step, agent_state, update_keys)
+
+    # Extension post_update — folded after the per-iteration update loop.
+    # Empty stack ⇒ identity.
+    if extension_stack is not None and extension_stack.extensions:
+        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_pu_rng2)
+        _pu_ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=_pu_rng,
+            total_steps=total_timesteps,
+        )
+        agent_state, _new_ext_state = extension_stack.post_update(
+            agent_state, agent_state.ext_state, _pu_ctx
+        )
+        agent_state = agent_state.replace(ext_state=_new_ext_state)
 
     # 5. Compute training-curve metric: mean completed-episode return in this
     #    segment. (Used purely for logging; not for training signal.)
@@ -543,10 +577,12 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[Any] = None,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+    extensions: Sequence = (),
     **_unused: Any,
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     recurrent = network_args.lstm_hidden_size is not None
+    extension_stack = ExtensionStack(extensions) if extensions else None
 
     @train_jit
     def train(
@@ -555,7 +591,7 @@ def make_train(
         initial_state: Optional[UDRLState] = None,
         resume_from_state: bool = False,
     ):
-        init_key, _ = jax.random.split(key, 2)
+        init_key, ext_key = jax.random.split(key, 2)
         if resume_from_state and initial_state is not None:
             agent_state = initial_state
         else:
@@ -568,6 +604,20 @@ def make_train(
                 agent_config=agent_config,
                 cnn_image_shape=cnn_image_shape,
             )
+            if extension_stack is not None:
+                _ext_key, _pre_key = jax.random.split(ext_key)
+                agent_state = agent_state.replace(
+                    ext_state=extension_stack.init_states(agent_state, _ext_key)
+                )
+                _pre_ctx = ExtensionContext(
+                    step=jnp.asarray(0),
+                    rng=_pre_key,
+                    total_steps=total_timesteps,
+                )
+                agent_state, _new_ext_state = extension_stack.pretrain(
+                    agent_state, agent_state.ext_state, _pre_ctx
+                )
+                agent_state = agent_state.replace(ext_state=_new_ext_state)
 
         per_iter = env_args.n_envs * agent_config.n_steps
         num_updates = max(total_timesteps // per_iter, 1)
@@ -578,6 +628,8 @@ def make_train(
             mode=mode,
             agent_config=agent_config,
             recurrent=recurrent,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
         )
         agent_state, aux = jax.lax.scan(
             scan_fn, agent_state, xs=None, length=num_updates

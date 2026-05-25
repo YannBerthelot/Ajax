@@ -29,6 +29,7 @@ from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
+from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -192,6 +193,8 @@ POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
         "distance_to_stable",
         "imitation_coef_offset",
         "obs_preprocessor",
+        "extension_stack",
+        "total_timesteps",
     ],
 )
 def update_policy(
@@ -211,25 +214,50 @@ def update_policy(
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
     obs_preprocessor: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[APOState, Dict[str, Any]]:
-    (loss, aux), grads = POLICY_AND_GRAD_FN(
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+
+    def _actor_loss(params):
+        loss, core_aux = policy_loss_function(
+            params,
+            agent_state.actor_state,
+            observations=observations,
+            actions=actions,
+            log_probs=log_probs,
+            gae=gae,
+            dones=done,
+            recurrent=recurrent,
+            clip_coef=clip_coef,
+            ent_coef=ent_coef,
+            advantage_normalization=advantage_normalization,
+            raw_observations=raw_observations,
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
+            obs_preprocessor=obs_preprocessor,
+        )
+        if has_stack:
+            assert extension_stack is not None
+            _al_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=agent_state.rng,
+                total_steps=total_timesteps,
+            )
+            _al_batch = {
+                "observations": observations,
+                "actor_params": params,
+                "actor_state": agent_state.actor_state,
+            }
+            loss = loss + extension_stack.actor_loss(
+                agent_state, agent_state.ext_state, _al_batch, _al_ctx
+            )
+        return loss, core_aux
+
+    (loss, aux), grads = jax.value_and_grad(_actor_loss, has_aux=True)(
         agent_state.actor_state.params,
-        agent_state.actor_state,
-        observations=observations,
-        actions=actions,
-        log_probs=log_probs,
-        gae=gae,
-        dones=done,
-        recurrent=recurrent,
-        clip_coef=clip_coef,
-        ent_coef=ent_coef,
-        advantage_normalization=advantage_normalization,
-        raw_observations=raw_observations,
-        expert_policy=expert_policy,
-        imitation_coef=imitation_coef,
-        distance_to_stable=distance_to_stable,
-        imitation_coef_offset=imitation_coef_offset,
-        obs_preprocessor=obs_preprocessor,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -380,7 +408,7 @@ def value_loss_function(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "nu"],
+    static_argnames=["recurrent", "nu", "extension_stack", "total_timesteps"],
 )
 def update_value_functions(
     agent_state: APOState,
@@ -390,6 +418,8 @@ def update_value_functions(
     recurrent: bool,
     nu: float,
     b: float,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[APOState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -408,17 +438,39 @@ def update_value_functions(
     Returns:
         Tuple[APOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    value_and_grad_fn = jax.value_and_grad(value_loss_function, has_aux=True)
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
 
-    (loss, aux), grads = value_and_grad_fn(
+    def _critic_loss(params):
+        loss, core_aux = value_loss_function(
+            params,
+            agent_state.critic_state,
+            observations,
+            value_targets,
+            dones,
+            recurrent,
+            nu,
+            b,
+        )
+        if has_stack:
+            assert extension_stack is not None
+            _cl_ctx = ExtensionContext(
+                step=agent_state.collector_state.timestep,
+                rng=agent_state.rng,
+                total_steps=total_timesteps,
+            )
+            _cl_batch = {
+                "observations": observations,
+                "targets": value_targets,
+                "critic_params": params,
+                "critic_state": agent_state.critic_state,
+            }
+            loss = loss + extension_stack.critic_loss(
+                agent_state, agent_state.ext_state, _cl_batch, _cl_ctx
+            )
+        return loss, core_aux
+
+    (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
         agent_state.critic_state.params,
-        agent_state.critic_state,
-        observations,
-        value_targets,
-        dones,
-        recurrent,
-        nu,
-        b,
     )
     # jax.debug.print("Critic loss: {loss_val}", loss_val=loss)
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -438,6 +490,8 @@ def update_value_functions(
         "distance_to_stable",
         "imitation_coef_offset",
         "obs_preprocessor",
+        "extension_stack",
+        "total_timesteps",
     ],
 )
 def update_agent(
@@ -452,6 +506,8 @@ def update_agent(
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 0.0,
     obs_preprocessor: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[APOState, AuxiliaryLogs]:
     """
     Update the APO agent, including critic, actor, and temperature updates.
@@ -502,6 +558,8 @@ def update_agent(
         recurrent=recurrent,
         nu=agent_config.nu,
         b=b,
+        extension_stack=extension_stack,
+        total_timesteps=total_timesteps,
     )
 
     # Update policy
@@ -527,6 +585,8 @@ def update_agent(
         distance_to_stable=distance_to_stable,
         imitation_coef_offset=imitation_coef_offset,
         obs_preprocessor=obs_preprocessor,
+        extension_stack=extension_stack,
+        total_timesteps=total_timesteps,
     )
 
     aux = AuxiliaryLogs(
@@ -562,6 +622,7 @@ def update_agent(
         "action_pipeline",
         "eval_action_transform",
         "obs_preprocessor",
+        "extension_stack",
     ],
 )
 def training_iteration(
@@ -590,6 +651,7 @@ def training_iteration(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
 ) -> tuple[APOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -661,6 +723,32 @@ def training_iteration(
         average_reward=average_reward,
     )
 
+    # Extension on_target: reshape the value targets after GAE
+    # computation. APO is average-reward — no gamma, so the batch dict
+    # passes ``gamma=None`` to signal that explicitly to extensions.
+    if extension_stack is not None and extension_stack.extensions:
+        _tgt_rng, _post_rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_post_rng)
+        _tgt_ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=_tgt_rng,
+            total_steps=total_timesteps,
+        )
+        _tgt_batch = {
+            "observations": transition.obs,
+            "next_observations": transition.next_obs,
+            "rewards": transition.reward,
+            "terminated": transition.terminated,
+            "truncated": transition.truncated,
+            "gae": gae,
+            "values": values,
+            "average_reward": average_reward,
+            "gamma": None,  # APO is average-reward (differential V)
+        }
+        value_targets = extension_stack.on_target(
+            agent_state, agent_state.ext_state, _tgt_batch, value_targets, _tgt_ctx
+        )
+
     batch = (
         transition.obs,
         (
@@ -719,6 +807,8 @@ def training_iteration(
             distance_to_stable=distance_to_stable,
             imitation_coef_offset=imitation_coef_offset,
             obs_preprocessor=obs_preprocessor,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=num_epochs
@@ -738,6 +828,22 @@ def training_iteration(
 
     agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
 
+    # Extension post_update — folded after the per-iteration update loop.
+    # Empty stack ⇒ identity.
+    if extension_stack is not None and extension_stack.extensions:
+        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_pu_rng2)
+        _pu_ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=_pu_rng,
+            total_steps=total_timesteps,
+        )
+        agent_state, _new_ext_state = extension_stack.post_update(
+            agent_state, agent_state.ext_state, _pu_ctx
+        )
+        agent_state = agent_state.replace(ext_state=_new_ext_state)
+
+    _extra_eval = _wrap_extra_eval_metrics_apo(extension_stack, total_timesteps)
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -756,11 +862,33 @@ def training_iteration(
         expert_policy=expert_policy,
         action_scale=action_scale,
         eval_action_transform=eval_action_transform,
+        extra_eval_metrics=_extra_eval,
     )
 
     jax.clear_caches()
     # gc.collect()
     return agent_state, metrics_to_log
+
+
+def _wrap_extra_eval_metrics_apo(
+    extension_stack: Optional[ExtensionStack],
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Wrap ``ExtensionStack.eval_metrics`` for :func:`evaluate_and_log`."""
+    if extension_stack is None or not extension_stack.extensions:
+        return None
+
+    def merged(agent_state, rng):
+        _ctx = ExtensionContext(
+            step=agent_state.collector_state.timestep,
+            rng=rng,
+            total_steps=total_timesteps,
+        )
+        return extension_stack.eval_metrics(
+            agent_state, agent_state.ext_state, rng, _ctx
+        )
+
+    return merged
 
 
 def make_train(
@@ -779,6 +907,7 @@ def make_train(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
+    extensions: Sequence = (),
 ):
     """
     Create the training function for the APO agent.
@@ -803,6 +932,8 @@ def make_train(
     # Start async logging if logging is enabled
     if logging_config is not None:
         start_async_logging()
+
+    extension_stack = ExtensionStack(extensions) if extensions else None
 
     @train_jit
     def train(key, index: Optional[int] = None):
@@ -833,6 +964,21 @@ def make_train(
                 actor_optimizer_args,
                 critic_optimizer_args,
             )
+
+        if extension_stack is not None:
+            _ext_key, _pre_key = jax.random.split(expert_key)
+            agent_state = agent_state.replace(
+                ext_state=extension_stack.init_states(agent_state, _ext_key)
+            )
+            _pre_ctx = ExtensionContext(
+                step=jnp.asarray(0),
+                rng=_pre_key,
+                total_steps=total_timesteps,
+            )
+            agent_state, _new_ext_state = extension_stack.pretrain(
+                agent_state, agent_state.ext_state, _pre_ctx
+            )
+            agent_state = agent_state.replace(ext_state=_new_ext_state)
         # Gap A: pre-allocate the ``last_rollout`` placeholder so the
         # scan-carry pytree structure is stable from iteration zero.
         if getattr(agent_config, "expose_recent_rollout", False):
@@ -875,6 +1021,7 @@ def make_train(
             action_pipeline=action_pipeline,
             eval_action_transform=eval_action_transform,
             obs_preprocessor=obs_preprocessor,
+            extension_stack=extension_stack,
             **cloning_parameters,
         )
 

@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -7,6 +7,53 @@ from jax.tree_util import Partial as partial
 
 from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
+
+if TYPE_CHECKING:
+    from ajax.extensions.base import ExtensionStack
+
+
+def compose_eval_metrics(
+    user_fn: Optional[Callable],
+    extension_stack: Optional["ExtensionStack"],
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Compose a user ``extra_eval_metrics`` callable with the stack's
+    :meth:`ExtensionStack.fold_eval_metrics`.
+
+    Replaces the per-agent ``_wrap_extra_eval_metrics`` pattern. Returns
+    ``None`` when both inputs are no-ops so ``evaluate_and_log``'s zero-
+    overhead branch stays.
+
+    The composed callable has signature ``(agent_state, rng) -> dict``,
+    matching what :func:`evaluate_and_log` expects under the
+    ``extra_eval_metrics`` static-arg.
+    """
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+    if user_fn is None and not has_stack:
+        return None
+    if user_fn is None:
+        # Stack-only path.
+        def stack_only(agent_state, rng):
+            return extension_stack.fold_eval_metrics(
+                agent_state, agent_state.collector_state.timestep, rng, total_timesteps
+            )
+
+        return stack_only
+    if not has_stack:
+        # User-only path — just return it directly.
+        return user_fn
+
+    def merged(agent_state, rng):
+        out: dict = {}
+        out.update(user_fn(agent_state, rng))
+        out.update(
+            extension_stack.fold_eval_metrics(
+                agent_state, agent_state.collector_state.timestep, rng, total_timesteps
+            )
+        )
+        return out
+
+    return merged
 
 
 class AuxiliaryLogsProtocol(Protocol): ...

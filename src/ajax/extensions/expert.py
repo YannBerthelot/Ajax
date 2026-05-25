@@ -91,6 +91,22 @@ class ExpertObsAugmentation(Extension):
     action_dim: int = 0
     name: str = "expert_obs_augmentation"
 
+    def bind_to_agent(self, **agent_context: Any) -> "ExpertObsAugmentation":
+        """Populate ``action_dim`` from the agent factory.
+
+        Self-contained replacement for the legacy SAC-side
+        ``_inject_obs_extensions_context`` helper. The factory passes
+        ``action_dim=`` (resolved via :func:`get_action_dim`) and this
+        method copies it onto a new frozen instance when the
+        construction-time value is still the default ``0``.
+        """
+        import dataclasses
+
+        action_dim = agent_context.get("action_dim", None)
+        if self.action_dim != 0 or action_dim is None:
+            return self
+        return dataclasses.replace(self, action_dim=action_dim)
+
     def on_obs(
         self,
         obs: jax.Array,
@@ -191,6 +207,52 @@ class ResidualPolicy(Extension):
     def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
         """``clip(a_expert + scale·a_pi, -1, 1)`` — the residual mix."""
         return residual_action_transform(actions, a_expert, scale=self.scale)
+
+    def build_policy_transform(
+        self, expert_policy: Optional[Callable]
+    ) -> Optional[Callable]:
+        """Build the actor-loss / TD-target residual transform.
+
+        Self-contained replacement for the legacy SAC-side
+        ``_build_residual_policy_transform`` helper. The actor-loss and
+        TD-target call sites still consume a thin
+        ``(actions, raw_obs, a_expert_precomputed) -> actions`` callable;
+        this method builds it off ``transform_action`` and ``expert_policy``.
+
+        Returns ``None`` when ``expert_policy`` is ``None`` — the
+        actor-loss / TD-target residual transform is deactivated then.
+        """
+        if expert_policy is None:
+            return None
+
+        scale = self.scale
+
+        def transform(actions, raw_obs, a_expert_precomputed):
+            a_exp = (
+                a_expert_precomputed
+                if a_expert_precomputed is not None
+                else jax.lax.stop_gradient(expert_policy(raw_obs))
+            )
+            return residual_action_transform(actions, a_exp, scale=scale)
+
+        return transform
+
+    def build_eval_transform(self) -> Callable:
+        """Build the eval-time residual transform.
+
+        Self-contained replacement for the legacy SAC-side
+        ``_build_residual_policy_eval_transform`` helper. The
+        :func:`ajax.evaluate.step_environment` call site still consumes a
+        thin ``(raw, expert, obs, agent_state) -> actions`` callable;
+        this method builds it off ``transform_action``.
+        """
+        scale = self.scale
+
+        def transform(raw_actions, expert_actions, obs, agent_state):
+            del obs, agent_state
+            return residual_action_transform(raw_actions, expert_actions, scale=scale)
+
+        return transform
 
     def eval_action(
         self,

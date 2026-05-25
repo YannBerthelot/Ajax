@@ -35,8 +35,8 @@ from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.interaction import collect_experience, init_collector_state
 from ajax.environments.utils import check_env_is_gymnax, get_action_dim
-from ajax.extensions.base import ExtensionContext, ExtensionStack
-from ajax.log import evaluate_and_log
+from ajax.extensions.base import ExtensionStack
+from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -176,14 +176,9 @@ def training_iteration(
     # Extension fold: allow on_target to reshape the Q(lambda) regression
     # target before stop_gradient (e.g. a residual-of-residual reweighting,
     # bias correction, or auxiliary penalty operand).
-    if extension_stack is not None and extension_stack.extensions:
+    if extension_stack is not None:
         _tgt_rng, _tgt_seed = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_tgt_rng)
-        _tgt_ctx = ExtensionContext(
-            step=agent_state.collector_state.timestep,
-            rng=_tgt_seed,
-            total_steps=total_timesteps,
-        )
         _tgt_batch = {
             "observations": transition.obs,
             "actions": transition.action,
@@ -193,8 +188,13 @@ def training_iteration(
             "truncated": transition.truncated,
             "gamma": agent_config.gamma,
         }
-        targets = extension_stack.on_target(
-            agent_state, agent_state.ext_state, _tgt_batch, targets, _tgt_ctx
+        targets = extension_stack.fold_on_target(
+            agent_state,
+            _tgt_batch,
+            targets,
+            agent_state.collector_state.timestep,
+            _tgt_seed,
+            total_timesteps,
         )
     targets = jax.lax.stop_gradient(targets)
 
@@ -218,20 +218,19 @@ def training_iteration(
                 loss, core_aux = q_loss_fn(params, q_state, obs, act, tgt, td_loss_fn)
                 # Additive extension critic-loss term, summed over the
                 # stack. Empty stack ⇒ 0.0 ⇒ identical to the core loss.
-                if extension_stack is not None and extension_stack.extensions:
-                    _cl_ctx = ExtensionContext(
-                        step=agent_state.collector_state.timestep,
-                        rng=agent_state.rng,
-                        total_steps=total_timesteps,
-                    )
+                if extension_stack is not None:
                     _cl_batch = {
                         "observations": obs,
                         "actions": act,
                         "targets": tgt,
                         "q_state": q_state,
                     }
-                    loss = loss + extension_stack.critic_loss(
-                        agent_state, agent_state.ext_state, _cl_batch, _cl_ctx
+                    loss = loss + extension_stack.fold_critic_loss(
+                        agent_state,
+                        _cl_batch,
+                        agent_state.collector_state.timestep,
+                        agent_state.rng,
+                        total_timesteps,
                     )
                 return loss, core_aux
 
@@ -255,23 +254,20 @@ def training_iteration(
 
     # Extension post_update hook (state-threading + φ-refresh-style state
     # mutation). Empty stack ⇒ identity.
-    if extension_stack is not None and extension_stack.extensions:
+    if extension_stack is not None:
         _pu_rng, _pu_seed = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_pu_rng)
-        _pu_ctx = ExtensionContext(
-            step=agent_state.collector_state.timestep,
-            rng=_pu_seed,
-            total_steps=total_timesteps,
+        agent_state = extension_stack.fold_post_update(
+            agent_state,
+            agent_state.collector_state.timestep,
+            _pu_seed,
+            total_timesteps,
         )
-        agent_state, _new_ext_state = extension_stack.post_update(
-            agent_state, agent_state.ext_state, _pu_ctx
-        )
-        agent_state = agent_state.replace(ext_state=_new_ext_state)
 
     # 4. Evaluate + log. Merge stack.eval_metrics into the user's
     # extra_eval_metrics callable (both run; both contribute to the log
     # dict).
-    _merged_extra_eval = _wrap_extra_eval_metrics(
+    _merged_extra_eval = compose_eval_metrics(
         extra_eval_metrics, extension_stack, total_timesteps
     )
     agent_state, metrics_to_log = evaluate_and_log(
@@ -292,42 +288,6 @@ def training_iteration(
         extra_eval_metrics=_merged_extra_eval,
     )
     return agent_state, metrics_to_log
-
-
-def _wrap_extra_eval_metrics(
-    user_fn: Optional[Callable],
-    extension_stack: Optional[ExtensionStack],
-    total_timesteps: int,
-) -> Optional[Callable]:
-    """Merge user ``extra_eval_metrics`` with ``ExtensionStack.eval_metrics``.
-
-    Both surfaces continue to work side-by-side: any user callable runs
-    first, then every extension's :meth:`Extension.eval_metrics` is
-    folded in. Keys collide last-write-wins (extensions win). Returns
-    ``None`` when neither is set so :func:`ajax.log.evaluate_and_log`
-    keeps its zero-overhead fast path.
-    """
-    if user_fn is None and (extension_stack is None or not extension_stack.extensions):
-        return None
-
-    def merged(agent_state, rng):
-        out: dict = {}
-        if user_fn is not None:
-            out.update(user_fn(agent_state, rng))
-        if extension_stack is not None and extension_stack.extensions:
-            _ctx = ExtensionContext(
-                step=agent_state.collector_state.timestep,
-                rng=rng,
-                total_steps=total_timesteps,
-            )
-            out.update(
-                extension_stack.eval_metrics(
-                    agent_state, agent_state.ext_state, rng, _ctx
-                )
-            )
-        return out
-
-    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -393,20 +353,12 @@ def make_train(
         # resumed state already carries ``ext_state``.
         if extension_stack is not None:
             _ext_key, _pre_key = jax.random.split(key)
-            agent_state = agent_state.replace(
-                ext_state=extension_stack.init_states(agent_state, _ext_key)
-            )
+            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
             # One-shot pretrain phase (fresh-init only). Empty stack /
             # extensions that don't override pretrain ⇒ identity.
-            _pre_ctx = ExtensionContext(
-                step=jnp.asarray(0),
-                rng=_pre_key,
-                total_steps=total_timesteps,
+            agent_state = extension_stack.fold_pretrain(
+                agent_state, jnp.asarray(0), _pre_key, total_timesteps
             )
-            agent_state, _new_ext_state = extension_stack.pretrain(
-                agent_state, agent_state.ext_state, _pre_ctx
-            )
-            agent_state = agent_state.replace(ext_state=_new_ext_state)
         # Gap A: pre-allocate the ``last_rollout`` placeholder so the
         # scan-carry pytree structure is stable from iteration zero.
         if getattr(agent_config, "expose_recent_rollout", False):

@@ -36,7 +36,7 @@ from ajax.extensions._sac_hooks import (
     make_next_expert_fn,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
-from ajax.log import evaluate_and_log
+from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -387,13 +387,13 @@ def update_value_functions(
             "augment_obs_with_expert_action": augment_obs_with_expert_action,
             "recurrent": recurrent,
         }
-        ctx = ExtensionContext(
-            step=agent_state.collector_state.timestep,
-            rng=value_loss_key,
-            total_steps=total_timesteps,
-        )
-        target_q = extension_stack.on_target(
-            agent_state, agent_state.ext_state, batch, target_q, ctx
+        target_q = extension_stack.fold_on_target(
+            agent_state,
+            batch,
+            target_q,
+            agent_state.collector_state.timestep,
+            value_loss_key,
+            total_timesteps,
         )
 
     # 4. Core critic loss (MSE against composed target), optionally augmented
@@ -1256,16 +1256,13 @@ def training_iteration(
             loss_after=jnp.zeros(1),
             expert_buffer_size=jnp.zeros(1),
         )
-        if extension_stack is not None and extension_stack.extensions:
-            _post_ctx = ExtensionContext(
-                step=agent_state.collector_state.timestep,
-                rng=agent_state.rng,
-                total_steps=total_timesteps,
+        if extension_stack is not None:
+            agent_state = extension_stack.fold_post_update(
+                agent_state,
+                agent_state.collector_state.timestep,
+                agent_state.rng,
+                total_timesteps,
             )
-            agent_state, _new_ext_state = extension_stack.post_update(
-                agent_state, agent_state.ext_state, _post_ctx
-            )
-            agent_state = agent_state.replace(ext_state=_new_ext_state)
 
         update_scan_fn = partial(
             update_agent,
@@ -1422,189 +1419,15 @@ def training_iteration(
 # Extension-stack context injection
 # ---------------------------------------------------------------------------
 #
-# Phase 5: the back-compat translation layer that turned legacy flag kwargs
-# into auto-appended Extensions is gone. ``extensions=`` is the sole
-# surface for composing research features on SAC; the matching legacy
-# kwargs (``ibrl_bootstrap``, ``use_critic_blend``, ``use_online_bc``,
-# ``use_phi_refresh``, ``use_mc_critic_pretrain``, the ``exploration_*``
-# + ``lcb_*`` family, etc.) were removed.
-#
-# What remains in this module is context injection: a handful of
-# Extension types (``MCPretrain``, ``PhiRefresh``, ``ExpertObsAugmentation``)
-# close over SAC-factory-only context (env / network / optimizer config,
-# resolved action_dim, the shared buffer / gamma / reward_scale) that the
-# user can't supply at construction time. The factory fills it in here.
-
-
-def _inject_policy_extensions_context(
-    extensions: Sequence,
-    *,
-    buffer: Any,
-    gamma: float,
-    reward_scale: float,
-) -> tuple:
-    """Fill PhiRefresh buffer/gamma/reward_scale from the SAC factory.
-
-    PhiRefresh.post_update closes over ``buffer`` / ``gamma`` /
-    ``reward_scale`` — the user can't supply them at construction time
-    because the factory resolves them. dataclasses.replace builds a new
-    frozen instance so the JIT cache key stays sound.
-    """
-    import dataclasses
-
-    from ajax.extensions.pretrain import PhiRefresh
-
-    out = list(extensions)
-    for i, ext in enumerate(out):
-        if isinstance(ext, PhiRefresh) and ext.buffer is None and buffer is not None:
-            out[i] = dataclasses.replace(
-                ext, buffer=buffer, gamma=gamma, reward_scale=reward_scale
-            )
-    return tuple(out)
-
-
-def _inject_pretrain_extensions_context(
-    extensions: Sequence,
-    *,
-    env_args: Any,
-    network_args: Any,
-    critic_optimizer_args: Any,
-    num_critics: int,
-    mode: str,
-    gamma: float,
-    reward_scale: float,
-    total_timesteps: int,
-    use_train_frac: bool,
-    augment_obs_with_expert_action: bool,
-    mc_preloaded_data: Optional[Tuple],
-) -> tuple:
-    """Fill MCPretrain's closed-over context from the SAC factory.
-
-    :meth:`MCPretrain.pretrain` needs env/network/critic-optimizer config
-    + the runtime context (``mode`` / ``gamma`` / ``reward_scale`` /
-    ``total_timesteps`` / ``use_train_frac`` /
-    ``augment_obs_with_expert_action`` / ``mc_preloaded_data``) to call
-    the underlying pure functions in :mod:`ajax.modules.pretrain`. The
-    user can't supply these at construction time because the factory
-    resolves them — same pattern as PhiRefresh.
-
-    The ``use_phi_refresh`` attribute on each MCPretrain is inferred
-    from the stack itself: True iff a :class:`PhiRefresh` extension is
-    present (so MCPretrain knows to persist the trained critic state
-    for PhiRefresh to consume).
-    """
-    import dataclasses
-
-    from ajax.extensions.pretrain import MCPretrain, PhiRefresh
-
-    out = list(extensions)
-    _use_phi_refresh = any(isinstance(e, PhiRefresh) for e in out)
-    for i, ext in enumerate(out):
-        if isinstance(ext, MCPretrain) and ext.env_args is None:
-            out[i] = dataclasses.replace(
-                ext,
-                env_args=env_args,
-                network_args=network_args,
-                critic_optimizer_args=critic_optimizer_args,
-                num_critics=num_critics,
-                mode=mode,
-                gamma=gamma,
-                reward_scale=reward_scale,
-                total_timesteps=total_timesteps,
-                use_train_frac=use_train_frac,
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                use_phi_refresh=_use_phi_refresh,
-                mc_preloaded_data=mc_preloaded_data,
-            )
-    return tuple(out)
-
-
-def _inject_obs_extensions_context(
-    extensions: Sequence,
-    *,
-    action_dim: int,
-) -> tuple:
-    """Fill ExpertObsAugmentation.action_dim from the SAC factory.
-
-    :meth:`ExpertObsAugmentation.on_obs` needs ``action_dim`` to know
-    where the ``a_expert`` slice starts inside the augmented obs layout
-    ``[env_obs | a_expert | train_frac]``. User-constructed instances
-    may leave ``action_dim=0`` and rely on the factory to fill it in.
-    """
-    import dataclasses
-
-    from ajax.extensions.expert import ExpertObsAugmentation
-
-    out = list(extensions)
-    for i, ext in enumerate(out):
-        if isinstance(ext, ExpertObsAugmentation) and ext.action_dim == 0:
-            out[i] = dataclasses.replace(ext, action_dim=action_dim)
-    return tuple(out)
-
-
-def _build_residual_policy_transform(
-    extensions: Sequence,
-    expert_policy: Optional[Callable],
-) -> Optional[Callable]:
-    """Build the legacy actor-loss / TD-target residual transform.
-
-    ResidualPolicy owns the ``clip(a_expert + scale·a_pi, -1, 1)`` math
-    via :meth:`ResidualPolicy.transform_action`; the
-    ``policy_action_transform`` consumer in :func:`policy_loss_function`
-    and the ``next_action_transform`` consumer in
-    :func:`update_value_functions` still take a thin callable, so we
-    build it here off the first :class:`ResidualPolicy` in the stack.
-    Returns ``None`` when no ResidualPolicy is present — that branch
-    deactivates the actor-loss / TD-target residual transform exactly
-    like the pre-refactor ``make_policy_action_transform`` builder did.
-    """
-    from ajax.extensions.expert import ResidualPolicy, first_of_type
-
-    rp = first_of_type(extensions, ResidualPolicy)
-    if rp is None or expert_policy is None:
-        return None
-
-    def transform(actions, raw_obs, a_expert_precomputed):
-        a_exp = (
-            a_expert_precomputed
-            if a_expert_precomputed is not None
-            else jax.lax.stop_gradient(expert_policy(raw_obs))
-        )
-        return rp.transform_action(actions, a_exp)
-
-    return transform
-
-
-def _build_residual_policy_eval_transform(
-    extensions: Sequence,
-    *,
-    use_pid_policy: bool,
-) -> Optional[Callable]:
-    """Build the eval-time residual transform off :class:`ResidualPolicy`.
-
-    The legacy ``make_eval_action_transform`` builder is gone;
-    :meth:`ResidualPolicy.eval_action` owns the eval-time ``clip(a_expert
-    + scale·a_pi, -1, 1)`` math. The
-    :func:`ajax.evaluate.step_environment` call site still consumes a
-    thin callable (signature ``(raw, expert, obs, agent_state) ->
-    actions``); we build it here off the first :class:`ResidualPolicy`
-    in the stack. Returns ``None`` when no ResidualPolicy is present or
-    when ``use_pid_policy`` is set (gain-mode handles its eval transform
-    directly inside ``step_environment``).
-    """
-    from ajax.extensions.expert import ResidualPolicy, first_of_type
-
-    if use_pid_policy:
-        return None
-    rp = first_of_type(extensions, ResidualPolicy)
-    if rp is None:
-        return None
-
-    def transform(raw_actions, expert_actions, obs, agent_state):
-        del obs, agent_state
-        return rp.transform_action(raw_actions, expert_actions)
-
-    return transform
+# Phase 5 + backbone lift: the back-compat translation layer that turned
+# legacy flag kwargs into auto-appended Extensions is gone, and the
+# Phase-5-era SAC-side ``_inject_*`` / ``_build_residual_*`` helpers
+# (~170 lines) have been deleted. Context that an extension needs at
+# runtime is now populated by the extension itself via
+# :meth:`Extension.bind_to_agent`, which the factory calls uniformly on
+# every extension in the stack — see the ``bind_to_agent`` block in
+# ``make_train`` below. ``extensions=`` is the sole surface for
+# composing research features on SAC.
 
 
 # ---------------------------------------------------------------------------
@@ -1756,37 +1579,39 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
-    # Inject the SAC-factory-only context onto the PhiRefresh / MCPretrain
-    # / ExpertObsAugmentation extensions in the stack (no-op for stacks
-    # that don't include them).
-    extensions = _inject_policy_extensions_context(
-        extensions,
-        buffer=buffer,
-        gamma=agent_config.gamma,
-        reward_scale=agent_config.reward_scale,
-    )
-    extensions = _inject_pretrain_extensions_context(
-        extensions,
-        env_args=env_args,
-        network_args=network_args,
-        critic_optimizer_args=critic_optimizer_args,
-        num_critics=num_critics,
-        mode=mode,
-        gamma=agent_config.gamma,
-        reward_scale=agent_config.reward_scale,
-        total_timesteps=total_timesteps,
-        use_train_frac=use_train_frac,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        mc_preloaded_data=mc_preloaded_data,
-    )
+    # Bind the SAC-factory-only context onto every extension in the
+    # stack (no-op for extensions that don't override ``bind_to_agent``).
+    # PhiRefresh / MCPretrain / ExpertObsAugmentation / ResidualPolicy
+    # each pick up the kwargs they need from the agent context and
+    # return a frozen instance populated with the resolved values. SAC
+    # does not need to know which extension consumes which kwarg —
+    # see :meth:`Extension.bind_to_agent` for the per-class contract.
+    from ajax.extensions.pretrain import PhiRefresh as _PhiRefresh
+
     _resolved_action_dim = (
         action_dim_override
         if action_dim_override is not None
         else get_action_dim(env_args.env, env_args.env_params)
     )
-    extensions = _inject_obs_extensions_context(
-        extensions,
-        action_dim=_resolved_action_dim,
+    _use_phi_refresh = any(isinstance(e, _PhiRefresh) for e in extensions)
+    extensions = tuple(
+        ext.bind_to_agent(
+            env_args=env_args,
+            network_args=network_args,
+            critic_optimizer_args=critic_optimizer_args,
+            num_critics=num_critics,
+            buffer=buffer,
+            mode=mode,
+            gamma=agent_config.gamma,
+            reward_scale=agent_config.reward_scale,
+            total_timesteps=total_timesteps,
+            use_train_frac=use_train_frac,
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
+            use_phi_refresh=_use_phi_refresh,
+            mc_preloaded_data=mc_preloaded_data,
+            action_dim=_resolved_action_dim,
+        )
+        for ext in extensions
     )
 
     if logging_config is not None:
@@ -1850,9 +1675,7 @@ def make_train(
         if extensions:
             _ext_key, _ = jax.random.split(init_key)
             _stack = ExtensionStack(extensions)
-            agent_state = agent_state.replace(
-                ext_state=_stack.init_states(agent_state, _ext_key)
-            )
+            agent_state = _stack.fold_init_states(agent_state, _ext_key)
 
         # MC critic pre-training now lives on
         # :meth:`MCPretrain.pretrain`. The ExtensionStack fold is the
@@ -1868,15 +1691,9 @@ def make_train(
         # any state changes a pretrain phase makes propagate.
         if extensions:
             _stack_for_pretrain = ExtensionStack(extensions)
-            _pretrain_ctx = ExtensionContext(
-                step=jnp.asarray(0),
-                rng=expert_key,
-                total_steps=total_timesteps,
+            agent_state = _stack_for_pretrain.fold_pretrain(
+                agent_state, jnp.asarray(0), expert_key, total_timesteps
             )
-            agent_state, _new_ext_state = _stack_for_pretrain.pretrain(
-                agent_state, agent_state.ext_state, _pretrain_ctx
-            )
-            agent_state = agent_state.replace(ext_state=_new_ext_state)
             # ``use_box`` value-box bounds == the MC-pretrain v_min/v_max,
             # which are persisted on ``agent_state`` above; the scan-fn
             # builder reads them back from there (see make_scan_fn).
@@ -2001,26 +1818,33 @@ def make_train(
         # :class:`ResidualPolicy` in the stack so the math lives on the
         # Extension and the legacy ``make_policy_action_transform``
         # builder is gone. ``None`` ⇒ pure SAC actor loss.
+        # ResidualPolicy owns both the actor-loss / TD-target residual
+        # transform and the eval-time transform. The factory pulls them
+        # off the first :class:`ResidualPolicy` in the stack via the
+        # extension's :meth:`build_policy_transform` /
+        # :meth:`build_eval_transform` methods — self-contained
+        # replacements for the legacy SAC-side ``_build_residual_*``
+        # helpers. ``None`` ⇒ pure SAC actor loss / default box-based
+        # handover.
+        from ajax.extensions.expert import ResidualPolicy, first_of_type
+
+        _rp = first_of_type(extensions, ResidualPolicy)
         _policy_action_transform = (
             policy_action_transform
             if policy_action_transform is not None
-            else _build_residual_policy_transform(extensions, expert_policy)
+            else (
+                _rp.build_policy_transform(expert_policy) if _rp is not None else None
+            )
         )
 
-        # ResidualPolicy.eval_action owns the eval-time
-        # ``clip(a_expert + scale·a_pi, -1, 1)`` math; the legacy
-        # ``make_eval_action_transform`` builder is gone. The
-        # evaluate.step_environment call site still consumes a thin
-        # callable (signature ``(raw, expert, obs, agent_state) ->
-        # actions``); we build it here off the first
-        # :class:`ResidualPolicy` in the stack so the math lives on the
-        # Extension. ``None`` ⇒ default box-based handover.
+        # Eval transform: ``None`` when ``use_pid_policy`` is set
+        # (gain-mode handles its own eval transform in
+        # ``step_environment``) or when no ResidualPolicy is present.
         _eval_action_transform = (
             eval_action_transform
             if eval_action_transform is not None
-            else _build_residual_policy_eval_transform(
-                extensions,
-                use_pid_policy=use_pid_policy,
+            else (
+                None if (use_pid_policy or _rp is None) else _rp.build_eval_transform()
             )
         )
 
@@ -2083,7 +1907,9 @@ def make_train(
             extra_critic_loss_fn=extra_critic_loss_fn,
             her_relabel_fn=her_relabel_fn,
             auxiliary_update=auxiliary_update,
-            extra_eval_metrics=extra_eval_metrics,
+            extra_eval_metrics=compose_eval_metrics(
+                extra_eval_metrics, _extension_stack, total_timesteps
+            ),
             **_valid_cloning_params,
         )
 

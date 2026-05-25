@@ -200,6 +200,25 @@ class Extension:
             if getattr(type(self), phase) is not getattr(Extension, phase)
         )
 
+    # -- agent-context binding ------------------------------------------
+    def bind_to_agent(self, **agent_context: Any) -> "Extension":
+        """Return ``self``, optionally populating closed-over agent context.
+
+        The default is the identity: extensions that don't need agent-
+        factory context (env_args, network_args, buffer, …) ignore every
+        kwarg and stay as-is. Extensions that DO close over factory-
+        resolved values (:class:`MCPretrain`, :class:`PhiRefresh`,
+        :class:`ExpertObsAugmentation`, :class:`ResidualPolicy`) override
+        this to return a new (frozen) instance with the relevant fields
+        filled in.
+
+        Callers may invoke ``ext.bind_to_agent(env_args=..., buffer=...,
+        ...)`` uniformly across an entire stack without per-extension
+        type checks — see :meth:`ExtensionStack.bind_to_agent`.
+        """
+        del agent_context
+        return self
+
 
 class ExtensionStack:
     """A folded, immutable collection of extensions.
@@ -354,3 +373,201 @@ class ExtensionStack:
         for ext in self.extensions:
             used = used | ext.implemented_phases()
         return used
+
+    # ------------------------------------------------------------------
+    # ``fold_<phase>`` sugar helpers
+    # ------------------------------------------------------------------
+    # The methods below collapse the ~5-line ctx-build / fold-call /
+    # ext_state-replace boilerplate that every agent training loop used
+    # to repeat at every phase site (~65 sites across the 9 agents) into
+    # a single call. Each helper is a None-guarded + zero-cost shim on
+    # top of the existing ``self.<phase>(...)`` API — no change to the
+    # phase signatures, just sugar.
+    #
+    # Empty-stack zero-cost guarantee
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # Every helper short-circuits when ``self.extensions == ()`` and
+    # returns the input unchanged WITHOUT constructing an
+    # :class:`ExtensionContext`. This is what lets jit-traced empty-stack
+    # code paths stay constant-folded — the helper is a Python-side
+    # no-op the tracer sees as the identity function, allocating
+    # nothing.
+
+    @staticmethod
+    def _build_ctx(step: Any, rng: jax.Array, total_steps: int) -> ExtensionContext:
+        return ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+
+    def fold_init_states(self, agent_state: Any, rng: jax.Array) -> Any:
+        """Initialise ``ext_state`` on a fresh ``agent_state``.
+
+        Empty-stack: returns ``agent_state`` unchanged (no replace).
+        """
+        if not self.extensions:
+            return agent_state
+        return agent_state.replace(ext_state=self.init_states(agent_state, rng))
+
+    def fold_pretrain(
+        self,
+        agent_state: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> Any:
+        """One-shot pretrain fold; returns the updated ``agent_state``."""
+        if not self.extensions:
+            return agent_state
+        ctx = self._build_ctx(step, rng, total_steps)
+        agent_state, new_ext_state = self.pretrain(
+            agent_state, agent_state.ext_state, ctx
+        )
+        return agent_state.replace(ext_state=new_ext_state)
+
+    def fold_post_update(
+        self,
+        agent_state: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> Any:
+        """Post-update fold; returns the updated ``agent_state``."""
+        if not self.extensions:
+            return agent_state
+        ctx = self._build_ctx(step, rng, total_steps)
+        agent_state, new_ext_state = self.post_update(
+            agent_state, agent_state.ext_state, ctx
+        )
+        return agent_state.replace(ext_state=new_ext_state)
+
+    def fold_on_target(
+        self,
+        agent_state: Any,
+        batch: Any,
+        target: jax.Array,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array:
+        """Target-modifier fold; returns the (possibly reshaped) target."""
+        if not self.extensions:
+            return target
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.on_target(agent_state, agent_state.ext_state, batch, target, ctx)
+
+    def fold_on_obs(
+        self,
+        obs: jax.Array,
+        agent_state: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array:
+        """Obs-transform fold; returns the (possibly transformed) obs."""
+        if not self.extensions:
+            return obs
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.on_obs(obs, agent_state.ext_state, ctx)
+
+    def fold_on_batch(
+        self,
+        batch: Any,
+        agent_state: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> Any:
+        """Batch-transform fold; returns the (possibly transformed) batch."""
+        if not self.extensions:
+            return batch
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.on_batch(batch, agent_state.ext_state, ctx)
+
+    def fold_critic_loss(
+        self,
+        agent_state: Any,
+        batch: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array | float:
+        """Critic-loss fold; returns the additive critic-loss term."""
+        if not self.extensions:
+            return 0.0
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.critic_loss(agent_state, agent_state.ext_state, batch, ctx)
+
+    def fold_actor_loss(
+        self,
+        agent_state: Any,
+        batch: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array | float:
+        """Actor-loss fold; returns the additive actor-loss term."""
+        if not self.extensions:
+            return 0.0
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.actor_loss(agent_state, agent_state.ext_state, batch, ctx)
+
+    def fold_action(
+        self,
+        agent_state: Any,
+        obs: jax.Array,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array | None:
+        """Collection-time action override fold; ``None`` if no override."""
+        if not self.extensions:
+            return None
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.action(agent_state, agent_state.ext_state, obs, rng, ctx)
+
+    def fold_eval_action(
+        self,
+        agent_state: Any,
+        obs: jax.Array,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array | None:
+        """Eval-time action override fold; ``None`` if no override."""
+        if not self.extensions:
+            return None
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.eval_action(agent_state, agent_state.ext_state, obs, rng, ctx)
+
+    def fold_eval_metrics(
+        self,
+        agent_state: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> dict:
+        """Eval-metrics fold; returns the merged extra-eval dict."""
+        if not self.extensions:
+            return {}
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.eval_metrics(agent_state, agent_state.ext_state, rng, ctx)
+
+    # ------------------------------------------------------------------
+    # ``bind_to_agent`` — push factory context onto every extension.
+    # ------------------------------------------------------------------
+    def bind_to_agent(self, **agent_context: Any) -> "ExtensionStack":
+        """Return a new stack with every extension bound to ``agent_context``.
+
+        Each extension's :meth:`Extension.bind_to_agent` decides which
+        kwargs (if any) it cares about; the base implementation is the
+        identity. This is what lets the SAC factory (and any other
+        agent factory) populate closed-over context on extensions like
+        :class:`MCPretrain` / :class:`PhiRefresh` /
+        :class:`ExpertObsAugmentation` / :class:`ResidualPolicy` without
+        per-extension type checks.
+
+        Empty stack: returns ``self`` unchanged.
+        """
+        if not self.extensions:
+            return self
+        return ExtensionStack(
+            tuple(ext.bind_to_agent(**agent_context) for ext in self.extensions)
+        )

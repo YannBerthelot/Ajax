@@ -76,6 +76,49 @@ class MCPretrain(Extension):
     mc_preloaded_data: Optional[Tuple] = None
     name: str = "mc_pretrain"
 
+    def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
+        """Populate env/network/optimizer config + runtime context from the factory.
+
+        Self-contained replacement for the legacy SAC-side
+        ``_inject_pretrain_extensions_context`` helper. The agent
+        factory calls ``stack.bind_to_agent(env_args=..., network_args=...,
+        critic_optimizer_args=..., num_critics=..., mode=..., gamma=...,
+        reward_scale=..., total_timesteps=..., use_train_frac=...,
+        augment_obs_with_expert_action=..., use_phi_refresh=...,
+        mc_preloaded_data=...)`` and this method copies the kwargs it
+        cares about onto a new frozen instance.
+
+        ``use_phi_refresh`` is computed by the caller from the stack
+        itself (True iff a :class:`PhiRefresh` extension is present);
+        kept on the kwarg surface so MCPretrain doesn't need to
+        introspect the stack.
+        """
+        import dataclasses
+
+        env_args = agent_context.get("env_args", None)
+        if self.env_args is not None or env_args is None:
+            return self
+        return dataclasses.replace(
+            self,
+            env_args=env_args,
+            network_args=agent_context.get("network_args"),
+            critic_optimizer_args=agent_context.get("critic_optimizer_args"),
+            num_critics=agent_context.get("num_critics", self.num_critics),
+            mode=agent_context.get("mode"),
+            gamma=agent_context.get("gamma"),
+            reward_scale=agent_context.get("reward_scale"),
+            total_timesteps=agent_context.get("total_timesteps"),
+            use_train_frac=agent_context.get("use_train_frac", self.use_train_frac),
+            augment_obs_with_expert_action=agent_context.get(
+                "augment_obs_with_expert_action",
+                self.augment_obs_with_expert_action,
+            ),
+            use_phi_refresh=agent_context.get("use_phi_refresh", self.use_phi_refresh),
+            mc_preloaded_data=agent_context.get(
+                "mc_preloaded_data", self.mc_preloaded_data
+            ),
+        )
+
     def pretrain(
         self,
         agent_state: Any,
@@ -235,6 +278,27 @@ class PhiRefresh(Extension):
     gamma: Optional[float] = None
     reward_scale: Optional[float] = None
     name: str = "phi_refresh"
+
+    def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
+        """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.
+
+        Self-contained replacement for the legacy SAC-side
+        ``_inject_policy_extensions_context`` helper: the agent factory
+        calls ``stack.bind_to_agent(buffer=..., gamma=..., reward_scale=...,
+        ...)`` and this method copies the kwargs it cares about onto a
+        new frozen instance. Unrecognised kwargs are ignored, so the
+        same call works uniformly across the whole stack.
+        """
+        import dataclasses
+
+        buffer = agent_context.get("buffer", None)
+        gamma = agent_context.get("gamma", None)
+        reward_scale = agent_context.get("reward_scale", None)
+        if self.buffer is not None or buffer is None:
+            return self
+        return dataclasses.replace(
+            self, buffer=buffer, gamma=gamma, reward_scale=reward_scale
+        )
 
     def post_update(
         self,

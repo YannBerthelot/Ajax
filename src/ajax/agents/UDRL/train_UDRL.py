@@ -46,7 +46,7 @@ from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
-from ajax.extensions.base import ExtensionContext, ExtensionStack
+from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.perf_utils import train_jit
 from ajax.state import (
@@ -498,20 +498,19 @@ def training_iteration(
             loss = actor_loss_fn(
                 params, a_state.actor_state, obs_b, act_b, agent_config.bc_loss_type
             )
-            if extension_stack is not None and extension_stack.extensions:
-                _al_ctx = ExtensionContext(
-                    step=a_state.collector_state.timestep,
-                    rng=key,
-                    total_steps=total_timesteps,
-                )
+            if extension_stack is not None:
                 _al_batch = {
                     "observations": obs_b,
                     "actions": act_b,
                     "actor_params": params,
                     "actor_state": a_state.actor_state,
                 }
-                loss = loss + extension_stack.actor_loss(
-                    a_state, a_state.ext_state, _al_batch, _al_ctx
+                loss = loss + extension_stack.fold_actor_loss(
+                    a_state,
+                    _al_batch,
+                    a_state.collector_state.timestep,
+                    key,
+                    total_timesteps,
                 )
             return loss
 
@@ -524,18 +523,15 @@ def training_iteration(
 
     # Extension post_update — folded after the per-iteration update loop.
     # Empty stack ⇒ identity.
-    if extension_stack is not None and extension_stack.extensions:
+    if extension_stack is not None:
         _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_pu_rng2)
-        _pu_ctx = ExtensionContext(
-            step=agent_state.collector_state.timestep,
-            rng=_pu_rng,
-            total_steps=total_timesteps,
+        agent_state = extension_stack.fold_post_update(
+            agent_state,
+            agent_state.collector_state.timestep,
+            _pu_rng,
+            total_timesteps,
         )
-        agent_state, _new_ext_state = extension_stack.post_update(
-            agent_state, agent_state.ext_state, _pu_ctx
-        )
-        agent_state = agent_state.replace(ext_state=_new_ext_state)
 
     # 5. Compute training-curve metric: mean completed-episode return in this
     #    segment. (Used purely for logging; not for training signal.)
@@ -606,18 +602,10 @@ def make_train(
             )
             if extension_stack is not None:
                 _ext_key, _pre_key = jax.random.split(ext_key)
-                agent_state = agent_state.replace(
-                    ext_state=extension_stack.init_states(agent_state, _ext_key)
+                agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
+                agent_state = extension_stack.fold_pretrain(
+                    agent_state, jnp.asarray(0), _pre_key, total_timesteps
                 )
-                _pre_ctx = ExtensionContext(
-                    step=jnp.asarray(0),
-                    rng=_pre_key,
-                    total_steps=total_timesteps,
-                )
-                agent_state, _new_ext_state = extension_stack.pretrain(
-                    agent_state, agent_state.ext_state, _pre_ctx
-                )
-                agent_state = agent_state.replace(ext_state=_new_ext_state)
 
         per_iter = env_args.n_envs * agent_config.n_steps
         num_updates = max(total_timesteps // per_iter, 1)

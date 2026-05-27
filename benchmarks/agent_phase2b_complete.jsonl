@@ -1,0 +1,1 @@
+{"agent": "SAC", "env": "Pendulum-v1", "trial": 0, "n_envs": 4, "timesteps": 8000, "compile_s": 6.672, "measured_s": 2.001, "steps_per_s": 3998.3, "tag": "baseline", "git_sha": "a34ddcd", "jax_backend": "cpu"}

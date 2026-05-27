@@ -243,10 +243,6 @@ def test_get_action_and_new_agent_state(
         collector_state=collector_state,
     )
 
-    # m4 fix (df3d5c7): get_action_and_new_agent_state returns a 4-tuple
-    # (action, log_probs, raw_action, new_agent_state). raw_action is the
-    # pre-tanh sample for SquashedNormal policies (used by PPO/APO to
-    # recompute log_prob safely); equals ``action`` for unsquashed policies.
     action, log_probs, raw_action, new_agent_state = get_action_and_new_agent_state(
         rng, agent_state, obs, done=jnp.zeros((n_envs,)), recurrent=recurrent
     )

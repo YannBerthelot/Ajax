@@ -366,39 +366,19 @@ def get_action_and_new_agent_state(
         done=done,
         recurrent=recurrent,
     )
-    # SquashedNormal numerical-stability path (m4 audit): sample the
-    # underlying Normal directly, then apply tanh manually, so we have
-    # the pre-tanh ``raw_action`` available for storage in the
-    # Transition. On-policy agents (PPO, APO) need ``raw_action`` to
-    # recompute ``log_prob`` at update time WITHOUT going through
-    # ``arctanh(post_tanh_action)`` -- which is what distrax's
-    # ``pi.log_prob(post_tanh)`` does internally and which is
-    # numerically unstable as ``|action| → 1``. distrax itself warns:
-    # "[log_prob] returns NaN [near saturation]. This can be avoided
-    # by using sample_and_log_prob instead of sample followed by
-    # log_prob." Brax PPO solves the same problem by always storing
-    # the raw sample. Off-policy agents (SAC) don't recompute log_prob
-    # so they're unaffected.
     from ajax.agents.SAC.utils import SquashedNormal
 
     if isinstance(pi, SquashedNormal):
+        # Sample the base Normal manually so raw_action is exposed
+        # (PPO/APO need it to recompute log_prob without arctanh).
         base = pi.distribution
         raw_action = base.sample(seed=rng)
         action = jnp.tanh(raw_action)
-        # log_prob via the SAFE forward path: base log_prob at the raw
-        # sample minus the forward log-det-jacobian at the raw sample.
-        # Equivalent to ``pi.sample_and_log_prob`` but with raw_action
-        # exposed.
         log_probs = base.log_prob(raw_action) - pi.bijector.forward_log_det_jacobian(
             raw_action
         )
     else:
         action, log_probs = pi.sample_and_log_prob(seed=rng)
-        # For non-squashed policies, raw_action is the action itself
-        # (no transform applied). PPO/APO loss paths check
-        # ``isinstance(pi, SquashedNormal)`` to decide whether to
-        # use the raw-sample recompute or the standard
-        # ``pi.log_prob(action)`` path.
         raw_action = action
 
     return (
@@ -495,11 +475,6 @@ def get_action_and_log_probs(
     recurrent: bool,
     uniform: bool,
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
-    """Return (action, log_probs, raw_action) for the agent's current
-    policy at ``last_obs``. ``raw_action`` is the pre-tanh sample for
-    SquashedNormal policies (used by PPO/APO to recompute log_prob
-    without arctanh); equals ``action`` for unsquashed policies.
-    """
     action, log_probs, raw_action, agent_state = get_action_and_new_agent_state(
         action_key,
         agent_state,
@@ -694,12 +669,8 @@ def collect_experience(
         _live_sigma_expert = getattr(result, "critic_sigma_expert", None)
         _live_p_expert_max = getattr(result, "p_expert_max", None)
         _a_expert = getattr(result, "a_expert", None)
-        # action_pipelines (SAC + expert, EDGE, etc.) don't expose a
-        # pre-tanh raw_action. Default to the post-tanh action so the
-        # Transition pytree has a consistent shape; PPO/APO never use
-        # action_pipeline so they always go through the else branch
-        # which sets raw_action from get_action_and_log_probs. SAC/etc.
-        # don't recompute log_prob so they don't need the raw value.
+        # action_pipelines don't expose a pre-tanh sample; fall back to
+        # the post-tanh action to keep the Transition pytree shape.
         raw_action = action
     else:
         new_expert_state = None
@@ -1097,11 +1068,6 @@ def init_collector_state(
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
         action=jnp.ones((env_args.n_envs, *action_shape)),
-        # Same shape as ``action`` (per-action-dim scalar). Populated
-        # at collection time for SquashedNormal policies with the
-        # pre-tanh sample (so on-policy log_prob recompute can avoid
-        # the unstable arctanh path); for non-squashed policies it
-        # equals ``action``.
         raw_action=jnp.ones((env_args.n_envs, *action_shape)),
         next_obs=jnp.ones((env_args.n_envs, *obs_shape)),
         reward=jnp.ones((env_args.n_envs, 1)),

@@ -25,17 +25,8 @@ class Transition:
     raw_obs: Optional[jnp.ndarray] = None
     log_prob: Optional[jnp.ndarray] = None
     inside_box: Optional[jnp.ndarray] = None
-    # Pre-tanh (raw) action sample, stored alongside the post-tanh
-    # ``action``. Needed by on-policy agents (PPO, APO) that recompute
-    # ``log_prob(action)`` at update time: with a SquashedNormal policy
-    # the recompute path ``pi.log_prob(post_tanh_action)`` internally
-    # does ``arctanh(action)``, which is numerically unstable as
-    # ``|action| → 1`` (distrax explicitly warns about this misuse).
-    # Storing the pre-tanh sample lets the loss compute log_prob via
-    # the underlying Normal + forward Jacobian (brax PPO's pattern,
-    # which avoids the inverse entirely). None for agents that don't
-    # need it (SAC samples and stores log_prob in one shot via
-    # ``sample_and_log_prob``, never recomputes).
+    # Pre-tanh sample for SquashedNormal; lets on-policy agents recompute
+    # log_prob without arctanh (which is unstable as |action| -> 1).
     raw_action: Optional[jnp.ndarray] = None
     # Expert action computed at collection time, with the correct (stateful)
     # expert internal state. None for methods that don't need it. Read by

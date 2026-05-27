@@ -37,30 +37,10 @@ class PPO(ActorCritic):
         n_steps: int = 2048,
         batch_size: int = 64,
         n_epochs: int = 10,
-        # Brax-style independent ``num_minibatches`` (per epoch). When
-        # 0 (legacy default), num_minibatches is derived from the
-        # batch_size / n_steps ratio, which couples the two and
-        # requires ``n_steps % num_minibatches == 0``. Setting this to
-        # a positive integer decouples them and matches brax PPO's
-        # surface (``num_minibatches`` and ``batch_size`` independent).
         num_minibatches: int = 0,
-        # Adam epsilon -- 1e-8 by default for PPO (matches brax PPO and
-        # the optax / torch standard). The base ActorCritic default is
-        # 1e-5 (legacy Ajax); we override here so PPO doesn't drag the
-        # log_std parameter (which has tiny gradients) into a slow
-        # update regime where adam's preconditioner is dominated by eps.
         adam_eps: float = 1e-8,
-        # Value-loss coefficient. Brax PPO defaults to ``vf_coef=0.5``
-        # giving effective ``0.25 * MSE``; we default to 1.0 (legacy
-        # Ajax effective ``0.5 * MSE``). The manip-tuned EVarEst
-        # config sets this to 0.5 to match brax.
         vf_coef: float = 1.0,
-        # Brax-style V-trace GAE (see PPOConfig.use_vtrace_gae).
-        # Recommended True for envs with fixed-length episodes and
-        # frequent truncation boundaries (manipulation, locomotion).
         use_vtrace_gae: bool = False,
-        # Brax-style joint global-norm clip across actor + critic
-        # gradients (see PPOConfig.fused_grad_clip).
         fused_grad_clip: bool = False,
         gae_lambda: float = 0.95,
         normalize_advantage: bool = True,
@@ -160,11 +140,7 @@ class PPO(ActorCritic):
             expose_recent_rollout=expose_recent_rollout,
         )
 
-        # Override the optimizer configs set up by ``ActorCritic.__init__``
-        # with PPO's adam_eps (brax/optax default 1e-8). The base class
-        # constructs them with the legacy Ajax eps=1e-5; replacing them
-        # here keeps the override PPO-local without dragging other
-        # agents along.
+        # Override base ActorCritic's eps=1e-5 with PPO's brax-default eps=1e-8.
         from ajax.state import OptimizerConfig
 
         self.actor_optimizer_args = OptimizerConfig(

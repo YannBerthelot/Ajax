@@ -126,7 +126,10 @@ def _gain_policy_step(
     )
     _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
     # Actor samples gain-space action (shape: (n_envs, n_gains))
-    action, log_probs = get_action_and_log_probs(
+    # m4 fix (df3d5c7): get_action_and_log_probs returns a 3-tuple now
+    # (action, log_probs, raw_action). raw_action discarded here -- SAC
+    # never recomputes log_prob at update time so it doesn't need it.
+    action, log_probs, _raw_action = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
         recurrent=recurrent,
@@ -402,7 +405,8 @@ def make_action_pipeline(
             _augmented_obs = None
 
         # --- Policy action ---
-        action, log_probs = get_action_and_log_probs(
+        # m4 fix (df3d5c7): now returns 3-tuple. SAC discards raw_action.
+        action, log_probs, _raw_action = get_action_and_log_probs(
             action_key=action_key,
             agent_state=agent_state_for_actor,
             recurrent=recurrent,

@@ -21,6 +21,7 @@ from probing_environments.checks import (
     check_advantage_policy,
     check_advantage_policy_continuous,
     check_backprop_value_net,
+    check_boundary_action_saturation,
     check_loss_or_optimizer_value_net,
     check_reward_discounting,
 )
@@ -36,6 +37,13 @@ from ajax.agents.SAC.SAC import SAC
 
 # All agents
 ALL_AGENTS = [SAC, REDQ, PPO, APO, ASAC, AVG]
+# Agents that recompute ``pi.log_prob(post_tanh_action)`` at update
+# time (PPO-family) and are therefore vulnerable to the arctanh
+# saturation instability covered by :func:`check_boundary_action_saturation`.
+# SAC-family agents sample and store log_prob in one shot via
+# ``sample_and_log_prob`` so they don't recompute and don't need this
+# probe.
+ONPOLICY_LOGPROB_RECOMPUTE_AGENTS = [PPO, APO]
 # Average-reward agents: their critic learns *differential* V (≈0 for constant
 # reward), not absolute V — so the V≈1 expectation in value-net checks and the
 # discount-ratio expectation in reward-discounting check don't apply.
@@ -127,6 +135,43 @@ class TestProbingPolicy:
             train_agent=train_agent,
             get_action=get_action,
             budget=BUDGET_POLICY,
+            gymnax=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "agent_cls",
+    _params(ONPOLICY_LOGPROB_RECOMPUTE_AGENTS),
+    ids=lambda c: c.__name__,
+)
+class TestProbingBoundarySaturation:
+    """Boundary-action saturation probe (m4 audit -- May 2026).
+
+    For tanh-squashed Gaussian policies (SquashedNormal), on-policy
+    agents that recompute ``pi.log_prob(post_tanh_action)`` at update
+    time go through ``distrax.Tanh.inverse_and_log_det`` which calls
+    ``arctanh(action)``. This is numerically unstable as
+    ``|action| → 1``, causing the recomputed log_prob to diverge from
+    the stored log_prob, the PPO ratio to explode/underflow, and the
+    policy to stall around action ≈ 0.95 instead of converging to
+    ≈ 1.0 on a boundary-reward env.
+
+    The fix (Ajax May 2026 m4): store the pre-tanh ``raw_action`` in
+    the rollout buffer and recompute via ``base.log_prob(raw) -
+    forward_log_det_jacobian(raw)`` -- never invert the tanh.
+
+    The pre-existing :class:`TestProbingPolicy.test_advantage_policy`
+    used threshold 0.90, which a saturation-stalled policy can pass.
+    This stricter probe uses 0.98 and would have caught the m4 bug.
+    """
+
+    def test_boundary_action_saturation(self, agent_cls):
+        check_boundary_action_saturation(
+            agent=agent_cls,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_action=get_action,
+            budget=int(5e4),
             gymnax=True,
         )
 

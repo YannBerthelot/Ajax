@@ -181,8 +181,18 @@ def evaluate_and_log(
         # advanced across iterations, so each eval uses identical initial
         # conditions (per-seed).
         eval_key = agent_state.eval_rng
+        # Key name MUST match what ``NormalizeVecObservation.update_state_*``
+        # stores in info (see ``ajax/wrappers.py``). The wrapper writes
+        # ``info["normalization_info"]``; previously this check looked
+        # for ``"obs_normalization_info"`` which never matched -- so
+        # ``norm_info`` was always ``None``, ``setup_environment``
+        # rebuilt the eval env WITHOUT the normalizer, and the agent's
+        # eval feed was RAW obs while training was NORMALISED. This
+        # silently broke eval-vs-train alignment for any brax-stack env
+        # using normalize_observations=True (PPO on mujoco_playground,
+        # locomotion, etc.).
         obs_normalization = (
-            "obs_normalization_info" in agent_state.collector_state.env_state.info
+            "normalization_info" in agent_state.collector_state.env_state.info
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
         )

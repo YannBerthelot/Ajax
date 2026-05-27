@@ -314,18 +314,6 @@ def actor_loss_fn(
 _actor_value_and_grad = jax.value_and_grad(actor_loss_fn)
 
 
-def _replace_command_with_realised(
-    obs: jax.Array, rtg: jax.Array, horizon: jax.Array
-) -> jax.Array:
-    """Overwrite the trailing 2 dims of obs with the per-step realised
-    (RTG, horizon)."""
-    base = obs[..., :-2]
-    rtg = rtg.reshape(rtg.shape[:-1])  # drop trailing 1 if present
-    horizon = horizon.reshape(horizon.shape[:-1])
-    cmd = jnp.stack([rtg, horizon], axis=-1)
-    return jnp.concatenate([base, cmd], axis=-1)
-
-
 def _completed_episode_returns(
     rewards: jax.Array, dones: jax.Array
 ) -> Tuple[jax.Array, jax.Array]:
@@ -395,26 +383,6 @@ def _topk_episode_stats(
     mean_h = jnp.where(valid_count > 0, sum_h / safe_count, jnp.nan)
     n_completed = flat_d.sum()
     return mean_r, mean_h, n_completed
-
-
-def _shuffle_and_minibatch(
-    rng: jax.Array, arrays: Tuple[jax.Array, ...], batch_size: int
-):
-    """Return a tuple of shape (n_batches, batch_size, ...) per-array.
-    The leading axis is partial-batch-padded by repeating earlier samples;
-    UDRL's loss is a mean so duplicates do not bias gradients meaningfully
-    on small budgets, and this keeps the function shape-static for jit.
-    """
-    n = arrays[0].shape[0]
-    # Effective batch_size never exceeds n (avoids 0-length minibatches when
-    # callers pass n_steps * n_envs < batch_size).
-    bs = min(batch_size, n)
-    n_batches = n // bs
-    perm = jax.random.permutation(rng, n)
-    take = n_batches * bs
-    perm = perm[:take]
-    out = tuple(a[perm].reshape((n_batches, bs) + a.shape[1:]) for a in arrays)
-    return out
 
 
 def training_iteration(

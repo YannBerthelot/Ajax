@@ -1,4 +1,3 @@
-import os
 from collections.abc import Sequence
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -46,10 +45,6 @@ from ajax.state import (
 PROFILER_PATH = "./tensorboard"
 
 DEBUG = False
-
-
-def get_alpha_from_params(params: FrozenDict) -> float:
-    return jnp.exp(params["log_alpha"])
 
 
 @struct.dataclass
@@ -528,127 +523,6 @@ def update_policy(
         actor_state=updated_actor_state,
     )
     return agent_state, aux
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        "recurrent",
-        "agent_config",
-        "obs_preprocessor",
-    ],
-)
-def update_agent(
-    agent_state: PPOState,
-    _: Any,
-    shuffled_batch: tuple[jax.Array],
-    agent_config: PPOConfig,
-    recurrent: bool,
-    obs_preprocessor: Optional[Callable] = None,
-    extra_actor_loss_fn: Optional[Callable] = None,
-    extra_critic_loss_fn: Optional[Callable] = None,
-) -> Tuple[PPOState, AuxiliaryLogs]:
-    """
-    Update the PPO agent, including critic, actor, and temperature updates.
-
-    Args:
-        agent_state (PPOState): Current PPO agent state.
-        _ (Any): Placeholder for scan compatibility.
-        buffer (BufferType): Replay buffer.
-        recurrent (bool): Whether the model is recurrent.
-        gamma (float): Discount factor.
-        action_dim (int): Action dimensionality.
-        tau (float): Soft update coefficient.
-        num_critic_updates (int): Number of critic updates per step.
-        target_update_frequency (int): Frequency of target network updates.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[PPOState, None]: Updated agent state.
-    """
-
-    (
-        observations,
-        actions,
-        terminated,
-        truncated,
-        value_targets,
-        gae,
-        log_probs,
-    ) = shuffled_batch
-    if DEBUG:
-        assert (
-            observations.shape[:-1] == actions.shape[:-1]
-        ), (  # FIXME : investigate the shape mismatch due to shuffling in batch and shapes shenanigans
-            f"Shape mismatch between observations {observations.shape} and actions"
-            f" {actions.shape}"
-        )
-
-    dones = jnp.logical_or(terminated, truncated)
-
-    # Update critic/V-function
-    agent_state, aux_value = update_value_functions(
-        agent_state=agent_state,
-        observations=observations,
-        value_targets=value_targets,
-        dones=dones,
-        recurrent=recurrent,
-        extra_critic_loss_fn=extra_critic_loss_fn,
-    )
-
-    # Update policy
-    clip_coef = (
-        agent_config.clip_range(agent_state.collector_state.timestep)
-        if callable(agent_config.clip_range)
-        else agent_config.clip_range
-    )
-
-    agent_state, aux_policy = update_policy(
-        agent_state=agent_state,
-        observations=observations,
-        actions=actions,
-        gae=gae,
-        log_probs=log_probs,
-        done=dones,
-        recurrent=recurrent,
-        ent_coef=agent_config.ent_coef,
-        clip_coef=clip_coef,
-        advantage_normalization=agent_config.normalize_advantage,
-        obs_preprocessor=obs_preprocessor,
-        extra_actor_loss_fn=extra_actor_loss_fn,
-    )
-
-    aux = AuxiliaryLogs(
-        policy=aux_policy,
-        value=ValueAuxiliaries(
-            **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
-        ),
-    )
-    return agent_state, aux
-
-
-def flatten_dict(dict: Dict) -> Dict:
-    return_dict = {}
-    for key, val in dict.items():
-        if isinstance(val, Dict):
-            for subkey, subval in val.items():
-                return_dict[f"{key}/{subkey}"] = subval
-        else:
-            return_dict[key] = val
-    return return_dict
-
-
-def prepare_metrics(aux):
-    log_metrics = flatten_dict(to_state_dict(aux))
-    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
-
-
-def no_op(agent_state, *args):
-    return None
-
-
-def no_op_none(agent_state, index, timestep):
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -1183,27 +1057,6 @@ def training_iteration(
     # jax.clear_caches()
     # gc.collect()
     return agent_state, metrics_to_log
-
-
-def profile_memory(timestep):
-    jax.profiler.save_device_memory_profile(f"memory{timestep}.prof")
-
-
-def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[str]:
-    """
-    Safely retrieve an environment variable.
-
-    Args:
-        var_name (str): The name of the environment variable.
-        default (Optional[str]): Default value if the variable is not set.
-
-    Returns:
-        Optional[str]: The value of the environment variable or default.
-    """
-    value = os.environ.get(var_name)
-    if value is None:
-        return default
-    return value
 
 
 def make_train(

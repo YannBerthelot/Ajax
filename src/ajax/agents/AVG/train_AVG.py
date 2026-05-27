@@ -656,6 +656,23 @@ def update_policy(
     return agent_state, aux
 
 
+# TODO(2026-05-27): ``update_temperature`` is defined here but
+# NEVER called from the active path. ``create_alpha_train_state``
+# initialises ``agent_state.alpha`` (default alpha=1.0) and
+# ``update_agent`` reads alpha from it, but no caller ever runs the
+# alpha gradient update. Net effect: AVG runs with alpha frozen at
+# init forever. This mirrors the pattern that turned out to be a real
+# bug in PPO (``update_agent`` defined-but-not-called → the active
+# ``body_fn`` did the wrong thing). Two interpretations:
+#   (a) intentional — Vasan 2024 AVG uses a fixed entropy bonus, in
+#       which case ``temperature_loss_function`` and
+#       ``update_temperature`` should be deleted and
+#       ``create_alpha_train_state`` simplified to a fixed scalar.
+#   (b) bug — alpha was meant to be tuned via the dual-gradient
+#       (SAC/ASAC/REDQ pattern), and the call was forgotten.
+# Decision pending; pilot results suggest AVG behaves reasonably with
+# alpha=init, so (a) is plausible. Surfacing here so the next AVG
+# pass settles it.
 @partial(
     jax.jit,
     static_argnames=["target_entropy", "recurrent"],

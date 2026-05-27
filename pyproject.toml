@@ -6,7 +6,10 @@ authors = ["Yann Berthelot <yannberthelot1@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<4.0"
+# Upper bound at <3.14 to satisfy target-gym (which itself caps at
+# <3.14 because torch 2.10's triton dep currently doesn't ship a
+# 3.14 wheel). Bump when target-gym widens its range.
+python = ">=3.11,<3.14"
 gymnasium = "^1.2.0"
 tqdm = "^4.65.0"
 pandas = "^2.1.1"
@@ -21,7 +24,7 @@ mujoco = "^3.1.4"
 mujoco-mjx = "^3.1.4"
 python-dotenv = "^1.1.1"
 gymnax = {git = "https://github.com/YannBerthelot/gymnax.git"}
-target-gym = "^0.4.0"
+target-gym = "^0.5.0"
 distrax = ">=0.1.6"
 tensorboardx = "^2.6.4"
 dill = "^0.4.1"
@@ -41,7 +44,12 @@ coverage = {extras = ["toml"], version = "^7.8.0"}
 pytest-mock = "^3.14.0"
 mock = "^5.1.0"
 ruff = "^0.11.6"
-probing-environments = {git = "https://github.com/YannBerthelot/ProbingEnvironments.git"}
+# Switched from git+url to PyPI now that v0.5.1 is published. v0.5.1 is
+# the first release that fixes the PyPI publish workflow (token syntax
+# + dynamic versioning) and depends on upstream gymnax instead of the
+# git+url fork -- so this dependency is PyPI-clean and Ajax could
+# itself be published if we ever wanted to.
+probing-environments = "^0.5.1"
 
 
 [tool.poetry.group.render.dependencies]

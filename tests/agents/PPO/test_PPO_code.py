@@ -58,7 +58,10 @@ def _train(extra_kwargs=None) -> tuple[int, int, int]:
     agent = PPO(**cfg)
     rollout = cfg["n_envs"] * cfg["n_steps"]
     out = agent.train(seed=[0], n_timesteps=rollout, num_episode_test=1)
-    state = out[0] if isinstance(out, tuple) else out
+    if isinstance(out, tuple):
+        state = out[0]
+    else:
+        state = out
     a_step = jax.numpy.asarray(state.actor_state.step).reshape(-1)[0]
     c_step = jax.numpy.asarray(state.critic_state.step).reshape(-1)[0]
     n_upd = jax.numpy.asarray(state.n_updates).reshape(-1)[0]

@@ -25,6 +25,18 @@ class Transition:
     raw_obs: Optional[jnp.ndarray] = None
     log_prob: Optional[jnp.ndarray] = None
     inside_box: Optional[jnp.ndarray] = None
+    # Pre-tanh (raw) action sample, stored alongside the post-tanh
+    # ``action``. Needed by on-policy agents (PPO, APO) that recompute
+    # ``log_prob(action)`` at update time: with a SquashedNormal policy
+    # the recompute path ``pi.log_prob(post_tanh_action)`` internally
+    # does ``arctanh(action)``, which is numerically unstable as
+    # ``|action| → 1`` (distrax explicitly warns about this misuse).
+    # Storing the pre-tanh sample lets the loss compute log_prob via
+    # the underlying Normal + forward Jacobian (brax PPO's pattern,
+    # which avoids the inverse entirely). None for agents that don't
+    # need it (SAC samples and stores log_prob in one shot via
+    # ``sample_and_log_prob``, never recomputes).
+    raw_action: Optional[jnp.ndarray] = None
     # Expert action computed at collection time, with the correct (stateful)
     # expert internal state. None for methods that don't need it. Read by
     # the residual-RL actor loss so the actor's Q-gradient evaluates at
@@ -494,6 +506,12 @@ class OptimizerConfig:
     clipped: bool = True
     beta_1: float = 0.9
     beta_2: float = 0.999
+    # Adam's epsilon for numerical stability. Default 1e-5 matches the
+    # legacy Ajax behaviour; brax/torch/optax default is 1e-8 and is
+    # the standard for PPO (Ajax PPO sets this to 1e-8 for the manip
+    # tuned configs). Larger eps makes Adam less aggressive on small
+    # gradients (e.g. log_std), slowing exploration adaptation.
+    eps: float = 1e-5
 
 
 @struct.dataclass

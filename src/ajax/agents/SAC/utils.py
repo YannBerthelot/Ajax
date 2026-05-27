@@ -46,6 +46,34 @@ class SquashedNormal(distrax.Transformed):
         """
         return -2.0 * (u + jax.nn.softplus(-2.0 * u) - jnp.log(2.0))
 
+    def log_prob_from_raw(self, raw_action):
+        """SAFE log_prob from the PRE-tanh (raw) sample.
+
+        Computes ``base.log_prob(raw) - forward_log_det_jacobian(raw)``
+        which never inverts the tanh -- contrast with
+        ``self.log_prob(post_tanh_action)`` which calls
+        ``arctanh(post_tanh_action)`` internally and is numerically
+        unstable as ``|action| → 1`` (distrax explicitly warns about
+        this misuse; see [m4 audit, May 2026]).
+
+        Use this in any on-policy loss that needs to RECOMPUTE the
+        log-probability of a stored action: store ``raw_action`` (the
+        pre-tanh sample) alongside the post-tanh ``action`` in the
+        rollout buffer, and call ``pi.log_prob_from_raw(raw_action)``
+        at update time instead of ``pi.log_prob(action)``. Brax PPO
+        uses the same pattern (storing pre-tanh ``raw_action`` in the
+        transition).
+
+        Returns log_prob summed over the trailing action-dim axis.
+        Callers that need per-dim values can use the underlying
+        ``self.distribution.log_prob`` + ``self.bijector
+        .forward_log_det_jacobian`` directly.
+        """
+        return (
+            self.distribution.log_prob(raw_action)
+            - self.bijector.forward_log_det_jacobian(raw_action)
+        ).sum(-1, keepdims=True)
+
     def effective_entropy(self, key, num_samples=1):
         """
         Calculates the entropy proxy for the temperature (alpha) loss.

@@ -24,3 +24,9 @@ class APOConfig(BaseAgentConfig):
     alpha: float = 0.1
     gamma: float = jnp.nan
     nu: float = 0.1
+    # When set (>0), use this as the number of minibatches per epoch
+    # directly -- decouples num_minibatches from batch_size, matching
+    # brax PPO's surface. When 0 (legacy default), the old formula
+    # ``max(batch_size, n_steps) // min(...)`` is used (couples the
+    # two; requires ``n_steps % num_minibatches == 0``).
+    num_minibatches: int = 0

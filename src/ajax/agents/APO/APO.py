@@ -39,6 +39,18 @@ class APO(ActorCritic):
         n_steps: int = 2048,
         batch_size: int = 64,
         n_epochs: int = 10,
+        # Brax-style independent ``num_minibatches`` (per epoch). When
+        # 0 (legacy default), num_minibatches is derived from the
+        # batch_size / n_steps ratio (couples the two; requires
+        # ``n_steps % num_minibatches == 0``). Setting this to a
+        # positive integer decouples them and matches brax PPO's
+        # surface. See PPO for full rationale.
+        num_minibatches: int = 0,
+        # Adam epsilon -- 1e-8 by default for APO (matches brax PPO and
+        # the optax / torch standard). The base ActorCritic default is
+        # 1e-5 (legacy Ajax); we override here so APO doesn't drag the
+        # log_std parameter (tiny gradients) into a slow update regime.
+        adam_eps: float = 1e-8,
         gae_lambda: float = 0.95,
         alpha: float = 0.1,
         nu: float = 0.1,
@@ -127,9 +139,30 @@ class APO(ActorCritic):
             n_epochs=n_epochs,
             gae_lambda=gae_lambda,
             normalize_advantage=normalize_advantage,
+            num_minibatches=num_minibatches,
             alpha=alpha,
             nu=nu,
             expose_recent_rollout=expose_recent_rollout,
+        )
+
+        # Override the optimizer configs set up by ``ActorCritic.__init__``
+        # with APO's adam_eps (brax / optax / torch default 1e-8). The
+        # base class constructs them with the legacy Ajax eps=1e-5;
+        # replacing them here keeps the override APO-local. See PPO for
+        # the full rationale.
+        from ajax.state import OptimizerConfig
+
+        self.actor_optimizer_args = OptimizerConfig(
+            learning_rate=actor_learning_rate,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+            eps=adam_eps,
+        )
+        self.critic_optimizer_args = OptimizerConfig(
+            learning_rate=critic_learning_rate,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+            eps=adam_eps,
         )
         self.cloning_confing = CloningConfig(
             actor_epochs=actor_cloning_epochs,

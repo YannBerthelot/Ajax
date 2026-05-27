@@ -144,6 +144,7 @@ def value_loss_function(
     value_targets: jax.Array,
     dones: jax.Array,
     recurrent: bool,
+    vf_coef: float = 1.0,
     agent_state: Optional[Any] = None,
     extra_loss_fn: Optional[Callable] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
@@ -178,7 +179,10 @@ def value_loss_function(
         0
     )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
 
-    loss = 0.5 * jnp.mean((v_preds - value_targets) ** 2)  # classic MSE
+    # brax PPO: loss = vf_coef * 0.5 * mean((v - target)**2). Default
+    # vf_coef=1.0 (legacy) gives the prior MSE * 0.5; brax uses 0.5 ->
+    # effective 0.25. Wired through PPOConfig.vf_coef.
+    loss = vf_coef * 0.5 * jnp.mean((v_preds - value_targets) ** 2)  # classic MSE
     if extra_loss_fn is not None:
         # Hook receives (critic_params, critic_states, observations,
         # value_targets, agent_state) so it can recompute the value
@@ -213,6 +217,12 @@ def policy_loss_function(
     advantage_normalization: bool,
     obs_preprocessor: Optional[Callable] = None,
     extra_loss_fn: Optional[Callable] = None,
+    # Pre-tanh raw action for SquashedNormal log_prob recompute (m4).
+    # When pi is SquashedNormal, recompute via the helper
+    # ``pi.log_prob_from_raw(raw_actions)`` — base.log_prob(raw) -
+    # forward_log_det_jacobian(raw) — never inverts tanh.
+    # See SquashedNormal.log_prob_from_raw and m4 audit (May 2026).
+    raw_actions: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -247,6 +257,11 @@ def policy_loss_function(
         new_log_probs = jnp.expand_dims(
             pi.log_prob(actions.squeeze(-1)), -1
         )  # .sum(-1, keepdims=True)
+    elif isinstance(pi, SquashedNormal) and raw_actions is not None:
+        # m4 fix: stable log_prob from the pre-tanh sample (never
+        # inverts tanh). Falls back to the legacy path below if
+        # raw_actions wasn't stored (older rollouts).
+        new_log_probs = pi.log_prob_from_raw(raw_actions)
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
     if DEBUG:
@@ -314,6 +329,7 @@ def _value_and_grad_with_extra(extra_loss_fn):
         dones,
         recurrent,
         agent_state,
+        vf_coef=1.0,
     ):
         return value_loss_function(
             critic_params,
@@ -322,6 +338,7 @@ def _value_and_grad_with_extra(extra_loss_fn):
             value_targets,
             dones,
             recurrent,
+            vf_coef=vf_coef,
             agent_state=agent_state,
             extra_loss_fn=extra_loss_fn,
         )
@@ -343,6 +360,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
         ent_coef,
         advantage_normalization,
         obs_preprocessor,
+        raw_actions=None,
     ):
         return policy_loss_function(
             actor_params,
@@ -358,6 +376,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
             advantage_normalization,
             obs_preprocessor,
             extra_loss_fn=extra_loss_fn,
+            raw_actions=raw_actions,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
@@ -889,22 +908,36 @@ def training_iteration(
             < 3  # discrete case without trailing dimension
             else transition.log_prob.sum(-1, keepdims=True)
         ),
+        # m4: pre-tanh raw action for SquashedNormal log_prob recompute.
+        # For non-squashed / discrete policies this equals
+        # ``transition.action``, so same leading-axis shape.
+        transition.raw_action,
     )
 
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-    if DEBUG:
-        assert (
-            max(agent_config.batch_size, agent_config.n_steps)
-            % min(agent_config.batch_size, agent_config.n_steps)
-            == 0
-        ), (
-            "can't evenly break n_steps into batch size chunks,"
-            f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+
+    # Pick num_minibatches:
+    #  * brax-style: use the explicit ``agent_config.num_minibatches``
+    #    when positive (independent of batch_size and n_steps); this
+    #    matches what mujoco_playground's brax_ppo_config assumes.
+    #  * legacy Ajax: derive it from the batch_size/n_steps ratio
+    #    (couples the two; requires ``n_steps % num_minibatches == 0``).
+    if agent_config.num_minibatches > 0:
+        num_minibatches = agent_config.num_minibatches
+    else:
+        if DEBUG:
+            assert (
+                max(agent_config.batch_size, agent_config.n_steps)
+                % min(agent_config.batch_size, agent_config.n_steps)
+                == 0
+            ), (
+                "can't evenly break n_steps into batch size chunks,"
+                f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+            )
+        num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
+            agent_config.batch_size, agent_config.n_steps
         )
-    num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
-        agent_config.batch_size, agent_config.n_steps
-    )
     shuffled_batch = get_minibatches_from_batch(
         batch, rng=shuffle_key, num_minibatches=num_minibatches
     )
@@ -947,7 +980,9 @@ def training_iteration(
             else _policy_value_and_grad_with_extra(_composed_actor_extra)
         )
 
-        def body_fn(agent_state, _):
+        def mb_body(agent_state, mb):
+            """One minibatch update: critic grad + actor grad + (optional
+            joint global-norm clip) + apply both."""
             (
                 observations,
                 actions,
@@ -956,10 +991,13 @@ def training_iteration(
                 value_targets_mb,
                 gae_mb,
                 log_probs_mb,
-            ) = shuffled_batch
+                raw_actions_mb,
+            ) = mb
             dones = jnp.logical_or(terminated, truncated)
 
-            # critic update
+            # critic update — vf_coef wired through both the
+            # closure-bound bound() and the bare VALUE_AND_GRAD_FN path
+            # (the latter takes the kwarg directly on value_loss_function).
             if _composed_critic_extra is None:
                 (_v_loss, v_aux), v_grads = critic_grad_fn(
                     agent_state.critic_state.params,
@@ -968,6 +1006,7 @@ def training_iteration(
                     value_targets_mb,
                     dones,
                     recurrent,
+                    agent_config.vf_coef,
                 )
             else:
                 (_v_loss, v_aux), v_grads = critic_grad_fn(
@@ -978,17 +1017,23 @@ def training_iteration(
                     dones,
                     recurrent,
                     agent_state,
+                    agent_config.vf_coef,
                 )
-            agent_state = agent_state.replace(
-                critic_state=agent_state.critic_state.apply_gradients(grads=v_grads)
-            )
 
-            # actor update
+            # actor update — pass raw_actions_mb so SquashedNormal
+            # log_prob is recomputed via the stable pre-tanh helper
+            # (m4 fix). actor_grad_fn always accepts the extra
+            # raw_actions kwarg whether the composed-extra wrapper is
+            # active or not.
             clip_coef = (
                 agent_config.clip_range(agent_state.collector_state.timestep)
                 if callable(agent_config.clip_range)
                 else agent_config.clip_range
             )
+            # raw_actions passed as kwarg so it lands in the
+            # policy_loss_function's `raw_actions` slot (slot 14) and
+            # not in `extra_loss_fn` (slot 13) when the bare
+            # POLICY_AND_GRAD_FN path is active.
             (_p_loss, p_aux), p_grads = actor_grad_fn(
                 agent_state.actor_state.params,
                 agent_state.actor_state,
@@ -1002,9 +1047,32 @@ def training_iteration(
                 agent_config.ent_coef,
                 agent_config.normalize_advantage,
                 obs_preprocessor,
+                raw_actions=raw_actions_mb,
             )
+
+            # Apply gradients. ``fused_grad_clip`` matches brax PPO:
+            # joint global-norm clip across actor+critic grads at
+            # max-norm 1.0 (brax default), then scale both pytrees by
+            # ``min(1, 1 / joint_norm)`` before either optimizer
+            # applies. Actor/critic Adam states stay separate (their
+            # m/v are per-parameter so splitting the optimizer object
+            # across two TrainStates is identical to fusing as long as
+            # both see the same per-param clip).
+            if agent_config.fused_grad_clip:
+                actor_sq = sum(
+                    jnp.sum(jnp.square(g)) for g in jax.tree_util.tree_leaves(p_grads)
+                )
+                critic_sq = sum(
+                    jnp.sum(jnp.square(g)) for g in jax.tree_util.tree_leaves(v_grads)
+                )
+                joint_norm = jnp.sqrt(actor_sq + critic_sq + 1e-12)
+                scale = jnp.minimum(1.0, 1.0 / joint_norm)
+                p_grads = jax.tree_util.tree_map(lambda g: g * scale, p_grads)
+                v_grads = jax.tree_util.tree_map(lambda g: g * scale, v_grads)
+
             agent_state = agent_state.replace(
-                actor_state=agent_state.actor_state.apply_gradients(grads=p_grads)
+                critic_state=agent_state.critic_state.apply_gradients(grads=v_grads),
+                actor_state=agent_state.actor_state.apply_gradients(grads=p_grads),
             )
 
             aux = AuxiliaryLogs(
@@ -1013,6 +1081,28 @@ def training_iteration(
                     **{k: v.flatten() for k, v in to_state_dict(v_aux).items()}
                 ),
             )
+            return agent_state, aux
+
+        def body_fn(agent_state, _):
+            """One epoch over the minibatched rollout: inner scan over
+            the leading ``num_minibatches`` axis of ``shuffled_batch``.
+
+            Pre-fix history: this used to unpack ``shuffled_batch``
+            directly (the leading num_minibatches axis was passed
+            through to the loss intact), turning the per-minibatch
+            update into a single full-batch update per epoch and
+            dropping the SGD step count to ``num_epochs`` instead of
+            ``num_epochs * num_minibatches`` (32x fewer updates for
+            the manip configs). The config knobs ``num_minibatches``,
+            ``vf_coef``, ``fused_grad_clip``, ``advantage_normalization``
+            were all silently ignored by the active path.
+            """
+            agent_state, mb_aux = jax.lax.scan(
+                f=mb_body, init=agent_state, xs=shuffled_batch
+            )
+            # Aggregate per-minibatch aux into one aux for this epoch by
+            # averaging across the leading minibatch axis.
+            aux = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), mb_aux)
             return agent_state, aux
 
         agent_state, aux = jax.lax.scan(

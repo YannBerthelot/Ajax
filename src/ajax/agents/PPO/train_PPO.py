@@ -655,7 +655,22 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     #     (each fragment spans the full T).
     #
     #   * Else, legacy flat-shuffle with precomputed GAE.
-    if (
+    #
+    # Additional gate: the brax-faithful path recomputes GAE inside
+    # mb_body with the CURRENT critic params. That's only meaningful
+    # when each minibatch carries DIFFERENT data (so each per-mb GAE
+    # call sees a different (obs, reward, next_obs) slice). When
+    # ``num_minibatches == 1`` and ``n_epochs > 1`` the single
+    # minibatch IS the full rollout, and per-mb recompute degenerates
+    # into recomputing the same GAE on the same data with a critic
+    # that just took an SGD step -- this oscillates the value targets
+    # and was the cause of CI flake on the n_envs=1, n_steps=32
+    # probing fixture. Fall back to the legacy precompute path when
+    # num_minibatches <= 1.
+    if num_minibatches <= 1:
+        use_brax_faithful_mb = False
+        mb_unroll_length = None
+    elif (
         unroll_length is not None
         and T_rollout % unroll_length == 0
         and (T_rollout // unroll_length) * n_envs % num_minibatches == 0

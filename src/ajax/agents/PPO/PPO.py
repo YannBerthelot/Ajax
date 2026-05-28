@@ -12,6 +12,7 @@ from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.state import OptimizerConfig
 from ajax.types import EnvType, InitializationFunction
 from ajax.utils import get_and_prepare_hyperparams
 
@@ -141,8 +142,6 @@ class PPO(ActorCritic):
         )
 
         # Override base ActorCritic's eps=1e-5 with PPO's brax-default eps=1e-8.
-        from ajax.state import OptimizerConfig
-
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
             max_grad_norm=max_grad_norm,

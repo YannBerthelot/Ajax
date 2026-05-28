@@ -669,8 +669,17 @@ def collect_experience(
         _live_sigma_expert = getattr(result, "critic_sigma_expert", None)
         _live_p_expert_max = getattr(result, "p_expert_max", None)
         _a_expert = getattr(result, "a_expert", None)
-        # action_pipelines don't expose a pre-tanh sample; fall back to
-        # the post-tanh action to keep the Transition pytree shape.
+        # action_pipelines (SAC + expert, EDGE, etc.) don't expose a
+        # pre-tanh sample. The action is post-tanh -- feeding it to
+        # ``pi.log_prob_from_raw(raw_action)`` later would produce a
+        # wrong log_prob (arctanh of a clipped value, not a Gaussian
+        # sample). Use ``action`` as a shape-preserving placeholder so
+        # the Transition pytree shape stays stable; callers that
+        # actually need ``raw_action`` for log_prob recompute must
+        # check ``isinstance(pi, SquashedNormal)`` AND verify they're
+        # not on the action_pipeline path (SAC never recomputes
+        # log_prob so it's safe; PPO/APO never use action_pipeline so
+        # they don't reach here).
         raw_action = action
     else:
         new_expert_state = None

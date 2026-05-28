@@ -549,7 +549,12 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
 
     assert jnp.all(norm_info.count == 4)  # batch size x 2
     assert jnp.allclose(norm_info.mean, expected_mean)
-    assert jnp.allclose(norm_info.mean_2, 1)
+    # The fixture env emits constant obs across batches -- correct Welford M2
+    # stays 0 (no variance to accumulate). Previous online_normalize patched
+    # zero-M2 to 1 via ``replace_zeros_with_ones`` to dodge div-by-zero; the
+    # patch was removed to match brax acme.running_statistics. std is now
+    # clipped to [1e-6, 1e6] at use time so the normalised obs stays finite.
+    assert jnp.allclose(norm_info.mean_2, 0)
     assert jnp.allclose(state.obs if mode == "brax" else obs, expected_obs)
 
     # Step 2
@@ -568,7 +573,8 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
 
     assert jnp.all(norm_info.count == 6)  # batch size x3
     assert jnp.allclose(norm_info.mean, expected_mean)
-    assert jnp.allclose(norm_info.mean_2, 1)
+    # See step-1 assertion: constant obs -> M2 stays 0 in true Welford.
+    assert jnp.allclose(norm_info.mean_2, 0)
     assert jnp.allclose(state.obs if mode == "brax" else obs, expected_obs)
 
 

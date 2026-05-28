@@ -19,6 +19,12 @@ from ajax.utils import (
 
 
 def test_online_normalize_initial():
+    # Single-sample first batch: Welford's M2 is correctly 0 (no within-batch
+    # variance to accumulate). The previous implementation patched M2 to 1
+    # via ``replace_zeros_with_ones``, which silently corrupted running
+    # variance for any feature with a zero-variance batch. Removed to match
+    # brax acme.running_statistics; std is now clipped to [1e-6, 1e6] so the
+    # normalised output stays finite without falsifying the running stat.
     x = jnp.array([[1.0, 2.0, 3.0]])
     count = 0
     mean = jnp.zeros_like(x)
@@ -30,9 +36,13 @@ def test_online_normalize_initial():
 
     assert new_count == 1
     assert jnp.allclose(new_mean, x)
-    assert jnp.allclose(new_mean_2, 1.0)
-    assert jnp.allclose(sigma, 1.0)
-    assert jnp.allclose(x_norm, 0)  # x == mean, std == 1 => norm = 0
+    # M2 stays 0 for a single-sample batch (correct Welford).
+    assert jnp.allclose(new_mean_2, 0.0)
+    # variance = M2/count = 0; std clipped to 1e-6 floor.
+    assert jnp.allclose(sigma, 0.0)
+    # std after clip = max(sqrt(0 + eps), 1e-6) = max(1e-4, 1e-6) = 1e-4
+    # x_norm = (x - mean)/std = 0 / std = 0.
+    assert jnp.allclose(x_norm, 0)
 
 
 def test_online_normalize_update():

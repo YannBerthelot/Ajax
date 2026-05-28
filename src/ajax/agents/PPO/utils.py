@@ -159,7 +159,84 @@ def _compute_gae_vtrace(
     return advantages, value_targets
 
 
-@partial(jax.jit, static_argnames=["num_minibatches"])
+@partial(jax.jit, static_argnames=["num_minibatches", "unroll_length"])
+def get_minibatches_preserving_time(
+    batch: tuple[jax.Array, ...],
+    rng: jax.Array,
+    num_minibatches: int,
+    unroll_length: Optional[int] = None,
+):
+    """Split a ``(T, n_envs, ...)`` rollout into minibatches that preserve
+    the time axis (brax PPO convention).
+
+    When ``unroll_length is None``: each minibatch is one slice of envs
+    spanning the FULL ``T``, output shape per leaf
+    ``(num_minibatches, T, n_envs/num_minibatches, ...)``. GAE inside
+    the loss scans the full T-length fragment.
+
+    When ``unroll_length`` is set (brax-faithful): the time axis is
+    sub-split into chunks of ``unroll_length``, fragments are formed
+    across (n_chunks * n_envs), shuffled, and split into
+    ``num_minibatches`` groups. Output shape per leaf
+    ``(num_minibatches, unroll_length, fragments_per_mb, ...)``. GAE
+    inside the loss scans only ``unroll_length`` steps and bootstraps
+    at every fragment boundary — matches brax's per-minibatch
+    ``(T=unroll_length, B=batch_size)`` shape.
+
+    ``jax.lax.scan`` over axis 0 yields one minibatch of the per-leaf
+    shape after the leading ``num_minibatches`` axis.
+    """
+    T = batch[0].shape[0]
+    n_envs = batch[0].shape[1]
+
+    if unroll_length is None:
+        assert n_envs % num_minibatches == 0, (
+            f"n_envs={n_envs} must divide num_minibatches={num_minibatches} "
+            "when unroll_length is None."
+        )
+        per_mb = n_envs // num_minibatches
+        perm = jax.random.permutation(rng, n_envs)
+
+        def _reshape_env_split(x):
+            x = jnp.take(x, perm, axis=1)
+            x = x.reshape(T, num_minibatches, per_mb, *x.shape[2:])
+            return jnp.swapaxes(x, 0, 1)
+
+        return jax.tree_util.tree_map(_reshape_env_split, batch)
+
+    # Brax-faithful fragment minibatching.
+    assert (
+        T % unroll_length == 0
+    ), f"n_steps={T} must be a multiple of unroll_length={unroll_length}."
+    n_chunks = T // unroll_length
+    n_fragments = n_chunks * n_envs
+    assert n_fragments % num_minibatches == 0, (
+        f"n_chunks*n_envs={n_fragments} must divide num_minibatches="
+        f"{num_minibatches} (n_steps={T} / unroll_length={unroll_length} * "
+        f"n_envs={n_envs})."
+    )
+    per_mb = n_fragments // num_minibatches
+    perm = jax.random.permutation(rng, n_fragments)
+
+    def _reshape_fragments(x):
+        # (T, n_envs, *feat) -> (n_chunks, unroll_length, n_envs, *feat)
+        x = x.reshape(n_chunks, unroll_length, n_envs, *x.shape[2:])
+        # -> (n_chunks, n_envs, unroll_length, *feat)
+        x = jnp.swapaxes(x, 1, 2)
+        # -> (n_chunks*n_envs, unroll_length, *feat) = (fragments, T_chunk, *feat)
+        x = x.reshape(n_fragments, unroll_length, *x.shape[3:])
+        # Shuffle along fragment axis.
+        x = jnp.take(x, perm, axis=0)
+        # -> (num_minibatches, per_mb, unroll_length, *feat)
+        x = x.reshape(num_minibatches, per_mb, unroll_length, *x.shape[2:])
+        # -> (num_minibatches, unroll_length, per_mb, *feat)
+        # so each minibatch has time on axis 0 (matches mb_body's
+        # (T, n_envs_per_mb, ...) expectation).
+        return jnp.swapaxes(x, 1, 2)
+
+    return jax.tree_util.tree_map(_reshape_fragments, batch)
+
+
 def get_minibatches_from_batch(
     batch: tuple[jax.Array, ...], rng: jax.Array, num_minibatches: int
 ):

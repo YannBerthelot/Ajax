@@ -61,11 +61,13 @@ def online_normalize(
             + batch_mean_2 * batch_size
             + (delta**2) * count * batch_size / total_count
         )
-        mean_2 = replace_zeros_with_ones(mean_2)
         count = total_count
 
     variance = mean_2 / count
     std = jnp.sqrt(variance + eps)
+    # Match brax acme.running_statistics: clip std to [1e-6, 1e6] so
+    # zero-variance features at init don't blow up the normalized obs.
+    std = jnp.clip(std, 1e-6, 1e6)
     x_norm = (input_x - _mean(mean, axis=0) * shift) / _mean(std, axis=0)
 
     x_norm = x_norm.reshape(input_x.shape)  # Ensure output shape matches input shape

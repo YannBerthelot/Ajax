@@ -43,6 +43,9 @@ class PPO(ActorCritic):
         vf_coef: float = 1.0,
         use_vtrace_gae: bool = False,
         fused_grad_clip: bool = False,
+        unroll_length: Optional[int] = None,
+        num_resets_per_eval: int = 0,
+        num_evals: int = 1,
         gae_lambda: float = 0.95,
         normalize_advantage: bool = True,
         lstm_hidden_size: Optional[int] = None,
@@ -60,6 +63,8 @@ class PPO(ActorCritic):
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         disable_encoder_output_norm: bool = False,
+        squash: bool = False,
+        episode_length: Optional[int] = None,
         pid_actor_config: Optional[PIDActorConfig] = None,
         action_pipeline: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
@@ -132,6 +137,20 @@ class PPO(ActorCritic):
             log_std_init=log_std_init,
             mean_kernel_init=mean_kernel_init,
             disable_encoder_output_norm=disable_encoder_output_norm,
+            squash=squash,
+            episode_length=episode_length,
+            # Brax-faithful normalise-at-forward: env wrapper is told
+            # NOT to apply normalisation to ``state.obs`` (transition
+            # obs stays raw). PPO uses Ajax's existing AGENT-side
+            # running normaliser (``collector_state.obs_norm_info``
+            # synced into ``actor_state.obs_norm_info`` /
+            # ``critic_state.obs_norm_info`` at every collect step) so
+            # ``get_pi`` / ``predict_value`` apply ``apply_obs_norm``
+            # consistently at both COLLECT and LOSS forward calls. The
+            # env wrapper is left in place when normalize_observations
+            # is True only so that ClipAction wraps the env -- the
+            # actual normalisation is fully agent-side.
+            apply_obs_normalization=not normalize_observations,
             extensions=extensions,
         )
 
@@ -148,6 +167,9 @@ class PPO(ActorCritic):
             vf_coef=vf_coef,
             use_vtrace_gae=use_vtrace_gae,
             fused_grad_clip=fused_grad_clip,
+            unroll_length=unroll_length,
+            num_resets_per_eval=num_resets_per_eval,
+            num_evals=num_evals,
             expose_recent_rollout=expose_recent_rollout,
         )
 
@@ -174,6 +196,15 @@ class PPO(ActorCritic):
         self.extra_actor_loss_fn = extra_actor_loss_fn
         self.extra_critic_loss_fn = extra_critic_loss_fn
         self.reward_shaping_fn = reward_shaping_fn
+        # Brax-faithful normalise-at-forward: when the user opted into
+        # ``normalize_observations``, route it through the AGENT-side
+        # running stats (collector_state.obs_norm_info, applied inside
+        # get_pi / predict_value via apply_obs_norm) instead of the env
+        # wrapper. The wrapper still needs the flag plumbed (so we know
+        # the obs in transition is raw, not pre-normalised by the env)
+        # -- that's handled inside ``super().__init__`` by toggling
+        # ``apply_obs_normalization=False`` below.
+        self._normalize_obs_running = bool(normalize_observations)
 
     def get_make_train(self) -> Callable:
         """
@@ -193,6 +224,7 @@ class PPO(ActorCritic):
             extra_eval_metrics=self.extra_eval_metrics,
             extra_actor_loss_fn=self.extra_actor_loss_fn,
             extra_critic_loss_fn=self.extra_critic_loss_fn,
+            normalize_obs_running=self._normalize_obs_running,
             reward_shaping_fn=self.reward_shaping_fn,
             extensions=tuple(self.extension_stack.extensions),
         )

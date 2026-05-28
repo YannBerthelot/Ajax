@@ -469,7 +469,6 @@ class NetworkConfig:
     actor_architecture: Tuple[str]
     critic_architecture: Tuple[str]
     lstm_hidden_size: Optional[int] = None
-    squash: bool = False
     penultimate_normalization: bool = False
     actor_kernel_init: Optional[Union[str, InitializationFunction]] = None
     actor_bias_init: Optional[Union[str, InitializationFunction]] = None
@@ -497,6 +496,7 @@ class NetworkConfig:
     log_std_init: float = -1.0
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
     disable_encoder_output_norm: bool = False
+    squash: bool = False
 
 
 @struct.dataclass

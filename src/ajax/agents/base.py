@@ -62,6 +62,9 @@ class ActorCritic:
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         disable_encoder_output_norm: bool = False,
+        squash: bool = False,
+        episode_length: Optional[int] = None,
+        apply_obs_normalization: bool = True,
         extensions: Sequence[Extension] = (),
     ) -> None:
         """
@@ -92,6 +95,8 @@ class ActorCritic:
             normalize_obs=normalize_observations,
             normalize_reward=normalize_rewards,
             n_envs=n_envs,
+            episode_length=episode_length,
+            apply_obs_normalization=apply_obs_normalization,
         )
 
         self.env_args = EnvironmentConfig(
@@ -118,6 +123,7 @@ class ActorCritic:
             log_std_init=log_std_init,
             mean_kernel_init=mean_kernel_init,
             disable_encoder_output_norm=disable_encoder_output_norm,
+            squash=squash,
         )
 
         self.actor_optimizer_args = OptimizerConfig(

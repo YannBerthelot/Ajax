@@ -112,6 +112,10 @@ def init_PPO(
         squash=False,
         num_critics=1,
         pid_actor_config=pid_actor_config,
+        log_std_state_independent=network_args.log_std_state_independent,
+        log_std_init=network_args.log_std_init,
+        mean_kernel_init=network_args.mean_kernel_init,
+        disable_encoder_output_norm=network_args.disable_encoder_output_norm,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(

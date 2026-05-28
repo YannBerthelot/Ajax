@@ -57,6 +57,11 @@ class ActorCritic:
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[tuple] = None,
+        # Brax-style actor head knobs (see NetworkConfig). Default = legacy.
+        log_std_state_independent: bool = False,
+        log_std_init: float = -1.0,
+        mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        disable_encoder_output_norm: bool = False,
         extensions: Sequence[Extension] = (),
     ) -> None:
         """
@@ -109,6 +114,10 @@ class ActorCritic:
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            log_std_state_independent=log_std_state_independent,
+            log_std_init=log_std_init,
+            mean_kernel_init=mean_kernel_init,
+            disable_encoder_output_norm=disable_encoder_output_norm,
         )
 
         self.actor_optimizer_args = OptimizerConfig(

@@ -54,6 +54,12 @@ class PPO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        # Brax-style actor head knobs (off by default = Ajax legacy).
+        # Set per-env in EVAREST's manip dict for brax/playground envs.
+        log_std_state_independent: bool = False,
+        log_std_init: float = -1.0,
+        mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        disable_encoder_output_norm: bool = False,
         pid_actor_config: Optional[PIDActorConfig] = None,
         action_pipeline: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
@@ -122,6 +128,10 @@ class PPO(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            log_std_state_independent=log_std_state_independent,
+            log_std_init=log_std_init,
+            mean_kernel_init=mean_kernel_init,
+            disable_encoder_output_norm=disable_encoder_output_norm,
             extensions=extensions,
         )
 

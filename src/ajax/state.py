@@ -488,6 +488,15 @@ class NetworkConfig:
     # a loose `tuple` annotation to avoid a networks<->state import cycle).
     # None -> CNNEncoder's default architecture.
     cnn_spec: Optional[tuple] = None
+    # Actor head knobs (Actor in networks.py). Default = legacy Ajax.
+    # Set per-env to match brax/playground convention for envs that
+    # need it (e.g. mujoco_playground manip uses scalar state-indep
+    # log_std at init=1.0, lecun_uniform mean head, no encoder-output
+    # LayerNorm).
+    log_std_state_independent: bool = False
+    log_std_init: float = -1.0
+    mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    disable_encoder_output_norm: bool = False
 
 
 @struct.dataclass

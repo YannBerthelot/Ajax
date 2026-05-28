@@ -13,8 +13,10 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from ajax.agents.TD3.networks import Deterministic
 from ajax.agents.TD3.train_TD3 import compute_td3_td_target, init_TD3
 from ajax.buffers.utils import get_buffer
+from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import (
     BufferConfig,
@@ -104,9 +106,6 @@ def test_target_smoothing_changes_target(env_config, td3_state):
 
 def test_actor_is_deterministic(env_config, td3_state):
     """Two forward passes on the same obs (different keys) must agree."""
-    from ajax.agents.TD3.networks import Deterministic
-    from ajax.environments.interaction import get_pi
-
     obs_shape, _ = get_state_action_shapes(env_config.env)
     obs = jnp.zeros((env_config.n_envs, *obs_shape))
     pi1, _ = get_pi(td3_state.actor_state, td3_state.actor_state.params, obs)

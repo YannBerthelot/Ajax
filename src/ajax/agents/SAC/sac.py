@@ -36,6 +36,7 @@ from ajax.extensions._sac_hooks import (
     make_next_expert_fn,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
+from ajax.extensions.pretrain import PhiRefresh as _PhiRefresh
 from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -1586,8 +1587,6 @@ def make_train(
     # return a frozen instance populated with the resolved values. SAC
     # does not need to know which extension consumes which kwarg —
     # see :meth:`Extension.bind_to_agent` for the per-class contract.
-    from ajax.extensions.pretrain import PhiRefresh as _PhiRefresh
-
     _resolved_action_dim = (
         action_dim_override
         if action_dim_override is not None

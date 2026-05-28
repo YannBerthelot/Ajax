@@ -3026,25 +3026,21 @@ virtualenv = ">=20.10.0"
 
 [[package]]
 name = "probing-environments"
-version = "0.4.0"
+version = "0.5.1"
 description = "Probing environments for RL/DeepRL algorithms debugging"
 optional = false
-python-versions = ">=3.11,<4.0"
-files = []
-develop = false
+python-versions = "<4.0,>=3.11"
+files = [
+    {file = "probing_environments-0.5.1-py3-none-any.whl", hash = "sha256:edadfc3fa6a044baf96b146bf1e078f632956efccfecaad7b7f378fada382243"},
+    {file = "probing_environments-0.5.1.tar.gz", hash = "sha256:d1b3485a9cf184ba6fce85750c8c97af1eb28f4dca83a6e3c6a225cd9314e351"},
+]
 
 [package.dependencies]
-chex = "^0.1.91"
+chex = ">=0.1.91,<0.2.0"
 gymnasium = ">=1.2"
-gymnax = {git = "https://github.com/YannBerthelot/gymnax.git"}
-mypy-extensions = "^1.0.0"
-pytest = "^7.4.0"
-
-[package.source]
-type = "git"
-url = "https://github.com/YannBerthelot/ProbingEnvironments.git"
-reference = "HEAD"
-resolved_reference = "644c86d3323832130d63334312afcfbc3a02a05a"
+gymnax = ">=0.0.9,<0.0.10"
+mypy-extensions = ">=1.0.0,<2.0.0"
+pytest = ">=7.4.0,<8.0.0"
 
 [[package]]
 name = "proglog"
@@ -4267,13 +4263,13 @@ docs = ["ipykernel", "jupyter_client", "matplotlib", "nbconvert", "nbformat", "n
 
 [[package]]
 name = "target-gym"
-version = "0.4.0"
+version = "0.5.0"
 description = "A reinforcement learning environment for simulating target-MDP environments (Airplane, Car, Process Control), with gymnasium and gymnax support"
 optional = false
-python-versions = ">=3.10"
+python-versions = "<3.14,>=3.11"
 files = [
-    {file = "target_gym-0.4.0-py3-none-any.whl", hash = "sha256:81c64f59e8a0d01eefeb550fa02a08799d8086ba1513bb3ee1f7c23dff74827f"},
-    {file = "target_gym-0.4.0.tar.gz", hash = "sha256:edff7a8fc70c375572c18d061cb44308e30926cbe52dafab55933086e3fdf6af"},
+    {file = "target_gym-0.5.0-py3-none-any.whl", hash = "sha256:3e7bb9bed8c2a398076b8c929d3474721e830dd1fe8ed6c33697b6a902d7eea2"},
+    {file = "target_gym-0.5.0.tar.gz", hash = "sha256:60873f4d6bd673648a213337c6f5e3c2dd96f00a1180251cbba9afda7556a4e6"},
 ]
 
 [package.dependencies]
@@ -4282,7 +4278,10 @@ distrax = ">=0.1.5"
 do-mpc = ">=5.1.1,<6.0.0"
 gymnasium = ">=1.2.0"
 gymnax = ">=0.0.9"
-jax = ">=0.6.2"
+jax = [
+    {version = ">=0.6.2", markers = "sys_platform == \"darwin\" and (platform_machine == \"arm64\" or platform_machine == \"aarch64\")"},
+    {version = ">=0.6.2", extras = ["cuda"], markers = "sys_platform != \"darwin\" or platform_machine != \"arm64\" and platform_machine != \"aarch64\""},
+]
 matplotlib = ">=3.8.1"
 moviepy = ">=2.2.1"
 numpy = ">=1.26.1"
@@ -4761,5 +4760,5 @@ type = ["pytest-mypy"]
 
 [metadata]
 lock-version = "2.0"
-python-versions = ">=3.11,<4.0"
-content-hash = "1f48cb29a92925ab48a5d31874302a3de41e8d3ba5576371eb5f49da54009ab4"
+python-versions = ">=3.11,<3.14"
+content-hash = "6cc92516884befefa217cda12f201f14531a8ee98637d4206e5890405a64d1b9"

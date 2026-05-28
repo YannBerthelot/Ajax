@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import fields
 from math import floor
-from typing import Any, Callable, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -22,7 +22,6 @@ from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
-    get_action_and_log_probs,
     get_pi,
     init_collector_state,
     should_use_uniform_sampling,
@@ -32,7 +31,13 @@ from ajax.environments.utils import (
     get_action_dim,
     get_state_action_shapes,
 )
-from ajax.log import evaluate_and_log
+from ajax.extensions._sac_hooks import (
+    make_action_pipeline,
+    make_next_expert_fn,
+)
+from ajax.extensions.base import ExtensionContext, ExtensionStack
+from ajax.extensions.pretrain import PhiRefresh as _PhiRefresh
+from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -40,45 +45,23 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.modules.expert import (
     augment_obs_if_needed,
-    blend_modify_target,
     compute_behavior_kpis,
     compute_expert_diagnostics,
-    compute_online_bc_loss,
-    detach_obs_expert_dims,
-    mc_correction_modify_target,
-    residual_action_transform,
 )
 from ajax.modules.exploration import (
     EDGEAuxiliaries,
-    box_action_override,
-    box_compute_state,
-    box_compute_threshold,
     compute_edge_diagnostics,
-    edge_argmax_gate,
-    edge_boltzmann_gate,
-    edge_compute_asym_scores,
-    edge_compute_decay,
-    edge_compute_lcb_scores,
-    edge_compute_thompson_stats,
-    edge_compute_value_gap,
-    edge_fixed_gate,
-    edge_lcb_argmax_gate,
-    edge_lcb_gate,
-    edge_thompson_gate,
 )
 from ajax.modules.pretrain import (
     PhiRefreshAuxiliaries,
     collect_and_store_expert_transitions,
     pretrain_critic_bellman,
-    pretrain_critic_mc,
-    pretrain_critic_online_light,
-    refresh_phi_star,
 )
 from ajax.networks.networks import (
     get_initialized_actor_critic,
-    get_initialized_critic,
     predict_value,
 )
+from ajax.perf_utils import build_resumable_train, final_aux_scan
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -89,865 +72,21 @@ from ajax.state import (
 )
 from ajax.types import BufferType
 
-# ---------------------------------------------------------------------------
-# Action pipeline — composable exploration for collect_experience
-# ---------------------------------------------------------------------------
-
-
-class ActionPipelineResult(NamedTuple):
-    """Result from the SAC action pipeline used by collect_experience."""
-
-    env_action: jax.Array  # action sent to env
-    policy_action: jax.Array  # actor's original action (stored in transition)
-    log_probs: jax.Array  # actor's log probs
-    is_expert_flag: jax.Array  # expert tracking for buffer
-    in_value_box: jax.Array  # box membership (zeros when no box)
-    entry_bonus: jax.Array  # box entry bonus (zeros when no box)
-    rng: jax.Array  # updated rng (EDGE may consume it)
-    new_expert_state: Optional[Any] = None  # updated PID/expert state after this step
-    # Action to write into the replay buffer. None => fall back to env_action.
-    # In gain-policy mode this is the raw actor output (gains) since Q operates
-    # in gain-space while env_action is the PID-derived control.
-    buffer_action: Optional[jax.Array] = None
-    # Live diagnostic stats from the LCB gate (per-step batch means). Used
-    # for tensorboard telemetry; nan when the pipeline doesn't compute them
-    # (no expert / non-LCB gate / warmup).
-    q_advantage: Optional[jax.Array] = None  # mean(mu_actor - mu_expert)
-    critic_sigma_actor: Optional[jax.Array] = None  # mean(sigma_actor)
-    critic_sigma_expert: Optional[jax.Array] = None  # mean(sigma_expert)
-    p_expert_max: Optional[jax.Array] = None  # max(p_t) of LCB softmax gate
-    # Expert action computed at this step with the correct (stateful) expert
-    # internal state. Stored in the Transition so the residual-RL actor
-    # loss can read it back instead of recomputing the expert with a fresh
-    # zero state on a buffer-sampled obs (which silently drops the
-    # integrator state for stateful PIDs).
-    a_expert: Optional[jax.Array] = None
-
-
-def _apply_lcb_gate(
-    score_e,
-    score_p,
-    rng,
-    lcb_temperature,
-    argmax,
-):
-    """Pick LCB gate: argmax (deterministic) or softmax (default)."""
-    if argmax:
-        return edge_lcb_argmax_gate(score_e, score_p, rng)
-    return edge_lcb_gate(score_e, score_p, rng, lcb_temperature)
-
-
-def make_action_pipeline(
-    expert_policy,
-    recurrent,
-    env_args,
-    # Box
-    use_box=False,
-    box_v_min=0.0,
-    box_v_max=0.0,
-    # EDGE
-    use_expert_guided_exploration=False,
-    exploration_decay_frac=0.30,
-    exploration_tau=1.0,
-    exploration_boltzmann=False,
-    exploration_argmax=False,
-    fixed_exploration_prob=0.5,
-    # Quality-aware (LCB) gate — alternative to argmax/boltzmann/fixed
-    exploration_lcb=False,
-    # Variant of the LCB path that swaps the softmax gate for a
-    # deterministic argmax (score_e > score_p) while keeping LCB
-    # scoring. Populates the (argmax, LCB) corner of the 2x2 ablation.
-    exploration_argmax_lcb=False,
-    exploration_thompson=False,
-    lcb_beta_init=1.0,
-    lcb_beta_decay_k=2.0,
-    lcb_temperature=1.0,
-    epsilon_floor=0.0,
-    # When True, the LCB gate uses asymmetric pessimism: LCB on the
-    # expert arm (conservative about following an unreliable expert),
-    # UCB on the policy arm (give the policy credit for its uncertainty
-    # so the gate hands control whenever the critic is unsure about
-    # a policy action). Fixes the symmetric LCB's tendency to over-
-    # penalize the policy in its own exploration regions. Set by the
-    # ``r_edge_bow`` method.
-    lcb_asymmetric=False,
-    # Action transforms
-    use_residual_rl=False,
-    residual_scale=1.0,
-    use_pid_policy=False,
-    # True JSRL: per-episode handoff at step_in_episode < H_t, with H_t
-    # decreasing over training (Uchendu et al. 2023). episode_length and
-    # decay_frac control the curriculum schedule.
-    jsrl_curriculum=False,
-    jsrl_episode_length=1000,
-    jsrl_decay_frac=0.5,
-    # Obs augmentation
-    augment_obs_with_expert_action=False,
-    # Off-policy correctness ablation: when True, the pipeline returns
-    # the policy's sampled action as buffer_action (instead of letting
-    # collect_experience fall back to env_action = the executed action).
-    store_policy_action=False,
-    # Context
-    total_timesteps=1,
-    expert_fraction=0.7,
-):
-    """Compose the SAC action pipeline for collect_experience.
-
-    Returns None for vanilla SAC (no expert). When provided, the pipeline
-    handles obs augmentation, action selection (EDGE, box, residual, PID),
-    and warmup expert/uniform mixing.
-
-    All boolean flags are resolved at Python level (trace time), so the
-    compiled graph only contains the active branches.
-    """
-    if expert_policy is None:
-        return None
-
-    # Stateful experts (FunctionalExpertPolicy) expose init_state; stateless
-    # callables (e.g. make_noise_expert_policy) don't. Resolve at Python level
-    # so the traced graph only contains the active branch.
-    expert_is_stateful = hasattr(expert_policy, "init_state")
-
-    # Gain-policy mode: actor output is interpreted as PID gain modulation.
-    # Pre-compute static anchor gains + scaling once; reuse per step.
-    gain_policy_mode = use_pid_policy and hasattr(expert_policy, "learnable_fields")
-    if use_pid_policy and not gain_policy_mode:
-        raise ValueError(
-            "use_pid_policy=True but expert_policy lacks learnable_fields."
-        )
-    if gain_policy_mode:
-        _anchor_gains = expert_policy.anchor_gains  # (n_gains,)
-        _gain_log_scale = jnp.log(10.0)
-
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        collector_state = agent_state.collector_state
-
-        # Live LCB / Thompson telemetry. Populated by the gating branches
-        # that compute critic ensemble stats; stays NaN otherwise (so
-        # vanilla SAC, edge-eps, ibrl, jsrl, residual all log NaN here,
-        # which downstream filtering drops cleanly).
-        _diag_q_advantage = jnp.nan
-        _diag_sigma_actor = jnp.nan
-        _diag_sigma_expert = jnp.nan
-        _diag_p_expert_max = jnp.nan
-
-        # --- Gain-policy short-circuit ---
-        if gain_policy_mode:
-            expert_zero_batched = expert_policy.init_state(env_args.n_envs)
-            last_done = collector_state.last_terminated.astype(
-                jnp.bool_
-            ) | collector_state.last_truncated.astype(jnp.bool_)
-            current_expert_state = (
-                collector_state.expert_state
-                if collector_state.expert_state is not None
-                else expert_zero_batched
-            )
-            expert_state_in = jax.tree.map(
-                lambda cur, zero: jnp.where(
-                    last_done.reshape(
-                        last_done.shape + (1,) * (cur.ndim - last_done.ndim)
-                    ),
-                    zero,
-                    cur,
-                ),
-                current_expert_state,
-                expert_zero_batched,
-            )
-            _raw_for_expert = (
-                raw_obs if raw_obs is not None else collector_state.last_obs
-            )
-            # Actor samples gain-space action (shape: (n_envs, n_gains))
-            action, log_probs = get_action_and_log_probs(
-                action_key=action_key,
-                agent_state=agent_state,
-                recurrent=recurrent,
-                uniform=False,
-            )
-            uniform_action = jax.random.uniform(
-                mix_key, minval=-1.0, maxval=1.0, shape=action.shape
-            )
-            gain_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
-            gains = _anchor_gains * jnp.exp(_gain_log_scale * gain_action)
-            env_action, new_expert_state = expert_policy.step_with_gains(
-                expert_state_in, _raw_for_expert, gains
-            )
-            is_expert_flag = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
-            return ActionPipelineResult(
-                env_action=env_action,
-                policy_action=action,
-                log_probs=log_probs,
-                is_expert_flag=is_expert_flag,
-                in_value_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
-                entry_bonus=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
-                rng=rng,
-                new_expert_state=new_expert_state,
-                buffer_action=gain_action,
-            )
-
-        # --- Stateful expert call (PID integrator / derivative carry) ---
-        # Reset the expert's internal state at the start of a new episode
-        # (detected via the *previous* step's done flag, since autoreset has
-        # already produced the fresh first obs by now).
-        if expert_is_stateful:
-            expert_zero_batched = expert_policy.init_state(env_args.n_envs)
-            last_done = collector_state.last_terminated.astype(
-                jnp.bool_
-            ) | collector_state.last_truncated.astype(jnp.bool_)
-            current_expert_state = (
-                collector_state.expert_state
-                if collector_state.expert_state is not None
-                else expert_zero_batched
-            )
-            expert_state_in = jax.tree.map(
-                lambda cur, zero: jnp.where(
-                    last_done.reshape(
-                        last_done.shape + (1,) * (cur.ndim - last_done.ndim)
-                    ),
-                    zero,
-                    cur,
-                ),
-                current_expert_state,
-                expert_zero_batched,
-            )
-            _raw_for_expert = (
-                raw_obs if raw_obs is not None else collector_state.last_obs
-            )
-            expert_action, new_expert_state = expert_policy(
-                expert_state_in, _raw_for_expert
-            )
-            expert_action = jax.lax.stop_gradient(expert_action)
-            new_expert_state = jax.lax.stop_gradient(new_expert_state)
-        else:
-            _raw_for_expert = (
-                raw_obs if raw_obs is not None else collector_state.last_obs
-            )
-            expert_action = jax.lax.stop_gradient(expert_policy(_raw_for_expert))
-            new_expert_state = None
-
-        # --- Box state computation ---
-        if use_box:
-            train_frac = agent_state.collector_state.timestep / total_timesteps
-            threshold = box_compute_threshold(box_v_min, box_v_max, train_frac)
-            obs_for_box = agent_state.collector_state.last_obs
-            raw_for_box = raw_obs if raw_obs is not None else obs_for_box[..., :-1]
-            in_value_box, entry_bonus, _ = box_compute_state(
-                obs_for_box,
-                raw_for_box,
-                expert_policy,
-                agent_state.critic_state,
-                agent_state.expert_critic_params,
-                threshold,
-                agent_state.collector_state.last_in_box,
-            )
-        else:
-            in_value_box = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
-            entry_bonus = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
-
-        # --- Obs augmentation: [env_obs | a_expert] ---
-        if augment_obs_with_expert_action:
-            _last_obs = agent_state.collector_state.last_obs
-            _augmented_obs = jnp.concatenate([_last_obs, expert_action], axis=-1)
-            agent_state_for_actor = agent_state.replace(
-                collector_state=agent_state.collector_state.replace(
-                    last_obs=_augmented_obs
-                )
-            )
-        else:
-            agent_state_for_actor = agent_state
-
-        # --- Policy action ---
-        action, log_probs = get_action_and_log_probs(
-            action_key=action_key,
-            agent_state=agent_state_for_actor,
-            recurrent=recurrent,
-            uniform=False,
-        )
-
-        # --- Uniform action (for warmup) ---
-        uniform_action = jax.random.uniform(
-            mix_key, minval=-1.0, maxval=1.0, shape=action.shape
-        )
-
-        # --- Post-warmup action ---
-        in_box = (
-            env_args.env.trunc_condition(
-                agent_state.collector_state.env_state, env_args.env_params
-            )
-            if "trunc_condition" in dir(env_args.env)
-            else jnp.zeros_like(action[..., :1])
-        )
-        if use_residual_rl:
-            post_warmup_action = jnp.clip(
-                expert_action + residual_scale * action, -1.0, 1.0
-            )
-        else:
-            post_warmup_action = (1 - in_box) * action + in_box * expert_action
-
-        # --- EDGE (Expert Decayed Guided Exploration) ---
-        if use_expert_guided_exploration:
-            # When augment_obs_with_expert_action is on, the critic was
-            # initialised with augmented input (env_obs + expert_action),
-            # so the EDGE gating must feed it the same shape. Use the
-            # already-built _augmented_obs from the policy block above.
-            obs_for_edge = (
-                _augmented_obs
-                if augment_obs_with_expert_action
-                else agent_state.collector_state.last_obs
-            )
-            edge_critic_params = (
-                agent_state.expert_critic_params
-                if agent_state.expert_critic_params is not None
-                else agent_state.critic_state.params
-            )
-            decay = edge_compute_decay(
-                agent_state.collector_state.timestep,
-                total_timesteps,
-                exploration_decay_frac,
-            )
-            if exploration_thompson:
-                mu_e, sigma_e, mu_p, sigma_p, q_policy = edge_compute_thompson_stats(
-                    obs_for_edge,
-                    action,
-                    expert_action,
-                    agent_state.critic_state,
-                    edge_critic_params,
-                )
-                use_expert_edge, rng = edge_thompson_gate(
-                    mu_e,
-                    sigma_e,
-                    mu_p,
-                    sigma_p,
-                    rng,
-                    lcb_temperature,
-                    epsilon_floor=epsilon_floor,
-                )
-                gap = mu_e - mu_p
-                _diag_q_advantage = jnp.mean(mu_p - mu_e)
-                _diag_sigma_actor = jnp.mean(sigma_p)
-                _diag_sigma_expert = jnp.mean(sigma_e)
-            elif exploration_lcb:
-                # Quality-aware: LCB scores + Boltzmann gate. Anneals beta
-                # toward 0 over training so the rule reduces to argmax-Q
-                # (IBRL-like) once the critic is well-calibrated.
-                progress = jnp.clip(
-                    agent_state.collector_state.timestep
-                    / jnp.maximum(total_timesteps, 1),
-                    0.0,
-                    1.0,
-                )
-                beta_eff = lcb_beta_init * jnp.power(1.0 - progress, lcb_beta_decay_k)
-                # Asymmetric variant (r_edge_bow): LCB on expert arm,
-                # UCB on policy arm. Inverts the over-conservative
-                # penalty of symmetric LCB at policy-exploration states.
-                _scores_fn = (
-                    edge_compute_asym_scores
-                    if lcb_asymmetric
-                    else edge_compute_lcb_scores
-                )
-                (
-                    score_e,
-                    score_p,
-                    q_policy,
-                    _mu_p,
-                    _mu_e,
-                    _sigma_p,
-                    _sigma_e,
-                ) = _scores_fn(
-                    obs_for_edge,
-                    action,
-                    expert_action,
-                    agent_state.critic_state,
-                    edge_critic_params,
-                    beta_eff,
-                )
-                use_expert_edge, rng = _apply_lcb_gate(
-                    score_e,
-                    score_p,
-                    rng,
-                    lcb_temperature,
-                    exploration_argmax_lcb,
-                )
-                # gap kept for diagnostic logging compat
-                gap = score_e - score_p
-                # Live LCB telemetry (mean over batch).
-                _diag_q_advantage = jnp.mean(_mu_p - _mu_e)
-                _diag_sigma_actor = jnp.mean(_sigma_p)
-                _diag_sigma_expert = jnp.mean(_sigma_e)
-                # Coverage Lemma diagnostic: max(p_expert) over the
-                # collection batch. With softmax gate, this is
-                # max sigmoid((score_e - score_p) / tau); with the
-                # argmax_lcb variant the empirical max is in {0, 1}.
-                _diag_p_expert_max = jnp.max(
-                    jax.nn.sigmoid(
-                        (score_e - score_p) / jnp.maximum(lcb_temperature, 1e-6)
-                    )
-                )
-            else:
-                gap, q_policy = edge_compute_value_gap(
-                    obs_for_edge,
-                    action,
-                    expert_action,
-                    agent_state.critic_state,
-                    edge_critic_params,
-                )
-                if exploration_argmax:
-                    use_expert_edge, rng = edge_argmax_gate(gap, decay, rng)
-                elif exploration_boltzmann:
-                    use_expert_edge, rng = edge_boltzmann_gate(
-                        gap,
-                        decay,
-                        rng,
-                        q_policy,
-                        exploration_tau,
-                    )
-                else:
-                    use_expert_edge, rng = edge_fixed_gate(
-                        gap,
-                        decay,
-                        rng,
-                        fixed_exploration_prob,
-                    )
-            post_warmup_action = jnp.where(
-                use_expert_edge, expert_action, post_warmup_action
-            )
-
-        # --- True JSRL curriculum: per-episode handoff at H_t ---
-        # H_t decreases linearly from jsrl_episode_length to 0 over the
-        # first jsrl_decay_frac fraction of training. While
-        # step_in_episode < H_t, the expert acts; otherwise the learner
-        # acts. Both arms' transitions go to the buffer (unified).
-        if jsrl_curriculum:
-            _global_t = agent_state.collector_state.timestep
-            _train_frac = _global_t / jnp.maximum(total_timesteps, 1)
-            _curriculum_progress = jnp.clip(_train_frac / jsrl_decay_frac, 0.0, 1.0)
-            _H_t = jsrl_episode_length * (1.0 - _curriculum_progress)
-            _step_in_ep = agent_state.collector_state.step_in_episode
-            # Shape (n_envs,); broadcast into the action mask.
-            _use_expert_jsrl = _step_in_ep.astype(jnp.float32) < _H_t
-            _use_expert_jsrl = _use_expert_jsrl.reshape(
-                (-1,) + (1,) * (post_warmup_action.ndim - 1)
-            )
-            post_warmup_action = jnp.where(
-                _use_expert_jsrl, expert_action, post_warmup_action
-            )
-
-        # --- Warmup action ---
-        if use_residual_rl:
-            warmup_action = uniform_action
-            use_expert_this_step = jnp.zeros((), dtype=jnp.bool_)
-        else:
-            use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
-            warmup_action = jnp.where(
-                use_expert_this_step, expert_action, uniform_action
-            )
-
-        # --- Expert flag tracking ---
-        _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
-        if use_expert_guided_exploration:
-            _post_expert = jnp.maximum(
-                _post_expert, use_expert_edge.astype(jnp.float32)
-            )
-        if use_box:
-            _post_expert = jnp.maximum(_post_expert, in_value_box.astype(jnp.float32))
-        _warmup_expert = jnp.ones_like(
-            action[..., :1], dtype=jnp.float32
-        ) * use_expert_this_step.astype(jnp.float32)
-        is_expert_flag = jax.lax.cond(
-            uniform, lambda: _warmup_expert, lambda: _post_expert
-        )
-
-        # --- Final action selection ---
-        env_action = jax.lax.cond(
-            uniform, lambda: warmup_action, lambda: post_warmup_action
-        )
-
-        # --- Box action override ---
-        if use_box:
-            env_action = box_action_override(env_action, expert_action, in_value_box)
-
-        # Off-policy correctness ablation hook: write the policy's would-
-        # be action to the buffer when the flag is set. Default behaviour
-        # (None) leaves buffer_action falling back to env_action — i.e.,
-        # the action that actually generated (s', r). Storing the policy
-        # action breaks this contract on steps where the gate selected
-        # the expert; used to justify the design choice.
-        _buffer_action_field = action if store_policy_action else None
-        return ActionPipelineResult(
-            env_action=env_action,
-            policy_action=action,
-            log_probs=log_probs,
-            is_expert_flag=is_expert_flag,
-            in_value_box=in_value_box,
-            entry_bonus=entry_bonus,
-            rng=rng,
-            new_expert_state=new_expert_state,
-            q_advantage=_diag_q_advantage,
-            critic_sigma_actor=_diag_sigma_actor,
-            critic_sigma_expert=_diag_sigma_expert,
-            p_expert_max=_diag_p_expert_max,
-            buffer_action=_buffer_action_field,
-            a_expert=expert_action,
-        )
-
-    return pipeline
-
-
-def make_next_expert_fn(expert_policy):
-    """Build a callable that returns ``a_expert(s_{t+1}, expert_state_{t+1})``.
-
-    The action pipeline already produced the post-step expert state
-    while consuming s_t; we feed it back together with raw s_{t+1} to
-    get the expert action that *would have been taken at the next
-    step*. Stored in the buffer so the residual-RL TD target evaluates
-    the bootstrap Q on the same residual-transformed action
-    distribution the critic was trained on. Returns None when the
-    expert is not provided (so collect_experience writes zeros).
-    """
-    if expert_policy is None:
-        return None
-    expert_is_stateful = hasattr(expert_policy, "init_state")
-
-    def next_expert_fn(post_step_expert_state, raw_next_obs):
-        if expert_is_stateful and post_step_expert_state is not None:
-            a_next, _ = expert_policy(post_step_expert_state, raw_next_obs)
-            return a_next
-        return expert_policy(raw_next_obs)
-
-    return next_expert_fn
-
-
-# ---------------------------------------------------------------------------
-# Critic target modifier — composable IBRL / blend / MC correction
-# ---------------------------------------------------------------------------
-
-
-def make_target_modifier(
-    ibrl_bootstrap=False,
-    lcb_gated_bootstrap=False,
-    lcb_beta_init=1.0,
-    lcb_beta_decay_k=2.0,
-    lcb_temperature=1.0,
-    use_critic_blend=False,
-    critic_warmup_frac=0.15,
-    mc_variance_threshold=None,
-    expert_policy=None,
-    total_timesteps=1,
-    augment_obs_with_expert_action=False,
-    recurrent=False,
-):
-    """Compose critic target modifiers: IBRL → blend → MC correction.
-
-    Returns None when no modifiers are active. When provided, the modifier
-    replaces 6 params in update_value_functions with a single callable.
-    Boolean flags are resolved at Python level (trace time).
-    """
-    has_ibrl = ibrl_bootstrap and expert_policy is not None
-    has_lcb_bootstrap = lcb_gated_bootstrap and expert_policy is not None
-    has_blend = use_critic_blend and expert_policy is not None
-    has_mc = mc_variance_threshold is not None
-
-    if not (has_ibrl or has_lcb_bootstrap or has_blend or has_mc):
-        return None
-
-    def modifier(
-        target_q,
-        agent_state,
-        observations,
-        actions,
-        next_observations,
-        dones,
-        gamma,
-        rng,
-        q_preds,
-    ):
-        alpha_blend_logged = jnp.zeros(1)
-        mc_correction_frac = jnp.zeros(1)
-
-        if has_ibrl:
-            _next_raw = (
-                next_observations[..., :-1]
-                if augment_obs_with_expert_action
-                else next_observations
-            )
-            next_expert_actions = jax.lax.stop_gradient(expert_policy(_next_raw))
-            q_targets_expert = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
-            )
-            min_q_expert = jnp.min(q_targets_expert, axis=0, keepdims=False)
-
-            next_pi, _ = get_pi(
-                actor_state=agent_state.actor_state,
-                actor_params=agent_state.actor_state.params,
-                obs=next_observations,
-                done=dones,
-                recurrent=recurrent,
-            )
-            ibrl_key, _ = jax.random.split(rng)
-            next_actions_ibrl, _ = next_pi.sample_and_log_prob(seed=ibrl_key)
-            q_targets_policy = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_actions_ibrl), axis=-1),
-            )
-            min_q_policy = jnp.min(q_targets_policy, axis=0, keepdims=False)
-
-            gap = jax.lax.stop_gradient(
-                gamma * (1.0 - dones) * jnp.maximum(min_q_expert - min_q_policy, 0.0)
-            )
-            target_q = target_q + gap
-
-        if has_lcb_bootstrap:
-            # LCB-gated bootstrap: at s', score each candidate by
-            #   score(a) = Q_min(s', a) - β · (Q_max(s', a) - Q_min(s', a))
-            # then soft-blend the policy and expert TD targets by
-            #   P_expert = σ((score_e - score_p) / lcb_temperature).
-            # When critic is confident on expert (low expert σ) and
-            # uncertain on policy (high policy σ), we lean toward the
-            # expert. As critic confidence grows on policy actions, we
-            # lean toward the policy. Same gate as action selection,
-            # applied at the bootstrap target — "LCB everywhere".
-            _next_raw = (
-                next_observations[..., :-1]
-                if augment_obs_with_expert_action
-                else next_observations
-            )
-            next_expert_actions = jax.lax.stop_gradient(expert_policy(_next_raw))
-            q_targets_expert = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
-            )
-            next_pi_lcb, _ = get_pi(
-                actor_state=agent_state.actor_state,
-                actor_params=agent_state.actor_state.params,
-                obs=next_observations,
-                done=dones,
-                recurrent=recurrent,
-            )
-            lcb_key, _ = jax.random.split(rng)
-            next_actions_lcb, _ = next_pi_lcb.sample_and_log_prob(seed=lcb_key)
-            q_targets_policy = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.target_params,
-                x=jnp.concatenate((next_observations, next_actions_lcb), axis=-1),
-            )
-            q_min_e = jnp.min(q_targets_expert, axis=0, keepdims=False)
-            q_max_e = jnp.max(q_targets_expert, axis=0, keepdims=False)
-            q_min_p = jnp.min(q_targets_policy, axis=0, keepdims=False)
-            q_max_p = jnp.max(q_targets_policy, axis=0, keepdims=False)
-            # Anneal beta over training same as the action-selection gate.
-            train_frac = jnp.clip(
-                agent_state.collector_state.timestep / jnp.maximum(total_timesteps, 1),
-                0.0,
-                1.0,
-            )
-            beta_eff = lcb_beta_init * jnp.power(1.0 - train_frac, lcb_beta_decay_k)
-            score_e = q_min_e - beta_eff * (q_max_e - q_min_e)
-            score_p = q_min_p - beta_eff * (q_max_p - q_min_p)
-            p_expert = jax.nn.sigmoid(
-                (score_e - score_p) / jnp.maximum(lcb_temperature, 1e-6)
-            )
-            # Bellman target with the LCB-gated next action. We blend the
-            # min-Q part only (entropy term stays on the policy branch
-            # since the expert is deterministic — log_prob is undefined).
-            min_q_lcb = (1.0 - p_expert) * q_min_p + p_expert * q_min_e
-            gap_lcb = jax.lax.stop_gradient(
-                gamma * (1.0 - dones) * (min_q_lcb - q_min_p)
-            )
-            target_q = target_q + gap_lcb
-
-        if has_blend and agent_state.expert_critic_params is not None:
-            next_raw = next_observations[..., :-1]
-            a_expert_next = jax.lax.stop_gradient(expert_policy(next_raw))
-            v_expert_next = jax.lax.stop_gradient(
-                jnp.min(
-                    predict_value(
-                        critic_state=agent_state.critic_state,
-                        critic_params=agent_state.expert_critic_params,
-                        x=jnp.concatenate([next_observations, a_expert_next], axis=-1),
-                    ),
-                    axis=0,
-                )
-            )
-            train_frac = agent_state.collector_state.timestep / total_timesteps
-            alpha_blend_val = jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
-            target_q, alpha_blend_logged = blend_modify_target(
-                target_q,
-                v_expert_next,
-                alpha_blend_val,
-            )
-            target_q = jax.lax.stop_gradient(target_q)
-
-        if has_mc and agent_state.expert_critic_params is not None:
-            q_var = q_preds.var(axis=0)[..., 0]
-            target_q, mc_correction_frac = mc_correction_modify_target(
-                target_q,
-                agent_state.critic_state,
-                agent_state.expert_critic_params,
-                observations,
-                actions,
-                q_var,
-                mc_variance_threshold,
-            )
-
-        return target_q, alpha_blend_logged, mc_correction_frac
-
-    return modifier
-
-
-# ---------------------------------------------------------------------------
-# Policy modifiers — composable obs preprocessing, action transform, BC loss
-# ---------------------------------------------------------------------------
-
-
-def make_policy_obs_preprocessor(
-    augment_obs_with_expert_action, detach_obs_aug_action, action_dim
-):
-    """Compose obs preprocessing for policy: stop-gradient expert-action dims.
-
-    Returns None when not needed (no augmentation or no detach).
-    """
-    if not (augment_obs_with_expert_action and detach_obs_aug_action):
-        return None
-
-    def preprocess(observations):
-        return detach_obs_expert_dims(observations, action_dim)
-
-    return preprocess
-
-
-def make_policy_action_transform(
-    use_residual_rl, expert_policy, residual_scale: float = 1.0
-):
-    """Compose policy action transform: residual RL.
-
-    Returns None for vanilla SAC. When provided, transforms actions
-    before Q evaluation in the actor loss. ``residual_scale`` follows
-    Johannink et al. 2019: executed action is
-    ``clip(a_expert + residual_scale * a_pi, -1, 1)``.
-    """
-    if not use_residual_rl or expert_policy is None:
-        return None
-
-    def transform(actions, raw_obs, a_expert_precomputed):
-        a_exp = (
-            a_expert_precomputed
-            if a_expert_precomputed is not None
-            else jax.lax.stop_gradient(expert_policy(raw_obs))
-        )
-        return residual_action_transform(actions, a_exp, scale=residual_scale)
-
-    return transform
-
-
-def make_bc_loss_fn(use_online_bc, bc_coef, critic_warmup_frac, expert_policy):
-    """Compose online decaying BC loss.
-
-    Returns None when BC is disabled. Captures bc_coef and critic_warmup_frac
-    in the closure so they don't need to be threaded through the call chain.
-    """
-    if not use_online_bc or expert_policy is None or critic_warmup_frac <= 0:
-        return None
-
-    def compute(
-        pi_loc,
-        a_expert,
-        critic_state,
-        expert_critic_params,
-        observations,
-        train_frac,
-        expert_v_min,
-        expert_v_max,
-    ):
-        return compute_online_bc_loss(
-            pi_loc,
-            a_expert,
-            critic_state,
-            expert_critic_params,
-            observations,
-            train_frac,
-            critic_warmup_frac,
-            expert_v_min,
-            expert_v_max,
-            bc_coef,
-        )
-
-    return compute
-
-
-# ---------------------------------------------------------------------------
-# Runtime maintenance — composable periodic φ* refresh
-# ---------------------------------------------------------------------------
-
-
-def make_runtime_maintenance(
-    use_phi_refresh=False,
-    phi_refresh_interval=500,
-    phi_refresh_steps=20,
-    gamma=0.99,
-    reward_scale=1.0,
-    expert_policy=None,
-    buffer=None,
-):
-    """Compose periodic runtime maintenance (φ* refresh).
-
-    Returns None when phi_refresh is disabled. When provided, runs
-    self-consistent Bellman steps on expert buffer transitions periodically.
-    Replaces use_phi_refresh, phi_refresh_interval, phi_refresh_steps
-    in training_iteration.
-    """
-    if not use_phi_refresh or expert_policy is None:
-        return None
-
-    _zero = PhiRefreshAuxiliaries(
-        loss_before=jnp.zeros(1),
-        loss_after=jnp.zeros(1),
-        expert_buffer_size=jnp.zeros(1),
-    )
-
-    def maintenance(agent_state):
-        return jax.lax.cond(
-            agent_state.collector_state.timestep % phi_refresh_interval == 0,
-            lambda s: refresh_phi_star(
-                s,
-                buffer,
-                phi_refresh_steps,
-                gamma,
-                reward_scale,
-                expert_policy,
-            ),
-            lambda s: (s, _zero),
-            operand=agent_state,
-        )
-
-    return maintenance
-
-
-# ---------------------------------------------------------------------------
-# Eval action transform — composable residual RL / PID for evaluate.py
-# ---------------------------------------------------------------------------
-
-
-def make_eval_action_transform(
-    use_residual_rl=False, use_pid_policy=False, residual_scale: float = 1.0
-):
-    """Compose eval-time action transform for residual RL.
-
-    Returns None for vanilla SAC (default box-based handover in evaluate.py).
-    Gain-mode pid_policy is handled directly in evaluate.step_environment via
-    the pid_gain_policy flag (needs expert_state access), not through here.
-    """
-    if use_pid_policy:
-        return None
-    if use_residual_rl:
-
-        def transform(raw_actions, expert_actions, obs, agent_state):
-            return jnp.clip(expert_actions + residual_scale * raw_actions, -1.0, 1.0)
-
-        return transform
-    return None
+# Extension `name` attributes for the four target-mod extensions
+# implemented in :mod:`ajax.extensions.target_mods`. Used by
+# ``update_value_functions`` to decide whether to materialise
+# ``q_preds_for_var`` (only ``MCVarianceCorrection`` actually needs it,
+# but the legacy code path conservatively computed it whenever any
+# target modifier was active — keep the same trigger set so the parity
+# tolerance is undisturbed).
+_TARGET_MOD_NAMES = frozenset(
+    {
+        "ibrl",
+        "lcb_gated_bootstrap",
+        "critic_blend",
+        "mc_variance_correction",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1180,7 +319,9 @@ def update_value_functions(
     gamma: float,
     reward_scale: float = 1.0,
     expert_q: Optional[jax.Array] = None,
-    target_modifier: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
+    augment_obs_with_expert_action: bool = False,
     extra_critic_loss_fn: Optional[Callable] = None,
     next_action_transform: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
@@ -1206,37 +347,66 @@ def update_value_functions(
         next_a_expert=next_a_expert,
     )
 
-    # 2. Q predictions for diagnostics
-    q_preds_for_var = predict_value(
-        critic_state=agent_state.critic_state,
-        critic_params=agent_state.critic_state.params,
-        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+    # 2. Q predictions for expert-path diagnostics. Only computed when a
+    # consumer exists (the target-mod ExtensionStack feeds them in via the
+    # ``q_preds`` batch entry for MCVarianceCorrection, or expert_q is set
+    # so q_gap can be reported). The gradient-bearing pass inside
+    # critic_loss_fn already exposes var_preds via core_aux.
+    has_target_mods = extension_stack is not None and any(
+        ext.name in _TARGET_MOD_NAMES for ext in extension_stack.extensions
     )
+    needs_expert_q_preds = has_target_mods or expert_q is not None
+    if needs_expert_q_preds:
+        q_preds_for_var = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+        )
 
-    # 3. Expert target modifiers (IBRL → blend → MC correction)
+    # 3. Expert target modifiers fold through the ExtensionStack
+    # (IBRL → LCBGatedBootstrap → CriticBlend → MCVarianceCorrection).
+    # The two diagnostic scalars `alpha_blend_logged` and
+    # `mc_correction_frac` that used to be threaded out of the
+    # `make_target_modifier` callable are dropped for now — they are pure
+    # observability (not exercised by parity / equivalence tests) and
+    # will be re-added cleanly via the `eval_metrics` phase. See
+    # Phase 2b commit notes.
     alpha_blend_logged = jnp.zeros(1)
     mc_correction_frac = jnp.zeros(1)
-    if target_modifier is not None:
-        target_q, alpha_blend_logged, mc_correction_frac = target_modifier(
-            target_q,
+    if has_target_mods:
+        # `has_target_mods` already asserts `extension_stack is not
+        # None` — assert it again for mypy.
+        assert extension_stack is not None
+        batch = {
+            "observations": observations,
+            "actions": actions,
+            "next_observations": next_observations,
+            "dones": dones,
+            "rng_key": value_loss_key,
+            "q_preds": q_preds_for_var,
+            "gamma": gamma,
+            "augment_obs_with_expert_action": augment_obs_with_expert_action,
+            "recurrent": recurrent,
+        }
+        target_q = extension_stack.fold_on_target(
             agent_state,
-            observations,
-            actions,
-            next_observations,
-            dones,
-            gamma,
+            batch,
+            target_q,
+            agent_state.collector_state.timestep,
             value_loss_key,
-            q_preds_for_var,
+            total_timesteps,
         )
 
     # 4. Core critic loss (MSE against composed target), optionally augmented
-    #    with an extra loss term that receives (params, critic_state) -> scalar.
+    #    with an extra loss term. The hook receives
+    #    (params, critic_state, obs, act, target_q) -> scalar so it can
+    #    recompute the batch residual (e.g. an EVarEst variance penalty).
     #    The extra loss is added inside the same value_and_grad so the single
     #    Adam step sees a combined gradient direction (coeff matters).
     def _critic_loss(params, critic_state, obs, act, tgt):
         loss, core_aux = core.critic_loss_fn(params, critic_state, obs, act, tgt)
         if extra_critic_loss_fn is not None:
-            loss = loss + extra_critic_loss_fn(params, critic_state)
+            loss = loss + extra_critic_loss_fn(params, critic_state, obs, act, tgt)
         return loss, core_aux
 
     (loss, core_aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
@@ -1247,14 +417,15 @@ def update_value_functions(
         target_q,
     )
 
-    # 5. Assemble full ValueAuxiliaries with expert diagnostics
-    q_pred_min_full = jnp.min(q_preds_for_var, axis=0)
-    q_expert_mean = expert_q.mean().flatten() if expert_q is not None else jnp.zeros(1)
-    q_gap = (
-        (expert_q - q_pred_min_full).mean().flatten()
-        if expert_q is not None
-        else jnp.zeros(1)
-    )
+    # 5. Assemble full ValueAuxiliaries with expert diagnostics.
+    # q_pred_min_full only feeds q_gap, which is itself gated on expert_q.
+    if expert_q is not None:
+        q_pred_min_full = jnp.min(q_preds_for_var, axis=0)
+        q_expert_mean = expert_q.mean().flatten()
+        q_gap = (expert_q - q_pred_min_full).mean().flatten()
+    else:
+        q_expert_mean = jnp.zeros(1)
+        q_gap = jnp.zeros(1)
 
     aux = ValueAuxiliaries(
         critic_loss=core_aux.critic_loss,
@@ -1301,7 +472,9 @@ def policy_loss_function(
     # Composed policy modifiers (replace 6 boolean flags)
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    ext_state: tuple = (),
+    total_timesteps: int = 1,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """SAC actor loss with composable expert modifiers.
 
@@ -1309,17 +482,30 @@ def policy_loss_function(
     1. Pre-process: obs_preprocessor (detach expert-action dims)
     2. Core: forward pass → sample → Q eval → α·log π - Q
     3. Modifier: policy_action_transform (residual RL before Q eval)
-    4. Modifier: bc_loss_fn (online decaying BC term)
+    4. Modifier: extension_stack.actor_loss (e.g. OnlineBC term)
     5. Diagnostics: expert Q gap, L2 distance, behavior KPIs
     """
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
     )
 
-    # 1. Pre-process: optionally detach expert-action dims in augmented obs
-    obs_for_actor = (
-        obs_preprocessor(observations) if obs_preprocessor is not None else observations
-    )
+    # 1. Pre-process: optionally detach expert-action dims in augmented obs.
+    # User-passed ``obs_preprocessor`` callable wins; otherwise the
+    # ExtensionStack's ``on_obs`` fold runs (ExpertObsAugmentation owns
+    # the stop-gradient on expert-action dims via its :meth:`on_obs`
+    # method — the legacy ``make_policy_obs_preprocessor`` builder is
+    # gone). Empty stack ⇒ identity.
+    if obs_preprocessor is not None:
+        obs_for_actor = obs_preprocessor(observations)
+    elif extension_stack is not None and extension_stack.extensions:
+        _on_obs_ctx = ExtensionContext(
+            step=jnp.asarray(0),
+            rng=rng,
+            total_steps=total_timesteps,
+        )
+        obs_for_actor = extension_stack.on_obs(observations, ext_state, _on_obs_ctx)
+    else:
+        obs_for_actor = observations
 
     # 2. Core forward pass + sample
     pi, _ = get_pi(
@@ -1356,8 +542,16 @@ def policy_loss_function(
     loss_actor = alpha * log_probs - q_min
 
     # 4. Expert diagnostics and BC loss
+    # OnlineBC is the only :class:`Extension` that currently contributes
+    # an ``actor_loss`` term; trigger the precomputed-a_expert path
+    # whenever that extension is present so the BC math finds its
+    # operand (the legacy ``needs_bc`` gate keyed on a non-None
+    # ``bc_loss_fn`` callable, which is gone now).
     needs_expert = expert_policy is not None and use_expert_guidance
-    needs_bc = bc_loss_fn is not None and expert_critic_params is not None
+    has_online_bc = extension_stack is not None and any(
+        ext.name == "online_bc" for ext in extension_stack.extensions
+    )
+    needs_bc = has_online_bc and expert_critic_params is not None
 
     if needs_expert or needs_bc:
         a_expert = (
@@ -1384,17 +578,38 @@ def policy_loss_function(
         q_expert_logged = jnp.zeros(())
         above_expert_frac = jnp.zeros(())
 
-    # Online decaying BC term
-    if needs_bc:
-        bc_term = bc_loss_fn(
-            pi.distribution.loc,
-            a_expert,
-            critic_states,
-            expert_critic_params,
-            observations,
-            train_frac,
-            expert_v_min,
-            expert_v_max,
+    # Additive actor-loss terms — folded through ``stack.actor_loss``.
+    # Each extension reads what it needs out of the ``batch`` dict
+    # (OnlineBC: pi_loc, a_expert, train_frac, critic_state,
+    # expert_critic_params, expert_v_min/v_max). When the relevant
+    # operands are missing (e.g. ``expert_critic_params is None`` ⇒ MC
+    # pre-training hasn't run) the extension's own gate returns 0.0,
+    # so this path is a silent no-op in that case — matching the
+    # pre-refactor ``bc_loss_fn`` builder, which simply returned
+    # ``None``. Empty stack ⇒ 0.0 too.
+    if extension_stack is not None and extension_stack.extensions:
+        ext_batch = {
+            "pi_loc": pi.distribution.loc,
+            "a_expert": a_expert,
+            "observations": observations,
+            "train_frac": train_frac,
+            "critic_state": critic_states,
+            "expert_critic_params": expert_critic_params,
+            "expert_v_min": expert_v_min,
+            "expert_v_max": expert_v_max,
+        }
+        ext_ctx = ExtensionContext(
+            step=jnp.asarray(0),
+            rng=rng,
+            total_steps=total_timesteps,
+        )
+        # The actor-loss extensions (OnlineBC) read every operand off
+        # ``batch``; agent_state and ext_state are passed for API
+        # symmetry. The ext_state tuple must match the stack's
+        # ``init_states`` shape (one entry per extension) so the
+        # ExtensionStack fold can index it.
+        bc_term = jnp.asarray(
+            extension_stack.actor_loss(None, ext_state, ext_batch, ext_ctx)
         )
     else:
         bc_term = jnp.zeros(())
@@ -1438,7 +653,8 @@ def update_policy(
     # Composed policy modifiers
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
     extra_actor_loss_fn: Optional[Callable] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
     """Returns (new_state, aux, log_probs) — log_probs reused by update_temperature
@@ -1473,7 +689,9 @@ def update_policy(
         expert_v_max=agent_state.expert_v_max,
         obs_preprocessor=obs_preprocessor,
         policy_action_transform=policy_action_transform,
-        bc_loss_fn=bc_loss_fn,
+        extension_stack=extension_stack,
+        ext_state=agent_state.ext_state,
+        total_timesteps=total_timesteps,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -1577,12 +795,16 @@ def update_agent(
     target_entropy_ramp_frac: float = 0.5,
     exploration_tau: float = 1.0,
     # Composed modules
-    target_modifier: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    # Optional Hindsight-Experience-Replay relabel. Signature
+    # (rng, transition) -> transition. Applied to the finalised sampled
+    # batch before any expert mixing / learner use. Default None ⇒ the
+    # batch is untouched and this path is byte-identical to before.
+    her_relabel_fn: Optional[Callable] = None,
 ) -> Tuple[SACState, AuxiliaryLogs]:
     sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
@@ -1628,8 +850,13 @@ def update_agent(
             len_original = len(observations)
             n_from_buffer = floor(transition_mix_fraction * len_original)
             n_from_online = len_original - n_from_buffer
+            # Generate sample indices once and reuse across leaves: the
+            # previous form called jax.random.choice once per leaf with
+            # the same sample_key, which produces identical indices per
+            # leaf but pays the index-generation cost N_leaves times.
+            mix_idx = jax.random.randint(sample_key, (n_from_online,), 0, len_original)
             additional_transition = jax.tree.map(
-                lambda x: jax.random.choice(sample_key, x, shape=(n_from_online,)),
+                lambda x: x[mix_idx],
                 additional_transition,
             )
             transition = jax.tree.map(
@@ -1650,6 +877,16 @@ def update_agent(
         expert_frac_in_buffer = jnp.zeros(())
     else:
         raise ValueError("Either buffer or additional_transition must be provided.")
+
+    # --- Hindsight Experience Replay relabel ---
+    # Opt-in. The caller-supplied fn rewrites the goal portion of
+    # obs/next_obs and recomputes reward in closed form, turning
+    # arbitrary achieved outcomes into on-target successes. No-op when
+    # her_relabel_fn is None.
+    if her_relabel_fn is not None:
+        rng, her_key = jax.random.split(rng)
+        agent_state = agent_state.replace(rng=rng)
+        transition = her_relabel_fn(her_key, transition)
 
     # --- Expert batch mixing ---
     if expert_mix_fraction > 0.0 and expert_policy is not None:
@@ -1715,10 +952,17 @@ def update_agent(
     # Avoids computing expert_policy twice (once here, once inside policy_loss_function)
     expert_q = None
     a_expert_precomputed = None
+    # ``has_online_bc`` mirrors the legacy ``bc_loss_fn is not None``
+    # gate now that the BC term lives on
+    # :meth:`OnlineBC.actor_loss`. Triggering the precomputed-a_expert
+    # path whenever the extension is present preserves the original
+    # numerical path even when MC pretrain hasn't (yet) populated
+    # ``expert_critic_params``.
+    has_online_bc = extension_stack is not None and any(
+        ext.name == "online_bc" for ext in extension_stack.extensions
+    )
     needs_expert = expert_policy is not None and (
-        use_expert_guidance
-        or policy_action_transform is not None
-        or bc_loss_fn is not None
+        use_expert_guidance or policy_action_transform is not None or has_online_bc
     )
     if needs_expert:
         _raw = (
@@ -1781,30 +1025,36 @@ def update_agent(
         else None
     )
 
-    def critic_update_step(carry, _):
-        agent_state = carry
-        agent_state, aux_value = update_value_functions(
+    def _one_critic_update(s):
+        return update_value_functions(
             observations=transition.obs,
             actions=transition.action,
             next_observations=transition.next_obs,
             rewards=transition.reward,
             dones=dones,
-            agent_state=agent_state,
+            agent_state=s,
             recurrent=recurrent,
             gamma=gamma,
             reward_scale=reward_scale,
             expert_q=expert_q,
-            target_modifier=target_modifier,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
             extra_critic_loss_fn=extra_critic_loss_fn,
             next_action_transform=_next_action_transform,
             next_a_expert=_next_a_expert_for_target,
         )
-        return agent_state, aux_value
 
-    agent_state, aux_value_seq = jax.lax.scan(
-        critic_update_step, agent_state, None, length=num_critic_updates
+    # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
+    # last-step aux without materialising the full ys axis.
+    def critic_update_step(state, _):
+        return _one_critic_update(state)
+
+    agent_state, aux_value = final_aux_scan(
+        critic_update_step,
+        agent_state,
+        length=num_critic_updates,
     )
-    aux_value = jax.tree.map(lambda x: x[-1], aux_value_seq)
 
     # --- Policy update — returns log_probs for temperature reuse ---
     train_frac = agent_state.collector_state.timestep / total_timesteps
@@ -1822,7 +1072,8 @@ def update_agent(
         train_frac=train_frac,
         obs_preprocessor=obs_preprocessor,
         policy_action_transform=policy_action_transform,
-        bc_loss_fn=bc_loss_fn,
+        extension_stack=extension_stack,
+        total_timesteps=total_timesteps,
         extra_actor_loss_fn=extra_actor_loss_fn,
     )
     agent_state = jax.lax.cond(
@@ -1957,14 +1208,13 @@ def training_iteration(
     target_entropy_ramp_frac: float = 0.5,
     # Composed modules (replace boolean flags)
     action_pipeline: Optional[Callable] = None,
-    target_modifier: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
-    bc_loss_fn: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
-    runtime_maintenance: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    her_relabel_fn: Optional[Callable] = None,
     auxiliary_update: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
     pid_gain_policy: bool = False,
@@ -1996,16 +1246,24 @@ def training_iteration(
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
-        # Periodic φ* refresh via composed runtime maintenance
-        _zero_phi = PhiRefreshAuxiliaries(
+        # ExtensionStack.post_update — PhiRefresh owns the periodic
+        # interval gate + self-consistent refresh of
+        # ``agent_state.expert_critic_params``. Other extensions'
+        # post_update defaults to identity; empty stack ⇒ no-op. The
+        # ``phi_refresh_aux`` diagnostics are observability-only and
+        # report zeros now; they'll be re-added via ``eval_metrics``.
+        phi_refresh_aux = PhiRefreshAuxiliaries(
             loss_before=jnp.zeros(1),
             loss_after=jnp.zeros(1),
             expert_buffer_size=jnp.zeros(1),
         )
-        if runtime_maintenance is not None:
-            agent_state, phi_refresh_aux = runtime_maintenance(agent_state)
-        else:
-            phi_refresh_aux = _zero_phi
+        if extension_stack is not None:
+            agent_state = extension_stack.fold_post_update(
+                agent_state,
+                agent_state.collector_state.timestep,
+                agent_state.rng,
+                total_timesteps,
+            )
 
         update_scan_fn = partial(
             update_agent,
@@ -2036,12 +1294,12 @@ def training_iteration(
             target_entropy_initial=target_entropy_initial,
             target_entropy_ramp_frac=target_entropy_ramp_frac,
             exploration_tau=exploration_tau,
-            target_modifier=target_modifier,
+            extension_stack=extension_stack,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
-            bc_loss_fn=bc_loss_fn,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
+            her_relabel_fn=her_relabel_fn,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -2159,6 +1417,21 @@ def training_iteration(
 
 
 # ---------------------------------------------------------------------------
+# Extension-stack context injection
+# ---------------------------------------------------------------------------
+#
+# Phase 5 + backbone lift: the back-compat translation layer that turned
+# legacy flag kwargs into auto-appended Extensions is gone, and the
+# Phase-5-era SAC-side ``_inject_*`` / ``_build_residual_*`` helpers
+# (~170 lines) have been deleted. Context that an extension needs at
+# runtime is now populated by the extension itself via
+# :meth:`Extension.bind_to_agent`, which the factory calls uniformly on
+# every extension in the stack — see the ``bind_to_agent`` block in
+# ``make_train`` below. ``extensions=`` is the sole surface for
+# composing research features on SAC.
+
+
+# ---------------------------------------------------------------------------
 # Training factory
 # ---------------------------------------------------------------------------
 
@@ -2191,49 +1464,29 @@ def make_train(
     box_threshold: float = 500.0,
     altitude_obs_idx: int = 1,
     target_obs_idx: int = 6,
-    # MC critic pretraining (replaces Bellman pretraining)
-    use_mc_critic_pretrain: bool = False,
-    mc_pretrain_n_mc_steps: int = 10_000,
-    mc_pretrain_n_mc_episodes: int = 100,
+    # MC sizing kwarg threaded into the inline Bellman-pretrain block
+    # below (``use_bellman_critic_pretrain``). MCPretrain extensions own
+    # the equivalent for the MC path inside ``MCPretrain(n_steps=...)``.
     mc_pretrain_n_steps: int = 5_000,
-    # Online critic light pre-regression (requires MC critic pretrain)
-    use_online_critic_light_pretrain: bool = True,
-    online_critic_pretrain_steps: int = 500,
-    online_critic_pretrain_lr_scale: float = 0.1,
     # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
     use_bellman_critic_pretrain: bool = False,
-    # Expert-guided policy loss terms
+    # Expert obs augmentation: changes init_SAC / collect_experience
+    # network input dim. The runtime stop-gradient on the augmented dims
+    # lives on :meth:`ExpertObsAugmentation.on_obs`.
     augment_obs_with_expert_action: bool = False,
-    detach_obs_aug_action: bool = False,
     # Train-fraction conditioning: append timestep/total_timesteps to obs
     use_train_frac: bool = False,
     # Update start thresholds
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
-    # Blended Bellman target (replaces potential-based shaping)
-    use_critic_blend: bool = False,
-    critic_warmup_frac: float = 0.15,
-    # Value-threshold box (v_min/v_max inferred from MC pretraining)
+    # Value-threshold box (v_min/v_max inferred from MC pretraining).
+    # Threads into ``make_scan_fn`` to resolve _box_v_min/_box_v_max from
+    # the agent state. The ValueBox.action math lives on the extension.
     use_box: bool = False,
-    # Online decaying BC term (active for all MC pretrain runs unless disabled)
-    use_online_bc: bool = True,
-    bc_coef: float = 1.0,
-    # EDGE (Expert Decayed Guided Exploration): stochastic expert substitution during collection
-    use_expert_guided_exploration: bool = False,
-    exploration_decay_frac: float = 0.30,
+    # EDGE softmax-temperature for non-LCB gates. Threaded into
+    # ``training_iteration`` for telemetry; the EDGEExploration extension
+    # also reads it via its own ``tau`` field.
     exploration_tau: float = 1.0,
-    exploration_boltzmann: bool = False,
-    fixed_exploration_prob: float = 0.5,
-    exploration_argmax: bool = False,
-    # Quality-aware (LCB) gate
-    exploration_lcb: bool = False,
-    exploration_argmax_lcb: bool = False,
-    exploration_thompson: bool = False,
-    lcb_beta_init: float = 1.0,
-    lcb_beta_decay_k: float = 2.0,
-    lcb_temperature: float = 1.0,
-    epsilon_floor: float = 0.0,
-    lcb_asymmetric: bool = False,
     expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
@@ -2241,29 +1494,20 @@ def make_train(
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
     store_policy_action: bool = False,
-    lcb_gated_bootstrap: bool = False,
-    # Residual RL (Johannink et al.): execute clip(a_expert + scale * a_pi, -1, 1)
+    # Residual RL (Johannink et al.): execute clip(a_expert + scale * a_pi, -1, 1).
+    # Threads into ``make_action_pipeline``; the ResidualPolicy extension
+    # owns the actor-loss / TD-target transform via :meth:`transform_action`.
     use_residual_rl: bool = False,
     residual_scale: float = 1.0,
     # True JSRL (Uchendu et al. 2023): per-episode curriculum handoff.
-    # Expert acts while step_in_episode < H_t; H_t decays from
-    # jsrl_episode_length to 0 over jsrl_decay_frac * T_total.
+    # The flag gates the ``step_in_episode`` counter init in
+    # :func:`init_SAC`; the curriculum math lives on
+    # :class:`JSRLCurriculum`.action.
     jsrl_curriculum: bool = False,
-    jsrl_episode_length: int = 1000,
-    jsrl_decay_frac: float = 0.5,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
     # Distance-modulated entropy target (None = disabled)
     target_entropy_far: Optional[float] = None,
-    # Online MC correction for high-variance critic states (None = disabled)
-    mc_variance_threshold: Optional[float] = None,
-    # Periodic self-consistent φ* refresh via expert-flagged buffer transitions
-    use_phi_refresh: bool = False,
-    phi_refresh_interval: int = 500,
-    phi_refresh_steps: int = 20,
-    # IBRL bootstrap: use max(Q_policy, Q_expert) for TD target to be consistent
-    # with argmax action-selection policy (exploration_argmax=True / EDGE).
-    ibrl_bootstrap: bool = False,
     # Pre-collected MC data: (obs, action, mc_return) JAX arrays.
     # When provided, the in-run expert rollout + MC-return computation is skipped.
     mc_preloaded_data: Optional[Tuple] = None,
@@ -2271,28 +1515,62 @@ def make_train(
     pid_actor_config=None,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
     action_dim_override: Optional[int] = None,
-    # --- Composable hook overrides (None = build from flags above) ---
+    # --- Composable hook overrides (None = build from extensions / defaults) ---
     action_pipeline: Optional[Callable] = None,
-    target_modifier: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
-    runtime_maintenance: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    her_relabel_fn: Optional[Callable] = None,
     init_transform: Optional[Callable] = None,
     auxiliary_update: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
+    # --- Extension framework (the research-features surface) ---
+    extensions: Sequence = (),
 ):
-    """
-    SAC training factory.
+    """SAC training factory.
 
-    expert_policy:      used for training (warmup seeding, critic
-                        pre-training). Pass None for true vanilla SAC.
+    expert_policy:      used for training (warmup seeding, expert buffer
+                        prefill, residual / JSRL collection-time
+                        substitution). Pass None for true vanilla SAC.
     eval_expert_policy: used ONLY for eval logging (expert bias metric).
-                        Always passed regardless of whether training uses expert.
-                        Defaults to expert_policy if not set explicitly.
+                        Defaults to ``expert_policy`` if unset.
+    extensions:         composable research features. Each
+                        :class:`~ajax.extensions.base.Extension`
+                        instance owns its own math via the phase
+                        methods (``on_target`` / ``actor_loss`` /
+                        ``action`` / ``pretrain`` / ``post_update`` /
+                        ``on_obs`` / ``init_state``). The SAC loop
+                        folds the stack at each phase. See
+                        :mod:`ajax.extensions` for the catalogue
+                        (``IBRL``, ``LCBGatedBootstrap``, ``CriticBlend``,
+                        ``MCVarianceCorrection``, ``ValueBox``,
+                        ``OnlineBC``, ``ResidualPolicy``, ``PhiRefresh``,
+                        ``EDGEExploration``, ``JSRLCurriculum``,
+                        ``ExpertGuidance``, ``ExpertObsAugmentation``,
+                        ``MCPretrain``, ``BellmanPretrain``).
+
+    Several kwargs above are kept on the function signature because they
+    thread into init / collection / pipeline at a level the extension
+    framework doesn't reach yet (``use_residual_rl``, ``jsrl_curriculum``,
+    ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
+    ``augment_obs_with_expert_action``, ``use_train_frac``,
+    ``normalize_obs_running``, ``store_policy_action``,
+    ``extra_critic_head_*``, etc.). They mirror the corresponding
+    extension's "static" flag where applicable.
     """
+    # Phase 5: the back-compat shim that turned legacy boolean kwargs
+    # into auto-appended Extensions (``_resolve_extension_stack`` +
+    # ``_auto_append_*`` + the ``_locals.get(...)`` rebinding block) was
+    # stripped. ``extensions=`` is now the sole surface for composing
+    # research features (target modifiers, online-BC, PhiRefresh, EDGE,
+    # MCPretrain, …). What remains is context injection: filling
+    # SAC-factory-only fields (env / network / critic-optimizer config,
+    # resolved action_dim, the shared buffer / gamma / reward_scale)
+    # onto a few Extension instances that can't know them at
+    # construction time.
+
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
     _eval_expert_policy = (
@@ -2302,137 +1580,122 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    # Bind the SAC-factory-only context onto every extension in the
+    # stack (no-op for extensions that don't override ``bind_to_agent``).
+    # PhiRefresh / MCPretrain / ExpertObsAugmentation / ResidualPolicy
+    # each pick up the kwargs they need from the agent context and
+    # return a frozen instance populated with the resolved values. SAC
+    # does not need to know which extension consumes which kwarg —
+    # see :meth:`Extension.bind_to_agent` for the per-class contract.
+    _resolved_action_dim = (
+        action_dim_override
+        if action_dim_override is not None
+        else get_action_dim(env_args.env, env_args.env_params)
+    )
+    _use_phi_refresh = any(isinstance(e, _PhiRefresh) for e in extensions)
+    extensions = tuple(
+        ext.bind_to_agent(
+            env_args=env_args,
+            network_args=network_args,
+            critic_optimizer_args=critic_optimizer_args,
+            num_critics=num_critics,
+            buffer=buffer,
+            mode=mode,
+            gamma=agent_config.gamma,
+            reward_scale=agent_config.reward_scale,
+            total_timesteps=total_timesteps,
+            use_train_frac=use_train_frac,
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
+            use_phi_refresh=_use_phi_refresh,
+            mc_preloaded_data=mc_preloaded_data,
+            action_dim=_resolved_action_dim,
+        )
+        for ext in extensions
+    )
+
     if logging_config is not None:
         start_async_logging()
 
-    @partial(jax.jit, static_argnames=("resume_from_state",))
-    def train(
-        key,
-        index: Optional[int] = None,
-        initial_state=None,
-        resume_from_state: bool = False,
-    ):
-        """Train one seed. When ``resume_from_state=True``, skip init_SAC and
-        use ``initial_state`` as the starting point (loaded from a checkpoint).
-        """
+    # Cloning parameters are a pure function of the (closure-constant)
+    # cloning_args + total_timesteps, so resolve them once here: they are
+    # needed both by the fresh-init pretraining and by the scan partial.
+    cloning_parameters, pre_train_n_steps = get_cloning_args(
+        cloning_args, total_timesteps
+    )
+    num_updates = total_timesteps // env_args.n_envs
+
+    # ------------------------------------------------------------------
+    # Fresh-init path: build the agent state and run all one-shot
+    # initialization (init_transform, MC / Bellman critic pretraining,
+    # behavioural-cloning pretraining). This is *only* invoked on a fresh
+    # run; on resume the shared helper reuses ``initial_state`` directly
+    # so none of this expensive one-shot work is re-run.
+    # ------------------------------------------------------------------
+    def init_fn(key, index):
+        """Build a fresh SAC agent state with all one-shot pretraining."""
         init_key, expert_key, transform_key = jax.random.split(key, 3)
 
-        if resume_from_state:
-            agent_state = initial_state
-        else:
-            agent_state = init_SAC(
-                key=init_key,
-                env_args=env_args,
-                actor_optimizer_args=actor_optimizer_args,
-                critic_optimizer_args=critic_optimizer_args,
-                network_args=network_args,
-                alpha_args=alpha_args,
-                buffer=buffer,
-                expert_policy=expert_policy,
-                max_timesteps=total_timesteps if use_train_frac else None,
-                num_critics=num_critics,
-                expert_buffer_n_steps=(
-                    expert_buffer_n_steps if expert_policy is not None else 0
-                ),
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                augment_obs_with_expert_state=augment_obs_with_expert_state,
-                expert_state_aug_dim=expert_state_aug_dim,
-                pid_actor_config=pid_actor_config,
-                action_dim_override=action_dim_override,
-                normalize_obs_running=normalize_obs_running,
-                jsrl_curriculum=jsrl_curriculum,
-                extra_critic_head_names=extra_critic_head_names,
-                extra_critic_head_dims=extra_critic_head_dims,
-            )
+        agent_state = init_SAC(
+            key=init_key,
+            env_args=env_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            alpha_args=alpha_args,
+            buffer=buffer,
+            expert_policy=expert_policy,
+            max_timesteps=total_timesteps if use_train_frac else None,
+            num_critics=num_critics,
+            expert_buffer_n_steps=(
+                expert_buffer_n_steps if expert_policy is not None else 0
+            ),
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
+            augment_obs_with_expert_state=augment_obs_with_expert_state,
+            expert_state_aug_dim=expert_state_aug_dim,
+            pid_actor_config=pid_actor_config,
+            action_dim_override=action_dim_override,
+            normalize_obs_running=normalize_obs_running,
+            jsrl_curriculum=jsrl_curriculum,
+            extra_critic_head_names=extra_critic_head_names,
+            extra_critic_head_dims=extra_critic_head_dims,
+        )
 
-        # Init-only steps (transform + MC pretrain). Skipped on resume so we
-        # don't re-run expensive one-shot initialization when continuing a
-        # previously-trained run from a checkpoint.
-        if init_transform is not None and not resume_from_state:
+        if init_transform is not None:
             agent_state = init_transform(agent_state, transform_key)
 
-        _box_v_min = jnp.array(0.0)
-        _box_v_max = jnp.array(0.0)
+        # Initialise the per-extension state tuple to match the stack
+        # built in make_scan_fn (one entry per Extension in `extensions`).
+        # The four target-mod extensions are stateless (``init_state`` →
+        # ``()``) so this is one ``()`` entry per extension — no pytree
+        # overhead — but it keeps the index used by
+        # ``ExtensionStack.on_target`` in range. Splitting a sub-key off
+        # ``init_key`` keeps the stateless path deterministic even when a
+        # future stateful extension consumes randomness.
+        if extensions:
+            _ext_key, _ = jax.random.split(init_key)
+            _stack = ExtensionStack(extensions)
+            agent_state = _stack.fold_init_states(agent_state, _ext_key)
 
-        if (
-            expert_policy is not None
-            and use_mc_critic_pretrain
-            and not resume_from_state
-        ):
-            expert_critic_state = get_initialized_critic(
-                key=expert_key,
-                env_config=env_args,
-                critic_optimizer_config=critic_optimizer_args,
-                network_config=network_args,
-                num_critics=num_critics,
-                max_timesteps=total_timesteps if use_train_frac else None,
-                extra_obs_dim=(
-                    get_action_dim(env_args.env, env_args.env_params)
-                    if augment_obs_with_expert_action
-                    else 0
-                ),
+        # MC critic pre-training now lives on
+        # :meth:`MCPretrain.pretrain`. The ExtensionStack fold is the
+        # framework-standard wiring point: when an :class:`MCPretrain`
+        # is in ``extensions`` it populates
+        # ``agent_state.expert_critic_params`` + ``expert_v_min/v_max``
+        # (and optionally ``expert_critic_state`` for PhiRefresh);
+        # otherwise the fold is identity. Empty stack ⇒ no-op. The
+        # ``expert_key`` here threads the same byte-identical RNG slot
+        # the legacy inline block consumed for
+        # ``get_initialized_critic``. ``ext_state`` was already
+        # populated above and is overwritten with the fold's result so
+        # any state changes a pretrain phase makes propagate.
+        if extensions:
+            _stack_for_pretrain = ExtensionStack(extensions)
+            agent_state = _stack_for_pretrain.fold_pretrain(
+                agent_state, jnp.asarray(0), expert_key, total_timesteps
             )
-            _preloaded = mc_preloaded_data  # None or (obs, action, mc) JAX arrays
-            (
-                agent_state,
-                frozen_expert_params,
-                mc_obs_batched,
-                mc_action_batched,
-                mc_aux,
-                expert_critic_state_trained,
-            ) = pretrain_critic_mc(
-                agent_state=agent_state,
-                expert_critic_state=expert_critic_state,
-                expert_policy=expert_policy,
-                mode=mode,
-                env_args=env_args,
-                recurrent=network_args.lstm_hidden_size is not None,
-                gamma=agent_config.gamma,
-                reward_scale=agent_config.reward_scale,
-                n_mc_steps=mc_pretrain_n_mc_steps,
-                n_mc_episodes=mc_pretrain_n_mc_episodes,
-                n_steps=mc_pretrain_n_steps,
-                max_timesteps=total_timesteps if use_train_frac else None,
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                preloaded_obs=_preloaded[0] if _preloaded is not None else None,
-                preloaded_action=_preloaded[1] if _preloaded is not None else None,
-                preloaded_mc=_preloaded[2] if _preloaded is not None else None,
-            )
-            agent_state = agent_state.replace(
-                expert_critic_params=frozen_expert_params,
-                expert_v_min=mc_aux.v_min,
-                expert_v_max=mc_aux.v_max,
-                # Keep φ* optimizer state alive for periodic refresh (None when disabled)
-                expert_critic_state=expert_critic_state_trained
-                if use_phi_refresh
-                else None,
-            )
-            if use_box:
-                _box_v_min = mc_aux.v_min
-                _box_v_max = mc_aux.v_max
-            jax.debug.print(
-                "[MC pretrain] loss: {i:.4f} -> {f:.4f}  |  "
-                "Q(s,a*) mean={qm:.1f}  min={qn:.1f}  max={qx:.1f}",
-                i=mc_aux.initial_loss,
-                f=mc_aux.final_loss,
-                qm=mc_aux.q_expert_mean,
-                qn=mc_aux.q_expert_min,
-                qx=mc_aux.q_expert_max,
-            )
-
-            if use_online_critic_light_pretrain:
-                agent_state = pretrain_critic_online_light(
-                    agent_state,
-                    mc_obs_batched,
-                    mc_action_batched,
-                    n_steps=online_critic_pretrain_steps,
-                    lr_scale=online_critic_pretrain_lr_scale,
-                )
-                jax.debug.print(
-                    "[Online critic light pretrain] done ({n} steps, lr_scale={s})",
-                    n=online_critic_pretrain_steps,
-                    s=online_critic_pretrain_lr_scale,
-                )
+            # ``use_box`` value-box bounds == the MC-pretrain v_min/v_max,
+            # which are persisted on ``agent_state`` above; the scan-fn
+            # builder reads them back from there (see make_scan_fn).
 
         if expert_policy is not None and use_bellman_critic_pretrain:
             agent_state = pretrain_critic_bellman(
@@ -2449,9 +1712,6 @@ def make_train(
                 "[Bellman pretrain] done ({n} steps)", n=mc_pretrain_n_steps
             )
 
-        cloning_parameters, pre_train_n_steps = get_cloning_args(
-            cloning_args, total_timesteps
-        )
         if pre_train_n_steps > 0:
             agent_state = get_pre_trained_agent(
                 agent_state,
@@ -2467,24 +1727,58 @@ def make_train(
                 augment_obs_with_expert_state=augment_obs_with_expert_state,
             )
 
-        num_updates = total_timesteps // env_args.n_envs
-        _, action_shape = get_state_action_shapes(env_args.env)
+        return agent_state
 
-        _valid_cloning_params = {
-            k: v
-            for k, v in cloning_parameters.items()
-            if k
-            in (
-                "n_epochs",
-                "transition_mix_fraction",
-                "imitation_coef",
-                "distance_to_stable",
-                "imitation_coef_offset",
-            )
-        }
+    # ------------------------------------------------------------------
+    # Per-iteration scan body. Built once at trace time *after*
+    # init/resume is resolved so the value-box bounds can be read off the
+    # resolved ``agent_state``. On the fresh-init path the MC-pretrain
+    # block above stored those bounds on ``expert_v_min/expert_v_max``;
+    # on resume they are left at 0.0, matching the pre-refactor behaviour
+    # (the original ``train`` defaulted ``_box_v_min/_box_v_max`` to 0.0
+    # and only overwrote them inside the fresh-init MC-pretrain branch).
+    # ------------------------------------------------------------------
+    _, action_shape = get_state_action_shapes(env_args.env)
+
+    _valid_cloning_params = {
+        k: v
+        for k, v in cloning_parameters.items()
+        if k
+        in (
+            "n_epochs",
+            "transition_mix_fraction",
+            "imitation_coef",
+            "distance_to_stable",
+            "imitation_coef_offset",
+        )
+    }
+
+    def make_scan_fn(agent_state, resume_from_state, key, index):
+        # Value-box bounds: on a fresh ``use_box`` run they equal the
+        # MC-pretrain v_min/v_max persisted on the agent state; on resume
+        # (or when no MC pretrain ran) they default to 0.0.
+        if use_box and not resume_from_state:
+            _box_v_min = agent_state.expert_v_min
+            _box_v_max = agent_state.expert_v_max
+        else:
+            _box_v_min = jnp.array(0.0)
+            _box_v_max = jnp.array(0.0)
+
+        # The collection-time substitution extensions (EDGE / ValueBox /
+        # JSRL) and the four target-mod extensions (IBRL /
+        # LCBGatedBootstrap / CriticBlend / MCVarianceCorrection) now
+        # fold through the ExtensionStack — collection-time via
+        # ``stack.action(...)`` (the action pipeline dispatches in the
+        # canonical legacy ordering), TD-target via ``stack.on_target``.
+        _extension_stack = ExtensionStack(extensions)
 
         # Compose hooks: if the caller supplied an override, use it;
-        # otherwise build the default from the legacy boolean flags.
+        # otherwise build the default. The EDGE / ValueBox / JSRL gate
+        # math has moved out — the pipeline now only carries the
+        # SAC-side bookkeeping (warmup mix, ``is_expert_flag``,
+        # ``buffer_action``, expert-state threading) plus the
+        # gain-policy short-circuit. The migrated features run via the
+        # extension stack passed in here.
         _action_pipeline = (
             action_pipeline
             if action_pipeline is not None
@@ -2492,29 +1786,12 @@ def make_train(
                 expert_policy=expert_policy,
                 recurrent=network_args.lstm_hidden_size is not None,
                 env_args=env_args,
-                use_box=use_box,
+                extension_stack=_extension_stack,
                 box_v_min=_box_v_min,
                 box_v_max=_box_v_max,
-                use_expert_guided_exploration=use_expert_guided_exploration,
-                exploration_decay_frac=exploration_decay_frac,
-                exploration_tau=exploration_tau,
-                exploration_boltzmann=exploration_boltzmann,
-                exploration_argmax=exploration_argmax,
-                fixed_exploration_prob=fixed_exploration_prob,
-                exploration_lcb=exploration_lcb,
-                exploration_argmax_lcb=exploration_argmax_lcb,
-                lcb_asymmetric=lcb_asymmetric,
-                exploration_thompson=exploration_thompson,
                 expert_fraction=expert_fraction,
-                lcb_beta_init=lcb_beta_init,
-                lcb_beta_decay_k=lcb_beta_decay_k,
-                lcb_temperature=lcb_temperature,
-                epsilon_floor=epsilon_floor,
                 use_residual_rl=use_residual_rl,
                 residual_scale=residual_scale,
-                jsrl_curriculum=jsrl_curriculum,
-                jsrl_episode_length=jsrl_episode_length,
-                jsrl_decay_frac=jsrl_decay_frac,
                 use_pid_policy=use_pid_policy,
                 augment_obs_with_expert_action=augment_obs_with_expert_action,
                 store_policy_action=store_policy_action,
@@ -2522,73 +1799,62 @@ def make_train(
             )
         )
 
-        _target_modifier = (
-            target_modifier
-            if target_modifier is not None
-            else make_target_modifier(
-                ibrl_bootstrap=ibrl_bootstrap,
-                lcb_gated_bootstrap=lcb_gated_bootstrap,
-                lcb_beta_init=lcb_beta_init,
-                lcb_beta_decay_k=lcb_beta_decay_k,
-                lcb_temperature=lcb_temperature,
-                use_critic_blend=use_critic_blend,
-                critic_warmup_frac=critic_warmup_frac,
-                mc_variance_threshold=mc_variance_threshold,
-                expert_policy=expert_policy,
-                total_timesteps=total_timesteps,
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                recurrent=network_args.lstm_hidden_size is not None,
-            )
-        )
+        # ExpertObsAugmentation owns the actor-side stop-gradient on the
+        # expert-action obs dims via :meth:`ExpertObsAugmentation.on_obs`.
+        # The fold runs inside ``policy_loss_function`` from the
+        # ExtensionStack when no explicit ``obs_preprocessor`` callable
+        # is passed — so we only forward the user override here. The
+        # legacy ``make_policy_obs_preprocessor`` builder is gone; the
+        # auto-append shim above has copied the resolved ``action_dim``
+        # onto any ExpertObsAugmentation instance in ``extensions``.
+        _obs_preprocessor = obs_preprocessor
 
-        _obs_preprocessor = (
-            obs_preprocessor
-            if obs_preprocessor is not None
-            else make_policy_obs_preprocessor(
-                augment_obs_with_expert_action,
-                detach_obs_aug_action,
-                action_shape[0],
-            )
-        )
+        # ResidualPolicy owns the ``clip(a_expert + scale·a_pi, -1, 1)``
+        # math via :meth:`ResidualPolicy.transform_action`. The actor-
+        # loss / TD-target call sites still consume a thin callable
+        # (signature ``(actions, raw_obs, a_expert_precomputed) ->
+        # actions``); we build it here off the first
+        # :class:`ResidualPolicy` in the stack so the math lives on the
+        # Extension and the legacy ``make_policy_action_transform``
+        # builder is gone. ``None`` ⇒ pure SAC actor loss.
+        # ResidualPolicy owns both the actor-loss / TD-target residual
+        # transform and the eval-time transform. The factory pulls them
+        # off the first :class:`ResidualPolicy` in the stack via the
+        # extension's :meth:`build_policy_transform` /
+        # :meth:`build_eval_transform` methods — self-contained
+        # replacements for the legacy SAC-side ``_build_residual_*``
+        # helpers. ``None`` ⇒ pure SAC actor loss / default box-based
+        # handover.
+        from ajax.extensions.expert import ResidualPolicy, first_of_type
+
+        _rp = first_of_type(extensions, ResidualPolicy)
         _policy_action_transform = (
             policy_action_transform
             if policy_action_transform is not None
-            else make_policy_action_transform(
-                use_residual_rl,
-                expert_policy,
-                residual_scale=residual_scale,
+            else (
+                _rp.build_policy_transform(expert_policy) if _rp is not None else None
             )
         )
-        _bc_loss_fn = make_bc_loss_fn(
-            use_online_bc,
-            bc_coef,
-            critic_warmup_frac,
-            expert_policy,
-        )
 
+        # Eval transform: ``None`` when ``use_pid_policy`` is set
+        # (gain-mode handles its own eval transform in
+        # ``step_environment``) or when no ResidualPolicy is present.
         _eval_action_transform = (
             eval_action_transform
             if eval_action_transform is not None
-            else make_eval_action_transform(
-                use_residual_rl=use_residual_rl,
-                use_pid_policy=use_pid_policy,
-                residual_scale=residual_scale,
+            else (
+                None if (use_pid_policy or _rp is None) else _rp.build_eval_transform()
             )
         )
 
-        _runtime_maintenance = (
-            runtime_maintenance
-            if runtime_maintenance is not None
-            else make_runtime_maintenance(
-                use_phi_refresh=use_phi_refresh,
-                phi_refresh_interval=phi_refresh_interval,
-                phi_refresh_steps=phi_refresh_steps,
-                gamma=agent_config.gamma,
-                reward_scale=agent_config.reward_scale,
-                expert_policy=expert_policy,
-                buffer=buffer,
-            )
-        )
+        # Periodic φ* refresh now lives on
+        # :meth:`PhiRefresh.post_update`; the SAC loop folds
+        # ``stack.post_update(...)`` inside ``training_iteration`` at
+        # the start of each ``do_update``. The legacy
+        # ``runtime_maintenance`` builder is gone — the auto-append
+        # shim below has already copied ``buffer`` /
+        # ``agent_config.gamma`` / ``agent_config.reward_scale`` onto
+        # any PhiRefresh instance in ``extensions``.
 
         training_iteration_scan_fn = partial(
             training_iteration,
@@ -2630,18 +1896,19 @@ def make_train(
             target_entropy_initial=target_entropy_initial,
             target_entropy_ramp_frac=target_entropy_ramp_frac,
             action_pipeline=_action_pipeline,
-            target_modifier=_target_modifier,
+            extension_stack=_extension_stack,
             obs_preprocessor=_obs_preprocessor,
             policy_action_transform=_policy_action_transform,
-            bc_loss_fn=_bc_loss_fn,
             eval_action_transform=_eval_action_transform,
             pid_gain_policy=use_pid_policy,
             next_expert_fn=make_next_expert_fn(expert_policy),
-            runtime_maintenance=_runtime_maintenance,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
+            her_relabel_fn=her_relabel_fn,
             auxiliary_update=auxiliary_update,
-            extra_eval_metrics=extra_eval_metrics,
+            extra_eval_metrics=compose_eval_metrics(
+                extra_eval_metrics, _extension_stack, total_timesteps
+            ),
             **_valid_cloning_params,
         )
 
@@ -2654,12 +1921,10 @@ def make_train(
             new_carry, _metrics = training_iteration_scan_fn(carry, x)
             return new_carry, None
 
-        agent_state, _ = jax.lax.scan(
-            f=_scan_body_no_ys,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
-        )
-        return agent_state, None
+        return _scan_body_no_ys
 
-    return train
+    return build_resumable_train(
+        init_fn=init_fn,
+        make_scan_fn=make_scan_fn,
+        num_updates=num_updates,
+    )

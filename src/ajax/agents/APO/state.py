@@ -24,3 +24,5 @@ class APOConfig(BaseAgentConfig):
     alpha: float = 0.1
     gamma: float = jnp.nan
     nu: float = 0.1
+    # When > 0, decouples num_minibatches from batch_size (brax-style).
+    num_minibatches: int = 0

@@ -398,6 +398,7 @@ def pretrain_actor_weighted_bc(
         "n_steps",
         "buffer",
         "update_value_fn",
+        "update_target_fn",
     ],
 )
 def pretrain_critic_bellman(

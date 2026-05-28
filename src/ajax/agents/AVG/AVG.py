@@ -1,10 +1,17 @@
+import uuid
 from collections.abc import Sequence
 from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
-import wandb
 from gymnax import EnvParams
+
+# Defensive: see ajax/agents/base.py for rationale (broken wandb install
+# must not crash Ajax imports — TensorBoard-only runs should still work).
+try:
+    import wandb  # type: ignore[import-untyped]
+except ImportError:
+    wandb = None  # type: ignore[assignment]
 
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
@@ -13,6 +20,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
+from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -54,6 +62,12 @@ class AVG:
         target_modifier: Optional[Callable] = None,
         obs_preprocessor: Optional[Callable] = None,
         policy_action_transform: Optional[Callable] = None,
+        # Gap A (Phase 4a): expose the most recent ``(T=1, n_envs, ...)``
+        # rollout transition on ``agent_state.last_rollout``. Off by
+        # default — see :attr:`BaseAgentState.last_rollout`.
+        expose_recent_rollout: bool = False,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the AVG agent.
@@ -129,6 +143,7 @@ class AVG:
             target_entropy=target_entropy,
             reward_scale=reward_scale,
             num_critics=num_critics,
+            expose_recent_rollout=expose_recent_rollout,
         )
 
         self.expert_policy = expert_policy
@@ -138,6 +153,10 @@ class AVG:
         self.target_modifier = target_modifier
         self.obs_preprocessor = obs_preprocessor
         self.policy_action_transform = policy_action_transform
+        # Composable research features (mirrors ActorCritic base). AVG
+        # defines its own __init__ rather than inheriting from
+        # ActorCritic, so the stack is built here.
+        self.extension_stack = ExtensionStack(extensions)
 
     @with_wandb_silent
     def train(
@@ -160,7 +179,12 @@ class AVG:
 
         if logging_config is not None:
             logging_config.config.update(self.config)
-            run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
+            _gen_id = (
+                wandb.util.generate_id
+                if wandb is not None
+                else lambda: uuid.uuid4().hex
+            )
+            run_ids = [_gen_id() for _ in range(len(seed))]
             for run_id in run_ids:
                 init_logging(run_id, logging_config)
         else:
@@ -187,6 +211,7 @@ class AVG:
                 target_modifier=self.target_modifier,
                 obs_preprocessor=self.obs_preprocessor,
                 policy_action_transform=self.policy_action_transform,
+                extensions=tuple(self.extension_stack.extensions),
             )
 
             agent_state = train_jit(key, index)

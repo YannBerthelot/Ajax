@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
@@ -7,10 +8,12 @@ from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.state import OptimizerConfig
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -37,6 +40,8 @@ class APO(ActorCritic):
         n_steps: int = 2048,
         batch_size: int = 64,
         n_epochs: int = 10,
+        num_minibatches: int = 0,
+        adam_eps: float = 1e-8,
         gae_lambda: float = 0.95,
         alpha: float = 0.1,
         nu: float = 0.1,
@@ -65,6 +70,12 @@ class APO(ActorCritic):
         action_pipeline: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
         obs_preprocessor: Optional[Callable] = None,
+        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # rollout transition on ``agent_state.last_rollout``. Off by
+        # default — see :attr:`BaseAgentState.last_rollout`.
+        expose_recent_rollout: bool = False,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the APO agent.
@@ -108,6 +119,7 @@ class APO(ActorCritic):
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            extensions=extensions,
         )
 
         self.agent_config = APOConfig(
@@ -118,8 +130,24 @@ class APO(ActorCritic):
             n_epochs=n_epochs,
             gae_lambda=gae_lambda,
             normalize_advantage=normalize_advantage,
+            num_minibatches=num_minibatches,
             alpha=alpha,
             nu=nu,
+            expose_recent_rollout=expose_recent_rollout,
+        )
+
+        # Override base ActorCritic's eps=1e-5 with brax-default eps=1e-8.
+        self.actor_optimizer_args = OptimizerConfig(
+            learning_rate=actor_learning_rate,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+            eps=adam_eps,
+        )
+        self.critic_optimizer_args = OptimizerConfig(
+            learning_rate=critic_learning_rate,
+            max_grad_norm=max_grad_norm,
+            clipped=max_grad_norm is not None,
+            eps=adam_eps,
         )
         self.cloning_confing = CloningConfig(
             actor_epochs=actor_cloning_epochs,
@@ -154,6 +182,7 @@ class APO(ActorCritic):
             action_pipeline=self.action_pipeline,
             eval_action_transform=self.eval_action_transform,
             obs_preprocessor=self.obs_preprocessor,
+            extensions=tuple(self.extension_stack.extensions),
         )
 
 

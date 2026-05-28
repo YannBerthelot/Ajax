@@ -1,13 +1,24 @@
 import time
+import uuid
 from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
-import wandb
 from gymnax import EnvParams
 
+# Defensive: a broken wandb install must not crash Ajax imports —
+# downstream callers using TensorBoard-only (use_wandb=False) should
+# still work. ``wandb.util.generate_id()`` is only reached when a
+# ``LoggingConfig`` was passed; in that branch we fall back to
+# ``uuid.uuid4().hex`` if wandb didn't import.
+try:
+    import wandb  # type: ignore[import-untyped]
+except ImportError:
+    wandb = None  # type: ignore[assignment]
+
 from ajax.environments.create import prepare_env
+from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -43,6 +54,18 @@ class ActorCritic:
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        cnn_image_shape: Optional[tuple] = None,
+        cnn_extra_obs_dim: int = 0,
+        cnn_spec: Optional[tuple] = None,
+        # Brax-style actor head knobs (see NetworkConfig). Default = legacy.
+        log_std_state_independent: bool = False,
+        log_std_init: float = -1.0,
+        mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        disable_encoder_output_norm: bool = False,
+        squash: bool = False,
+        episode_length: Optional[int] = None,
+        apply_obs_normalization: bool = True,
+        extensions: Sequence[Extension] = (),
     ) -> None:
         """
         Initialize the PPO agent.
@@ -72,6 +95,8 @@ class ActorCritic:
             normalize_obs=normalize_observations,
             normalize_reward=normalize_rewards,
             n_envs=n_envs,
+            episode_length=episode_length,
+            apply_obs_normalization=apply_obs_normalization,
         )
 
         self.env_args = EnvironmentConfig(
@@ -91,6 +116,14 @@ class ActorCritic:
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
+            log_std_state_independent=log_std_state_independent,
+            log_std_init=log_std_init,
+            mean_kernel_init=mean_kernel_init,
+            disable_encoder_output_norm=disable_encoder_output_norm,
+            squash=squash,
         )
 
         self.actor_optimizer_args = OptimizerConfig(
@@ -105,6 +138,13 @@ class ActorCritic:
         )
 
         self.agent_config = BaseAgentConfig()
+
+        # Composable research features (expert guidance, instrumentation,
+        # …). The stack is static — agents thread it into make_train as a
+        # static argument and fold it at the phase points of their
+        # training step. An empty stack is a true no-op. See
+        # `ajax.extensions.base`.
+        self.extension_stack = ExtensionStack(extensions)
 
     def get_make_train(self) -> Callable:
         raise NotImplementedError
@@ -133,7 +173,12 @@ class ActorCritic:
 
         if logging_config is not None:
             logging_config.config.update(self.config)
-            self.run_ids = [wandb.util.generate_id() for _ in range(len(seed))]
+            _gen_id = (
+                wandb.util.generate_id
+                if wandb is not None
+                else lambda: uuid.uuid4().hex
+            )
+            self.run_ids = [_gen_id() for _ in range(len(seed))]
             for run_id in self.run_ids:
                 init_logging(run_id, logging_config)
 

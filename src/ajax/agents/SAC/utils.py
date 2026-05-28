@@ -46,6 +46,13 @@ class SquashedNormal(distrax.Transformed):
         """
         return -2.0 * (u + jax.nn.softplus(-2.0 * u) - jnp.log(2.0))
 
+    def log_prob_from_raw(self, raw_action):
+        """log_prob via the pre-tanh sample (no arctanh, stable at saturation)."""
+        return (
+            self.distribution.log_prob(raw_action)
+            - self.bijector.forward_log_det_jacobian(raw_action)
+        ).sum(-1, keepdims=True)
+
     def effective_entropy(self, key, num_samples=1):
         """
         Calculates the entropy proxy for the temperature (alpha) loss.

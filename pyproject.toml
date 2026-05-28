@@ -6,7 +6,7 @@ authors = ["Yann Berthelot <yannberthelot1@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<4.0"
+python = ">=3.11,<3.14"
 gymnasium = "^1.2.0"
 tqdm = "^4.65.0"
 pandas = "^2.1.1"
@@ -21,7 +21,7 @@ mujoco = "^3.1.4"
 mujoco-mjx = "^3.1.4"
 python-dotenv = "^1.1.1"
 gymnax = {git = "https://github.com/YannBerthelot/gymnax.git"}
-target-gym = "^0.4.0"
+target-gym = "^0.5.0"
 distrax = ">=0.1.6"
 tensorboardx = "^2.6.4"
 dill = "^0.4.1"
@@ -41,7 +41,7 @@ coverage = {extras = ["toml"], version = "^7.8.0"}
 pytest-mock = "^3.14.0"
 mock = "^5.1.0"
 ruff = "^0.11.6"
-probing-environments = {git = "https://github.com/YannBerthelot/ProbingEnvironments.git"}
+probing-environments = "^0.5.1"
 
 
 [tool.poetry.group.render.dependencies]
@@ -120,8 +120,12 @@ branch = true
 
 
 [tool.coverage.report]
-omit = [ "tests/*"]
-ignore_errors = true    
+# probing_environments is a third-party dependency. CI installs it into
+# site-packages (which coverage skips), but an editable local install
+# lives under a source path coverage would otherwise measure -- omit it
+# so coverage reflects Ajax code only, consistently with CI.
+omit = ["tests/*", "*/probing_environments/*"]
+ignore_errors = true
 fail_under = 70
 
 exclude_also = [

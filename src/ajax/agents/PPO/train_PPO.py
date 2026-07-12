@@ -16,6 +16,7 @@ from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
+    get_pi_sequence,
     init_collector_state,
 )
 from ajax.environments.utils import (
@@ -29,9 +30,11 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import resolve_memory_config
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
+    predict_value_sequence,
 )
 from ajax.state import (
     EnvironmentConfig,
@@ -143,6 +146,7 @@ def value_loss_function(
     recurrent: bool,
     agent_state: Optional[Any] = None,
     extra_loss_fn: Optional[Callable] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -167,13 +171,25 @@ def value_loss_function(
     """
 
     # Predict V-values from critics
-    v_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_params,
-        x=observations,
-    ).squeeze(
-        0
-    )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
+    if recurrent:
+        # `dones` carries obs-aligned reset flags (episode starts) in the
+        # recurrent path; `initial_hidden` is the rollout-start carry.
+        v_preds, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=observations,
+            resets=dones,
+            initial_hidden=initial_hidden,
+        )
+        v_preds = v_preds.squeeze(0)
+    else:
+        v_preds = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=observations,
+        ).squeeze(
+            0
+        )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
 
     loss = 0.5 * jnp.mean((v_preds - value_targets) ** 2)  # classic MSE
     if extra_loss_fn is not None:
@@ -204,6 +220,7 @@ def policy_loss_function(
     advantage_normalization: bool,
     obs_preprocessor: Optional[Callable] = None,
     extra_loss_fn: Optional[Callable] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -224,13 +241,26 @@ def policy_loss_function(
     obs_for_actor = (
         obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=obs_for_actor,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        # Sequence-mode BPTT: observations are time-major (T, B, obs),
+        # `dones` carries obs-aligned reset flags and `initial_hidden` the
+        # rollout-start carry (the live carry on actor_state has already
+        # advanced past this rollout).
+        pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            resets=dones,
+            initial_hidden=initial_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            done=dones,
+            recurrent=recurrent,
+        )
 
     # Need to deal with various shapes depending on brax vs gymnax and discrete vs continuous
 
@@ -305,6 +335,7 @@ def _value_and_grad_with_extra(extra_loss_fn):
         dones,
         recurrent,
         agent_state,
+        initial_hidden=None,
     ):
         return value_loss_function(
             critic_params,
@@ -315,6 +346,7 @@ def _value_and_grad_with_extra(extra_loss_fn):
             recurrent,
             agent_state=agent_state,
             extra_loss_fn=extra_loss_fn,
+            initial_hidden=initial_hidden,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
@@ -334,6 +366,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
         ent_coef,
         advantage_normalization,
         obs_preprocessor,
+        initial_hidden=None,
     ):
         return policy_loss_function(
             actor_params,
@@ -349,6 +382,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
             advantage_normalization,
             obs_preprocessor,
             extra_loss_fn=extra_loss_fn,
+            initial_hidden=initial_hidden,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
@@ -365,6 +399,7 @@ def update_value_functions(
     dones: Optional[jax.Array],
     recurrent: bool,
     extra_critic_loss_fn: Optional[Callable] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -397,6 +432,7 @@ def update_value_functions(
             value_targets,
             dones,
             recurrent,
+            initial_hidden=initial_hidden,
         )
     else:
         (loss, aux), grads = grad_fn(
@@ -407,6 +443,7 @@ def update_value_functions(
             dones,
             recurrent,
             agent_state,
+            initial_hidden=initial_hidden,
         )
     # jax.debug.print("Critic loss: {loss_val}", loss_val=loss)
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -437,6 +474,7 @@ def update_policy(
     advantage_normalization: bool,
     obs_preprocessor: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[PPOState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -475,6 +513,7 @@ def update_policy(
             ent_coef=ent_coef,
             advantage_normalization=advantage_normalization,
             obs_preprocessor=obs_preprocessor,
+            initial_hidden=initial_hidden,
         )
     else:
         (loss, aux), grads = grad_fn(
@@ -490,6 +529,7 @@ def update_policy(
             ent_coef,
             advantage_normalization,
             obs_preprocessor,
+            initial_hidden,
         )
 
     if DEBUG:
@@ -697,6 +737,21 @@ def training_iteration(
     """
     # collector_state = agent_state.collector_state
 
+    # Recurrent bookkeeping: remember the carries and done flags valid for
+    # the FIRST observation of the rollout — the update replays the whole
+    # sequence from these, while collection advances the live actor carry.
+    if recurrent:
+        initial_actor_hidden = jax.lax.stop_gradient(
+            agent_state.actor_state.hidden_state
+        )
+        initial_critic_hidden = jax.lax.stop_gradient(
+            agent_state.critic_state.hidden_state
+        )
+        initial_done = jnp.logical_or(
+            agent_state.collector_state.last_terminated,
+            agent_state.collector_state.last_truncated,
+        ).astype(bool)
+
     collect_scan_fn = partial(
         collect_experience,
         recurrent=recurrent,
@@ -707,16 +762,58 @@ def training_iteration(
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
     )  # transition = s_t, a_t, r_{s_t -> s_{t+1}}, s_{t+1}, d_{s_t -> s_{t+1}}
-    values = predict_value(
-        critic_state=agent_state.critic_state,
-        critic_params=agent_state.critic_state.params,
-        x=transition.obs,
-    ).squeeze(0)
-    next_values = predict_value(
-        critic_state=agent_state.critic_state,
-        critic_params=agent_state.critic_state.params,
-        x=transition.next_obs,
-    ).squeeze(0)
+    if recurrent:
+        # Obs-aligned reset flags: resets[t] means obs[t] starts a new
+        # episode, i.e. the previous step ended one.
+        dones_seq = jnp.logical_or(transition.terminated, transition.truncated).squeeze(
+            -1
+        )  # (T, B)
+        resets = jnp.concatenate(
+            [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
+        )  # (T, B)
+
+        # One critic pass over the rollout gives the values AND advances
+        # the critic carry (which is otherwise never stepped, since the
+        # critic doesn't act during collection). The carry after obs[T-1]
+        # becomes the initial critic carry of the next iteration.
+        values, critic_carry_end = predict_value_sequence(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=transition.obs,
+            resets=resets,
+            initial_hidden=initial_critic_hidden,
+        )
+        values = values.squeeze(0)
+        # Bootstrap values V(s_{t+1}) come from the shifted sequence plus
+        # one extra step on the collector's last_obs. At truncation
+        # boundaries this evaluates the post-reset obs instead of the
+        # final obs (standard recurrent-PPO approximation); terminal
+        # steps are masked inside GAE either way.
+        last_obs = agent_state.collector_state.last_obs  # (B, obs)
+        v_last, _ = predict_value_sequence(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=last_obs[None],
+            resets=dones_seq[-1:].astype(bool),
+            initial_hidden=critic_carry_end,
+        )
+        next_values = jnp.concatenate([values[1:], v_last.squeeze(0)], axis=0)
+        agent_state = agent_state.replace(
+            critic_state=agent_state.critic_state.replace(
+                hidden_state=jax.lax.stop_gradient(critic_carry_end)
+            )
+        )
+    else:
+        values = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=transition.obs,
+        ).squeeze(0)
+        next_values = predict_value(
+            critic_state=agent_state.critic_state,
+            critic_params=agent_state.critic_state.params,
+            x=transition.next_obs,
+        ).squeeze(0)
 
     if reward_shaping_fn is not None:
         shaped_rewards = transition.reward + reward_shaping_fn(agent_state, transition)
@@ -755,21 +852,28 @@ def training_iteration(
 
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-    if DEBUG:
-        assert (
-            max(agent_config.batch_size, agent_config.n_steps)
-            % min(agent_config.batch_size, agent_config.n_steps)
-            == 0
-        ), (
-            "can't evenly break n_steps into batch size chunks,"
-            f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+    if recurrent:
+        # Sequences must stay temporally contiguous, so the time-flattened
+        # shuffle below cannot be used. Each epoch trains on the full
+        # rollout (T, n_envs, ...) with BPTT from the rollout-start
+        # carries; `resets` rides along as the 8th batch element.
+        shuffled_batch = (*batch, resets)
+    else:
+        if DEBUG:
+            assert (
+                max(agent_config.batch_size, agent_config.n_steps)
+                % min(agent_config.batch_size, agent_config.n_steps)
+                == 0
+            ), (
+                "can't evenly break n_steps into batch size chunks,"
+                f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+            )
+        num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
+            agent_config.batch_size, agent_config.n_steps
         )
-    num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
-        agent_config.batch_size, agent_config.n_steps
-    )
-    shuffled_batch = get_minibatches_from_batch(
-        batch, rng=shuffle_key, num_minibatches=num_minibatches
-    )
+        shuffled_batch = get_minibatches_from_batch(
+            batch, rng=shuffle_key, num_minibatches=num_minibatches
+        )
 
     def do_update(
         agent_state: PPOState, num_epochs: int
@@ -789,16 +893,35 @@ def training_iteration(
         )
 
         def body_fn(agent_state, _):
-            (
-                observations,
-                actions,
-                terminated,
-                truncated,
-                value_targets_mb,
-                gae_mb,
-                log_probs_mb,
-            ) = shuffled_batch
-            dones = jnp.logical_or(terminated, truncated)
+            if recurrent:
+                (
+                    observations,
+                    actions,
+                    terminated,
+                    truncated,
+                    value_targets_mb,
+                    gae_mb,
+                    log_probs_mb,
+                    resets_mb,
+                ) = shuffled_batch
+                # In sequence mode the losses need obs-aligned reset flags,
+                # not the step-aligned dones.
+                dones = resets_mb
+                actor_hidden_mb = initial_actor_hidden
+                critic_hidden_mb = initial_critic_hidden
+            else:
+                (
+                    observations,
+                    actions,
+                    terminated,
+                    truncated,
+                    value_targets_mb,
+                    gae_mb,
+                    log_probs_mb,
+                ) = shuffled_batch
+                dones = jnp.logical_or(terminated, truncated)
+                actor_hidden_mb = None
+                critic_hidden_mb = None
 
             # critic update
             if extra_critic_loss_fn is None:
@@ -809,6 +932,7 @@ def training_iteration(
                     value_targets_mb,
                     dones,
                     recurrent,
+                    initial_hidden=critic_hidden_mb,
                 )
             else:
                 (_v_loss, v_aux), v_grads = critic_grad_fn(
@@ -819,6 +943,7 @@ def training_iteration(
                     dones,
                     recurrent,
                     agent_state,
+                    initial_hidden=critic_hidden_mb,
                 )
             agent_state = agent_state.replace(
                 critic_state=agent_state.critic_state.apply_gradients(grads=v_grads)
@@ -843,6 +968,7 @@ def training_iteration(
                 agent_config.ent_coef,
                 agent_config.normalize_advantage,
                 obs_preprocessor,
+                initial_hidden=actor_hidden_mb,
             )
             agent_state = agent_state.replace(
                 actor_state=agent_state.actor_state.apply_gradients(grads=p_grads)
@@ -990,7 +1116,10 @@ def make_train(
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
         training_iteration_scan_fn = partial(
             training_iteration,
-            recurrent=network_args.lstm_hidden_size is not None,
+            recurrent=resolve_memory_config(
+                network_args.memory, network_args.lstm_hidden_size
+            )
+            is not None,
             agent_config=agent_config,
             n_steps=agent_config.n_steps,
             mode=mode,

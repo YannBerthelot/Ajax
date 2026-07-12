@@ -10,6 +10,7 @@ from flax.training.train_state import TrainState
 from gymnax import EnvParams
 from jax.tree_util import Partial as partial
 
+from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvStateType, EnvType, InitializationFunction
 from ajax.wrappers import NormalizationInfo
 
@@ -414,7 +415,15 @@ class BaseAgentConfig:
 class NetworkConfig:
     actor_architecture: Tuple[str]
     critic_architecture: Tuple[str]
+    # Deprecated: legacy recurrent knob, kept for backward compatibility.
+    # It always built a GRU despite the name; prefer `memory`.
     lstm_hidden_size: Optional[int] = None
+    # Pluggable memory block (encoder -> memory -> heads); None keeps the
+    # network feedforward. Static (hashable) so trace-time branching on it
+    # never leaks into the compiled graph. See ajax.networks.memory.
+    memory: Optional["MemoryConfig"] = flax.struct.field(
+        pytree_node=False, default=None
+    )
     squash: bool = False
     penultimate_normalization: bool = False
     actor_kernel_init: Optional[Union[str, InitializationFunction]] = None

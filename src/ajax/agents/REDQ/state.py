@@ -23,3 +23,6 @@ class REDQConfig(BaseAgentConfig):
     num_critics: int = 10
     subset_size: int = 2
     num_critic_updates: int = 20
+    # Recurrent (memory) training only; see ajax.agents.recurrent.
+    burn_in: int = 8
+    sequence_length: int = 16

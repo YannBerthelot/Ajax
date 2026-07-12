@@ -75,6 +75,19 @@ class AVG:
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "AVG"})
+
+        # AVG builds its own configs without going through ActorCritic's
+        # __init__, so it must enforce the memory guard itself. Recurrent
+        # AVG is deliberately unsupported: its fully-incremental
+        # single-transition updates give length-1 BPTT, so memory weights
+        # cannot learn temporal structure without eligibility traces/RTRL.
+        if lstm_hidden_size is not None:
+            raise NotImplementedError(
+                "AVG does not support recurrent networks (memory /"
+                " lstm_hidden_size); supported agents: PPO, SAC, ASAC,"
+                " REDQ, TD3."
+            )
+
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,

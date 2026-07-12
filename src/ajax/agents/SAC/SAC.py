@@ -5,6 +5,7 @@ from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.recurrent import check_recurrent_learning_starts
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer
@@ -13,6 +14,7 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig, NetworkConfig
 from ajax.types import EnvType
 
@@ -21,6 +23,7 @@ class SAC(ActorCritic):
     """Soft Actor-Critic agent for continuous action spaces."""
 
     name: str = "SAC"
+    supports_memory: bool = True
 
     def __init__(
         self,
@@ -42,6 +45,14 @@ class SAC(ActorCritic):
         alpha_init: float = 1.0,
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
+        # Pluggable memory block (see ajax.networks.memory). When set, the
+        # replay buffer stores per-env trajectories and updates train on
+        # `sequence_length`-step segments after a `burn_in` warm-up whose
+        # carries are computed from zero under stop_gradient (R2D2-style).
+        # Incompatible with the expert-guidance feature set (loud error).
+        memory: Optional[Union[MemoryConfig, dict]] = None,
+        burn_in: int = 8,
+        sequence_length: int = 16,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         actor_cloning_epochs: int = 10,
@@ -232,6 +243,7 @@ class SAC(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             lstm_hidden_size=lstm_hidden_size,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
         )
@@ -241,7 +253,8 @@ class SAC(ActorCritic):
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            lstm_hidden_size=lstm_hidden_size,
+            # base resolved memory / legacy lstm_hidden_size already
+            memory=self.network_args.memory,
             squash=True,
             penultimate_normalization=False,
         )
@@ -289,9 +302,20 @@ class SAC(ActorCritic):
             learning_starts=learning_starts,
             target_entropy=target_entropy_per_dim * action_dim,
             reward_scale=reward_scale,
+            burn_in=burn_in,
+            sequence_length=sequence_length,
         )
+        recurrent = self.network_args.memory is not None
+        if recurrent:
+            check_recurrent_learning_starts(
+                learning_starts, n_envs, burn_in, sequence_length
+            )
         self.buffer = get_buffer(
-            buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs
+            buffer_size=buffer_size,
+            batch_size=batch_size,
+            n_envs=n_envs,
+            # burn-in prefix + trained segment + bootstrap step
+            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
         )
         self.num_critics = num_critics
         self.extra_critic_head_names = tuple(extra_critic_head_names)

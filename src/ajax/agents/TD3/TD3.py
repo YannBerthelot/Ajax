@@ -5,11 +5,13 @@ from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.recurrent import check_recurrent_learning_starts
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import MemoryConfig
 from ajax.state import NetworkConfig
 from ajax.types import EnvType
 
@@ -28,6 +30,7 @@ class TD3(ActorCritic):
     """
 
     name: str = "TD3"
+    supports_memory: bool = True
 
     def __init__(
         self,
@@ -51,6 +54,11 @@ class TD3(ActorCritic):
         target_noise_clip: float = 0.5,
         exploration_noise: float = 0.1,
         lstm_hidden_size: Optional[int] = None,
+        # Pluggable memory block (see ajax.networks.memory); trains on
+        # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
+        memory: Optional[Union[MemoryConfig, dict]] = None,
+        burn_in: int = 8,
+        sequence_length: int = 16,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         # --- Cloning / pretraining (mirrors REDQ) ---
@@ -89,6 +97,7 @@ class TD3(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             lstm_hidden_size=lstm_hidden_size,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
         )
@@ -96,7 +105,8 @@ class TD3(ActorCritic):
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            lstm_hidden_size=lstm_hidden_size,
+            # base resolved memory / legacy lstm_hidden_size already
+            memory=self.network_args.memory,
             squash=True,
             penultimate_normalization=False,
         )
@@ -114,9 +124,20 @@ class TD3(ActorCritic):
             target_policy_noise=target_policy_noise,
             target_noise_clip=target_noise_clip,
             exploration_noise=exploration_noise,
+            burn_in=burn_in,
+            sequence_length=sequence_length,
         )
+        recurrent = self.network_args.memory is not None
+        if recurrent:
+            check_recurrent_learning_starts(
+                learning_starts, n_envs, burn_in, sequence_length
+            )
         self.buffer = get_buffer(
-            buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs
+            buffer_size=buffer_size,
+            batch_size=batch_size,
+            n_envs=n_envs,
+            # burn-in prefix + trained segment + bootstrap step
+            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
         )
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,

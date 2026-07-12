@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 # from gymnax import PlaneParams
 from target_gym import PlaneParams
@@ -17,6 +17,7 @@ from ajax.logging.wandb_logging import (
     upload_tensorboard_to_wandb,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -25,6 +26,7 @@ class ASAC(ActorCritic):
     """Average-Reward Soft Actor-Critic (ASAC) from Adamczyk et al. 2025. See https://arxiv.org/abs/2501.09080v2"""
 
     name: str = "ASAC"
+    supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -46,6 +48,14 @@ class ASAC(ActorCritic):
         p_0=20,
         target_entropy_per_dim: float = -1.0,
         lstm_hidden_size: Optional[int] = None,
+        # Pluggable memory block, e.g. MemoryConfig("lstm", 64) or
+        # {"kind": "gru", "hidden_size": 64}. When set, the replay buffer
+        # stores per-env trajectories and updates train on sequences of
+        # `sequence_length` steps after `burn_in` warm-up steps whose
+        # carries are computed from zero under stop_gradient (R2D2-style).
+        memory: Optional[Union[MemoryConfig, dict]] = None,
+        burn_in: int = 8,
+        sequence_length: int = 16,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         pid_actor_config: Optional[PIDActorConfig] = None,
@@ -89,6 +99,7 @@ class ASAC(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             lstm_hidden_size=lstm_hidden_size,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
         )
@@ -107,12 +118,26 @@ class ASAC(ActorCritic):
             target_entropy=target_entropy,
             reward_scale=reward_scale,
             p_0=p_0,
+            burn_in=burn_in,
+            sequence_length=sequence_length,
         )
 
+        recurrent = self.network_args.memory is not None
+        if recurrent and learning_starts // n_envs <= burn_in + sequence_length + 1:
+            raise ValueError(
+                "learning_starts must exceed n_envs * (burn_in +"
+                " sequence_length + 1) so the trajectory buffer holds at"
+                " least one full sequence per env before the first update"
+                f" (got learning_starts={learning_starts}, n_envs={n_envs},"
+                f" burn_in={burn_in}, sequence_length={sequence_length})."
+            )
         self.buffer = get_buffer(
             buffer_size=buffer_size,
             batch_size=batch_size,
             n_envs=n_envs,
+            # Sampled window: burn-in prefix + trained segment + one step
+            # for the bootstrap next-observations.
+            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
         )
 
         self.pid_actor_config = pid_actor_config

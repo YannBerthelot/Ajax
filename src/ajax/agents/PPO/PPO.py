@@ -10,6 +10,7 @@ from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType, InitializationFunction
 from ajax.utils import get_and_prepare_hyperparams
 
@@ -18,6 +19,7 @@ class PPO(ActorCritic):
     """Soft Actor-Critic (PPO) agent for training and testing in continuous action spaces."""
 
     name: str = "PPO"
+    supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -38,6 +40,11 @@ class PPO(ActorCritic):
         gae_lambda: float = 0.95,
         normalize_advantage: bool = True,
         lstm_hidden_size: Optional[int] = None,
+        # Pluggable memory block, e.g. MemoryConfig("gru", 64) or
+        # {"kind": "lstm", "hidden_size": 64}. When set, PPO trains with
+        # BPTT over full rollouts (batch_size is ignored: each epoch uses
+        # the whole (n_steps, n_envs) rollout to keep sequences intact).
+        memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -91,6 +98,7 @@ class PPO(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             lstm_hidden_size=lstm_hidden_size,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             actor_kernel_init=actor_kernel_init,

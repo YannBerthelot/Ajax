@@ -93,10 +93,12 @@ def mock_recurrent_actor_state():
     tx = optax.adam(learning_rate=0.001)
 
     def apply_fn(params, obs, hidden_state=None, done=None):
-        # Simulate a recurrent network output
+        # Simulate a recurrent network output. Real recurrent networks
+        # consume time-major (T, B, obs) and return a distribution with
+        # (T, B, ...) batch shape — mirror that so the single-step time
+        # axis handling in get_action_and_new_agent_state is exercised.
         new_hidden_state = hidden_state + 1 if hidden_state is not None else None
-        # pi = distrax.Normal(jnp.zeros(obs.shape[1]), jnp.ones(obs.shape[1]))
-        pi = distrax.Categorical(probs=jnp.ones((n_envs, 4)) / 4)
+        pi = distrax.Categorical(probs=jnp.ones((*obs.shape[:-1], 4)) / 4)
 
         return pi, new_hidden_state
 

@@ -306,6 +306,38 @@ def get_pi(
     return pi, actor_state.replace(hidden_state=new_actor_hidden_state)
 
 
+def get_pi_sequence(
+    actor_state: LoadedTrainState,
+    actor_params: FrozenDict,
+    obs: jax.Array,
+    resets: jax.Array,
+    initial_hidden: Any,
+) -> Tuple[distrax.Distribution, Any]:
+    """Run a recurrent actor over a time-major sequence (training/BPTT path).
+
+    Unlike :func:`get_pi` (single-step path, which reads/advances the live
+    carry on ``actor_state``), this takes an explicit initial carry — e.g.
+    the rollout-start carry for on-policy updates, or a burned-in carry for
+    replayed sequences — and does NOT mutate the actor state.
+
+    Args:
+        obs: (T, B, obs_dim) observations.
+        resets: (T, B) episode-start flags aligned with ``obs``.
+        initial_hidden: carry valid for obs[0].
+
+    Returns:
+        (pi, final_hidden): distribution over (T, B, ...) and the carry
+        after consuming the sequence.
+    """
+    if getattr(actor_state, "obs_norm_info", None) is not None:
+        from ajax.agents.obs_norm import apply_obs_norm
+
+        obs = apply_obs_norm(obs, actor_state.obs_norm_info)
+    return actor_state.apply(
+        actor_params, obs, hidden_state=initial_hidden, done=resets
+    )
+
+
 def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
     """
     Add an axis to the array if in recurrent mode.
@@ -352,6 +384,12 @@ def get_action_and_new_agent_state(
         recurrent=recurrent,
     )
     action, log_probs = pi.sample_and_log_prob(seed=rng)
+    if recurrent:
+        # get_pi ran the actor on a single-step sequence (1, B, ...);
+        # drop the time axis so callers (env step, buffer writes) see the
+        # same (B, ...) shapes as in the feedforward path.
+        action = action.squeeze(0)
+        log_probs = log_probs.squeeze(0)
 
     return (
         action,
@@ -445,7 +483,13 @@ def get_action_and_log_probs(
     agent_state: BaseAgentState,
     recurrent: bool,
     uniform: bool,
-) -> Tuple[jax.Array, jax.Array]:
+) -> Tuple[jax.Array, jax.Array, BaseAgentState]:
+    """Sample an action from the policy.
+
+    Also returns the updated agent state: recurrent actors advance their
+    hidden state on every forward pass, and dropping it would freeze the
+    policy's memory at zero for the whole collection phase.
+    """
     action, log_probs, agent_state = get_action_and_new_agent_state(
         action_key,
         agent_state,
@@ -459,7 +503,11 @@ def get_action_and_log_probs(
     uniform_action = jax.random.uniform(
         key=action_key, minval=-1, maxval=1, shape=action.shape
     )  # TODO : add actual bounds
-    return uniform * uniform_action + (1 - uniform) * action, log_probs
+    return (
+        uniform * uniform_action + (1 - uniform) * action,
+        log_probs,
+        agent_state,
+    )
 
 
 def maybe_vmap(f, vmap_on, **kwargs):
@@ -620,6 +668,16 @@ def collect_experience(
         _live_sigma_expert = getattr(result, "critic_sigma_expert", None)
         _live_p_expert_max = getattr(result, "p_expert_max", None)
         _a_expert = getattr(result, "a_expert", None)
+        # Recurrent actors: pipelines that run the policy themselves must
+        # hand back the advanced carry, else the actor's memory would stay
+        # frozen for the whole collection phase.
+        _new_actor_hidden = getattr(result, "new_actor_hidden", None)
+        if _new_actor_hidden is not None:
+            agent_state = agent_state.replace(
+                actor_state=agent_state.actor_state.replace(
+                    hidden_state=_new_actor_hidden
+                )
+            )
     else:
         new_expert_state = None
         _buffer_action_override = None
@@ -629,7 +687,7 @@ def collect_experience(
         _live_p_expert_max = None
         _a_expert = None
         # Vanilla: uniform during warmup, policy action after
-        action, log_probs = get_action_and_log_probs(
+        action, log_probs, agent_state = get_action_and_log_probs(
             action_key=action_key,
             agent_state=agent_state,
             recurrent=recurrent,

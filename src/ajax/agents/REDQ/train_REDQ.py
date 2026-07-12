@@ -16,6 +16,11 @@ from ajax.agents.cloning import (
     get_cloning_args,
     get_pre_trained_agent,
 )
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    sample_and_burnin_sequences,
+    unsupported_recurrent_options,
+)
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC.train_SAC import (
     TemperatureAuxiliaries,
@@ -27,6 +32,7 @@ from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
+    get_pi_sequence,
     init_collector_state,
     should_use_uniform_sampling,
 )
@@ -38,9 +44,11 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import resolve_memory_config
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
+    predict_value_sequence,
 )
 from ajax.state import (
     AlphaConfig,
@@ -154,6 +162,7 @@ def compute_redq_td_target(
     recurrent: bool,
     subset_size: int,
     reward_scale: float,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """REDQ bellman target: min over a random subset of target critics.
 
@@ -161,22 +170,44 @@ def compute_redq_td_target(
     """
     rewards = rewards * reward_scale
 
-    next_pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.params,
-        obs=next_observations,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        next_pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_state.params,
+            obs=next_observations,
+            resets=carries.next_resets,
+            initial_hidden=carries.actor_next_hidden,
+        )
+    else:
+        next_pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_state.params,
+            obs=next_observations,
+            done=dones,
+            recurrent=recurrent,
+        )
     sample_key, idx_sample_key = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
 
-    q_targets = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.target_params,
-        x=jnp.concatenate((next_observations, next_actions), axis=-1),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        # The ensemble axis stays leading, so the subset sampling below is
+        # identical in sequence mode.
+        q_targets, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_states.target_params,
+            x=jnp.concatenate((next_observations, next_actions), axis=-1),
+            resets=carries.next_resets,
+            initial_hidden=carries.target_critic_hidden,
+        )
+    else:
+        q_targets = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_states.target_params,
+            x=jnp.concatenate((next_observations, next_actions), axis=-1),
+        )
     sampled_indexes = jax.random.choice(
         idx_sample_key, q_targets.shape[0], shape=(subset_size,), replace=False
     )
@@ -204,6 +235,7 @@ def value_loss_function(
     reward_scale: float = 5.0,  # Add reward scaling factor here
     target_q_override: Optional[jax.Array] = None,
     log_probs_override: Optional[jax.Array] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -227,11 +259,21 @@ def value_loss_function(
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
     # Predict Q-values from critics
-    q_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_params,
-        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+        )
 
     # Target — use precomputed override (from target_modifier path) or compute inline
     if target_q_override is not None:
@@ -254,6 +296,7 @@ def value_loss_function(
             recurrent,
             subset_size,
             reward_scale,
+            carries=carries,
         )
 
     total_loss = jnp.sum(
@@ -296,6 +339,7 @@ def policy_loss_function(
     a_expert_precomputed: Optional[jax.Array] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array]]:
     """
     Compute the policy loss for the actor network.
@@ -316,13 +360,23 @@ def policy_loss_function(
     obs_for_actor = (
         obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=obs_for_actor,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            resets=carries.resets,
+            initial_hidden=carries.actor_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            done=dones,
+            recurrent=recurrent,
+        )
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
 
@@ -334,11 +388,21 @@ def policy_loss_function(
     )
 
     # Predict Q-values from critics
-    q_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.params,
-        x=jnp.hstack((observations, q_input_actions)),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_states.params,
+            x=jnp.concatenate((observations, q_input_actions), axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_states.params,
+            x=jnp.hstack((observations, q_input_actions)),
+        )
 
     # Unpack and unsqueeze if needed
     q_min = jnp.mean(q_preds, axis=0)
@@ -382,6 +446,7 @@ def update_value_functions(
     subset_size: int,
     reward_scale: float = 1.0,  # Add reward scaling factor here
     target_modifier: Optional[Callable] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[REDQState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -458,6 +523,7 @@ def update_value_functions(
         reward_scale,
         target_q_override,
         log_probs_override,
+        carries,
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -492,6 +558,7 @@ def update_policy(
     a_expert_precomputed: Optional[jax.Array] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[REDQState, Any, jax.Array]:
     """
     Update the actor network using the policy loss.
@@ -526,6 +593,7 @@ def update_policy(
         a_expert_precomputed=a_expert_precomputed,
         obs_preprocessor=obs_preprocessor,
         policy_action_transform=policy_action_transform,
+        carries=carries,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -556,6 +624,8 @@ def update_policy(
         "target_modifier",
         "obs_preprocessor",
         "policy_action_transform",
+        "burn_in",
+        "sequence_length",
     ],
 )
 def update_agent(
@@ -579,6 +649,8 @@ def update_agent(
     target_modifier: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    burn_in: int = 8,
+    sequence_length: int = 16,
 ) -> Tuple[REDQState, AuxiliaryLogs]:
     """
     Update the REDQ agent, including critic, actor, and temperature updates.
@@ -601,7 +673,15 @@ def update_agent(
     # Sample buffer
 
     sample_key, rng = jax.random.split(agent_state.rng)
-    if buffer is not None and agent_state.collector_state.buffer_state is not None:
+    carries = None
+    if recurrent:
+        # Sequence replay with burned-in carries (R2D2-style); expert
+        # features are rejected upstream in make_train.
+        transition, carries = sample_and_burnin_sequences(
+            agent_state, buffer, sample_key, burn_in
+        )
+        raw_observations = None
+    elif buffer is not None and agent_state.collector_state.buffer_state is not None:
         (
             observations,
             terminated,
@@ -681,6 +761,7 @@ def update_agent(
             reward_scale=reward_scale,
             subset_size=subset_size,
             target_modifier=target_modifier,
+            carries=carries,
         )
         agent_state = update_target_networks(agent_state, tau=tau)
 
@@ -708,6 +789,7 @@ def update_agent(
         a_expert_precomputed=a_expert_precomputed,
         obs_preprocessor=obs_preprocessor,
         policy_action_transform=policy_action_transform,
+        carries=carries,
     )
 
     # Adjust temperature
@@ -856,6 +938,8 @@ def training_iteration(
             target_modifier=target_modifier,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
+            burn_in=agent_config.burn_in,
+            sequence_length=agent_config.sequence_length,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -959,6 +1043,28 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    _recurrent = (
+        resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        is not None
+    )
+    if _recurrent:
+        unsupported_recurrent_options(
+            "REDQ",
+            expert_policy=expert_policy,
+            target_modifier=target_modifier,
+            policy_action_transform=policy_action_transform,
+            obs_preprocessor=obs_preprocessor,
+            action_pipeline=action_pipeline,
+            # REDQ always builds a default CloningConfig; only actual
+            # pre-training (pre_train_n_steps > 0) conflicts with memory.
+            cloning_pretrain=(
+                cloning_args
+                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
+                else None
+            ),
+            pid_actor_config=pid_actor_config,
+        )
+
     # Start async logging if logging is enabled
     if logging_config is not None:
         start_async_logging()
@@ -1003,7 +1109,7 @@ def make_train(
         training_iteration_scan_fn = partial(
             training_iteration,
             buffer=buffer,
-            recurrent=network_args.lstm_hidden_size is not None,
+            recurrent=_recurrent,
             action_dim=action_shape[0],
             agent_config=agent_config,
             mode=mode,

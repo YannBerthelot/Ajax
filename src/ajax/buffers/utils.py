@@ -14,13 +14,41 @@ def get_buffer(
     buffer_size: int,
     batch_size: int,
     n_envs: int = 1,
+    sequence_length: Optional[int] = None,
 ):
-    return fbx.make_flat_buffer(
-        max_length=buffer_size,
-        sample_batch_size=batch_size,
-        min_length=batch_size,
+    """Replay buffer factory.
+
+    sequence_length=None (default) returns the usual flat buffer of
+    independent transitions. When set (recurrent agents), returns a
+    trajectory buffer whose ``sample`` yields contiguous per-env sequences
+    of that length, shaped (batch_size, sequence_length, ...). The ``add``
+    signature is wrapped to accept the same single-step (n_envs, ...)
+    transitions the collector already writes.
+    """
+    if sequence_length is None:
+        return fbx.make_flat_buffer(
+            max_length=buffer_size,
+            sample_batch_size=batch_size,
+            min_length=batch_size,
+            add_batch_size=n_envs,
+        )
+
+    from flashbax.utils import add_dim_to_args
+
+    buffer = fbx.make_trajectory_buffer(
         add_batch_size=n_envs,
+        sample_batch_size=batch_size,
+        sample_sequence_length=sequence_length,
+        period=1,
+        min_length_time_axis=sequence_length + 1,
+        max_length_time_axis=buffer_size // n_envs,
     )
+    # The collector adds one transition of shape (n_envs, ...) per call;
+    # the trajectory buffer expects (n_envs, time, ...): insert time axis.
+    add_fn = add_dim_to_args(
+        buffer.add, axis=1, starting_arg_index=1, ending_arg_index=2
+    )
+    return buffer.replace(add=add_fn)  # type: ignore[attr-defined]
 
 
 def init_buffer(
@@ -110,6 +138,22 @@ def get_batch_from_buffer(
     raw_observations = batch.first["raw_obs"]
     is_expert = batch.first["is_expert"]
     return obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert
+
+
+@partial(jax.jit, static_argnames=["buffer"])
+def get_sequence_batch_from_buffer(
+    buffer: BufferType,
+    buffer_state,
+    key,
+):
+    """Sample contiguous sequences from a trajectory buffer (see
+    ``get_buffer(sequence_length=...)``) and return them time-major.
+
+    Returns a dict of arrays shaped (sequence_length, batch_size, ...),
+    ready for the recurrent (scan-based) network path.
+    """
+    batch = buffer.sample(buffer_state, key).experience  # (B, L, ...)
+    return jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), batch)
 
 
 @partial(jax.jit, static_argnames=["buffer"])

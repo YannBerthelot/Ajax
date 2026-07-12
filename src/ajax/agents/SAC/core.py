@@ -19,9 +19,10 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.training.train_state import TrainState
 
+from ajax.agents.recurrent import RecurrentCarries
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.environments.interaction import get_pi
-from ajax.networks.networks import predict_value
+from ajax.environments.interaction import get_pi, get_pi_sequence
+from ajax.networks.networks import predict_value, predict_value_sequence
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclasses (core diagnostics only)
@@ -90,6 +91,7 @@ def compute_td_target(
     reward_scale: float = 1.0,
     next_action_transform=None,
     next_a_expert: Optional[jax.Array] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> jax.Array:
     """Pure SAC Bellman target: r + γ(1-d)(min Q_target(s', π(s')) - α log π).
 
@@ -106,13 +108,25 @@ def compute_td_target(
     """
     rewards = rewards * reward_scale
 
-    next_pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.params,
-        obs=next_observations,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        # Sequence mode: time-major (S, B, ...) inputs with burned-in
+        # carries (see ajax.agents.recurrent).
+        next_pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_state.params,
+            obs=next_observations,
+            resets=carries.next_resets,
+            initial_hidden=carries.actor_next_hidden,
+        )
+    else:
+        next_pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_state.params,
+            obs=next_observations,
+            done=dones,
+            recurrent=recurrent,
+        )
     sample_key, rng = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
@@ -126,11 +140,21 @@ def compute_td_target(
     else:
         next_actions_for_q = next_actions
 
-    q_targets = predict_value(
-        critic_state=critic_state,
-        critic_params=critic_state.target_params,
-        x=jnp.concatenate((next_observations, next_actions_for_q), axis=-1),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_targets, _ = predict_value_sequence(
+            critic_state=critic_state,
+            critic_params=critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_actions_for_q), axis=-1),
+            resets=carries.next_resets,
+            initial_hidden=carries.target_critic_hidden,
+        )
+    else:
+        q_targets = predict_value(
+            critic_state=critic_state,
+            critic_params=critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_actions_for_q), axis=-1),
+        )
     min_q_target = jnp.min(q_targets, axis=0, keepdims=False)
 
     target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
@@ -148,17 +172,27 @@ def critic_loss_fn(
     observations: jax.Array,
     actions: jax.Array,
     target_q: jax.Array,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, CoreCriticAux]:
     """MSE critic loss against a pre-computed target.
 
     The target_q is computed by compute_td_target + optional modifiers,
     and must already be stop_gradient'd.
     """
-    q_preds = predict_value(
-        critic_state=critic_state,
-        critic_params=critic_params,
-        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-    )
+    if carries is not None:
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_state,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_state,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+        )
     var_preds = q_preds.var(axis=0, keepdims=True)
 
     total_loss = jnp.mean((q_preds - target_q) ** 2)

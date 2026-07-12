@@ -30,3 +30,6 @@ class SACConfig(BaseAgentConfig):
     tau: float = 0.005
     learning_starts: int = 100
     reward_scale: float = 5.0
+    # Recurrent (memory) training only; see ajax.agents.recurrent.
+    burn_in: int = 8
+    sequence_length: int = 16

@@ -13,6 +13,7 @@ from ajax.logging.wandb_logging import (
     init_logging,
     stop_async_logging,
 )
+from ajax.networks.memory import MemoryConfig, resolve_memory_config
 from ajax.state import (
     BaseAgentConfig,
     BaseAgentState,
@@ -24,6 +25,11 @@ from ajax.types import EnvType, InitializationFunction
 
 
 class ActorCritic:
+    # Agents that implement recurrent (memory-augmented) training set this
+    # to True; every other agent gets a loud error instead of a silent
+    # misconfiguration when `memory` / `lstm_hidden_size` is provided.
+    supports_memory: bool = False
+
     def __init__(  # pylint: disable=W0102, R0913
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
@@ -35,6 +41,7 @@ class ActorCritic:
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
         lstm_hidden_size: Optional[int] = None,
+        memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -66,6 +73,16 @@ class ActorCritic:
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
 
+        # Resolve the memory config once: explicit `memory` wins; the legacy
+        # `lstm_hidden_size` maps to a GRU (its historical behaviour).
+        memory = resolve_memory_config(memory, lstm_hidden_size)
+        if memory is not None and not self.supports_memory:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support recurrent networks"
+                " (memory / lstm_hidden_size) yet; supported agents:"
+                " PPO, SAC, ASAC, REDQ, TD3."
+            )
+
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
@@ -84,7 +101,7 @@ class ActorCritic:
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            lstm_hidden_size=lstm_hidden_size,
+            memory=memory,
             actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
             critic_kernel_init=critic_kernel_init,

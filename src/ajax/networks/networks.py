@@ -13,7 +13,12 @@ from flax.serialization import to_state_dict
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import PIDActorConfig, PIDActorNetwork
-from ajax.networks.scanned_rnn import ScannedRNN
+from ajax.networks.memory import (
+    MemoryCell,
+    MemoryConfig,
+    init_carry,
+    resolve_memory_config,
+)
 from ajax.networks.utils import (
     get_adam_tx,
     parse_architecture,
@@ -121,8 +126,15 @@ class Actor(nn.Module):
     # embedding before the heads. None keeps the legacy MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
+    # Optional memory block between encoder and heads. When set, __call__
+    # takes time-major (T, B, obs) plus (hidden_state, done) and returns
+    # (distribution, new_hidden_state). None keeps the network feedforward
+    # and the call signature unchanged.
+    memory: Optional[MemoryConfig] = None
 
     def setup(self):
+        if self.memory is not None:
+            self.memory_cell = MemoryCell(self.memory)
         if self.cnn_image_shape is not None:
             self.encoder = CNNEncoder(
                 image_shape=self.cnn_image_shape,
@@ -173,8 +185,7 @@ class Actor(nn.Module):
                 ],
             )
 
-    def __call__(self, obs, raw_obs=None) -> distrax.Distribution:
-        embedding = self.encoder(obs)
+    def _distribution(self, embedding) -> distrax.Distribution:
         if self.continuous:
             mean = self.mean(embedding)
             log_std = jnp.clip(self.log_std(embedding), -20, 2)
@@ -186,6 +197,17 @@ class Actor(nn.Module):
             )
         return self.model(embedding)
 
+    def __call__(self, obs, raw_obs=None, hidden_state=None, done=None):
+        embedding = self.encoder(obs)
+        if self.memory is not None:
+            if hidden_state is None or done is None:
+                raise ValueError(
+                    "Recurrent Actor requires hidden_state and done flags."
+                )
+            hidden_state, embedding = self.memory_cell(hidden_state, embedding, done)
+            return self._distribution(embedding), hidden_state
+        return self._distribution(embedding)
+
 
 class Critic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
@@ -194,12 +216,18 @@ class Critic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Optional memory block; see Actor.memory. When set, __call__ takes
+    # time-major (T, B, features) plus (hidden_state, done) and returns
+    # (values, new_hidden_state).
+    memory: Optional[MemoryConfig] = None
 
     def setup(self):
         self.encoder = Encoder(
             input_architecture=self.input_architecture,
             penultimate_normalization=self.penultimate_normalization,
         )
+        if self.memory is not None:
+            self.memory_cell = MemoryCell(self.memory)
         kernel_init = (
             orthogonal(1.0)
             if self.kernel_init is None
@@ -216,8 +244,16 @@ class Critic(nn.Module):
             bias_init=bias_init,
         )
 
-    def __call__(self, x: jax.Array) -> jax.Array:
-        return self.model(self.encoder(x))
+    def __call__(self, x: jax.Array, hidden_state=None, done=None):
+        feat = self.encoder(x)
+        if self.memory is not None:
+            if hidden_state is None or done is None:
+                raise ValueError(
+                    "Recurrent Critic requires hidden_state and done flags."
+                )
+            hidden_state, feat = self.memory_cell(hidden_state, feat, done)
+            return self.model(feat), hidden_state
+        return self.model(feat)
 
 
 class MultiHeadCritic(Critic):
@@ -275,6 +311,8 @@ class MultiHeadCritic(Critic):
     extra_head_dims: Tuple[int, ...] = ()
 
     def setup(self):
+        if self.memory is not None:
+            raise NotImplementedError("MultiHeadCritic does not support memory yet.")
         super().setup()  # builds self.encoder + self.model (primary head)
         if len(self.extra_head_names) != len(self.extra_head_dims):
             raise ValueError(
@@ -309,7 +347,11 @@ class MultiHeadCritic(Critic):
     def _extra_head(self, name: str):
         return getattr(self, self._extra_attr(name))
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(self, x: jax.Array, hidden_state=None, done=None) -> jax.Array:
+        # hidden_state/done only exist to match Critic's signature;
+        # setup() raises when memory is configured, so they are never
+        # meaningfully passed.
+        del hidden_state, done
         # Backward-compat: return the primary head's output only. We
         # also evaluate the extra heads on a dummy zero so Flax sees
         # them during init and registers their params; the result is
@@ -359,25 +401,38 @@ class MultiCritic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
+    # Optional memory block; each ensemble member owns its carry, stacked
+    # on a leading axis: hidden_state leaves are (num, batch, hidden).
+    memory: Optional[MemoryConfig] = None
 
     @nn.compact
-    def __call__(self, *args, **kwargs):
+    def __call__(self, x, hidden_state=None, done=None):
+        # x (and done) are broadcast across the ensemble; the carry is
+        # mapped over its leading (num,) axis so each member evolves its
+        # own memory.
+        in_axes = (None, 0, None) if self.memory is not None else None
         ensemble = nn.vmap(
             target=Critic,
-            in_axes=None,
+            in_axes=in_axes,
             out_axes=0,
             variable_axes={"params": 0},
             split_rngs={"params": True},
             axis_size=self.num,
         )
-        return ensemble(
-            self.input_architecture,
-            self.penultimate_normalization,
-            self.kernel_init,
-            self.bias_init,
-            self.encoder_kernel_init,
-            self.encoder_bias_init,
-        )(*args, **kwargs)
+        critic = ensemble(
+            input_architecture=self.input_architecture,
+            penultimate_normalization=self.penultimate_normalization,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            encoder_kernel_init=self.encoder_kernel_init,
+            encoder_bias_init=self.encoder_bias_init,
+            memory=self.memory,
+        )
+        if self.memory is not None:
+            # Returns (values, new_hidden_state): values (num, T, B, 1),
+            # hidden leaves (num, B, hidden).
+            return critic(x, hidden_state, done)
+        return critic(x)
 
 
 class MultiHeadMultiCritic(nn.Module):
@@ -492,6 +547,21 @@ def get_initialized_actor_critic(
         else get_action_dim(env_config.env, env_config.env_params)
     )
 
+    memory = resolve_memory_config(
+        network_config.memory, network_config.lstm_hidden_size
+    )
+    if memory is not None:
+        if pid_actor_config is not None:
+            raise NotImplementedError("PIDActorNetwork does not support memory yet.")
+        if extra_critic_head_names:
+            raise NotImplementedError("Multi-head critics do not support memory yet.")
+        if network_config.penultimate_normalization:
+            # The encoder's l2-normalization is hardcoded to axis=1, which
+            # is the batch axis on time-major (T, B, F) inputs.
+            raise NotImplementedError(
+                "penultimate_normalization is incompatible with memory."
+            )
+
     if pid_actor_config is not None:
         actor = PIDActorNetwork(
             input_architecture=network_config.actor_architecture,
@@ -514,6 +584,7 @@ def get_initialized_actor_critic(
             encoder_bias_init=encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=extra_obs_dim,
+            memory=memory,
         )
     if extra_critic_head_names:
         # SafeSAC and other multi-objective subclasses want one or more
@@ -544,6 +615,7 @@ def get_initialized_actor_critic(
             bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            memory=memory,
         )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -569,8 +641,7 @@ def get_initialized_actor_critic(
         network=actor,
         key=actor_key,
         tx=actor_tx,
-        recurrent=network_config.lstm_hidden_size is not None,
-        lstm_hidden_size=network_config.lstm_hidden_size,
+        memory=memory,
         n_envs=env_config.n_envs,
         lr_schedule=actor_optimizer_config.learning_rate,
     )
@@ -579,8 +650,7 @@ def get_initialized_actor_critic(
         network=critic,
         key=critic_key,
         tx=critic_tx,
-        recurrent=network_config.lstm_hidden_size is not None,
-        lstm_hidden_size=network_config.lstm_hidden_size,
+        memory=memory,
         n_envs=env_config.n_envs,
         lr_schedule=critic_optimizer_config.learning_rate,
     )
@@ -622,8 +692,9 @@ def get_initialized_critic(
         network=critic,
         key=key,
         tx=critic_tx,
-        recurrent=network_config.lstm_hidden_size is not None,
-        lstm_hidden_size=network_config.lstm_hidden_size,
+        memory=resolve_memory_config(
+            network_config.memory, network_config.lstm_hidden_size
+        ),
         n_envs=env_config.n_envs,
         lr_schedule=critic_optimizer_config.learning_rate,
     )
@@ -634,25 +705,102 @@ def init_hidden_state(
     n_envs: int,
     rng: jax.random.PRNGKey,
 ) -> HiddenState:
-    return ScannedRNN(lstm_hidden_size).initialize_carry(rng, n_envs)
+    """Deprecated: legacy GRU carry initializer, kept for backward compat.
+
+    Note the historical field name: it always built a GRU. Prefer
+    ``ajax.networks.memory.init_carry`` with an explicit MemoryConfig.
+    """
+    return init_carry(
+        MemoryConfig(kind="gru", hidden_size=lstm_hidden_size), rng, n_envs
+    )
+
+
+def init_network_carry(network, memory: MemoryConfig, key: jax.Array, batch_size: int):
+    """Fresh carry for ``network``. Ensembles (modules exposing ``num``)
+    get one carry per member, stacked on a leading (num,) axis."""
+    carry = init_carry(memory, key, batch_size)
+    num = getattr(network, "num", None)
+    if num is not None:
+        carry = jax.tree.map(lambda x: jnp.repeat(x[None], num, axis=0), carry)
+    return carry
 
 
 def init_network_state(
-    init_x, network, key, tx, recurrent, lstm_hidden_size, n_envs, lr_schedule
+    init_x,
+    network,
+    key,
+    tx,
+    recurrent: bool = False,
+    lstm_hidden_size: Optional[int] = None,
+    n_envs: int = 1,
+    lr_schedule=None,
+    memory: Optional[MemoryConfig] = None,
 ):
-    params = FrozenDict(network.init(key, init_x))
-    if recurrent:
-        _, hidden_state_key = jax.random.split(key)
-        hidden_state = init_hidden_state(lstm_hidden_size, n_envs, hidden_state_key)
-    else:
+    # Legacy path: recurrent=True + lstm_hidden_size built a GRU. The
+    # explicit `memory` argument supersedes both.
+    memory = resolve_memory_config(memory, lstm_hidden_size if recurrent else None)
+    if memory is None:
+        params = FrozenDict(network.init(key, init_x))
         hidden_state = None
+    else:
+        init_key, carry_key = jax.random.split(key)
+        hidden_state = init_network_carry(network, memory, carry_key, n_envs)
+        # Recurrent networks consume time-major (T, B, ...) sequences;
+        # initialize with a single-step sequence.
+        params = FrozenDict(
+            network.init(
+                init_key,
+                init_x[None, ...],
+                hidden_state=hidden_state,
+                done=jnp.zeros((1, init_x.shape[0]), dtype=bool),
+            )
+        )
     return LoadedTrainState.create(
         params=params,
         tx=tx,
         apply_fn=network.apply,
         hidden_state=hidden_state,
-        recurrent=recurrent,
+        recurrent=memory is not None,
         target_params=params,
+    )
+
+
+def _apply_critic_obs_norm(critic_state: LoadedTrainState, x: jax.Array) -> jax.Array:
+    """Normalise the obs slice of a critic input (obs or concat(obs, action));
+    the action slice stays raw. No-op when normalisation is disabled."""
+    obs_norm_info = getattr(critic_state, "obs_norm_info", None)
+    if obs_norm_info is None or obs_norm_info.var is None:
+        return x
+    from ajax.agents.obs_norm import apply_obs_norm
+
+    obs_dim = obs_norm_info.mean.shape[-1]
+    obs_part = apply_obs_norm(x[..., :obs_dim], obs_norm_info)
+    return jnp.concatenate([obs_part, x[..., obs_dim:]], axis=-1)
+
+
+def predict_value_sequence(
+    critic_state: LoadedTrainState,
+    critic_params: FrozenDict,
+    x: jax.Array,
+    resets: jax.Array,
+    initial_hidden: HiddenState,
+) -> Tuple[jax.Array, HiddenState]:
+    """Run a recurrent critic over a time-major sequence.
+
+    Args:
+        x: (T, B, features) critic input (obs, or concat(obs, action)).
+        resets: (T, B) episode-start flags aligned with ``x`` (resets[t]
+            means x[t] is the first observation of a new episode).
+        initial_hidden: carry valid for x[0]; leaves are (num, B, hidden)
+            for critic ensembles.
+
+    Returns:
+        (values, final_hidden): values (num, T, B, 1); final_hidden is the
+        carry after consuming the whole sequence.
+    """
+    x = _apply_critic_obs_norm(critic_state, x)
+    return critic_state.apply_fn(
+        critic_params, x, hidden_state=initial_hidden, done=resets
     )
 
 

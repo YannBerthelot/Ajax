@@ -13,7 +13,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | GPU / TPU acceleration                | :heavy_check_mark: |
 | TensorBoard + Weights & Biases        | :heavy_check_mark: |
 | Truncation / termination handling     | :heavy_check_mark: |
-| Recurrent network support             | :soon:             |
+| Recurrent networks (PPO, SAC, ASAC, REDQ, TD3) | :heavy_check_mark: |
 
 ### Available Agents
 
@@ -66,6 +66,56 @@ agent.train(seed=[1, 2, 3], n_timesteps=int(1e6))
 ```
 
 Every agent accepts the same base arguments (`env_id`, `n_envs`, `gamma`, architectures, …) plus agent-specific hyperparameters.
+
+### Recurrent networks (memory)
+
+PPO, SAC, ASAC, REDQ and TD3 support memory-augmented actors and critics
+through a single hyperparameter — the network becomes
+`encoder → memory → heads` and all hidden-state plumbing (collection,
+training, evaluation, episode-boundary resets) is handled internally:
+
+```python
+from ajax import PPO, ASAC
+from ajax.networks.memory import MemoryConfig
+
+agent = PPO("CartPole-v1", memory=MemoryConfig(kind="gru", hidden_size=64))
+agent = ASAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})  # dict works too
+agent = PPO("CartPole-v1", memory=MemoryConfig(kind="mamba", hidden_size=64))
+agent = PPO(
+    "CartPole-v1",
+    memory=MemoryConfig(kind="transformer", hidden_size=64, window=32, num_heads=4),
+)
+```
+
+Available kinds and their profiles:
+
+| Kind | Carry per env | Training over T |
+| ---- | ------------- | --------------- |
+| `"gru"` / `"lstm"` | O(hidden) | sequential (`nn.scan`) |
+| `"transformer"` (sliding-window attention) | O(window · hidden) | parallel attention with episode-segment masks |
+| `"mamba"` (selective SSM) | O(d_state · hidden) | parallel `associative_scan` |
+
+Shared knobs: `num_layers` (stacked blocks) and `gradient_checkpoint`
+(rematerialize activations on long sequences). All kinds are reset-aware
+(no information leaks across episode boundaries, forward or backward) and
+step-wise acting is numerically identical to sequence-mode training —
+enforced by the equivalence tests in `tests/networks/test_memory.py`.
+`tests/agents/PPO/test_memory_probe.py` verifies end-to-end that each kind
+actually uses its memory: on velocity-masked CartPole, feedforward PPO
+plateaus near 40 return while every memory kind exceeds 450/500.
+
+- **PPO** trains with truncated BPTT over full rollouts: each epoch uses the
+  whole `(n_steps, n_envs)` sequence from the rollout-start hidden states
+  (`batch_size` is ignored in recurrent mode to keep sequences intact).
+- **SAC / ASAC / REDQ / TD3** switch their replay buffer to trajectory
+  storage and train on sampled sequences R2D2-style (shared machinery in
+  `ajax/agents/recurrent.py`): carries are warmed up from zero over
+  `burn_in` steps under `stop_gradient`, then `sequence_length` steps are
+  trained with BPTT. TD3 additionally burns in a target-actor carry for
+  its bootstrap action. Expert-guidance features are rejected loudly when
+  combined with memory.
+- Other agents (AVG, APO, UDRL) raise `NotImplementedError` when `memory`
+  is set rather than silently ignoring it.
 
 ### Composable hooks
 

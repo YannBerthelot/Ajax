@@ -20,3 +20,6 @@ class TD3Config(BaseAgentConfig):
     target_policy_noise: float = 0.2
     target_noise_clip: float = 0.5
     exploration_noise: float = 0.1
+    # Recurrent (memory) training only; see ajax.agents.recurrent.
+    burn_in: int = 8
+    sequence_length: int = 16

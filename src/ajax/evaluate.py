@@ -78,17 +78,29 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
 
 
 def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):
-    """Return a function mapping obs → (action, entropy)."""
+    """Return a function mapping (obs, done, hidden) → (action, entropy, hidden).
 
-    def fn(obs: jax.Array, done: Optional[bool] = None):
+    In recurrent mode the hidden state is an explicit input/output so the
+    eval loop can thread it through its carry (the live carry on
+    ``actor_state`` belongs to the training envs and has the wrong batch
+    size here). Non-recurrent mode passes ``hidden`` through untouched.
+    """
+
+    def fn(obs: jax.Array, done: Optional[jax.Array], hidden):
         if actor_state is None:
             raise ValueError("Actor not initialized.")
-        pi, _ = get_pi(actor_state, actor_state.params, obs, done, recurrent)
+        state = actor_state.replace(hidden_state=hidden) if recurrent else actor_state
+        pi, new_state = get_pi(state, actor_state.params, obs, done, recurrent)
         action = pi.mean() if continuous else pi.mode()
         entropy = (
             pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
         )
-        return action, entropy
+        if recurrent:
+            # drop the single-step time axis added by get_pi
+            action = action.squeeze(0)
+            entropy = entropy.squeeze(0)
+            return action, entropy, new_state.hidden_state
+        return action, entropy, hidden
 
     return fn
 
@@ -148,6 +160,7 @@ def step_environment(
             step_count_2,
             _,
             expert_state,
+            actor_hidden,
         ) = carry
         rng, step_key = jax.random.split(rng)
         step_keys = (
@@ -199,9 +212,11 @@ def step_environment(
                     [obs_for_actor, jax.lax.stop_gradient(_es_flat)], axis=-1
                 )
 
-        raw_actions, entropy = get_deterministic_action_and_entropy_fn(
-            actor_state, recurrent, continuous
-        )(obs_for_actor, done if recurrent else None)
+        raw_actions, entropy, new_actor_hidden = (
+            get_deterministic_action_and_entropy_fn(
+                actor_state, recurrent, continuous
+            )(obs_for_actor, done if recurrent else None, actor_hidden)
+        )
 
         if pid_gain_policy:
             gains = _anchor_gains * jnp.exp(_gain_log_scale * raw_actions)
@@ -249,7 +264,7 @@ def step_environment(
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
-            actions.squeeze(0) if recurrent else actions,
+            actions,
             env,
             mode,
             env_params,
@@ -289,6 +304,7 @@ def step_environment(
             step_count_2 + 1,
             new_rewards,
             new_expert_state,
+            new_actor_hidden,
         )
 
     return fn
@@ -309,6 +325,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             step_count_2,
             _,
             expert_state,
+            actor_hidden,  # unused by the expert; passed through
         ) = carry
         rng, step_key = jax.random.split(rng)
         step_keys = (
@@ -334,6 +351,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             step_count_2 + 1,
             new_rewards,
             new_expert_state,
+            actor_hidden,
         )
 
     return fn
@@ -427,6 +445,22 @@ def evaluate(
         _init_agent_expert_state = jnp.zeros(
             (1,)
         )  # dummy; unused when expert is stateless
+    # Fresh actor memory for evaluation: same structure as the live carry,
+    # but batch-sized to num_episodes and zeroed (every supported memory
+    # cell has a zero initial carry). Without this the eval loop would
+    # reuse the training envs' carry, whose batch size doesn't even match.
+    if (
+        recurrent
+        and actor_state is not None
+        and getattr(actor_state, "hidden_state", None) is not None
+    ):
+        _init_actor_hidden = jax.tree.map(
+            lambda x: jnp.zeros((num_episodes,) + x.shape[1:], x.dtype),
+            actor_state.hidden_state,
+        )
+    else:
+        _init_actor_hidden = jnp.zeros((1,))  # dummy; unused when feedforward
+
     init_carry_agent = (
         jnp.zeros(num_episodes),  # rewards
         key,
@@ -438,6 +472,7 @@ def evaluate(
         jnp.zeros(1),  # step_count_2
         jnp.zeros(num_episodes),  # last reward
         _init_agent_expert_state,  # expert_state (used only for stateful experts)
+        _init_actor_hidden,  # actor memory (used only when recurrent)
     )
     init_carry_expert = (
         jnp.zeros(num_episodes),  # rewards
@@ -450,6 +485,7 @@ def evaluate(
         jnp.zeros(1),  # step_count_2
         jnp.zeros(num_episodes),  # last reward
         _init_agent_expert_state,  # expert_state
+        _init_actor_hidden,  # actor memory (pass-through)
     )
 
     # Choose step function
@@ -489,7 +525,7 @@ def evaluate(
     final_carry, _ = jax.lax.scan(
         _scan_body, init_carry_agent, None, length=steps_bound
     )
-    rewards, _, _, _, _, entropy_sum, step_count, step_count_2, _, _ = final_carry
+    rewards, _, _, _, _, entropy_sum, step_count, step_count_2, _, _, _ = final_carry
 
     # Optionally compute expert comparison
     rewards_expert = jnp.nan
@@ -510,7 +546,7 @@ def evaluate(
 
         def scan_step(carry, _):
             carry = step_fn(carry)
-            return carry, carry[-1]
+            return carry, carry[8]  # per-step reward slot
 
         _, rewards_over_time = jax.lax.scan(
             scan_step, init_carry_agent, None, length=num_steps_average_reward

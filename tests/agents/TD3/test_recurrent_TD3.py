@@ -56,3 +56,25 @@ def test_recurrent_td3_learning_starts_guard():
             sequence_length=16,
             memory=MemoryConfig(kind="gru", hidden_size=8),
         )
+
+
+def test_recurrent_td3_stored_state():
+    """Stored-state replay with TD3's target-actor bootstrap: the stored
+    (online-actor) carry doubles as the target actor's carry."""
+    agent = TD3(
+        env_id="Pendulum-v1",
+        n_envs=1,
+        batch_size=8,
+        buffer_size=1000,
+        learning_starts=200,
+        actor_architecture=("32", "relu"),
+        critic_architecture=("32", "relu"),
+        burn_in=4,
+        sequence_length=8,
+        memory=MemoryConfig(kind="gru", hidden_size=8),
+        stored_state=True,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=260)
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert jnp.all(jnp.isfinite(leaf))
+    assert "actor_carry" in state.collector_state.buffer_state.experience

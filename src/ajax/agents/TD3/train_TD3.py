@@ -49,7 +49,7 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.memory import resolve_memory_config
+from ajax.networks.memory import flat_carry_dim, resolve_memory_config
 from ajax.networks.networks import predict_value, predict_value_sequence
 from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.state import (
@@ -182,6 +182,7 @@ def init_TD3(
     buffer: BufferType,
     num_critics: int = 2,
     window_size: int = 10,
+    stored_state: bool = False,
     pid_actor_config: Optional[PIDActorConfig] = None,
     expert_policy: Optional[Callable] = None,
 ) -> TD3State:
@@ -197,12 +198,18 @@ def init_TD3(
         pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    _actor_carry_dim = 0
+    if stored_state:
+        _mem = resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        if _mem is not None:
+            _actor_carry_dim = flat_carry_dim(_mem)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
         buffer=buffer,
         window_size=window_size,
+        actor_carry_dim=_actor_carry_dim,
     )
     # Seed batched expert state for stateful experts (PID integrator, CPG
     # phase). Mirrors SAC's pattern in init_SAC; required so the scan body's
@@ -623,6 +630,7 @@ def update_target_networks(agent_state: TD3State, tau: float) -> TD3State:
         "total_timesteps",
         "burn_in",
         "sequence_length",
+        "stored_state",
     ],
 )
 def update_agent(
@@ -647,6 +655,7 @@ def update_agent(
     total_timesteps: int = 1,
     burn_in: int = 8,
     sequence_length: int = 16,
+    stored_state: bool = False,
 ) -> Tuple[TD3State, AuxiliaryLogs]:
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
@@ -657,7 +666,12 @@ def update_agent(
         # bootstrap action comes from the TARGET actor, so its carry is
         # burned in as well (burn_target_actor=True).
         transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in, burn_target_actor=True
+            agent_state,
+            buffer,
+            sample_key,
+            burn_in,
+            burn_target_actor=True,
+            stored_state=stored_state,
         )
         raw_observations = None
     else:
@@ -828,6 +842,7 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
+        store_hidden=recurrent and agent_config.stored_state,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
@@ -862,6 +877,7 @@ def training_iteration(
             total_timesteps=total_timesteps,
             burn_in=agent_config.burn_in,
             sequence_length=agent_config.sequence_length,
+            stored_state=agent_config.stored_state,
         )
         # See ajax.perf_utils.final_aux_scan: carry-only scan, no leading
         # scan axis materialised on device. Reshape to (1,) preserves
@@ -1002,6 +1018,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            stored_state=agent_config.stored_state,
             buffer=buffer,
             num_critics=agent_config.num_critics,
             pid_actor_config=pid_actor_config,

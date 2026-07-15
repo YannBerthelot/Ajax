@@ -63,7 +63,7 @@ from ajax.modules.pretrain import (
     collect_and_store_expert_transitions,
     pretrain_critic_bellman,
 )
-from ajax.networks.memory import resolve_memory_config
+from ajax.networks.memory import flat_carry_dim, resolve_memory_config
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -189,6 +189,7 @@ def init_SAC(
     alpha_args: AlphaConfig,
     buffer: BufferType,
     window_size: int = 10,
+    stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     residual: bool = False,
     fixed_alpha: bool = False,
@@ -242,12 +243,18 @@ def init_SAC(
     )
 
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    _actor_carry_dim = 0
+    if stored_state:
+        _mem = resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        if _mem is not None:
+            _actor_carry_dim = flat_carry_dim(_mem)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
         buffer=buffer,
         window_size=window_size,
+        actor_carry_dim=_actor_carry_dim,
         max_timesteps=max_timesteps,
         action_dim_override=action_dim_override,
         expert_state_aug_dim=(
@@ -850,6 +857,7 @@ def update_agent(
     extra_critic_loss_fn: Optional[Callable] = None,
     burn_in: int = 8,
     sequence_length: int = 16,
+    stored_state: bool = False,
     # Optional Hindsight-Experience-Replay relabel. Signature
     # (rng, transition) -> transition. Applied to the finalised sampled
     # batch before any expert mixing / learner use. Default None ⇒ the
@@ -866,7 +874,7 @@ def update_agent(
         # features are rejected upstream in make_train, so the expert
         # blocks below are all trace-time no-ops.
         transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in
+            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
         )
         expert_frac_in_buffer = jnp.zeros(())
     elif buffer is not None and agent_state.collector_state.buffer_state is not None:
@@ -1294,6 +1302,7 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
+        store_hidden=recurrent and agent_config.stored_state,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
@@ -1362,6 +1371,7 @@ def training_iteration(
             extra_critic_loss_fn=extra_critic_loss_fn,
             burn_in=agent_config.burn_in,
             sequence_length=agent_config.sequence_length,
+            stored_state=agent_config.stored_state,
             her_relabel_fn=her_relabel_fn,
         )
         agent_state, aux = jax.lax.scan(
@@ -1730,6 +1740,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            stored_state=agent_config.stored_state,
             alpha_args=alpha_args,
             buffer=buffer,
             expert_policy=expert_policy,

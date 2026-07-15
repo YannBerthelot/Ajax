@@ -29,3 +29,6 @@ class ASACConfig(BaseAgentConfig):
     # the bootstrap next-observations.
     burn_in: int = 8
     sequence_length: int = 16
+    # R2D2 stored-state replay: read actor carries back from the buffer
+    # instead of burning them in from zero (Kapturowski et al. 2019).
+    stored_state: bool = False

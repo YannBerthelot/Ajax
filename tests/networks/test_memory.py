@@ -16,9 +16,12 @@ import pytest
 from ajax.networks.memory import (
     MemoryCell,
     MemoryConfig,
+    flat_carry_dim,
+    flatten_carry,
     init_carry,
     parse_memory_config,
     resolve_memory_config,
+    unflatten_carry,
     zeros_carry_like,
 )
 
@@ -241,3 +244,26 @@ def test_jit_and_gradient_checkpoint(kind):
     assert y.shape == (T, B, 8)
     grads = jax.grad(lambda x_in: run(carry, x_in)[1].sum())(x)
     assert jnp.all(jnp.isfinite(grads))
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_flatten_carry_roundtrip(kind):
+    """flatten_carry/unflatten_carry must be exact inverses for every kind
+    (stored-state replay writes flattened carries into the buffer)."""
+    config = MemoryConfig(kind=kind, hidden_size=8, window=5, num_layers=2)
+    carry = init_carry(config, jax.random.PRNGKey(0), B)
+    # fill with distinguishable values (bools stay bool)
+    carry = jax.tree.map(
+        lambda x: (
+            jnp.ones(x.shape, bool)
+            if x.dtype == bool
+            else jnp.arange(x.size, dtype=x.dtype).reshape(x.shape)
+        ),
+        carry,
+    )
+    flat = flatten_carry(carry)
+    assert flat.shape == (B, flat_carry_dim(config) * 1)
+    back = unflatten_carry(flat, zeros_carry_like(carry, B))
+    for a, b in zip(jax.tree.leaves(carry), jax.tree.leaves(back)):
+        assert a.dtype == b.dtype
+        assert jnp.array_equal(a, b)

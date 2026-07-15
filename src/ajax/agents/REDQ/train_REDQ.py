@@ -45,7 +45,7 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.memory import resolve_memory_config
+from ajax.networks.memory import flat_carry_dim, resolve_memory_config
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -157,6 +157,7 @@ def init_REDQ(
     buffer: BufferType,
     number_of_critics: int,
     window_size: int = 10,
+    stored_state: bool = False,
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> REDQState:
     """
@@ -192,12 +193,18 @@ def init_REDQ(
         pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    _actor_carry_dim = 0
+    if stored_state:
+        _mem = resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        if _mem is not None:
+            _actor_carry_dim = flat_carry_dim(_mem)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
         buffer=buffer,
         window_size=window_size,
+        actor_carry_dim=_actor_carry_dim,
     )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
@@ -772,6 +779,7 @@ def update_policy(
         "total_timesteps",
         "burn_in",
         "sequence_length",
+        "stored_state",
     ],
 )
 def update_agent(
@@ -800,6 +808,7 @@ def update_agent(
     total_timesteps: int = 1,
     burn_in: int = 8,
     sequence_length: int = 16,
+    stored_state: bool = False,
 ) -> Tuple[REDQState, AuxiliaryLogs]:
     """
     Update the REDQ agent, including critic, actor, and temperature updates.
@@ -827,7 +836,7 @@ def update_agent(
         # Sequence replay with burned-in carries (R2D2-style); expert
         # features are rejected upstream in make_train.
         transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in
+            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
         )
         raw_observations = None
     elif buffer is not None and agent_state.collector_state.buffer_state is not None:
@@ -1058,6 +1067,7 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
+        store_hidden=recurrent and agent_config.stored_state,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
@@ -1100,6 +1110,7 @@ def training_iteration(
             total_timesteps=total_timesteps,
             burn_in=agent_config.burn_in,
             sequence_length=agent_config.sequence_length,
+            stored_state=agent_config.stored_state,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=n_epochs
@@ -1257,6 +1268,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            stored_state=agent_config.stored_state,
             alpha_args=alpha_args,
             buffer=buffer,
             number_of_critics=agent_config.num_critics,

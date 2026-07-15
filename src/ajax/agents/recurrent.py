@@ -24,7 +24,7 @@ from flax import struct
 
 from ajax.buffers.utils import get_sequence_batch_from_buffer
 from ajax.environments.interaction import get_pi_sequence
-from ajax.networks.memory import zeros_carry_like
+from ajax.networks.memory import unflatten_carry, zeros_carry_like
 from ajax.networks.networks import predict_value_sequence
 from ajax.state import BaseAgentState, Transition
 from ajax.types import BufferType
@@ -59,8 +59,18 @@ def sample_and_burnin_sequences(
     sample_key: jax.Array,
     burn_in: int,
     burn_target_actor: bool = False,
+    stored_state: bool = False,
 ) -> Tuple[Transition, RecurrentCarries]:
     """Sample sequences and burn in all carries; see the module docstring.
+
+    ``stored_state=True`` enables R2D2's stored-state strategy for the
+    ACTOR carries: instead of burning them in from zero, the carries the
+    actor actually had at collection time are read back from the buffer
+    (``actor_carry`` field, written by ``collect_experience`` with
+    ``store_hidden=True``). Kapturowski et al. 2019 show stored state
+    beats zero-init + burn-in at mitigating recurrent-state staleness.
+    The critic carries are still burned in from zero: the critic never
+    runs at collection time, so there is nothing stored for it.
 
     Returns a time-major :class:`Transition` over the training segment
     (leaves shaped ``(sequence_length, batch, ...)``) and the matching
@@ -83,21 +93,43 @@ def sample_and_burnin_sequences(
     batch_size = obs_seq.shape[1]
     xs_seq = jnp.concatenate([obs_seq, act_seq], axis=-1)
 
-    actor_carry = zeros_carry_like(
+    actor_template = zeros_carry_like(
         agent_state.actor_state.hidden_state, batch_size, batch_axis=0
     )
     critic_zero = zeros_carry_like(
         agent_state.critic_state.hidden_state, batch_size, batch_axis=1
     )
-    critic_carry = critic_zero
-    if burn_in > 0:
-        _, actor_carry = get_pi_sequence(
+
+    if stored_state:
+        # Actor carries come straight from collection time: exact for the
+        # policy that generated the data, stale only w.r.t. subsequent
+        # param updates (the trade R2D2 shows is worth making). The reset
+        # flags still zero these in-cell at episode starts.
+        actor_carry = unflatten_carry(seq["actor_carry"][burn_in], actor_template)
+        actor_next_carry = unflatten_carry(
+            seq["actor_carry"][burn_in + 1], actor_template
+        )
+    else:
+        actor_carry = actor_template
+        if burn_in > 0:
+            _, actor_carry = get_pi_sequence(
+                agent_state.actor_state,
+                agent_state.actor_state.params,
+                obs_seq[:burn_in],
+                resets_seq[:burn_in],
+                actor_carry,
+            )
+        # One extra step for the carry aligned with next_obs[0] = obs[burn_in+1]
+        _, actor_next_carry = get_pi_sequence(
             agent_state.actor_state,
             agent_state.actor_state.params,
-            obs_seq[:burn_in],
-            resets_seq[:burn_in],
+            obs_seq[burn_in : burn_in + 1],
+            resets_seq[burn_in : burn_in + 1],
             actor_carry,
         )
+
+    critic_carry = critic_zero
+    if burn_in > 0:
         _, critic_carry = predict_value_sequence(
             agent_state.critic_state,
             agent_state.critic_state.params,
@@ -105,14 +137,6 @@ def sample_and_burnin_sequences(
             resets_seq[:burn_in],
             critic_zero,
         )
-    # One extra step for the carries aligned with next_obs[0] = obs[burn_in+1]
-    _, actor_next_carry = get_pi_sequence(
-        agent_state.actor_state,
-        agent_state.actor_state.params,
-        obs_seq[burn_in : burn_in + 1],
-        resets_seq[burn_in : burn_in + 1],
-        actor_carry,
-    )
     _, target_critic_carry = predict_value_sequence(
         agent_state.critic_state,
         agent_state.critic_state.target_params,
@@ -122,18 +146,24 @@ def sample_and_burnin_sequences(
     )
     target_actor_next_carry = None
     if burn_target_actor:
-        # TD3's bootstrap action comes from the TARGET actor; burn its
-        # carry with the target params over the same prefix.
-        actor_zero = zeros_carry_like(
-            agent_state.actor_state.hidden_state, batch_size, batch_axis=0
-        )
-        _, target_actor_next_carry = get_pi_sequence(
-            agent_state.actor_state,
-            agent_state.actor_state.target_params,
-            obs_seq[: burn_in + 1],
-            resets_seq[: burn_in + 1],
-            actor_zero,
-        )
+        if stored_state:
+            # Stored carries were produced by the ONLINE actor; reusing
+            # them for the target actor is the standard stored-state
+            # staleness trade (R2D2 stores one state per step, period).
+            target_actor_next_carry = actor_next_carry
+        else:
+            # TD3's bootstrap action comes from the TARGET actor; burn its
+            # carry with the target params over the same prefix.
+            actor_zero = zeros_carry_like(
+                agent_state.actor_state.hidden_state, batch_size, batch_axis=0
+            )
+            _, target_actor_next_carry = get_pi_sequence(
+                agent_state.actor_state,
+                agent_state.actor_state.target_params,
+                obs_seq[: burn_in + 1],
+                resets_seq[: burn_in + 1],
+                actor_zero,
+            )
     carries = jax.lax.stop_gradient(
         RecurrentCarries(
             resets=resets_seq[burn_in:-1],

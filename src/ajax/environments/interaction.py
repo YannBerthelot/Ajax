@@ -633,6 +633,7 @@ def get_buffer_action_and_env_action(
         "buffer",
         "action_pipeline",
         "next_expert_fn",
+        "store_hidden",
     ],
 )
 def collect_experience(
@@ -645,6 +646,7 @@ def collect_experience(
     uniform: bool = False,
     action_pipeline: Optional[Callable] = None,
     next_expert_fn: Optional[Callable] = None,
+    store_hidden: bool = False,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
@@ -661,6 +663,16 @@ def collect_experience(
     rng_step = (
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
+
+    # R2D2-style stored-state replay: the actor's carry BEFORE this step is
+    # the hidden state valid for last_obs (the transition's obs). Snapshot
+    # it now — the action selection below advances the live carry.
+    if store_hidden:
+        from ajax.networks.memory import flatten_carry
+
+        _pre_actor_carry_flat = jax.lax.stop_gradient(
+            flatten_carry(agent_state.actor_state.hidden_state)
+        )
 
     # Update obs running stats with the current last_obs (BEFORE the
     # forward pass), then sync into actor/critic so the very first step
@@ -836,6 +848,8 @@ def collect_experience(
         if next_expert_fn is not None:
             _transition["a_expert"] = _a_expert_for_buf
             _transition["next_a_expert"] = _next_a_expert_for_buf
+        if store_hidden:
+            _transition["actor_carry"] = _pre_actor_carry_flat
         should_write = jnp.logical_or(
             uniform,
             jnp.logical_not(
@@ -1100,6 +1114,7 @@ def init_collector_state(
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
     include_expert_fields: bool = False,
+    actor_carry_dim: int = 0,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -1167,6 +1182,7 @@ def init_collector_state(
             action_dim_override=action_dim_override,
             expert_state_aug_dim=expert_state_aug_dim,
             include_expert_fields=include_expert_fields,
+            actor_carry_dim=actor_carry_dim,
         )
         if buffer is not None
         else None

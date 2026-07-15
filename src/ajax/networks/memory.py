@@ -36,6 +36,7 @@ Kinds and their compute/memory profile:
 
 import functools
 from dataclasses import dataclass
+from math import prod as np_prod
 from typing import Any, Optional, Union
 
 import flax.linen as nn
@@ -174,6 +175,49 @@ def zeros_carry_like(carry: Carry, batch_size: int, batch_axis: int = 0) -> Carr
         return jnp.zeros(tuple(shape), leaf.dtype)
 
     return jax.tree.map(zeros, carry)
+
+
+def flatten_carry(carry: Carry) -> jax.Array:
+    """Pack a carry pytree into one ``(batch, D)`` float array.
+
+    Used to write per-step actor carries into the replay buffer
+    (R2D2-style stored-state replay): flashbax schemas hold flat arrays,
+    not pytrees. Every leaf keeps its leading batch axis; the trailing
+    dims are flattened and concatenated in ``jax.tree`` leaf order.
+    Reversible via :func:`unflatten_carry` given any same-structure
+    template. Bool leaves (e.g. the transformer cache's validity flags)
+    are cast to float and recovered by dtype from the template.
+    """
+    leaves = jax.tree.leaves(carry)
+    batch = leaves[0].shape[0]
+    return jnp.concatenate(
+        [leaf.reshape(batch, -1).astype(jnp.float32) for leaf in leaves],
+        axis=-1,
+    )
+
+
+def unflatten_carry(flat: jax.Array, template: Carry) -> Carry:
+    """Inverse of :func:`flatten_carry`.
+
+    ``template`` supplies the pytree structure, per-leaf trailing shapes
+    and dtypes (e.g. from :func:`zeros_carry_like` with the right batch
+    size); ``flat`` is ``(batch, D)`` with the same leaf order.
+    """
+    leaves, treedef = jax.tree.flatten(template)
+    batch = flat.shape[0]
+    out, offset = [], 0
+    for leaf in leaves:
+        size = int(np_prod(leaf.shape[1:]))
+        chunk = flat[:, offset : offset + size]
+        out.append(chunk.reshape(batch, *leaf.shape[1:]).astype(leaf.dtype))
+        offset += size
+    return jax.tree.unflatten(treedef, out)
+
+
+def flat_carry_dim(config: MemoryConfig) -> int:
+    """Width D of :func:`flatten_carry`'s output for ``config`` (per env)."""
+    carry = init_carry(config, jax.random.PRNGKey(0), 1)
+    return int(flatten_carry(carry).shape[-1])
 
 
 def _mask_reset(resets: jax.Array, fresh: Carry, carry: Carry) -> Carry:

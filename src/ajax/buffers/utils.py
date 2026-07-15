@@ -59,6 +59,7 @@ def init_buffer(
     action_dim_override: Optional[int] = None,
     expert_state_aug_dim: int = 0,
     include_expert_fields: bool = False,
+    actor_carry_dim: int = 0,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
@@ -113,6 +114,10 @@ def init_buffer(
         )
         schema["a_expert"] = a_expert
         schema["next_a_expert"] = a_expert
+    if actor_carry_dim > 0:
+        # R2D2-style stored-state replay: the actor's flattened carry at
+        # each step (see ajax.networks.memory.flatten_carry).
+        schema["actor_carry"] = jnp.zeros((actor_carry_dim,), dtype=jnp.float32)
     return buffer.init(schema)
 
 

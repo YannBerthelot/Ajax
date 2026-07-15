@@ -61,6 +61,11 @@ class TD3(ActorCritic):
         memory: Optional[Union[MemoryConfig, dict]] = None,
         burn_in: int = 8,
         sequence_length: int = 16,
+        # R2D2 stored-state replay: initialize replayed sequences from the
+        # actor carries recorded at collection time instead of zero+burn-in
+        # (Kapturowski et al. 2019 show this mitigates state staleness best).
+        # Stores flatten_carry(actor carry) per step in the buffer.
+        stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         # --- Cloning / pretraining (mirrors REDQ) ---
@@ -131,8 +136,13 @@ class TD3(ActorCritic):
             exploration_noise=exploration_noise,
             burn_in=burn_in,
             sequence_length=sequence_length,
+            stored_state=stored_state,
         )
         recurrent = self.network_args.memory is not None
+        if stored_state and not recurrent:
+            raise ValueError(
+                "stored_state=True requires a memory config (recurrent networks)."
+            )
         if recurrent:
             check_recurrent_learning_starts(
                 learning_starts, n_envs, burn_in, sequence_length

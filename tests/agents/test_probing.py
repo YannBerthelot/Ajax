@@ -10,14 +10,18 @@ import pytest
 from probing_environments.adaptors.ajax import (
     get_action,
     get_gamma,
+    get_policy,
     get_value,
     init_agent,
     train_agent,
 )
 from probing_environments.checks import (
+    check_actor_and_critic_coupling,
     check_actor_and_critic_coupling_continuous,
+    check_advantage_policy,
     check_advantage_policy_continuous,
     check_backprop_value_net,
+    check_boundary_action_saturation,
     check_loss_or_optimizer_value_net,
     check_reward_discounting,
 )
@@ -25,12 +29,21 @@ from probing_environments.checks import (
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PPO.PPO import PPO
+from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 
 # All agents
 ALL_AGENTS = [SAC, REDQ, PPO, APO, ASAC, AVG]
+# Agents that recompute ``pi.log_prob(post_tanh_action)`` at update
+# time (PPO-family) and are therefore vulnerable to the arctanh
+# saturation instability covered by :func:`check_boundary_action_saturation`.
+# SAC-family agents sample and store log_prob in one shot via
+# ``sample_and_log_prob`` so they don't recompute and don't need this
+# probe.
+ONPOLICY_LOGPROB_RECOMPUTE_AGENTS = [PPO, APO]
 # Average-reward agents: their critic learns *differential* V (≈0 for constant
 # reward), not absolute V — so the V≈1 expectation in value-net checks and the
 # discount-ratio expectation in reward-discounting check don't apply.
@@ -127,6 +140,43 @@ class TestProbingPolicy:
 
 
 @pytest.mark.parametrize(
+    "agent_cls",
+    _params(ONPOLICY_LOGPROB_RECOMPUTE_AGENTS),
+    ids=lambda c: c.__name__,
+)
+class TestProbingBoundarySaturation:
+    """Boundary-action saturation probe (m4 audit -- May 2026).
+
+    For tanh-squashed Gaussian policies (SquashedNormal), on-policy
+    agents that recompute ``pi.log_prob(post_tanh_action)`` at update
+    time go through ``distrax.Tanh.inverse_and_log_det`` which calls
+    ``arctanh(action)``. This is numerically unstable as
+    ``|action| → 1``, causing the recomputed log_prob to diverge from
+    the stored log_prob, the PPO ratio to explode/underflow, and the
+    policy to stall around action ≈ 0.95 instead of converging to
+    ≈ 1.0 on a boundary-reward env.
+
+    The fix (Ajax May 2026 m4): store the pre-tanh ``raw_action`` in
+    the rollout buffer and recompute via ``base.log_prob(raw) -
+    forward_log_det_jacobian(raw)`` -- never invert the tanh.
+
+    The pre-existing :class:`TestProbingPolicy.test_advantage_policy`
+    used threshold 0.90, which a saturation-stalled policy can pass.
+    This stricter probe uses 0.98 and would have caught the m4 bug.
+    """
+
+    def test_boundary_action_saturation(self, agent_cls):
+        check_boundary_action_saturation(
+            agent=agent_cls,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_action=get_action,
+            budget=int(5e4),
+            gymnax=True,
+        )
+
+
+@pytest.mark.parametrize(
     "agent_cls", _params(COUPLING_AGENTS), ids=lambda c: c.__name__
 )
 class TestProbingCoupling:
@@ -141,5 +191,137 @@ class TestProbingCoupling:
             get_value=get_value,
             budget=BUDGET_COUPLING,
             learning_rate=LR_COUPLING,
+            gymnax=True,
+        )
+
+
+class TestProbingDQN:
+    """DQN is discrete-action and value-based: it runs the *discrete*
+    probing checks (continuous=False) instead of the continuous variants.
+
+    ``get_value`` for DQN returns the greedy state value V(s) = max_a
+    Q(s, a); ``get_policy`` returns the one-hot greedy policy.
+    """
+
+    def test_loss_or_optimizer(self):
+        check_loss_or_optimizer_value_net(
+            agent=DQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_value=get_value,
+            budget=BUDGET_VALUE,
+            gymnax=True,
+            continuous=False,
+        )
+
+    def test_backprop(self):
+        check_backprop_value_net(
+            agent=DQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_value=get_value,
+            budget=BUDGET_VALUE,
+            gymnax=True,
+            continuous=False,
+        )
+
+    def test_reward_discounting(self):
+        check_reward_discounting(
+            agent=DQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_value=get_value,
+            get_gamma=get_gamma,
+            budget=BUDGET_VALUE,
+            gymnax=True,
+            continuous=False,
+        )
+
+    def test_advantage_policy(self):
+        check_advantage_policy(
+            agent=DQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_policy=get_policy,
+            budget=BUDGET_POLICY,
+            gymnax=True,
+        )
+
+    def test_actor_critic_coupling(self):
+        check_actor_and_critic_coupling(
+            agent=DQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_policy=get_policy,
+            get_value=get_value,
+            budget=BUDGET_VALUE,
+            gymnax=True,
+        )
+
+
+class TestProbingPQN:
+    """PQN is discrete-action and value-based, like DQN -- it runs the
+    discrete probing checks. PQN is on-policy with a low update-to-data
+    ratio, so it gets a larger step budget than DQN for the same checks.
+    """
+
+    # PQN does n_epochs minibatch updates per (n_envs * n_steps) env
+    # steps, far fewer gradient steps per env step than DQN -- so it
+    # needs a bigger env-step budget to converge on the probing envs.
+    BUDGET_VALUE_PQN = int(8e4)
+    BUDGET_POLICY_PQN = int(8e4)
+
+    def test_loss_or_optimizer(self):
+        check_loss_or_optimizer_value_net(
+            agent=PQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_value=get_value,
+            budget=self.BUDGET_VALUE_PQN,
+            gymnax=True,
+            continuous=False,
+        )
+
+    def test_backprop(self):
+        check_backprop_value_net(
+            agent=PQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_value=get_value,
+            budget=self.BUDGET_VALUE_PQN,
+            gymnax=True,
+            continuous=False,
+        )
+
+    def test_reward_discounting(self):
+        check_reward_discounting(
+            agent=PQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_value=get_value,
+            get_gamma=get_gamma,
+            budget=self.BUDGET_VALUE_PQN,
+            gymnax=True,
+            continuous=False,
+        )
+
+    def test_advantage_policy(self):
+        check_advantage_policy(
+            agent=PQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_policy=get_policy,
+            budget=self.BUDGET_POLICY_PQN,
+            gymnax=True,
+        )
+
+    def test_actor_critic_coupling(self):
+        check_actor_and_critic_coupling(
+            agent=PQN,
+            init_agent=init_agent,
+            train_agent=train_agent,
+            get_policy=get_policy,
+            get_value=get_value,
+            budget=self.BUDGET_VALUE_PQN,
             gymnax=True,
         )

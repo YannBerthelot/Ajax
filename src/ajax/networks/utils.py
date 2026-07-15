@@ -60,6 +60,7 @@ def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFu
         "relu": nn.relu,
         "tanh": nn.tanh,
         "leaky_relu": nn.leaky_relu,
+        "swish": nn.swish,
     }
 
     match activation:

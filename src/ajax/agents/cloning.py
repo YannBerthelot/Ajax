@@ -505,14 +505,17 @@ def get_pre_trained_agent(
     if agent_state.collector_state.obs_norm_info is not None:
         from ajax.wrappers import NormalizationInfo
 
-        n_envs = agent_state.collector_state.obs_norm_info.mean.shape[0]
+        # Agent-side stats live with leading axis size 1 (see
+        # init_agent_obs_norm); broadcast obs_mean / var to (1, obs_dim).
         n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
         var = obs_std**2
+        mean_1 = obs_mean.reshape(1, -1)
+        var_1 = var.reshape(1, -1)
         seeded = NormalizationInfo(
-            count=jnp.full((n_envs, 1), n_samples),
-            mean=jnp.broadcast_to(obs_mean, (n_envs, obs_mean.shape[0])),
-            mean_2=jnp.broadcast_to(var * n_samples, (n_envs, var.shape[0])),
-            var=jnp.broadcast_to(var, (n_envs, var.shape[0])),
+            count=jnp.full((1, 1), n_samples),
+            mean=mean_1,
+            mean_2=var_1 * n_samples,
+            var=var_1,
             returns=None,
         )
         new_state = new_state.replace(

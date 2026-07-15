@@ -29,7 +29,8 @@ from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
-from ajax.log import evaluate_and_log
+from ajax.extensions.base import ExtensionStack
+from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -41,11 +42,13 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
 )
+from ajax.perf_utils import train_jit
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    zeros_like_abstract_pytree,
 )
 from ajax.utils import get_one
 
@@ -84,11 +87,22 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
 
 
-def compute_entropy_and_log_probs(pi, actions):
-    """Return new log_probs and entropy with shape normalization."""
+def compute_entropy_and_log_probs(pi, actions, raw_actions=None):
+    """Return new log_probs and entropy with shape normalization.
+
+    For SquashedNormal policies, pass the pre-tanh ``raw_actions``
+    (stored at collection time) to get a numerically stable log_prob
+    via ``pi.log_prob_from_raw(raw_actions)`` -- avoids the unstable
+    ``arctanh(post_tanh_action)`` path inside distrax. See m4 audit
+    (May 2026) and ``SquashedNormal.log_prob_from_raw`` docstring.
+    """
     if isinstance(pi, distrax.Categorical):
         new_log_probs = jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
         entropy = jnp.expand_dims(pi.entropy(), -1)
+    elif isinstance(pi, SquashedNormal) and raw_actions is not None:
+        # SAFE recompute via the helper -- never inverts tanh.
+        new_log_probs = pi.log_prob_from_raw(raw_actions)
+        entropy = pi.unsquashed_entropy()
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
         entropy = (
@@ -126,6 +140,11 @@ def policy_loss_function(
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
     obs_preprocessor: Optional[Callable] = None,
+    # Pre-tanh raw action for SquashedNormal log_prob recompute (m4).
+    # See SquashedNormal.log_prob_from_raw and PPO's policy_loss_function
+    # for the rationale. None ⇒ fall back to the standard
+    # pi.log_prob(actions) path (Categorical or unsquashed policies).
+    raw_actions: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     obs_for_actor = (
         obs_preprocessor(observations) if obs_preprocessor is not None else observations
@@ -138,7 +157,11 @@ def policy_loss_function(
         recurrent=recurrent,
     )
 
-    new_log_probs, entropy = compute_entropy_and_log_probs(pi, actions)
+    new_log_probs, entropy = compute_entropy_and_log_probs(
+        pi,
+        actions,
+        raw_actions=raw_actions,
+    )
 
     ratio = jnp.exp(new_log_probs - log_probs)
 
@@ -190,6 +213,8 @@ POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
         "distance_to_stable",
         "imitation_coef_offset",
         "obs_preprocessor",
+        "extension_stack",
+        "total_timesteps",
     ],
 )
 def update_policy(
@@ -209,25 +234,51 @@ def update_policy(
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 1e-3,
     obs_preprocessor: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
+    raw_actions: Optional[jax.Array] = None,
 ) -> Tuple[APOState, Dict[str, Any]]:
-    (loss, aux), grads = POLICY_AND_GRAD_FN(
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+
+    def _actor_loss(params):
+        loss, core_aux = policy_loss_function(
+            params,
+            agent_state.actor_state,
+            observations=observations,
+            actions=actions,
+            log_probs=log_probs,
+            gae=gae,
+            dones=done,
+            recurrent=recurrent,
+            clip_coef=clip_coef,
+            ent_coef=ent_coef,
+            advantage_normalization=advantage_normalization,
+            raw_observations=raw_observations,
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
+            obs_preprocessor=obs_preprocessor,
+            raw_actions=raw_actions,  # m4: pre-tanh for SquashedNormal recompute
+        )
+        if has_stack:
+            assert extension_stack is not None
+            _al_batch = {
+                "observations": observations,
+                "actor_params": params,
+                "actor_state": agent_state.actor_state,
+            }
+            loss = loss + extension_stack.fold_actor_loss(
+                agent_state,
+                _al_batch,
+                agent_state.collector_state.timestep,
+                agent_state.rng,
+                total_timesteps,
+            )
+        return loss, core_aux
+
+    (loss, aux), grads = jax.value_and_grad(_actor_loss, has_aux=True)(
         agent_state.actor_state.params,
-        agent_state.actor_state,
-        observations=observations,
-        actions=actions,
-        log_probs=log_probs,
-        gae=gae,
-        dones=done,
-        recurrent=recurrent,
-        clip_coef=clip_coef,
-        ent_coef=ent_coef,
-        advantage_normalization=advantage_normalization,
-        raw_observations=raw_observations,
-        expert_policy=expert_policy,
-        imitation_coef=imitation_coef,
-        distance_to_stable=distance_to_stable,
-        imitation_coef_offset=imitation_coef_offset,
-        obs_preprocessor=obs_preprocessor,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -301,7 +352,27 @@ def init_APO(
         network_config=network_args,
         continuous=continuous,
         action_value=False,
-        squash=False,
+        # Average-reward PPO (Ma et al. 2021). Continuous-action APO on
+        # bounded control envs (brax / mujoco_playground) suffers the
+        # same Gaussian-saturates-at-clip pathology as PPO when
+        # squash=False (unbounded Normal + external ClipActionBrax).
+        # Squashing natively keeps the policy in [-1, 1] with a correct
+        # log-prob Jacobian. Discrete-action APO ignores this flag.
+        squash=True,
+        # brax-style policy noise: a single learnable scalar log_std per
+        # action dim (state-independent), init at log(std=1.0)=0.0 —
+        # ~3.5x more exploration than Ajax's legacy state-dependent
+        # log_std with bias=-1 (std≈0.37). See PPO for the rationale.
+        log_std_state_independent=True,
+        log_std_init=0.0,
+        # brax-style mean-head init: see PPO for the rationale. Legacy
+        # orthogonal(0.01) gives an essentially-zero deterministic eval
+        # action; lecun_uniform produces moderate initial actions that
+        # train_reward >> eval_reward feedback was traced to.
+        mean_kernel_init="lecun_uniform",
+        # brax MLP has no output LayerNorm; Ajax's Encoder adds one by
+        # default. Disable to match brax (see PPO for full rationale).
+        disable_encoder_output_norm=True,
         num_critics=1,
         pid_actor_config=pid_actor_config,
     )
@@ -378,7 +449,7 @@ def value_loss_function(
 
 @partial(
     jax.jit,
-    static_argnames=["recurrent", "nu"],
+    static_argnames=["recurrent", "nu", "extension_stack", "total_timesteps"],
 )
 def update_value_functions(
     agent_state: APOState,
@@ -388,6 +459,8 @@ def update_value_functions(
     recurrent: bool,
     nu: float,
     b: float,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[APOState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -406,17 +479,38 @@ def update_value_functions(
     Returns:
         Tuple[APOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
     """
-    value_and_grad_fn = jax.value_and_grad(value_loss_function, has_aux=True)
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
 
-    (loss, aux), grads = value_and_grad_fn(
+    def _critic_loss(params):
+        loss, core_aux = value_loss_function(
+            params,
+            agent_state.critic_state,
+            observations,
+            value_targets,
+            dones,
+            recurrent,
+            nu,
+            b,
+        )
+        if has_stack:
+            assert extension_stack is not None
+            _cl_batch = {
+                "observations": observations,
+                "targets": value_targets,
+                "critic_params": params,
+                "critic_state": agent_state.critic_state,
+            }
+            loss = loss + extension_stack.fold_critic_loss(
+                agent_state,
+                _cl_batch,
+                agent_state.collector_state.timestep,
+                agent_state.rng,
+                total_timesteps,
+            )
+        return loss, core_aux
+
+    (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
         agent_state.critic_state.params,
-        agent_state.critic_state,
-        observations,
-        value_targets,
-        dones,
-        recurrent,
-        nu,
-        b,
     )
     # jax.debug.print("Critic loss: {loss_val}", loss_val=loss)
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -436,6 +530,8 @@ def update_value_functions(
         "distance_to_stable",
         "imitation_coef_offset",
         "obs_preprocessor",
+        "extension_stack",
+        "total_timesteps",
     ],
 )
 def update_agent(
@@ -450,6 +546,8 @@ def update_agent(
     distance_to_stable: Callable = get_one,
     imitation_coef_offset: float = 0.0,
     obs_preprocessor: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[APOState, AuxiliaryLogs]:
     """
     Update the APO agent, including critic, actor, and temperature updates.
@@ -469,70 +567,93 @@ def update_agent(
     Returns:
         Tuple[APOState, None]: Updated agent state.
     """
-    # Sample buffer
 
-    (
-        observations,
-        actions,
-        terminated,
-        truncated,
-        value_targets,
-        gae,
-        log_probs,
-        raw_observations,
-    ) = shuffled_batch
+    # Inner scan over the minibatch axis of shuffled_batch (m4-era
+    # fix mirroring PPO's). Pre-fix history: this function unpacked
+    # ``shuffled_batch`` directly (shape ``(num_minibatches, mb_size,
+    # feat)``) and passed the whole 3D tensor to
+    # ``update_value_functions`` / ``update_policy`` as one big batch.
+    # The leading num_minibatches axis was carried through to the
+    # loss and ``mean()`` collapsed both axes into one full-batch
+    # update -- so ``num_minibatches=32`` silently became 1, and
+    # ``num_epochs * num_minibatches`` SGD updates degraded to just
+    # ``num_epochs``. The active path (``do_update``) wraps THIS
+    # function in a scan over ``num_epochs`` so once we add the inner
+    # minibatch scan here, the total SGD step count is
+    # ``num_epochs * num_minibatches`` as intended.
+    def _mb_step(agent_state, mb):
+        (
+            observations,
+            actions,
+            terminated,
+            truncated,
+            value_targets,
+            gae,
+            log_probs,
+            raw_observations,
+            raw_action,
+        ) = mb
+        dones = jnp.logical_or(terminated, truncated)
 
-    assert (
-        observations.shape[:-1] == actions.shape[:-1]
-    ), (  # FIXME : investigate the shape mismatch due to shuffling in batch and shapes shenanigans
-        f"Shape mismatch between observations {observations.shape} and actions"
-        f" {actions.shape}"
+        # Critic
+        agent_state, aux_value = update_value_functions(
+            agent_state=agent_state,
+            observations=observations,
+            value_targets=value_targets,
+            dones=dones,
+            recurrent=recurrent,
+            nu=agent_config.nu,
+            b=b,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
+        )
+
+        # Actor
+        if callable(agent_config.clip_range):
+            clip_coef = agent_config.clip_range(
+                agent_state.collector_state.timestep,
+            )
+        else:
+            clip_coef = agent_config.clip_range
+
+        agent_state, aux_policy = update_policy(
+            agent_state=agent_state,
+            observations=observations,
+            actions=actions,
+            gae=gae,
+            log_probs=log_probs,
+            done=dones,
+            recurrent=recurrent,
+            ent_coef=agent_config.ent_coef,
+            clip_coef=clip_coef,
+            advantage_normalization=False,
+            raw_observations=raw_observations,
+            expert_policy=expert_policy,
+            imitation_coef=imitation_coef,
+            distance_to_stable=distance_to_stable,
+            imitation_coef_offset=imitation_coef_offset,
+            obs_preprocessor=obs_preprocessor,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
+            raw_actions=raw_action,  # m4: SquashedNormal log_prob recompute
+        )
+
+        aux = AuxiliaryLogs(
+            policy=aux_policy,
+            value=ValueAuxiliaries(
+                **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
+            ),
+        )
+        return agent_state, aux
+
+    agent_state, mb_aux = jax.lax.scan(
+        f=_mb_step,
+        init=agent_state,
+        xs=shuffled_batch,
     )
-
-    dones = jnp.logical_or(terminated, truncated)
-
-    # Update critic/V-function
-    agent_state, aux_value = update_value_functions(
-        agent_state=agent_state,
-        observations=observations,
-        value_targets=value_targets,
-        dones=dones,
-        recurrent=recurrent,
-        nu=agent_config.nu,
-        b=b,
-    )
-
-    # Update policy
-    if callable(agent_config.clip_range):
-        clip_coef = agent_config.clip_range(agent_state.collector_state.timestep)
-    else:
-        clip_coef = agent_config.clip_range
-
-    agent_state, aux_policy = update_policy(
-        agent_state=agent_state,
-        observations=observations,
-        actions=actions,
-        gae=gae,
-        log_probs=log_probs,
-        done=dones,
-        recurrent=recurrent,
-        ent_coef=agent_config.ent_coef,
-        clip_coef=clip_coef,
-        advantage_normalization=agent_config.normalize_advantage,
-        raw_observations=raw_observations,
-        expert_policy=expert_policy,
-        imitation_coef=imitation_coef,
-        distance_to_stable=distance_to_stable,
-        imitation_coef_offset=imitation_coef_offset,
-        obs_preprocessor=obs_preprocessor,
-    )
-
-    aux = AuxiliaryLogs(
-        policy=aux_policy,
-        value=ValueAuxiliaries(
-            **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
-        ),
-    )
+    # Aggregate per-minibatch aux into one aux for this epoch by
+    # averaging across the minibatch axis.
+    aux = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), mb_aux)
     return agent_state, aux
 
 
@@ -560,6 +681,7 @@ def update_agent(
         "action_pipeline",
         "eval_action_transform",
         "obs_preprocessor",
+        "extension_stack",
     ],
 )
 def training_iteration(
@@ -588,6 +710,7 @@ def training_iteration(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
 ) -> tuple[APOState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
@@ -619,6 +742,12 @@ def training_iteration(
     agent_state, transition = jax.lax.scan(
         collect_scan_fn, agent_state, xs=None, length=n_steps
     )
+
+    # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout
+    # on ``agent_state.last_rollout`` for downstream measurement
+    # extensions. Off by default — see :attr:`BaseAgentState.last_rollout`.
+    if getattr(agent_config, "expose_recent_rollout", False):
+        agent_state = agent_state.replace(last_rollout=transition)
 
     values = predict_value(
         critic_state=agent_state.critic_state,
@@ -653,6 +782,41 @@ def training_iteration(
         average_reward=average_reward,
     )
 
+    # Extension on_target: reshape the value targets after GAE
+    # computation. APO is average-reward — no gamma, so the batch dict
+    # passes ``gamma=None`` to signal that explicitly to extensions.
+    if extension_stack is not None:
+        _tgt_rng, _post_rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_post_rng)
+        _tgt_batch = {
+            "observations": transition.obs,
+            "next_observations": transition.next_obs,
+            "rewards": transition.reward,
+            "terminated": transition.terminated,
+            "truncated": transition.truncated,
+            "gae": gae,
+            "values": values,
+            "average_reward": average_reward,
+            "gamma": None,  # APO is average-reward (differential V)
+        }
+        value_targets = extension_stack.fold_on_target(
+            agent_state,
+            _tgt_batch,
+            value_targets,
+            agent_state.collector_state.timestep,
+            _tgt_rng,
+            total_timesteps,
+        )
+
+    # Normalise advantages ONCE over the full rollout (brax PPO's
+    # convention). The per-minibatch renormalisation that used to live
+    # in ``policy_loss_function`` was applied on tiny minibatches with
+    # high-variance mean/std estimates -- noise compounded across
+    # minibatches. ``update_policy`` is called below with
+    # ``advantage_normalization=False`` so the loss doesn't redo it.
+    if agent_config.normalize_advantage:
+        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
+
     batch = (
         transition.obs,
         (
@@ -672,22 +836,37 @@ def training_iteration(
             else transition.log_prob.sum(-1, keepdims=True)
         ),
         transition.raw_obs,
+        # Pre-tanh raw_action for SquashedNormal log_prob recompute
+        # (m4 fix). For non-squashed / discrete policies this equals
+        # ``transition.action``, so same shape.
+        transition.raw_action,
     )
 
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
-    assert (
-        max(agent_config.batch_size, agent_config.n_steps)
-        % min(agent_config.batch_size, agent_config.n_steps)
-        == 0
-    ), (
-        "can't evenly break n_steps into batch size chunks,"
-        f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
-    )
-    num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
-        agent_config.batch_size, agent_config.n_steps
-    )
+    # Pick num_minibatches:
+    #  * brax-style: use the explicit ``agent_config.num_minibatches``
+    #    when positive (independent of batch_size and n_steps); this
+    #    matches what mujoco_playground's brax_ppo_config assumes.
+    #  * legacy Ajax: derive it from the batch_size/n_steps ratio
+    #    (couples the two; requires ``n_steps % num_minibatches == 0``).
+    if agent_config.num_minibatches > 0:
+        num_minibatches = agent_config.num_minibatches
+        # Fall through to ``get_minibatches_from_batch`` directly --
+        # the legacy assertion is meaningless under the explicit path.
+    else:
+        assert (
+            max(agent_config.batch_size, agent_config.n_steps)
+            % min(agent_config.batch_size, agent_config.n_steps)
+            == 0
+        ), (
+            "can't evenly break n_steps into batch size chunks,"
+            f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
+        )
+        num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
+            agent_config.batch_size, agent_config.n_steps
+        )
     shuffled_batch = get_minibatches_from_batch(
         batch, rng=shuffle_key, num_minibatches=num_minibatches
     )
@@ -711,6 +890,8 @@ def training_iteration(
             distance_to_stable=distance_to_stable,
             imitation_coef_offset=imitation_coef_offset,
             obs_preprocessor=obs_preprocessor,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
         )
         agent_state, aux = jax.lax.scan(
             update_scan_fn, agent_state, xs=None, length=num_epochs
@@ -730,6 +911,19 @@ def training_iteration(
 
     agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
 
+    # Extension post_update — folded after the per-iteration update loop.
+    # Empty stack ⇒ identity.
+    if extension_stack is not None:
+        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_pu_rng2)
+        agent_state = extension_stack.fold_post_update(
+            agent_state,
+            agent_state.collector_state.timestep,
+            _pu_rng,
+            total_timesteps,
+        )
+
+    _extra_eval = compose_eval_metrics(None, extension_stack, total_timesteps)
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -748,6 +942,7 @@ def training_iteration(
         expert_policy=expert_policy,
         action_scale=action_scale,
         eval_action_transform=eval_action_transform,
+        extra_eval_metrics=_extra_eval,
     )
 
     jax.clear_caches()
@@ -771,6 +966,7 @@ def make_train(
     action_pipeline: Optional[Callable] = None,
     eval_action_transform: Optional[Callable] = None,
     obs_preprocessor: Optional[Callable] = None,
+    extensions: Sequence = (),
 ):
     """
     Create the training function for the APO agent.
@@ -796,7 +992,9 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    @partial(jax.jit)
+    extension_stack = ExtensionStack(extensions) if extensions else None
+
+    @train_jit
     def train(key, index: Optional[int] = None):
         """Train the APO agent."""
         init_key, expert_key = jax.random.split(key)
@@ -825,6 +1023,32 @@ def make_train(
                 actor_optimizer_args,
                 critic_optimizer_args,
             )
+
+        if extension_stack is not None:
+            _ext_key, _pre_key = jax.random.split(expert_key)
+            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
+            agent_state = extension_stack.fold_pretrain(
+                agent_state, jnp.asarray(0), _pre_key, total_timesteps
+            )
+        # Gap A: pre-allocate the ``last_rollout`` placeholder so the
+        # scan-carry pytree structure is stable from iteration zero.
+        if getattr(agent_config, "expose_recent_rollout", False):
+            _trace_scan = partial(
+                collect_experience,
+                recurrent=network_args.lstm_hidden_size is not None,
+                mode=mode,
+                env_args=env_args,
+                action_pipeline=action_pipeline,
+            )
+            _, _trans_abs = jax.eval_shape(
+                lambda st: jax.lax.scan(
+                    _trace_scan, st, xs=None, length=agent_config.n_steps
+                ),
+                agent_state,
+            )
+            agent_state = agent_state.replace(
+                last_rollout=zeros_like_abstract_pytree(_trans_abs)
+            )
         num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 
         training_iteration_scan_fn = partial(
@@ -848,6 +1072,7 @@ def make_train(
             action_pipeline=action_pipeline,
             eval_action_transform=eval_action_transform,
             obs_preprocessor=obs_preprocessor,
+            extension_stack=extension_stack,
             **cloning_parameters,
         )
 

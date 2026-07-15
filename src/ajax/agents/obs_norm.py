@@ -23,10 +23,18 @@ from ajax.wrappers import NormalizationInfo, init_norm_info
 
 
 def init_agent_obs_norm(n_envs: int, obs_dim: int) -> NormalizationInfo:
-    """Initialise running stats for an obs vector of size ``obs_dim`` over
-    ``n_envs`` parallel envs. Mirrors ``init_norm_info`` from the env
-    wrapper, sized to the FULL augmented obs (env + expert_state)."""
-    return init_norm_info(batch_size=n_envs, obs_shape=(obs_dim,))
+    """Initialise running stats for an obs vector of size ``obs_dim``.
+
+    Stats are stored with leading shape 1 (not ``n_envs``): online_normalize
+    reduces the per-env axis on every update so all envs would share the
+    same scalar stats anyway, and ``apply_obs_norm`` only needs the
+    per-feature mean/var. The size-1 leading axis preserves broadcasting
+    against batched obs ``(*, obs_dim)`` while saving an n_envs× memory
+    factor on every checkpoint and vmap broadcast. ``n_envs`` is kept in
+    the signature for backwards compatibility but ignored.
+    """
+    del n_envs
+    return init_norm_info(batch_size=1, obs_shape=(obs_dim,))
 
 
 def update_obs_norm(
@@ -40,7 +48,7 @@ def update_obs_norm(
     if info is None:
         return obs, None
     new_obs, count, mean, mean_2, var = online_normalize(
-        obs, info.count, info.mean, info.mean_2, train=True
+        obs, info.count, info.mean, info.mean_2, train=True, nan_safe=False
     )
     new_info = NormalizationInfo(
         count=count,
@@ -62,9 +70,8 @@ def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.n
     if info is None or info.var is None:
         return obs
     count_total = jnp.sum(info.count)
-    mean = jnp.nanmean(info.mean, axis=0)
-    std = jnp.sqrt(jnp.nanmean(info.var, axis=0) + 1e-8)
-    normalized = (obs - mean) / std
+    std = jnp.sqrt(info.var + 1e-8)
+    normalized = (obs - info.mean) / std
     return jnp.where(count_total > 0, normalized, obs)
 
 
@@ -78,20 +85,16 @@ def seed_obs_norm_from_dataset(
 
     ``dataset_obs`` shape: ``(T, n_envs, obs_dim)`` or ``(N, obs_dim)``.
     """
+    del n_envs  # kept for signature compatibility; stats are not per-env
     flat = dataset_obs.reshape(-1, dataset_obs.shape[-1])
-    mean = flat.mean(axis=0)
-    var = flat.var(axis=0) + 1e-6
+    mean = flat.mean(axis=0, keepdims=True)
+    var = flat.var(axis=0, keepdims=True) + 1e-6
     n = flat.shape[0]
-    # Broadcast to (n_envs, obs_dim) — online_normalize expects this layout.
-    mean_b = jnp.broadcast_to(mean, (n_envs, mean.shape[0]))
-    var_b = jnp.broadcast_to(var, (n_envs, var.shape[0]))
-    # mean_2 = sum of squared deviations = var * count.
-    mean_2_b = var_b * n
-    count_b = jnp.full((n_envs, 1), float(n))
+    # Stats live with leading axis size 1 (see init_agent_obs_norm).
     return NormalizationInfo(
-        count=count_b,
-        mean=mean_b,
-        mean_2=mean_2_b,
-        var=var_b,
+        count=jnp.full((1, 1), float(n)),
+        mean=mean,
+        mean_2=var * n,
+        var=var,
         returns=None,
     )

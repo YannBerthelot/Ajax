@@ -46,7 +46,9 @@ from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
+from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import get_initialized_actor_critic
+from ajax.perf_utils import train_jit
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -312,18 +314,6 @@ def actor_loss_fn(
 _actor_value_and_grad = jax.value_and_grad(actor_loss_fn)
 
 
-def _replace_command_with_realised(
-    obs: jax.Array, rtg: jax.Array, horizon: jax.Array
-) -> jax.Array:
-    """Overwrite the trailing 2 dims of obs with the per-step realised
-    (RTG, horizon)."""
-    base = obs[..., :-2]
-    rtg = rtg.reshape(rtg.shape[:-1])  # drop trailing 1 if present
-    horizon = horizon.reshape(horizon.shape[:-1])
-    cmd = jnp.stack([rtg, horizon], axis=-1)
-    return jnp.concatenate([base, cmd], axis=-1)
-
-
 def _completed_episode_returns(
     rewards: jax.Array, dones: jax.Array
 ) -> Tuple[jax.Array, jax.Array]:
@@ -395,26 +385,6 @@ def _topk_episode_stats(
     return mean_r, mean_h, n_completed
 
 
-def _shuffle_and_minibatch(
-    rng: jax.Array, arrays: Tuple[jax.Array, ...], batch_size: int
-):
-    """Return a tuple of shape (n_batches, batch_size, ...) per-array.
-    The leading axis is partial-batch-padded by repeating earlier samples;
-    UDRL's loss is a mean so duplicates do not bias gradients meaningfully
-    on small budgets, and this keeps the function shape-static for jit.
-    """
-    n = arrays[0].shape[0]
-    # Effective batch_size never exceeds n (avoids 0-length minibatches when
-    # callers pass n_steps * n_envs < batch_size).
-    bs = min(batch_size, n)
-    n_batches = n // bs
-    perm = jax.random.permutation(rng, n)
-    take = n_batches * bs
-    perm = perm[:take]
-    out = tuple(a[perm].reshape((n_batches, bs) + a.shape[1:]) for a in arrays)
-    return out
-
-
 def training_iteration(
     agent_state: UDRLState,
     _: Any,
@@ -422,6 +392,8 @@ def training_iteration(
     mode: str,
     agent_config: UDRLConfig,
     recurrent: bool,
+    extension_stack: Optional[ExtensionStack] = None,
+    total_timesteps: int = 1,
 ) -> Tuple[UDRLState, UDRLAuxiliaries]:
     # 1. Collect one rollout segment (Algorithm 4).
     collect_fn = partial(
@@ -489,18 +461,45 @@ def training_iteration(
         obs_b = _scale_obs_command(
             obs_b, agent_config.command_scale_r, agent_config.command_scale_h
         )
-        loss, grads = _actor_value_and_grad(
-            a_state.actor_state.params,
-            a_state.actor_state,
-            obs_b,
-            act_b,
-            agent_config.bc_loss_type,
-        )
+
+        def _loss(params):
+            loss = actor_loss_fn(
+                params, a_state.actor_state, obs_b, act_b, agent_config.bc_loss_type
+            )
+            if extension_stack is not None:
+                _al_batch = {
+                    "observations": obs_b,
+                    "actions": act_b,
+                    "actor_params": params,
+                    "actor_state": a_state.actor_state,
+                }
+                loss = loss + extension_stack.fold_actor_loss(
+                    a_state,
+                    _al_batch,
+                    a_state.collector_state.timestep,
+                    key,
+                    total_timesteps,
+                )
+            return loss
+
+        loss, grads = jax.value_and_grad(_loss)(a_state.actor_state.params)
         new_actor_state = a_state.actor_state.apply_gradients(grads=grads)
         return a_state.replace(actor_state=new_actor_state), loss
 
     update_keys = jax.random.split(train_rng, agent_config.n_updates_per_iter)
     agent_state, update_losses = jax.lax.scan(update_step, agent_state, update_keys)
+
+    # Extension post_update — folded after the per-iteration update loop.
+    # Empty stack ⇒ identity.
+    if extension_stack is not None:
+        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=_pu_rng2)
+        agent_state = extension_stack.fold_post_update(
+            agent_state,
+            agent_state.collector_state.timestep,
+            _pu_rng,
+            total_timesteps,
+        )
 
     # 5. Compute training-curve metric: mean completed-episode return in this
     #    segment. (Used purely for logging; not for training signal.)
@@ -542,19 +541,21 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[Any] = None,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+    extensions: Sequence = (),
     **_unused: Any,
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     recurrent = network_args.lstm_hidden_size is not None
+    extension_stack = ExtensionStack(extensions) if extensions else None
 
-    @partial(jax.jit, static_argnames=("resume_from_state",))
+    @train_jit
     def train(
         key: jax.Array,
         index: Optional[int] = None,
         initial_state: Optional[UDRLState] = None,
         resume_from_state: bool = False,
     ):
-        init_key, _ = jax.random.split(key, 2)
+        init_key, ext_key = jax.random.split(key, 2)
         if resume_from_state and initial_state is not None:
             agent_state = initial_state
         else:
@@ -567,6 +568,12 @@ def make_train(
                 agent_config=agent_config,
                 cnn_image_shape=cnn_image_shape,
             )
+            if extension_stack is not None:
+                _ext_key, _pre_key = jax.random.split(ext_key)
+                agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
+                agent_state = extension_stack.fold_pretrain(
+                    agent_state, jnp.asarray(0), _pre_key, total_timesteps
+                )
 
         per_iter = env_args.n_envs * agent_config.n_steps
         num_updates = max(total_timesteps // per_iter, 1)
@@ -577,6 +584,8 @@ def make_train(
             mode=mode,
             agent_config=agent_config,
             recurrent=recurrent,
+            extension_stack=extension_stack,
+            total_timesteps=total_timesteps,
         )
         agent_state, aux = jax.lax.scan(
             scan_fn, agent_state, xs=None, length=num_updates

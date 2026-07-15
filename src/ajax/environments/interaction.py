@@ -125,6 +125,11 @@ def reset(
         env_state = env.reset(rng)  # ✅ no vmap
         obsv = env_state.obs
     obsv, env_state = _maybe_noise_obs(env, obsv, env_state, rng)
+    # Observations feed neural networks and a float32-schema replay buffer.
+    # Some envs (e.g. the discrete probing envs) emit integer observations;
+    # coerce to float32 here so every downstream consumer is consistent.
+    # No-op for the float-obs envs (gymnax classic control, brax).
+    obsv = obsv.astype(jnp.float32)
     return obsv, env_state
 
 
@@ -181,7 +186,11 @@ def step(
         # jax.debug.print("Action: {action}", action=action)
         if len(out) == 5:
             obsv, env_state, reward, done, info = out
-            truncated = info["truncated"]
+            # Some gymnax envs (e.g. Pendulum-v1 in 0.0.9) emit only
+            # {"discount": ...} and no "truncated" field. Fall back to the
+            # time-based estimate computed before the step call above so
+            # episode termination still works on stock gymnax envs.
+            truncated = info.get("truncated", truncated)
             # type: ignore[union-attr]
             terminated = done * (1 - truncated)
             terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
@@ -220,6 +229,12 @@ def step(
         raise ValueError(f"Unrecognized mode for step {mode}")
 
     obsv, env_state = _maybe_noise_obs(env, obsv, env_state, rng)
+    # See reset(): keep observations float32 regardless of the env's
+    # native obs dtype so networks and the replay buffer stay consistent.
+    # The reward is coerced too -- some envs emit integer rewards, which
+    # otherwise mismatch the float32 buffer schema and eval scan carry.
+    obsv = obsv.astype(jnp.float32)
+    reward = reward.astype(jnp.float32)
     return obsv, env_state, reward, terminated, truncated, info
 
 
@@ -383,17 +398,32 @@ def get_action_and_new_agent_state(
         done=done,
         recurrent=recurrent,
     )
-    action, log_probs = pi.sample_and_log_prob(seed=rng)
+    from ajax.agents.SAC.utils import SquashedNormal
+
+    if isinstance(pi, SquashedNormal):
+        # Sample the base Normal manually so raw_action is exposed
+        # (PPO/APO need it to recompute log_prob without arctanh).
+        base = pi.distribution
+        raw_action = base.sample(seed=rng)
+        action = jnp.tanh(raw_action)
+        log_probs = base.log_prob(raw_action) - pi.bijector.forward_log_det_jacobian(
+            raw_action
+        )
+    else:
+        action, log_probs = pi.sample_and_log_prob(seed=rng)
+        raw_action = action
     if recurrent:
         # get_pi ran the actor on a single-step sequence (1, B, ...);
         # drop the time axis so callers (env step, buffer writes) see the
         # same (B, ...) shapes as in the feedforward path.
         action = action.squeeze(0)
         log_probs = log_probs.squeeze(0)
+        raw_action = raw_action.squeeze(0)
 
     return (
         action,
         log_probs,
+        raw_action,
         agent_state.replace(actor_state=new_actor_state),
     )
 
@@ -483,14 +513,17 @@ def get_action_and_log_probs(
     agent_state: BaseAgentState,
     recurrent: bool,
     uniform: bool,
-) -> Tuple[jax.Array, jax.Array, BaseAgentState]:
+) -> Tuple[jax.Array, jax.Array, jax.Array, BaseAgentState]:
     """Sample an action from the policy.
 
-    Also returns the updated agent state: recurrent actors advance their
-    hidden state on every forward pass, and dropping it would freeze the
-    policy's memory at zero for the whole collection phase.
+    Returns (action, log_probs, raw_action, agent_state). raw_action is
+    the pre-tanh sample (PPO/APO recompute log_prob without arctanh).
+    The updated agent state must be kept by callers: recurrent actors
+    advance their hidden state on every forward pass, and dropping it
+    would freeze the policy's memory at zero for the whole collection
+    phase.
     """
-    action, log_probs, agent_state = get_action_and_new_agent_state(
+    action, log_probs, raw_action, agent_state = get_action_and_new_agent_state(
         action_key,
         agent_state,
         agent_state.collector_state.last_obs,
@@ -506,6 +539,7 @@ def get_action_and_log_probs(
     return (
         uniform * uniform_action + (1 - uniform) * action,
         log_probs,
+        raw_action,
         agent_state,
     )
 
@@ -535,7 +569,19 @@ def get_raw_obs(
         return env_state.obs
     # Brax: prefer env._get_obs for pre-normalization obs. Some minimal envs
     # (brax `fast`) don't expose `_get_obs`; fall back to env_state.obs.
-    if not hasattr(get_raw_env(env), "_get_obs"):
+    raw_env = get_raw_env(env)
+    if not hasattr(raw_env, "_get_obs"):
+        return env_state.obs
+    # Some brax envs (e.g. humanoid) have `_get_obs(pipeline_state, action)`
+    # and cannot be recomputed without the action; env_state.obs already
+    # holds the correct pre-normalization observation -> trust it.
+    import inspect
+
+    try:
+        n_obs_params = len(inspect.signature(raw_env._get_obs).parameters)
+    except (TypeError, ValueError):
+        n_obs_params = 1
+    if n_obs_params > 1:
         return env_state.obs
     return maybe_vmap(env._get_obs, vmap_on)(env_state.pipeline_state)
 
@@ -647,6 +693,10 @@ def collect_experience(
         if has_raw_obs
         else None
     )
+    # raw_obs is written to the float32-schema buffer; coerce int obs
+    # (e.g. discrete probing envs) so flashbax's dtype check passes.
+    if raw_obs is not None:
+        raw_obs = raw_obs.astype(jnp.float32)
 
     if action_pipeline is not None:
         # Agent-specific action pipeline (SAC with expert, EDGE, box, etc.)
@@ -678,6 +728,18 @@ def collect_experience(
                     hidden_state=_new_actor_hidden
                 )
             )
+        # action_pipelines (SAC + expert, EDGE, etc.) don't expose a
+        # pre-tanh sample. The action is post-tanh -- feeding it to
+        # ``pi.log_prob_from_raw(raw_action)`` later would produce a
+        # wrong log_prob (arctanh of a clipped value, not a Gaussian
+        # sample). Use ``action`` as a shape-preserving placeholder so
+        # the Transition pytree shape stays stable; callers that
+        # actually need ``raw_action`` for log_prob recompute must
+        # check ``isinstance(pi, SquashedNormal)`` AND verify they're
+        # not on the action_pipeline path (SAC never recomputes
+        # log_prob so it's safe; PPO/APO never use action_pipeline so
+        # they don't reach here).
+        raw_action = action
     else:
         new_expert_state = None
         _buffer_action_override = None
@@ -687,7 +749,7 @@ def collect_experience(
         _live_p_expert_max = None
         _a_expert = None
         # Vanilla: uniform during warmup, policy action after
-        action, log_probs, agent_state = get_action_and_log_probs(
+        action, log_probs, raw_action, agent_state = get_action_and_log_probs(
             action_key=action_key,
             agent_state=agent_state,
             recurrent=recurrent,
@@ -806,6 +868,7 @@ def collect_experience(
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
         action=action,
+        raw_action=raw_action,
         reward=reward[:, None],
         terminated=terminated[:, None],
         truncated=truncated[:, None],
@@ -1073,6 +1136,7 @@ def init_collector_state(
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
         action=jnp.ones((env_args.n_envs, *action_shape)),
+        raw_action=jnp.ones((env_args.n_envs, *action_shape)),
         next_obs=jnp.ones((env_args.n_envs, *obs_shape)),
         reward=jnp.ones((env_args.n_envs, 1)),
         terminated=jnp.ones((env_args.n_envs, 1)),

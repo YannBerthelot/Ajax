@@ -3,6 +3,7 @@ thin wrapper over the shared ActorCritic base that builds env / network /
 optimizer configs and forwards them to a per-agent ``make_train``.
 """
 
+from collections.abc import Sequence
 from functools import partial
 from typing import Optional, Tuple
 
@@ -11,6 +12,7 @@ from gymnax import EnvParams
 from ajax.agents.base import ActorCritic
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import make_train
+from ajax.extensions.base import Extension
 from ajax.types import EnvType
 
 
@@ -49,6 +51,8 @@ class UDRL(ActorCritic):
         # command, which is concatenated to the CNN embedding after the
         # convolutions. None keeps the legacy MLP encoder.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "UDRL"})
@@ -64,6 +68,7 @@ class UDRL(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            extensions=extensions,
         )
 
         self.agent_config = UDRLConfig(
@@ -85,4 +90,8 @@ class UDRL(ActorCritic):
         self.cnn_image_shape = cnn_image_shape
 
     def get_make_train(self):
-        return partial(make_train, cnn_image_shape=self.cnn_image_shape)
+        return partial(
+            make_train,
+            cnn_image_shape=self.cnn_image_shape,
+            extensions=tuple(self.extension_stack.extensions),
+        )

@@ -52,16 +52,49 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
         if ajax_env_id is None:
             raw = get_raw_env(env)
             ajax_env_id = type(raw).__name__.lower()
+        # Use the env's NATIVE episode_length where possible. Hardcoding
+        # 1000 means eval episodes run up to 1000 steps even when the
+        # env's own truncation is 150 (mujoco_playground manip) -- a
+        # silent eval/train mismatch in episode-budget semantics.
+        # Prefer the underlying env's ``_config.episode_length`` when
+        # exposed (the playground/_make_panda_builder convention); fall
+        # back to 1000 for envs without that attribute.
+        _native_ep = getattr(
+            getattr(env, "_config", None),
+            "episode_length",
+            None,
+        )
+        # Walk inward to find the original mujoco_playground env
+        # (peeling our wrapper stack).
+        _inner = env
+        while _native_ep is None and _inner is not None:
+            _inner = getattr(_inner, "env", None)
+            _native_ep = getattr(
+                getattr(_inner, "_config", None),
+                "episode_length",
+                None,
+            )
+        eval_ep_len = int(_native_ep) if _native_ep is not None else 1000
         if check_env_is_playground(env):
             env = _build_playground_env(
-                ajax_env_id, n_envs=num_episodes, episode_length=1000
+                ajax_env_id, n_envs=num_episodes, episode_length=eval_ep_len
             )
         else:
-            env = _build_brax_env(ajax_env_id, n_envs=num_episodes, episode_length=1000)
+            env = _build_brax_env(
+                ajax_env_id,
+                n_envs=num_episodes,
+                episode_length=eval_ep_len,
+            )
         env = clip_wrapper(env)
     else:
         env = env.unwrapped if hasattr(env, "unwrapped") else env
-        env = clip_wrapper(env)
+        # ClipAction clamps actions to [-1, 1] -- correct for continuous
+        # control, but wrong for discrete action spaces (it would clip a
+        # discrete index like action=3 down to 1.0). Only wrap continuous
+        # gymnax envs. Brax envs are always continuous, so that branch is
+        # left untouched above.
+        if continuous:
+            env = clip_wrapper(env)
 
     if norm_info is not None:
         norm_info = repeat_first_entry(norm_info, num_repeats=num_episodes)

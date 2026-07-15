@@ -145,6 +145,7 @@ def prepare_env(
     normalize_reward: bool = False,
     gamma: Optional[float] = None,  # Discount factor for reward normalization
     noise_scale: Optional[float] = None,
+    apply_obs_normalization: bool = True,
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
     if isinstance(env_id, str):
         env, env_params = build_env_from_id(
@@ -168,6 +169,7 @@ def prepare_env(
                 normalize_reward=normalize_reward,
                 normalize_obs=normalize_obs,
                 gamma=gamma if normalize_reward else None,
+                apply_normalization=apply_obs_normalization,
             )
         )
     if noise_scale is not None:

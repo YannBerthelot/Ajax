@@ -24,7 +24,7 @@ class AVGState(BaseAgentState):
     scaling_coef: jnp.ndarray
 
 
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)
 class AVGConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

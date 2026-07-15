@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
@@ -10,6 +11,7 @@ from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
+from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import NetworkConfig
@@ -83,6 +85,8 @@ class TD3(ActorCritic):
         obs_preprocessor: Optional[Callable] = None,
         policy_action_transform: Optional[Callable] = None,
         eval_action_transform: Optional[Callable] = None,
+        # --- New surface: composable research features as Extensions ---
+        extensions: Sequence[Extension] = (),
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "TD3"})
@@ -100,6 +104,7 @@ class TD3(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            extensions=extensions,
         )
 
         self.network_args = NetworkConfig(
@@ -173,4 +178,5 @@ class TD3(ActorCritic):
             obs_preprocessor=self.obs_preprocessor,
             policy_action_transform=self.policy_action_transform,
             eval_action_transform=self.eval_action_transform,
+            extensions=tuple(self.extension_stack.extensions),
         )

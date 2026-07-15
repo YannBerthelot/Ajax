@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -7,6 +7,53 @@ from jax.tree_util import Partial as partial
 
 from ajax.evaluate import evaluate
 from ajax.state import BaseAgentState
+
+if TYPE_CHECKING:
+    from ajax.extensions.base import ExtensionStack
+
+
+def compose_eval_metrics(
+    user_fn: Optional[Callable],
+    extension_stack: Optional["ExtensionStack"],
+    total_timesteps: int,
+) -> Optional[Callable]:
+    """Compose a user ``extra_eval_metrics`` callable with the stack's
+    :meth:`ExtensionStack.fold_eval_metrics`.
+
+    Replaces the per-agent ``_wrap_extra_eval_metrics`` pattern. Returns
+    ``None`` when both inputs are no-ops so ``evaluate_and_log``'s zero-
+    overhead branch stays.
+
+    The composed callable has signature ``(agent_state, rng) -> dict``,
+    matching what :func:`evaluate_and_log` expects under the
+    ``extra_eval_metrics`` static-arg.
+    """
+    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+    if user_fn is None and not has_stack:
+        return None
+    if user_fn is None:
+        # Stack-only path.
+        def stack_only(agent_state, rng):
+            return extension_stack.fold_eval_metrics(
+                agent_state, agent_state.collector_state.timestep, rng, total_timesteps
+            )
+
+        return stack_only
+    if not has_stack:
+        # User-only path — just return it directly.
+        return user_fn
+
+    def merged(agent_state, rng):
+        out: dict = {}
+        out.update(user_fn(agent_state, rng))
+        out.update(
+            extension_stack.fold_eval_metrics(
+                agent_state, agent_state.collector_state.timestep, rng, total_timesteps
+            )
+        )
+        return out
+
+    return merged
 
 
 class AuxiliaryLogsProtocol(Protocol): ...
@@ -134,8 +181,18 @@ def evaluate_and_log(
         # advanced across iterations, so each eval uses identical initial
         # conditions (per-seed).
         eval_key = agent_state.eval_rng
+        # Key name MUST match what ``NormalizeVecObservation.update_state_*``
+        # stores in info (see ``ajax/wrappers.py``). The wrapper writes
+        # ``info["normalization_info"]``; previously this check looked
+        # for ``"obs_normalization_info"`` which never matched -- so
+        # ``norm_info`` was always ``None``, ``setup_environment``
+        # rebuilt the eval env WITHOUT the normalizer, and the agent's
+        # eval feed was RAW obs while training was NORMALISED. This
+        # silently broke eval-vs-train alignment for any brax-stack env
+        # using normalize_observations=True (PPO on mujoco_playground,
+        # locomotion, etc.).
         obs_normalization = (
-            "obs_normalization_info" in agent_state.collector_state.env_state.info
+            "normalization_info" in agent_state.collector_state.env_state.info
             if mode == "brax"
             else "normalization_info" in dir(agent_state.collector_state.env_state)
         )

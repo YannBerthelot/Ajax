@@ -225,6 +225,16 @@ class VecEnv(GymnaxWrapper):
 def init_norm_info(
     batch_size: int, obs_shape: tuple, returns: bool = False
 ) -> NormalizationInfo:
+    """Initialise running stats with leading axis ``batch_size``.
+
+    The leading axis is *redundant* (online_normalize collapses it on
+    every update, so rows carry identical values) but it is load-bearing
+    for env-side callers: env-side stats live inside the env state
+    pytree, which Brax's ``VmapWrapper`` vmaps over the n_envs axis.
+    Shrinking the stats to ``(1, *)`` would break that vmap with a
+    mismatched-axis error. Agent-side callers should pass
+    ``batch_size=1`` instead (see ``init_agent_obs_norm``).
+    """
     count = jnp.zeros((batch_size, 1))
     mean = jnp.zeros((batch_size, *obs_shape))
     mean_2 = jnp.zeros((batch_size, *obs_shape))
@@ -276,6 +286,7 @@ def normalize_wrapper_factory(
             normalize_obs: bool = True,
             normalize_reward: bool = True,
             gamma: Optional[float] = None,
+            apply_normalization: bool = True,
         ):
             self.mode = mode
             super().__init__(env)
@@ -287,6 +298,13 @@ def normalize_wrapper_factory(
             self.normalize_reward = normalize_reward
             self.norm_info = norm_info
             self.gamma = gamma
+            # Brax-faithful mode: track running obs stats at every env step
+            # (so info["normalization_info"] reflects the latest stats) but
+            # do NOT apply the normalisation to ``state.obs`` -- leave obs
+            # raw and let the agent normalise inside its loss with the
+            # freshest stats. Matches brax PPO's normalise-at-forward
+            # pattern (single up-to-date normalizer per training step).
+            self.apply_normalization = apply_normalization
             rng = jax.random.PRNGKey(0)
             dummy_obs = get_obs_from_state(
                 (
@@ -396,7 +414,7 @@ def normalize_wrapper_factory(
 
             obs = raw_obs
             if self.normalize_obs:
-                obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
+                norm_obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
                     raw_obs,
                     obs_norm_info.count,
                     obs_norm_info.mean,
@@ -409,6 +427,7 @@ def normalize_wrapper_factory(
                     mean_2=obs_mean_2,
                     var=obs_var,
                 )
+                obs = norm_obs if self.apply_normalization else raw_obs
 
             norm_info = EnvNormalizationInfo(reward=rew_norm_info, obs=obs_norm_info)
             state = self.update_state_reset(state, obs, norm_info, self.mode)
@@ -469,7 +488,7 @@ def normalize_wrapper_factory(
             )
             obs = raw_obs
             if self.normalize_obs:
-                obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
+                norm_obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
                     raw_obs,
                     obs_norm_info.count,
                     obs_norm_info.mean,
@@ -482,6 +501,7 @@ def normalize_wrapper_factory(
                     mean_2=obs_mean_2,
                     var=obs_var,
                 )
+                obs = norm_obs if self.apply_normalization else raw_obs
 
             if self.normalize_reward:
                 if self.gamma is None:

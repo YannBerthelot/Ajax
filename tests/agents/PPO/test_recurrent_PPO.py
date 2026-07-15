@@ -58,6 +58,28 @@ def test_recurrent_ppo_memory_dict_and_legacy_alias():
     assert agent.network_args.memory == MemoryConfig(kind="gru", hidden_size=8)
 
 
+def test_recurrent_ppo_env_split_minibatching():
+    """num_minibatches > 1 with a divisible env axis must train via
+    env-split minibatches (full-T trajectories per env subset, each with
+    its own rollout-start carries) — this is what decouples the gradient
+    step count from n_steps for recurrent PPO."""
+    agent = PPO(
+        env_id="CartPole-v1",
+        n_envs=4,
+        n_steps=16,
+        batch_size=16,
+        n_epochs=2,
+        num_minibatches=2,
+        memory=MemoryConfig(kind="gru", hidden_size=8),
+    )
+    state, _ = agent.train(seed=0, n_timesteps=4 * 16 * 3)
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert jnp.all(jnp.isfinite(leaf))
+    assert any(
+        jnp.any(leaf != 0) for leaf in jax.tree.leaves(state.actor_state.hidden_state)
+    )
+
+
 def test_recurrent_ppo_actor_params_contain_memory_cell():
     """The actor's param tree must include the memory cell's weights so the
     optimizer updates them (BPTT gradient flow itself is covered by the

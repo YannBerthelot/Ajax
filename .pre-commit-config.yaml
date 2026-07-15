@@ -24,7 +24,11 @@ repos:
     hooks:
       - id: mypy
         name: Mypy type checker
-        additional_dependencies:  
+        # benchmarks/ holds throwaway benchmark scripts (kwargs-dict
+        # unpacking into typed constructors etc.) -- not library code, so
+        # not gated on strict typing. ruff still lints them.
+        exclude: "^benchmarks/"
+        additional_dependencies:
           - "types-PyYAML>=6.0.0"
         args:
           - "--config-file=pyproject.toml"

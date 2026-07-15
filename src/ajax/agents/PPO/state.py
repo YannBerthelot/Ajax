@@ -35,6 +35,13 @@ class PPOConfig(BaseAgentConfig):
     # the full n_steps as the fragment length (one bootstrap at the
     # end of each rollout per env).
     unroll_length: Optional[int] = None
+    # Recurrent-only truncated-BPTT length. When set, each env's rollout
+    # splits into (n_steps / bptt_length) contiguous sequences whose
+    # start carries are recomputed chunk-wise with the current params
+    # (never zero-initialized mid-episode — that variant demonstrably
+    # hurts). None keeps full-rollout BPTT. Must divide n_steps. Ignored
+    # by feedforward policies (unroll_length covers that geometry).
+    bptt_length: Optional[int] = None
     # Brax's ``num_resets_per_eval``: do a forced env.reset with fresh
     # RNG every ``num_training_steps_per_epoch`` training iterations to
     # cycle through new randomised initial conditions. When 0, only

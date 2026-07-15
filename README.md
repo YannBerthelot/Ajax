@@ -107,6 +107,14 @@ plateaus near 40 return while every memory kind exceeds 450/500.
 - **PPO** trains with truncated BPTT over full rollouts: each epoch uses the
   whole `(n_steps, n_envs)` sequence from the rollout-start hidden states
   (`batch_size` is ignored in recurrent mode to keep sequences intact).
+- **PPO truncated BPTT** (`bptt_length=L`): each env's rollout splits into
+  `n_steps/L` contiguous sequences whose start carries are recomputed
+  chunk-wise with the current params — never zero-initialized mid-episode
+  (the naive-zero variant demonstrably *hurts*). Combined with
+  `num_minibatches`, this both bounds BPTT memory and multiplies the
+  gradient-step count; on velocity-masked CartPole (GRU-128,
+  n_steps=2048) it matches full-rollout BPTT's ~500 return while
+  training ~8× faster.
 - **SAC / ASAC / REDQ / TD3** switch their replay buffer to trajectory
   storage and train on sampled sequences R2D2-style (shared machinery in
   `ajax/agents/recurrent.py`): carries are warmed up from zero over
@@ -114,6 +122,13 @@ plateaus near 40 return while every memory kind exceeds 450/500.
   trained with BPTT. TD3 additionally burns in a target-actor carry for
   its bootstrap action. Expert-guidance features are rejected loudly when
   combined with memory.
+- **Stored-state replay** (`stored_state=True`, off-policy agents): the
+  actor's carry at each collection step is written to the buffer and
+  replayed sequences start from it instead of zero + burn-in — R2D2's
+  headline ablation shows this mitigates recurrent-state staleness best
+  (Kapturowski et al. 2019). Critics keep the burn-in (they never run at
+  collection time). Note the buffer cost is O(carry) per step — small for
+  GRU/LSTM/Mamba, O(window·hidden·layers) for the transformer.
 - Other agents (AVG, APO, UDRL) raise `NotImplementedError` when `memory`
   is set rather than silently ignoring it.
 

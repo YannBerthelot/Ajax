@@ -721,22 +721,38 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     # num_minibatches <= 1.
     if recurrent:
         # Recurrent geometry: sequences must stay temporally contiguous
-        # and start from the rollout-start carries, so neither the
-        # brax-faithful T-fragment split nor the legacy flat shuffle
-        # apply. Instead, minibatch along the ENV axis: each minibatch is
-        # a subset of envs' full-T trajectories (time order and per-step
-        # reset masking intact), trained with BPTT from THOSE envs'
-        # rollout-start carries (carries are per-env, sliced alongside).
-        # This decouples the gradient-step count from n_steps — a single
-        # full-rollout minibatch gives only n_epochs steps per rollout,
-        # which starves long-rollout configs (n_steps=2048 ⇒ ~80 total
-        # updates in 1M steps and a policy that barely learns).
+        # and start from carries the actor/critic actually had at the
+        # sequence's first observation, so neither the brax-faithful
+        # T-fragment split nor the legacy flat shuffle apply. Instead the
+        # rollout is treated as a pool of sequences:
+        #
+        #   * bptt_length=None: one sequence per env (full-T trajectories),
+        #     minibatched along the env axis with rollout-start carries.
+        #   * bptt_length=L (truncated BPTT, Pleines et al. 2022 style):
+        #     each env's trajectory splits into T/L fragments; fragment
+        #     boundary carries are recomputed chunk-wise with the CURRENT
+        #     params (one extra actor pass; the critic pass produces them
+        #     for free). Fragments never zero-init mid-episode — that
+        #     failure mode is exactly what makes naive truncation WORSE.
+        #
+        # Either way the gradient-step count decouples from n_steps — a
+        # single full-rollout minibatch gives only n_epochs steps per
+        # rollout, which starves long-rollout configs (n_steps=2048 ⇒
+        # ~80 total updates in 1M steps and a policy that barely learns).
         use_brax_faithful_mb = False
         mb_unroll_length = None
-        if num_minibatches > 1 and n_envs % num_minibatches == 0:
+        bptt_length = getattr(agent_config, "bptt_length", None)
+        if bptt_length is not None and T_rollout % bptt_length != 0:
+            raise ValueError(
+                f"bptt_length ({bptt_length}) must divide n_steps" f" ({T_rollout})."
+            )
+        _frag_len = bptt_length if bptt_length is not None else T_rollout
+        _num_frags = T_rollout // _frag_len
+        _pool = _num_frags * n_envs  # total sequences per rollout
+        if num_minibatches > 1 and _pool % num_minibatches == 0:
             recurrent_num_mb = num_minibatches
         else:
-            # Env axis not evenly splittable: fall back to one full-rollout
+            # Sequence pool not evenly splittable: fall back to one
             # minibatch (small test fixtures with n_envs=1).
             recurrent_num_mb = 1
     elif num_minibatches <= 1:
@@ -801,15 +817,59 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
             # advances the critic carry (which is otherwise never stepped,
             # since the critic doesn't act during collection). The carry
             # after obs[T-1] becomes the initial critic carry of the next
-            # iteration.
-            values, critic_carry_end = predict_value_sequence(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.params,
-                x=transition.obs,
-                resets=resets,
-                initial_hidden=initial_critic_hidden,
+            # iteration. Running it as a scan over bptt fragments is
+            # numerically identical (carry threading) and yields the
+            # fragment-START carries for free — truncated-BPTT minibatches
+            # start from them instead of zero (the naive-zero variant is
+            # exactly what makes truncation WORSE than no truncation).
+            _obs_frags = transition.obs.reshape(
+                _num_frags, _frag_len, *transition.obs.shape[1:]
+            )
+            _resets_frags = resets.reshape(_num_frags, _frag_len, n_envs)
+
+            def _critic_chunk(carry, frag):
+                x_f, r_f = frag
+                vals, carry_next = predict_value_sequence(
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.critic_state.params,
+                    x=x_f,
+                    resets=r_f,
+                    initial_hidden=carry,
+                )
+                return carry_next, (vals, carry)
+
+            critic_carry_end, (_values_frags, critic_frag_starts) = jax.lax.scan(
+                _critic_chunk, initial_critic_hidden, (_obs_frags, _resets_frags)
+            )
+            # (F, num, L, B, 1) -> (num, T, B, 1) -> (T, B, 1)
+            values = jnp.moveaxis(_values_frags, 0, 1).reshape(
+                _values_frags.shape[1], T_rollout, *_values_frags.shape[3:]
             )
             values = values.squeeze(0)
+
+            # Fragment-start ACTOR carries: recomputed chunk-wise with the
+            # current params (one extra actor pass). Skipped for full-T
+            # sequences, where the rollout-start carry is already exact.
+            if _num_frags > 1:
+
+                def _actor_chunk(carry, frag):
+                    x_f, r_f = frag
+                    _, carry_next = get_pi_sequence(
+                        agent_state.actor_state,
+                        agent_state.actor_state.params,
+                        x_f,
+                        r_f,
+                        carry,
+                    )
+                    return carry_next, carry
+
+                _, actor_frag_starts = jax.lax.scan(
+                    _actor_chunk, initial_actor_hidden, (_obs_frags, _resets_frags)
+                )
+            else:
+                actor_frag_starts = jax.tree_util.tree_map(
+                    lambda x: x[None], initial_actor_hidden
+                )
             # Bootstrap values V(s_{t+1}) come from the shifted sequence
             # plus one extra step on the collector's last_obs. At
             # truncation boundaries this evaluates the post-reset obs
@@ -892,36 +952,44 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         shuffle_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
         if recurrent:
-            # Env-split minibatches: permute envs, then split the env axis
-            # into recurrent_num_mb groups of full-T trajectories. The
-            # obs-aligned resets ride along as the 9th element, and the
-            # per-env rollout-start carries are sliced with the same
-            # permutation so each minibatch's BPTT starts from its own
-            # envs' carries (actor carry leaves are (B, ...); critic
-            # ensemble carry leaves are (num_critics, B, ...)).
+            # Sequence-pool minibatches: the rollout is a pool of
+            # N = (T / bptt_length) * n_envs contiguous sequences of length
+            # bptt_length (full-T when bptt_length is None). Permute the
+            # pool, split into recurrent_num_mb groups, and slice each
+            # sequence's own start carry alongside (actor carry leaves are
+            # (F, B, ...); critic ensemble carries (F, num, B, ...)). The
+            # obs-aligned resets ride along as the 9th batch element, so
+            # per-step reset masking inside each sequence stays intact.
             k = recurrent_num_mb
-            perm = jax.random.permutation(shuffle_key, n_envs)
+            L, Fn, N = _frag_len, _num_frags, _pool
+            perm = jax.random.permutation(shuffle_key, N)
 
-            def _split_time_major(x):  # (T, B, ...) -> (k, T, B//k, ...)
+            def _split_time_major(x):  # (T, B, ...) -> (k, L, N//k, ...)
+                x = x.reshape(Fn, L, *x.shape[1:])  # (F, L, B, ...)
+                x = jnp.moveaxis(x, 0, 1)  # (L, F, B, ...)
+                x = x.reshape(L, N, *x.shape[3:])  # pool index = f*B + b
                 x = jnp.take(x, perm, axis=1)
-                return x.reshape(x.shape[0], k, n_envs // k, *x.shape[2:]).swapaxes(
-                    0, 1
-                )
+                return x.reshape(L, k, N // k, *x.shape[2:]).swapaxes(0, 1)
 
-            def _split_actor_carry(x):  # (B, ...) -> (k, B//k, ...)
+            def _split_actor_carry(x):  # (F, B, ...) -> (k, N//k, ...)
+                x = x.reshape(N, *x.shape[2:])
                 x = jnp.take(x, perm, axis=0)
-                return x.reshape(k, n_envs // k, *x.shape[1:])
+                return x.reshape(k, N // k, *x.shape[1:])
 
-            def _split_critic_carry(x):  # (num, B, ...) -> (k, num, B//k, ...)
+            def _split_critic_carry(x):  # (F, num, B, ...) -> (k, num, N//k, ...)
+                x = jnp.moveaxis(x, 0, 1)  # (num, F, B, ...)
+                x = x.reshape(x.shape[0], N, *x.shape[3:])
                 x = jnp.take(x, perm, axis=1)
-                return x.reshape(x.shape[0], k, n_envs // k, *x.shape[2:]).swapaxes(
-                    0, 1
-                )
+                return x.reshape(x.shape[0], k, N // k, *x.shape[2:]).swapaxes(0, 1)
 
             shuffled_batch = (
                 *jax.tree_util.tree_map(_split_time_major, (*batch, resets)),
-                jax.tree_util.tree_map(_split_actor_carry, initial_actor_hidden),
-                jax.tree_util.tree_map(_split_critic_carry, initial_critic_hidden),
+                jax.tree_util.tree_map(
+                    _split_actor_carry, jax.lax.stop_gradient(actor_frag_starts)
+                ),
+                jax.tree_util.tree_map(
+                    _split_critic_carry, jax.lax.stop_gradient(critic_frag_starts)
+                ),
             )
         else:
             shuffled_batch = get_minibatches_from_batch(

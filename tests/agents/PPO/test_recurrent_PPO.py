@@ -90,3 +90,38 @@ def test_recurrent_ppo_actor_params_contain_memory_cell():
     params = jax.tree.map(lambda x: x[0], state.actor_state.params)  # unvmap seed
     paths = ["/".join(map(str, k)).lower() for k in flatten_dict(params).keys()]
     assert any("memory_cell" in p or "gru" in p for p in paths), paths
+
+
+@pytest.mark.parametrize("kind", ["gru", "mamba"])
+def test_recurrent_ppo_bptt_length(kind):
+    """Truncated BPTT: rollouts split into bptt_length sequences whose
+    start carries are recomputed chunk-wise (never zero mid-episode).
+    Pool = (T/L) * n_envs sequences, minibatched by num_minibatches."""
+    agent = PPO(
+        env_id="CartPole-v1",
+        n_envs=4,
+        n_steps=32,
+        batch_size=32,
+        n_epochs=2,
+        num_minibatches=4,
+        bptt_length=8,
+        memory=MemoryConfig(kind=kind, hidden_size=8, window=8),
+    )
+    state, _ = agent.train(seed=0, n_timesteps=4 * 32 * 3)
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert jnp.all(jnp.isfinite(leaf))
+    assert any(
+        jnp.any(leaf != 0) for leaf in jax.tree.leaves(state.actor_state.hidden_state)
+    )
+
+
+def test_bptt_length_guards():
+    with pytest.raises(ValueError, match="must divide"):
+        PPO(
+            env_id="CartPole-v1",
+            n_steps=30,
+            bptt_length=8,
+            memory=MemoryConfig(kind="gru", hidden_size=8),
+        )
+    with pytest.raises(ValueError, match="requires a memory config"):
+        PPO(env_id="CartPole-v1", n_steps=32, bptt_length=8)

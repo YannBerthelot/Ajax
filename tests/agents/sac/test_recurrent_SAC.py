@@ -67,3 +67,32 @@ def test_recurrent_sac_learning_starts_guard():
             sequence_length=16,
             memory=MemoryConfig(kind="gru", hidden_size=8),
         )
+
+
+@pytest.mark.parametrize("kind", ["gru", "lstm", "transformer", "mamba"])
+def test_recurrent_sac_stored_state(kind):
+    """R2D2 stored-state replay: actor carries recorded at collection time
+    are written to the buffer and used to initialize replayed sequences."""
+    agent = SAC(
+        env_id="Pendulum-v1",
+        n_envs=1,
+        batch_size=8,
+        buffer_size=1000,
+        learning_starts=200,
+        burn_in=4,
+        sequence_length=8,
+        memory=MemoryConfig(kind=kind, hidden_size=8, window=8),
+        stored_state=True,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=260)
+    for leaf in jax.tree.leaves(state.actor_state.params):
+        assert jnp.all(jnp.isfinite(leaf))
+    buf = state.collector_state.buffer_state.experience
+    assert "actor_carry" in buf
+    # carries recorded after warmup must be non-zero (the actor acted)
+    assert jnp.any(buf["actor_carry"] != 0)
+
+
+def test_stored_state_requires_memory():
+    with pytest.raises(ValueError, match="stored_state"):
+        SAC(env_id="Pendulum-v1", stored_state=True)

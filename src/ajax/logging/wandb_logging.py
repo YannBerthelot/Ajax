@@ -225,10 +225,16 @@ def stop_async_logging() -> None:
     _pending_init_msgs.clear()
 
 
-def init_logging(run_id: str, logging_config: LoggingConfig) -> None:
+def init_logging(
+    run_id: str, logging_config: LoggingConfig, run_seed: Optional[int] = None
+) -> None:
     """
     Register a run: create it in the main process (so it appears in the W&B UI
     immediately), then send metadata to the worker so it can flush batches later.
+
+    When ``run_seed`` is given (one call per seed), it is recorded alongside the
+    config so every run is reproducible and can be paired across conditions by
+    seed (see the per-run ``config.json`` written for TensorBoard runs).
     """
     if logging_config.use_wandb:
         wandb.init(
@@ -263,6 +269,19 @@ def init_logging(run_id: str, logging_config: LoggingConfig) -> None:
         log_dir = os.path.join(logging_config.folder or ".", "tensorboard", run_id)
         config_str = json.dumps(logging_config.config, indent=2, default=str)
         init_msgs.append(("init_tb", run_id, log_dir, config_str))
+        # Persist a discoverable, greppable config.json per run (hyperparameters
+        # already merged into logging_config.config by the agent, plus the seed and
+        # run_id) so every run is reproducible and pairable across conditions.
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            run_config = dict(logging_config.config)
+            if run_seed is not None:
+                run_config["seed"] = run_seed
+            run_config["run_id"] = run_id
+            with open(os.path.join(log_dir, "config.json"), "w") as _fh:
+                json.dump(run_config, _fh, indent=2, default=str, sort_keys=True)
+        except Exception:  # logging must never crash training
+            pass
 
     for msg in init_msgs:
         if _log_queue is not None:

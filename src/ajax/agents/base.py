@@ -196,8 +196,8 @@ class ActorCritic:
                 else lambda: uuid.uuid4().hex
             )
             self.run_ids = [_gen_id() for _ in range(len(seed))]
-            for run_id in self.run_ids:
-                init_logging(run_id, logging_config)
+            for run_id, run_seed in zip(self.run_ids, seed):
+                init_logging(run_id, logging_config, run_seed=int(run_seed))
 
         else:
             self.run_ids = []

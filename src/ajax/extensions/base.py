@@ -35,10 +35,38 @@ Phases
 ``on_target``    transform the TD / value target
 ``critic_loss``  extra additive critic-loss term (summed over extensions)
 ``actor_loss``   extra additive actor-loss term (summed over extensions)
+``critic_loss_weights``  per-sample critic-loss weights (multiplied over
+                 extensions; ``None`` = unweighted)
+``actor_loss_weights``   per-sample actor-loss weights (multiplied over
+                 extensions; ``None`` = unweighted)
 ``action``       override the collection-time action (``None`` = defer)
 ``eval_action``  override the evaluation-time action (``None`` = defer)
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
+
+Additive terms vs. per-sample weights
+-------------------------------------
+``critic_loss`` / ``actor_loss`` *add* a term to the agent's loss. They
+cannot express "care more about this sample than that one", because the
+agent has already reduced its per-sample losses to a scalar by the time
+the extra term is added. The ``*_loss_weights`` phases fill that gap:
+an extension returns a per-sample weight vector ``w`` (or ``None``), the
+stack multiplies the vectors of every extension together, and the agent
+reduces its per-sample loss as the **weighted mean**
+
+.. math:: L = \\frac{\\sum_i w_i \\ell_i}{\\sum_i w_i}
+
+rather than the plain mean. Two properties make this the right default:
+``w \\equiv 1`` reproduces the plain mean exactly (so an unweighted run is
+bit-comparable), and the self-normalisation means weights change *where*
+gradient mass lands, not the total step size — a weighting extension
+therefore does not silently act as a learning-rate schedule. Emphatic-TD
+interest functions, curriculum weighting, per-state prioritisation and
+importance-sampling corrections are all this phase.
+
+Agents that do not implement the weighted reduction simply never call
+``fold_*_loss_weights``; an extension relying on it is then caught by the
+usual applicability check.
 """
 
 from __future__ import annotations
@@ -47,7 +75,36 @@ from collections.abc import Sequence
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 from flax import struct
+
+
+def weighted_mean(
+    per_sample: jax.Array, weights: jax.Array | None, eps: float = 1e-8
+) -> jax.Array:
+    """Reduce a per-sample loss to a scalar, honouring optional weights.
+
+    ``weights=None`` is exactly ``per_sample.mean()`` — the reduction an
+    agent would do without any weighting extension — so a stack that
+    weights nothing is numerically identical to no stack at all. With
+    weights, the reduction is the self-normalised weighted mean
+    ``sum(w * l) / sum(w)``: uniform weights of *any* magnitude also
+    reproduce the plain mean, so weights carry no learning-rate scale,
+    only relative emphasis (see the module docstring).
+
+    Weights are broadcast against ``per_sample``, so a ``(batch,)`` weight
+    vector applies elementwise to a ``(batch, 1)`` loss.
+    """
+    if weights is None:
+        return per_sample.mean()
+    # Align trailing axes: a (batch,) weight vector must line up with a
+    # (batch, 1) loss, so append singleton axes rather than relying on
+    # numpy's leading-axis broadcast (which would align the wrong end).
+    w = weights
+    if w.ndim < per_sample.ndim:
+        w = jnp.reshape(w, w.shape + (1,) * (per_sample.ndim - w.ndim))
+    w = jnp.broadcast_to(w, per_sample.shape)
+    return jnp.sum(w * per_sample) / (jnp.sum(w) + eps)
 
 
 @struct.dataclass
@@ -73,6 +130,8 @@ PHASES: tuple[str, ...] = (
     "on_target",
     "critic_loss",
     "actor_loss",
+    "critic_loss_weights",
+    "actor_loss_weights",
     "action",
     "eval_action",
     "post_update",
@@ -150,6 +209,26 @@ class Extension:
         """Extra additive actor-loss term (summed across extensions)."""
         del agent_state, ext_state, batch, ctx
         return 0.0
+
+    # -- per-sample loss weights (multiplied across extensions) ----------
+    def critic_loss_weights(
+        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+    ) -> jax.Array | None:
+        """Per-sample critic-loss weights; ``None`` means unweighted.
+
+        The agent reduces its per-sample critic loss as a weighted mean
+        (see the module docstring), so weights are scale-free: only their
+        *relative* values matter.
+        """
+        del agent_state, ext_state, batch, ctx
+        return None
+
+    def actor_loss_weights(
+        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+    ) -> jax.Array | None:
+        """Per-sample actor-loss weights; ``None`` means unweighted."""
+        del agent_state, ext_state, batch, ctx
+        return None
 
     # -- action overrides (first non-None wins) --------------------------
     def action(
@@ -314,6 +393,29 @@ class ExtensionStack:
         for i, ext in enumerate(self.extensions):
             total = total + ext.actor_loss(agent_state, ext_states[i], batch, ctx)
         return total
+
+    # -- per-sample loss weights (multiplied; None-preserving) ----------
+    def critic_loss_weights(
+        self, agent_state: Any, ext_states: tuple, batch: Any, ctx: ExtensionContext
+    ) -> jax.Array | None:
+        """Product of every extension's critic weights (``None`` if none)."""
+        weights: jax.Array | None = None
+        for i, ext in enumerate(self.extensions):
+            w = ext.critic_loss_weights(agent_state, ext_states[i], batch, ctx)
+            if w is not None:
+                weights = w if weights is None else weights * w
+        return weights
+
+    def actor_loss_weights(
+        self, agent_state: Any, ext_states: tuple, batch: Any, ctx: ExtensionContext
+    ) -> jax.Array | None:
+        """Product of every extension's actor weights (``None`` if none)."""
+        weights: jax.Array | None = None
+        for i, ext in enumerate(self.extensions):
+            w = ext.actor_loss_weights(agent_state, ext_states[i], batch, ctx)
+            if w is not None:
+                weights = w if weights is None else weights * w
+        return weights
 
     # -- action overrides (last non-None wins; None -> agent default) ----
     def action(
@@ -508,6 +610,34 @@ class ExtensionStack:
             return 0.0
         ctx = self._build_ctx(step, rng, total_steps)
         return self.actor_loss(agent_state, agent_state.ext_state, batch, ctx)
+
+    def fold_critic_loss_weights(
+        self,
+        agent_state: Any,
+        batch: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array | None:
+        """Critic weight fold; ``None`` when nothing weights the loss."""
+        if not self.extensions:
+            return None
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.critic_loss_weights(agent_state, agent_state.ext_state, batch, ctx)
+
+    def fold_actor_loss_weights(
+        self,
+        agent_state: Any,
+        batch: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array | None:
+        """Actor weight fold; ``None`` when nothing weights the loss."""
+        if not self.extensions:
+            return None
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.actor_loss_weights(agent_state, agent_state.ext_state, batch, ctx)
 
     def fold_action(
         self,

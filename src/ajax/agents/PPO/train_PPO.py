@@ -27,7 +27,7 @@ from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, weighted_mean
 from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -175,6 +175,7 @@ def value_loss_function(
     agent_state: Optional[Any] = None,
     extra_loss_fn: Optional[Callable] = None,
     initial_hidden: Optional[Any] = None,
+    sample_weights_fn: Optional[Callable] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -219,7 +220,14 @@ def value_loss_function(
             0
         )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
 
-    loss = vf_coef * 0.5 * jnp.mean((v_preds - value_targets) ** 2)
+    # Per-sample squared error, reduced by the (optionally weighted) mean.
+    # ``sample_weights_fn`` is the extension stack's critic-weight fold;
+    # ``None`` weights reduce to exactly ``jnp.mean(...)``.
+    squared_error = (v_preds - value_targets) ** 2
+    sample_weights = (
+        None if sample_weights_fn is None else sample_weights_fn(observations)
+    )
+    loss = vf_coef * 0.5 * weighted_mean(squared_error, sample_weights)
     if extra_loss_fn is not None:
         loss = loss + extra_loss_fn(
             critic_params, critic_states, observations, value_targets, agent_state
@@ -253,6 +261,7 @@ def policy_loss_function(
     raw_actions: Optional[jax.Array] = None,
     entropy_rng: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
+    sample_weights_fn: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -315,9 +324,9 @@ def policy_loss_function(
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
     if DEBUG:
-        assert (
-            ratio.shape[0] == gae.shape[0]
-        ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+        assert ratio.shape[0] == gae.shape[0], (
+            f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+        )
     loss_actor1 = ratio * gae
     loss_actor2 = (
         jnp.clip(
@@ -328,7 +337,17 @@ def policy_loss_function(
         * gae
     )
 
-    loss_actor = -jnp.minimum(loss_actor1, loss_actor2).mean()
+    # Per-sample clipped surrogate, reduced by the (optionally weighted)
+    # mean. ``sample_weights_fn`` is the extension stack's actor-weight
+    # fold; ``None`` weights reduce to exactly ``.mean()``. The same
+    # weights are applied to the entropy bonus below, so the whole
+    # per-state actor objective is weighted coherently rather than the
+    # surrogate alone.
+    per_sample_actor = -jnp.minimum(loss_actor1, loss_actor2)
+    sample_weights = (
+        None if sample_weights_fn is None else sample_weights_fn(observations)
+    )
+    loss_actor = weighted_mean(per_sample_actor, sample_weights)
 
     # CALCULATE AUXILIARIES
     clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
@@ -339,11 +358,12 @@ def policy_loss_function(
     # latent-Gaussian entropy only -- which is independent of mean, so
     # the entropy gradient never flows back to the mean head.
     if isinstance(pi, SquashedNormal) and entropy_rng is not None:
-        entropy = pi.effective_entropy(entropy_rng, num_samples=1).mean()
+        per_sample_entropy = pi.effective_entropy(entropy_rng, num_samples=1)
     elif isinstance(pi, SquashedNormal):
-        entropy = pi.unsquashed_entropy().mean()
+        per_sample_entropy = pi.unsquashed_entropy()
     else:
-        entropy = pi.entropy().mean()
+        per_sample_entropy = pi.entropy()
+    entropy = weighted_mean(per_sample_entropy, sample_weights)
 
     total_loss = loss_actor - ent_coef * entropy
     if extra_loss_fn is not None:
@@ -362,9 +382,12 @@ VALUE_AND_GRAD_FN = jax.value_and_grad(value_loss_function, has_aux=True)
 POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
 
 
-def _value_and_grad_with_extra(extra_loss_fn):
+def _value_and_grad_with_extra(extra_loss_fn, sample_weights_fn=None):
     """Return value_and_grad of value_loss_function with ``extra_loss_fn`` bound
     by closure so it doesn't have to be passed as an arg through jax's flatten.
+
+    ``sample_weights_fn`` (the extension stack's critic-weight fold, or
+    ``None``) is bound the same way.
     """
 
     def bound(
@@ -389,12 +412,13 @@ def _value_and_grad_with_extra(extra_loss_fn):
             agent_state=agent_state,
             extra_loss_fn=extra_loss_fn,
             initial_hidden=initial_hidden,
+            sample_weights_fn=sample_weights_fn,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
 
 
-def _policy_value_and_grad_with_extra(extra_loss_fn):
+def _policy_value_and_grad_with_extra(extra_loss_fn, sample_weights_fn=None):
     def bound(
         actor_params,
         actor_state,
@@ -429,6 +453,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
             raw_actions=raw_actions,
             entropy_rng=entropy_rng,
             initial_hidden=initial_hidden,
+            sample_weights_fn=sample_weights_fn,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
@@ -541,6 +566,47 @@ def _compose_extra_actor_loss(
         return loss
 
     return combined
+
+
+def _compose_loss_weights(
+    extension_stack: Optional[ExtensionStack],
+    agent_state: PPOState,
+    total_timesteps: int,
+    *,
+    actor: bool,
+) -> Optional[Callable]:
+    """Build the per-sample loss-weight callable for one loss head.
+
+    Returns ``None`` — so the loss function keeps its plain ``mean``
+    reduction with no traced work at all — when no extension implements
+    the corresponding ``*_loss_weights`` phase. Otherwise returns
+    ``observations -> weights | None``, called once per minibatch inside
+    the loss.
+
+    ``actor`` selects the head: the actor fold for ``True``, the critic
+    fold for ``False``.
+    """
+    if extension_stack is None or not extension_stack.extensions:
+        return None
+    phase = "actor_loss_weights" if actor else "critic_loss_weights"
+    if phase not in extension_stack.implemented_phases():
+        return None
+
+    def weights_for(observations: jax.Array) -> jax.Array | None:
+        fold = (
+            extension_stack.fold_actor_loss_weights
+            if actor
+            else extension_stack.fold_critic_loss_weights
+        )
+        return fold(
+            agent_state,
+            {"observations": observations},
+            agent_state.collector_state.timestep,
+            agent_state.rng,
+            total_timesteps,
+        )
+
+    return weights_for
 
 
 @partial(
@@ -744,7 +810,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         bptt_length = getattr(agent_config, "bptt_length", None)
         if bptt_length is not None and T_rollout % bptt_length != 0:
             raise ValueError(
-                f"bptt_length ({bptt_length}) must divide n_steps" f" ({T_rollout})."
+                f"bptt_length ({bptt_length}) must divide n_steps ({T_rollout})."
             )
         _frag_len = bptt_length if bptt_length is not None else T_rollout
         _num_frags = T_rollout // _frag_len
@@ -1013,16 +1079,28 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
             total_timesteps,
         )
 
+        _critic_weights = _compose_loss_weights(
+            extension_stack, agent_state, total_timesteps, actor=False
+        )
+        _actor_weights = _compose_loss_weights(
+            extension_stack, agent_state, total_timesteps, actor=True
+        )
+
         # Capture extra_loss_fns in closure (jax rejects function args inside scan).
+        # The pre-bound module-level grad fns stay in use whenever nothing
+        # contributes an extra term *or* per-sample weights, so an empty or
+        # non-weighting stack keeps the original (cached) trace.
         critic_grad_fn = (
             VALUE_AND_GRAD_FN
-            if _composed_critic_extra is None
-            else _value_and_grad_with_extra(_composed_critic_extra)
+            if _composed_critic_extra is None and _critic_weights is None
+            else _value_and_grad_with_extra(_composed_critic_extra, _critic_weights)
         )
         actor_grad_fn = (
             POLICY_AND_GRAD_FN
-            if _composed_actor_extra is None
-            else _policy_value_and_grad_with_extra(_composed_actor_extra)
+            if _composed_actor_extra is None and _actor_weights is None
+            else _policy_value_and_grad_with_extra(
+                _composed_actor_extra, _actor_weights
+            )
         )
 
         # NOTE: Brax-faithful obs normalisation is now wired through

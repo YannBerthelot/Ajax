@@ -72,7 +72,7 @@ import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
 
-__all__ = ["InterestWeighting"]
+__all__ = ["EntropyAllocation", "InterestWeighting"]
 
 
 @dataclass(frozen=True)
@@ -135,3 +135,52 @@ class InterestWeighting(Extension):
     ) -> jax.Array | None:
         del agent_state, ext_state, ctx
         return self._weights(batch) if self.apply_to_critic else None
+
+
+@dataclass(frozen=True)
+class EntropyAllocation(Extension):
+    """Decide *where* a policy is allowed to be decisive.
+
+    An entropy bonus is normally state-blind: it pulls the policy toward
+    uniform by the same amount everywhere, so an agent forced to give up
+    decisiveness gives it up evenly — including at the states where being
+    decisive is the whole point. This extension makes that pull
+    state-dependent, redistributing a fixed total amount of entropy pressure
+    across states.
+
+    Args:
+        weight_fn: ``observations -> weights``, non-negative and
+            jit-compatible. **Higher weight means more pull toward uniform
+            at that state**, i.e. less decisiveness — the opposite reading
+            from :class:`InterestWeighting`, where higher means more
+            emphasis. To concentrate decisiveness where some relevance
+            signal ``r(s)`` is large, pass something decreasing in ``r``.
+        floor: added to every weight, so no state's entropy term can be
+            switched off entirely.
+
+    Because the agent reduces the entropy term with a self-normalising
+    weighted mean, only the *distribution* of pressure changes: the total is
+    preserved, and uniform weights reproduce an unweighted run exactly. That
+    is what makes an unweighted arm a fair control.
+
+    Raises:
+        ValueError: if the floor is negative.
+    """
+
+    weight_fn: Callable[[jax.Array], jax.Array]
+    floor: float = 0.0
+
+    name: str = "entropy_allocation"
+
+    def __post_init__(self) -> None:
+        if self.floor < 0.0:
+            raise ValueError(f"floor must be non-negative, got {self.floor}")
+
+    def entropy_weights(
+        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+    ) -> jax.Array | None:
+        del agent_state, ext_state, ctx
+        observations = batch.get("observations") if isinstance(batch, dict) else None
+        if observations is None:
+            return None
+        return jnp.asarray(self.weight_fn(observations)) + self.floor

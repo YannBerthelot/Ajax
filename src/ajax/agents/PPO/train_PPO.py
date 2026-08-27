@@ -262,6 +262,7 @@ def policy_loss_function(
     entropy_rng: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
     sample_weights_fn: Optional[Callable] = None,
+    entropy_weights_fn: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -363,7 +364,18 @@ def policy_loss_function(
         per_sample_entropy = pi.unsquashed_entropy()
     else:
         per_sample_entropy = pi.entropy()
-    entropy = weighted_mean(per_sample_entropy, sample_weights)
+    # The entropy term may be weighted independently of the surrogate:
+    # scaling the whole objective at a state changes how much that state
+    # matters, whereas weighting only the entropy changes how free the policy
+    # is allowed to be there. When both are supplied they compose.
+    entropy_weights = (
+        None if entropy_weights_fn is None else entropy_weights_fn(observations)
+    )
+    if entropy_weights is not None and sample_weights is not None:
+        entropy_weights = entropy_weights * sample_weights
+    elif entropy_weights is None:
+        entropy_weights = sample_weights
+    entropy = weighted_mean(per_sample_entropy, entropy_weights)
 
     total_loss = loss_actor - ent_coef * entropy
     if extra_loss_fn is not None:
@@ -418,7 +430,9 @@ def _value_and_grad_with_extra(extra_loss_fn, sample_weights_fn=None):
     return jax.value_and_grad(bound, has_aux=True)
 
 
-def _policy_value_and_grad_with_extra(extra_loss_fn, sample_weights_fn=None):
+def _policy_value_and_grad_with_extra(
+    extra_loss_fn, sample_weights_fn=None, entropy_weights_fn=None
+):
     def bound(
         actor_params,
         actor_state,
@@ -454,6 +468,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn, sample_weights_fn=None):
             entropy_rng=entropy_rng,
             initial_hidden=initial_hidden,
             sample_weights_fn=sample_weights_fn,
+            entropy_weights_fn=entropy_weights_fn,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
@@ -573,7 +588,7 @@ def _compose_loss_weights(
     agent_state: PPOState,
     total_timesteps: int,
     *,
-    actor: bool,
+    head: str,
 ) -> Optional[Callable]:
     """Build the per-sample loss-weight callable for one loss head.
 
@@ -583,21 +598,25 @@ def _compose_loss_weights(
     ``observations -> weights | None``, called once per minibatch inside
     the loss.
 
-    ``actor`` selects the head: the actor fold for ``True``, the critic
-    fold for ``False``.
+    ``head`` selects which fold to use: ``"actor"``, ``"critic"`` or
+    ``"entropy"``.
     """
     if extension_stack is None or not extension_stack.extensions:
         return None
-    phase = "actor_loss_weights" if actor else "critic_loss_weights"
+    phase = {
+        "actor": "actor_loss_weights",
+        "critic": "critic_loss_weights",
+        "entropy": "entropy_weights",
+    }[head]
     if phase not in extension_stack.implemented_phases():
         return None
 
     def weights_for(observations: jax.Array) -> jax.Array | None:
-        fold = (
-            extension_stack.fold_actor_loss_weights
-            if actor
-            else extension_stack.fold_critic_loss_weights
-        )
+        fold = {
+            "actor": extension_stack.fold_actor_loss_weights,
+            "critic": extension_stack.fold_critic_loss_weights,
+            "entropy": extension_stack.fold_entropy_weights,
+        }[head]
         return fold(
             agent_state,
             {"observations": observations},
@@ -1080,10 +1099,13 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         )
 
         _critic_weights = _compose_loss_weights(
-            extension_stack, agent_state, total_timesteps, actor=False
+            extension_stack, agent_state, total_timesteps, head="critic"
         )
         _actor_weights = _compose_loss_weights(
-            extension_stack, agent_state, total_timesteps, actor=True
+            extension_stack, agent_state, total_timesteps, head="actor"
+        )
+        _entropy_weights = _compose_loss_weights(
+            extension_stack, agent_state, total_timesteps, head="entropy"
         )
 
         # Capture extra_loss_fns in closure (jax rejects function args inside scan).

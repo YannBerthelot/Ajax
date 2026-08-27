@@ -328,3 +328,91 @@ def test_uniform_weights_leave_the_ppo_losses_unchanged():
     plain_a, _ = policy_loss_function(*common)
     weighted_a, _ = policy_loss_function(*common, sample_weights_fn=ones)
     assert jnp.allclose(plain_a, weighted_a, atol=1e-6), "actor loss changed under ones"
+
+
+# --------------------------------------------------------------------------
+# Entropy allocation
+# --------------------------------------------------------------------------
+def test_entropy_weights_default_to_none():
+    ext = Extension()
+    assert ext.entropy_weights(None, (), None, _ctx()) is None
+
+
+def test_entropy_allocation_reports_only_its_phase():
+    from ajax.extensions.allocation import EntropyAllocation
+
+    ext = EntropyAllocation(weight_fn=lambda obs: obs[:, 0])
+    assert ext.implemented_phases() == frozenset({"entropy_weights"})
+
+
+def test_entropy_stack_multiplies_and_skips_none():
+    from ajax.extensions.allocation import EntropyAllocation
+
+    a = EntropyAllocation(weight_fn=lambda obs: jnp.full(obs.shape[0], 2.0))
+    b = EntropyAllocation(weight_fn=lambda obs: jnp.full(obs.shape[0], 3.0))
+    stack = ExtensionStack((a, Extension(), b))
+    batch = {"observations": jnp.zeros((4, 2))}
+    w = stack.entropy_weights(None, ((), (), ()), batch, _ctx())
+    assert jnp.allclose(w, jnp.full((4,), 6.0))
+
+
+def test_uniform_entropy_weights_leave_the_actor_loss_unchanged():
+    """The control-arm guarantee for the entropy head, at loss level."""
+    from ajax.agents.PPO.train_PPO import policy_loss_function
+
+    ones = lambda obs: jnp.ones(obs.shape[0])  # noqa: E731
+    state = _ppo([]).train(seed=0, n_timesteps=64)
+    state = state[0] if isinstance(state, tuple) else state
+    state = jax.tree.map(lambda leaf: leaf[0], state)
+
+    obs = jnp.asarray(
+        jax.random.normal(jax.random.PRNGKey(1), (8, 4)), dtype=jnp.float32
+    )
+    common = (
+        state.actor_state.params,
+        state.actor_state,
+        obs,
+        jnp.zeros((8, 1), dtype=jnp.int32),
+        jnp.full((8, 1), -0.7),
+        jax.random.normal(jax.random.PRNGKey(3), (8, 1)),
+        jnp.zeros((8,), dtype=bool),
+        False,
+        0.2,
+        0.01,
+        False,
+        None,
+    )
+    plain, _ = policy_loss_function(*common)
+    weighted, _ = policy_loss_function(*common, entropy_weights_fn=ones)
+    assert jnp.allclose(plain, weighted, atol=1e-6)
+
+
+def test_nonuniform_entropy_weights_change_the_actor_loss():
+    """And the complement: real entropy weights must reach the objective."""
+    from ajax.agents.PPO.train_PPO import policy_loss_function
+
+    skewed = lambda obs: jnp.abs(obs[:, 0]) + 0.01  # noqa: E731
+    state = _ppo([]).train(seed=0, n_timesteps=64)
+    state = state[0] if isinstance(state, tuple) else state
+    state = jax.tree.map(lambda leaf: leaf[0], state)
+
+    obs = jnp.asarray(
+        jax.random.normal(jax.random.PRNGKey(1), (8, 4)), dtype=jnp.float32
+    )
+    common = (
+        state.actor_state.params,
+        state.actor_state,
+        obs,
+        jnp.zeros((8, 1), dtype=jnp.int32),
+        jnp.full((8, 1), -0.7),
+        jax.random.normal(jax.random.PRNGKey(3), (8, 1)),
+        jnp.zeros((8,), dtype=bool),
+        False,
+        0.2,
+        0.05,
+        False,
+        None,
+    )
+    _, aux_plain = policy_loss_function(*common)
+    _, aux_w = policy_loss_function(*common, entropy_weights_fn=skewed)
+    assert not jnp.allclose(aux_plain.entropy, aux_w.entropy, atol=1e-6)

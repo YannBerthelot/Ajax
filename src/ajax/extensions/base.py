@@ -39,6 +39,8 @@ Phases
                  extensions; ``None`` = unweighted)
 ``actor_loss_weights``   per-sample actor-loss weights (multiplied over
                  extensions; ``None`` = unweighted)
+``entropy_weights``      per-sample weights on the entropy term alone
+                 (multiplied over extensions; ``None`` = unweighted)
 ``action``       override the collection-time action (``None`` = defer)
 ``eval_action``  override the evaluation-time action (``None`` = defer)
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
@@ -132,6 +134,7 @@ PHASES: tuple[str, ...] = (
     "actor_loss",
     "critic_loss_weights",
     "actor_loss_weights",
+    "entropy_weights",
     "action",
     "eval_action",
     "post_update",
@@ -227,6 +230,26 @@ class Extension:
         self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
     ) -> jax.Array | None:
         """Per-sample actor-loss weights; ``None`` means unweighted."""
+        del agent_state, ext_state, batch, ctx
+        return None
+
+    def entropy_weights(
+        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+    ) -> jax.Array | None:
+        """Per-sample weights on the entropy term alone; ``None`` = unweighted.
+
+        Separate from :meth:`actor_loss_weights` because scaling the whole
+        actor objective at a state leaves the *balance* between the policy
+        surrogate and its entropy regulariser untouched — it changes how much
+        that state matters, not how free the policy is there. Weighting only
+        the entropy term changes where the agent is permitted to be decisive,
+        which is a different intervention.
+
+        Because the reduction is a self-normalising weighted mean, the total
+        entropy pressure is preserved and only its distribution over states
+        moves. Higher weight at a state means *more* pull toward the uniform
+        policy there, i.e. less decisiveness.
+        """
         del agent_state, ext_state, batch, ctx
         return None
 
@@ -413,6 +436,17 @@ class ExtensionStack:
         weights: jax.Array | None = None
         for i, ext in enumerate(self.extensions):
             w = ext.actor_loss_weights(agent_state, ext_states[i], batch, ctx)
+            if w is not None:
+                weights = w if weights is None else weights * w
+        return weights
+
+    def entropy_weights(
+        self, agent_state: Any, ext_states: tuple, batch: Any, ctx: ExtensionContext
+    ) -> jax.Array | None:
+        """Product of every extension's entropy weights (``None`` if none)."""
+        weights: jax.Array | None = None
+        for i, ext in enumerate(self.extensions):
+            w = ext.entropy_weights(agent_state, ext_states[i], batch, ctx)
             if w is not None:
                 weights = w if weights is None else weights * w
         return weights
@@ -638,6 +672,20 @@ class ExtensionStack:
             return None
         ctx = self._build_ctx(step, rng, total_steps)
         return self.actor_loss_weights(agent_state, agent_state.ext_state, batch, ctx)
+
+    def fold_entropy_weights(
+        self,
+        agent_state: Any,
+        batch: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> jax.Array | None:
+        """Entropy-weight fold; ``None`` when nothing weights the entropy."""
+        if not self.extensions:
+            return None
+        ctx = self._build_ctx(step, rng, total_steps)
+        return self.entropy_weights(agent_state, agent_state.ext_state, batch, ctx)
 
     def fold_action(
         self,

@@ -416,3 +416,41 @@ def test_nonuniform_entropy_weights_change_the_actor_loss():
     _, aux_plain = policy_loss_function(*common)
     _, aux_w = policy_loss_function(*common, entropy_weights_fn=skewed)
     assert not jnp.allclose(aux_plain.entropy, aux_w.entropy, atol=1e-6)
+
+
+def test_entropy_allocation_reaches_training_end_to_end():
+    """An integration check, not a loss-level one.
+
+    The loss-level tests above passed while the agent never actually consulted
+    the entropy weights: the weights were composed in the update but the
+    grad-function selection ignored them, so training was bit-identical to the
+    control. Only an end-to-end comparison catches that class of wiring bug.
+    """
+    from ajax import PPO
+    from ajax.extensions.allocation import EntropyAllocation
+
+    def agent(extensions):
+        # A non-zero entropy coefficient is required: with ent_coef=0 there is
+        # no entropy term to redistribute, so weighting it is correctly a
+        # no-op and this test would assert the wrong thing.
+        return PPO(
+            env_id="CartPole-v1",
+            n_envs=2,
+            actor_architecture=("16", "relu"),
+            critic_architecture=("16", "relu"),
+            n_steps=32,
+            batch_size=32,
+            n_epochs=1,
+            ent_coef=0.05,
+            extensions=extensions,
+        )
+
+    skewed = EntropyAllocation(weight_fn=lambda obs: jnp.abs(obs[:, 0]) + 0.05)
+    baseline = agent([_NoOpExtension()]).train(seed=42, n_timesteps=128)
+    treated = agent([skewed]).train(seed=42, n_timesteps=128)
+
+    differs = any(
+        not jnp.allclose(a, b, atol=1e-6)
+        for a, b in zip(_actor_params(baseline), _actor_params(treated), strict=True)
+    )
+    assert differs, "entropy weights never reached the update"

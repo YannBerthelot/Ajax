@@ -1119,9 +1119,11 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         )
         actor_grad_fn = (
             POLICY_AND_GRAD_FN
-            if _composed_actor_extra is None and _actor_weights is None
+            if _composed_actor_extra is None
+            and _actor_weights is None
+            and _entropy_weights is None
             else _policy_value_and_grad_with_extra(
-                _composed_actor_extra, _actor_weights
+                _composed_actor_extra, _actor_weights, _entropy_weights
             )
         )
 

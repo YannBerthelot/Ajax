@@ -31,7 +31,11 @@ python-dotenv = "^1.1.1"
 # YannBerthelot:chore/relax-runtime-pins. Drop the fork and pin the PyPI
 # release once that lands.
 gymnax = {git = "https://github.com/YannBerthelot/gymnax.git", branch = "chore/relax-runtime-pins"}
-target-gym = "^0.5.0"
+# TEMPORARY: pinned to the gymnax 1.0 migration branch. The released
+# 0.5.0 predates it and still folds the time limit into `terminated`,
+# so truncation would look like termination. Restore the PyPI pin
+# (>= the first release containing that migration) once it is cut.
+target-gym = {git = "https://github.com/YannBerthelot/TargetGym.git", branch = "feature/gymnax-1.0-compat"}
 distrax = ">=0.1.6"
 tensorboardx = "^2.6.4"
 dill = "^0.4.1"
@@ -51,7 +55,10 @@ coverage = {extras = ["toml"], version = "^7.8.0"}
 pytest-mock = "^3.14.0"
 mock = "^5.1.0"
 ruff = "^0.11.6"
-probing-environments = "^0.5.1"
+# TEMPORARY: pinned to the gymnax 1.0 migration branch. The released
+# 0.5.1 still requires `gymnax ^0.0.9`, which makes the whole graph
+# unresolvable. Restore the PyPI pin once a migrated release is cut.
+probing-environments = {git = "https://github.com/YannBerthelot/ProbingEnvironments.git", branch = "feature/gymnax-1.0-compat"}
 
 
 [tool.poetry.group.render.dependencies]

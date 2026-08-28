@@ -56,6 +56,9 @@ class GymnaxWrapper:
         return self._env.unwrapped
 
 
+_FINAL_OBS_KEYS = ("final_obs", "final_observation", "obs_st")
+
+
 class FlattenObservationWrapper(GymnaxWrapper):
     """Flatten the observations of the environment."""
 
@@ -96,7 +99,24 @@ class FlattenObservationWrapper(GymnaxWrapper):
             key, state, action, params
         )
         obs = jnp.reshape(obs, (-1,))
+        # The pre-reset observation is written to `info` by the *inner* env, so
+        # it escapes the flattening above. Ajax reads it back for the
+        # truncation value-bootstrap, where an unflattened array would clash
+        # with the flat `last_obs` carried through the rollout scan.
+        info = {
+            k: (jnp.reshape(v, (-1,)) if k in _FINAL_OBS_KEYS else v)
+            for k, v in info.items()
+        }
         return obs, state, reward, terminated, truncated, info
+
+    def get_obs(
+        self,
+        state: environment.EnvState,
+        params: Optional[environment.EnvParams] = None,
+        key: Optional[chex.PRNGKey] = None,
+    ) -> chex.Array:
+        """Recompute the observation from state, flattened to match `reset`."""
+        return jnp.reshape(self._env.get_obs(state, params), (-1,))
 
 
 @struct.dataclass

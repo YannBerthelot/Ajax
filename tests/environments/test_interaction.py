@@ -5,7 +5,9 @@ import optax
 import pytest
 from brax.envs import create as create_brax_env
 from gymnax import make as make_gymnax_env
+from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
 
+import ajax.environments.interaction as step_module
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.environments.interaction import (
@@ -552,3 +554,55 @@ def test_init_collector_state_brax(brax_env):
     )  # Ensure last_done is present
     assert collector_state.buffer_state is not None
     assert collector_state.timestep == 0
+
+
+# --------------------------------------------------------------------------
+# Gymnax >= 1.0 terminal-transition metadata
+# --------------------------------------------------------------------------
+
+
+def test_get_final_obs_prefers_env_reported_final_observation():
+    """The pre-reset obs must win over the (post-reset) fallback."""
+    fallback = jnp.array([9.0, 9.0])
+    final = jnp.array([1.0, 2.0])
+
+    # gymnax >= 1.0 naming
+    assert jnp.array_equal(
+        step_module.get_final_obs({"final_observation": final}, fallback), final
+    )
+    # Ajax's brax/playground FinalObsWrapper naming
+    assert jnp.array_equal(
+        step_module.get_final_obs({"final_obs": final}, fallback), final
+    )
+    # pre-1.0 gymnax fork naming
+    assert jnp.array_equal(
+        step_module.get_final_obs({"obs_st": final}, fallback), final
+    )
+    # env exposes none of them -> post-step obs
+    assert jnp.array_equal(step_module.get_final_obs({}, fallback), fallback)
+
+
+def test_step_gymnax_truncation_is_not_termination():
+    """A time-limit hit must report truncated, not terminated.
+
+    Conflating the two costs the ``V(s_T)`` bootstrap on every truncated
+    episode. Pendulum never terminates naturally, so a short time limit
+    isolates truncation.
+    """
+    env, _ = make_gymnax_env("Pendulum-v1")
+    env_params = PendulumParams(max_steps_in_episode=3)
+    rng = jax.random.split(jax.random.PRNGKey(0), n_envs)
+    _, env_state = reset(rng, env, mode="gymnax", env_params=env_params)
+    action = jnp.zeros((n_envs, 1))
+
+    for _ in range(3):
+        obsv, env_state, _, terminated, truncated, info = step(
+            rng, env_state, action, env, mode="gymnax", env_params=env_params
+        )
+
+    assert jnp.all(truncated == 1.0)
+    assert jnp.all(terminated == 0.0)
+    # The env auto-reset, so the returned obs is the fresh episode's -- the
+    # terminal one has to come from info.
+    final_obs = step_module.get_final_obs(info, obsv)
+    assert not jnp.allclose(final_obs, obsv)

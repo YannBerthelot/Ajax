@@ -22,7 +22,7 @@ here.
 
 The ``batch`` argument to ``on_target`` is a dict carrying every input
 each modifier needs, threaded through by ``update_value_functions`` in
-``ajax.agents.SAC.sac``:
+``ajax.agents.SAC.train_SAC``:
 
 ``observations``, ``actions``, ``next_observations``, ``dones``,
 ``rng_key``, ``q_preds``, ``gamma``, ``augment_obs_with_expert_action``,

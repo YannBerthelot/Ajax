@@ -128,7 +128,7 @@ class MCPretrain(Extension):
         """Build the frozen expert critic ``φ*`` and persist it on ``agent_state``.
 
         Behaviour-equivalent to the pre-refactor ``use_mc_critic_pretrain``
-        block of :func:`make_train.init_fn` in ``ajax.agents.SAC.sac``:
+        block of :func:`make_train.init_fn` in ``ajax.agents.SAC.train_SAC``:
         builds a fresh expert critic, regresses it on unbiased MC returns,
         sets ``expert_critic_params`` / ``expert_v_min`` /
         ``expert_v_max`` on ``agent_state``, and — when

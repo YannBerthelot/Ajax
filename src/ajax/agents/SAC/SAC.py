@@ -6,8 +6,8 @@ from target_gym import PlaneParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
-from ajax.agents.SAC.sac import make_train
 from ajax.agents.SAC.state import SACConfig
+from ajax.agents.SAC.train_SAC import make_train
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,

@@ -16,7 +16,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 
-from ajax.agents.SAC.sac import (
+from ajax.agents.SAC.train_SAC import (
     create_alpha_train_state,
     init_SAC,
     temperature_loss_function,

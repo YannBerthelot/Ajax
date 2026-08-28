@@ -17,7 +17,7 @@ identical to the corresponding flag-gated path of the pre-refactor
 ``train_SAC.py`` — the heavy lifting is delegated to the unchanged pure
 functions in :mod:`ajax.modules.expert`. The SAC training factory reads
 the extension stack and builds the composable hook callables the proven
-training functions consume; see :func:`ajax.agents.SAC.sac.make_train`.
+training functions consume; see :func:`ajax.agents.SAC.train_SAC.make_train`.
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ class OnlineBC(Extension):
     ``stack.actor_loss(...)``; this method reads ``pi_loc``,
     ``a_expert``, ``observations`` and ``train_frac`` from ``batch``
     (populated by :func:`policy_loss_function` in
-    ``ajax.agents.SAC.sac``).
+    ``ajax.agents.SAC.train_SAC``).
     """
 
     expert_policy: Callable
@@ -153,7 +153,7 @@ class OnlineBC(Extension):
         ctx: ExtensionContext,
     ) -> Any:
         del agent_state, ext_state, ctx
-        # ``policy_loss_function`` (in ``ajax.agents.SAC.sac``) is what
+        # ``policy_loss_function`` (in ``ajax.agents.SAC.train_SAC``) is what
         # populates ``batch`` here. Every operand the legacy
         # ``compute_online_bc_loss`` consumes is threaded through that
         # dict so this method needs nothing off ``agent_state`` — see
@@ -270,7 +270,7 @@ class ResidualPolicy(Extension):
         :meth:`transform_action` when no explicit
         ``eval_action_transform`` is passed. See
         :func:`_build_residual_policy_eval_transform` in
-        ``ajax.agents.SAC.sac``.
+        ``ajax.agents.SAC.train_SAC``.
         """
         del agent_state, ext_state, rng, ctx
         raw_actions = obs["raw_actions"]

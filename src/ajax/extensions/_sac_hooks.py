@@ -12,7 +12,7 @@ helper that builds ``next_expert_fn``. The pipeline dispatches the
 collection-time substitution extensions (EDGEExploration /
 JSRLCurriculum / ValueBox) via their :meth:`Extension.action` method.
 
-:mod:`ajax.agents.SAC.sac` reads an :class:`~ajax.extensions.base.\
+:mod:`ajax.agents.SAC.train_SAC` reads an :class:`~ajax.extensions.base.\
 ExtensionStack` and calls these helpers to assemble the action
 pipeline the proven training functions consume. The thin
 :class:`~ajax.extensions.base.Extension` config classes live in

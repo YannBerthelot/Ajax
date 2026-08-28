@@ -4,7 +4,7 @@ import pytest
 from brax.envs import create as create_brax_env
 from flax.serialization import to_state_dict
 
-from ajax.agents.SAC.sac import init_SAC
+from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.buffers.utils import get_buffer
 from ajax.evaluate import evaluate
 from ajax.state import (

@@ -1,5 +1,5 @@
 from collections.abc import Callable, Sequence
-from typing import NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple, Optional, Tuple, Union
 
 import distrax
 import flax.linen as nn
@@ -700,6 +700,14 @@ class MultiCritic(nn.Module):
     # Optional memory block; each ensemble member owns its carry, stacked
     # on a leading axis: hidden_state leaves are (num, batch, hidden).
     memory: Optional[MemoryConfig] = None
+    # Optional custom critic module class for the ensemble members. None ->
+    # the default `Critic` (MLP). A custom class must accept `Critic`'s
+    # constructor kwargs (it may ignore most) plus any `critic_extra` kwargs,
+    # and implement `__call__` and `apply_encoder`. See NetworkConfig.critic_cls.
+    critic_cls: Optional[type] = None
+    # Extra constructor kwargs for `critic_cls`, as a tuple of (name, value)
+    # pairs (hashable/static). Ignored when critic_cls is None.
+    critic_extra: Optional[Tuple[Tuple[str, Any], ...]] = None
 
     def setup(self):
         # x (and done) are broadcast across the ensemble; the carry is
@@ -708,8 +716,10 @@ class MultiCritic(nn.Module):
         # 3-arg signature; apply_encoder (1 arg) is only used by the
         # VAE/RSSM auxiliaries, which never combine with memory.
         in_axes = (None, 0, None) if self.memory is not None else None
+        target = self.critic_cls if self.critic_cls is not None else Critic
+        extra = dict(self.critic_extra) if self.critic_extra is not None else {}
         Vmapped = nn.vmap(
-            target=Critic,
+            target=target,
             in_axes=in_axes,
             out_axes=0,
             variable_axes={"params": 0},
@@ -729,6 +739,7 @@ class MultiCritic(nn.Module):
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
             memory=self.memory,
+            **extra,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -962,6 +973,9 @@ def get_initialized_actor_critic(
             cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
             memory=memory,
+            # Optional custom critic function class (default None -> Critic).
+            critic_cls=network_config.critic_cls,
+            critic_extra=network_config.critic_extra,
         )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))

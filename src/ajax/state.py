@@ -506,6 +506,17 @@ class NetworkConfig:
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
     disable_encoder_output_norm: bool = False
     squash: bool = False
+    # Pluggable critic module class. None -> the default `Critic` (MLP). When
+    # set, `MultiCritic` builds its ensemble from this class instead, enabling
+    # custom critic function classes (e.g. monotone-by-construction critics)
+    # while everything else (algorithm, optimizer, ensembling) is unchanged.
+    # Static/hashable so it never leaks into the compiled graph.
+    critic_cls: Optional[Type] = flax.struct.field(pytree_node=False, default=None)
+    # Extra constructor kwargs forwarded to `critic_cls`, as a tuple of
+    # (name, value) pairs (hashable/static). Ignored when critic_cls is None.
+    critic_extra: Optional[Tuple[Tuple[str, Any], ...]] = flax.struct.field(
+        pytree_node=False, default=None
+    )
 
 
 @struct.dataclass

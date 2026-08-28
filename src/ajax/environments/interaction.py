@@ -100,6 +100,30 @@ def update_rolling_mean(
     return new_state, mean
 
 
+# Keys under which the supported backends expose the pre-reset ("final")
+# observation of a transition. Ajax's brax/playground stack writes
+# ``final_obs`` (see :class:`ajax.wrappers.FinalObsWrapper`); gymnax >= 1.0
+# writes ``final_observation``; ``obs_st`` was the name used by the pre-1.0
+# gymnax fork Ajax used to pin, kept so envs still on it keep bootstrapping
+# correctly.
+_FINAL_OBS_KEYS = ("final_obs", "final_observation", "obs_st")
+
+
+def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
+    """Return the transition's pre-reset observation.
+
+    Auto-resetting environments overwrite the returned observation with the
+    reset one whenever the episode ends, so the terminal observation has to be
+    recovered from ``info`` -- truncation must bootstrap on ``V(s_T)``, not on
+    ``V(s_reset)``. Falls back to ``fallback`` (the post-step observation) for
+    environments that expose neither key.
+    """
+    for key in _FINAL_OBS_KEYS:
+        if key in info:
+            return info[key]
+    return fallback
+
+
 @partial(jax.jit, static_argnames=["mode", "env"])
 def reset(
     rng: jax.Array,
@@ -185,18 +209,19 @@ def step(
 
         # jax.debug.print("Action: {action}", action=action)
         if len(out) == 5:
+            # Pre-1.0 five-value contract: a single ``done`` that folds the
+            # time limit into termination. Prefer the env's own ``truncated``
+            # when it publishes one -- some emit only {"discount": ...} -- else
+            # fall back to the time-based estimate computed before the step
+            # call above, then subtract it back out of ``done``.
             obsv, env_state, reward, done, info = out
-            # Some gymnax envs (e.g. Pendulum-v1 in 0.0.9) emit only
-            # {"discount": ...} and no "truncated" field. Fall back to the
-            # time-based estimate computed before the step call above so
-            # episode termination still works on stock gymnax envs.
             truncated = info.get("truncated", truncated)
-            # type: ignore[union-attr]
             terminated = done * (1 - truncated)
-            terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
         else:
+            # Gymnax >= 1.0 six-value contract: the env reports the split
+            # itself, so take it at face value.
             obsv, env_state, reward, terminated, truncated, info = out
-            terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
+        terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
         if "normalization_info" in env_state.__dict__:
             obs_norm_info = jax.tree.map(
                 lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
@@ -739,7 +764,7 @@ def collect_experience(
         else jnp.zeros_like(terminated)
     )
 
-    raw_next_obs = info.get("final_obs", info.get("obs_st", obsv))
+    raw_next_obs = get_final_obs(info, obsv)
 
     # Box reward/termination modification (no-op when entry_bonus is zeros)
     reward = reward + entry_bonus[..., 0]
@@ -985,9 +1010,9 @@ def collect_experience_from_expert_policy(
                 zero_state,
             )
 
-        # Build transition — prefer info['final_obs'] so truncation bootstraps
-        # on V(s_final), not V(s_reset).
-        next_obs = info.get("final_obs", info.get("obs_st", obsv))
+        # Build transition — prefer the env's final observation so truncation
+        # bootstraps on V(s_final), not V(s_reset).
+        next_obs = get_final_obs(info, obsv)
 
         # When augment_obs_with_expert_state is on, mirror the live
         # collector: append the BEFORE-expert state to obs, and the

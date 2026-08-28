@@ -29,6 +29,15 @@ from ajax.environments.utils import get_state_action_shapes
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
+# Return signature of ``Environment.step`` since gymnax 1.0: the single
+# pre-1.0 ``done`` flag was split into Gymnasium-style ``terminated`` (the
+# episode reached a natural terminal state) and ``truncated`` (the episode
+# hit its time limit). Ajax needs the two apart -- a truncated episode must
+# still bootstrap on V(s_T), a terminated one must not.
+StepReturn = Tuple[
+    chex.Array, environment.EnvState, jax.Array, jax.Array, jax.Array, dict
+]
+
 
 class GymnaxWrapper:
     """Base class for Gymnax wrappers."""
@@ -81,11 +90,13 @@ class FlattenObservationWrapper(GymnaxWrapper):
         state: environment.EnvState,
         action: float,
         params: Optional[environment.EnvParams] = None,
-    ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
+    ) -> StepReturn:
         """Step the environment and flatten the observation"""
-        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
         obs = jnp.reshape(obs, (-1,))
-        return obs, state, reward, done, info
+        return obs, state, reward, terminated, truncated, info
 
 
 @struct.dataclass
@@ -121,14 +132,17 @@ class LogWrapper(GymnaxWrapper):
         state: environment.EnvState,
         action: float,
         params: Optional[environment.EnvParams] = None,
-    ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
+    ) -> StepReturn:
         """Step the environment and log the env state, episode return, episode length and timestep"""
-        obs, env_state, reward, done, info = self._env.step(
+        obs, env_state, reward, terminated, truncated, info = self._env.step(
             key,
             state.env_state,
             action,
             params,
         )
+        # Episode bookkeeping closes on either terminal flag: a truncated
+        # episode is just as finished as a terminated one for logging.
+        done = jnp.logical_or(terminated, truncated)
         new_episode_return = state.episode_returns + reward
         new_episode_length = state.episode_lengths + 1
         state = LogEnvState(  # type: ignore[call-arg]
@@ -145,7 +159,7 @@ class LogWrapper(GymnaxWrapper):
         info["returned_episode_lengths"] = state.returned_episode_lengths
         info["timestep"] = state.timestep
         info["returned_episode"] = done
-        return obs, state, reward, done, info
+        return obs, state, reward, terminated, truncated, info
 
 
 class ClipAction(GymnaxWrapper):
@@ -195,8 +209,10 @@ class TransformObservation(GymnaxWrapper):
 
     def step(self, key, state, action, params=None):
         """Step the env and return the transformed obs"""
-        obs, state, reward, done, info = self._env.step(key, state, action, params)
-        return self.transform_obs(obs), state, reward, done, info
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
+        return self.transform_obs(obs), state, reward, terminated, truncated, info
 
 
 class TransformReward(GymnaxWrapper):
@@ -208,8 +224,10 @@ class TransformReward(GymnaxWrapper):
 
     def step(self, key, state, action, params=None):
         """Step the env and return the transformed reward"""
-        obs, state, reward, done, info = self._env.step(key, state, action, params)
-        return obs, state, self.transform_reward(reward), done, info
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
+        return obs, state, self.transform_reward(reward), terminated, truncated, info
 
 
 class VecEnv(GymnaxWrapper):
@@ -250,12 +268,14 @@ def init_norm_info(
 
 @partial(jax.jit, static_argnames="mode")
 def get_obs_from_state(state: State | Tuple, mode: str) -> jax.Array:
+    """Observation out of a gymnax reset/step return, or a brax state.
+
+    Both gymnax returns -- ``(obs, state)`` from reset and the six-value
+    ``(obs, state, reward, terminated, truncated, info)`` from step -- carry
+    the observation first, so a single index covers them.
+    """
     if mode == "gymnax" and isinstance(state, tuple):
-        match state:
-            case (obs, _):
-                return obs
-            case (obs, _, _, _, _):
-                return obs
+        return state[0]
     elif mode == "brax" and isinstance(state, _StateClasses):
         return state.obs
 
@@ -264,8 +284,15 @@ def get_obs_from_state(state: State | Tuple, mode: str) -> jax.Array:
 def get_obs_and_reward_and_done_from_state(
     state: State | Tuple, mode: str
 ) -> jax.Array:
+    """Observation, reward and end-of-episode flag out of a step return.
+
+    Gymnax >= 1.0 reports ``terminated`` and ``truncated`` separately; the
+    reward normaliser only needs to know that the episode ended (to stop the
+    discounted-return accumulator), so the two are folded back together here.
+    """
     if mode == "gymnax" and isinstance(state, tuple):
-        return state[0], state[2], state[3]
+        _, _, reward, terminated, truncated, _ = state
+        return state[0], reward, jnp.logical_or(terminated, truncated)
     elif mode == "brax" and isinstance(state, _StateClasses):
         return state.obs, state.reward, state.done
 
@@ -371,11 +398,11 @@ def normalize_wrapper_factory(
                     },
                 )
             else:
-                _, env_state, _, done, info = state
+                _, env_state, _, terminated, truncated, info = state
                 state_dict = to_state_dict(env_state)
                 state_dict["normalization_info"] = norm_info
                 env_state = self.state_class(**state_dict)
-                return obs, env_state, reward, done, info
+                return obs, env_state, reward, terminated, truncated, info
 
         def reset(self, key, params=None):
             state = (
@@ -864,8 +891,23 @@ class FinalObsWrapper:
 
 
 class TerminatedTruncatedWrapper(GymnaxWrapper):
+    """Split a time-limit-inclusive terminal flag back into terminated/truncated.
+
+    Stock gymnax >= 1.0 environments already return the two flags apart, so
+    they do **not** need this wrapper. It is for third-party environments that
+    subclass gymnax's ``Environment`` but whose ``step_env`` still reports the
+    pre-1.0 ``done = terminated | truncated`` in the ``terminated`` slot (or
+    that return the five-value tuple outright). Left unwrapped, such an env
+    makes every time-limit truncation look like a natural termination, so
+    PPO/SAC drop the ``V(s_T)`` bootstrap and silently underestimate the
+    value of long-running states.
+
+    The time limit is recovered the same way gymnax's own
+    ``Environment.is_truncated`` does -- ``state.time >=
+    params.max_steps_in_episode`` -- and removed from ``terminated``.
+    """
+
     def __init__(self, env):
-        """Set the observation transformation"""
         super().__init__(env)
 
     def step(
@@ -874,9 +916,18 @@ class TerminatedTruncatedWrapper(GymnaxWrapper):
         state: environment.EnvState,
         action,
         params: environment.EnvParams = None,
-    ):
-        """Step the env and return the transformed obs"""
-        obs, state, reward, done, info = self._env.step(key, state, action, params)
+    ) -> StepReturn:
+        """Step the env and return Gymnasium-style terminal flags"""
+        if params is None:
+            params = self._env.default_params
+        out = self._env.step(key, state, action, params)
+        # Accept both the pre-1.0 five-value tuple and the 1.0 six-value one;
+        # in either case the terminal flag we get still folds in the time
+        # limit, which is exactly what this wrapper undoes.
+        obs, state, reward, done = out[0], out[1], out[2], out[3]
+        info = out[-1]
         truncated = state.time >= params.max_steps_in_episode
-        terminated = done * (1 - truncated)
+        terminated = jnp.logical_and(
+            jnp.asarray(done, dtype=bool), jnp.logical_not(truncated)
+        )
         return obs, state, reward, terminated, truncated, info

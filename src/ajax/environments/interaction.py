@@ -187,6 +187,18 @@ def step(
         env_params = env.default_params
 
     if mode == "gymnax":
+        # Ajax carries actions as float32 end-to-end (the replay buffer uses a
+        # float32 schema). Discrete gymnax envs index with the action --
+        # e.g. MinAtar's `action_set[action]` -- and JAX rejects a float
+        # indexer, so restore the integer dtype at the env boundary. Envs
+        # whose dynamics only compare the action (classic control) accepted
+        # the float silently, which is why this stayed hidden.
+        from ajax.environments.utils import (
+            check_if_environment_has_continuous_actions,
+        )
+
+        if not check_if_environment_has_continuous_actions(env, env_params):
+            action = action.astype(jnp.int32)
 
         def step_wrapper(
             rng: jax.Array,
@@ -535,7 +547,10 @@ def get_raw_obs(
         max(jax.tree_util.tree_leaves(jax.tree.map(lambda x: x.ndim, env_state))) > 0
     )
     if mode == "gymnax":
-        return maybe_vmap(env.get_obs, vmap_on)(env_state)
+        # gymnax 1.0's signature is `get_obs(state, params, key=None)`, and some
+        # envs (e.g. MemoryChain) make `params` required rather than optional.
+        env_params = getattr(env, "default_params", None)
+        return maybe_vmap(lambda st: env.get_obs(st, env_params), vmap_on)(env_state)
     if check_env_is_playground(env):
         # env_state.obs is already the post-wrapper observation (e.g. with
         # safety-wrapper augmentations). Recomputing it via the raw env's

@@ -31,7 +31,7 @@ class DQN(ActorCritic):
         architecture=("128", "relu", "128", "relu"),
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = 10.0,
+        max_grad_norm: Optional[float] = None,
         buffer_size: int = int(1e5),
         batch_size: int = 64,
         learning_starts: int = 1000,

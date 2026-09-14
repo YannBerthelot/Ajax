@@ -30,7 +30,7 @@ class UDRL(ActorCritic):
         actor_architecture=("128", "relu", "128", "relu"),
         gamma: float = 1.0,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = 0.5,
+        max_grad_norm: Optional[float] = None,
         n_steps: int = 64,
         batch_size: int = 64,
         n_epochs: int = 4,

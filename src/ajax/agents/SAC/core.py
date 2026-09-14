@@ -61,10 +61,13 @@ def create_alpha_train_state(
 ) -> TrainState:
     log_alpha = jnp.log(alpha_init)
     params = FrozenDict({"log_alpha": log_alpha})
-    tx = optax.chain(
-        optax.clip_by_global_norm(0.5),
-        optax.adam(learning_rate),
-    )
+    # No gradient clipping on the dual variable. log_alpha's gradient is
+    # the scalar (H_target - H_pi); clipping it to a constant norm erases
+    # the magnitude (and hence the target) from the update whenever the
+    # policy entropy is more than the clip away from the target, turning
+    # the step into pure sign-descent at ``learning_rate`` per update.
+    # Reference SAC uses unclipped Adam here.
+    tx = optax.adam(learning_rate)
     return TrainState.create(
         apply_fn=lambda params: jnp.exp(params["log_alpha"]),
         params=params,

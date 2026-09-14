@@ -784,7 +784,6 @@ def get_initialized_actor_critic(
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     residual: bool = False,  # kept for API compatibility, ignored
-    fixed_alpha: bool = False,  # kept for API compatibility, ignored
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     pid_actor_config: Optional[PIDActorConfig] = None,

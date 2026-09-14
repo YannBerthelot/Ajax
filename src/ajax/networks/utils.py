@@ -20,13 +20,17 @@ from ajax.types import ActivationFunction, InitializationFunction
 
 def get_adam_tx(
     learning_rate: Union[float, Callable[[int], float]] = 1e-3,
-    max_grad_norm: Optional[float] = 0.5,
+    max_grad_norm: Optional[float] = None,
     eps: float = 1e-5,
-    clipped=True,
+    clipped: bool = False,
     beta_1: float = 0.9,
     beta_2: float = 0.999,
 ) -> GradientTransformationExtraArgs:
-    """Return an Adam optimizer with optional gradient clipping.
+    """Return an Adam optimizer with optional global-norm gradient clipping.
+
+    Unclipped by default. Global-norm clipping is a PPO-family convention
+    (PPO / APO pass ``max_grad_norm=0.5``); the off-policy agents and the
+    supervised ones run plain Adam, as in their reference implementations.
 
     Args:
         learning_rate (Union[float, Callable[[int], float]]): Learning rate for the optimizer.

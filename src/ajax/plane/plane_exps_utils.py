@@ -4,11 +4,11 @@ import jax
 import jax.numpy as jnp
 import yaml
 from flax import struct
-from target_gym import Plane, PlaneParams
-from target_gym.plane.env import PlaneState
+from gymnax import EnvParams
 
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import exponential_schedule, linear_schedule, polynomial_schedule
+from ajax.types import EnvType
 
 
 @struct.dataclass
@@ -18,7 +18,9 @@ class StableState:
     theta_dot: float
 
 
-def distance_to_stable_fn(state: PlaneState):
+def distance_to_stable_fn(state: jax.Array):
+    """Plane-specific: |z - target| + |z_dot| + |theta_dot| on a raw Plane state
+    vector (indices 1, 6, 2, 4). Only meaningful for target_gym's Plane."""
     z = state[..., 1]
     target = state[..., 6]
     z_dot = state[..., 2]
@@ -56,7 +58,7 @@ def get_log_config(
     )
 
 
-def get_policy_score(policy, env: Plane, env_params: PlaneParams) -> float:
+def get_policy_score(policy, env: EnvType, env_params: EnvParams) -> float:
     """Run policy for 1000 episodes and return mean episodic return."""
     key = jax.random.PRNGKey(0)
 
@@ -73,7 +75,10 @@ def get_policy_score(policy, env: Plane, env_params: PlaneParams) -> float:
                 action = action[0]
             else:
                 action = policy(obs)
-            obs, state, reward, done, info = env.step(key, state, action, env_params)
+            obs, state, reward, terminated, truncated, info = env.step(
+                key, state, action, env_params
+            )
+            done = jnp.logical_or(terminated, truncated)
             return (obs, state, expert_state), (reward, done)
 
         _, (rewards, dones) = jax.lax.scan(

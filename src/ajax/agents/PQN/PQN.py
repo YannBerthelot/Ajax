@@ -36,7 +36,7 @@ class PQN(ActorCritic):
         num_minibatches: int = 4,
         reward_scale: float = 1.0,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = 10.0,
+        max_grad_norm: Optional[float] = None,
         # Linear epsilon-greedy schedule: epsilon goes from epsilon_start
         # to epsilon_end over the first epsilon_decay_frac of training.
         epsilon_start: float = 1.0,

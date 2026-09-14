@@ -43,11 +43,21 @@ _PARITY_TIMESTEPS = 200
 # determinism test is the cross-check). Tolerance is set to 1e-4: tight
 # enough that any genuine algorithmic divergence in the proven SAC loop
 # would fail it, loose enough to absorb fp32 environmental noise.
+#
+# Re-blessed once, deliberately, when gradient clipping was removed from
+# every non-PPO agent (SAC actor / critic / temperature all ran through
+# ``clip_by_global_norm(0.5)`` before). The clip on the scalar
+# ``log_alpha`` gradient zeroed out the entropy-target term whenever
+# |H_pi - H_target| > 0.5, so ``target_entropy_per_dim`` had no effect
+# until alpha had crawled to the target at lr per update; the actor /
+# critic clip was a PPO convention with no counterpart in reference SAC.
+# Previous goldens: critic 1046.9158935546875, actor 517.13427734375,
+# target 1035.4898681640625, alpha 0.973069429397583.
 _GOLDEN = {
-    "critic": 1046.9158935546875,
-    "actor": 517.13427734375,
-    "target": 1035.4898681640625,
-    "alpha": 0.973069429397583,
+    "critic": 1042.69140625,
+    "actor": 518.2075805664062,
+    "target": 1034.949951171875,
+    "alpha": 0.9726979732513428,
 }
 _TOL = 1e-4
 

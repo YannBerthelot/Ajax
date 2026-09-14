@@ -1,117 +1,117 @@
 {
   "test_empty_stack_matches_legacy_plain_sac": {
-    "critic": 1039.704833984375,
-    "actor": 516.6134033203125,
-    "target": 1034.4404296875,
-    "alpha": 0.9818665385246277
+    "critic": 1038.1280517578125,
+    "actor": 517.51953125,
+    "target": 1034.3555908203125,
+    "alpha": 0.9814563989639282
   },
   "test_expert_guidance_matches_legacy_expert_policy": {
-    "critic": 1040.20849609375,
-    "actor": 516.5799560546875,
-    "target": 1034.5042724609375,
-    "alpha": 0.9818665385246277
+    "critic": 1038.4046630859375,
+    "actor": 517.3845825195312,
+    "target": 1034.3760986328125,
+    "alpha": 0.9814165830612183
   },
   "test_online_bc_matches_legacy_flag": {
-    "critic": 1040.20849609375,
-    "actor": 516.5799560546875,
-    "target": 1034.5042724609375,
-    "alpha": 0.9818665385246277
+    "critic": 1038.4046630859375,
+    "actor": 517.3845825195312,
+    "target": 1034.3760986328125,
+    "alpha": 0.9814165830612183
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
-    "critic": 1039.5411376953125,
-    "actor": 516.5390625,
-    "target": 1034.4080810546875,
-    "alpha": 0.9818665385246277
+    "critic": 1038.3302001953125,
+    "actor": 517.31884765625,
+    "target": 1034.3795166015625,
+    "alpha": 0.9814444184303284
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
-    "critic": 1040.404052734375,
-    "actor": 516.5470581054688,
-    "target": 1034.5078125,
-    "alpha": 0.9818665385246277
+    "critic": 1038.4384765625,
+    "actor": 517.3472290039062,
+    "target": 1034.377685546875,
+    "alpha": 0.981408417224884
   },
   "test_ibrl_matches_legacy_flag": {
-    "critic": 1039.890869140625,
-    "actor": 516.5668334960938,
-    "target": 1034.472412109375,
-    "alpha": 0.9818665385246277
+    "critic": 1038.2486572265625,
+    "actor": 517.385498046875,
+    "target": 1034.3653564453125,
+    "alpha": 0.9814101457595825
   },
   "test_expert_obs_aug_constructs_and_trains": "not_applicable",
   "test_edge_exploration_matches_legacy_flags[fixed]": {
-    "critic": 1040.4013671875,
-    "actor": 516.5614624023438,
-    "target": 1034.4903564453125,
-    "alpha": 0.9818665385246277
+    "critic": 1038.6107177734375,
+    "actor": 517.5764770507812,
+    "target": 1034.3829345703125,
+    "alpha": 0.9816356897354126
   },
   "test_edge_exploration_matches_legacy_flags[argmax]": {
-    "critic": 1040.6134033203125,
-    "actor": 516.4998168945312,
-    "target": 1034.5184326171875,
-    "alpha": 0.9818665385246277
+    "critic": 1038.531494140625,
+    "actor": 517.3436889648438,
+    "target": 1034.3814697265625,
+    "alpha": 0.9813951253890991
   },
   "test_edge_exploration_matches_legacy_flags[boltzmann]": {
-    "critic": 1040.4013671875,
-    "actor": 516.5614624023438,
-    "target": 1034.4903564453125,
-    "alpha": 0.9818665385246277
+    "critic": 1038.6107177734375,
+    "actor": 517.5764770507812,
+    "target": 1034.3829345703125,
+    "alpha": 0.9816356897354126
   },
   "test_edge_exploration_matches_legacy_flags[lcb]": {
-    "critic": 1040.6650390625,
-    "actor": 516.59375,
-    "target": 1034.503173828125,
-    "alpha": 0.9818665385246277
+    "critic": 1038.848388671875,
+    "actor": 517.572265625,
+    "target": 1034.3974609375,
+    "alpha": 0.9816021919250488
   },
   "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
-    "critic": 1040.403076171875,
-    "actor": 516.7294921875,
-    "target": 1034.51025390625,
-    "alpha": 0.9818665385246277
+    "critic": 1038.661376953125,
+    "actor": 517.3634033203125,
+    "target": 1034.3985595703125,
+    "alpha": 0.9813802242279053
   },
   "test_edge_exploration_matches_legacy_flags[thompson]": {
-    "critic": 1040.529296875,
-    "actor": 516.607421875,
-    "target": 1034.489990234375,
-    "alpha": 0.9818665385246277
+    "critic": 1038.7061767578125,
+    "actor": 517.6170043945312,
+    "target": 1034.3885498046875,
+    "alpha": 0.9816109538078308
   },
   "test_lcb_gated_bootstrap_matches_legacy_flag": {
-    "critic": 1040.1083984375,
-    "actor": 516.5672607421875,
-    "target": 1034.48828125,
-    "alpha": 0.9818665385246277
+    "critic": 1038.356201171875,
+    "actor": 517.3748779296875,
+    "target": 1034.373291015625,
+    "alpha": 0.9814090728759766
   },
   "test_mc_pretrain_matches_legacy_flag": {
-    "critic": 1040.19677734375,
-    "actor": 516.6692504882812,
-    "target": 1034.5113525390625,
-    "alpha": 0.9818665385246277
+    "critic": 1038.749755859375,
+    "actor": 517.429931640625,
+    "target": 1034.4031982421875,
+    "alpha": 0.9814378619194031
   },
   "test_bellman_pretrain_matches_legacy_flag": {
-    "critic": 1040.4034423828125,
-    "actor": 516.4015502929688,
-    "target": 1034.5047607421875,
-    "alpha": 0.9818665385246277
+    "critic": 1038.6434326171875,
+    "actor": 517.1541748046875,
+    "target": 1034.3936767578125,
+    "alpha": 0.9815283417701721
   },
   "test_critic_blend_matches_legacy_flag": {
-    "critic": 1040.1705322265625,
-    "actor": 516.6276245117188,
-    "target": 1034.4945068359375,
-    "alpha": 0.9818665385246277
+    "critic": 1038.6517333984375,
+    "actor": 517.37841796875,
+    "target": 1034.3912353515625,
+    "alpha": 0.9814289808273315
   },
   "test_mc_variance_correction_matches_legacy_flag": {
-    "critic": 1036.53662109375,
-    "actor": 516.6285400390625,
-    "target": 1034.21484375,
-    "alpha": 0.9818665385246277
+    "critic": 1037.2574462890625,
+    "actor": 517.2152099609375,
+    "target": 1034.3321533203125,
+    "alpha": 0.9815416932106018
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 1042.1890869140625,
-    "actor": 516.8798217773438,
-    "target": 1034.7490234375,
-    "alpha": 0.9818665385246277
+    "critic": 1040.0938720703125,
+    "actor": 517.5379638671875,
+    "target": 1034.561279296875,
+    "alpha": 0.9814669489860535
   },
   "test_phi_refresh_matches_legacy_flag": {
-    "critic": 1040.5963134765625,
-    "actor": 516.7206420898438,
-    "target": 1034.5205078125,
-    "alpha": 0.9818665385246277
+    "critic": 1038.96484375,
+    "actor": 517.4469604492188,
+    "target": 1034.4093017578125,
+    "alpha": 0.9814842939376831
   }
 }

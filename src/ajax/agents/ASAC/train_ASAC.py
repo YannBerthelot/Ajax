@@ -114,6 +114,9 @@ def create_alpha_train_state(
     """
     log_alpha = jnp.log(alpha_init)
     params = FrozenDict({"log_alpha": log_alpha})
+    # Unclipped, as in SAC core: clipping the scalar dual gradient
+    # erases the entropy-target term from the update (see
+    # ajax.agents.SAC.core.create_alpha_train_state).
     tx = get_adam_tx(learning_rate)
     return TrainState.create(
         apply_fn=get_alpha_from_params,  # Optional

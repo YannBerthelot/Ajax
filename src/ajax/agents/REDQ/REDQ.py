@@ -39,7 +39,7 @@ class REDQ(ActorCritic):
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
         env_params: Optional[PlaneParams] = None,
-        max_grad_norm: Optional[float] = 0.5,
+        max_grad_norm: Optional[float] = None,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
         learning_starts: int = int(1e4),

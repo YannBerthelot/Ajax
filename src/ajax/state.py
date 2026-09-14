@@ -502,8 +502,8 @@ class NetworkConfig:
 @struct.dataclass
 class OptimizerConfig:
     learning_rate: float | Callable[[int], float]
-    max_grad_norm: Optional[float] = 0.5
-    clipped: bool = True
+    max_grad_norm: Optional[float] = None
+    clipped: bool = False
     beta_1: float = 0.9
     beta_2: float = 0.999
     # Adam's epsilon for numerical stability. Default 1e-5 matches the

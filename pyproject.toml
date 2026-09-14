@@ -127,7 +127,9 @@ exclude = """(?x)(
 
 
 [tool.pytest.ini_options]
-norecursedirs = ["tests/classical/*", "tests/recurrent/*"]
+# ".*" restores pytest's default of skipping hidden dirs (overriding
+# norecursedirs drops it), so worktrees under .claude/ are not collected.
+norecursedirs = [".*", "tests/classical/*", "tests/recurrent/*"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

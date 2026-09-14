@@ -69,7 +69,11 @@ def _params(agents):
 
 
 BUDGET_VALUE = int(2e4)
-BUDGET_POLICY = int(1e4)
+# SAC's deterministic action on the advantage-policy probe plateaus at
+# ~0.91 (the entropy bonus keeps the mean off the boundary). At 1e4 it
+# sat right on the 0.90 threshold (0.8929..0.9073 across seeds); 2e4
+# reaches the plateau on every seed tried (>= 0.908), and 3e4 adds nothing.
+BUDGET_POLICY = int(2e4)
 # Coupling on PolicyAndValueEnv requires learning the obs→action-sign mapping —
 # PPO with n_envs=1 needs more rollouts and a higher LR to move the actor.
 BUDGET_COUPLING = int(6e4)

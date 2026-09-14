@@ -2,8 +2,7 @@ from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
-# from gymnax import PlaneParams
-from target_gym import PlaneParams
+from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
@@ -38,7 +37,7 @@ class REDQ(ActorCritic):
         actor_architecture=("256", "relu", "256", "relu"),
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
-        env_params: Optional[PlaneParams] = None,
+        env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = None,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
@@ -84,7 +83,7 @@ class REDQ(ActorCritic):
             actor_architecture (tuple): Architecture of the actor network.
             critic_architecture (tuple): Architecture of the critic network.
             gamma (float): Discount factor for rewards.
-            env_params (Optional[PlaneParams]): Parameters for the environment.
+            env_params (Optional[EnvParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             buffer_size (int): Size of the replay buffer.
             batch_size (int): Batch size for training.

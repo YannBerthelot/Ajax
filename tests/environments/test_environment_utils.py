@@ -17,10 +17,42 @@ from ajax.environments.utils import (
     "env,expected_continuous",
     [
         (gymnax.make("Pendulum-v1")[0], True),
+        (gymnax.make("CartPole-v1")[0], False),
     ],
 )
 def test_check_if_environment_has_continuous_actions(env, expected_continuous):
     assert check_if_environment_has_continuous_actions(env) == expected_continuous
+
+
+def test_check_continuous_actions_under_trace():
+    """The check must survive being called inside a jit trace.
+
+    Regression: envs that build Box bounds with ``jnp.array`` (e.g.
+    target_gym Plane) hand a tracer to gymnax>=1.0's ``Box.__repr__``,
+    which raised when the check was repr-based.
+    """
+    import jax
+    import jax.numpy as jnp
+    from gymnax.environments import spaces
+
+    class TracedBoxEnv:
+        def action_space(self, params=None):
+            return spaces.Box(
+                low=jnp.array([-1.0, -1.0]),
+                high=jnp.array([1.0, 1.0]),
+                shape=(2,),
+                dtype=jnp.float32,
+            )
+
+    env = TracedBoxEnv()
+
+    @jax.jit
+    def probe(x):
+        assert check_if_environment_has_continuous_actions(env)
+        assert get_action_dim(env) == 2
+        return x
+
+    probe(jnp.zeros(()))
 
 
 def test_get_raw_env():

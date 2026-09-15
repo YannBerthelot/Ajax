@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Optional, Union
 
 import jax.numpy as jnp
+import optax
 from flax import struct
 
 ArrayLike = Union[float, jnp.ndarray]
@@ -182,3 +183,39 @@ def resolve_schedulable(param, train_frac: float = 0.0):
     if isinstance(param, Scheduled):
         return param.at(train_frac)
     return param
+
+
+# ----------------------------
+# Optimizer step schedules
+# ----------------------------
+
+
+def warmup_cosine_schedule(
+    peak_value: float,
+    warmup_steps: int,
+    total_steps: int,
+    end_value_fraction: float = 0.1,
+    init_value_fraction: float = 0.0,
+) -> Callable[[int], float]:
+    """Linear warmup to ``peak_value`` then cosine decay to ``end_value``.
+
+    An optax step schedule (``step -> learning_rate``) usable as
+    ``OptimizerConfig.learning_rate``. The warmup-cosine profile is the
+    one the in-context controller reference code trains with (Busetto et
+    al. 2024, GPT-style: 5k warmup steps, decay to ``peak / 10``).
+
+    ``warmup_steps=0`` gives pure cosine decay from ``peak_value``.
+    """
+    if total_steps < 1:
+        raise ValueError(f"total_steps must be >= 1, got {total_steps}")
+    if not 0 <= warmup_steps <= total_steps:
+        raise ValueError(
+            f"need 0 <= warmup_steps <= total_steps, got {warmup_steps} > {total_steps}"
+        )
+    return optax.warmup_cosine_decay_schedule(
+        init_value=peak_value * init_value_fraction,
+        peak_value=peak_value,
+        warmup_steps=warmup_steps,
+        decay_steps=total_steps,
+        end_value=peak_value * end_value_fraction,
+    )

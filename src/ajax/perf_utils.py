@@ -67,6 +67,7 @@ def build_resumable_train(
     make_scan_fn: Callable[..., Callable[..., Tuple[Any, Any]]] | None = None,
     num_updates: int,
     init_transform: Callable[[Any, Any], Any] | None = None,
+    resume_transform: Callable[[Any, Any], Any] | None = None,
 ) -> Callable:
     """Build the canonical init-or-resume + ``lax.scan`` inner train fn.
 
@@ -119,6 +120,10 @@ def build_resumable_train(
         init_transform: optional one-shot ``(agent_state, key) ->
             agent_state`` applied on the fresh-init path only. Pass
             ``None`` for agents that have no such transform.
+        resume_transform: optional one-shot ``(agent_state, key) ->
+            agent_state`` applied on the resume path only, the mirror of
+            ``init_transform`` (e.g. re-initialising the optimizer for a
+            new curriculum stage while keeping the learned parameters).
 
     Returns:
         The jit-decorated inner ``train`` function.
@@ -137,6 +142,8 @@ def build_resumable_train(
     ) -> Tuple[Any, Any]:
         if resume_from_state:
             agent_state = initial_state
+            if resume_transform is not None:
+                agent_state = resume_transform(agent_state, key)
         else:
             agent_state = init_fn(key, index)
             if init_transform is not None:

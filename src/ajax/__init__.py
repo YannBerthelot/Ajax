@@ -138,6 +138,7 @@ def _configure_jax_compile_cache() -> None:
 _configure_jax_compile_cache()
 
 
+from ajax.agents.APG.APG import APG  # noqa: E402
 from ajax.agents.APO.APO import APO  # noqa: E402
 from ajax.agents.ASAC.ASAC import ASAC  # noqa: E402
 from ajax.agents.AVG.AVG import AVG  # noqa: E402
@@ -147,5 +148,5 @@ from ajax.agents.PQN.PQN import PQN  # noqa: E402
 from ajax.agents.REDQ.REDQ import REDQ  # noqa: E402
 from ajax.agents.SAC.SAC import SAC  # noqa: E402
 
-__all__ = ["APO", "ASAC", "AVG", "DQN", "PPO", "PQN", "REDQ", "SAC"]
+__all__ = ["APG", "APO", "ASAC", "AVG", "DQN", "PPO", "PQN", "REDQ", "SAC"]
 __version__ = version("ajax")

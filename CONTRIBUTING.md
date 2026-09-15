@@ -67,6 +67,10 @@ src/ajax/
 │                            #   / BiasVoreDecomposition / CliffEta /
 │                            #   DiagnosticSnapshots / BiasVorePenalty
 ├── buffers/, environments/, logging/, modules/, networks/
+│   environments/system_class.py   # SystemClass: distributions over EnvParams
+│   environments/differentiable.py # closed_loop_rollout: BPTT through gymnax envs
+│   environments/model_reference.py# ModelReferenceWrapper: tracking tasks
+│   modules/pid_head.py            # learnable PID layer on a network output
 ├── state.py                 # BaseAgentState (carries ext_state: tuple),
 │                            #   BaseAgentConfig, shared config dataclasses
 ├── evaluate.py, log.py      # Eval loop + metric logging + compose_eval_metrics

@@ -61,3 +61,5 @@ def test_warmup_cosine_validation():
         warmup_cosine_schedule(1.0, 0, 0)
     with pytest.raises(ValueError, match="warmup_steps"):
         warmup_cosine_schedule(1.0, 20, 10)
+    with pytest.raises(ValueError, match="warmup_steps"):
+        warmup_cosine_schedule(1.0, 10, 10)  # no decay step left

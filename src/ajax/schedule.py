@@ -208,9 +208,10 @@ def warmup_cosine_schedule(
     """
     if total_steps < 1:
         raise ValueError(f"total_steps must be >= 1, got {total_steps}")
-    if not 0 <= warmup_steps <= total_steps:
+    if not 0 <= warmup_steps < total_steps:
+        # optax needs at least one decay step after the warmup.
         raise ValueError(
-            f"need 0 <= warmup_steps <= total_steps, got {warmup_steps} > {total_steps}"
+            f"need 0 <= warmup_steps < total_steps, got {warmup_steps} and {total_steps}"
         )
     return optax.warmup_cosine_decay_schedule(
         init_value=peak_value * init_value_fraction,

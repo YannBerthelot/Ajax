@@ -149,13 +149,21 @@ from ajax.environments.model_reference import (
     LinearReferenceModel, ModelReferenceWrapper, StepReference,
 )
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
+from ajax.wrappers import InitialStateWrapper
 import gymnax
 
 plant, params = gymnax.make("Pendulum-v1")
+# The paper keeps initial conditions fixed (no p(O) sampling); pin them so the
+# matching cost is not dominated by the approach transient.
+plant = InitialStateWrapper(
+    plant, lambda key, state, _: state.replace(theta=jnp.asarray(0.0), theta_dot=jnp.asarray(0.0))
+)
 task = ModelReferenceWrapper(
     plant,
     StepReference(horizon=100, min_value=-0.5, max_value=0.5, min_duration=20, max_duration=50),
-    LinearReferenceModel.first_order(),      # the paper's reference model M
+    # first_order() defaults to the paper's M, tuned for its 1 s sampling;
+    # at Pendulum's 50 ms step use a slower pole so the target is reachable.
+    LinearReferenceModel.first_order(a=0.9, b=0.1, c=1.0, d=0.0),
     output_fn=lambda obs: jnp.arctan2(obs[1], obs[0]),
 )
 system_class = UniformPerturbation(params, fields=("m", "l"), scale=0.05)

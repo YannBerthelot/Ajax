@@ -1008,3 +1008,30 @@ def test_terminated_truncated_wrapper_unfolds_time_limit():
     # the agent would drop the V(s_T) bootstrap.
     assert bool(truncated)
     assert not bool(terminated)
+
+
+def test_initial_state_wrapper_overrides_reset_state():
+    from gymnax import make as _make
+
+    from ajax.wrappers import InitialStateWrapper
+
+    env, params = _make("Pendulum-v1")
+
+    def pin(key, state, params):
+        del params
+        theta = jax.random.uniform(key, minval=-0.1, maxval=0.1)
+        return state.replace(theta=theta, theta_dot=jnp.asarray(0.0))
+
+    wrapped = InitialStateWrapper(env, pin)
+    keys = jax.random.split(jax.random.PRNGKey(0), 64)
+    obs, states = jax.vmap(wrapped.reset, in_axes=(0, None))(keys, params)
+    assert jnp.all(jnp.abs(states.theta) <= 0.1)
+    assert jnp.all(states.theta_dot == 0.0)
+    # observation is recomputed from the overridden state
+    assert jnp.allclose(obs[:, 0], jnp.cos(states.theta))
+    assert jnp.allclose(obs[:, 2], 0.0)
+    # stepping still works through the wrapper and keeps the env's own dynamics
+    obs2, s2, r, term, trunc, info = wrapped.step(
+        keys[0], jax.tree.map(lambda x: x[0], states), jnp.zeros(1), params
+    )
+    assert obs2.shape == (3,) and jnp.isfinite(r)

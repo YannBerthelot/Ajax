@@ -25,8 +25,9 @@ def get_adam_tx(
     clipped: bool = False,
     beta_1: float = 0.9,
     beta_2: float = 0.999,
+    weight_decay: float = 0.0,
 ) -> GradientTransformationExtraArgs:
-    """Return an Adam optimizer with optional global-norm gradient clipping.
+    """Return an Adam(W) optimizer with optional global-norm gradient clipping.
 
     Unclipped by default. Global-norm clipping is a PPO-family convention
     (PPO / APO pass ``max_grad_norm=0.5``); the off-policy agents and the
@@ -37,6 +38,8 @@ def get_adam_tx(
         max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
         eps (float): Epsilon value for numerical stability.
         clipped (bool): Whether to apply gradient clipping.
+        weight_decay (float): Decoupled weight decay; ``> 0`` selects
+            ``optax.adamw`` (used by the APG family), ``0`` keeps plain Adam.
 
     Returns:
         GradientTransformationExtraArgs: The configured optimizer.
@@ -46,14 +49,23 @@ def get_adam_tx(
     # learning_rate = (
     #     1.0  # deactivate learning_rate here, to handle it custom in the training loop
     # )
+    if weight_decay < 0:
+        raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
+    if weight_decay > 0:
+        adam = optax.adamw(
+            learning_rate=learning_rate,
+            eps=eps,
+            b1=beta_1,
+            b2=beta_2,
+            weight_decay=weight_decay,
+        )
+    else:
+        adam = optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2)
     if clipped:
         if max_grad_norm is None:
             raise ValueError("Gradient clipping requested but no norm provided.")
-        return optax.chain(
-            optax.clip_by_global_norm(max_grad_norm),
-            optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2),
-        )
-    return optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2)
+        return optax.chain(optax.clip_by_global_norm(max_grad_norm), adam)
+    return adam
 
 
 def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFunction:  # type: ignore[return]

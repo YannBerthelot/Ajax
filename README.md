@@ -27,6 +27,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | **APO**   | Ma et al., *Average-Reward Reinforcement Learning with Trust Region Methods*, 2021 — [arXiv:2106.03442](https://arxiv.org/abs/2106.03442) |
 | **TD3**   | Fujimoto et al., *Addressing Function Approximation Error in Actor-Critic Methods*, 2018 — [arXiv:1802.09477](https://arxiv.org/abs/1802.09477) |
 | **UDRL**  | Schmidhuber, *Reinforcement Learning Upside Down: Don't Predict Rewards, Just Map Them to Actions*, 2019 — [arXiv:1912.02875](https://arxiv.org/abs/1912.02875) |
+| **APG**   | Analytic policy gradient through a differentiable simulator. `APG.contextual_controller` is the in-context controller of Busetto, Breschi, Forgione, Piga & Formentin, *One controller to rule them all*, 2024 — [arXiv:2411.06482](https://arxiv.org/abs/2411.06482) |
 
 ### Environment Compatibility
 - **Gymnax**, **Brax**, and **MuJoCo Playground** (with full termination vs truncation handling).
@@ -132,6 +133,39 @@ plateaus near 40 return while every memory kind exceeds 450/500.
 - Other agents (AVG, APO, UDRL) raise `NotImplementedError` when `memory`
   is set rather than silently ignoring it.
 
+### Differentiable simulation and in-context control
+
+`APG` back-propagates the closed-loop return through a gymnax env that
+exposes transition gradients (Pendulum, MountainCarContinuous, PointRobot,
+Reacher, Swimmer), across a *system class* (a distribution over
+`EnvParams`). `ModelReferenceWrapper` turns any env into a model-reference
+tracking task, and `APG.contextual_controller` reproduces the transformer +
+PID contextual controller of Busetto et al. 2024:
+
+```python
+from ajax import APG
+from ajax.agents.APG import CurriculumStage, train_curriculum
+from ajax.environments.model_reference import (
+    LinearReferenceModel, ModelReferenceWrapper, StepReference,
+)
+from ajax.environments.system_class import FixedSystem, UniformPerturbation
+import gymnax
+
+plant, params = gymnax.make("Pendulum-v1")
+task = ModelReferenceWrapper(
+    plant,
+    StepReference(horizon=100, min_value=-0.5, max_value=0.5, min_duration=20, max_duration=50),
+    LinearReferenceModel.first_order(),      # the paper's reference model M
+    output_fn=lambda obs: jnp.arctan2(obs[1], obs[0]),
+)
+system_class = UniformPerturbation(params, fields=("m", "l"), scale=0.05)
+stages = [  # Algorithm 2: nominal system first, then the whole class
+    CurriculumStage(APG.contextual_controller(task, FixedSystem(params), env_params=params), n_timesteps=200_000),
+    CurriculumStage(APG.contextual_controller(task, system_class, env_params=params), n_timesteps=500_000),
+]
+(state, aux), *_ = train_curriculum(stages, seed=0)
+```
+
 ### Composable hooks
 
 Agents expose `Optional[Callable]` hooks that let you override behavior without subclassing. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full list and semantics.
@@ -159,14 +193,16 @@ src/ajax/
 ├── agents/
 │   ├── base.py              # Shared ActorCritic base class
 │   ├── cloning.py           # Behavioral-cloning utilities (actor + critic pretrain)
-│   ├── SAC/, ASAC/, REDQ/, AVG/, PPO/, APO/, TD3/, UDRL/
+│   ├── SAC/, ASAC/, REDQ/, AVG/, PPO/, APO/, TD3/, UDRL/, APG/
 │   │   ├── <AGENT>.py       # Public class (config, __init__, get_make_train)
 │   │   ├── train_<AGENT>.py # make_train, update steps, loss functions
 │   │   └── state.py         # Agent-specific flax.struct.dataclass state
 ├── buffers/                 # flashbax-based replay buffer helpers
-├── environments/            # Env creation, interaction loops, collect_experience
+├── environments/            # Env creation, interaction loops, collect_experience,
+│                            #   system_class (EnvParams distributions), differentiable
+│                            #   (closed-loop BPTT rollouts), model_reference (tracking tasks)
 ├── logging/                 # wandb / tensorboard logging
-├── modules/                 # Composable pieces (expert, exploration, pretrain, pid_actor)
+├── modules/                 # Composable pieces (expert, exploration, pretrain, pid_actor, pid_head)
 ├── networks/                # Actor / Critic / ScannedRNN
 ├── state.py                 # Shared config dataclasses
 ├── wrappers.py              # Env wrappers (AutoReset, Normalize, Noise, …)

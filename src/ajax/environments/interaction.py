@@ -10,6 +10,7 @@ from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import init_buffer
+from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import get_state_action_shapes, maybe_append_train_frac
 from ajax.state import (
     BaseAgentState,
@@ -144,7 +145,10 @@ def reset(
         tuple[jax.Array, EnvState]: Initial observation and environment state.
     """
     if mode == "gymnax":
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(rng, env_params)
+        # Batched params (one system per env, see ajax.environments.system_class)
+        # vmap alongside the keys; unbatched params broadcast.
+        params_axis = 0 if env_params_is_batched(env_params) else None
+        obsv, env_state = jax.vmap(env.reset, in_axes=(0, params_axis))(rng, env_params)
     else:
         env_state = env.reset(rng)  # ✅ no vmap
         obsv = env_state.obs
@@ -199,10 +203,11 @@ def step(
 
         time = state.time if hasattr(state, "time") else state.t
         truncated = time >= env_params.max_steps_in_episode - 1  # type: ignore[union-attr]
+        params_axis = 0 if env_params_is_batched(env_params) else None
         if rng.ndim > 1:
             out = jax.vmap(
                 step_wrapper,
-                in_axes=(0, 0, 0, None),
+                in_axes=(0, 0, 0, params_axis),
             )(rng, state, action, env_params)
         else:
             out = step_wrapper(rng, state, action, env_params)

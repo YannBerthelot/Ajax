@@ -521,6 +521,9 @@ class OptimizerConfig:
     # tuned configs). Larger eps makes Adam less aggressive on small
     # gradients (e.g. log_std), slowing exploration adaptation.
     eps: float = 1e-5
+    # Decoupled weight decay (AdamW, Loshchilov & Hutter 2019). 0 keeps
+    # plain Adam, byte-identical to the legacy optimizer.
+    weight_decay: float = 0.0
 
 
 @struct.dataclass

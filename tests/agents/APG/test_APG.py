@@ -27,9 +27,13 @@ def angle(obs):
     return jnp.arctan2(obs[1], obs[0])
 
 
-def tracking_env(horizon=HORIZON, min_duration=4, max_duration=8):
+def tracking_env(horizon=HORIZON, min_duration=4, max_duration=8, model_pole=None):
     """Gravity-free pendulum (a double integrator, so angle references are
-    trackable with unit torque) under a model-reference tracking wrapper."""
+    trackable with unit torque) under a model-reference tracking wrapper.
+
+    ``model_pole=None`` uses the paper's reference model; a pole closer
+    to 1 gives a slower, reachable desired trajectory at a 50 ms step.
+    """
     env, params = make_gymnax_env("Pendulum-v1")
     params = params.replace(g=0.0)
     reference = StepReference(
@@ -39,9 +43,14 @@ def tracking_env(horizon=HORIZON, min_duration=4, max_duration=8):
         min_duration=min_duration,
         max_duration=max_duration,
     )
-    wrapped = ModelReferenceWrapper(
-        env, reference, LinearReferenceModel.first_order(), output_fn=angle
+    model = (
+        LinearReferenceModel.first_order()
+        if model_pole is None
+        else LinearReferenceModel.first_order(
+            a=model_pole, b=1 - model_pole, c=1.0, d=0.0
+        )
     )
+    wrapped = ModelReferenceWrapper(env, reference, model, output_fn=angle)
     return wrapped, params
 
 
@@ -64,6 +73,13 @@ def make_agent(env, system_class, **kwargs):
     return APG(env, **defaults)
 
 
+def test_gradient_clipping_is_on_by_default_and_can_be_disabled(env_and_class):
+    env, sc = env_and_class
+    assert make_agent(env, sc).actor_optimizer_args.clipped
+    off = make_agent(env, sc, max_grad_norm=None)
+    assert not off.actor_optimizer_args.clipped
+
+
 def test_rejects_non_differentiable_env():
     with pytest.raises(ValueError, match="transition gradients"):
         APG("CartPole-v1")
@@ -82,14 +98,25 @@ def test_initial_state_has_no_critic_and_flows_through_env(env_and_class):
 
 
 def test_training_reduces_matching_loss():
-    env, params = tracking_env(horizon=32, min_duration=8, max_duration=16)
+    """Gradient descent through the simulator lowers the matching cost.
+
+    Uses a reference model slow enough to be reachable at Pendulum's 50 ms
+    step and disables the default clipping: on this tiny 32-step problem
+    clipping only slows the descent (the default exists for stability on
+    long horizons across a system class).
+    """
+    env, params = tracking_env(
+        horizon=32, min_duration=8, max_duration=16, model_pole=0.9
+    )
     sc = UniformPerturbation(params, fields=("m", "l"), scale=0.1)
     n_envs, horizon, n_updates = 8, 32, 80
-    agent = make_agent(env, sc, n_envs=n_envs, horizon=horizon, learning_rate=1e-2)
+    agent = make_agent(
+        env, sc, n_envs=n_envs, horizon=horizon, learning_rate=1e-2, max_grad_norm=None
+    )
     _, aux = agent.train(seed=1, n_timesteps=n_updates * n_envs * horizon)
     losses = aux.matching_loss[0]
     assert losses.shape == (n_updates,)
-    assert losses[-10:].mean() < 0.7 * losses[:10].mean()
+    assert losses[-10:].mean() < 0.6 * losses[:10].mean()
 
 
 def test_multiple_seeds_are_vmapped(env_and_class):
@@ -117,7 +144,10 @@ def test_contextual_controller_configuration(env_and_class):
     assert agent.network_args.memory == MemoryConfig(
         kind="transformer", hidden_size=8, num_layers=1, num_heads=2, window=8
     )
-    assert agent.pid == PIDHeadConfig() and agent.lr_schedule == "warmup_cosine"
+    assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
+    assert agent.lr_schedule == "warmup_cosine"
+    assert agent.actor_optimizer_args.clipped
+    assert agent.actor_optimizer_args.max_grad_norm == 1.0
     assert agent.actor_optimizer_args.weight_decay == 0.01
     state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8)
     assert state.actor_state.recurrent

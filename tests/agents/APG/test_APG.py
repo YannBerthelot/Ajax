@@ -170,6 +170,10 @@ def test_warmup_cosine_schedule_is_wired_and_validated(env_and_class):
     assert jnp.isfinite(aux.loss).all()
     with pytest.raises(ValueError, match="lr_schedule"):
         make_agent(env, sc, lr_schedule="linear").train(seed=0, n_timesteps=64)
+    # a warmup longer than the run is clamped, leaving one decay step
+    short = make_agent(env, sc, lr_schedule="warmup_cosine", warmup_steps=50)
+    _, aux = short.train(seed=0, n_timesteps=2 * N_ENVS * HORIZON)
+    assert jnp.isfinite(aux.loss).all()
 
 
 def test_resume_keeps_params_and_resets_optimizer(env_and_class):

@@ -388,7 +388,8 @@ def make_train(
         actor_optimizer_args = actor_optimizer_args.replace(
             learning_rate=warmup_cosine_schedule(
                 float(peak),
-                warmup_steps=min(warmup_steps, num_updates),
+                # keep at least one decay step for very short runs
+                warmup_steps=min(warmup_steps, num_updates - 1),
                 total_steps=num_updates,
                 end_value_fraction=lr_end_fraction,
             )

@@ -7,6 +7,8 @@ import pytest
 from brax.envs import create as create_brax_env
 from brax.envs.base import State
 from flax import struct
+from gymnax import make as make_gymnax_env
+from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
 
 from ajax.wrappers import (
     AutoResetWrapper,
@@ -20,6 +22,7 @@ from ajax.wrappers import (
     NormalizationInfo,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
+    TerminatedTruncatedWrapper,
 )
 
 
@@ -39,10 +42,11 @@ class MockGymnaxEnv:
     def step(self, key, state, action, params=None):
         obs = jnp.array([1.0, -1.0]) * state.step_count
         reward = jnp.array([2.0])
-        done = state.step_count >= 5
+        terminated = state.step_count >= 5
+        truncated = jnp.zeros_like(terminated)
         info = {}
         state = MockGymnaxState(step_count=state.step_count + 1)
-        return obs, state, reward, done, info
+        return obs, state, reward, terminated, truncated, info
 
 
 class MockBraxEnv:
@@ -112,10 +116,11 @@ class BatchedMockGymnaxEnv:
     def step(self, key, state, action, params=None):
         obs = jnp.tile(jnp.array([1.0, -1.0]) * action, (self.batch_size, 1))
         reward = jnp.ones(self.batch_size) * 2.0
-        done = state.step_count >= 5
+        terminated = state.step_count >= 5
+        truncated = jnp.zeros_like(terminated)
         info = {}
         state = BatchedMockGymnaxState(step_count=state.step_count + 1)
-        return obs, state, reward, done, info
+        return obs, state, reward, terminated, truncated, info
 
 
 class BatchedMockBraxEnv:
@@ -211,7 +216,9 @@ def test_flatten_observation_wrapper(wrapper, env_fixture, mode, request):
     obs, state = wrapped_env.reset(key, env_params)
     assert obs.ndim == 1  # Observation should be flattened
 
-    obs, state, reward, done, info = wrapped_env.step(key, state, 0, env_params)
+    obs, state, reward, terminated, truncated, info = wrapped_env.step(
+        key, state, 0, env_params
+    )
     assert obs.ndim == 1  # Observation should remain flattened
 
 
@@ -232,7 +239,9 @@ def test_log_wrapper(wrapper, env_fixture, mode, request):
     assert hasattr(state, "episode_returns")
     assert hasattr(state, "episode_lengths")
 
-    obs, state, reward, done, info = wrapped_env.step(key, state, 0, env_params)
+    obs, state, reward, terminated, truncated, info = wrapped_env.step(
+        key, state, 0, env_params
+    )
     assert "returned_episode_returns" in info
     assert "returned_episode_lengths" in info
 
@@ -262,8 +271,8 @@ def test_clip_action(wrapper, env_fixture, low, high, mode, request):
 
     out_of_bound_action = jnp.array(1.0)
     if mode == "gymnax":
-        obs_out, state_out, reward_out, done_out, info_out = wrapped_env.step(
-            key, state, out_of_bound_action, env_params
+        obs_out, state_out, reward_out, term_out, trunc_out, info_out = (
+            wrapped_env.step(key, state, out_of_bound_action, env_params)
         )
     else:  # Brax
         state_out = wrapped_env.step(state, out_of_bound_action)
@@ -271,8 +280,8 @@ def test_clip_action(wrapper, env_fixture, low, high, mode, request):
 
     at_bound_action = jnp.array(high)
     if mode == "gymnax":
-        obs_bound, state_bound, reward_bound, done_bound, info_bound = wrapped_env.step(
-            key, state, at_bound_action, env_params
+        obs_bound, state_bound, reward_bound, term_bound, trunc_bound, info_bound = (
+            wrapped_env.step(key, state, at_bound_action, env_params)
         )
     else:  # Brax
         state_bound = wrapped_env.step(state, at_bound_action)
@@ -313,7 +322,7 @@ def test_normalize_vec_observation(wrapper, env_fixture, mode, request):
         key, subkey = jax.random.split(key)
         action = jnp.array([0])
         if mode == "gymnax":
-            obs, state, reward, done, info = wrapped_env.step(
+            obs, state, reward, terminated, truncated, info = wrapped_env.step(
                 key=key, state=state, action=action, params=env_params
             )
         else:  # Brax
@@ -355,9 +364,10 @@ def test_normalize_vec_reward(wrapper, env_fixture, mode, request):
         key, subkey = jax.random.split(key)
         action = jnp.array(0)
         if mode == "gymnax":
-            obs, state, reward, done, info = wrapped_env.step(
+            obs, state, reward, terminated, truncated, info = wrapped_env.step(
                 key=key, state=state, action=action, params=env_params
             )
+            done = jnp.logical_or(terminated, truncated)
         else:  # Brax
             state = wrapped_env.step(state=state, action=action)
             reward = state.reward
@@ -537,7 +547,7 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
     if mode == "brax":
         state = wrapped_env.step(state=state, action=action)
     else:
-        obs, state, reward, done, info = wrapped_env.step(
+        obs, state, reward, terminated, truncated, info = wrapped_env.step(
             key=key, state=state, action=action, params=env_params
         )
     expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
@@ -561,7 +571,7 @@ def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
     if mode == "brax":
         state = wrapped_env.step(state=state, action=action)
     else:
-        obs, state, reward, done, info = wrapped_env.step(
+        obs, state, reward, terminated, truncated, info = wrapped_env.step(
             key=key, state=state, action=action, params=env_params
         )
     expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
@@ -826,7 +836,7 @@ def test_normalize_vec_observation_batched_shared(wrapper, env_fixture, mode, re
     assert _norm_info.var.shape == (batch_size, obs_shape)
 
     if mode == "gymnax":
-        obs, state, reward, done, info = wrapped_env.step(
+        obs, state, reward, terminated, truncated, info = wrapped_env.step(
             key=key, state=state, action=7, params=env_params
         )
     else:  # Brax
@@ -889,3 +899,112 @@ def test_noise_wrapper(wrapper, env_fixture, mode, request):
     # 99.7% of values should be within 3 standard deviations
     assert jnp.all(obs_diff <= 3 * scale)
     assert jnp.all(reward_diff <= 3 * scale)
+
+
+# --------------------------------------------------------------------------
+# Gymnax >= 1.0 six-value step API
+#
+# The wrapper tests above run against hand-written mocks, so they cannot
+# catch a drift between Ajax's gymnax-side wrappers and gymnax's own step
+# contract. These exercise the wrappers against real gymnax environments.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def real_gymnax_env():
+    """A stock gymnax env with a short time limit (fast truncation)."""
+    env, _ = make_gymnax_env("Pendulum-v1")
+    return env, PendulumParams(max_steps_in_episode=3)
+
+
+def test_gymnax_env_step_returns_six_values(real_gymnax_env):
+    """Guards the assumption every gymnax-side wrapper is written against."""
+    env, params = real_gymnax_env
+    key = jax.random.PRNGKey(0)
+    _, state = env.reset(key, params)
+    out = env.step(key, state, jnp.array([0.0]), params)
+    assert len(out) == 6
+    assert "final_observation" in out[-1]
+
+
+def test_log_wrapper_on_real_gymnax_env(real_gymnax_env):
+    """LogWrapper must pass the terminal flags through, not collapse them."""
+    env, params = real_gymnax_env
+    wrapped_env = LogWrapper(env)
+    key = jax.random.PRNGKey(0)
+    obs, state = wrapped_env.reset(key, params)
+
+    for _ in range(3):
+        obs, state, reward, terminated, truncated, info = wrapped_env.step(
+            key, state, jnp.array([0.0]), params
+        )
+
+    # Pendulum never terminates naturally, so step 3 is a pure truncation.
+    assert not bool(terminated)
+    assert bool(truncated)
+    # Episode bookkeeping still closes on the truncation.
+    assert bool(info["returned_episode"])
+    assert info["returned_episode_lengths"] == 3
+
+
+def test_normalize_wrapper_on_real_gymnax_env(real_gymnax_env):
+    """NormalizeVecObservationGymnax must survive a real six-value step."""
+    env, params = real_gymnax_env
+    wrapped_env = NormalizeVecObservationGymnax(env, gamma=0.99)
+    key = jax.random.PRNGKey(0)
+    obs, state = wrapped_env.reset(key, params)
+
+    obs, state, reward, terminated, truncated, info = wrapped_env.step(
+        key=key, state=state, action=jnp.array([0.0]), params=params
+    )
+    assert obs.shape == env.obs_shape
+    assert state.normalization_info.obs is not None
+    assert not bool(terminated)
+
+
+@struct.dataclass
+class _LegacyState:
+    time: int
+
+
+@struct.dataclass
+class _LegacyParams:
+    max_steps_in_episode: int = 2
+
+
+class _LegacyDoneEnv:
+    """Env whose terminal flag still folds the time limit into `terminated`.
+
+    Mirrors third-party gymnax envs that have not migrated to the 1.0 split:
+    their `step_env` returns `done = terminated | truncated`, which gymnax's
+    base `step` then hands back in the `terminated` slot.
+    """
+
+    default_params = _LegacyParams()
+
+    def reset(self, key, params=None):
+        return jnp.zeros(2), _LegacyState(time=0)
+
+    def step(self, key, state, action, params=None):
+        state = _LegacyState(time=state.time + 1)
+        done = state.time >= params.max_steps_in_episode
+        return jnp.zeros(2), state, jnp.array([1.0]), done, done, {}
+
+
+def test_terminated_truncated_wrapper_unfolds_time_limit():
+    """The wrapper must move a time-limit `done` out of `terminated`."""
+    env = _LegacyDoneEnv()
+    params = _LegacyParams()
+    wrapped_env = TerminatedTruncatedWrapper(env)
+    key = jax.random.PRNGKey(0)
+    _, state = wrapped_env.reset(key, params)
+
+    _, state, _, terminated, truncated, _ = wrapped_env.step(key, state, 0, params)
+    assert not bool(terminated)
+    assert not bool(truncated)
+
+    _, state, _, terminated, truncated, _ = wrapped_env.step(key, state, 0, params)
+    # Time limit reached: truncated, and crucially NOT terminated -- otherwise
+    # the agent would drop the V(s_T) bootstrap.
+    assert bool(truncated)
+    assert not bool(terminated)

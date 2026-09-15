@@ -20,8 +20,22 @@ flashbax = "^0.1.3"
 mujoco = "^3.1.4"
 mujoco-mjx = "^3.1.4"
 python-dotenv = "^1.1.1"
-gymnax = {git = "https://github.com/YannBerthelot/gymnax.git"}
-target-gym = "^0.5.0"
+# gymnax 1.0 (six-value step API: obs, state, reward, terminated,
+# truncated, info).
+#
+# TEMPORARY: this should be `gymnax = "^1.0.1"` from PyPI. gymnax 1.0.0
+# caps jax at <0.7 and gymnasium at <1.2, which no resolver can satisfy
+# next to distrax (jax>=0.7) or target-gym (gymnasium>=1.2), so the
+# release is unusable here. The branch below is upstream main with those
+# two caps lifted and nothing else changed; it is proposed upstream as
+# YannBerthelot:chore/relax-runtime-pins. Drop the fork and pin the PyPI
+# release once that lands.
+gymnax = {git = "https://github.com/YannBerthelot/gymnax.git", branch = "chore/relax-runtime-pins"}
+# TEMPORARY: pinned to the gymnax 1.0 migration branch. The released
+# 0.5.0 predates it and still folds the time limit into `terminated`,
+# so truncation would look like termination. Restore the PyPI pin
+# (>= the first release containing that migration) once it is cut.
+target-gym = {git = "https://github.com/YannBerthelot/TargetGym.git", branch = "feature/gymnax-1.0-compat"}
 distrax = ">=0.1.6"
 tensorboardx = "^2.6.4"
 dill = "^0.4.1"
@@ -41,7 +55,10 @@ coverage = {extras = ["toml"], version = "^7.8.0"}
 pytest-mock = "^3.14.0"
 mock = "^5.1.0"
 ruff = "^0.11.6"
-probing-environments = "^0.5.1"
+# TEMPORARY: pinned to the gymnax 1.0 migration branch. The released
+# 0.5.1 still requires `gymnax ^0.0.9`, which makes the whole graph
+# unresolvable. Restore the PyPI pin once a migrated release is cut.
+probing-environments = {git = "https://github.com/YannBerthelot/ProbingEnvironments.git", branch = "feature/gymnax-1.0-compat"}
 
 
 [tool.poetry.group.render.dependencies]

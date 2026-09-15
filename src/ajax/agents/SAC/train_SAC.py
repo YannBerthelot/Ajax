@@ -16,6 +16,11 @@ from ajax.agents.cloning import (
     get_cloning_args,
     get_pre_trained_agent,
 )
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    sample_and_burnin_sequences,
+    unsupported_recurrent_options,
+)
 from ajax.agents.SAC import core
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
@@ -23,6 +28,7 @@ from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
+    get_pi_sequence,
     init_collector_state,
     should_use_uniform_sampling,
 )
@@ -57,9 +63,11 @@ from ajax.modules.pretrain import (
     collect_and_store_expert_transitions,
     pretrain_critic_bellman,
 )
+from ajax.networks.memory import flat_carry_dim, resolve_memory_config
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
+    predict_value_sequence,
 )
 from ajax.perf_utils import build_resumable_train, final_aux_scan
 from ajax.state import (
@@ -181,6 +189,7 @@ def init_SAC(
     alpha_args: AlphaConfig,
     buffer: BufferType,
     window_size: int = 10,
+    stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     residual: bool = False,
     max_timesteps: Optional[int] = None,
@@ -232,12 +241,18 @@ def init_SAC(
     )
 
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    _actor_carry_dim = 0
+    if stored_state:
+        _mem = resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        if _mem is not None:
+            _actor_carry_dim = flat_carry_dim(_mem)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
         buffer=buffer,
         window_size=window_size,
+        actor_carry_dim=_actor_carry_dim,
         max_timesteps=max_timesteps,
         action_dim_override=action_dim_override,
         expert_state_aug_dim=(
@@ -323,6 +338,7 @@ def update_value_functions(
     extra_critic_loss_fn: Optional[Callable] = None,
     next_action_transform: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
@@ -343,6 +359,7 @@ def update_value_functions(
         reward_scale=reward_scale,
         next_action_transform=next_action_transform,
         next_a_expert=next_a_expert,
+        carries=carries,
     )
 
     # 2. Q predictions for expert-path diagnostics. Only computed when a
@@ -402,7 +419,9 @@ def update_value_functions(
     #    The extra loss is added inside the same value_and_grad so the single
     #    Adam step sees a combined gradient direction (coeff matters).
     def _critic_loss(params, critic_state, obs, act, tgt):
-        loss, core_aux = core.critic_loss_fn(params, critic_state, obs, act, tgt)
+        loss, core_aux = core.critic_loss_fn(
+            params, critic_state, obs, act, tgt, carries=carries
+        )
         if extra_critic_loss_fn is not None:
             loss = loss + extra_critic_loss_fn(params, critic_state, obs, act, tgt)
         return loss, core_aux
@@ -470,6 +489,7 @@ def policy_loss_function(
     # Composed policy modifiers (replace 6 boolean flags)
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    carries: Optional[RecurrentCarries] = None,
     extension_stack: Optional[ExtensionStack] = None,
     ext_state: tuple = (),
     total_timesteps: int = 1,
@@ -506,13 +526,23 @@ def policy_loss_function(
         obs_for_actor = observations
 
     # 2. Core forward pass + sample
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=obs_for_actor,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            resets=carries.resets,
+            initial_hidden=carries.actor_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            done=dones,
+            recurrent=recurrent,
+        )
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
@@ -530,12 +560,25 @@ def policy_loss_function(
         else actions
     )
 
-    # Core Q evaluation and SAC loss
-    q_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.params,
-        x=jnp.concatenate([observations, q_input_actions], axis=-1),
-    )
+    # Core Q evaluation and SAC loss. In recurrent mode the critic carry
+    # was burned in on buffer actions and evaluates fresh policy actions
+    # (standard burned-state approximation); gradients flow to the actor
+    # through the actions.
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_states.params,
+            x=jnp.concatenate([observations, q_input_actions], axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_states.params,
+            x=jnp.concatenate([observations, q_input_actions], axis=-1),
+        )
     q_min = jnp.min(q_preds, axis=0)
     loss_actor = alpha * log_probs - q_min
 
@@ -654,6 +697,7 @@ def update_policy(
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
     extra_actor_loss_fn: Optional[Callable] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
     """Returns (new_state, aux, log_probs) — log_probs reused by update_temperature
     to avoid a redundant actor forward pass."""
@@ -687,6 +731,7 @@ def update_policy(
         expert_v_max=agent_state.expert_v_max,
         obs_preprocessor=obs_preprocessor,
         policy_action_transform=policy_action_transform,
+        carries=carries,
         extension_stack=extension_stack,
         ext_state=agent_state.ext_state,
         total_timesteps=total_timesteps,
@@ -696,13 +741,23 @@ def update_policy(
 
     # Recompute log_probs from updated actor for temperature update reuse
     temp_rng, temp_sample_key = jax.random.split(rng)
-    pi, _ = get_pi(
-        actor_state=updated_actor_state,
-        actor_params=updated_actor_state.params,
-        obs=observations,
-        done=done,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi, _ = get_pi_sequence(
+            actor_state=updated_actor_state,
+            actor_params=updated_actor_state.params,
+            obs=observations,
+            resets=carries.resets,
+            initial_hidden=carries.actor_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=updated_actor_state,
+            actor_params=updated_actor_state.params,
+            obs=observations,
+            done=done,
+            recurrent=recurrent,
+        )
     _, log_probs = pi.sample_and_log_prob(seed=temp_sample_key)
     return (
         agent_state.replace(rng=temp_rng, actor_state=updated_actor_state),
@@ -799,6 +854,9 @@ def update_agent(
     policy_action_transform: Optional[Callable] = None,
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
+    burn_in: int = 8,
+    sequence_length: int = 16,
+    stored_state: bool = False,
     # Optional Hindsight-Experience-Replay relabel. Signature
     # (rng, transition) -> transition. Applied to the finalised sampled
     # batch before any expert mixing / learner use. Default None ⇒ the
@@ -809,7 +867,16 @@ def update_agent(
     agent_state = agent_state.replace(rng=rng)
 
     # --- Sample from buffer ---
-    if buffer is not None and agent_state.collector_state.buffer_state is not None:
+    carries = None
+    if recurrent:
+        # Sequence replay with burned-in carries (R2D2-style); expert
+        # features are rejected upstream in make_train, so the expert
+        # blocks below are all trace-time no-ops.
+        transition, carries = sample_and_burnin_sequences(
+            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
+        )
+        expert_frac_in_buffer = jnp.zeros(())
+    elif buffer is not None and agent_state.collector_state.buffer_state is not None:
         (
             observations,
             terminated,
@@ -1042,6 +1109,7 @@ def update_agent(
             extra_critic_loss_fn=extra_critic_loss_fn,
             next_action_transform=_next_action_transform,
             next_a_expert=_next_a_expert_for_target,
+            carries=carries,
         )
 
     # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
@@ -1074,6 +1142,7 @@ def update_agent(
         extension_stack=extension_stack,
         total_timesteps=total_timesteps,
         extra_actor_loss_fn=extra_actor_loss_fn,
+        carries=carries,
     )
     agent_state = jax.lax.cond(
         agent_state.collector_state.timestep >= policy_update_start,
@@ -1239,6 +1308,7 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
+        store_hidden=recurrent and agent_config.stored_state,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
@@ -1306,6 +1376,9 @@ def training_iteration(
             policy_action_transform=policy_action_transform,
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
+            burn_in=agent_config.burn_in,
+            sequence_length=agent_config.sequence_length,
+            stored_state=agent_config.stored_state,
             her_relabel_fn=her_relabel_fn,
         )
         agent_state, aux = jax.lax.scan(
@@ -1620,6 +1693,32 @@ def make_train(
         for ext in extensions
     )
 
+    _recurrent = (
+        resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        is not None
+    )
+    if _recurrent:
+        # Expert-guidance features (and their Extension replacements) are
+        # orthogonal to memory and untested with sequence replay; fail
+        # loudly instead of silently misbehaving.
+        unsupported_recurrent_options(
+            "SAC",
+            expert_policy=expert_policy,
+            action_pipeline=action_pipeline,
+            obs_preprocessor=obs_preprocessor,
+            policy_action_transform=policy_action_transform,
+            pid_actor_config=pid_actor_config,
+            extensions=(tuple(extensions) or None),
+            her_relabel_fn=her_relabel_fn,
+            # SAC always builds a default CloningConfig; only actual
+            # pre-training (pre_train_n_steps > 0) conflicts with memory.
+            cloning_pretrain=(
+                cloning_args
+                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
+                else None
+            ),
+        )
+
     if logging_config is not None:
         start_async_logging()
 
@@ -1648,6 +1747,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            stored_state=agent_config.stored_state,
             alpha_args=alpha_args,
             buffer=buffer,
             expert_policy=expert_policy,
@@ -1707,7 +1807,7 @@ def make_train(
         if expert_policy is not None and use_bellman_critic_pretrain:
             agent_state = pretrain_critic_bellman(
                 agent_state=agent_state,
-                recurrent=network_args.lstm_hidden_size is not None,
+                recurrent=_recurrent,
                 gamma=agent_config.gamma,
                 reward_scale=agent_config.reward_scale,
                 buffer=buffer,
@@ -1791,7 +1891,7 @@ def make_train(
             if action_pipeline is not None
             else make_action_pipeline(
                 expert_policy=expert_policy,
-                recurrent=network_args.lstm_hidden_size is not None,
+                recurrent=_recurrent,
                 env_args=env_args,
                 extension_stack=_extension_stack,
                 box_v_min=_box_v_min,
@@ -1866,7 +1966,7 @@ def make_train(
         training_iteration_scan_fn = partial(
             training_iteration,
             buffer=buffer,
-            recurrent=network_args.lstm_hidden_size is not None,
+            recurrent=_recurrent,
             action_dim=(
                 action_dim_override
                 if action_dim_override is not None

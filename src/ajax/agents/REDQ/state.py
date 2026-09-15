@@ -26,3 +26,9 @@ class REDQConfig(BaseAgentConfig):
     # SVGD-style function-space kernel repulsion coefficient on the
     # critic ensemble. 0.0 disables it (vanilla REDQ).
     repulsion_coef: float = 0.0
+    # Recurrent (memory) training only; see ajax.agents.recurrent.
+    burn_in: int = 8
+    sequence_length: int = 16
+    # R2D2 stored-state replay: read actor carries back from the buffer
+    # instead of burning them in from zero (Kapturowski et al. 2019).
+    stored_state: bool = False

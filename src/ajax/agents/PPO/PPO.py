@@ -12,6 +12,7 @@ from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import MemoryConfig
 from ajax.state import OptimizerConfig
 from ajax.types import EnvType, InitializationFunction
 from ajax.utils import get_and_prepare_hyperparams
@@ -21,6 +22,7 @@ class PPO(ActorCritic):
     """Soft Actor-Critic (PPO) agent for training and testing in continuous action spaces."""
 
     name: str = "PPO"
+    supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -49,6 +51,16 @@ class PPO(ActorCritic):
         gae_lambda: float = 0.95,
         normalize_advantage: bool = True,
         lstm_hidden_size: Optional[int] = None,
+        # Pluggable memory block, e.g. MemoryConfig("gru", 64) or
+        # {"kind": "lstm", "hidden_size": 64}. When set, PPO trains with
+        # BPTT over sequences minibatched from the rollout (see
+        # num_minibatches and bptt_length; batch_size is ignored).
+        memory: Optional[Union[MemoryConfig, dict]] = None,
+        # Recurrent-only truncated-BPTT length: splits each env's rollout
+        # into n_steps/bptt_length contiguous sequences whose start
+        # carries are recomputed chunk-wise (never zero mid-episode).
+        # None = full-rollout BPTT. Must divide n_steps.
+        bptt_length: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -122,6 +134,7 @@ class PPO(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             lstm_hidden_size=lstm_hidden_size,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             actor_kernel_init=actor_kernel_init,
@@ -168,10 +181,22 @@ class PPO(ActorCritic):
             use_vtrace_gae=use_vtrace_gae,
             fused_grad_clip=fused_grad_clip,
             unroll_length=unroll_length,
+            bptt_length=bptt_length,
             num_resets_per_eval=num_resets_per_eval,
             num_evals=num_evals,
             expose_recent_rollout=expose_recent_rollout,
         )
+
+        if bptt_length is not None:
+            if self.network_args.memory is None:
+                raise ValueError(
+                    "bptt_length requires a memory config (recurrent PPO);"
+                    " for feedforward fragment minibatching use unroll_length."
+                )
+            if n_steps % bptt_length != 0:
+                raise ValueError(
+                    f"bptt_length ({bptt_length}) must divide n_steps ({n_steps})."
+                )
 
         # Override base ActorCritic's eps=1e-5 with PPO's brax-default eps=1e-8.
         self.actor_optimizer_args = OptimizerConfig(

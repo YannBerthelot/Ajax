@@ -25,12 +25,18 @@ from ajax.agents.cloning import (
     get_cloning_args,
     get_pre_trained_agent,
 )
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    sample_and_burnin_sequences,
+    unsupported_recurrent_options,
+)
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
+    get_pi_sequence,
     init_collector_state,
     should_use_uniform_sampling,
 )
@@ -43,7 +49,8 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.networks import predict_value
+from ajax.networks.memory import flat_carry_dim, resolve_memory_config
+from ajax.networks.networks import predict_value, predict_value_sequence
 from ajax.perf_utils import final_aux_scan, train_jit
 from ajax.state import (
     EnvironmentConfig,
@@ -96,18 +103,27 @@ class TD3ActionPipelineResult(NamedTuple):
     rng: jax.Array
     new_expert_state: Optional[Any] = None
     buffer_action: Optional[jax.Array] = None
+    # Advanced actor carry (recurrent mode). collect_experience applies it
+    # so the policy's memory keeps moving during collection.
+    new_actor_hidden: Optional[Any] = None
 
 
 def _deterministic_action(actor_state, obs, done, recurrent):
-    """Mean of the SquashedNormal actor = tanh(mu(s)). Deterministic policy."""
-    pi, _ = get_pi(
+    """Mean of the SquashedNormal actor = tanh(mu(s)). Deterministic policy.
+
+    Returns (action, new_actor_state): recurrent actors advance their
+    carry on every forward pass and the caller must keep it."""
+    pi, new_actor_state = get_pi(
         actor_state=actor_state,
         actor_params=actor_state.params,
         obs=obs,
         done=done,
         recurrent=recurrent,
     )
-    return pi.mean()
+    action = pi.mean()
+    if recurrent:
+        action = action.squeeze(0)  # drop single-step time axis
+    return action, new_actor_state
 
 
 def make_default_action_pipeline(env_args, recurrent: bool, exploration_noise: float):
@@ -120,7 +136,7 @@ def make_default_action_pipeline(env_args, recurrent: bool, exploration_noise: f
             agent_state.collector_state.last_terminated,
             agent_state.collector_state.last_truncated,
         )
-        mean_action = _deterministic_action(
+        mean_action, new_actor_state = _deterministic_action(
             agent_state.actor_state, obs, done, recurrent
         )
         noise = jax.random.normal(action_key, mean_action.shape) * exploration_noise
@@ -141,6 +157,7 @@ def make_default_action_pipeline(env_args, recurrent: bool, exploration_noise: f
             in_value_box=jnp.zeros((n_envs, 1), dtype=jnp.float32),
             entry_bonus=jnp.zeros((n_envs, 1), dtype=jnp.float32),
             rng=rng,
+            new_actor_hidden=(new_actor_state.hidden_state if recurrent else None),
         )
 
     return pipeline
@@ -165,6 +182,7 @@ def init_TD3(
     buffer: BufferType,
     num_critics: int = 2,
     window_size: int = 10,
+    stored_state: bool = False,
     pid_actor_config: Optional[PIDActorConfig] = None,
     expert_policy: Optional[Callable] = None,
 ) -> TD3State:
@@ -180,12 +198,18 @@ def init_TD3(
         pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    _actor_carry_dim = 0
+    if stored_state:
+        _mem = resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        if _mem is not None:
+            _actor_carry_dim = flat_carry_dim(_mem)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
         buffer=buffer,
         window_size=window_size,
+        actor_carry_dim=_actor_carry_dim,
     )
     # Seed batched expert state for stateful experts (PID integrator, CPG
     # phase). Mirrors SAC's pattern in init_SAC; required so the scan body's
@@ -221,29 +245,50 @@ def compute_td3_td_target(
     target_policy_noise: float,
     target_noise_clip: float,
     reward_scale: float,
+    carries: Optional[RecurrentCarries] = None,
 ) -> jax.Array:
     """y = r + gamma * (1-d) * min_i Q_target_i(s', clip(mu_target(s') + clip(N, -c, c), -1, 1))."""
     rewards = rewards * reward_scale
 
     # Target action via target params, deterministic mean
-    pi_target, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.target_params,
-        obs=next_observations,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi_target, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_state.target_params,
+            obs=next_observations,
+            resets=carries.next_resets,
+            initial_hidden=carries.target_actor_next_hidden,
+        )
+    else:
+        pi_target, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_state.target_params,
+            obs=next_observations,
+            done=dones,
+            recurrent=recurrent,
+        )
     next_action = pi_target.mean()
 
     noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
 
-    q_targets = predict_value(
-        critic_state=critic_state,
-        critic_params=critic_state.target_params,
-        x=jnp.concatenate((next_observations, next_action), axis=-1),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_targets, _ = predict_value_sequence(
+            critic_state=critic_state,
+            critic_params=critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_action), axis=-1),
+            resets=carries.next_resets,
+            initial_hidden=carries.target_critic_hidden,
+        )
+    else:
+        q_targets = predict_value(
+            critic_state=critic_state,
+            critic_params=critic_state.target_params,
+            x=jnp.concatenate((next_observations, next_action), axis=-1),
+        )
     min_q_target = jnp.min(q_targets, axis=0)
 
     target = rewards + gamma * (1.0 - dones) * min_q_target
@@ -258,13 +303,23 @@ def value_loss_function(
     actions: jax.Array,
     target_q: jax.Array,
     recurrent: bool,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    del recurrent
-    q_preds = predict_value(
-        critic_state=critic_state,
-        critic_params=critic_params,
-        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_state,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_state,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+        )
     loss = jnp.mean((q_preds - target_q) ** 2)
     return loss, ValueAuxiliaries(
         critic_loss=loss,
@@ -288,6 +343,7 @@ def update_value_functions(
     target_modifier: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[TD3State, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
 
@@ -303,6 +359,7 @@ def update_value_functions(
         target_policy_noise=target_policy_noise,
         target_noise_clip=target_noise_clip,
         reward_scale=reward_scale,
+        carries=carries,
     )
 
     if target_modifier is not None:
@@ -347,7 +404,9 @@ def update_value_functions(
         target_q = jax.lax.stop_gradient(target_q)
 
     def _critic_loss(params, c_state, obs, act, tgt):
-        loss, core_aux = value_loss_function(params, c_state, obs, act, tgt, recurrent)
+        loss, core_aux = value_loss_function(
+            params, c_state, obs, act, tgt, recurrent, carries=carries
+        )
         if extension_stack is not None:
             _cl_batch = {
                 "observations": obs,
@@ -407,17 +466,28 @@ def policy_loss_function(
     a_expert_precomputed: Optional[jax.Array] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     obs_for_actor = (
         obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=obs_for_actor,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            resets=carries.resets,
+            initial_hidden=carries.actor_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            done=dones,
+            recurrent=recurrent,
+        )
     actions = pi.mean()  # deterministic
 
     _raw_obs = raw_observations if raw_observations is not None else observations
@@ -428,11 +498,21 @@ def policy_loss_function(
     )
 
     # TD3 uses Q1 only for the actor objective.
-    q_preds = predict_value(
-        critic_state=critic_state,
-        critic_params=critic_state.params,
-        x=jnp.concatenate([observations, q_input_actions], axis=-1),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_state,
+            critic_params=critic_state.params,
+            x=jnp.concatenate([observations, q_input_actions], axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_state,
+            critic_params=critic_state.params,
+            x=jnp.concatenate([observations, q_input_actions], axis=-1),
+        )
     q_first = q_preds[0]
     raw_loss = -q_first.mean()
 
@@ -469,6 +549,7 @@ def update_policy(
     policy_action_transform: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[TD3State, PolicyAuxiliaries]:
     def _actor_loss(params):
         loss, core_aux = policy_loss_function(
@@ -486,6 +567,7 @@ def update_policy(
             a_expert_precomputed,
             obs_preprocessor,
             policy_action_transform,
+            carries,
         )
         if extension_stack is not None:
             _al_batch = {
@@ -546,6 +628,9 @@ def update_target_networks(agent_state: TD3State, tau: float) -> TD3State:
         "policy_action_transform",
         "extension_stack",
         "total_timesteps",
+        "burn_in",
+        "sequence_length",
+        "stored_state",
     ],
 )
 def update_agent(
@@ -568,27 +653,45 @@ def update_agent(
     policy_action_transform: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
+    burn_in: int = 8,
+    sequence_length: int = 16,
+    stored_state: bool = False,
 ) -> Tuple[TD3State, AuxiliaryLogs]:
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
-    (
-        observations,
-        terminated,
-        truncated,
-        next_observations,
-        rewards,
-        actions,
-        raw_observations,
-        _,
-    ) = get_batch_from_buffer(
-        buffer,
-        agent_state.collector_state.buffer_state,
-        sample_key,
-    )
-    transition = Transition(
-        observations, actions, rewards, terminated, truncated, next_observations
-    )
+    carries = None
+    if recurrent:
+        # Sequence replay with burned-in carries (R2D2-style). TD3's
+        # bootstrap action comes from the TARGET actor, so its carry is
+        # burned in as well (burn_target_actor=True).
+        transition, carries = sample_and_burnin_sequences(
+            agent_state,
+            buffer,
+            sample_key,
+            burn_in,
+            burn_target_actor=True,
+            stored_state=stored_state,
+        )
+        raw_observations = None
+    else:
+        (
+            observations,
+            terminated,
+            truncated,
+            next_observations,
+            rewards,
+            actions,
+            raw_observations,
+            _,
+        ) = get_batch_from_buffer(
+            buffer,
+            agent_state.collector_state.buffer_state,
+            sample_key,
+        )
+        transition = Transition(
+            observations, actions, rewards, terminated, truncated, next_observations
+        )
     dones = jnp.logical_or(transition.terminated, transition.truncated)
 
     a_expert_precomputed = None
@@ -612,6 +715,7 @@ def update_agent(
         target_modifier=target_modifier,
         extension_stack=extension_stack,
         total_timesteps=total_timesteps,
+        carries=carries,
     )
 
     # Delayed policy + target update
@@ -633,6 +737,7 @@ def update_agent(
             policy_action_transform=policy_action_transform,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
+            carries=carries,
         )
         agent_state = update_target_networks(agent_state, tau=tau)
         return agent_state, policy_aux
@@ -737,6 +842,7 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
+        store_hidden=recurrent and agent_config.stored_state,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
@@ -769,6 +875,9 @@ def training_iteration(
             policy_action_transform=policy_action_transform,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
+            burn_in=agent_config.burn_in,
+            sequence_length=agent_config.sequence_length,
+            stored_state=agent_config.stored_state,
         )
         # See ajax.perf_utils.final_aux_scan: carry-only scan, no leading
         # scan axis materialised on device. Reshape to (1,) preserves
@@ -870,7 +979,27 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    recurrent = network_args.lstm_hidden_size is not None
+    recurrent = (
+        resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        is not None
+    )
+    if recurrent:
+        unsupported_recurrent_options(
+            "TD3",
+            expert_policy=expert_policy,
+            target_modifier=target_modifier,
+            policy_action_transform=policy_action_transform,
+            obs_preprocessor=obs_preprocessor,
+            extensions=(tuple(extensions) or None),
+            # TD3 always builds a default CloningConfig; only actual
+            # pre-training (pre_train_n_steps > 0) conflicts with memory.
+            cloning_pretrain=(
+                cloning_args
+                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
+                else None
+            ),
+            pid_actor_config=pid_actor_config,
+        )
     if action_pipeline is None:
         action_pipeline = make_default_action_pipeline(
             env_args=env_args,
@@ -889,6 +1018,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            stored_state=agent_config.stored_state,
             buffer=buffer,
             num_critics=agent_config.num_critics,
             pid_actor_config=pid_actor_config,

@@ -17,6 +17,7 @@ from flax.linen.initializers import constant
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.networks.memory import MemoryCell, MemoryConfig, resolve_memory_config
 from ajax.networks.networks import MultiCritic, init_network_state
 from ajax.networks.utils import (
     get_adam_tx,
@@ -72,13 +73,22 @@ class Deterministic:
 
 
 class DeterministicActor(nn.Module):
-    """TD3 deterministic actor: hidden_arch + Dense(action_dim) + tanh."""
+    """TD3 deterministic actor: hidden_arch + Dense(action_dim) + tanh.
+
+    With ``memory`` set, a memory block sits between the hidden stack and
+    the head (see ajax.networks.memory); the call then takes time-major
+    (T, B, obs) plus (hidden_state, done) and returns
+    (Deterministic, new_hidden_state).
+    """
 
     input_architecture: Sequence[Union[str, ActivationFunction]]
     action_dim: int
+    memory: Optional[MemoryConfig] = None
 
     def setup(self):
         self.hidden = nn.Sequential(parse_architecture(self.input_architecture))
+        if self.memory is not None:
+            self.memory_cell = MemoryCell(self.memory)
         # Final layer init: uniform(-3e-3, 3e-3) -- standard DDPG/TD3 final-layer init.
         self.head = nn.Dense(
             self.action_dim,
@@ -87,9 +97,16 @@ class DeterministicActor(nn.Module):
             name="head",
         )
 
-    def __call__(self, obs: jax.Array, raw_obs=None) -> Deterministic:
+    def __call__(self, obs: jax.Array, raw_obs=None, hidden_state=None, done=None):
         del raw_obs
         h = self.hidden(obs)
+        if self.memory is not None:
+            if hidden_state is None or done is None:
+                raise ValueError(
+                    "Recurrent DeterministicActor requires hidden_state and done flags."
+                )
+            hidden_state, h = self.memory_cell(hidden_state, h, done)
+            return Deterministic(jnp.tanh(self.head(h))), hidden_state
         return Deterministic(jnp.tanh(self.head(h)))
 
 
@@ -114,6 +131,12 @@ def get_initialized_td3_actor_critic(
         else get_action_dim(env_config.env, env_config.env_params)
     )
 
+    memory = resolve_memory_config(
+        network_config.memory, network_config.lstm_hidden_size
+    )
+    if memory is not None and pid_actor_config is not None:
+        raise NotImplementedError("PIDActorNetwork does not support memory yet.")
+
     if pid_actor_config is not None:
         from ajax.modules.pid_actor import PIDActorNetwork
 
@@ -129,6 +152,7 @@ def get_initialized_td3_actor_critic(
         actor = DeterministicActor(
             input_architecture=network_config.actor_architecture,
             action_dim=action_dim,
+            memory=memory,
         )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
@@ -138,6 +162,7 @@ def get_initialized_td3_actor_critic(
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_bias_init=network_config.encoder_bias_init,
+        memory=memory,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -155,8 +180,7 @@ def get_initialized_td3_actor_critic(
         network=actor,
         key=actor_key,
         tx=actor_tx,
-        recurrent=network_config.lstm_hidden_size is not None,
-        lstm_hidden_size=network_config.lstm_hidden_size,
+        memory=memory,
         n_envs=env_config.n_envs,
         lr_schedule=actor_optimizer_config.learning_rate,
     )
@@ -165,8 +189,7 @@ def get_initialized_td3_actor_critic(
         network=critic,
         key=critic_key,
         tx=critic_tx,
-        recurrent=network_config.lstm_hidden_size is not None,
-        lstm_hidden_size=network_config.lstm_hidden_size,
+        memory=memory,
         n_envs=env_config.n_envs,
         lr_schedule=critic_optimizer_config.learning_rate,
     )

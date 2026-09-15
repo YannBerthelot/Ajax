@@ -6,6 +6,7 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.recurrent import check_recurrent_learning_starts
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
 from ajax.buffers.utils import get_buffer
@@ -18,6 +19,7 @@ from ajax.logging.wandb_logging import (
     LoggingConfig,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig, NetworkConfig
 from ajax.types import EnvType
 
@@ -26,6 +28,7 @@ class REDQ(ActorCritic):
     """Soft Actor-Critic (REDQ) agent for training and testing in continuous action spaces."""
 
     name: str = "REDQ"
+    supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -51,6 +54,16 @@ class REDQ(ActorCritic):
         subset_size: int = 2,
         repulsion_coef: float = 0.0,
         lstm_hidden_size: Optional[int] = None,
+        # Pluggable memory block (see ajax.networks.memory); trains on
+        # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
+        memory: Optional[Union[MemoryConfig, dict]] = None,
+        burn_in: int = 8,
+        sequence_length: int = 16,
+        # R2D2 stored-state replay: initialize replayed sequences from the
+        # actor carries recorded at collection time instead of zero+burn-in
+        # (Kapturowski et al. 2019 show this mitigates state staleness best).
+        # Stores flatten_carry(actor carry) per step in the buffer.
+        stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         actor_cloning_epochs: int = 10,
@@ -107,6 +120,7 @@ class REDQ(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             lstm_hidden_size=lstm_hidden_size,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             extensions=extensions,
@@ -120,7 +134,8 @@ class REDQ(ActorCritic):
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            lstm_hidden_size=lstm_hidden_size,
+            # base resolved memory / legacy lstm_hidden_size already
+            memory=self.network_args.memory,
             squash=True,
             penultimate_normalization=False,
         )
@@ -138,12 +153,26 @@ class REDQ(ActorCritic):
             num_critics=num_critics,
             subset_size=subset_size,
             repulsion_coef=repulsion_coef,
+            burn_in=burn_in,
+            sequence_length=sequence_length,
+            stored_state=stored_state,
         )
 
+        recurrent = self.network_args.memory is not None
+        if stored_state and not recurrent:
+            raise ValueError(
+                "stored_state=True requires a memory config (recurrent networks)."
+            )
+        if recurrent:
+            check_recurrent_learning_starts(
+                learning_starts, n_envs, burn_in, sequence_length
+            )
         self.buffer = get_buffer(
             buffer_size=buffer_size,
             batch_size=batch_size,
             n_envs=n_envs,
+            # burn-in prefix + trained segment + bootstrap step
+            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
         )
 
         self.cloning_confing = CloningConfig(

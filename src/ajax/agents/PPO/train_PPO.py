@@ -19,6 +19,7 @@ from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
+    get_pi_sequence,
     init_collector_state,
     reset,
 )
@@ -34,9 +35,11 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import resolve_memory_config
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
+    predict_value_sequence,
 )
 from ajax.perf_utils import build_resumable_train
 from ajax.state import (
@@ -171,6 +174,7 @@ def value_loss_function(
     vf_coef: float = 1.0,
     agent_state: Optional[Any] = None,
     extra_loss_fn: Optional[Callable] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -195,13 +199,25 @@ def value_loss_function(
     """
 
     # Predict V-values from critics
-    v_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_params,
-        x=observations,
-    ).squeeze(
-        0
-    )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
+    if recurrent:
+        # `dones` carries obs-aligned reset flags (episode starts) in the
+        # recurrent path; `initial_hidden` is the rollout-start carry.
+        v_preds, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=observations,
+            resets=dones,
+            initial_hidden=initial_hidden,
+        )
+        v_preds = v_preds.squeeze(0)
+    else:
+        v_preds = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=observations,
+        ).squeeze(
+            0
+        )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
 
     loss = vf_coef * 0.5 * jnp.mean((v_preds - value_targets) ** 2)
     if extra_loss_fn is not None:
@@ -236,6 +252,7 @@ def policy_loss_function(
     extra_loss_fn: Optional[Callable] = None,
     raw_actions: Optional[jax.Array] = None,
     entropy_rng: Optional[jax.Array] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -256,13 +273,26 @@ def policy_loss_function(
     obs_for_actor = (
         obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=obs_for_actor,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        # Sequence-mode BPTT: observations are time-major (T, B, obs),
+        # `dones` carries obs-aligned reset flags and `initial_hidden` the
+        # rollout-start carry (the live carry on actor_state has already
+        # advanced past this rollout).
+        pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            resets=dones,
+            initial_hidden=initial_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            done=dones,
+            recurrent=recurrent,
+        )
 
     # Need to deal with various shapes depending on brax vs gymnax and discrete vs continuous
 
@@ -346,6 +376,7 @@ def _value_and_grad_with_extra(extra_loss_fn):
         recurrent,
         agent_state,
         vf_coef=1.0,
+        initial_hidden=None,
     ):
         return value_loss_function(
             critic_params,
@@ -357,6 +388,7 @@ def _value_and_grad_with_extra(extra_loss_fn):
             vf_coef=vf_coef,
             agent_state=agent_state,
             extra_loss_fn=extra_loss_fn,
+            initial_hidden=initial_hidden,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
@@ -378,6 +410,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
         obs_preprocessor,
         raw_actions=None,
         entropy_rng=None,
+        initial_hidden=None,
     ):
         return policy_loss_function(
             actor_params,
@@ -395,6 +428,7 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
             extra_loss_fn=extra_loss_fn,
             raw_actions=raw_actions,
             entropy_rng=entropy_rng,
+            initial_hidden=initial_hidden,
         )
 
     return jax.value_and_grad(bound, has_aux=True)
@@ -585,6 +619,24 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     """
     # collector_state = agent_state.collector_state
 
+    # Recurrent bookkeeping: remember the carries and done flags valid for
+    # the FIRST observation of the rollout — the update replays the whole
+    # sequence from these, while collection advances the live actor carry.
+    if recurrent:
+        initial_actor_hidden = jax.lax.stop_gradient(
+            agent_state.actor_state.hidden_state
+        )
+        initial_critic_hidden = jax.lax.stop_gradient(
+            agent_state.critic_state.hidden_state
+        )
+        initial_done = jnp.logical_or(
+            agent_state.collector_state.last_terminated,
+            agent_state.collector_state.last_truncated,
+        ).astype(bool)
+    else:
+        initial_actor_hidden = None
+        initial_critic_hidden = None
+
     collect_scan_fn = partial(
         collect_experience,
         recurrent=recurrent,
@@ -667,7 +719,43 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     # and was the cause of CI flake on the n_envs=1, n_steps=32
     # probing fixture. Fall back to the legacy precompute path when
     # num_minibatches <= 1.
-    if num_minibatches <= 1:
+    if recurrent:
+        # Recurrent geometry: sequences must stay temporally contiguous
+        # and start from carries the actor/critic actually had at the
+        # sequence's first observation, so neither the brax-faithful
+        # T-fragment split nor the legacy flat shuffle apply. Instead the
+        # rollout is treated as a pool of sequences:
+        #
+        #   * bptt_length=None: one sequence per env (full-T trajectories),
+        #     minibatched along the env axis with rollout-start carries.
+        #   * bptt_length=L (truncated BPTT, Pleines et al. 2022 style):
+        #     each env's trajectory splits into T/L fragments; fragment
+        #     boundary carries are recomputed chunk-wise with the CURRENT
+        #     params (one extra actor pass; the critic pass produces them
+        #     for free). Fragments never zero-init mid-episode — that
+        #     failure mode is exactly what makes naive truncation WORSE.
+        #
+        # Either way the gradient-step count decouples from n_steps — a
+        # single full-rollout minibatch gives only n_epochs steps per
+        # rollout, which starves long-rollout configs (n_steps=2048 ⇒
+        # ~80 total updates in 1M steps and a policy that barely learns).
+        use_brax_faithful_mb = False
+        mb_unroll_length = None
+        bptt_length = getattr(agent_config, "bptt_length", None)
+        if bptt_length is not None and T_rollout % bptt_length != 0:
+            raise ValueError(
+                f"bptt_length ({bptt_length}) must divide n_steps" f" ({T_rollout})."
+            )
+        _frag_len = bptt_length if bptt_length is not None else T_rollout
+        _num_frags = T_rollout // _frag_len
+        _pool = _num_frags * n_envs  # total sequences per rollout
+        if num_minibatches > 1 and _pool % num_minibatches == 0:
+            recurrent_num_mb = num_minibatches
+        else:
+            # Sequence pool not evenly splittable: fall back to one
+            # minibatch (small test fixtures with n_envs=1).
+            recurrent_num_mb = 1
+    elif num_minibatches <= 1:
         use_brax_faithful_mb = False
         mb_unroll_length = None
     elif (
@@ -713,16 +801,105 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         )
     else:
         # Legacy: precompute GAE on full rollout, flat-shuffle.
-        values = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.params,
-            x=transition.obs,
-        ).squeeze(0)
-        next_values = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.params,
-            x=transition.next_obs,
-        ).squeeze(0)
+        # (Recurrent mode reuses this precompute path with sequence-mode
+        # value estimation and NO shuffling — see below.)
+        if recurrent:
+            # Obs-aligned reset flags: resets[t] means obs[t] starts a new
+            # episode, i.e. the previous step ended one.
+            dones_seq = jnp.logical_or(
+                transition.terminated, transition.truncated
+            ).squeeze(-1)  # (T, B)
+            resets = jnp.concatenate(
+                [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
+            )  # (T, B)
+
+            # One critic pass over the rollout gives the values AND
+            # advances the critic carry (which is otherwise never stepped,
+            # since the critic doesn't act during collection). The carry
+            # after obs[T-1] becomes the initial critic carry of the next
+            # iteration. Running it as a scan over bptt fragments is
+            # numerically identical (carry threading) and yields the
+            # fragment-START carries for free — truncated-BPTT minibatches
+            # start from them instead of zero (the naive-zero variant is
+            # exactly what makes truncation WORSE than no truncation).
+            _obs_frags = transition.obs.reshape(
+                _num_frags, _frag_len, *transition.obs.shape[1:]
+            )
+            _resets_frags = resets.reshape(_num_frags, _frag_len, n_envs)
+
+            def _critic_chunk(carry, frag):
+                x_f, r_f = frag
+                vals, carry_next = predict_value_sequence(
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.critic_state.params,
+                    x=x_f,
+                    resets=r_f,
+                    initial_hidden=carry,
+                )
+                return carry_next, (vals, carry)
+
+            critic_carry_end, (_values_frags, critic_frag_starts) = jax.lax.scan(
+                _critic_chunk, initial_critic_hidden, (_obs_frags, _resets_frags)
+            )
+            # (F, num, L, B, 1) -> (num, T, B, 1) -> (T, B, 1)
+            values = jnp.moveaxis(_values_frags, 0, 1).reshape(
+                _values_frags.shape[1], T_rollout, *_values_frags.shape[3:]
+            )
+            values = values.squeeze(0)
+
+            # Fragment-start ACTOR carries: recomputed chunk-wise with the
+            # current params (one extra actor pass). Skipped for full-T
+            # sequences, where the rollout-start carry is already exact.
+            if _num_frags > 1:
+
+                def _actor_chunk(carry, frag):
+                    x_f, r_f = frag
+                    _, carry_next = get_pi_sequence(
+                        agent_state.actor_state,
+                        agent_state.actor_state.params,
+                        x_f,
+                        r_f,
+                        carry,
+                    )
+                    return carry_next, carry
+
+                _, actor_frag_starts = jax.lax.scan(
+                    _actor_chunk, initial_actor_hidden, (_obs_frags, _resets_frags)
+                )
+            else:
+                actor_frag_starts = jax.tree_util.tree_map(
+                    lambda x: x[None], initial_actor_hidden
+                )
+            # Bootstrap values V(s_{t+1}) come from the shifted sequence
+            # plus one extra step on the collector's last_obs. At
+            # truncation boundaries this evaluates the post-reset obs
+            # instead of the final obs (standard recurrent-PPO
+            # approximation); terminal steps are masked inside GAE.
+            last_obs = agent_state.collector_state.last_obs  # (B, obs)
+            v_last, _ = predict_value_sequence(
+                critic_state=agent_state.critic_state,
+                critic_params=agent_state.critic_state.params,
+                x=last_obs[None],
+                resets=dones_seq[-1:].astype(bool),
+                initial_hidden=critic_carry_end,
+            )
+            next_values = jnp.concatenate([values[1:], v_last.squeeze(0)], axis=0)
+            agent_state = agent_state.replace(
+                critic_state=agent_state.critic_state.replace(
+                    hidden_state=jax.lax.stop_gradient(critic_carry_end)
+                )
+            )
+        else:
+            values = predict_value(
+                critic_state=agent_state.critic_state,
+                critic_params=agent_state.critic_state.params,
+                x=transition.obs,
+            ).squeeze(0)
+            next_values = predict_value(
+                critic_state=agent_state.critic_state,
+                critic_params=agent_state.critic_state.params,
+                x=transition.next_obs,
+            ).squeeze(0)
         gae, value_targets = _compute_gae(
             values=values,
             next_values=next_values,
@@ -774,9 +951,50 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         )
         shuffle_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
-        shuffled_batch = get_minibatches_from_batch(
-            batch, rng=shuffle_key, num_minibatches=num_minibatches
-        )
+        if recurrent:
+            # Sequence-pool minibatches: the rollout is a pool of
+            # N = (T / bptt_length) * n_envs contiguous sequences of length
+            # bptt_length (full-T when bptt_length is None). Permute the
+            # pool, split into recurrent_num_mb groups, and slice each
+            # sequence's own start carry alongside (actor carry leaves are
+            # (F, B, ...); critic ensemble carries (F, num, B, ...)). The
+            # obs-aligned resets ride along as the 9th batch element, so
+            # per-step reset masking inside each sequence stays intact.
+            k = recurrent_num_mb
+            L, Fn, N = _frag_len, _num_frags, _pool
+            perm = jax.random.permutation(shuffle_key, N)
+
+            def _split_time_major(x):  # (T, B, ...) -> (k, L, N//k, ...)
+                x = x.reshape(Fn, L, *x.shape[1:])  # (F, L, B, ...)
+                x = jnp.moveaxis(x, 0, 1)  # (L, F, B, ...)
+                x = x.reshape(L, N, *x.shape[3:])  # pool index = f*B + b
+                x = jnp.take(x, perm, axis=1)
+                return x.reshape(L, k, N // k, *x.shape[2:]).swapaxes(0, 1)
+
+            def _split_actor_carry(x):  # (F, B, ...) -> (k, N//k, ...)
+                x = x.reshape(N, *x.shape[2:])
+                x = jnp.take(x, perm, axis=0)
+                return x.reshape(k, N // k, *x.shape[1:])
+
+            def _split_critic_carry(x):  # (F, num, B, ...) -> (k, num, N//k, ...)
+                x = jnp.moveaxis(x, 0, 1)  # (num, F, B, ...)
+                x = x.reshape(x.shape[0], N, *x.shape[3:])
+                x = jnp.take(x, perm, axis=1)
+                return x.reshape(x.shape[0], k, N // k, *x.shape[2:]).swapaxes(0, 1)
+
+            shuffled_batch = (
+                *jax.tree_util.tree_map(_split_time_major, (*batch, resets)),
+                jax.tree_util.tree_map(
+                    _split_actor_carry, jax.lax.stop_gradient(actor_frag_starts)
+                ),
+                jax.tree_util.tree_map(
+                    _split_critic_carry, jax.lax.stop_gradient(critic_frag_starts)
+                ),
+            )
+        else:
+            shuffled_batch = get_minibatches_from_batch(
+                batch, rng=shuffle_key, num_minibatches=num_minibatches
+            )
 
     def do_update(
         agent_state: PPOState, num_epochs: int
@@ -839,6 +1057,24 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                     raw_actions_mb,
                     rewards_mb,
                 ) = mb
+                dones = jnp.logical_or(terminated, truncated)
+            elif recurrent:
+                (
+                    observations,
+                    actions,
+                    terminated,
+                    truncated,
+                    value_targets_mb,
+                    gae_mb,
+                    log_probs_mb,
+                    raw_actions_mb,
+                    resets_mb,
+                    actor_hidden_mb,
+                    critic_hidden_mb,
+                ) = mb
+                # In sequence mode the losses need obs-aligned reset
+                # flags, not the step-aligned dones.
+                dones = resets_mb
             else:
                 (
                     observations,
@@ -850,7 +1086,10 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                     log_probs_mb,
                     raw_actions_mb,
                 ) = mb
-            dones = jnp.logical_or(terminated, truncated)
+                dones = jnp.logical_or(terminated, truncated)
+            if not recurrent:
+                actor_hidden_mb = None
+                critic_hidden_mb = None
             ent_rng, on_target_rng, new_rng = jax.random.split(agent_state.rng, 3)
             agent_state = agent_state.replace(rng=new_rng)
 
@@ -914,6 +1153,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                     dones,
                     recurrent,
                     agent_config.vf_coef,
+                    initial_hidden=critic_hidden_mb,
                 )
             else:
                 (_v_loss, v_aux), v_grads = critic_grad_fn(
@@ -925,6 +1165,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                     recurrent,
                     agent_state,
                     agent_config.vf_coef,
+                    initial_hidden=critic_hidden_mb,
                 )
 
             clip_coef = (
@@ -948,6 +1189,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                 obs_preprocessor,
                 raw_actions=raw_actions_mb,
                 entropy_rng=ent_rng,
+                initial_hidden=actor_hidden_mb,
             )
 
             # brax-style joint global-norm clip (max-norm 1.0).
@@ -1186,6 +1428,13 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    _recurrent = (
+        resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        is not None
+    )
+    if _recurrent and extensions:
+        raise NotImplementedError("Recurrent PPO does not support extensions yet.")
+
     # Start async logging if logging is enabled
     if logging_config is not None:
         start_async_logging()
@@ -1224,7 +1473,7 @@ def make_train(
         if getattr(agent_config, "expose_recent_rollout", False):
             _trace_scan = partial(
                 collect_experience,
-                recurrent=network_args.lstm_hidden_size is not None,
+                recurrent=_recurrent,
                 mode=mode,
                 env_args=env_args,
                 action_pipeline=action_pipeline,
@@ -1249,7 +1498,7 @@ def make_train(
     def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         return partial(
             training_iteration,
-            recurrent=network_args.lstm_hidden_size is not None,
+            recurrent=_recurrent,
             agent_config=agent_config,
             n_steps=agent_config.n_steps,
             mode=mode,

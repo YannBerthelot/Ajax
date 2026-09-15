@@ -125,7 +125,7 @@ def _gain_policy_step(
         expert_policy, collector_state, env_args.n_envs
     )
     _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
-    action, log_probs, _raw_action = get_action_and_log_probs(
+    action, log_probs, _raw_action, _agent_state = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
         recurrent=recurrent,
@@ -400,7 +400,7 @@ def make_action_pipeline(
             agent_state_for_actor = agent_state
             _augmented_obs = None
 
-        action, log_probs, _raw_action = get_action_and_log_probs(
+        action, log_probs, _raw_action, _agent_state = get_action_and_log_probs(
             action_key=action_key,
             agent_state=agent_state_for_actor,
             recurrent=recurrent,

@@ -21,10 +21,15 @@ from ajax.agents.cloning import (
     get_cloning_args,
     get_pre_trained_agent,
 )
+from ajax.agents.recurrent import (
+    RecurrentCarries,
+    sample_and_burnin_sequences,
+)
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
+    get_pi_sequence,
     init_collector_state,
     should_use_uniform_sampling,
 )
@@ -37,10 +42,16 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
+from ajax.networks.memory import (
+    flat_carry_dim,
+    resolve_memory_config,
+    zeros_carry_like,
+)
 from ajax.networks.networks import (
     get_adam_tx,
     get_initialized_actor_critic,
     predict_value,
+    predict_value_sequence,
 )
 from ajax.perf_utils import train_jit
 from ajax.state import (
@@ -134,6 +145,7 @@ def init_ASAC(
     alpha_args: AlphaConfig,
     buffer: BufferType,
     window_size: int = 10,
+    stored_state: bool = False,
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> ASACState:
     """
@@ -169,12 +181,18 @@ def init_ASAC(
         pid_actor_config=pid_actor_config,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    _actor_carry_dim = 0
+    if stored_state:
+        _mem = resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        if _mem is not None:
+            _actor_carry_dim = flat_carry_dim(_mem)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
         buffer=buffer,
         window_size=window_size,
+        actor_carry_dim=_actor_carry_dim,
     )
 
     alpha = create_alpha_train_state(**to_state_dict(alpha_args))
@@ -202,36 +220,70 @@ def compute_asac_td_target(
     alpha: jax.Array,
     recurrent: bool,
     reward_scale: float,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """ASAC bellman target with origin-shift; returns (target, log_probs)."""
     rewards = rewards * reward_scale
-    next_pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.params,
-        obs=next_observations,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        next_pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_state.params,
+            obs=next_observations,
+            resets=carries.next_resets,
+            initial_hidden=carries.actor_next_hidden,
+        )
+    else:
+        next_pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_state.params,
+            obs=next_observations,
+            done=dones,
+            recurrent=recurrent,
+        )
     sample_key, _ = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
 
-    q_targets = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.target_params,
-        x=jnp.concatenate((next_observations, next_actions), axis=-1),
-    )
-    shift_value = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.target_params,
-        x=jnp.concatenate(
-            (
-                jnp.zeros_like(next_observations[0, :][None, :]),
-                jnp.zeros_like(next_actions[0, :][None, :]),
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_targets, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_states.target_params,
+            x=jnp.concatenate((next_observations, next_actions), axis=-1),
+            resets=carries.next_resets,
+            initial_hidden=carries.target_critic_hidden,
+        )
+        # Origin shift Q(0, 0): a single zero input with a fresh zero
+        # carry (batch of 1) — the recurrent analogue of the feedforward
+        # zero-state evaluation below.
+        zero_x = jnp.zeros((1, 1, next_observations.shape[-1] + next_actions.shape[-1]))
+        shift_value, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_states.target_params,
+            x=zero_x,
+            resets=jnp.zeros((1, 1), dtype=bool),
+            initial_hidden=zeros_carry_like(
+                carries.target_critic_hidden, 1, batch_axis=1
             ),
-            axis=-1,
-        ),
-    )
+        )
+    else:
+        q_targets = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_states.target_params,
+            x=jnp.concatenate((next_observations, next_actions), axis=-1),
+        )
+        shift_value = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_states.target_params,
+            x=jnp.concatenate(
+                (
+                    jnp.zeros_like(next_observations[0, :][None, :]),
+                    jnp.zeros_like(next_actions[0, :][None, :]),
+                ),
+                axis=-1,
+            ),
+        )
     shifted_q_targets = q_targets - jnp.mean(shift_value)
     q1_target, q2_target = jnp.split(shifted_q_targets, 2, axis=0)
     min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
@@ -256,6 +308,7 @@ def value_loss_function(
     reward_scale: float = 5.0,  # Add reward scaling factor here
     target_q_override: Optional[jax.Array] = None,
     log_probs_override: Optional[jax.Array] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """
     Compute the value loss for the critic networks.
@@ -279,11 +332,21 @@ def value_loss_function(
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
     # Predict Q-values from critics
-    q_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_params,
-        x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_params,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+        )
     assert (
         critic_states.target_params is not None
     ), "Target parameters are not set in critic states."
@@ -307,6 +370,7 @@ def value_loss_function(
             alpha,
             recurrent,
             reward_scale,
+            carries=carries,
         )
 
     q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
@@ -353,6 +417,7 @@ def policy_loss_function(
     a_expert_precomputed: Optional[jax.Array] = None,
     obs_preprocessor: Optional[Callable] = None,
     policy_action_transform: Optional[Callable] = None,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -373,13 +438,23 @@ def policy_loss_function(
     obs_for_actor = (
         obs_preprocessor(observations) if obs_preprocessor is not None else observations
     )
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=obs_for_actor,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi, _ = get_pi_sequence(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            resets=carries.resets,
+            initial_hidden=carries.actor_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=actor_state,
+            actor_params=actor_params,
+            obs=obs_for_actor,
+            done=dones,
+            recurrent=recurrent,
+        )
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
 
@@ -391,11 +466,24 @@ def policy_loss_function(
     )
 
     # Predict Q-values from critics
-    q_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_states.params,
-        x=jnp.hstack((observations, q_input_actions)),
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        # The critic carry was burned in on the BUFFER actions; evaluating
+        # fresh policy actions from it is the standard stored/burned-state
+        # approximation. Gradients flow to the actor through the actions.
+        q_preds, _ = predict_value_sequence(
+            critic_state=critic_states,
+            critic_params=critic_states.params,
+            x=jnp.concatenate((observations, q_input_actions), axis=-1),
+            resets=carries.resets,
+            initial_hidden=carries.critic_hidden,
+        )
+    else:
+        q_preds = predict_value(
+            critic_state=critic_states,
+            critic_params=critic_states.params,
+            x=jnp.hstack((observations, q_input_actions)),
+        )
 
     # Unpack and unsqueeze if needed
     q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
@@ -467,6 +555,7 @@ def update_value_functions(
     target_modifier: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the critic networks using the value loss.
@@ -504,6 +593,7 @@ def update_value_functions(
             alpha,
             recurrent,
             reward_scale,
+            carries=carries,
         )
         if target_modifier is not None:
             q_preds_for_modifier = predict_value(
@@ -566,6 +656,7 @@ def update_value_functions(
             reward_scale,
             target_q_override,
             log_probs_override,
+            carries=carries,
         )
         if has_stack:
             assert extension_stack is not None
@@ -624,6 +715,7 @@ def update_policy(
     policy_action_transform: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the actor network using the policy loss.
@@ -660,6 +752,7 @@ def update_policy(
             a_expert_precomputed=a_expert_precomputed,
             obs_preprocessor=obs_preprocessor,
             policy_action_transform=policy_action_transform,
+            carries=carries,
         )
         if has_stack:
             assert extension_stack is not None
@@ -699,6 +792,7 @@ def update_temperature(
     dones: Optional[jax.Array],
     target_entropy: float,
     recurrent: bool,
+    carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[ASACState, Dict[str, Any]]:
     """
     Update the temperature parameter (alpha) using the alpha loss.
@@ -715,13 +809,23 @@ def update_temperature(
     """
     loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
 
-    pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=observations,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi, _ = get_pi_sequence(
+            actor_state=agent_state.actor_state,
+            actor_params=agent_state.actor_state.params,
+            obs=observations,
+            resets=carries.resets,
+            initial_hidden=carries.actor_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=agent_state.actor_state,
+            actor_params=agent_state.actor_state.params,
+            obs=observations,
+            done=dones,
+            recurrent=recurrent,
+        )
     rng, sample_key = jax.random.split(agent_state.rng)
     _, log_probs = pi.sample_and_log_prob(seed=sample_key)
 
@@ -771,15 +875,26 @@ def update_theta(
     rng: jax.Array,
     dones: jax.Array,
     recurrent: bool,
+    carries: Optional[RecurrentCarries] = None,
 ) -> ASACState:
     action_key, rng = jax.random.split(rng)
-    pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=observations,
-        done=dones,
-        recurrent=recurrent,
-    )
+    if recurrent:
+        assert carries is not None  # narrowed: set by the recurrent path
+        pi, _ = get_pi_sequence(
+            actor_state=agent_state.actor_state,
+            actor_params=agent_state.actor_state.params,
+            obs=observations,
+            resets=carries.resets,
+            initial_hidden=carries.actor_hidden,
+        )
+    else:
+        pi, _ = get_pi(
+            actor_state=agent_state.actor_state,
+            actor_params=agent_state.actor_state.params,
+            obs=observations,
+            done=dones,
+            recurrent=recurrent,
+        )
     _, log_probs = pi.sample_and_log_prob(seed=action_key)
 
     log_alpha = agent_state.alpha.params["log_alpha"]
@@ -802,6 +917,9 @@ def update_theta(
         "target_update_frequency",
         "transition_mix_fraction",
         "p_0",
+        "burn_in",
+        "sequence_length",
+        "stored_state",
         "expert_policy",
         "imitation_coef",
         "distance_to_stable",
@@ -825,6 +943,9 @@ def update_agent(
     num_critic_updates: int = 1,
     target_update_frequency: int = 1,
     reward_scale: float = 5.0,
+    burn_in: int = 8,
+    sequence_length: int = 16,
+    stored_state: bool = False,
     additional_transition: Optional[Any] = None,
     transition_mix_fraction: float = 1.0,  # part of original buffer sample to keep TODO : add control over this hyperparameter
     expert_policy: Optional[Callable] = None,
@@ -858,7 +979,13 @@ def update_agent(
     # Sample buffer
 
     sample_key, rng = jax.random.split(agent_state.rng)
-    if buffer is not None and agent_state.collector_state.buffer_state is not None:
+    carries = None
+    if recurrent:
+        transition, carries = sample_and_burnin_sequences(
+            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
+        )
+        raw_observations = None
+    elif buffer is not None and agent_state.collector_state.buffer_state is not None:
         (
             observations,
             terminated,
@@ -916,6 +1043,7 @@ def update_agent(
             target_modifier=target_modifier,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
+            carries=carries,
         )
 
         return agent_state, aux_value
@@ -943,6 +1071,7 @@ def update_agent(
         policy_action_transform=policy_action_transform,
         extension_stack=extension_stack,
         total_timesteps=total_timesteps,
+        carries=carries,
     )
 
     # Adjust temperature (standard SAC dual-gradient step towards
@@ -953,10 +1082,11 @@ def update_agent(
         target_entropy=target_entropy,
         recurrent=recurrent,
         dones=dones,
+        carries=carries,
     )
 
     agent_state = update_theta(
-        agent_state, tau, rewards, observations, rng, dones, recurrent
+        agent_state, tau, rewards, transition.obs, rng, dones, recurrent, carries
     )
 
     # Update target networks
@@ -1065,6 +1195,7 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
+        store_hidden=recurrent and agent_config.stored_state,
         recurrent=recurrent,
         mode=mode,
         env_args=env_args,
@@ -1087,6 +1218,9 @@ def training_iteration(
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
             p_0=agent_config.p_0,
+            burn_in=agent_config.burn_in,
+            sequence_length=agent_config.sequence_length,
+            stored_state=agent_config.stored_state,
             additional_transition=(
                 jax.tree.map(lambda x: x.squeeze(0), transition)
                 if transition_mix_fraction < 1.0
@@ -1220,6 +1354,22 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
+    recurrent = (
+        resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
+        is not None
+    )
+    if recurrent and (
+        expert_policy is not None
+        or target_modifier is not None
+        or policy_action_transform is not None
+        or cloning_args is not None
+        or extensions
+    ):
+        raise NotImplementedError(
+            "Recurrent ASAC does not support expert guidance, target"
+            " modifiers, action transforms, cloning or extensions yet."
+        )
+
     # Start async logging if logging is enabled
     if logging_config is not None:
         start_async_logging()
@@ -1236,6 +1386,7 @@ def make_train(
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
+            stored_state=agent_config.stored_state,
             alpha_args=alpha_args,
             buffer=buffer,
             pid_actor_config=pid_actor_config,
@@ -1272,7 +1423,7 @@ def make_train(
         training_iteration_scan_fn = partial(
             training_iteration,
             buffer=buffer,
-            recurrent=network_args.lstm_hidden_size is not None,
+            recurrent=recurrent,
             action_dim=action_shape[0],
             agent_config=agent_config,
             mode=mode,

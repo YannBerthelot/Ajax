@@ -346,6 +346,38 @@ def get_pi(
     return pi, actor_state.replace(hidden_state=new_actor_hidden_state)
 
 
+def get_pi_sequence(
+    actor_state: LoadedTrainState,
+    actor_params: FrozenDict,
+    obs: jax.Array,
+    resets: jax.Array,
+    initial_hidden: Any,
+) -> Tuple[distrax.Distribution, Any]:
+    """Run a recurrent actor over a time-major sequence (training/BPTT path).
+
+    Unlike :func:`get_pi` (single-step path, which reads/advances the live
+    carry on ``actor_state``), this takes an explicit initial carry — e.g.
+    the rollout-start carry for on-policy updates, or a burned-in carry for
+    replayed sequences — and does NOT mutate the actor state.
+
+    Args:
+        obs: (T, B, obs_dim) observations.
+        resets: (T, B) episode-start flags aligned with ``obs``.
+        initial_hidden: carry valid for obs[0].
+
+    Returns:
+        (pi, final_hidden): distribution over (T, B, ...) and the carry
+        after consuming the sequence.
+    """
+    if getattr(actor_state, "obs_norm_info", None) is not None:
+        from ajax.agents.obs_norm import apply_obs_norm
+
+        obs = apply_obs_norm(obs, actor_state.obs_norm_info)
+    return actor_state.apply(
+        actor_params, obs, hidden_state=initial_hidden, done=resets
+    )
+
+
 def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
     """
     Add an axis to the array if in recurrent mode.
@@ -405,6 +437,13 @@ def get_action_and_new_agent_state(
     else:
         action, log_probs = pi.sample_and_log_prob(seed=rng)
         raw_action = action
+    if recurrent:
+        # get_pi ran the actor on a single-step sequence (1, B, ...);
+        # drop the time axis so callers (env step, buffer writes) see the
+        # same (B, ...) shapes as in the feedforward path.
+        action = action.squeeze(0)
+        log_probs = log_probs.squeeze(0)
+        raw_action = raw_action.squeeze(0)
 
     return (
         action,
@@ -499,7 +538,16 @@ def get_action_and_log_probs(
     agent_state: BaseAgentState,
     recurrent: bool,
     uniform: bool,
-) -> Tuple[jax.Array, jax.Array, jax.Array]:
+) -> Tuple[jax.Array, jax.Array, jax.Array, BaseAgentState]:
+    """Sample an action from the policy.
+
+    Returns (action, log_probs, raw_action, agent_state). raw_action is
+    the pre-tanh sample (PPO/APO recompute log_prob without arctanh).
+    The updated agent state must be kept by callers: recurrent actors
+    advance their hidden state on every forward pass, and dropping it
+    would freeze the policy's memory at zero for the whole collection
+    phase.
+    """
     action, log_probs, raw_action, agent_state = get_action_and_new_agent_state(
         action_key,
         agent_state,
@@ -517,6 +565,7 @@ def get_action_and_log_probs(
         uniform * uniform_action + (1 - uniform) * action,
         log_probs,
         raw_action,
+        agent_state,
     )
 
 
@@ -609,6 +658,7 @@ def get_buffer_action_and_env_action(
         "buffer",
         "action_pipeline",
         "next_expert_fn",
+        "store_hidden",
     ],
 )
 def collect_experience(
@@ -621,6 +671,7 @@ def collect_experience(
     uniform: bool = False,
     action_pipeline: Optional[Callable] = None,
     next_expert_fn: Optional[Callable] = None,
+    store_hidden: bool = False,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience.
 
@@ -637,6 +688,16 @@ def collect_experience(
     rng_step = (
         jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
     )
+
+    # R2D2-style stored-state replay: the actor's carry BEFORE this step is
+    # the hidden state valid for last_obs (the transition's obs). Snapshot
+    # it now — the action selection below advances the live carry.
+    if store_hidden:
+        from ajax.networks.memory import flatten_carry
+
+        _pre_actor_carry_flat = jax.lax.stop_gradient(
+            flatten_carry(agent_state.actor_state.hidden_state)
+        )
 
     # Update obs running stats with the current last_obs (BEFORE the
     # forward pass), then sync into actor/critic so the very first step
@@ -694,6 +755,16 @@ def collect_experience(
         _live_sigma_expert = getattr(result, "critic_sigma_expert", None)
         _live_p_expert_max = getattr(result, "p_expert_max", None)
         _a_expert = getattr(result, "a_expert", None)
+        # Recurrent actors: pipelines that run the policy themselves must
+        # hand back the advanced carry, else the actor's memory would stay
+        # frozen for the whole collection phase.
+        _new_actor_hidden = getattr(result, "new_actor_hidden", None)
+        if _new_actor_hidden is not None:
+            agent_state = agent_state.replace(
+                actor_state=agent_state.actor_state.replace(
+                    hidden_state=_new_actor_hidden
+                )
+            )
         # action_pipelines (SAC + expert, EDGE, etc.) don't expose a
         # pre-tanh sample. The action is post-tanh -- feeding it to
         # ``pi.log_prob_from_raw(raw_action)`` later would produce a
@@ -715,7 +786,7 @@ def collect_experience(
         _live_p_expert_max = None
         _a_expert = None
         # Vanilla: uniform during warmup, policy action after
-        action, log_probs, raw_action = get_action_and_log_probs(
+        action, log_probs, raw_action, agent_state = get_action_and_log_probs(
             action_key=action_key,
             agent_state=agent_state,
             recurrent=recurrent,
@@ -802,6 +873,8 @@ def collect_experience(
         if next_expert_fn is not None:
             _transition["a_expert"] = _a_expert_for_buf
             _transition["next_a_expert"] = _next_a_expert_for_buf
+        if store_hidden:
+            _transition["actor_carry"] = _pre_actor_carry_flat
         should_write = jnp.logical_or(
             uniform,
             jnp.logical_not(
@@ -1066,6 +1139,7 @@ def init_collector_state(
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
     include_expert_fields: bool = False,
+    actor_carry_dim: int = 0,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -1133,6 +1207,7 @@ def init_collector_state(
             action_dim_override=action_dim_override,
             expert_state_aug_dim=expert_state_aug_dim,
             include_expert_fields=include_expert_fields,
+            actor_carry_dim=actor_carry_dim,
         )
         if buffer is not None
         else None

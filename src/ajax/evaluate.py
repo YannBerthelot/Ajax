@@ -95,7 +95,10 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
         # the same space or the first eval batch hits a shape error (grid
         # envs) or, worse, a silent train/eval mismatch. Re-apply it here
         # using the same rule as `build_env_from_id`.
-        if len(env.observation_space(env_params).shape) > 1:
+        # A prebuilt env arrives with env_params=None (see prepare_env);
+        # gymnax spaces need concrete params, so fall back to the env's own.
+        space_params = env_params if env_params is not None else env.default_params
+        if len(env.observation_space(space_params).shape) > 1:
             env = FlattenObservationWrapper(env)
         # ClipAction clamps actions to [-1, 1] -- correct for continuous
         # control, but wrong for discrete action spaces (it would clip a

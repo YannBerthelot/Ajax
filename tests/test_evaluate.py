@@ -179,3 +179,17 @@ def test_evaluate_done_masking_no_accumulation_past_done():
     # Over-long length (2x). If done-masking is correct, rewards match.
     r_long, *_ = evaluate(max_eval_steps=400, **kwargs)
     assert float(r_base) == pytest.approx(float(r_long), abs=1e-4)
+
+
+def test_setup_environment_accepts_prebuilt_gymnax_env_without_params():
+    """Regression: a prebuilt gymnax env carries env_params=None (prepare_env)
+    and the flattening check must fall back to the env's default params
+    instead of handing None to observation_space (CartPole reads
+    params.x_threshold there)."""
+    from gymnax.environments.classic_control.cartpole import CartPole
+
+    from ajax.evaluate import setup_environment
+
+    env, mode, continuous = setup_environment(CartPole(), None, 2, None, 0.99)
+    assert mode == "gymnax" and not continuous
+    assert env.observation_space(env.default_params).shape == (4,)

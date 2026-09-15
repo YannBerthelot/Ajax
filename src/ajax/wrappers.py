@@ -250,6 +250,28 @@ class TransformReward(GymnaxWrapper):
         return obs, state, self.transform_reward(reward), terminated, truncated, info
 
 
+class InitialStateWrapper(GymnaxWrapper):
+    """Override the plant's state at reset (an initial-condition distribution).
+
+    ``init_state_fn(key, state, params) -> state`` receives the env's own
+    reset state and returns the state to start from; the observation is
+    recomputed with ``env.get_obs``. Use it to narrow (or fix) the initial
+    conditions of a benchmark, e.g. the ``p(O)`` of a control meta-dataset
+    (Busetto et al. 2024 keep it fixed at the nominal steady state).
+    """
+
+    def __init__(self, env, init_state_fn):
+        super().__init__(env)
+        self.init_state_fn = init_state_fn
+
+    def reset(self, key, params=None):
+        """Reset the inner env, then replace its state."""
+        key_env, key_init = jax.random.split(key)
+        _, state = self._env.reset(key_env, params)
+        state = self.init_state_fn(key_init, state, params)
+        return self._env.get_obs(state, params), state
+
+
 class VecEnv(GymnaxWrapper):
     """Vectorized an environment by vectorizing step and reset"""
 

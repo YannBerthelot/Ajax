@@ -36,6 +36,10 @@ from ajax.networks.memory import MemoryConfig
 from ajax.state import OptimizerConfig
 from ajax.types import EnvType
 
+# Identity at initialisation (K_P=1, K_I=K_D=0). The reference code
+# initialises all three coefficients to 1.0 on an unbounded output; under
+# Ajax's tanh-bounded action that init trained markedly worse (pendulum
+# tracking, fresh-system M-RMSE 0.33 vs 0.25 for the identity init).
 _DEFAULT_PID = PIDHeadConfig()
 
 
@@ -55,7 +59,7 @@ class APG(ActorCritic):
         lr_schedule: Optional[str] = None,
         warmup_steps: int = 0,
         lr_end_fraction: float = 0.1,
-        max_grad_norm: Optional[float] = None,
+        max_grad_norm: Optional[float] = 1.0,
         actor_architecture: Sequence[str] = ("128", "relu", "128", "relu"),
         memory: Optional[Union[MemoryConfig, dict]] = None,
         pid: Optional[PIDHeadConfig] = None,
@@ -77,7 +81,12 @@ class APG(ActorCritic):
             lr_schedule: ``None`` (constant) or ``"warmup_cosine"``
                 (linear warmup over ``warmup_steps`` updates, cosine decay
                 to ``learning_rate * lr_end_fraction`` at the last update).
-            max_grad_norm: optional global-norm gradient clipping.
+            max_grad_norm: global-norm gradient clipping, on by default.
+                Deliberate deviation from the reference code (which does
+                not clip): BPTT over 100 steps of a nonlinear plant across
+                a system class diverged without it in our runs (the loss
+                rose 1.2 -> 1.7 M-RMSE within a stage) and was stable with
+                it. ``None`` disables.
             actor_architecture: MLP encoder in front of the memory/output;
                 ``()`` for a linear embedding only (the paper's choice).
             memory: :class:`MemoryConfig` (or dict) for a memory-augmented
@@ -161,7 +170,12 @@ class APG(ActorCritic):
         Defaults follow the paper (Table 2: 8 layers, 4 heads, context 100,
         width 128, ``b=1`` system per iteration, ``N=100`` horizon) and the
         reference code (AdamW betas (0.9, 0.95), 5k-step warmup then
-        cosine decay to ``lr/10``). Extra kwargs go to :class:`APG`.
+        cosine decay to ``lr/10``). Deviations, each backed by runs on the
+        pendulum tracking test bed: actions are tanh-bounded (Ajax
+        convention; the reference leaves ``u`` unbounded), gradients are
+        clipped (see :class:`APG`), and the PID head starts at the
+        identity rather than the reference's all-ones coefficients (see
+        ``_DEFAULT_PID``). Extra kwargs go to :class:`APG`.
         """
         return cls(
             env_id,

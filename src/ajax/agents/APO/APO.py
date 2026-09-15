@@ -9,9 +9,6 @@ from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
 from ajax.extensions.base import Extension
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-)
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import OptimizerConfig
 from ajax.types import EnvType, InitializationFunction
@@ -184,48 +181,3 @@ class APO(ActorCritic):
             obs_preprocessor=self.obs_preprocessor,
             extensions=tuple(self.extension_stack.extensions),
         )
-
-
-if __name__ == "__main__":
-    from target_gym import Plane, PlaneParams
-
-    n_seeds = 1
-    n_timesteps = int(1e6)
-    log_frequency = 2_048 * 5
-    logging_config = LoggingConfig(
-        project_name="test_APO",
-        run_name="run",
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-        },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=False,
-        use_wandb=True,
-    )
-    env_id = Plane(integration_method="rk4_1")
-    env_params = PlaneParams(
-        target_altitude_range=(5000.0, 5000.0),
-    )
-    env_id = "hopper"
-    activation = "relu"
-    N_NEURONS = 128
-    _agent = APO(
-        env_id=env_id,
-        # actor_architecture=(f"{N_NEURONS}", activation, f"{N_NEURONS}", activation),
-        # critic_architecture=(
-        #     f"{N_NEURONS}",
-        #     activation,
-        #     f"{N_NEURONS}",
-        #     activation,
-        # ),
-        # env_params=env_params,
-    )
-    seeeeeeds = list(range(n_seeds))
-    _, out = _agent.train(  # type: ignore[func-returns-value]
-        seed=list(range(n_seeds)),
-        n_timesteps=n_timesteps,
-        logging_config=logging_config,
-    )

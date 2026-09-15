@@ -192,7 +192,6 @@ def init_SAC(
     stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     residual: bool = False,
-    fixed_alpha: bool = False,
     max_timesteps: Optional[int] = None,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
@@ -233,7 +232,6 @@ def init_SAC(
         num_critics=num_critics,
         expert_policy=expert_policy,
         residual=False,
-        fixed_alpha=False,
         max_timesteps=max_timesteps,
         extra_obs_dim=extra_obs_dim,
         pid_actor_config=pid_actor_config,
@@ -838,6 +836,7 @@ def update_agent(
     use_expert_guidance: bool = True,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
+    fixed_alpha: bool = False,
     expert_mix_fraction: float = 0.1,
     box_threshold: float = 500.0,
     altitude_obs_idx: int = 1,
@@ -1183,13 +1182,19 @@ def update_agent(
         effective_target_entropy = jnp.asarray(target_entropy)
 
     # --- Temperature update — reuses log_probs, no redundant actor forward pass ---
+    # ``fixed_alpha`` keeps alpha pinned at ``alpha_init`` for the whole run
+    # (the temperature loss is still computed for its logged auxiliaries,
+    # only the gradient step is dropped).
     new_agent_state_temp, aux_temperature = update_temperature(
         agent_state,
         log_probs=policy_log_probs,
         effective_target_entropy=effective_target_entropy,
     )
     agent_state = jax.lax.cond(
-        agent_state.collector_state.timestep >= alpha_update_start,
+        jnp.logical_and(
+            not fixed_alpha,
+            agent_state.collector_state.timestep >= alpha_update_start,
+        ),
         lambda: new_agent_state_temp,
         lambda: agent_state,
     )
@@ -1271,6 +1276,7 @@ def training_iteration(
     detach_obs_aug_action: bool = False,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
+    fixed_alpha: bool = False,
     exploration_tau: float = 1.0,
     target_entropy_far: Optional[float] = None,
     target_entropy_initial: Optional[float] = None,
@@ -1352,6 +1358,7 @@ def training_iteration(
             use_expert_guidance=use_expert_guidance,
             policy_update_start=policy_update_start,
             alpha_update_start=alpha_update_start,
+            fixed_alpha=fixed_alpha,
             num_critic_updates=num_critic_updates,
             expert_mix_fraction=expert_mix_fraction,
             box_threshold=box_threshold,
@@ -1991,6 +1998,7 @@ def make_train(
             augment_obs_with_expert_state=augment_obs_with_expert_state,
             policy_update_start=policy_update_start,
             alpha_update_start=alpha_update_start,
+            fixed_alpha=fixed_alpha,
             exploration_tau=exploration_tau,
             target_entropy_far=target_entropy_far,
             target_entropy_initial=target_entropy_initial,

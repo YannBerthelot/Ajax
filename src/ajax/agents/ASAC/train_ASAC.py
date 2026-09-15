@@ -125,6 +125,9 @@ def create_alpha_train_state(
     """
     log_alpha = jnp.log(alpha_init)
     params = FrozenDict({"log_alpha": log_alpha})
+    # Unclipped, as in SAC core: clipping the scalar dual gradient
+    # erases the entropy-target term from the update (see
+    # ajax.agents.SAC.core.create_alpha_train_state).
     tx = get_adam_tx(learning_rate)
     return TrainState.create(
         apply_fn=get_alpha_from_params,  # Optional
@@ -908,6 +911,7 @@ def update_theta(
         "buffer",
         "tau",
         "action_dim",
+        "target_entropy",
         "num_critic_updates",
         "reward_scale",
         "target_update_frequency",
@@ -933,6 +937,7 @@ def update_agent(
     buffer: BufferType,
     recurrent: bool,
     action_dim: int,
+    target_entropy: float,
     tau: float,
     p_0: float,
     num_critic_updates: int = 1,
@@ -1069,9 +1074,9 @@ def update_agent(
         carries=carries,
     )
 
-    # Adjust temperature
-    target_entropy = -action_dim
-    _, aux_temperature = update_temperature(
+    # Adjust temperature (standard SAC dual-gradient step towards
+    # ``agent_config.target_entropy`` = target_entropy_per_dim * action_dim).
+    agent_state, aux_temperature = update_temperature(
         agent_state,
         observations=transition.obs,
         target_entropy=target_entropy,
@@ -1209,6 +1214,7 @@ def training_iteration(
             buffer=buffer,
             recurrent=recurrent,
             action_dim=action_dim,
+            target_entropy=agent_config.target_entropy,
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
             p_0=agent_config.p_0,

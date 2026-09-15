@@ -19,7 +19,11 @@ def check_if_environment_has_continuous_actions(
     env = get_raw_env(env)
     if check_env_is_brax(env):
         return True
-    return "discrete" not in str(env.action_space(env_params)).lower()
+    # Discriminate on the space *type*, never on its repr: gymnax>=1.0
+    # formats Box bounds with ``np.asarray`` in ``__repr__``, which raises
+    # when the env builds them with ``jnp.array`` under a trace (this
+    # check runs inside the jitted init).
+    return "discrete" not in type(env.action_space(env_params)).__name__.lower()
 
 
 def get_action_dim(env: EnvType, env_params: Optional[EnvParams] = None) -> int:

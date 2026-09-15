@@ -50,7 +50,7 @@ class ActorCritic:
         actor_architecture=("128", "tanh", "128", "tanh"),
         critic_architecture=("128", "tanh", "128", "tanh"),
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = 0.5,
+        max_grad_norm: Optional[float] = None,
         lstm_hidden_size: Optional[int] = None,
         memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,

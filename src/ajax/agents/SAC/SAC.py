@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
 
-from target_gym import PlaneParams
+from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
@@ -58,8 +58,8 @@ class SAC(ActorCritic):
         actor_architecture=("256", "relu", "256", "relu"),
         critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
-        env_params: Optional[PlaneParams] = None,
-        max_grad_norm: Optional[float] = 0.5,
+        env_params: Optional[EnvParams] = None,
+        max_grad_norm: Optional[float] = None,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
         learning_starts: int = int(1e4),

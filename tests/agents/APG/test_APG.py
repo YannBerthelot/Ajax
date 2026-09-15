@@ -18,6 +18,7 @@ from ajax.environments.model_reference import (
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.wrappers import InitialStateWrapper
 
 HORIZON = 16
 N_ENVS = 4
@@ -97,26 +98,53 @@ def test_initial_state_has_no_critic_and_flows_through_env(env_and_class):
     assert int(state.collector_state.timestep[0]) == N_ENVS * HORIZON
 
 
+class _FixedStepReference(StepReference):
+    """Same reference every reset (makes the objective deterministic)."""
+
+    def sample(self, rng):
+        del rng
+        return StepReference.sample(self, jax.random.PRNGKey(0))
+
+
 def test_training_reduces_matching_loss():
     """Gradient descent through the simulator lowers the matching cost.
 
-    Uses a reference model slow enough to be reachable at Pendulum's 50 ms
-    step and disables the default clipping: on this tiny 32-step problem
-    clipping only slows the descent (the default exists for stability on
-    long horizons across a system class).
+    Deterministic set-up so the assertion is about optimisation, not about
+    the luck of sampled references / initial states (a stochastic version
+    of this test passed on macOS and failed on the Linux CI runner): one
+    fixed system, one fixed reference, a pinned initial state, a reference
+    model slow enough to be reachable at Pendulum's 50 ms step, and the
+    default gradient clipping disabled (it only slows this 32-step problem).
     """
-    env, params = tracking_env(
-        horizon=32, min_duration=8, max_duration=16, model_pole=0.9
+    env, params = make_gymnax_env("Pendulum-v1")
+    params = params.replace(g=0.0)
+    env = InitialStateWrapper(
+        env,
+        lambda key, state, _: state.replace(
+            theta=jnp.asarray(0.3), theta_dot=jnp.asarray(0.0)
+        ),
     )
-    sc = UniformPerturbation(params, fields=("m", "l"), scale=0.1)
-    n_envs, horizon, n_updates = 8, 32, 80
-    agent = make_agent(
-        env, sc, n_envs=n_envs, horizon=horizon, learning_rate=1e-2, max_grad_norm=None
+    reference = _FixedStepReference(
+        horizon=32, min_value=-0.5, max_value=0.5, min_duration=8, max_duration=16
+    )
+    model = LinearReferenceModel.first_order(a=0.9, b=0.1, c=1.0, d=0.0)
+    task = ModelReferenceWrapper(env, reference, model, output_fn=angle)
+    n_envs, horizon, n_updates = 2, 32, 60
+    agent = APG(
+        task,
+        n_envs=n_envs,
+        horizon=horizon,
+        learning_rate=1e-2,
+        max_grad_norm=None,
+        actor_architecture=("16", "relu"),
+        system_class=FixedSystem(params),
+        env_params=params,
     )
     _, aux = agent.train(seed=1, n_timesteps=n_updates * n_envs * horizon)
     losses = aux.matching_loss[0]
     assert losses.shape == (n_updates,)
-    assert losses[-10:].mean() < 0.6 * losses[:10].mean()
+    assert jnp.all(jnp.isfinite(losses))
+    assert losses[-5:].mean() < 0.5 * losses[:5].mean()
 
 
 def test_multiple_seeds_are_vmapped(env_and_class):

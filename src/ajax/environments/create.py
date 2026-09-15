@@ -10,7 +10,13 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_env_type,
 )
-from ajax.wrappers import AutoResetWrapper, FinalObsWrapper, NoiseWrapper, get_wrappers
+from ajax.wrappers import (
+    AutoResetWrapper,
+    FinalObsWrapper,
+    FlattenObservationWrapper,
+    NoiseWrapper,
+    get_wrappers,
+)
 
 # External callers (e.g. SafetyExperiments) can register a custom builder for
 # a playground env id here, overriding the default wrapper stack below. The
@@ -106,6 +112,16 @@ def build_env_from_id(
 ) -> tuple[EnvType, Optional[EnvParams]]:
     if env_id in gymnax.registered_envs:
         env, env_params = gymnax.make(env_id)
+        # Ajax's actor/critic heads consume a flat observation vector: a Dense
+        # layer applied to an unflattened (H, W, C) observation produces one
+        # action distribution *per spatial cell* instead of one per env. That
+        # silently yields (n_envs, H, W)-shaped actions, which classic-control
+        # envs absorb by broadcasting but grid envs reject when indexing
+        # (e.g. MinAtar's `action_set[action]`). Flatten here so every gymnax
+        # env presents a 1-D observation; the optional CNN encoder re-forms
+        # (H, W, C) from the flat vector via `cnn_image_shape`.
+        if len(env.observation_space(env_params).shape) > 1:
+            env = FlattenObservationWrapper(env)
         return env, env_params  # TODO : see how to have env_params not mess up the rest
 
     episode_length = kwargs.get("episode_length", 1000)

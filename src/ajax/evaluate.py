@@ -16,6 +16,7 @@ from ajax.environments.utils import (
 from ajax.wrappers import (
     ClipAction,
     ClipActionBrax,
+    FlattenObservationWrapper,
     NormalizationInfo,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
@@ -88,6 +89,14 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
         env = clip_wrapper(env)
     else:
         env = env.unwrapped if hasattr(env, "unwrapped") else env
+        # `.unwrapped` peels the whole training stack, which is intended for
+        # the bookkeeping wrappers but also drops the observation flattening.
+        # The actor was built for the FLAT observation, so eval must present
+        # the same space or the first eval batch hits a shape error (grid
+        # envs) or, worse, a silent train/eval mismatch. Re-apply it here
+        # using the same rule as `build_env_from_id`.
+        if len(env.observation_space(env_params).shape) > 1:
+            env = FlattenObservationWrapper(env)
         # ClipAction clamps actions to [-1, 1] -- correct for continuous
         # control, but wrong for discrete action spaces (it would clip a
         # discrete index like action=3 down to 1.0). Only wrap continuous

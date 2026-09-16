@@ -185,3 +185,37 @@ def test_rollout_is_jittable(pendulum):
         return total_return(rollout)
 
     assert jnp.isfinite(run(jnp.asarray(0.2), jax.random.PRNGKey(0)))
+
+
+def test_rollout_carries_stacked_env_info(pendulum):
+    """Per-step env info (e.g. a tracking wrapper's desired output) is stacked
+    over time so metrics can use more than the reward."""
+    from ajax.environments.model_reference import (
+        LinearReferenceModel,
+        ModelReferenceWrapper,
+        StepReference,
+    )
+
+    env, params = pendulum
+    task = ModelReferenceWrapper(
+        env,
+        StepReference(T, -0.5, 0.5, 3, 5),
+        LinearReferenceModel.first_order(),
+        output_fn=lambda o: jnp.arctan2(o[1], o[0]),
+    )
+    rollout, _ = closed_loop_rollout(
+        lambda c, o, r: (jnp.zeros((B, 1)), c),
+        None,
+        jax.random.PRNGKey(0),
+        task,
+        params,
+        T,
+        n_envs=B,
+    )
+    assert rollout.info is not None
+    assert rollout.info["y_desired"].shape == (T, B, 1)
+    assert rollout.info["y"].shape == (T, B, 1)
+    # reward is exactly the negative squared tracking error carried in info
+    assert jnp.allclose(
+        rollout.reward, -((rollout.info["y_desired"] - rollout.info["y"]) ** 2).sum(-1)
+    )

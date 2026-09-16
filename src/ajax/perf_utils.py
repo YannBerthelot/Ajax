@@ -80,7 +80,7 @@ def build_resumable_train(
          ``init_transform`` (skipped on resume so expensive one-time
          initialization is not re-run when continuing a previous run);
       3. ``jax.lax.scan`` the per-iteration scan body for
-         ``num_updates`` steps;
+         ``num_updates`` steps, feeding it the iteration index as ``x``;
       4. return ``(agent_state, out)``.
 
     This helper owns that skeleton so it is written exactly once instead
@@ -155,10 +155,15 @@ def build_resumable_train(
             else make_scan_fn(agent_state, resume_from_state, key, index)
         )
 
+        # The body receives the (unbatched) iteration index as its scan input.
+        # Every existing body ignores it (``_``); bodies that gate periodic
+        # work on it get a trace-time-shaped predicate that stays a real
+        # ``lax.cond`` under vmap, unlike anything derived from the (possibly
+        # batched, on resume) agent state.
         agent_state, out = jax.lax.scan(
             f=body,
             init=agent_state,
-            xs=None,
+            xs=jnp.arange(num_updates),
             length=num_updates,
         )
         return agent_state, out

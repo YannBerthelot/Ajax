@@ -26,29 +26,38 @@ EnvParamsT = Any
 
 
 def env_params_is_batched(params: EnvParamsT) -> bool:
-    """True when any leaf of ``params`` carries a leading (batch) axis.
+    """True when ``params`` carries one system per env along a leading axis.
 
-    Unbatched ``EnvParams`` are pytrees of Python scalars or 0-d arrays;
-    a batched one (from :meth:`SystemClass.sample`) has rank >= 1 leaves.
+    A batched params (from :meth:`SystemClass.sample` or
+    :func:`broadcast_env_params`) has *every* leaf with the same leading
+    axis. An unbatched one always has at least one rank-0 leaf (gymnax's
+    ``max_steps_in_episode`` at minimum), even when other fields are
+    vectors or matrices (e.g. a plant's state-space model), so "any leaf has
+    rank >= 1" would misclassify those.
     """
     if params is None:
         return False
-    return any(jnp.ndim(leaf) > 0 for leaf in jax.tree.leaves(params))
+    leaves = jax.tree.leaves(params)
+    if not leaves or any(jnp.ndim(leaf) == 0 for leaf in leaves):
+        return False
+    first = jnp.shape(leaves[0])[0]
+    return all(jnp.shape(leaf)[0] == first for leaf in leaves)
 
 
 def broadcast_env_params(params: EnvParamsT, n: int) -> EnvParamsT:
     """Replicate an unbatched ``params`` ``n`` times along a new leading axis.
 
     Used to run a single nominal system through the batched code path
-    (e.g. a fixed system during the first curriculum stage). Leaves that
-    are already batched are returned unchanged.
+    (e.g. a fixed system during the first curriculum stage). Every leaf
+    (scalar, vector or matrix) gets the new leading axis; an already
+    batched params is returned unchanged.
     """
+    if env_params_is_batched(params):
+        return params
 
     def _tile(leaf):
         arr = jnp.asarray(leaf)
-        if arr.ndim > 0:
-            return arr
-        return jnp.broadcast_to(arr, (n,))
+        return jnp.broadcast_to(arr, (n, *arr.shape))
 
     return jax.tree.map(_tile, params)
 

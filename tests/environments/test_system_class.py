@@ -134,3 +134,23 @@ def test_step_gradient_flows_through_batched_params(pendulum):
     )
     assert jnp.all(jnp.isfinite(g_action)) and jnp.any(g_action != 0)
     assert jnp.all(jnp.isfinite(g_mass)) and jnp.any(g_mass != 0)
+
+
+def test_matrix_valued_unbatched_params_are_not_mistaken_for_a_batch(pendulum):
+    """A plant whose params hold vectors/matrices (a state-space model) is
+    still one system; only a leading axis shared by every leaf is a batch."""
+    from flax import struct
+    from gymnax.environments.environment import EnvParams
+
+    @struct.dataclass
+    class ModelParams(EnvParams):
+        max_steps_in_episode: int = 10
+        A: jax.Array = struct.field(default_factory=lambda: jnp.eye(3))
+        b: jax.Array = struct.field(default_factory=lambda: jnp.ones(3))
+
+    single = ModelParams()
+    assert not env_params_is_batched(single)
+    batched = broadcast_env_params(single, 4)
+    assert env_params_is_batched(batched)
+    assert batched.A.shape == (4, 3, 3) and batched.max_steps_in_episode.shape == (4,)
+    assert not env_params_is_batched(select_env_params(batched, 1))

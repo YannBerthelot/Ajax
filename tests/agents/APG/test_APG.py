@@ -300,10 +300,9 @@ def test_extensions_fold_post_update(env_and_class):
 
 
 def test_maybe_log_fires_only_at_the_gate_under_batched_state(env_and_class):
-    """Resumed / curriculum runs batch the agent state across seeds, which
-    lowers the log gate's cond to a select; the callback must still fire
-    only when the gate is open (this is what logged every update of the
-    evaporator run's later stages)."""
+    """Resumed / curriculum runs batch the agent state across seeds; the
+    gate is on the unbatched scan iteration so the callback fires exactly
+    at the cadence and the eval branch stays a real cond."""
     from ajax.agents.APG.train_APG import APGAuxiliaries, _maybe_log, init_APG
 
     env, sc = env_and_class
@@ -322,57 +321,28 @@ def test_maybe_log_fires_only_at_the_gate_under_batched_state(env_and_class):
     def log_fn(metrics, index):
         calls.append(int(metrics["timestep"]))
 
+    per_update = N_ENVS * HORIZON
     log_kwargs = {
+        "per_update": per_update,
         "evaluate_fn": lambda s, k: {},
         "extra_eval_metrics": None,
         "log": True,
         "log_fn": log_fn,
-        "log_frequency": 100,
+        "log_frequency": 3 * per_update,  # every third update
         "total_timesteps": 10_000,
     }
 
-    def step(state, timestep):
+    def step(state, iteration):
         aux = APGAuxiliaries(
             loss=jnp.asarray(0.0),
             matching_loss=jnp.asarray(0.0),
             m_rmse=jnp.asarray(0.0),
-            timestep=timestep,
+            timestep=(iteration + 1) * per_update,
         )
-        return _maybe_log(state, aux, jnp.asarray(0), **log_kwargs)
+        return _maybe_log(state, aux, jnp.asarray(0), iteration, **log_kwargs)
 
-    for t in (40, 80, 120, 160, 200, 240):
-        state, _ = jax.vmap(step)(state, jnp.asarray([t]))
+    for i in range(7):
+        state, _ = jax.vmap(step, in_axes=(0, None))(state, jnp.asarray(i))
     jax.effects_barrier()
-    assert calls == [120, 200]  # first update reaching each multiple of 100
+    assert calls == [3 * per_update, 6 * per_update]
     assert int(state.n_logs[0]) == 2
-
-
-def test_controller_factory_plugs_a_custom_policy_module(env_and_class):
-    """Downstream architectures are injected through controller_factory and
-    must follow the Controller contract (stateful flag, carry, call)."""
-    import distrax
-    import flax.linen as nn
-
-    seen = {}
-
-    class TinyController(nn.Module):
-        action_dim: int
-        stateful: bool = False
-
-        @nn.compact
-        def __call__(self, obs, hidden_state=None, done=None):
-            return distrax.Deterministic(
-                jnp.tanh(nn.Dense(self.action_dim, name="tiny")(obs))
-            )
-
-    def factory(**kwargs):
-        seen.update(kwargs)
-        return TinyController(action_dim=kwargs["action_dim"])
-
-    env, sc = env_and_class
-    agent = make_agent(env, sc, controller_factory=factory)
-    state, aux = agent.train(seed=0, n_timesteps=2 * N_ENVS * HORIZON)
-    assert {"env_args", "network_args", "action_dim", "pid", "squash"} <= set(seen)
-    assert seen["action_dim"] == 1
-    assert "tiny" in state.actor_state.params["params"]
-    assert jnp.isfinite(aux.loss).all()

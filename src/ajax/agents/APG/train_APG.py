@@ -254,7 +254,9 @@ def _maybe_log(
     agent_state: APGState,
     aux: APGAuxiliaries,
     index: Any,
+    iteration: Any,
     *,
+    per_update: int,
     evaluate_fn: Callable,
     extra_eval_metrics: Optional[Callable],
     log: bool,
@@ -262,13 +264,24 @@ def _maybe_log(
     log_frequency: Optional[int],
     total_timesteps: int,
 ) -> Tuple[APGState, dict]:
-    """Evaluate + log every ``log_frequency`` env steps (same gating as
-    :func:`ajax.log.evaluate_and_log`)."""
-    timestep = aux.timestep
+    """Evaluate + log every ``log_frequency`` env steps.
+
+    Gated on the scan's iteration index (``iteration``, unbatched even when
+    the agent state is batched across seeds on the resume path), so the
+    ``lax.cond`` below stays a real cond and the evaluation branch is not
+    computed on the iterations where nothing is logged. ``log_frequency``
+    in env steps is rounded to a whole number of updates; the cadence is
+    relative to the start of this ``train`` call (a curriculum stage).
+    """
+    del total_timesteps
     enabled = log and bool(log_frequency)
-    freq = int(log_frequency) if enabled and log_frequency is not None else 1
-    log_flag = jnp.logical_and(enabled, timestep - agent_state.n_logs * freq >= freq)
-    flag = jnp.logical_and(log_flag, timestep <= total_timesteps)
+    every = (
+        max(int(log_frequency) // max(per_update, 1), 1)
+        if enabled and log_frequency is not None
+        else 1
+    )
+    flag = jnp.logical_and(enabled, (iteration + 1) % every == 0)
+    log_flag = flag
 
     def run(agent_state, aux, index):
         eval_key, extra_key = jax.random.split(agent_state.eval_rng)
@@ -313,7 +326,7 @@ def _maybe_log(
 
 def training_iteration(
     agent_state: APGState,
-    _: Any,
+    iteration: Any,
     *,
     env_args: EnvironmentConfig,
     agent_config: APGConfig,
@@ -372,7 +385,7 @@ def training_iteration(
         m_rmse=jnp.sqrt(jnp.maximum(matching_loss, 0.0) / horizon),
         timestep=new_timestep,
     )
-    agent_state, _ = _maybe_log(agent_state, aux, index, **log_kwargs)
+    agent_state, _ = _maybe_log(agent_state, aux, index, iteration, **log_kwargs)
     return agent_state, aux
 
 
@@ -431,6 +444,7 @@ def make_train(
     if log:
         start_async_logging()
     log_kwargs = {
+        "per_update": per_update,
         "evaluate_fn": partial(
             evaluate_apg,
             env_args=env_args,

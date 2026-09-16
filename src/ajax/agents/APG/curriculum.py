@@ -17,6 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
+import jax
+import jax.numpy as jnp
+
 from ajax.agents.APG.APG import APG
 
 
@@ -75,7 +78,9 @@ def train_curriculum(
             initial_state=state,
             reset_optimizer_on_resume=reset_optimizer,
         )
-        state = out[0]
+        # The resume path donates the incoming buffers; hand the next stage
+        # a copy so every returned stage state stays readable.
+        state = jax.tree.map(jnp.copy, out[0])
         results.append(out)
     return results
 

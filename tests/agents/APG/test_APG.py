@@ -238,6 +238,10 @@ def test_curriculum_chains_stages(env_and_class):
     stage2 = CurriculumStage(make_agent(env, sc), 3 * N_ENVS * HORIZON, "class")
     results = train_curriculum([stage1, stage2], seed=0)
     assert len(results) == 2
+    # earlier stage states stay readable (a copy is handed to the next stage)
+    assert jnp.all(
+        jnp.isfinite(results[0][0].actor_state.params["params"]["out"]["kernel"])
+    )
     state_final = results[-1][0]
     assert int(state_final.collector_state.timestep[0]) == 5 * N_ENVS * HORIZON
     assert results[-1][1].loss.shape == (1, 3)
@@ -293,3 +297,51 @@ def test_extensions_fold_post_update(env_and_class):
     agent = make_agent(env, sc, extensions=[Counter()])
     state, _ = agent.train(seed=0, n_timesteps=4 * N_ENVS * HORIZON)
     assert int(state.ext_state[0][0]) == 4
+
+
+def test_maybe_log_fires_only_at_the_gate_under_batched_state(env_and_class):
+    """Resumed / curriculum runs batch the agent state across seeds, which
+    lowers the log gate's cond to a select; the callback must still fire
+    only when the gate is open (this is what logged every update of the
+    evaporator run's later stages)."""
+    from ajax.agents.APG.train_APG import APGAuxiliaries, _maybe_log, init_APG
+
+    env, sc = env_and_class
+    agent = make_agent(env, sc)
+    state = init_APG(
+        jax.random.PRNGKey(0),
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.network_args,
+        agent.pid,
+        agent.squash,
+    )
+    state = jax.tree.map(lambda x: jnp.asarray(x)[None], state)  # one batched "seed"
+    calls = []
+
+    def log_fn(metrics, index):
+        calls.append(int(metrics["timestep"]))
+
+    log_kwargs = {
+        "evaluate_fn": lambda s, k: {},
+        "extra_eval_metrics": None,
+        "log": True,
+        "log_fn": log_fn,
+        "log_frequency": 100,
+        "total_timesteps": 10_000,
+    }
+
+    def step(state, timestep):
+        aux = APGAuxiliaries(
+            loss=jnp.asarray(0.0),
+            matching_loss=jnp.asarray(0.0),
+            m_rmse=jnp.asarray(0.0),
+            timestep=timestep,
+        )
+        return _maybe_log(state, aux, jnp.asarray(0), **log_kwargs)
+
+    for t in (40, 80, 120, 160, 200, 240):
+        state, _ = jax.vmap(step)(state, jnp.asarray([t]))
+    jax.effects_barrier()
+    assert calls == [120, 200]  # first update reaching each multiple of 100
+    assert int(state.n_logs[0]) == 2

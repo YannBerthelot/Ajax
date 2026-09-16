@@ -31,7 +31,7 @@ from ajax.environments.interaction import init_collector_state
 from ajax.environments.system_class import SystemClass, broadcast_env_params
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics
+from ajax.log import compose_eval_metrics, gated_log_callback
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -243,6 +243,11 @@ def _maybe_log(
 ) -> Tuple[APGState, dict]:
     """Evaluate + log every ``log_frequency`` env steps (same gating as
     :func:`ajax.log.evaluate_and_log`)."""
+    timestep = aux.timestep
+    enabled = log and bool(log_frequency)
+    freq = int(log_frequency) if enabled and log_frequency is not None else 1
+    log_flag = jnp.logical_and(enabled, timestep - agent_state.n_logs * freq >= freq)
+    flag = jnp.logical_and(log_flag, timestep <= total_timesteps)
 
     def run(agent_state, aux, index):
         eval_key, extra_key = jax.random.split(agent_state.eval_rng)
@@ -256,7 +261,8 @@ def _maybe_log(
         if extra_eval_metrics is not None:
             metrics.update(extra_eval_metrics(agent_state, extra_key))
         if log:
-            jax.debug.callback(log_fn, metrics, index)
+            # gated inside the callback: see ajax.log.gated_log_callback
+            gated_log_callback(log_fn, flag, metrics, index)
         return metrics
 
     def skip(agent_state, aux, index):
@@ -270,11 +276,8 @@ def _maybe_log(
             shapes,
         )
 
-    if not log or not log_frequency:
+    if not enabled:
         return agent_state, skip(agent_state, aux, index)
-    timestep = aux.timestep
-    log_flag = timestep - agent_state.n_logs * log_frequency >= log_frequency
-    flag = jnp.logical_and(log_flag, timestep <= total_timesteps)
     metrics = jax.lax.cond(flag, run, skip, agent_state, aux, index)
     agent_state = agent_state.replace(
         n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)

@@ -345,3 +345,34 @@ def test_maybe_log_fires_only_at_the_gate_under_batched_state(env_and_class):
     jax.effects_barrier()
     assert calls == [120, 200]  # first update reaching each multiple of 100
     assert int(state.n_logs[0]) == 2
+
+
+def test_controller_factory_plugs_a_custom_policy_module(env_and_class):
+    """Downstream architectures are injected through controller_factory and
+    must follow the Controller contract (stateful flag, carry, call)."""
+    import distrax
+    import flax.linen as nn
+
+    seen = {}
+
+    class TinyController(nn.Module):
+        action_dim: int
+        stateful: bool = False
+
+        @nn.compact
+        def __call__(self, obs, hidden_state=None, done=None):
+            return distrax.Deterministic(
+                jnp.tanh(nn.Dense(self.action_dim, name="tiny")(obs))
+            )
+
+    def factory(**kwargs):
+        seen.update(kwargs)
+        return TinyController(action_dim=kwargs["action_dim"])
+
+    env, sc = env_and_class
+    agent = make_agent(env, sc, controller_factory=factory)
+    state, aux = agent.train(seed=0, n_timesteps=2 * N_ENVS * HORIZON)
+    assert {"env_args", "network_args", "action_dim", "pid", "squash"} <= set(seen)
+    assert seen["action_dim"] == 1
+    assert "tiny" in state.actor_state.params["params"]
+    assert jnp.isfinite(aux.loss).all()

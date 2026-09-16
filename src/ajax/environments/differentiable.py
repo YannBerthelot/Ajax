@@ -44,7 +44,9 @@ class Rollout:
     ``obs[t]`` is what the policy saw at step ``t``, ``action[t]`` what it
     applied, ``reward[t]`` / ``done[t]`` / ``next_obs[t]`` the env's
     response. ``resets[t]`` is the episode-start flag the policy was given
-    at step ``t`` (True at ``t=0`` and after a done).
+    at step ``t`` (True at ``t=0`` and after a done). ``info`` is the env's
+    per-step info dict with every leaf stacked over time (e.g. a tracking
+    wrapper's desired output), for metrics that need more than the reward.
     """
 
     obs: jax.Array
@@ -53,6 +55,7 @@ class Rollout:
     done: jax.Array
     next_obs: jax.Array
     resets: jax.Array
+    info: Any = None
 
 
 def with_transition_gradients(env: Any) -> Any:
@@ -135,7 +138,7 @@ def closed_loop_rollout(
     def body(carry, key):
         obs, env_state, policy_carry, resets = carry
         action, policy_carry = policy_step(policy_carry, obs, resets)
-        next_obs, env_state, reward, terminated, truncated, _ = step(
+        next_obs, env_state, reward, terminated, truncated, info = step(
             jax.random.split(key, batch), env_state, action, env, "gymnax", env_params
         )
         done = jnp.logical_or(terminated, truncated).astype(bool)
@@ -146,6 +149,7 @@ def closed_loop_rollout(
             done=done,
             next_obs=next_obs,
             resets=resets,
+            info=info,
         )
         return (next_obs, env_state, policy_carry, done), out
 

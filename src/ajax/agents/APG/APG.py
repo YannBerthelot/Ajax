@@ -67,6 +67,7 @@ class APG(ActorCritic):
         system_class: Optional[SystemClass] = None,
         env_params: Optional[EnvParams] = None,
         episode_length: Optional[int] = None,
+        controller_factory: Optional[Callable[..., Any]] = None,
         extensions: Sequence[Extension] = (),
     ) -> None:
         """
@@ -96,6 +97,13 @@ class APG(ActorCritic):
             squash: tanh-bound actions to ``[-1, 1]`` (Ajax convention).
             system_class: distribution over ``EnvParams`` to train across;
                 ``None`` trains on the env's own params only.
+            controller_factory: optional builder of a custom policy module,
+                called with ``env_args``, ``network_args``, ``action_dim``,
+                ``pid`` and ``squash`` keywords; must honour the
+                :class:`~ajax.agents.APG.networks.Controller` contract
+                (``stateful``, ``initialize_carry``, call convention). Lets
+                downstream projects plug their own architectures into the
+                same trainer without touching Ajax.
             extensions: composable research features (see
                 :mod:`ajax.extensions`).
         """
@@ -135,6 +143,7 @@ class APG(ActorCritic):
         self.lr_schedule = lr_schedule
         self.warmup_steps = warmup_steps
         self.lr_end_fraction = lr_end_fraction
+        self.controller_factory = controller_factory
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -145,6 +154,7 @@ class APG(ActorCritic):
             lr_schedule=self.lr_schedule,
             warmup_steps=self.warmup_steps,
             lr_end_fraction=self.lr_end_fraction,
+            controller_factory=self.controller_factory,
             extensions=tuple(self.extension_stack.extensions),
         )
 

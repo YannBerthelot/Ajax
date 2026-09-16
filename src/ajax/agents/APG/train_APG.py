@@ -62,15 +62,33 @@ class APGAuxiliaries:
 # ---------------------------------------------------------------------------
 
 
+# A controller factory builds the policy network from the agent's context.
+# It must return a flax module honouring the Controller contract: a static
+# ``stateful`` attribute, ``initialize_carry(rng, batch_size)`` when
+# stateful, and ``__call__`` returning a distrax distribution (plus the new
+# carry when stateful) as documented in ajax.agents.APG.networks.
+ControllerFactory = Callable[..., Any]
+
+
 def build_controller(
     env_args: EnvironmentConfig,
     network_args: NetworkConfig,
     pid: Optional[PIDHeadConfig],
     squash: bool,
-) -> Controller:
+    factory: Optional[ControllerFactory] = None,
+) -> Any:
+    action_dim = get_action_dim(env_args.env, env_args.env_params)
+    if factory is not None:
+        return factory(
+            env_args=env_args,
+            network_args=network_args,
+            action_dim=action_dim,
+            pid=pid,
+            squash=squash,
+        )
     return Controller(
         input_architecture=tuple(network_args.actor_architecture),
-        action_dim=get_action_dim(env_args.env, env_args.env_params),
+        action_dim=action_dim,
         memory=network_args.memory,
         pid=pid,
         squash=squash,
@@ -85,9 +103,12 @@ def init_APG(
     pid: Optional[PIDHeadConfig],
     squash: bool,
     window_size: int = 10,
+    controller_factory: Optional[ControllerFactory] = None,
 ) -> APGState:
     rng, params_key, carry_key, collector_key = jax.random.split(key, 4)
-    controller = build_controller(env_args, network_args, pid, squash)
+    controller = build_controller(
+        env_args, network_args, pid, squash, factory=controller_factory
+    )
     obs_shape, _ = get_state_action_shapes(env_args.env)
     if controller.stateful:
         carry = controller.initialize_carry(carry_key, env_args.n_envs)
@@ -378,6 +399,7 @@ def make_train(
     lr_end_fraction: float = 0.1,
     reset_optimizer_on_resume: bool = True,
     extra_eval_metrics: Optional[Callable] = None,
+    controller_factory: Optional[ControllerFactory] = None,
     extensions: Sequence = (),
     **_unused: Any,
 ):
@@ -401,7 +423,9 @@ def make_train(
         raise ValueError(f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'")
 
     extension_stack = ExtensionStack(extensions) if extensions else None
-    stateful = build_controller(env_args, network_args, pid, squash).stateful
+    stateful = build_controller(
+        env_args, network_args, pid, squash, factory=controller_factory
+    ).stateful
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
     if log:
@@ -434,6 +458,7 @@ def make_train(
             network_args=network_args,
             pid=pid,
             squash=squash,
+            controller_factory=controller_factory,
         )
         return agent_state.replace(index=index)
 

@@ -56,6 +56,27 @@ def compose_eval_metrics(
     return merged
 
 
+def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -> None:
+    """``jax.debug.callback`` that forwards to ``log_fn`` only when ``flag`` is set.
+
+    The logging branch runs inside ``jax.lax.cond(flag, ...)``. Under ``vmap``
+    with a *batched* predicate (the resume path batches the whole agent state
+    across seeds, so anything derived from it is batched) JAX lowers the cond
+    to a ``select``: both branches execute on every iteration and an
+    unconditional ``debug.callback`` in the log branch fires every time. A
+    fresh run keeps its step counters unbatched, which is why the bug only
+    showed on resumed / curriculum training. Gating inside the callback makes
+    the side effect correct in both lowerings (the callback batching rule
+    invokes the Python function once per batch element with its own flag).
+    """
+
+    def _gated(flag, metrics, index):
+        if bool(flag):
+            log_fn(metrics, index)
+
+    jax.debug.callback(_gated, flag, metrics, index)
+
+
 class AuxiliaryLogsProtocol(Protocol): ...
 
 
@@ -174,6 +195,25 @@ def evaluate_and_log(
 ):
     timestep = agent_state.collector_state.timestep
 
+    log_flag = (
+        timestep - (agent_state.n_logs * log_frequency) >= log_frequency
+        if log
+        else False
+    )
+    not_finished_flag = timestep <= total_timesteps if log_frequency else False
+
+    if sweep:
+        close_to_end_flag = timestep >= 0.8 * total_timesteps
+    else:
+        close_to_end_flag = True
+
+    flag = jnp.logical_and(
+        jnp.logical_and(log_flag, timestep > 1),
+        not_finished_flag,
+        # timestep >= (total_timesteps - env_args.n_envs),
+    )
+    flag = jnp.logical_and(flag, close_to_end_flag)
+
     def run_and_log(
         agent_state: BaseAgentState, aux: AuxiliaryLogsProtocol, index: int
     ):
@@ -283,28 +323,9 @@ def evaluate_and_log(
             )
 
         if log:
-            jax.debug.callback(log_fn, metrics_to_log, index)
+            gated_log_callback(log_fn, flag, metrics_to_log, index)
 
         return metrics_to_log
-
-    log_flag = (
-        timestep - (agent_state.n_logs * log_frequency) >= log_frequency
-        if log
-        else False
-    )
-    not_finished_flag = timestep <= total_timesteps if log_frequency else False
-
-    if sweep:
-        close_to_end_flag = timestep >= 0.8 * total_timesteps
-    else:
-        close_to_end_flag = True
-
-    flag = jnp.logical_and(
-        jnp.logical_and(log_flag, timestep > 1),
-        not_finished_flag,
-        # timestep >= (total_timesteps - env_args.n_envs),
-    )
-    flag = jnp.logical_and(flag, close_to_end_flag)
 
     no_op_branch = _make_no_op(extra_eval_metrics)
     metrics_to_log = jax.lax.cond(

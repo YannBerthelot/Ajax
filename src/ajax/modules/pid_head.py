@@ -46,6 +46,13 @@ class PIDOutputHead(nn.Module):
             parameter. With only ``use_p`` and ``kp_init=1`` the head is
             the identity at initialisation.
         kp_init / ki_init / kd_init: initial gains.
+        anti_windup: pre-squash output magnitude beyond which the integral
+            stops accumulating in the saturating direction (conditional
+            integration, the textbook anti-windup). ``None`` disables it.
+            With a downstream ``tanh`` bound, a value of about 3 (where
+            ``tanh`` is within 0.5 % of its rail) is a sensible choice: it
+            stops the integral from winding up while the applied input is
+            pinned, so the loop does not overshoot when it comes off the rail.
     """
 
     n_outputs: int
@@ -55,6 +62,7 @@ class PIDOutputHead(nn.Module):
     kp_init: float = 1.0
     ki_init: float = 0.0
     kd_init: float = 0.0
+    anti_windup: float | None = None
 
     def initialize_carry(self, batch_size: int) -> PIDCarry:
         return init_pid_carry(batch_size, self.n_outputs)
@@ -86,13 +94,7 @@ class PIDOutputHead(nn.Module):
         T, B = z.shape[:2]
         resets = resets.reshape((T, B)).astype(bool)
 
-        def body(carry, inputs):
-            integral, previous = carry
-            z_t, reset_t = inputs
-            mask = reset_t[:, None]
-            integral = jnp.where(mask, 0.0, integral)
-            previous = jnp.where(mask, 0.0, previous)
-            integral = integral + z_t
+        def output(integral, z_t, previous):
             u = jnp.zeros_like(z_t)
             if "kp" in gains:
                 u = u + gains["kp"] * z_t
@@ -100,6 +102,26 @@ class PIDOutputHead(nn.Module):
                 u = u + gains["ki"] * integral
             if "kd" in gains:
                 u = u + gains["kd"] * (z_t - previous)
+            return u
+
+        def body(carry, inputs):
+            integral, previous = carry
+            z_t, reset_t = inputs
+            mask = reset_t[:, None]
+            integral = jnp.where(mask, 0.0, integral)
+            previous = jnp.where(mask, 0.0, previous)
+            candidate = integral + z_t
+            if self.anti_windup is not None and "ki" in gains:
+                # conditional integration: hold the integral when the output is
+                # already beyond the bound and the new signal would push it further
+                u_try = output(candidate, z_t, previous)
+                saturating = jnp.logical_and(
+                    jnp.abs(u_try) > self.anti_windup, jnp.sign(u_try) == jnp.sign(z_t)
+                )
+                integral = jnp.where(saturating, integral, candidate)
+            else:
+                integral = candidate
+            u = output(integral, z_t, previous)
             return (integral, z_t), u
 
         new_carry, u = jax.lax.scan(body, carry, (z, resets))

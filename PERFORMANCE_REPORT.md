@@ -702,6 +702,57 @@ process (the persistent compile cache amortises it across processes).
 `benchmarks/agent_bench.py` does not cover this: it only runs gymnax envs,
 whose code path the change does not touch.
 
+## Brax auto-reset: reset only when an env is done (2026-10-03)
+
+`ajax.wrappers.AutoResetWrapper` (Ajax's brax stack, `_build_brax_env`)
+evaluated a full batched reset on every env step and discarded it unless
+some env was done. Its comment claimed JAX reuses a cached result for an
+unchanged seed; under jit nothing is cached, and the reset is part of every
+compiled step. It is now gated with `_call_if_any` (the `while_loop` of the
+playground fresh reset above, with an `advance` hook so the seed stream is
+unchanged). `build_env_from_id(..., differentiable_reset=True)` keeps the
+old reset-every-step path for reverse-mode gradients through the reset
+itself (see `build_env_from_id`).
+
+CPU, `JAX_PLATFORMS=cpu`, brax `generalized` backend, 16 envs vmapped over 2
+seeds, zero actions. Measured while unrelated jobs kept the load average at
+15-35 on 14 cores: whole-rollout timings swung by +-15% between runs (a
+never-reset variant once came out slower than the reset-every-step one), so
+the robust numbers below are the minimum over 500-1500 interleaved calls of
+one jitted `step`, with XLA single-threaded, plus XLA's static cost
+analysis, which load cannot affect. ms per call:
+
+| env | old (reset every step) | gated, no env done | gated, envs done | never reset | reset alone |
+|---|---|---|---|---|---|
+| inverted_pendulum | 0.737 | 0.717 | 0.758 | 0.684 | 0.133 |
+| ant | 3.61 | 3.76 | 3.88 | 3.75 | 0.467 |
+
+The reset is 31% (ant) and 50% (inverted_pendulum) of a step's flops in the
+old step (XLA cost analysis: 4.72e6 vs 3.25e6 flops with and without it on
+ant, 2.68e5 vs 1.34e5 on inverted_pendulum), with similar shares of memory
+traffic. On CPU at this batch size, though, the brax step is bound by
+per-op overhead rather than arithmetic, and the reset is ~7-13% of the wall
+time (the "reset alone" call includes dispatch). Gating removes that on
+steps where no env is done and adds ~3% on steps where it runs. On ant the
+~10% effect sits within the remaining noise (multi-threaded runs gave old
+5.27 / gated-no-done 4.42 / never 4.92 ms). The net gain depends on how
+many steps contain a done somewhere among `n_envs` x seeds: 73%
+(inverted_pendulum) and 42% (ant) of steps with zero actions, close to 0
+once a policy keeps episodes to the time limit. GPU was not measured; the
+flops share suggests a larger gain there, where arithmetic counts more.
+XLA compile time is unchanged within noise (2-4 s for a 1000-step rollout).
+
+Exactness: the seed stream, done flags, step counters and reset
+observations are bit-identical to the old wrapper. Brax states match to
+float32 rounding only: inside the loop body XLA compiles the fields that
+`pipeline.init` derives from positions (centre of mass, inertia, ...)
+differently, moving them by ~1 ulp, which later steps carry on. On chaotic
+contact dynamics that compounds: over 1000 zero-action ant steps the two
+seeds had 265 and 239 steps containing a done instead of 268 and 246. Runs are therefore not
+bitwise reproducible against the old wrapper.
+`differentiable_reset=True` is bit-identical to the old wrapper (tested on
+inverted_pendulum).
+
 ## Where to look for more
 
 The [audit-pending section](PERFORMANCE_LOG.md#audit-items-still-pending)

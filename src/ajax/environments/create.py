@@ -52,7 +52,11 @@ def register_playground_builder(env_id: str, builder) -> None:
 
 
 def _build_playground_env(
-    env_id: str, n_envs: int, episode_length: int, fresh_reset: bool = False
+    env_id: str,
+    n_envs: int,
+    episode_length: int,
+    fresh_reset: bool = False,
+    differentiable_reset: bool = False,
 ):
     """Compose a mujoco_playground env with the same wrapper stack as
     `wrap_for_brax_training`, but inject FinalObsWrapper between the
@@ -68,8 +72,11 @@ def _build_playground_env(
     `BraxAutoResetWrapper`, which restarts every episode of env i from the
     same cached first state (a run sees only `n_envs` initial conditions).
     True uses `FreshAutoResetWrapper`, which draws a new initial state for
-    every episode, as dm_control does. Registered builders own their whole
-    stack, auto-reset included, and are not affected by this flag.
+    every episode, as dm_control does. `differentiable_reset` is passed to
+    `FreshAutoResetWrapper` (see `build_env_from_id`); the cached auto-reset
+    computes no reset in `step` and needs no such option. Registered builders
+    own their whole stack, auto-reset included, and are not affected by
+    these flags.
     """
     if env_id in _PLAYGROUND_BUILDERS:
         return _PLAYGROUND_BUILDERS[env_id](n_envs, episode_length)
@@ -86,7 +93,10 @@ def _build_playground_env(
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=1)
     env = brax_training.VmapWrapper(env)
     env = FinalObsWrapper(env)
-    env = FreshAutoResetWrapper(env) if fresh_reset else BraxAutoResetWrapper(env)
+    if fresh_reset:
+        env = FreshAutoResetWrapper(env, differentiable_reset=differentiable_reset)
+    else:
+        env = BraxAutoResetWrapper(env)
     env = BatchRngWrapper(env, n_envs=n_envs)
     env._ajax_env_id = env_id
     # Read by evaluate.setup_environment so the eval rebuild keeps the same
@@ -95,13 +105,17 @@ def _build_playground_env(
     return env
 
 
-def _build_brax_env(env_id: str, n_envs: int, episode_length: int):
+def _build_brax_env(
+    env_id: str, n_envs: int, episode_length: int, differentiable_reset: bool = False
+):
     """Build a brax env with the same stack Ajax uses for playground:
     Ajax owns vectorization via VmapWrapper (not brax's native batch_size
     argument to `brax.envs.create`, which composes a different wrapper order
     and has been implicated in the Ant GPU double-free crash). EpisodeWrapper
     exposes truncation in info, FinalObsWrapper preserves the pre-reset
     observation, and AutoResetWrapper re-samples the reset seed.
+    `differentiable_reset` is passed to AutoResetWrapper (see
+    `build_env_from_id`); registered builders are not affected by it.
     """
     if env_id in _BRAX_BUILDERS:
         return _BRAX_BUILDERS[env_id](n_envs, episode_length)
@@ -112,7 +126,7 @@ def _build_brax_env(env_id: str, n_envs: int, episode_length: int):
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=1)
     env = brax_training.VmapWrapper(env, batch_size=n_envs)
     env = FinalObsWrapper(env)
-    env = AutoResetWrapper(env)
+    env = AutoResetWrapper(env, differentiable_reset=differentiable_reset)
     env._ajax_env_id = env_id
     return env
 
@@ -121,6 +135,7 @@ def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
     fresh_reset: bool = False,
+    differentiable_reset: bool = False,
     **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build ``env_id`` from gymnax, mujoco_playground or brax.
@@ -128,6 +143,25 @@ def build_env_from_id(
     ``fresh_reset`` only concerns mujoco_playground envs (see
     ``_build_playground_env``); gymnax and Ajax's brax stack already draw a
     new initial state for every episode.
+
+    ``differentiable_reset`` concerns the auto-resets that compute a fresh
+    reset inside ``step``: brax envs, and playground envs with
+    ``fresh_reset=True``. By default they evaluate the reset only on steps
+    where some env is done, inside a ``lax.while_loop``, because the reset
+    can cost as much as many env steps. Gradients through such an env still
+    flow with respect to the actions, the policy parameters and the env
+    state, and forward mode (``jax.jvp``) works with respect to anything.
+    Only reverse mode *through the reset itself* -- ``jax.grad`` with
+    respect to something the reset depends on, such as physics parameters
+    of the env -- fails, loudly, at trace time: "Reverse-mode
+    differentiation does not work for lax.while_loop". Pass
+    ``differentiable_reset=True`` for that case: the reset is then evaluated
+    on every step and kept only for done envs, which reverse mode can cross,
+    at the cost of a reset per step. Transitions are the same either way,
+    up to float rounding. Gymnax envs (whose auto-reset is always computed)
+    and playground's cached auto-reset ignore the flag, and evaluation
+    (``evaluate.setup_environment``), which never differentiates, rebuilds
+    the env with the default.
     """
     if env_id in gymnax.registered_envs:
         env, env_params = gymnax.make(env_id)
@@ -163,13 +197,17 @@ def build_env_from_id(
                 n_envs=n_envs,
                 episode_length=episode_length,
                 fresh_reset=fresh_reset,
+                differentiable_reset=differentiable_reset,
             ), None
     except ImportError:
         pass
 
     if env_id in _BRAX_BUILDERS or env_id in list(brax.envs._envs.keys()):
         return _build_brax_env(
-            env_id, n_envs=n_envs, episode_length=episode_length
+            env_id,
+            n_envs=n_envs,
+            episode_length=episode_length,
+            differentiable_reset=differentiable_reset,
         ), None
     raise ValueError(f"Environment {env_id} not found in gymnax or brax")
 

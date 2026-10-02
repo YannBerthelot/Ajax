@@ -51,16 +51,25 @@ def register_playground_builder(env_id: str, builder) -> None:
     _PLAYGROUND_BUILDERS[env_id] = builder
 
 
-def _build_playground_env(env_id: str, n_envs: int, episode_length: int):
+def _build_playground_env(
+    env_id: str, n_envs: int, episode_length: int, fresh_reset: bool = False
+):
     """Compose a mujoco_playground env with the same wrapper stack as
     `wrap_for_brax_training`, but inject FinalObsWrapper between the
     episode wrapper and the auto-reset wrapper so the terminal observation
     is preserved in info['final_obs'] for correct truncation bootstrapping.
 
-    BatchRngWrapper sits at the top: playground's BraxAutoResetWrapper expects
-    an already-batched rng (calls `jax.vmap(jax.random.split)(rng)`), so we
+    BatchRngWrapper sits at the top: the auto-reset wrapper expects an
+    already-batched rng (calls `jax.vmap(jax.random.split)(rng)`), so we
     split the caller's single key into `n_envs` keys on reset to keep Ajax's
     unbatched-rng convention intact.
+
+    `fresh_reset` selects the auto-reset. False keeps playground's
+    `BraxAutoResetWrapper`, which restarts every episode of env i from the
+    same cached first state (a run sees only `n_envs` initial conditions).
+    True uses `FreshAutoResetWrapper`, which draws a new initial state for
+    every episode, as dm_control does. Registered builders own their whole
+    stack, auto-reset included, and are not affected by this flag.
     """
     if env_id in _PLAYGROUND_BUILDERS:
         return _PLAYGROUND_BUILDERS[env_id](n_envs, episode_length)
@@ -70,16 +79,19 @@ def _build_playground_env(env_id: str, n_envs: int, episode_length: int):
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
-    from ajax.wrappers import BatchRngWrapper
+    from ajax.wrappers import BatchRngWrapper, FreshAutoResetWrapper
 
     _overrides = {"impl": "jax"} if _jax.default_backend() == "cpu" else None
     env = registry.load(env_id, config_overrides=_overrides)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=1)
     env = brax_training.VmapWrapper(env)
     env = FinalObsWrapper(env)
-    env = BraxAutoResetWrapper(env)
+    env = FreshAutoResetWrapper(env) if fresh_reset else BraxAutoResetWrapper(env)
     env = BatchRngWrapper(env, n_envs=n_envs)
     env._ajax_env_id = env_id
+    # Read by evaluate.setup_environment so the eval rebuild keeps the same
+    # auto-reset semantics as training.
+    env._ajax_fresh_reset = fresh_reset
     return env
 
 
@@ -108,8 +120,15 @@ def _build_brax_env(env_id: str, n_envs: int, episode_length: int):
 def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
+    fresh_reset: bool = False,
     **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
+    """Build ``env_id`` from gymnax, mujoco_playground or brax.
+
+    ``fresh_reset`` only concerns mujoco_playground envs (see
+    ``_build_playground_env``); gymnax and Ajax's brax stack already draw a
+    new initial state for every episode.
+    """
     if env_id in gymnax.registered_envs:
         env, env_params = gymnax.make(env_id)
         # Ajax's actor/critic heads consume a flat observation vector: a Dense
@@ -140,7 +159,10 @@ def build_env_from_id(
 
         if env_id in mp_registry.ALL_ENVS:
             return _build_playground_env(
-                env_id, n_envs=n_envs, episode_length=episode_length
+                env_id,
+                n_envs=n_envs,
+                episode_length=episode_length,
+                fresh_reset=fresh_reset,
             ), None
     except ImportError:
         pass

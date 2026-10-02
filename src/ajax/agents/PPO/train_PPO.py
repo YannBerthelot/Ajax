@@ -1256,6 +1256,9 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     # conditions for the entire training. For envs with randomised
     # reset states (e.g. PandaOpenCabinet perturbs target_pos and arm
     # joints in ``reset``), this dramatically limits diversity.
+    # (Building the env with ``build_env_from_id(..., fresh_reset=True)``
+    # instead draws a new initial state on every episode end, for every
+    # agent, without cutting episodes short.)
     #
     # Implementation: every ``reset_every`` iterations, call env.reset
     # with a fresh RNG. The wrapper's reset re-initialises the obs

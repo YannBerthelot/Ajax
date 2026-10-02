@@ -110,10 +110,14 @@ def test_symlog_symexp_match_both_references(seed):
     np.testing.assert_array_equal(symlog(x), ref.d_symlog(jnp.asarray(x)))
     y = np.asarray(symlog(x))
     np.testing.assert_array_equal(symexp(y), ref.d_symexp(jnp.asarray(y)))
-    # TD-MPC2 writes log(1 + |x|) and exp(|x|) - 1: equal up to float32
-    # rounding of 1 + |x| (absolute 6e-8 near 0).
-    np.testing.assert_allclose(symlog(x), ref.t_symlog(x), rtol=1e-6, atol=1e-7)
-    np.testing.assert_allclose(symexp(y), ref.t_symexp(y), rtol=1e-5, atol=1e-7)
+    # TD-MPC2 writes log(1 + |x|) and exp(|x|) - 1: equal up to the float32
+    # rounding of 1 + |x| and of exp(|x|) near 1. exp(|x|) - 1 cancels near
+    # 0, so the reference's absolute error there is a few float32 ulps at 1
+    # (eps = 1.2e-7), and its last bit depends on the platform's exp: the
+    # absolute tolerance is 2 eps, not a property of Ajax's expm1.
+    eps = float(np.finfo(np.float32).eps)
+    np.testing.assert_allclose(symlog(x), ref.t_symlog(x), rtol=1e-6, atol=2 * eps)
+    np.testing.assert_allclose(symexp(y), ref.t_symexp(y), rtol=1e-5, atol=2 * eps)
 
 
 def test_symlog_is_odd_and_inverts_symexp():
@@ -353,8 +357,10 @@ def test_naive_decode_of_uniform_logits_is_not_zero():
     bins are far from 0 (paper p.18, "summation order matters")."""
     weighted = np.asarray(jax.nn.softmax(jnp.zeros(255)) * D3.bins())
     naive = functools.reduce(lambda a, b: np.float32(a + b), weighted, np.float32(0))
-    assert abs(naive) > 0.1  # left to right
-    assert abs(float(jnp.sum(weighted))) > 0.1  # XLA's reduction order
+    # Left to right in float32 (IEEE, platform-independent). A tree reduction
+    # such as XLA's may cancel differently, and on some backends exactly:
+    # what it gives is backend-dependent, so it is not asserted here.
+    assert abs(naive) > 0.1
 
 
 def test_decode_pinned():

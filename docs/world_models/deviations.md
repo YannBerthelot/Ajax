@@ -44,6 +44,7 @@ Pinned sources:
 | World-model clip norm | includes the previous update's post-clip policy gradients | world-model gradients only | paper era (reproduced exactly; one carried scalar) |
 | Termination / episodic mode | absent | optional head + masking | absent; terminations refused (T10) |
 | Q-ensemble init | each member N(0, 0.02), last weight 0 | same (restored in e9f5932 after a 2024-09 regression) | same |
+| Q-ensemble dropout (p = 0.01) | active in **every** Q pass, eval mode included: TD target (target Q), value and policy losses, planning. The `combine_state_for_ensemble` functional module lives only in the `torch.vmap` closure, so `train()` / `eval()` never reach it (`common/layers.py:12-21`; verified by running 5f6fade, recorded by `parity/tdmpc2_update_fixtures.py`) | registered submodule: dropout only in train mode (value and policy losses) | paper era: the TD target takes a dropout key (M2); planning decided in M3 |
 | Replay buffer | b67b21c: whole episodes, capacity in episodes, uniform episode × random crop | rows + SliceSampler | b67b21c episode buffer |
 | TD bootstrap state | code: encoded next observation `h(s')` (paper Eq. 3 writes the dynamics prediction) | same | code |
 | Loss normalisations | /H, /(H·Nq), latent-mean MSE, H terms (paper writes sums over H+1 terms) | same | code |

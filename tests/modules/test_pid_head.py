@@ -124,3 +124,28 @@ def test_anti_windup_holds_the_integral_while_saturated():
         assert bool(
             jnp.all(jnp.diff(u[:, 0, 0]) >= -1e-6)
         )  # monotone in both cases here
+
+
+def test_anti_windup_engages_with_a_negative_integral_gain():
+    # ki is learned and may go negative; the integral then drives u the
+    # opposite way to z, and the hold must still engage once |u| passes the bound.
+    import jax
+    import jax.numpy as jnp
+
+    from ajax.modules.pid_head import PIDOutputHead
+
+    T, B = 30, 1
+    z = jnp.ones((T, B, 1)) * 2.0
+    resets = jnp.zeros((T, B), bool).at[0].set(True)
+    final = {}
+    for aw in (None, 3.0):
+        head = PIDOutputHead(
+            n_outputs=1, kp_init=1.0, ki_init=-0.5, kd_init=0.0, anti_windup=aw
+        )
+        params = head.init(jax.random.PRNGKey(0), head.initialize_carry(B), z, resets)
+        (integral, _), u = head.apply(params, head.initialize_carry(B), z, resets)
+        final[aw] = (float(integral[0, 0]), float(u[-1, 0, 0]))
+    assert final[None] == (60.0, -28.0)  # unbounded wind-up: 2 - 0.5 * 60
+    # held at I = 10, where u = 2 - 0.5 * 10 sits on the bound (the next
+    # candidate, I = 12, would give |u| = 4 > 3); the old sign(z) test never held
+    assert final[3.0] == (10.0, -3.0), final

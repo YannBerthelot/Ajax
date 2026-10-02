@@ -113,10 +113,13 @@ class PIDOutputHead(nn.Module):
             candidate = integral + z_t
             if self.anti_windup is not None and "ki" in gains:
                 # conditional integration: hold the integral when the output is
-                # already beyond the bound and the new signal would push it further
+                # already beyond the bound and the new signal would push it further.
+                # The integral moves u by ki * z_t, so compare against that sign:
+                # ki is a learned parameter and may be negative.
                 u_try = output(candidate, z_t, previous)
                 saturating = jnp.logical_and(
-                    jnp.abs(u_try) > self.anti_windup, jnp.sign(u_try) == jnp.sign(z_t)
+                    jnp.abs(u_try) > self.anti_windup,
+                    jnp.sign(u_try) == jnp.sign(gains["ki"] * z_t),
                 )
                 integral = jnp.where(saturating, integral, candidate)
             else:

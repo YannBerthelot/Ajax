@@ -381,8 +381,8 @@ sample. Primary metric = training-episode returns of the stochastic policy (refe
 `is_first = True`.
 
 ### 6.6 State
-`DreamerV3State(BaseAgentState, kw_only)`: `world_model_state` (enc, dyn, dec, rew,
-con), `actor_state`, `critic_state` (`target_params` = slow critic), `retnorm`,
+`DreamerV3State(BaseAgentState, kw_only)`: `world_model_state` (enc, rssm, dec, rew,
+con; the reference's `dyn` is `rssm`), `actor_state`, `critic_state` (`target_params` = slow critic), `retnorm`,
 `collector_state` (row collector + policy carry), `replay_state` (+ online-queue
 counter).
 
@@ -432,15 +432,28 @@ agents. APG and both new agents get bench entries with a small documented preset
 
 ## 10. Testing
 
-- **Oracles.** `tests/world_models/reference_impls.py` (shared blocks) and
-  `tests/agents/<A>/reference_<a>.py`: literal jnp transcriptions of the pinned
-  reference functions (MIT-licensed, attributed line by line): TD-MPC2@5f6fade
-  `_td_target`, `update`, `update_pi` (PE entropy, clip quirk), `plan`,
-  `_estimate_value`; DreamerV3@2411f7d+29eb964 RSSM step, world-model loss,
-  imagination + λ-returns + retnorm + actor/critic losses, repval, optimizer. Ajax's
-  modular implementation is compared with the oracle at tiny sizes on random inputs
-  with injected noise (atol ~1e-5, matmul precision `highest`): every loss term,
-  per-module gradients, post-update parameters, normaliser state, target EMA, plan output.
+- **Oracles.** Two kinds; Ajax's modular implementation is compared with the oracle
+  at tiny sizes with injected noise (atol ~1e-5, matmul precision `highest`): every
+  loss term, per-module gradients, post-update parameters, normaliser state, target
+  EMA, plan output.
+  - *Reference fixtures*, where the pinned reference code can be run: a generator per
+    agent in `docs/world_models/parity/` (committed, not collected by pytest, run by
+    hand in a throwaway venv with the reference's pinned dependencies, as its docstring
+    says) runs the real reference at tiny float32 sizes, records its random draws
+    without changing what it computes, and writes small `.npz` files (parameters under
+    their reference names, inputs, recorded draws, outputs, gradients) committed under
+    `tests/agents/<A>/fixtures/`. The tests map the reference's parameter names onto
+    Ajax's tree, force the recorded draws and compare. The fixtures' sizes are pairwise
+    distinct where Ajax could confuse two of them, and the hyperparameters other than
+    widths are the reference's defaults, against which Ajax's defaults are pinned.
+    DreamerV3's world model (M5) is pinned this way:
+    `parity/dreamerv3_world_model_fixtures.py` runs `29eb964`'s own `Agent.train`.
+  - *Transcriptions*: `tests/world_models/reference_impls.py` (shared blocks) and
+    `tests/agents/<A>/reference_<a>.py`, literal jnp transcriptions of the pinned
+    reference functions (MIT-licensed, attributed line by line): TD-MPC2@5f6fade
+    `_td_target`, `update`, `update_pi` (PE entropy, clip quirk), `plan`,
+    `_estimate_value`; DreamerV3@2411f7d+29eb964 imagination + λ-returns + retnorm +
+    actor/critic losses, repval, optimizer.
 - **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer;
   2411f7d driver + replay add/sample/online queue + train gate + Ratio) on a counter env:
   identical row streams, seed/burst/gate ticks, queue pops, update counts.
@@ -469,7 +482,8 @@ agents. APG and both new agents get bench entries with a small documented preset
 - **M4** TD-MPC2 agent: env plumbing (§5.1), row collector (§5.2), episode buffer,
   schedule, `final_aux_fori`, `evaluate_policy`, logging lift (first commit), resume
   offset, extension support, local probes, bench entry, learning checks.
-- **M5** DreamerV3 world model (RSSM, encoder/decoder, heads, KL) + oracle parity.
+- **M5** DreamerV3 world model (RSSM, encoder/decoder, heads, KL) + parity on fixtures
+  from the real reference.
 - **M6** DreamerV3 actor-critic (imagination, λ-returns, retnorm, repval, slow critic) +
   LaProp/AGC + oracle parity (joint-gradient equivalence).
 - **M7** DreamerV3 agent: stream replay with context, online queue, write-back, schedule,

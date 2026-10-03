@@ -67,6 +67,11 @@ class EnvironmentConfig:
     env_params: EnvParams
     n_envs: int
     continuous: bool
+    # Simulator steps per agent step (brax / playground EpisodeWrapper, see
+    # ``ajax.environments.create``). Static: it fixes shapes and schedules
+    # (episode length in agent steps), never a traced value. Default 1, so
+    # every existing construction is unchanged.
+    action_repeat: int = struct.field(pytree_node=False, default=1)
 
 
 @struct.dataclass

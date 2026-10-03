@@ -31,7 +31,7 @@ from ajax.environments.interaction import init_collector_state
 from ajax.environments.system_class import SystemClass, broadcast_env_params
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, gated_log_callback
+from ajax.log import compose_eval_metrics, maybe_eval_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
@@ -250,6 +250,16 @@ def evaluate_apg(
     }
 
 
+def _train_metrics(agent_state: APGState, aux: APGAuxiliaries) -> dict:
+    del agent_state
+    return {
+        "timestep": aux.timestep,
+        "Train/loss": aux.loss,
+        "Train/matching_loss": aux.matching_loss,
+        "Train/m_rmse": aux.m_rmse,
+    }
+
+
 def _maybe_log(
     agent_state: APGState,
     aux: APGAuxiliaries,
@@ -266,57 +276,26 @@ def _maybe_log(
 ) -> Tuple[APGState, dict]:
     """Evaluate + log every ``log_frequency`` env steps.
 
-    Gated on the scan's iteration index (``iteration``, unbatched even when
-    the agent state is batched across seeds on the resume path), so the
-    ``lax.cond`` below stays a real cond and the evaluation branch is not
-    computed on the iterations where nothing is logged. ``log_frequency``
-    in env steps is rounded to a whole number of updates; the cadence is
-    relative to the start of this ``train`` call (a curriculum stage).
+    :func:`ajax.log.maybe_eval_and_log` with APG's training metrics: gated
+    on the scan's iteration index (unbatched even when the agent state is
+    batched across seeds on the resume path), ``log_frequency`` rounded to
+    a whole number of updates, the cadence relative to the start of this
+    ``train`` call (a curriculum stage).
     """
     del total_timesteps
-    enabled = log and bool(log_frequency)
-    every = (
-        max(int(log_frequency) // max(per_update, 1), 1)
-        if enabled and log_frequency is not None
-        else 1
+    return maybe_eval_and_log(
+        agent_state,
+        aux,
+        index,
+        iteration,
+        metrics_fn=_train_metrics,
+        evaluate_fn=evaluate_fn,
+        extra_eval_metrics=extra_eval_metrics,
+        log=log,
+        log_fn=log_fn,
+        log_frequency=log_frequency,
+        per_update=per_update,
     )
-    flag = jnp.logical_and(enabled, (iteration + 1) % every == 0)
-    log_flag = flag
-
-    def run(agent_state, aux, index):
-        eval_key, extra_key = jax.random.split(agent_state.eval_rng)
-        metrics = {
-            "timestep": aux.timestep,
-            "Train/loss": aux.loss,
-            "Train/matching_loss": aux.matching_loss,
-            "Train/m_rmse": aux.m_rmse,
-        }
-        metrics.update(evaluate_fn(agent_state, eval_key))
-        if extra_eval_metrics is not None:
-            metrics.update(extra_eval_metrics(agent_state, extra_key))
-        if log:
-            # gated inside the callback: see ajax.log.gated_log_callback
-            gated_log_callback(log_fn, flag, metrics, index)
-        return metrics
-
-    def skip(agent_state, aux, index):
-        shapes = jax.eval_shape(run, agent_state, aux, index)
-        return jax.tree.map(
-            lambda s: (
-                jnp.asarray(-1, s.dtype)
-                if jnp.issubdtype(s.dtype, jnp.integer)
-                else jnp.full(s.shape, jnp.nan, s.dtype)
-            ),
-            shapes,
-        )
-
-    if not enabled:
-        return agent_state, skip(agent_state, aux, index)
-    metrics = jax.lax.cond(flag, run, skip, agent_state, aux, index)
-    agent_state = agent_state.replace(
-        n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
-    )
-    return agent_state, metrics
 
 
 # ---------------------------------------------------------------------------

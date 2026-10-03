@@ -157,15 +157,21 @@ Spec `tdmpc2_spec.md` §1–§3 with the paper-era column everywhere, in particu
   dropout is tested on the Ajax side.
 
 ### 4.3 Planner (agent-local `agents/TDMPC2/planner.py`)
-Spec §3.C exactly: 512 candidates including 24 π trajectories (never resampled,
-re-scored each iteration), μ warm start shifted by one with last row 0, σ reset to
-`max_std` each decision, clamp before evaluation, value = Σγ^t r̂ + γ^H avg-of-2 online Q
-at `π(z_H).sample`, top-64 elites, `score = exp(0.5(V − max V))`, biased weighted std
-around the new mean clamped to [0.05, 2], 6 iterations (`fori_loop`; H-step rollouts
-unrolled in Python), executed action = score-sampled elite's first action + σ₀ noise
-unless `eval_mode`. Per-env `prev_mean [n_envs, H, A]`; `t0 = is_first`. The planner is
-not called during the seed phase (static cond) — prev_mean stays at zeros, so the
-reference's stale warm start from the step-0 eval is not reproduced (registered).
+Spec §3.C exactly, paper-era: 512 candidates including 24 π trajectories (never
+resampled, re-scored each iteration), μ warm start shifted by one with last row 0, σ
+reset to `max_std` each decision, clamp before evaluation, value = Σγ^t r̂ + γ^H
+avg-of-2 online Q at `π(z_H).sample` with Q dropout on (PE; only the drawn pair of
+members is evaluated, where the reference runs all 5 and keeps 2: the same values, the
+same dropout distribution, 20-30% less planning time at the paper size on CPU), top-64
+elites, `score = exp(0.5(V − max V))`, biased weighted std around the new mean clamped
+to [0.05, 2], 6 iterations (+2 when A ≥ 20; `lax.scan` over the per-iteration draws, H-step
+rollouts unrolled in Python), executed action = the first action of the elite drawn
+from the last score (inverse CDF of one uniform, PE's `np.random.choice`) + σ₀ noise
+unless `eval_mode`. `plan(wm_params, pi_params, obs, prev_mean, t0, noise, *, config,
+gamma, eval_mode)` for one env, vmapped over envs; per-env `prev_mean [n_envs, H, A]`;
+`t0 = is_first`. The planner is not called during the seed phase (static cond) —
+prev_mean stays at zeros, so the reference's stale warm start from the step-0 eval is
+not reproduced (registered).
 
 ### 4.4 Collection, replay and schedule
 - Collector in **static reset mode** (§5.2): fixed-length lockstep episodes; held tick
@@ -246,13 +252,16 @@ Two reset modes, chosen by the agent:
 - **static** (fixed-length lockstep episodes; all DMC tasks, all TD-MPC2 runs): the hold
   tick is `i mod (T+1) == T` for every env; on it the collector calls `env.reset` with a
   fresh key inside `lax.cond` on the unbatched tick. This gives a freshly randomised
-  initial state every episode on every backend (playground's auto-reset otherwise returns
-  a cached first state) at ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
+  initial state every episode on every backend, whatever the env's own auto-reset does
+  (a playground env built with `fresh_reset=False` returns a cached first state), at
+  ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
   errors.
 - **dynamic** (data-dependent episode ends: gymnax / brax tasks with terminations):
   per-env hold via `jnp.where` on a snapshot of the env state; reset obs = the
-  auto-reset obs (fresh on gymnax and brax). On playground the auto-reset obs is cached;
-  dynamic mode on playground is registered as a deviation and warned about.
+  auto-reset obs, fresh on gymnax, brax and playground (Ajax's playground stack uses
+  `FreshAutoResetWrapper` by default since #54). Only a playground env built with
+  `fresh_reset=False` restarts from a cached first state; dynamic mode warns about it
+  (deviation E20).
 
 State: `RowCollectorState(CollectorState)` adds `reward`, `is_first`, `is_last`,
 `is_terminal`, `reset_obs`, `env_steps`, `rows`, `n_offschedule_dones`, `policy_carry`.
@@ -454,7 +463,10 @@ agents. APG and both new agents get bench entries with a small documented preset
     widths are the reference's defaults, against which Ajax's defaults are pinned.
     Pinned this way so far: the TD-MPC2 update (M2,
     `parity/tdmpc2_update_fixtures.py`: consecutive real 5f6fade `update()` calls,
-    replayed by `test_tdmpc2_parity.py` through Ajax's jitted update), the DreamerV3
+    replayed by `test_tdmpc2_parity.py` through Ajax's jitted update), the TD-MPC2
+    planner (M3, `parity/tdmpc2_plan_fixtures.py`: real `act()` decisions with their
+    draws, per-iteration values, elites, scores, mean and std, replayed chained by
+    `test_tdmpc2_planner_parity.py` through Ajax's jitted `plan`), the DreamerV3
     world model (M5, `parity/dreamerv3_world_model_fixtures.py`: `29eb964`'s own
     `Agent.train`) and the whole DreamerV3 training step (M6,
     `parity/dreamerv3_train_fixtures.py`: three chained `Agent.train` calls with every

@@ -43,6 +43,7 @@ from ajax.distributional import symlog
 from .common import TINY, B, T, replay_batch, tiny_model
 
 S, C = TINY.stoch, TINY.classes
+EPS = float(np.finfo(np.float32).eps)
 
 
 def _apply(model, params, *args, method):
@@ -101,7 +102,7 @@ def test_is_first_resets_state_stoch_and_previous_action(discrete):
         stoch=jax.nn.one_hot(jax.random.randint(keys[1], (3, S), 0, C), C),
     )
     if discrete:
-        action = encode_action(jnp.zeros((3,), jnp.int32), 3)
+        action = encode_action(jnp.zeros((3,), jnp.int32), action_dim)
         assert np.all(np.asarray(action[:, 0]) == 1.0)
     else:
         action = jax.random.normal(keys[2], (3, action_dim))
@@ -136,13 +137,14 @@ def test_is_first_resets_state_stoch_and_previous_action(discrete):
 def test_core_bounds_the_action_input():
     """``a / sg(max(1, |a|))``: components beyond +-1 act as their sign, with
     gradient ``1 / |a|`` through the division (spec 2.3)."""
-    _, params, _ = tiny_model()
+    _, params, action_dim = tiny_model()
     state = initial_state(TINY, (1,))
 
     def core(action):
         return _rssm(params, state.deter + 0.3, state.stoch, action, method=RSSM.core)
 
-    big, clipped = jnp.array([[3.0, -0.5]]), jnp.array([[1.0, -0.5]])
+    zeros = jnp.zeros((1, action_dim))
+    big, clipped = zeros.at[0, :2].set([3.0, -0.5]), zeros.at[0, :2].set([1.0, -0.5])
     np.testing.assert_allclose(core(big), core(clipped), atol=1e-7)
     grad_big = jax.grad(lambda a: core(a).sum())(big)
     grad_clipped = jax.grad(lambda a: core(a).sum())(clipped)
@@ -151,12 +153,12 @@ def test_core_bounds_the_action_input():
 
 
 def test_imagine_step_samples_the_prior_without_reset():
-    _, params, _ = tiny_model()
+    _, params, action_dim = tiny_model()
     key = jax.random.PRNGKey(3)
     carry = initial_state(TINY, (4,))._replace(
         deter=jax.random.normal(key, (4, TINY.deter))
     )
-    action = jax.random.normal(jax.random.PRNGKey(4), (4, 2))
+    action = jax.random.normal(jax.random.PRNGKey(4), (4, action_dim))
     noise = draw_onehot_noise(jax.random.PRNGKey(5), (4, S, C))
     state, feat = _rssm(params, carry, action, noise, method=RSSM.imagine_step)
     deter = _rssm(params, carry.deter, carry.stoch, action, method=RSSM.core)
@@ -173,7 +175,7 @@ def test_imagine_step_samples_the_mixed_prior():
     ``~e^-40``, noise that lifts that class above the others under the
     mixed probabilities (floor ``0.01 / C``) but not under the raw ones
     selects it."""
-    _, params, _ = tiny_model()
+    _, params, action_dim = tiny_model()
     peaked = jnp.tile(jnp.linspace(20.0, -20.0, C), S)  # last class least likely
     params = {
         **params,
@@ -186,7 +188,7 @@ def test_imagine_step_samples_the_mixed_prior():
         },
     }
     carry = initial_state(TINY, (1,))
-    action = jnp.zeros((1, 2))
+    action = jnp.zeros((1, action_dim))
     raw = peaked.reshape(1, S, C)
     mixed = np.asarray(OneHot.from_logits(raw, TINY.unimix).logits)
     bonus = mixed.max(-1) - mixed[..., -1] + 0.5
@@ -381,7 +383,10 @@ def test_world_model_loss_terms(discrete):
     kl = OneHot.from_logits(out.posterior.logits, TINY.unimix).kl(
         OneHot.from_logits(out.prior_logits, TINY.unimix)
     )
-    np.testing.assert_allclose(out.kl, kl, rtol=1e-6)
+    # The KL sums terms of order 1 that cancel to as little as 0.05: the two
+    # compilations (fused in the loss, eager here) agree to a few float32 eps
+    # in absolute terms, not relative to a small KL.
+    np.testing.assert_allclose(out.kl, kl, rtol=1e-6, atol=4 * EPS)
     assert np.any(kl < 1.0) and np.any(kl > 1.0)
     for term in ("dyn", "rep"):
         np.testing.assert_allclose(out.losses[term], np.maximum(kl, 1.0), rtol=1e-6)

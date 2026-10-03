@@ -141,7 +141,7 @@ def test_preset_values_and_overrides():
         2048,
         16,
     )
-    assert config.cont_target_scale == pytest.approx(0.996997, abs=1e-6)
+    assert config.gamma == pytest.approx(0.996997, abs=1e-6)
     with pytest.raises(ValueError, match="model_size"):
         DreamerV3Config.from_model_size("13m")
     with pytest.raises(ValueError, match="divisible"):

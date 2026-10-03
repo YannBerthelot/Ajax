@@ -1,4 +1,4 @@
-"""Shared tiny DreamerV3 world model and replay batch for the M5 tests."""
+"""Shared tiny DreamerV3 world model, replay batch and parameter-name map for the tests."""
 
 from __future__ import annotations
 
@@ -18,6 +18,11 @@ from ajax.agents.DreamerV3.world_model import ReplayContextBatch
 TINY = DreamerV3Config(units=16, hidden=12, deter=64, stoch=4, classes=3, blocks=8)
 OBS_DIM = 5
 B, T = 2, 8
+#: The action sizes of the training-step fixtures: a continuous action of
+#: dimension 7, or 6 discrete actions -- distinct from every size above (not
+#: the batch's 2 rows, not the latents' 3 classes), so that using one for
+#: the other changes a shape or a value.
+ACTION_DIM, NUM_ACTIONS = 7, 6
 
 
 def perturbed(params: dict, seed: int, scale: float = 1.0) -> dict:
@@ -47,8 +52,9 @@ def tiny_model(
     scale: float = 1.0,
 ) -> tuple[WorldModel, dict, int]:
     """The tiny world model, perturbed parameters (:func:`perturbed` with
-    ``scale``) and the action width."""
-    action_dim = 3 if discrete else 2
+    ``scale``) and the action width (:data:`NUM_ACTIONS` or
+    :data:`ACTION_DIM`)."""
+    action_dim = NUM_ACTIONS if discrete else ACTION_DIM
     params = init_world_model(jax.random.PRNGKey(seed), config, OBS_DIM, action_dim)
     return WorldModel(config, OBS_DIM), perturbed(params, seed + 100, scale), action_dim
 
@@ -71,9 +77,11 @@ def replay_batch(
     reward = rng.normal(0.0, 2.0, (B, length)).astype(np.float32)
     reward[is_first] = 0.0
     if discrete:
-        action = encode_action(jnp.asarray(rng.integers(0, 3, (B, length))), 3)
+        actions = rng.integers(0, NUM_ACTIONS, (B, length))
+        action = encode_action(jnp.asarray(actions), NUM_ACTIONS)
     else:
-        action = jnp.asarray(rng.uniform(-1.5, 1.5, (B, length, 2)), jnp.float32)
+        shape = (B, length, ACTION_DIM)
+        action = jnp.asarray(rng.uniform(-1.5, 1.5, shape), jnp.float32)
     return ReplayContextBatch(
         obs=jnp.asarray(rng.normal(0.0, 3.0, (B, length, OBS_DIM)), jnp.float32),
         action=action,
@@ -99,17 +107,41 @@ def _hidden(module: tuple[str, ...], index: int, leaf: list[str]) -> tuple[str, 
     return (*module, f"Dense_{index}", _DENSE[leaf[0]])
 
 
-def reference_to_ajax(name: str) -> tuple[str, ...]:
+#: The reference's actor output layers -> Ajax's (``nets.py:440-448``: the
+#: ``action`` head's ``out`` is the mean, or the logits of a discrete
+#: actor, and ``std`` the standard deviation).
+_ACTOR_OUTPUTS = {
+    ("out", False): "mean",
+    ("out", True): "logits",
+    ("std", False): "std",
+}
+
+
+def reference_to_ajax(name: str, discrete: bool = False) -> tuple[str, ...]:
     """Ajax parameter path of the reference parameter ``name``.
 
     The layout differences of dreamerv3_spec 2.17 do not arise: Ajax keeps
     the reference's per-block ``[reset, cand, update]`` gate layout, its
     2411f7d decoder input order ``concat(deter, stoch)`` and a single
-    observation key. Only the names differ (and the reward head's dropped
-    256th logit, handled by the callers).
+    observation key. Only the names differ (and the two-hot heads' dropped
+    256th logit, handled by the callers). World-model paths start with the
+    module (``enc``, ``rssm``, ``dec``, ``rew``, ``con``); the actor's,
+    critic's and slow critic's with ``actor``, ``critic`` and
+    ``slowcritic``, followed by the path in that module's own tree.
+    ``discrete`` names the actor's output layer.
     """
     _, module, *rest = name.split("/")
     layer, leaf = rest[0], rest[1:]
+    if module == "actor":
+        if layer == "action":
+            output = _ACTOR_OUTPUTS[leaf[0], discrete]
+            return ("actor", output, _DENSE[leaf[1]])
+        return _hidden(("actor", "mlp"), int(layer.removeprefix("h")), leaf)
+    if module in ("critic", "slowcritic"):
+        if layer == "dist":
+            assert leaf[0] == "out", name
+            return (module, "out", _DENSE[leaf[1]])
+        return _hidden((module, "mlp"), int(layer.removeprefix("h")), leaf)
     if module == "enc":
         return _hidden(("enc",), int(layer.removeprefix("mlp")), leaf)
     if module in ("dec", "rew", "con"):

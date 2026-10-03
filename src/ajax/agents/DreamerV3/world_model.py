@@ -227,9 +227,7 @@ def world_model_loss(
     recon = apply(variables, feat, method=WorldModel.decode)
     reward_logits = apply(variables, feat, method=WorldModel.reward_logits)
     cont_logit = apply(variables, feat, method=WorldModel.cont_logit)
-    cont_target = (1 - batch.is_terminal[:, 1:].astype(jnp.float32)) * (
-        config.cont_target_scale
-    )
+    cont_target = (1 - batch.is_terminal[:, 1:].astype(jnp.float32)) * config.gamma
     losses = {
         "rec": symlog_mse(recon, obs),
         "rew": TwoHot.dreamerv3(config.bins).loss(reward_logits, batch.reward[:, 1:]),

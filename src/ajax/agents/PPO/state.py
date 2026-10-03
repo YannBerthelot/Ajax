@@ -44,9 +44,10 @@ class PPOConfig(BaseAgentConfig):
     bptt_length: Optional[int] = None
     # Brax's ``num_resets_per_eval``: do a forced env.reset with fresh
     # RNG every ``num_training_steps_per_epoch`` training iterations to
-    # cycle through new randomised initial conditions. When 0, only
-    # natural auto-resets fire (Ajax default; cached first_obs is
-    # reused indefinitely for envs with randomised reset states like
-    # PandaOpenCabinet).
+    # cycle through new randomised initial conditions. When 0 (the
+    # default), only natural auto-resets fire. Playground envs already
+    # start every episode from a fresh state by default; this only adds
+    # diversity with ``build_env_from_id(..., fresh_reset=False)``, whose
+    # cached first state is otherwise reused indefinitely.
     num_resets_per_eval: int = 0
     num_evals: int = 1

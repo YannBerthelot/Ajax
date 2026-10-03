@@ -45,13 +45,13 @@ Pinned sources:
 | World-model clip norm | includes the previous update's post-clip policy gradients | world-model gradients only | paper era (reproduced exactly; one carried scalar) |
 | Termination / episodic mode | absent | optional head + masking | absent; terminations refused (T10) |
 | Q-ensemble init | each member N(0, 0.02), last weight 0 | same (restored in e9f5932 after a 2024-09 regression) | same |
-| Q-ensemble dropout (p = 0.01) | active in **every** Q pass, eval mode included: TD target (target Q), value and policy losses, planning. The `combine_state_for_ensemble` functional module lives only in the `torch.vmap` closure, so `train()` / `eval()` never reach it (`common/layers.py:12-21`; verified by running 5f6fade, recorded by `parity/tdmpc2_update_fixtures.py`) | registered submodule: dropout only in train mode (value and policy losses) | paper era: the TD target takes a dropout key (M2); planning decided in M3 |
+| Q-ensemble dropout (p = 0.01) | active in **every** Q pass, eval mode included: TD target (target Q), value and policy losses, planning. The `combine_state_for_ensemble` functional module lives only in the `torch.vmap` closure, so `train()` / `eval()` never reach it (`common/layers.py:12-21`; verified by running 5f6fade, recorded by `parity/tdmpc2_update_fixtures.py`; `plan()` runs in eval mode, recorded by `parity/tdmpc2_plan_fixtures.py`) | registered submodule: dropout only in train mode (value and policy losses) | paper era: the TD target takes a dropout key (M2); planning takes one per MPPI iteration for its terminal Q pass (M3) |
 | Replay buffer | b67b21c: whole episodes, capacity in episodes, uniform episode × random crop | rows + SliceSampler | b67b21c episode buffer |
 | TD bootstrap state | code: encoded next observation `h(s')` (paper Eq. 3 writes the dynamics prediction) | same | code |
 | Loss normalisations | /H, /(H·Nq), latent-mean MSE, H terms (paper writes sums over H+1 terms) | same | code |
 | Encoder learning rate | 3e-4 × 0.3 = 9e-5 (paper Table 8: 1e-4) | same | code |
 | Planner σ warm start | μ only; σ reset to max_std (paper: warm-start μ and σ) | same | code |
-| Executed action | score-sampled elite + σ₀ noise (paper: sample N(μ*, σ*)) | same (Gumbel-max instead of `np.random.choice`) | code |
+| Executed action | score-sampled elite + σ₀ noise (paper: sample N(μ*, σ*)); the elite by `np.random.choice(p=score)` (inverse CDF of one uniform) | same (Gumbel-max instead of `np.random.choice`) | code; the paper-era inverse CDF, in float32 |
 | Terminal action in the value estimate | `π(z_H)` (paper Eq. 6: planner Gaussian) | same | code |
 | Paper Eq. 4 sign | literally minimises entropy (typo) | — | code sign (maximise Q/S + β·entropy) |
 | SimNorm temperature | none (paper Eq. 5 vs App. H contradict each other) | none | none |

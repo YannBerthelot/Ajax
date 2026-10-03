@@ -197,3 +197,6 @@ plots/
 plots_safe/
 .claude
 .plot_cache
+
+# Ad-hoc source snapshot used to ship the tree to a remote machine; never versioned.
+.ajax_transfer.tar.gz

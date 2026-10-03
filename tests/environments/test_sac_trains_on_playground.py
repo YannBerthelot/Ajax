@@ -11,8 +11,8 @@ immediately at ``interaction.py:398`` with:
     implies that its rank should be at least 1, but is only 0
 
 The fix was to go through ``ajax.environments.create.build_env_from_id``
-which applies EpisodeWrapper + VmapWrapper + FinalObsWrapper +
-BraxAutoResetWrapper + BatchRngWrapper. This test ensures that path
+which applies EpisodeWrapper + VmapWrapper + FinalObsWrapper + an
+auto-reset wrapper + BatchRngWrapper. This test ensures that path
 continues to work for one Playground env so the regression doesn't sneak
 back in.
 """
@@ -71,10 +71,10 @@ def test_playground_env_has_ajax_wrapper_stack():
 @pytest.mark.slow
 @requires_playground
 def test_sac_trains_from_fresh_initial_states():
-    """With ``fresh_reset=True`` the episodes SAC stores in its replay buffer
-    start from distinct observations. (Playground's cached auto-reset, the
-    default, restarts every episode of an env from the same one; see
-    tests/environments/test_fresh_auto_reset.py.)"""
+    """The episodes SAC stores in its replay buffer start from distinct
+    observations with the default env stack. (Playground's cached
+    auto-reset, ``fresh_reset=False``, restarts every episode of an env from
+    the same one; see tests/environments/test_fresh_auto_reset.py.)"""
     import numpy as np
 
     from ajax.agents.SAC.SAC import SAC
@@ -82,10 +82,7 @@ def test_sac_trains_from_fresh_initial_states():
 
     n_envs, episode_length, steps_per_env = 2, 5, 20  # 4 episodes per env
     env, env_params = build_env_from_id(
-        "CartpoleBalance",
-        n_envs=n_envs,
-        episode_length=episode_length,
-        fresh_reset=True,
+        "CartpoleBalance", n_envs=n_envs, episode_length=episode_length
     )
     agent = SAC(
         env_id=env,

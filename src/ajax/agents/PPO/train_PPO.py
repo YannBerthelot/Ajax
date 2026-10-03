@@ -1250,15 +1250,16 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     # ``reset_fn(env_state, key_envs)`` every
     # ``num_training_steps_per_epoch`` training_steps (with
     # ``num_resets_per_eval > 0``), drawing fresh randomised initial
-    # conditions. Ajax's BraxAutoResetWrapper caches the FIRST reset
-    # state and reuses it indefinitely -- without periodic forced
-    # resets, the agent sees only ``n_envs`` distinct starting
-    # conditions for the entire training. For envs with randomised
-    # reset states (e.g. PandaOpenCabinet perturbs target_pos and arm
-    # joints in ``reset``), this dramatically limits diversity.
-    # (Building the env with ``build_env_from_id(..., fresh_reset=True)``
-    # instead draws a new initial state on every episode end, for every
-    # agent, without cutting episodes short.)
+    # conditions, because brax's auto-reset wrapper caches the FIRST
+    # reset state and reuses it indefinitely. Ajax's playground envs
+    # draw a new initial state on every episode end by default
+    # (``build_env_from_id(..., fresh_reset=True)``), so this is not
+    # needed for diversity there. It matters with ``fresh_reset=False``
+    # (playground's cached auto-reset): without periodic forced resets
+    # the agent then sees only ``n_envs`` distinct starting conditions
+    # for the entire training, which for envs with randomised reset
+    # states (e.g. PandaOpenCabinet perturbs target_pos and arm joints
+    # in ``reset``) dramatically limits diversity.
     #
     # Implementation: every ``reset_every`` iterations, call env.reset
     # with a fresh RNG. The wrapper's reset re-initialises the obs

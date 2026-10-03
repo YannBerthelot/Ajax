@@ -55,7 +55,7 @@ def _build_playground_env(
     env_id: str,
     n_envs: int,
     episode_length: int,
-    fresh_reset: bool = False,
+    fresh_reset: bool = True,
     differentiable_reset: bool = False,
 ):
     """Compose a mujoco_playground env with the same wrapper stack as
@@ -68,15 +68,17 @@ def _build_playground_env(
     split the caller's single key into `n_envs` keys on reset to keep Ajax's
     unbatched-rng convention intact.
 
-    `fresh_reset` selects the auto-reset. False keeps playground's
+    `fresh_reset` selects the auto-reset. True (the default) uses
+    `FreshAutoResetWrapper`, which draws a new initial state for every
+    episode, as dm_control does. False keeps playground's
     `BraxAutoResetWrapper`, which restarts every episode of env i from the
-    same cached first state (a run sees only `n_envs` initial conditions).
-    True uses `FreshAutoResetWrapper`, which draws a new initial state for
-    every episode, as dm_control does. `differentiable_reset` is passed to
-    `FreshAutoResetWrapper` (see `build_env_from_id`); the cached auto-reset
-    computes no reset in `step` and needs no such option. Registered builders
-    own their whole stack, auto-reset included, and are not affected by
-    these flags.
+    same cached first state (a run sees only `n_envs` initial conditions);
+    that was Ajax's behaviour before fresh resets became the default, so it
+    reproduces playground results produced earlier. `differentiable_reset` is
+    passed to `FreshAutoResetWrapper` (see `build_env_from_id`); the cached
+    auto-reset computes no reset in `step` and needs no such option.
+    Registered builders own their whole stack, auto-reset included, and are
+    not affected by these flags.
     """
     if env_id in _PLAYGROUND_BUILDERS:
         return _PLAYGROUND_BUILDERS[env_id](n_envs, episode_length)
@@ -134,7 +136,7 @@ def _build_brax_env(
 def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
-    fresh_reset: bool = False,
+    fresh_reset: bool = True,
     differentiable_reset: bool = False,
     **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
@@ -146,9 +148,10 @@ def build_env_from_id(
 
     ``differentiable_reset`` concerns the auto-resets that compute a fresh
     reset inside ``step``: brax envs, and playground envs with
-    ``fresh_reset=True``. By default they evaluate the reset only on steps
-    where some env is done, inside a ``lax.while_loop``, because the reset
-    can cost as much as many env steps. Gradients through such an env still
+    ``fresh_reset=True`` (the default). With ``differentiable_reset=False``
+    (the default) they evaluate the reset only on steps where some env is
+    done, inside a ``lax.while_loop``, because the reset can cost as much as
+    many env steps. Gradients through such an env still
     flow with respect to the actions, the policy parameters and the env
     state, and forward mode (``jax.jvp``) works with respect to anything.
     Only reverse mode *through the reset itself* -- ``jax.grad`` with

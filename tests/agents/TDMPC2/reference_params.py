@@ -1,11 +1,12 @@
 """Shared helpers of the TD-MPC2 parity tests: the reference's parameters in Ajax.
 
 The parity fixtures (``fixtures/tdmpc2_update.npz``, ``fixtures/tdmpc2_plan.npz``,
-recorded by ``docs/world_models/parity/tdmpc2_*_fixtures.py``) store the
-``state_dict`` of the paper-era reference (``nicklashansen/tdmpc2@5f6fade``)
-under a key prefix. :func:`torch_to_ajax` maps one snapshot onto Ajax's
-parameter trees; :class:`ErrorReport` asserts closeness and keeps the worst
-errors for printing.
+``fixtures/tdmpc2_multitask_*.npz``, recorded by
+``docs/world_models/parity/tdmpc2_*_fixtures.py``) store the ``state_dict`` of
+the paper-era reference (``nicklashansen/tdmpc2@5f6fade``) under a key prefix.
+:func:`torch_to_ajax` maps one snapshot onto Ajax's parameter trees (the
+multi-task embedding table included); :class:`ErrorReport` asserts closeness
+and keeps the worst errors for printing.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ajax.agents.TDMPC2.core import TASK_EMB
 from ajax.agents.TDMPC2.state import TDMPC2Config
 
 Fixture = dict[str, np.ndarray]
@@ -133,6 +135,8 @@ def torch_to_ajax(
         "reward": {"trunk": _trunk(sd, "_reward", 2), "out": _dense(sd, "_reward.2")},
         "q": _ensemble(sd, "_Qs.params", names),
     }
+    if "_task_emb.weight" in sd:  # multi-task: a world-model parameter
+        wm[TASK_EMB] = sd["_task_emb.weight"]
     target_q = _ensemble(sd, "_target_Qs.params", names)
     pi = {"trunk": _trunk(sd, "_pi", 2), "out": _dense(sd, "_pi.2")}
     n_mapped = sum(len(jax.tree_util.tree_leaves(t)) for t in (wm, target_q, pi))

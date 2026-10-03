@@ -413,26 +413,48 @@ counter).
 ## 7. TD-MPC2 multi-task (M8)
 
 - Mechanisms in `agents/TDMPC2/multitask.py` (the single-task code is imported, the
-  lineage rule): task embedding `U(−0.02, 0.02)`, `task_dim=96` (paper; the code's 64 for
+  lineage rule) through minimal hooks of `core` and `planner`: every update / planning
+  function takes an optional `TaskContext` (task ids and their action masks; `None` is
+  the single-task computation, unchanged). Task embedding `U(−0.02, 0.02)`, a
+  world-model parameter (`wm_params["task_emb"]`, in the world-model Adam at the full
+  learning rate and its clip; target Q has none), `task_dim=96` (paper; the code's 64 for
   mt30 at 5/19/48M is an acknowledged accident tied to that dataset — registered), max-norm
   1 by **look-up-time renorm with write-back** at the two points the reference renorms
-  (before the TD target; after the world-model step, before the policy loss); renorm
-  without persisting at eval; obs zero-padded at the end; prefix action masks applied to
-  π mean/logσ/ε and to planner candidates and to mean/std after the std clamp; per-task
-  discount table; `n_valid` entropy scaling; padded-A iteration rule.
-- `TDMPC2MultiTask`: offline trainer, env-free update scan (batch 1024 slices uniform over
-  pooled episodes; no planning in training). The dataset enters as an **unbatched
-  argument shared across seeds** (new optional `shared` slot of `build_resumable_train` /
-  `train`, `in_axes=None`) — never closed over (HLO constant bloat) nor copied per seed.
-  `n_timesteps` counts updates. Evaluation is a host loop over tasks between scan chunks,
-  each a per-task jitted `evaluate_policy` with the padded planner (`eval_mode`, 10
-  episodes per task, the offline-trainer protocol; evaluate.py's noisy protocol
-  registered as not reproduced).
-- Dataset schema: `obs [N, T+1, O_max]` (zero-padded), `action [N, T+1, A_max]` (zeros on
-  invalid dims and at row 0 convention §5.2), `reward [N, T+1]`, `task [N]`, plus `T` per
-  task; written by a general export utility from the single-task episode buffer.
-- **CI gate:** mechanisms + trainer smoke on an in-memory synthetic dataset of 2–3 toy
-  tasks with different obs/action dims. **Validation (M9):** dataset = full training
+  (its first look-up `encode(obs[1:])` before the TD target; `pi(zs)` after the
+  world-model step, before the policy loss); renorm without persisting at eval; the
+  policy loss reads the embedding stop-gradiented (5f6fade's `track_q_grad(False)`); obs
+  zero-padded at the end; prefix action masks applied to π mean/logσ/ε and to planner
+  candidates and to mean/std after the std clamp; per-task discount table (float32, as
+  the reference's tensor: also in the planner's discount products); `n_valid` entropy
+  scaling; padded-A iteration rule. The task set (dims, episode lengths, discounts,
+  names) is a static `TaskSet`.
+- `TDMPC2MultiTask` (`agents/TDMPC2/TDMPC2MultiTask.py`, `train_TDMPC2MultiTask.py`; not
+  an `ActorCritic`: it has no single env): offline trainer, env-free update scan (batch
+  1024 slices uniform over pooled episodes; no planning in training). The dataset enters
+  as an **unbatched argument shared across seeds** (new optional `shared` slot of
+  `build_resumable_train`'s `train`, passed to `make_scan_fn` as `shared=`, vmapped with
+  `in_axes=None`) — never closed over (HLO constant bloat) nor copied per seed (tested on
+  the lowered program). `n_timesteps` counts updates. Evaluation is a host loop over
+  tasks between scan chunks (chunks end at the run's multiples of `log_frequency`
+  updates), each a per-task jitted `evaluate_policy` with the padded planner
+  (`eval_mode`, 10 episodes per task, the offline-trainer protocol; evaluate.py's noisy
+  protocol registered as not reproduced), logging per-task returns and the normalised
+  score `mean(return / 10)`. Extensions: the single-task agent's phases.
+- Dataset schema (`agents/TDMPC2/dataset.py`): `obs [N, T+1, O_max]` (zero-padded at
+  the end), `action [N, T+1, A_max]` (zeros on invalid dims), `reward [N, T+1]`,
+  `task [N]` int32, plus per task the obs dim, action dim, `T` and a name. Rows are
+  obs-aligned (§5.2), the single-task ring's layout: row 0 is the reset row, whose
+  *reward* slot is 0; the last row has no action, its *action* slot is 0 (the M8
+  implementation corrects this item's first version, which put the zero action at row
+  0: that is the reference's own layout, where row k holds `a_{k-1}`; the slices are the
+  same). Written by `export_episodes` (every committed episode of a single-task run's
+  ring, in collection order) and `pool_tasks` (padding, task ids); `MultiTaskDataset.check`
+  validates the schema, zero padding included.
+- **CI gate:** reference parity in multi-task mode (`parity/tdmpc2_multitask_fixtures.py`:
+  real 5f6fade `update()` and `act()` with `cfg.multitask=True` on 3 synthetic tasks of
+  different dims), mechanisms, dataset round trip from a tiny single-task run, and
+  trainer smoke on an in-memory synthetic dataset of 3 toy tasks with different obs/action
+  dims. **Validation (M9):** dataset = full training
   history (every completed episode from step 0, no FIFO eviction) of k seeds per task on
   the playground versions of the 19 original mt30 DMC tasks (mt30 order as task ids,
   action repeat 2); acceptance = the offline model reaches a stated fraction of each
@@ -475,7 +497,10 @@ agents. APG and both new agents get bench entries with a small documented preset
     replayed by `test_tdmpc2_parity.py` through Ajax's jitted update), the TD-MPC2
     planner (M3, `parity/tdmpc2_plan_fixtures.py`: real `act()` decisions with their
     draws, per-iteration values, elites, scores, mean and std, replayed chained by
-    `test_tdmpc2_planner_parity.py` through Ajax's jitted `plan`), the DreamerV3
+    `test_tdmpc2_planner_parity.py` through Ajax's jitted `plan`), the TD-MPC2 multi-task
+    update and planner (M8, `parity/tdmpc2_multitask_fixtures.py`: 5f6fade with
+    `cfg.multitask=True`, the embedding table recorded around both renorm points,
+    replayed by `test_tdmpc2_multitask_parity.py`), the DreamerV3
     world model (M5, `parity/dreamerv3_world_model_fixtures.py`: `29eb964`'s own
     `Agent.train`) and the whole DreamerV3 training step (M6,
     `parity/dreamerv3_train_fixtures.py`: three chained `Agent.train` calls with every

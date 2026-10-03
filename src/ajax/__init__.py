@@ -148,6 +148,19 @@ from ajax.agents.PQN.PQN import PQN  # noqa: E402
 from ajax.agents.REDQ.REDQ import REDQ  # noqa: E402
 from ajax.agents.SAC.SAC import SAC  # noqa: E402
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2  # noqa: E402
+from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask  # noqa: E402
 
-__all__ = ["APG", "APO", "ASAC", "AVG", "DQN", "PPO", "PQN", "REDQ", "SAC", "TDMPC2"]
+__all__ = [
+    "APG",
+    "APO",
+    "ASAC",
+    "AVG",
+    "DQN",
+    "PPO",
+    "PQN",
+    "REDQ",
+    "SAC",
+    "TDMPC2",
+    "TDMPC2MultiTask",
+]
 __version__ = version("ajax")

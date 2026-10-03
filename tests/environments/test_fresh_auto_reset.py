@@ -134,6 +134,32 @@ def test_fresh_reset_keeps_the_transition_bookkeeping():
 
 
 @requires_playground
+def test_fresh_reset_with_differentiable_reset_gives_the_same_rollout():
+    """``differentiable_reset=True`` evaluates the reset on every step (for
+    reverse mode through it, see ``build_env_from_id``) with the same keys,
+    so the rollout is the same: exactly in its discrete parts, and up to
+    float rounding (the reset compiles differently outside the gate's
+    while_loop) in its states."""
+    rollouts = {}
+    for differentiable_reset in (False, True):
+        env, _ = build_env_from_id(
+            "CartpoleBalance",
+            n_envs=N_ENVS,
+            episode_length=EPISODE_LENGTH,
+            fresh_reset=True,
+            differentiable_reset=differentiable_reset,
+        )
+        assert env.env.differentiable_reset is differentiable_reset
+        rollouts[differentiable_reset] = _rollout(env, jnp.arange(N_SEEDS))
+    (first_gated, gated), (first_every, every) = rollouts[False], rollouts[True]
+    np.testing.assert_allclose(first_gated, first_every, rtol=1e-5, atol=1e-5)
+    for name in ("done", "truncation", "rng_changed"):
+        np.testing.assert_array_equal(gated[name], every[name])
+    for name in ("obs", "final_obs"):
+        np.testing.assert_allclose(gated[name], every[name], rtol=1e-5, atol=1e-5)
+
+
+@requires_playground
 def test_eval_rebuild_keeps_the_reset_semantics():
     from ajax.evaluate import setup_environment
 
@@ -159,6 +185,24 @@ def test_call_if_any_returns_fn_or_zeros_per_vmapped_element():
     for name in ("a", "b"):
         np.testing.assert_array_equal(out[name][0], expected[name])
         np.testing.assert_array_equal(out[name][1], 0.0)
+
+
+def test_call_if_any_passes_fn_the_keys_advance_returns():
+    """``advance(keys)`` returns ``(next_keys, subkeys)`` and ``fn`` gets
+    ``subkeys``; ``AutoResetWrapper`` uses this to key its reset with the
+    next value of its seed stream."""
+
+    def advance(key):
+        key = jax.random.split(key)[0]
+        return key, key
+
+    key = jax.random.PRNGKey(0)
+    pred = jnp.array([[False, True], [False, False]])
+    out = jax.jit(
+        jax.vmap(lambda p, k: _call_if_any(p, lambda s: s, k, advance=advance))
+    )(pred, jnp.stack([key, key]))
+    np.testing.assert_array_equal(out[0], jax.random.split(key)[0])
+    np.testing.assert_array_equal(out[1], 0)
 
 
 def test_call_if_any_does_not_evaluate_fn_when_nothing_is_set():

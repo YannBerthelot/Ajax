@@ -110,6 +110,7 @@ def setup_environment(
                 n_envs=num_episodes,
                 episode_length=eval_ep_len,
                 action_repeat=action_repeat,
+                fresh_reset=getattr(env, "_ajax_fresh_reset", True),
             )
         else:
             env = _build_brax_env(

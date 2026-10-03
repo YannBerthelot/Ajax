@@ -71,26 +71,30 @@ Only blocks both agents use. Each ships with oracle tests (§10).
   - `TwoHot` (frozen dataclass): `bins` (in interpolation space), `transform`
     (`identity` | `symlog`). Encode: two-hot weights by linear interpolation between the
     neighbouring bins of `transform(y)`, edge-clipped. Decode: **symmetric** summation
-    of `p * bins` (exact 0 for uniform p; ≤1e-6 from TD-MPC2's naive sum), then the
-    inverse transform. `loss(logits, y) = -Σ w·log_softmax(logits)`.
+    of `p * bins`, written `Σ (p_j − p_i)·b_j` over mirror pairs so that it is exactly 0
+    for uniform p also under `jit` (XLA's multiply-add fusion breaks DreamerV3's
+    `p_i·b_i + p_j·b_j` pairs, D22); within `ε·(1 + 6·E_p|b|)` (≤ 4.8e-6) of TD-MPC2's
+    naive sum in symlog space; then the inverse transform. Bins are float32 roundings
+    of float64 constants (D22, T24). `loss(logits, y) = -Σ w·(logits − logsumexp(logits))`.
     - DreamerV3: `bins = symexp(linspace(-20, 20, 255))` built from a mirrored half,
       `transform = identity` (raw-space interpolation, raw-space expectation).
     - TD-MPC2: `bins = linspace(-10, 10, 101)`, `transform = symlog`
-      (clip in symlog space, decode `symexp(E_p[bins])`).
-- `src/ajax/normalizers.py`: one percentile/EMA helper (`jnp.percentile`, linear) and
-  two thin normalisers sharing it:
+      (clip in symlog space, decode `symexp(E_p[bins])`); symmetric ranges only (T24).
+- `src/ajax/normalizers.py`: one percentile helper (`jnp.percentile`, linear) and two
+  thin normalisers sharing it, each EMA an `optax.incremental_update`:
   - `ReturnNormalizer` (DreamerV3 retnorm): lo/hi EMAs at rate 0.01, init 0, no
     debias, **update then read**, `scale = max(1, hi - lo)`.
   - `RunningScale` (TD-MPC2): `S ← lerp(S, max(1, p95 - p5), 0.01)`, init 1, update
-    before divide.
+    before divide (EMA form: T25).
 - `src/ajax/networks/blocks.py`
-  - `Linear(units, kernel_init, bias_init='zeros', outscale)`; initializers registered in
-    the existing initializer registry (`networks/utils.py`): DreamerV3 fan-in truncated
-    normal (`variance_scaling(outscale², 'fan_in', 'truncated_normal')`, BlockLinear fan_in
-    = full input width), TD-MPC2 `normal(0.02)` (torch's absolute ±2 trunc bounds are
-    effectively untruncated; `jax truncated_normal(0.02)` is wrong), `zeros`.
-  - `NormedMLP(layers, units, act, norm ∈ {layer, rms}, norm_eps, dropout_first)`:
-    hidden layer = Linear → [Dropout] → Norm → Act.
+  - `linear(features, kernel_init, bias_init='zeros', outscale)` → `nn.Dense`;
+    initializers registered in the existing initializer registry (`networks/utils.py`):
+    DreamerV3 fan-in truncated normal (`variance_scaling(outscale², 'fan_in',
+    'truncated_normal')`, D23; BlockLinear fan_in = full input width), TD-MPC2
+    `normal(0.02)` (torch's absolute ±2 trunc bounds are effectively untruncated;
+    `jax truncated_normal(0.02)` is wrong), `zeros`.
+  - `NormedMLP(layers, units, act, norm ∈ {layer, rms}, norm_eps, kernel_init, dropout)`:
+    hidden layer = Dense → [Dropout (first layer only)] → Norm → Act.
     DreamerV3: RMSNorm eps 1e-4 (f32 statistics, scale only), SiLU, bias kept.
     TD-MPC2: LayerNorm eps 1e-5 (`use_fast_variance=False`), Mish, dropout 0.01 in the
     first layer of each Q member only.
@@ -106,8 +110,8 @@ Only blocks both agents use. Each ships with oracle tests (§10).
 ### 4.1 Surface
 ```
 TDMPC2(env_id, n_envs=1, model_size=5, enc_dim=None, mlp_dim=None, latent_dim=None,
-       num_enc_layers=None, num_q=None, simnorm_dim=8, num_bins=101, vmin=-10.0,
-       vmax=10.0, dropout=0.01, horizon=3, rho=0.5, consistency_coef=20.0,
+       num_enc_layers=None, num_q=None, simnorm_dim=8, num_bins=101, vmax=10.0,
+       dropout=0.01, horizon=3, rho=0.5, consistency_coef=20.0,
        reward_coef=0.1, value_coef=0.1, learning_rate=3e-4, enc_lr_scale=0.3,
        grad_clip_norm=20.0, pi_eps=1e-5, tau=0.01, entropy_coef=1e-4,
        log_std_min=-10.0, log_std_max=2.0, batch_size=256, buffer_size=1_000_000,
@@ -119,6 +123,10 @@ TDMPC2(env_id, n_envs=1, model_size=5, enc_dim=None, mlp_dim=None, latent_dim=No
 - `model_size ∈ {1, 5, 19, 48, 317}` fills the `None` widths from the reference table;
   an explicit width overrides it. `iterations += 2` when the action dim ≥ 20.
 - `gamma=None` → `discount(T)`; `seed_steps=None` → `max(1000, 5T)` (T from §2).
+- `vmax` bounds the two-hot bins at `±vmax` in symlog space (`TwoHot.tdmpc2(limit=vmax)`).
+  The reference's separate `vmin` is not exposed: the mirrored bins and the symmetric
+  sum need a symmetric range, which every TD-MPC2 config has (`vmin: -10, vmax: +10`;
+  T24).
 - Continuous actions only (raise on discrete, like SAC). Paper DMC protocol:
   `action_repeat=2, episode_length=1000` (documented in the docstring).
 - Learning rates accept `float | Callable` (house schedulable rule); static
@@ -139,9 +147,14 @@ Spec `tdmpc2_spec.md` §1–§3 with the paper-era column everywhere, in particu
   gradient (PE never clears it before the world-model clip; carried as one scalar);
 - policy optimizer: Adam(3e-4, eps 1e-5), clip 20 (built with the existing `get_adam_tx`);
 - RunningScale on `Qp[0]`, update before divide.
+- Q-ensemble dropout is active in **every** Q pass at PE, the TD target's target-Q pass
+  included (found by running 5f6fade in M2; deviations §2, spec §0.5 item 10).
 - **Randomness seams:** `update(state, batch, noise)` and `plan(..., noise)` take their
-  random draws (ε, dropout masks, Q-pair indices, MPPI noise, elite draw) as explicit
-  arrays produced by `draw_*_noise(key)`, so oracle tests can inject identical draws.
+  random draws (ε, Q-pair indices, MPPI noise, elite draw) as explicit arrays produced by
+  `draw_*_noise(key)`, so oracle tests can inject identical draws. Dropout enters as one
+  key per Q pass (M2): the per-member masks are drawn inside `nn.vmap`, and torch's masks
+  inside `torch.vmap` cannot be recorded, so the parity fixture runs with dropout 0 and
+  dropout is tested on the Ajax side.
 
 ### 4.3 Planner (agent-local `agents/TDMPC2/planner.py`)
 Spec §3.C exactly: 512 candidates including 24 π trajectories (never resampled,
@@ -233,13 +246,16 @@ Two reset modes, chosen by the agent:
 - **static** (fixed-length lockstep episodes; all DMC tasks, all TD-MPC2 runs): the hold
   tick is `i mod (T+1) == T` for every env; on it the collector calls `env.reset` with a
   fresh key inside `lax.cond` on the unbatched tick. This gives a freshly randomised
-  initial state every episode on every backend (playground's auto-reset otherwise returns
-  a cached first state) at ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
+  initial state every episode on every backend, whatever the env's own auto-reset does
+  (a playground env built with `fresh_reset=False` returns a cached first state), at
+  ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
   errors.
 - **dynamic** (data-dependent episode ends: gymnax / brax tasks with terminations):
   per-env hold via `jnp.where` on a snapshot of the env state; reset obs = the
-  auto-reset obs (fresh on gymnax and brax). On playground the auto-reset obs is cached;
-  dynamic mode on playground is registered as a deviation and warned about.
+  auto-reset obs, fresh on gymnax, brax and playground (Ajax's playground stack uses
+  `FreshAutoResetWrapper` by default since #54). Only a playground env built with
+  `fresh_reset=False` restarts from a cached first state; dynamic mode warns about it
+  (deviation E20).
 
 State: `RowCollectorState(CollectorState)` adds `reward`, `is_first`, `is_last`,
 `is_terminal`, `reset_obs`, `env_steps`, `rows`, `n_offschedule_dones`, `policy_carry`.
@@ -433,6 +449,11 @@ agents. APG and both new agents get bench entries with a small documented preset
   modular implementation is compared with the oracle at tiny sizes on random inputs
   with injected noise (atol ~1e-5, matmul precision `highest`): every loss term,
   per-module gradients, post-update parameters, normaliser state, target EMA, plan output.
+  **Changed in M2 for the TD-MPC2 update:** instead of a transcription, the oracle is
+  the unmodified 5f6fade code itself. `docs/world_models/parity/tdmpc2_update_fixtures.py`
+  (run in a throwaway torch venv, not collected by pytest) records consecutive real
+  `update()` calls with their random draws into `tests/agents/TDMPC2/fixtures/`, and
+  `test_tdmpc2_parity.py` replays them through Ajax's jitted update.
 - **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer;
   2411f7d driver + replay add/sample/online queue + train gate + Ratio) on a counter env:
   identical row streams, seed/burst/gate ticks, queue pops, update counts.

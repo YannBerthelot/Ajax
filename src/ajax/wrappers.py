@@ -1,8 +1,8 @@
 """Wrappers for environment"""
 
 # ruff: noqa: C901
-from functools import partial
-from typing import Any, Dict, Optional, Tuple
+from functools import cached_property, partial
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import chex
 import jax
@@ -868,9 +868,10 @@ class NoiseWrapper(BraxWrapper):
 class BatchRngWrapper:
     """Splits an unbatched PRNG key into n_envs keys on reset.
 
-    Playground's `BraxAutoResetWrapper.reset` assumes `rng` is already shape
-    (n_envs, 2) so it can `jax.vmap(jax.random.split)(rng)`. Ajax callers pass
-    a single unbatched key, so this adapter bridges the two conventions.
+    Playground's `BraxAutoResetWrapper.reset` (and `FreshAutoResetWrapper.reset`)
+    assumes `rng` is already shape (n_envs, 2) so it can
+    `jax.vmap(jax.random.split)(rng)`. Ajax callers pass a single unbatched
+    key, so this adapter bridges the two conventions.
     """
 
     def __init__(self, env, n_envs: int):
@@ -930,6 +931,133 @@ class FinalObsWrapper:
         state = self.env.step(state, action)
         state.info["final_obs"] = state.obs
         return state
+
+
+def _split_each(keys: jax.Array) -> Tuple[jax.Array, jax.Array]:
+    """Split every key of an ``(n, 2)`` batch; returns two ``(n, 2)`` batches."""
+    pairs = jax.vmap(jax.random.split)(keys)
+    return pairs[:, 0], pairs[:, 1]
+
+
+def _call_if_any(pred: jax.Array, fn: Callable[[jax.Array], Any], keys: jax.Array):
+    """Return ``fn(subkeys)`` if any element of ``pred`` is set, else zeros of
+    the same structure -- evaluating ``fn`` at most once, and not at all when
+    no element is set, including under ``jax.vmap``.
+
+    ``keys`` is an ``(n, 2)`` batch of PRNG keys; ``fn`` receives keys split
+    from them.
+
+    Why a ``while_loop`` and not a ``lax.cond``: Ajax always vmaps training
+    over seeds, so a predicate computed from the env state is batched, and a
+    ``cond`` with a batched predicate lowers to ``select``, which evaluates
+    the branch on every call. A batched ``while_loop`` instead keeps
+    iterating while *any* element's predicate holds, so here it runs its
+    body once when some element needs it and skips it otherwise; elements
+    whose own predicate is false keep the zeros.
+
+    The keys travel in the loop carry and the body advances them. This is
+    load-bearing: were ``fn`` to close over constant keys, its whole
+    computation would be loop-invariant and XLA's while-loop invariant code
+    motion would hoist it out of the loop, evaluating it unconditionally
+    again (measured on CheetahRun: the same cost as resetting every step).
+    """
+    zeros = jax.tree.map(
+        lambda s: jnp.zeros(s.shape, s.dtype), jax.eval_shape(fn, keys)
+    )
+
+    def body(carry):
+        _, loop_keys, _ = carry
+        loop_keys, subkeys = _split_each(loop_keys)
+        return jnp.zeros((), dtype=bool), loop_keys, fn(subkeys)
+
+    _, _, out = jax.lax.while_loop(
+        lambda carry: carry[0], body, (jnp.any(pred), keys, zeros)
+    )
+    return out
+
+
+class FreshAutoResetWrapper:
+    """Auto-resets a batched mujoco_playground env to a *fresh* initial state.
+
+    Drop-in replacement for playground's ``BraxAutoResetWrapper`` in Ajax's
+    playground stack (EpisodeWrapper, VmapWrapper, FinalObsWrapper, this,
+    BatchRngWrapper; see ``ajax.environments.create``). With its default
+    ``full_reset=False``, upstream caches each env's first reset and restarts
+    every later episode from it, so a whole run sees only ``n_envs`` initial
+    conditions, whereas dm_control draws a new one per episode. Upstream's
+    ``full_reset=True`` does draw new ones, but it (a) evaluates a full reset
+    on every step (on CheetahRun, whose reset runs a 200-step stabilisation,
+    ~180x the cost of a step) and (b) replaces the whole ``info`` of done
+    envs with the reset's, which zeroes ``truncation``, ``episode_done`` and
+    ``episode_metrics`` and overwrites ``final_obs`` with the reset
+    observation, breaking the V(s_T) bootstrap at truncation.
+
+    On a step where some env is done, this wrapper draws a fresh batched
+    reset (computed only on such steps, see :func:`_call_if_any`) and gives
+    each done env, from it:
+
+    * ``data`` and ``obs``;
+    * the ``info`` entries produced by the base environment's own ``reset``,
+      i.e. its per-episode state (its rng, task targets, ...).
+
+    Everything else describes the transition just taken and passes through:
+    ``reward``, ``done``, ``metrics``, and the bookkeeping that the wrappers
+    below write into ``info`` on every step (EpisodeWrapper's ``steps``,
+    ``truncation`` and ``episode_*``; FinalObsWrapper's ``final_obs``).
+    """
+
+    _RNG_KEY = "fresh_auto_reset_rng"
+
+    def __init__(self, env):
+        self.env = env
+
+    def __getattr__(self, name):
+        if name == "__setstate__":
+            raise AttributeError(name)
+        return getattr(self.env, name)
+
+    @property
+    def unwrapped(self):
+        return getattr(self.env, "unwrapped", self.env)
+
+    @cached_property
+    def _episode_info_keys(self) -> Tuple[str, ...]:
+        """``info`` keys of the base environment's own reset (shape-only)."""
+        base_reset = jax.eval_shape(self.unwrapped.reset, jax.random.PRNGKey(0))
+        return tuple(base_reset.info)
+
+    def reset(self, rng: jax.Array):
+        """``rng``: one key per env, shape ``(n_envs, 2)``."""
+        rng, key = _split_each(rng)
+        state = self.env.reset(key)
+        state.info[self._RNG_KEY] = rng
+        return state
+
+    def step(self, state, action: jax.Array):
+        if "steps" in state.info:
+            # EpisodeWrapper's step counter restarts with the new episode.
+            steps = jnp.where(state.done, 0, state.info["steps"])
+            state = state.replace(info={**state.info, "steps": steps})
+        state = state.replace(done=jnp.zeros_like(state.done))
+        state = self.env.step(state, action)
+
+        rng, key = _split_each(state.info[self._RNG_KEY])
+        done = state.done.astype(bool)
+        fresh = _call_if_any(done, self.env.reset, key)
+
+        def where_done(new, old):
+            mask = jnp.reshape(done, done.shape + (1,) * (old.ndim - done.ndim))
+            return jnp.where(mask, new, old)
+
+        info = dict(state.info)
+        for name in self._episode_info_keys:
+            info[name] = jax.tree.map(where_done, fresh.info[name], info[name])
+        info[self._RNG_KEY] = rng
+        return state.replace(
+            data=jax.tree.map(where_done, fresh.data, state.data),
+            obs=jax.tree.map(where_done, fresh.obs, state.obs),
+            info=info,
+        )
 
 
 class TerminatedTruncatedWrapper(GymnaxWrapper):

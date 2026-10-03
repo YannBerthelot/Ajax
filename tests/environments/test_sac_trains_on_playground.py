@@ -11,8 +11,8 @@ immediately at ``interaction.py:398`` with:
     implies that its rank should be at least 1, but is only 0
 
 The fix was to go through ``ajax.environments.create.build_env_from_id``
-which applies EpisodeWrapper + VmapWrapper + FinalObsWrapper +
-BraxAutoResetWrapper + BatchRngWrapper. This test ensures that path
+which applies EpisodeWrapper + VmapWrapper + FinalObsWrapper + an
+auto-reset wrapper + BatchRngWrapper. This test ensures that path
 continues to work for one Playground env so the regression doesn't sneak
 back in.
 """
@@ -66,3 +66,46 @@ def test_playground_env_has_ajax_wrapper_stack():
         f"{type(env).__name__}."
     )
     assert getattr(env, "_ajax_env_id", None) == "CheetahRun"
+
+
+@pytest.mark.slow
+@requires_playground
+def test_sac_trains_from_fresh_initial_states():
+    """The episodes SAC stores in its replay buffer start from distinct
+    observations with the default env stack. (Playground's cached
+    auto-reset, ``fresh_reset=False``, restarts every episode of an env from
+    the same one; see tests/environments/test_fresh_auto_reset.py.)"""
+    import numpy as np
+
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.environments.create import build_env_from_id
+
+    n_envs, episode_length, steps_per_env = 2, 5, 20  # 4 episodes per env
+    env, env_params = build_env_from_id(
+        "CartpoleBalance", n_envs=n_envs, episode_length=episode_length
+    )
+    agent = SAC(
+        env_id=env,
+        env_params=env_params,
+        n_envs=n_envs,
+        learning_starts=10,
+        batch_size=8,
+        buffer_size=100,
+    )
+    state, _ = agent.train(
+        seed=[0], n_timesteps=steps_per_env * n_envs, num_episode_test=1
+    )
+
+    # Buffer leaves are (seed, env, time, ...); one seed here.
+    experience = state.collector_state.buffer_state.experience
+    obs = np.asarray(experience["obs"])[0, :, :steps_per_env]
+    done = (
+        np.asarray(experience["terminated"])[0, :, :steps_per_env, 0]
+        + np.asarray(experience["truncated"])[0, :, :steps_per_env, 0]
+    ) > 0
+    for env_idx in range(n_envs):
+        # An episode starts at t=0 and right after every done transition.
+        starts = np.flatnonzero(np.concatenate([[True], done[env_idx, :-1]]))
+        assert len(starts) == steps_per_env // episode_length
+        start_obs = np.round(obs[env_idx, starts], 6)
+        assert len(np.unique(start_obs, axis=0)) == len(starts), start_obs

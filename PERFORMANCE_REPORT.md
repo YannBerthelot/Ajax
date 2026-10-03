@@ -663,6 +663,47 @@ on fresh-process / HPO workflows. The per-step micro-wins matter most
 for methods with large `num_critics` and `num_critic_updates` (REDQ,
 custom UTD>1 SAC variants).
 
+## Playground fresh auto-reset (2026-10-02)
+
+`build_env_from_id(env_id, fresh_reset=True)` swaps playground's
+`BraxAutoResetWrapper` (every episode of env `i` restarts from one cached
+state) for `ajax.wrappers.FreshAutoResetWrapper` (a new initial state per
+episode). Fresh resets are the default since 2026-10-03, so the costs
+below now apply to every playground run; `fresh_reset=False` restores the
+cached behaviour and its timings. CPU, `JAX_PLATFORMS=cpu`, MJX
+`impl="jax"`; measured while an unrelated CPU job used ~5.5 cores, so
+single-digit-% deltas are noise.
+
+Env step alone (zero actions, episode length 1000, vmapped over 2 seeds as
+every Ajax agent runs), ms per env step:
+
+| env | n_envs | cached (default) | fresh | playground `full_reset=True` |
+|---|---|---|---|---|
+| CheetahRun | 1 | 0.073 | 0.076 | 13.26 |
+| CheetahRun | 16 | 0.33-0.38 | 0.43-0.46 | 60.7 |
+| CartpoleBalance | 1 | 0.005 | 0.006 | 0.007 |
+
+CheetahRun's reset runs a 200-step stabilisation, so a fresh episode start
+costs ~200 steps of physics. Fresh mode pays it once per episode (the
+16-env delta is mostly that: ~0.06 of the ~0.09 ms/step); `full_reset=True`
+pays it every step, and in Ajax's stack it is also incorrect (on done steps
+it zeroes `info["truncation"]` and overwrites `info["final_obs"]` with the
+reset observation). Two gating designs were measured and rejected:
+`lax.cond` on `done.any()` lowers to `select` under the seed vmap and costs
+as much as `full_reset` (9.25 ms/step, CheetahRun, 1 env); a `while_loop`
+whose body closes over a constant key gets the reset hoisted out of the loop
+by XLA (13.24 ms/step). `_call_if_any` threads the key through the loop
+carry to avoid the latter.
+
+SAC end to end, execution only (train compiled once, min of 3 runs), 1 env,
+3000 steps, `learning_starts=500`, ms per iteration: CartpoleBalance 2.80
+cached / 2.70 fresh (noise), CheetahRun 3.51 / 3.58 (+1.9%). Compile plus
+first run grows, because a reset is now compiled into the training and eval
+loops: CartpoleBalance 18.0 -> 22.4 s, CheetahRun 36.1 -> 58.7 s per cold
+process (the persistent compile cache amortises it across processes).
+`benchmarks/agent_bench.py` does not cover this: it only runs gymnax envs,
+whose code path the change does not touch.
+
 ## Where to look for more
 
 The [audit-pending section](PERFORMANCE_LOG.md#audit-items-still-pending)

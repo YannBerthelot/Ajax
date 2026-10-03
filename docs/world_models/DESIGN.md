@@ -246,13 +246,16 @@ Two reset modes, chosen by the agent:
 - **static** (fixed-length lockstep episodes; all DMC tasks, all TD-MPC2 runs): the hold
   tick is `i mod (T+1) == T` for every env; on it the collector calls `env.reset` with a
   fresh key inside `lax.cond` on the unbatched tick. This gives a freshly randomised
-  initial state every episode on every backend (playground's auto-reset otherwise returns
-  a cached first state) at ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
+  initial state every episode on every backend, whatever the env's own auto-reset does
+  (a playground env built with `fresh_reset=False` returns a cached first state), at
+  ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
   errors.
 - **dynamic** (data-dependent episode ends: gymnax / brax tasks with terminations):
   per-env hold via `jnp.where` on a snapshot of the env state; reset obs = the
-  auto-reset obs (fresh on gymnax and brax). On playground the auto-reset obs is cached;
-  dynamic mode on playground is registered as a deviation and warned about.
+  auto-reset obs, fresh on gymnax, brax and playground (Ajax's playground stack uses
+  `FreshAutoResetWrapper` by default since #54). Only a playground env built with
+  `fresh_reset=False` restarts from a cached first state; dynamic mode warns about it
+  (deviation E20).
 
 State: `RowCollectorState(CollectorState)` adds `reward`, `is_first`, `is_last`,
 `is_terminal`, `reset_obs`, `env_steps`, `rows`, `n_offschedule_dones`, `policy_carry`.

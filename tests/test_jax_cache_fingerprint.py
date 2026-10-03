@@ -24,16 +24,38 @@ import sys
 import pytest
 
 
+def _evict_ajax_modules() -> None:
+    """Drop every ``ajax`` module so the next import runs ``ajax/__init__``
+    (and so ``_configure_jax_compile_cache``) again."""
+    for name in list(sys.modules):
+        if name == "ajax" or name.startswith("ajax."):
+            sys.modules.pop(name, None)
+
+
 @pytest.fixture
-def tmp_cache_dir(tmp_path, monkeypatch):
+def fresh_ajax_import():
+    """Let the test re-import ``ajax`` from scratch, then put the original
+    modules back. Without the restore every later test in the session runs
+    split-brain: names other test modules imported at collection time come
+    from the original ``ajax.*`` modules while code that imports lazily gets
+    the re-imported copies, so ``isinstance`` fails across the two."""
+    saved = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "ajax" or name.startswith("ajax.")
+    }
+    _evict_ajax_modules()
+    yield
+    _evict_ajax_modules()
+    sys.modules.update(saved)
+
+
+@pytest.fixture
+def tmp_cache_dir(tmp_path, monkeypatch, fresh_ajax_import):
     """Point ajax at a temp cache dir and ensure a fresh import."""
     cache_dir = tmp_path / "jax_compile_cache"
     cache_dir.mkdir()
     monkeypatch.setenv("AJAX_JAX_COMPILE_CACHE_DIR", str(cache_dir))
-    # Force ajax to re-import so _configure_jax_compile_cache runs again.
-    for name in list(sys.modules):
-        if name == "ajax" or name.startswith("ajax."):
-            sys.modules.pop(name, None)
     return cache_dir
 
 
@@ -92,9 +114,7 @@ def test_no_warning_when_fingerprint_matches(tmp_cache_dir, capfd):
     (tmp_cache_dir / ".host_fingerprint").write_text(_host_fingerprint())
     (tmp_cache_dir / "warm_entry").write_text("kept")
 
-    for name in list(sys.modules):
-        if name == "ajax" or name.startswith("ajax."):
-            sys.modules.pop(name, None)
+    _evict_ajax_modules()
     importlib.import_module("ajax")
 
     out, _ = capfd.readouterr()
@@ -102,14 +122,11 @@ def test_no_warning_when_fingerprint_matches(tmp_cache_dir, capfd):
     assert (tmp_cache_dir / "warm_entry").exists()
 
 
-def test_no_compile_cache_env_var_skips_setup(tmp_path, monkeypatch):
+def test_no_compile_cache_env_var_skips_setup(tmp_path, monkeypatch, fresh_ajax_import):
     """AJAX_NO_COMPILE_CACHE=1 → don't touch the cache dir at all."""
     cache_dir = tmp_path / "untouched"
     monkeypatch.setenv("AJAX_JAX_COMPILE_CACHE_DIR", str(cache_dir))
     monkeypatch.setenv("AJAX_NO_COMPILE_CACHE", "1")
-    for name in list(sys.modules):
-        if name == "ajax" or name.startswith("ajax."):
-            sys.modules.pop(name, None)
 
     import ajax  # noqa: F401
 

@@ -16,14 +16,28 @@ optimizer -- is the same at all sizes (2411f7d ``configs.yaml``:
 ``imag_length``, ``return_lambda``, ``retnorm``, ``opt``, ...) and is a field
 of :class:`DreamerV3Config` with that value as its default. The parity tests
 pin these defaults against the reference's own configuration.
+
+The agent (milestone M7) adds the hyperparameters of its training loop --
+the train ratio, the batch geometry and the replay capacity --
+(:class:`DreamerV3AgentConfig`) and its state (:class:`DreamerV3State`).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from functools import partial
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import jax
+import jax.numpy as jnp
+from flax import struct
+
+from ajax.environments.row_collector import RowCollectorState
+from ajax.normalizers import ReturnNormalizer
+from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+
+if TYPE_CHECKING:
+    from ajax.agents.DreamerV3.replay import ReplayState
 
 #: A learning rate: a constant, or a schedule of the optimizer's update count.
 LearningRate = Union[float, Callable[[jax.Array], jax.Array]]
@@ -233,3 +247,103 @@ class DreamerV3Config:
         carrying it (dreamerv3_spec 3.6).
         """
         return 1.0 - 1.0 / self.return_horizon
+
+
+@partial(struct.dataclass, kw_only=True)
+class DreamerV3AgentConfig(BaseAgentConfig):
+    """Hyperparameters of the DreamerV3 training loop (static).
+
+    Attributes:
+        train_ratio: replayed steps trained per collected row, the
+            reference's ``run.train_ratio`` (2411f7d ``configs.yaml:52``;
+            512 in the ``dmc_proprio`` preset, ``:233-237``): an update every
+            ``batch_size * batch_length / train_ratio`` rows
+            (``embodied/run/train.py:26-28``; dreamerv3_spec 6.1).
+        batch_size: windows per training batch ``B`` (``batch_size: 16``).
+        batch_length: trained rows per window ``T``; a window has ``T + 1``
+            rows, the first being the replay context (2411f7d
+            ``batch_length: 65`` with ``replay_context: 1``).
+        replay_capacity: rows kept, summed over envs (Table 4: 5e6); the
+            ring keeps ``min(ceil(replay_capacity / n_envs), rows per env of
+            the run)`` rows per env (``docs/world_models/DESIGN.md`` sections
+            5.6, 6.3).
+    """
+
+    train_ratio: float = struct.field(pytree_node=False, default=512.0)
+    batch_size: int = struct.field(pytree_node=False, default=16)
+    batch_length: int = struct.field(pytree_node=False, default=64)
+    replay_capacity: int = struct.field(pytree_node=False, default=5_000_000)
+
+
+@struct.dataclass
+class MetricsAccumulator:
+    """Sums of the training-step metrics since the last log, and their count.
+
+    The reference logs the mean of each training metric over the updates
+    since its previous log (``embodied.Agg`` in 2411f7d
+    ``embodied/run/train.py:90``, written at ``:114``).
+    """
+
+    total: dict
+    count: jax.Array
+
+    @classmethod
+    def zeros(cls, keys) -> MetricsAccumulator:
+        return cls(
+            total={k: jnp.zeros((), jnp.float32) for k in keys},
+            count=jnp.zeros((), jnp.int32),
+        )
+
+    def add(self, metrics: dict) -> MetricsAccumulator:
+        total = {
+            k: v + jnp.asarray(metrics[k], jnp.float32) for k, v in self.total.items()
+        }
+        return self.replace(total=total, count=self.count + 1)
+
+    def mean(self) -> dict:
+        """The means (NaN before the first update since the last log)."""
+        count = self.count.astype(jnp.float32)
+        return {
+            k: jnp.where(self.count > 0, v / jnp.maximum(count, 1.0), jnp.nan)
+            for k, v in self.total.items()
+        }
+
+    def reset_where(self, flag: jax.Array) -> MetricsAccumulator:
+        """Zeroed where ``flag`` (a log was written), unchanged otherwise."""
+        return jax.tree.map(lambda x: jnp.where(flag, jnp.zeros_like(x), x), self)
+
+    def replace(self, **kwargs) -> MetricsAccumulator:  # To make mypy happy
+        return struct.replace(self, **kwargs)
+
+
+@partial(struct.dataclass, kw_only=True)
+class DreamerV3State(BaseAgentState):
+    """The DreamerV3 agent's state (``docs/world_models/DESIGN.md`` section 6.6).
+
+    Besides :class:`~ajax.state.BaseAgentState`'s fields -- ``actor_state``
+    (the actor), ``critic_state`` (the critic; ``target_params`` is the slow
+    critic, and its ``step`` counts the slow critic's updates, which
+    :func:`~ajax.agents.DreamerV3.learner.update_slow_critic` reads),
+    ``n_updates`` (training steps so far), ``rng``, ``eval_rng``,
+    ``ext_state`` --:
+
+    Attributes:
+        collector_state: the row collector's state; its ``policy_carry`` is
+            the acting posterior and previous action
+            (:class:`~ajax.agents.DreamerV3.train_DreamerV3.PolicyCarry`).
+        world_model_state: the world model (``enc``, ``rssm``, ``dec``,
+            ``rew``, ``con``) and its LaProp instance.
+        retnorm: the return normaliser.
+        replay_state: the replay rings and the online-queue counter
+            (:class:`~ajax.agents.DreamerV3.replay.ReplayState`).
+        train_metrics: the training metrics since the last log.
+
+    The schedule needs no state of its own: it is a function of the
+    absolute tick, the scan input.
+    """
+
+    collector_state: RowCollectorState
+    world_model_state: LoadedTrainState
+    retnorm: ReturnNormalizer
+    replay_state: ReplayState
+    train_metrics: MetricsAccumulator

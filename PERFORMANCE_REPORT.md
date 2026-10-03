@@ -760,3 +760,49 @@ steps, 4 envs, 7,996 updates; compile 46 s); that number is not a baseline.
 Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py --only TDMPC2
 --out benchmarks/agent_m4b.jsonl` on a quiet machine. Until then `--compare`
 lists TDMPC2 as `NEW (no baseline)`.
+
+The checks are the entries `tdmpc2-pendulum` and `tdmpc2-cartpole-balance` of
+the shared `benchmarks/learning_checks.py` registry (merged with DreamerV3's in
+M7; same agent arguments, budgets, cadences and bars as the runs above).
+
+## DreamerV3 agent (M7): CPU learning checks and bench entry (2026-10-03)
+
+`benchmarks/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
+512, 4 classes) with every other hyperparameter at the paper-era default (16
+envs, train ratio 512, batches of 16 x 64, imagination horizon 15), 20,000 rows
+(the agent's unit: one row per env per vector step, reset rows included), so
+about 9,500 updates; evaluated every 2,000 rows on 10 episodes of sampled
+actions from fresh resets (the reference has no deterministic mode). Seed 0, run
+on the uncommitted M7 worktree on top of `db65f10`, both checks side by side on a
+shared M-series CPU at load average 25-30.
+
+| Check | Eval returns at 2k, 4k, ..., 20k rows | Final | Bar | Verdict | Wall |
+|---|---|---|---|---|---|
+| gymnax Pendulum-v1 (bounds [-2, 2] mapped) | -1182, -1198, -1118, -1252, -1177, -620, -264, -250, -198, -222 | -222 | > -400 | PASS | 68 min |
+| gymnax CartPole-v1 (returns at most 500) | 22, 100, 378, 123, 182, 219, 186, 126, 121, 155 | 155 | > 400 | **FAIL** | 68 min |
+
+Pendulum swings up from 12k rows on and stays up. CartPole learns but does not
+reach the bar at this budget, and its evaluation curve is not monotonic.
+Diagnostic runs (same configuration, outside the registry):
+
+- Seeds 1 and 2, 20k rows, evaluated every 992 rows: both rise from about 19
+  to 286-342 by 6k rows, then oscillate (peaks 462 and 342; finals 487 and
+  121).
+- Seed 0, 40k rows: the first 20k rows follow the check's curve (21, 105,
+  390, 126, ..., 157 at 20k), then the policy reaches the 500 cap at 22k, 30k, 32k and 40k rows, but scores 150-400 on
+  the evaluations in between. The training-episode return (the reference's
+  score, a rolling mean of each env's last 10 episodes) rises monotonically,
+  from 20 to 112 at 20k rows and 211 at 40k.
+
+So the agent learns CartPole. The check fails because the budget is short and a
+single final evaluation of a sampling policy is a noisy criterion. The bar is
+ours, not the paper's: DreamerV3 reports no gymnax CartPole result. Before it
+can be used as a gate, the check needs a decision on a longer budget or a
+different criterion (for example the mean of the last few evaluations).
+
+Bench entry (`benchmarks/agent_bench.py`, preset documented there: the 1m model
+on 8 windows of 16 + 1 rows, train ratio 8, about 500 updates in 8,000 rows, 4
+envs): no baseline row yet. One run at load average about 25 gave a median of
+80.9 steps/s (3 trials at 66.5, 82.1 and 80.9 steps/s; compile 41 s); that
+number is not a baseline. Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py
+--only DreamerV3 --out benchmarks/agent_m7.jsonl` on a quiet machine.

@@ -54,8 +54,8 @@ class ActorCritic:
         self,
         env_id: str | EnvType,  # TODO : see how to handle wrappers?
         n_envs: int = 4,
-        actor_learning_rate: float = 3e-4,
-        critic_learning_rate: float = 3e-4,
+        actor_learning_rate: Union[float, Callable[[int], float]] = 3e-4,
+        critic_learning_rate: Union[float, Callable[[int], float]] = 3e-4,
         actor_architecture=("128", "tanh", "128", "tanh"),
         critic_architecture=("128", "tanh", "128", "tanh"),
         env_params: Optional[EnvParams] = None,

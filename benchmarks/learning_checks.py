@@ -1,46 +1,75 @@
-"""TD-MPC2 learning checks on CPU (a script, not a test).
+"""Learning checks: does an agent learn its task on CPU, at a small preset?
 
-``docs/world_models/DESIGN.md`` §0 and §10: before an agent PR merges, CPU
-learning checks show that the agent learns; their results are recorded in
-the PR and in ``PERFORMANCE_REPORT.md``. They are too long for CI.
+The world-model agents' learning gates (``docs/world_models/DESIGN.md``
+sections 0 and 10): run outside CI, before merging an agent's PR, with the
+results recorded in the PR and in ``PERFORMANCE_REPORT.md``. They are too
+long for CI.
 
-Each check trains TD-MPC2 at a small but faithful configuration -- the
-``model_size=1`` preset (enc 256, mlp 384, latent 128, 2 Q heads) with every
-other hyperparameter at the paper default: the paper planner (512 samples
-including 24 policy-prior trajectories, 64 elites, 6 MPPI iterations), batch
-256, one env, UTD 1, ``seed_steps = max(1000, 5 T)``, ``gamma`` from ``T`` --
-and evaluates the planner in ``eval_mode`` (the reference's protocol) every
-``eval_every`` env steps through the agent's own logging. A check passes
-when every seed's final evaluation return clears the bar:
-
-* ``pendulum``: gymnax Pendulum-v1 (T = 200, the torque bounds [-2, 2]
-  mapped from the agent's [-1, 1]), 6,000 env steps, 10 evaluation
-  episodes; bar: final return > -400 (a random policy scores about -1200, a
-  swing-up policy about -150).
-* ``cartpole_balance``: mujoco_playground CartpoleBalance with
-  ``episode_length=1000, action_repeat=2`` (T = 500 agent steps, the paper's
-  DMC protocol), 10,000 agent steps (20,000 env frames), 5 evaluation
-  episodes; bar: final return > 800 (at most 1000; the paper's curve is at
-  about 998 from 100k frames on, tdmpc2_spec 4.27).
-
-Cost on one CPU core-pool (Apple M-series, measured per agent step at
-``model_size=1``: ~35 ms per update, ~65 ms per planning decision): about
-15 minutes for pendulum and 20 minutes for cartpole_balance per seed on a
-quiet machine; seeds are vmapped and cost roughly linearly. ``--seeds 0 1 2``
-triples it. On a shared machine (load average 25-40), ``--seeds 0 1`` took
-45 minutes for pendulum and 88 minutes for cartpole_balance (results in
-``PERFORMANCE_REPORT.md``).
+One registry serves every agent: :data:`CHECKS` maps ``<agent>-<task>`` to a
+:class:`Check` (the agent class exported by ``ajax``, its constructor
+arguments, a budget in the agent's own unit, a logging and evaluation
+cadence, a bar). A check trains the agent once per seed (one vmapped run),
+reads the curve of its metric from the logged metrics and passes when every
+seed's last logged value exceeds the bar. Agents add their checks as
+entries; the CLI is shared.
 
 Usage::
 
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py
+    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py --list
     JAX_PLATFORMS=cpu python benchmarks/learning_checks.py \\
-        --tasks pendulum --seeds 0 1 --out benchmarks/learning_checks.jsonl
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py --smoke  # plumbing only
+        --only dreamerv3-cartpole --seeds 0 1 --out results.jsonl
+    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py --smoke  # plumbing
 
-``--smoke`` runs a tiny model for a few episodes to check the script itself;
-it says nothing about learning. The exit code is 1 when a (non-smoke) check
-fails.
+``--smoke`` runs each check's tiny variant (:data:`SMOKE`) to check the
+script itself; it says nothing about learning and gives no verdict. Each
+check appends one JSON line (curves, finals, bar, verdict, wall time, git
+sha) to ``--out``; the exit code is 1 when a (non-smoke) check fails.
+
+**The metric** is ``Eval/episodic mean reward`` at the last log: the mean
+return of ``num_episode_test`` episodes of the final policy from fresh
+resets (for DreamerV3, sampled actions from a zero carry: the reference has
+no deterministic mode, dreamerv3_spec 7.3). The training-episode rolling
+mean (``Train/episodic mean reward``, the reference's score) is reported
+next to it but not judged: it averages each env's last 10 episodes, so on
+these budgets it still holds the early episodes of the run (16 envs share
+20 000 rows: 1 250 rows per env, two to six episodes) and lags the policy.
+
+**DreamerV3** (paper-era recipe, every hyperparameter at its default but
+the model size): the ``1m`` preset (``d = 64``: deter 512, 4 classes), 16
+envs, train ratio 512, batches of 16 x 64, imagination 15, 20 000 rows (the
+agent's unit: one per env per vector step, reset rows included), so about
+9 500 updates: about 70 minutes per check and seed on a shared 14-core
+Apple CPU at load 25-30 (two checks running side by side).
+
+* ``dreamerv3-cartpole``: gymnax CartPole-v1 (discrete, terminating,
+  returns at most 500); bar: > 400.
+* ``dreamerv3-pendulum``: gymnax Pendulum-v1 (continuous, torque bounds
+  [-2, 2] mapped from [-1, 1], 200-step episodes; a random policy scores
+  about -1200, a swung-up, balanced pendulum about -150); bar: > -400.
+
+**TD-MPC2** (paper-era recipe, every hyperparameter at its default but the
+model size): the ``model_size=1`` preset (enc 256, mlp 384, latent 128, 2 Q
+heads), the paper planner (512 samples including 24 policy-prior
+trajectories, 64 elites, 6 MPPI iterations), batch 256, one env, UTD 1,
+``seed_steps = max(1000, 5 T)``, ``gamma`` from ``T``; the planner is
+evaluated in ``eval_mode`` (the reference's protocol). The budget is in env
+(agent) steps; ``log_frequency`` must be a multiple of the episode length
+``T`` so that evaluations fall on episode boundaries. Measured per agent
+step at ``model_size=1``: ~35 ms per update, ~65 ms per planning decision,
+i.e. about 15 (pendulum) and 20 (cartpole-balance) minutes per seed on a
+quiet machine; ``--seeds 0 1`` took 45 and 88 minutes at load 25-40.
+
+* ``tdmpc2-pendulum``: gymnax Pendulum-v1 (T = 200, bounds [-2, 2] mapped),
+  6 000 env steps, 10 evaluation episodes; bar: > -400.
+* ``tdmpc2-cartpole-balance``: mujoco_playground CartpoleBalance with
+  ``episode_length=1000, action_repeat=2`` (T = 500 agent steps, the
+  paper's DMC protocol), 10 000 agent steps (20 000 frames), 5 evaluation
+  episodes; bar: > 800 (at most 1000; the paper's curve is at about 998
+  from 100k frames on, tdmpc2_spec 4.27).
+
+These bars are ours, not the papers' (the papers report no point at these
+budgets): a check is a sanity check that the agent learns its task, not a
+reproduction of a published number.
 """
 
 from __future__ import annotations
@@ -53,49 +82,109 @@ import subprocess
 import time
 from typing import Any
 
+import numpy as np
+
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 @dataclasses.dataclass(frozen=True)
 class Check:
-    """One learning check: an env, a budget, an evaluation cadence, a bar."""
+    """One learning check.
 
+    Attributes:
+        agent: the agent class's name, exported by ``ajax``.
+        env_id: the task.
+        description: one line for the logs.
+        kwargs: constructor arguments besides ``env_id``.
+        n_timesteps: training budget, in the agent's own unit (DreamerV3:
+            rows; TD-MPC2: env steps).
+        log_frequency: logging and evaluation cadence, in the same unit; it
+            divides ``n_timesteps``, so that the last tick evaluates.
+        num_episode_test: evaluation episodes per log.
+        bar: every seed's last logged ``metric`` must exceed it.
+        metric: the logged metric compared with the bar.
+    """
+
+    agent: str
     env_id: str
-    agent_kwargs: dict  # env plumbing (episode length, action repeat)
-    n_timesteps: int  # agent (env) steps, the agent's unit
-    eval_every: int  # agent steps; a multiple of T, divides n_timesteps
-    eval_episodes: int
-    bar: float  # every seed's final evaluation return must exceed it
     description: str
+    kwargs: dict = dataclasses.field(default_factory=dict)
+    n_timesteps: int = 20_000
+    log_frequency: int = 2_000
+    num_episode_test: int = 10
+    bar: float = 0.0
+    metric: str = "Eval/episodic mean reward"
 
+
+_DREAMERV3: dict[str, Any] = {"model_size": "1m"}
+_TDMPC2: dict[str, Any] = {"model_size": 1, "n_envs": 1}
 
 CHECKS: dict[str, Check] = {
-    "pendulum": Check(
-        env_id="Pendulum-v1",
-        agent_kwargs={},
-        n_timesteps=6_000,
-        eval_every=2_000,
-        eval_episodes=10,
-        bar=-400.0,
-        description="gymnax Pendulum-v1 (T=200, bounds [-2, 2] mapped)",
+    "dreamerv3-cartpole": Check(
+        agent="DreamerV3",
+        env_id="CartPole-v1",
+        description="DreamerV3 1m on gymnax CartPole-v1 (discrete, terminating)",
+        kwargs=_DREAMERV3,
+        n_timesteps=20_000,
+        log_frequency=2_000,
+        bar=400.0,
     ),
-    "cartpole_balance": Check(
+    "dreamerv3-pendulum": Check(
+        agent="DreamerV3",
+        env_id="Pendulum-v1",
+        description="DreamerV3 1m on gymnax Pendulum-v1 (bounds [-2, 2] mapped)",
+        kwargs=_DREAMERV3,
+        n_timesteps=20_000,
+        log_frequency=2_000,
+        bar=-400.0,
+    ),
+    "tdmpc2-pendulum": Check(
+        agent="TDMPC2",
+        env_id="Pendulum-v1",
+        description="TD-MPC2 size 1 on gymnax Pendulum-v1 (T=200, bounds mapped)",
+        kwargs=_TDMPC2,
+        n_timesteps=6_000,
+        log_frequency=2_000,
+        num_episode_test=10,
+        bar=-400.0,
+    ),
+    "tdmpc2-cartpole-balance": Check(
+        agent="TDMPC2",
         env_id="CartpoleBalance",
-        agent_kwargs={"episode_length": 1000, "action_repeat": 2},
+        description=(
+            "TD-MPC2 size 1 on playground CartpoleBalance (action repeat 2, T=500)"
+        ),
+        kwargs={**_TDMPC2, "episode_length": 1000, "action_repeat": 2},
         n_timesteps=10_000,
-        eval_every=5_000,
-        eval_episodes=5,
+        log_frequency=5_000,
+        num_episode_test=5,
         bar=800.0,
-        description="playground CartpoleBalance (action repeat 2, T=500)",
     ),
 }
 
-# Faithful configuration: the model_size=1 preset, paper defaults elsewhere.
-FAITHFUL: dict[str, Any] = {"model_size": 1}
+#: Tiny variants for ``--smoke``: the same code path in about a minute.
 
-# --smoke: a tiny model and planner and short episodes / budgets.
-_SMOKE_MODEL: dict[str, Any] = {
-    "model_size": 1,
+
+def _smoke_description(name: str) -> str:
+    return f"smoke run of {name} (tiny model, short budget): plumbing only"
+
+
+_DREAMERV3_TINY: dict[str, Any] = {
+    "model_size": "1m",
+    "units": 16,
+    "hidden": 16,
+    "deter": 32,
+    "classes": 4,
+    "stoch": 4,
+    "blocks": 4,
+    "imag_horizon": 3,
+    "batch_size": 4,
+    "batch_length": 8,
+    "train_ratio": 32,
+    "n_envs": 4,
+}
+_TDMPC2_TINY: dict[str, Any] = {
+    **_TDMPC2,
     "enc_dim": 32,
     "mlp_dim": 32,
     "latent_dim": 16,
@@ -105,22 +194,38 @@ _SMOKE_MODEL: dict[str, Any] = {
     "num_pi_trajs": 4,
     "iterations": 2,
 }
-_SMOKE_CHECKS: dict[str, Check] = {
-    "pendulum": dataclasses.replace(
-        CHECKS["pendulum"],
-        agent_kwargs={"seed_steps": 200},  # updates within the short budget
+SMOKE: dict[str, Check] = {
+    **{
+        name: dataclasses.replace(
+            CHECKS[name],
+            description=_smoke_description(name),
+            kwargs=_DREAMERV3_TINY,
+            n_timesteps=400,
+            log_frequency=200,
+            num_episode_test=2,
+        )
+        for name in ("dreamerv3-cartpole", "dreamerv3-pendulum")
+    },
+    "tdmpc2-pendulum": dataclasses.replace(
+        CHECKS["tdmpc2-pendulum"],
+        description=_smoke_description("tdmpc2-pendulum"),
+        kwargs={**_TDMPC2_TINY, "seed_steps": 200},
         n_timesteps=800,
-        eval_every=400,
-        eval_episodes=2,
-        description="smoke: gymnax Pendulum-v1, tiny model",
+        log_frequency=400,
+        num_episode_test=2,
     ),
-    "cartpole_balance": dataclasses.replace(
-        CHECKS["cartpole_balance"],
-        agent_kwargs={"episode_length": 40, "action_repeat": 2, "seed_steps": 20},
+    "tdmpc2-cartpole-balance": dataclasses.replace(
+        CHECKS["tdmpc2-cartpole-balance"],
+        description=_smoke_description("tdmpc2-cartpole-balance"),
+        kwargs={
+            **_TDMPC2_TINY,
+            "episode_length": 40,
+            "action_repeat": 2,
+            "seed_steps": 20,
+        },
         n_timesteps=80,
-        eval_every=40,
-        eval_episodes=2,
-        description="smoke: playground CartpoleBalance, T=20, tiny model",
+        log_frequency=40,
+        num_episode_test=2,
     ),
 }
 
@@ -134,66 +239,80 @@ def _git_sha() -> str:
         return "unknown"
 
 
-def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
-    """Train, read the evaluation curve from the logged metrics, judge it."""
-    import jax
-    import numpy as np
+def _logged(metrics: dict, key: str, ticks: np.ndarray) -> np.ndarray:
+    """``[seeds, logs]``: ``key`` at the logging ticks."""
+    return np.asarray(metrics[key], np.float64)[:, ticks]
 
-    from ajax import TDMPC2
+
+def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
+    """Train ``check`` for every seed (one vmapped run) and judge it."""
+    import jax
+
+    import ajax
     from ajax.logging.wandb_logging import LoggingConfig
 
-    model = _SMOKE_MODEL if smoke else FAITHFUL
-    agent = TDMPC2(check.env_id, n_envs=1, **check.agent_kwargs, **model)
-    T = agent.agent_episode_length
-    if check.eval_every % T or check.n_timesteps % check.eval_every:
+    agent = getattr(ajax, check.agent)(env_id=check.env_id, **check.kwargs)
+    n_envs = agent.env_args.n_envs
+    if check.log_frequency % n_envs or check.n_timesteps % check.log_frequency:
         raise ValueError(
-            f"{name}: eval_every must be a multiple of T = {T} and divide"
-            " n_timesteps, so that the last tick evaluates"
+            f"{name}: log_frequency must be a multiple of n_envs = {n_envs} and"
+            " divide n_timesteps, so that the last tick evaluates"
         )
+    # TD-MPC2 counts env steps on fixed-length episodes of T agent steps; its
+    # evaluations fall on episode boundaries only for multiples of T.
+    episode_length = getattr(agent, "agent_episode_length", None)
+    if episode_length is not None and check.log_frequency % (episode_length * n_envs):
+        raise ValueError(
+            f"{name}: log_frequency must be a multiple of T * n_envs ="
+            f" {episode_length * n_envs}"
+        )
+    # Logging on, writing nowhere: the logged metrics come back as the
+    # per-tick output of train() (NaN on the ticks that do not log).
     logging_config = LoggingConfig(
         config={"learning_check": name},
         project_name="ajax-learning-checks",
-        run_name=f"tdmpc2_{name}",
-        log_frequency=check.eval_every,
+        run_name=name,
+        log_frequency=check.log_frequency,
         use_wandb=False,
         use_tensorboard=False,
     )
-    t0 = time.perf_counter()
+    start = time.perf_counter()
     state, metrics = agent.train(
         seed=seeds,
         n_timesteps=check.n_timesteps,
-        num_episode_test=check.eval_episodes,
+        num_episode_test=check.num_episode_test,
         logging_config=logging_config,
     )
     jax.block_until_ready(state)
-    wall = time.perf_counter() - t0
+    wall = time.perf_counter() - start
 
-    returns = np.asarray(metrics["Eval/episodic mean reward"])  # [seeds, ticks]
-    evaluated = np.isfinite(returns[0])
-    steps = np.asarray(metrics["timestep"])[0, evaluated].tolist()
-    curves = returns[:, evaluated]
-    final = curves[:, -1].tolist()
-    passed = bool(np.all(curves[:, -1] > check.bar))
+    ticks = np.flatnonzero(np.isfinite(np.asarray(metrics[check.metric])[0]))
+    curve = _logged(metrics, check.metric, ticks)
+    train_curve = _logged(metrics, "Train/episodic mean reward", ticks)
+    final = curve[:, -1]
     return {
         "check": name,
         "description": check.description,
         "smoke": smoke,
+        "agent": check.agent,
+        "env": check.env_id,
+        "kwargs": check.kwargs,
         "seeds": seeds,
         "n_timesteps": check.n_timesteps,
         "env_frames": check.n_timesteps * agent.env_args.action_repeat,
-        "eval_steps": steps,
-        "eval_returns": curves.tolist(),
-        "final_returns": final,
+        "metric": check.metric,
+        "timesteps": np.asarray(metrics["timestep"])[0, ticks].tolist(),
+        "curve": curve.tolist(),
+        "train_curve": train_curve.tolist(),
+        "final": final.tolist(),
         "bar": check.bar,
-        "passed": passed,
-        "train_episodic_return": np.asarray(
-            state.collector_state.episodic_mean_return
-        ).tolist(),
+        "passed": bool(np.all(final > check.bar)),
         "n_updates": np.asarray(state.n_updates).tolist(),
-        "T": T,
-        "gamma": agent.gamma,
-        "seed_steps": agent.seed_steps,
-        "config": {**model, **check.agent_kwargs},
+        "resolved": {
+            key: getattr(agent, key)
+            for key in ("agent_episode_length", "gamma", "seed_steps")
+            if hasattr(agent, key)
+        },
         "wall_s": round(wall, 1),
         "git_sha": _git_sha(),
         "jax_backend": jax.default_backend(),
@@ -202,44 +321,50 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument(
-        "--tasks", nargs="*", default=list(CHECKS), choices=list(CHECKS)
-    )
+    parser.add_argument("--only", nargs="*", default=None, help="checks to run")
     parser.add_argument("--seeds", nargs="*", type=int, default=[0])
     parser.add_argument("--out", default=None, help="append JSON lines here")
+    parser.add_argument("--list", action="store_true", help="list the checks")
     parser.add_argument(
-        "--smoke", action="store_true", help="tiny run to check the script only"
+        "--smoke", action="store_true", help="tiny runs to check the script only"
     )
     args = parser.parse_args()
 
-    checks = _SMOKE_CHECKS if args.smoke else CHECKS
-    results = []
-    for name in args.tasks:
+    checks = SMOKE if args.smoke else CHECKS
+    if args.list:
+        for name, check in checks.items():
+            print(
+                f"{name:24s} {check.description}: {check.n_timesteps} steps,"
+                f" {check.metric} > {check.bar}"
+            )
+        return 0
+
+    names = args.only if args.only else list(checks)
+    unknown = [name for name in names if name not in checks]
+    if unknown:
+        raise SystemExit(f"unknown checks {unknown}; see --list")
+    passed = True
+    for name in names:
         check = checks[name]
-        print(
-            f"[{name}] {check.description}: {check.n_timesteps} agent steps,"
-            f" seeds {args.seeds}",
-            flush=True,
-        )
+        print(f"[{name}] {check.description}, seeds {args.seeds}", flush=True)
         result = run_check(name, check, args.seeds, args.smoke)
-        results.append(result)
-        if args.smoke:
-            verdict = "smoke run, no verdict"
-        else:
-            verdict = "PASS" if result["passed"] else "FAIL"
+        verdict = (
+            "smoke run, no verdict"
+            if args.smoke
+            else ("PASS" if result["passed"] else "FAIL")
+        )
         print(
-            f"[{name}] eval at steps {result['eval_steps']}:"
-            f" {result['eval_returns']}\n"
-            f"[{name}] final {result['final_returns']} vs bar > {check.bar}:"
-            f" {verdict}  ({result['wall_s']} s)",
+            f"[{name}] {check.metric} at {result['timesteps']}: {result['curve']}\n"
+            f"[{name}] Train/episodic mean reward: {result['train_curve']}\n"
+            f"[{name}] final {result['final']} vs bar > {check.bar}: {verdict}"
+            f" ({result['wall_s']} s, {result['n_updates']} updates)",
             flush=True,
         )
+        passed &= result["passed"]
         if args.out:
             with open(args.out, "a") as f:
                 f.write(json.dumps(result) + "\n")
-    if args.smoke:
-        return 0
-    return 0 if all(r["passed"] for r in results) else 1
+    return 0 if args.smoke or passed else 1
 
 
 if __name__ == "__main__":

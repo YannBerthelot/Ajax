@@ -53,8 +53,11 @@ Companion documents (same directory): `dreamerv3_spec.md`, `tdmpc2_spec.md`,
 - **TD-MPC2:** `n_timesteps` counts **env steps** (agent steps). With fixed-length
   episodes the tick ↔ step map is static: per episode T+1 ticks, T stepping ticks.
   `collector_state.timestep` = env steps.
-- Both log `env_frames = env_steps * action_repeat` (the papers' x-axes) next to the
-  house keys (`timestep`, `Eval/episodic mean reward`, `Train/episodic mean reward`).
+- Both log `env_frames` (the papers' x-axes) next to the house keys (`timestep`,
+  `Eval/episodic mean reward`, `Train/episodic mean reward`) and `Train/n_updates`, each
+  on its reference's clock: TD-MPC2 `env_steps * action_repeat`; DreamerV3 `rows *
+  action_repeat` (2411f7d's logger multiplies its row clock `step` by the repeat,
+  `main.py:124-132`), one row per episode (the reset row) above the simulator's frames.
 - **Episode length in agent steps** `T = agent_episode_length(env, env_params,
   action_repeat)`: brax/playground `env.episode_length // action_repeat` (EpisodeWrapper
   counts simulator steps), gymnax `env_params.max_steps_in_episode // action_repeat`;
@@ -300,15 +303,18 @@ the same number of updates as an uninterrupted one and never repeats the seed ph
 Static per `train()` call: `replay_capacity` / `buffer_size` are clamped to the run
 length (`min(capacity, rows or env steps the run has taken when this call ends)`, the
 references' own `min(·, steps)`, which saves memory without changing what is replayed:
-a buffer that holds the whole run never evicts). Updated after the M4b review: the
-first version resolved the capacity once, at the first `train()`, and kept it; a run
-trained in chunks then kept the first chunk's (smaller) buffer for good, and a
-checkpoint restored by a new agent met a buffer of another size. Instead, a resumed
-run sizes its buffer for the whole run so far and moves the carried data into it
-(TD-MPC2: `EpisodeBuffer.adopt`), so the resume skeleton's (`n_timesteps=0`) buffer
-shapes do not matter and a chunked run replays exactly what an uninterrupted one does.
-Capacity and bytes per seed are recorded on the agent and in its run config; the
-docstring lists the memory per seed (seed vmap multiplies it).
+a buffer that holds the whole run never evicts). Every `train()` call resolves the size:
+a fresh run from its own length; a resumed run from its total length (so far + this
+call), so that a run split into resumed calls replays exactly what the uninterrupted run
+does. TD-MPC2 moves the carried episodes into the newly sized buffer
+(`EpisodeBuffer.adopt`), so its resume skeleton's (`n_timesteps=0`) shapes do not
+matter; DreamerV3 grows a run-clamped ring by exact zero-padding (§6.3), and its 0-tick
+skeleton reuses the size the agent's latest run recorded. (Updated after the M4b and
+M7 reviews: the first versions resolved the capacity once, at the first `train()`, so a
+chunked run kept the first chunk's smaller buffer and a checkpoint restored by a new
+agent met a buffer of another size.) Capacity and bytes per seed are recorded on the
+agent and in its run config; the docstrings list the memory per seed, buffer and
+training working set (the seed vmap multiplies it).
 
 ### 5.7 Extension support
 `ActorCritic.supported_extension_phases: frozenset = frozenset(PHASES)` checked in
@@ -368,8 +374,13 @@ repval (not stop-gradiented, trains the world model, fixed γ, ~is_last mask);
 
 ### 6.3 Replay (`agents/DreamerV3/replay.py`)
 - Per-env stream ring `[n_envs, C, ·]` (lockstep write pointer), rows per §5.2 plus the
-  posterior latents `deter` (f32) and `stoch` (class indices, uint8 when C ≤ 256) of
-  each row, `C = min(ceil(replay_capacity / n_envs), rows per env of the run)`.
+  posterior latents `deter` (f32) and `stoch` (class indices, uint8 when classes ≤ 256)
+  of each row, `C = min(ceil(replay_capacity / n_envs), rows per env of the run)`, never
+  below the `batch_length + ceil(B / n_envs)` rows that hold the first batch's items
+  (a run too short to train keeps that minimal ring; capacity in rows: D27). A resumed
+  run needs the ring of its total rows; a shorter state ring (sized by an earlier,
+  shorter call) has overwritten nothing, so row `a` sits at slot `a`, and it grows by
+  zero-padding to exactly the uninterrupted run's ring (`grow_rings`).
 - Items = all fully written windows of `L = batch_length + 1 = 65` rows (stride 1,
   crossing episodes). Physical indices are `(start + k) mod C`, read with `take` and
   written with modular scatters (never `dynamic_slice` on the ring).
@@ -390,25 +401,31 @@ Static, per tick, from the transition-level reference (`train.py` + `when.Ratio`
 transitions are numbered within ticks; the gate opens at the first transition with
 `len(replay) ≥ batch_size` items (items per env = rows − 64), where Ratio returns 1;
 afterwards cumulative updates after transition t are `1 + ⌊(t − t0)·r⌋` with
-`r = train_ratio / (B·T)`. `n_updates(i)` = difference of that closed form between the
+`r = train_ratio / (B·T)` (exact; the reference's float64 `prev` agrees whenever `1/r`
+is exact, as in every reference configuration: D26). `n_updates(i)` = difference of that closed form between the
 ends of ticks i and i−1. With 16 envs the first update is at tick 64. Pinned by a test
 against a Python port of the 2411f7d driver for `n_envs ∈ {1, 4, 16, 32}`. Updates are
 run after the tick's rows are added (registered: the reference interleaves them between
 the per-env adds of one vector step).
 
 ### 6.5 Collection and evaluation
-Collector in static mode on fixed-length tasks (DMC), dynamic mode otherwise (e.g.
-CartPole). Acting = posterior filter with the carried (deter, stoch, prevact), sampled
-posterior, **sampled** action (no deterministic mode in the reference); prevact = raw
-sample. Primary metric = training-episode returns of the stochastic policy (reference);
+Collector in dynamic mode on every task: the stream replay takes any episode boundary,
+and the auto-reset is fresh on gymnax, brax and playground (`fresh_reset=True` by
+default since #54; E20), so fixed-length DMC tasks need no static schedule. Acting =
+posterior filter with the carried (deter, stoch, prevact), sampled posterior,
+**sampled** action (no deterministic mode in the reference); prevact = raw sample.
+Primary metric = training-episode returns of the stochastic policy (reference);
 `evaluate_policy` eval episodes also sample, starting from a zero carry with
-`is_first = True`.
+`is_first = True`. Logged training metrics are their means over the updates since the
+previous log (the reference's `embodied.Agg`).
 
 ### 6.6 State
 `DreamerV3State(BaseAgentState, kw_only)`: `world_model_state` (enc, rssm, dec, rew,
-con; the reference's `dyn` is `rssm`), `actor_state`, `critic_state` (`target_params` = slow critic), `retnorm`,
+con; the reference's `dyn` is `rssm`), `actor_state`, `critic_state` (`target_params` =
+slow critic; its `step` counts the slow critic's updates), `retnorm`,
 `collector_state` (row collector + policy carry), `replay_state` (+ online-queue
-counter).
+counter), `train_metrics` (sums since the last log). The schedule keeps no state: it is
+a function of the absolute tick.
 
 ## 7. TD-MPC2 multi-task (M8)
 
@@ -447,7 +464,11 @@ counter).
   value via time-limit bootstrap; reward = action → planner action → +1).
 - DreamerV3: local adaptor (tiny config, `return_horizon = 1/(1−γ)`, value read at the
   posterior after filtering the canonical trajectory from `is_first`); added to the
-  skip set with the existing "too slow" reason if a check exceeds ~60 s in CI.
+  skip set with the existing "too slow" reason if a check exceeds ~60 s in CI. The
+  value, discounting and advantage-policy probes run (~30 s each); the coupling probe
+  is skipped by design: its `Box(0, 1)` actions are mapped from `[−1, 1]` (§5.1), so
+  its reward at observation −1 needs a sample `a ≤ −1`, which the bounded-mean policy
+  draws with probability below ½, and its `V ≥ 0.8` is unreachable.
 
 ## 9. Performance guardrail
 PR #48 (restore `benchmarks/`) merges first; a fresh CPU baseline is captured on this

@@ -29,6 +29,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | **UDRL**  | Schmidhuber, *Reinforcement Learning Upside Down: Don't Predict Rewards, Just Map Them to Actions*, 2019 — [arXiv:1912.02875](https://arxiv.org/abs/1912.02875) |
 | **APG**   | Analytic policy gradient through a differentiable simulator. `APG.contextual_controller` is the in-context controller of Busetto, Breschi, Forgione, Piga & Formentin, *One controller to rule them all*, 2024 — [arXiv:2411.06482](https://arxiv.org/abs/2411.06482) |
 | **TDMPC2** | Hansen, Su & Wang, *TD-MPC2: Scalable, Robust World Models for Continuous Control*, ICLR 2024 — [arXiv:2310.16828](https://arxiv.org/abs/2310.16828). Paper-era `nicklashansen/tdmpc2@b67b21c` / `5f6fade`; single-task online, continuous actions, fixed-length non-terminating tasks (see `docs/world_models/`) |
+| **TDMPC2MultiTask** | The same paper's multi-task agent: one task-conditioned model trained offline on the pooled data of several tasks of different observation and action dims (`TDMPC2MultiTask(dataset, eval_envs)`; datasets from single-task runs with `ajax.agents.TDMPC2.dataset`; see `docs/world_models/DESIGN.md` §7) |
 
 ### Environment Compatibility
 - **Gymnax**, **Brax**, and **MuJoCo Playground** (with full termination vs truncation handling).
@@ -209,7 +210,9 @@ src/ajax/
 │   │   ├── train_<AGENT>.py # make_train, update steps, loss functions
 │   │   └── state.py         # Agent-specific flax.struct.dataclass state
 │   │                        #   (TDMPC2/ adds networks.py, core.py (one update),
-│   │                        #   planner.py (MPPI) and buffer.py (episode replay))
+│   │                        #   planner.py (MPPI) and buffer.py (episode replay);
+│   │                        #   multi-task: multitask.py, dataset.py and the
+│   │                        #   offline TDMPC2MultiTask.py / train_TDMPC2MultiTask.py)
 ├── buffers/                 # flashbax-based replay buffer helpers
 ├── environments/            # Env creation, interaction loops, collect_experience,
 │                            #   system_class (EnvParams distributions), differentiable

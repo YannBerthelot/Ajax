@@ -6,7 +6,12 @@ import pytest
 
 from ajax import PPO
 from ajax.agents.base import ActorCritic
-from ajax.extensions.base import PHASES, Extension
+from ajax.extensions.base import (
+    PHASES,
+    Extension,
+    ExtensionStack,
+    check_extension_phases,
+)
 
 
 @dataclass(frozen=True)
@@ -90,3 +95,15 @@ def test_existing_agents_support_every_phase_by_default():
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     agent = PPO("CartPole-v1", n_envs=1, extensions=[EveryPhase()])
     assert len(agent.extension_stack) == 1
+
+
+def test_the_phase_check_applies_to_any_stack():
+    """The check ``ActorCritic`` runs at construction, also used by agents
+    that are not ``ActorCritic`` (the offline multi-task TD-MPC2)."""
+    supported = frozenset({"post_update", "eval_metrics"})
+    check_extension_phases("Offline", ExtensionStack([Instrument()]), supported)
+    check_extension_phases("Offline", [], supported)
+    with pytest.raises(ValueError) as error:
+        check_extension_phases("Offline", [Instrument(), TargetTweak()], supported)
+    assert "Offline does not support" in str(error.value)
+    assert "'target-tweak'" in str(error.value) and "on_target" in str(error.value)

@@ -39,12 +39,38 @@ dropout-free (tdmpc2_spec 2.3 and 2.16, which mark the PE behaviour; §0.5
 item 10). Ajax follows the paper-era code: :func:`td_target` takes a dropout
 key.
 
-Single-task only. Multi-task (M8) extends these functions together with its
-task-embedding table: the embedding must be looked up from the world-model
-parameters inside the losses so that it is trained (with its max-norm
-write-back, spec 1.22), the action masks enter both policy samples (1.23,
-1.9), the discount is per task (2.20) and the policy loss stop-gradients the
-embedding (2.18). The networks already accept the embedding input.
+Multi-task conditioning (M8; the paper-era ``cfg.multitask`` branches of the
+same functions, ``world_model.py:19-23, 78-148``, ``tdmpc2.py:26, 32-34,
+215``). Every function takes an optional :class:`TaskContext` (``None``, the
+default, is the single-task computation, unchanged):
+
+* the task-embedding table ``[num_tasks, task_dim]`` is a world-model
+  parameter, ``wm_params[TASK_EMB]`` (the reference's ``_task_emb`` is in the
+  world-model Adam at the full learning rate and in its clip,
+  ``tdmpc2.py:21-27, 271``), created by :func:`create_update_state`; target
+  Q has none (``world_model.py:31``), so online and target Q read the same
+  online table. The embedding ``e`` is looked up from the parameters inside
+  each function, so the world-model loss trains it, and concatenated in the
+  reference order (``[obs, e]``, ``[z, e, a]``, ``[z, e]``; tdmpc2_spec
+  1.22);
+* ``nn.Embedding(max_norm=1)``: every looked-up row of norm above 1 is
+  rescaled in the stored table, outside autograd, at every look-up
+  (:func:`renorm_task_embedding`). Within one update this binds at the
+  update's first look-up (before the TD target) and at the first look-up
+  after the world-model Adam step (before the policy loss); :func:`update`
+  writes the renormed rows back at exactly these two points;
+* the prefix action masks multiply the policy's mean, log-std and noise
+  before sampling and the log-probability, which counts the valid dims
+  (:func:`squashed_gaussian`, spec 1.9, 1.23);
+* the discount is per task: ``gamma`` may be a per-sample array (spec 2.20);
+* the policy loss reads the embedding from the stop-gradiented parameters,
+  as 5f6fade's ``track_q_grad(False)`` freezes ``_task_emb`` with the Q
+  heads (``world_model.py:58-68``; spec 2.18: the latest code leaks this
+  gradient into the next world-model step).
+
+:mod:`ajax.agents.TDMPC2.multitask` builds the contexts and the per-task
+discounts from a task set; :mod:`ajax.agents.TDMPC2.planner` takes the same
+context.
 """
 
 from __future__ import annotations
@@ -82,6 +108,12 @@ _CLIP_EPS = 1e-6
 # math.py:35-37, the tanh-squash correction log(relu(1 - a^2) + 1e-6).
 _SQUASH_EPS = 1e-6
 _HALF_LOG_2PI = 0.5 * float(np.log(2.0 * np.pi))
+# nn.Embedding(max_norm=1) (world_model.py:20) and the 1e-7 torch's
+# embedding_renorm_ adds to the norm (tdmpc2_spec 1.22).
+_EMB_MAX_NORM = 1.0
+_EMB_RENORM_EPS = 1e-7
+# The task-embedding table's key in the world-model parameters.
+TASK_EMB = "task_emb"
 
 
 def discount_from_episode_length(
@@ -163,6 +195,61 @@ def draw_update_noise(
     )
 
 
+@struct.dataclass
+class TaskContext:
+    """The multi-task conditioning of a batch or of one decision (M8).
+
+    Built by :meth:`ajax.agents.TDMPC2.multitask.TaskSet.context` from task
+    ids (tdmpc2_spec 1.22, 1.23).
+
+    Attributes:
+        ids: int32 task ids, ``[B]`` per batch element (the reference's
+            ``task[0]`` of each slice, ``buffer.py:81``) or ``[]`` for one
+            planning decision; they index ``wm_params[TASK_EMB]``.
+        mask: float32 prefix action masks of those tasks, ``[B, A]`` (or
+            ``[A]``): 1 on each task's ``action_dims[i]`` leading dims, 0 on
+            the padding (``world_model.py:21-23``).
+    """
+
+    ids: jax.Array
+    mask: jax.Array
+
+
+def task_embedding(wm_params: Params, task: Optional[TaskContext]) -> Any:
+    """``e = W[ids]`` from the world-model parameters, or ``None`` without a
+    task (single task).
+
+    A plain gather: the gradient w.r.t. the looked-up row is the identity,
+    as torch's after its in-place renorm (``world_model.py:86``). The renorm
+    itself is :func:`renorm_task_embedding`, applied by the callers at the
+    reference's look-up points.
+    """
+    if task is None:
+        return None
+    return wm_params[TASK_EMB][task.ids]
+
+
+def renorm_task_embedding(wm_params: Params, ids: jax.Array) -> Params:
+    """``nn.Embedding(max_norm=1)``'s look-up-time renorm, written back.
+
+    ``torch.embedding_renorm_`` (tdmpc2_spec 1.22, ``world_model.py:20, 86``):
+    every row of ``wm_params[TASK_EMB]`` indexed by ``ids`` whose norm
+    exceeds 1 is rescaled by ``1 / (norm + 1e-7)``; other rows, looked-up
+    rows inside the unit ball included, are unchanged. Returns the
+    parameters with the renormed table. Apply it outside any differentiated
+    function and differentiate w.r.t. its result: torch renorms in place
+    under ``no_grad``, takes the gradient w.r.t. the renormed table and
+    steps Adam from it (the Adam moments are not touched). Fixed-shape: one
+    mask over the table's rows, so repeated ids cost nothing.
+    """
+    table = wm_params[TASK_EMB]
+    looked_up = jnp.zeros(table.shape[0], bool).at[jnp.ravel(ids)].set(True)
+    norm = jnp.linalg.norm(table, axis=-1, keepdims=True)
+    renormed = table * (_EMB_MAX_NORM / (norm + _EMB_RENORM_EPS))
+    rows = looked_up[:, None] & (norm > _EMB_MAX_NORM)
+    return {**wm_params, TASK_EMB: jnp.where(rows, renormed, table)}
+
+
 class PolicySample(NamedTuple):
     """A reparameterised policy sample (``world_model.py:122-148``).
 
@@ -184,25 +271,36 @@ def squashed_gaussian(
     raw_log_std: jax.Array,
     eps: jax.Array,
     config: TDMPC2Config,
+    mask: Optional[jax.Array] = None,
 ) -> PolicySample:
-    """The paper-era TD-MPC2 policy sample and log-probability (single-task).
+    """The paper-era TD-MPC2 policy sample and log-probability.
 
     ``world_model.py:132-148`` with ``math.py:12-45`` (tdmpc2_spec 1.8, 1.9,
     2.12; deviations.md §2, "Policy entropy bonus"):
 
     * ``log_std = min + 0.5 (max - min) (tanh(raw) + 1)``;
+    * multi-task (``mask``, the prefix action mask broadcast against
+      ``[..., A]``): ``mean``, ``log_std`` and ``eps`` are multiplied by the
+      mask, and ``n`` is the number of valid dims (``world_model.py:136-140``,
+      spec 1.23); single task ``n = A``;
     * ``u = mean + eps exp(log_std)``, ``action = tanh(u)``;
     * ``log_pi = n (sum_d(-eps^2 / 2 - log_std) - ln(2 pi) / 2)
-      - sum_d log(relu(1 - action^2) + 1e-6)`` with ``n = A``: the Gaussian
-      part scaled by ``n``, the tanh correction unscaled and differentiated.
-      The ``1e-6`` keeps ``log_pi`` and its gradient finite when ``tanh``
+      - sum_d log(relu(1 - action^2) + 1e-6)``: the Gaussian part scaled by
+      ``n``, the tanh correction unscaled and differentiated. Both sums run
+      over all ``A`` dims; a masked dim adds 0 to the first and
+      ``log(1 + 1e-6)`` to the second, and its action is exactly 0. The
+      ``1e-6`` keeps ``log_pi`` and its gradient finite when ``tanh``
       saturates to exactly +-1 in float32.
     """
     log_std = config.log_std_min + 0.5 * (config.log_std_max - config.log_std_min) * (
         jnp.tanh(raw_log_std) + 1.0
     )
+    n: Any = eps.shape[-1]
+    if mask is not None:
+        mean, log_std, eps = mean * mask, log_std * mask, eps * mask
+        n = jnp.sum(mask, axis=-1)
     residual = jnp.sum(-0.5 * jnp.square(eps) - log_std, axis=-1)
-    log_pi = (residual - _HALF_LOG_2PI) * eps.shape[-1]
+    log_pi = (residual - _HALF_LOG_2PI) * n
     action = jnp.tanh(mean + eps * jnp.exp(log_std))
     log_pi = log_pi - jnp.sum(
         jnp.log(jax.nn.relu(1.0 - jnp.square(action)) + _SQUASH_EPS), axis=-1
@@ -218,10 +316,16 @@ def policy_sample(
     z: jax.Array,
     eps: jax.Array,
     config: TDMPC2Config,
+    task_emb: Optional[jax.Array] = None,
+    mask: Optional[jax.Array] = None,
 ) -> PolicySample:
-    """Sample the policy prior at latents ``z [..., L]`` with noise ``eps [..., A]``."""
-    mean, raw_log_std = pi_apply({"params": pi_params}, z)
-    return squashed_gaussian(mean, raw_log_std, eps, config)
+    """Sample the policy prior at latents ``z [..., L]`` with noise ``eps [..., A]``.
+
+    Multi-task: the task embedding ``task_emb`` enters as ``[z, e]`` and the
+    action ``mask`` as in :func:`squashed_gaussian` (``world_model.py:122-148``).
+    """
+    mean, raw_log_std = pi_apply({"params": pi_params}, z, task_emb)
+    return squashed_gaussian(mean, raw_log_std, eps, config, mask)
 
 
 def q_logits(
@@ -232,11 +336,13 @@ def q_logits(
     *,
     q_params: Optional[Params] = None,
     dropout_key: Optional[jax.Array] = None,
+    task_emb: Optional[jax.Array] = None,
 ) -> jax.Array:
     """All Q members' logits ``[num_q, ..., num_bins]``.
 
     ``q_params`` replaces the online ensemble (the target Q for TD targets);
-    ``dropout_key`` enables the members' dropout, ``None`` disables it.
+    ``dropout_key`` enables the members' dropout, ``None`` disables it;
+    ``task_emb`` is the multi-task embedding (``[z, e, a]``).
     """
     params = wm_params if q_params is None else {**wm_params, "q": q_params}
     rngs = None if dropout_key is None else {"dropout": dropout_key}
@@ -244,6 +350,7 @@ def q_logits(
         {"params": params},
         z,
         action,
+        task_emb,
         deterministic=dropout_key is None,
         method="q_logits",
         rngs=rngs,
@@ -258,6 +365,7 @@ def q_pair_logits(
     pair: jax.Array,
     *,
     dropout_key: Optional[jax.Array] = None,
+    task_emb: Optional[jax.Array] = None,
 ) -> jax.Array:
     """Logits ``[2, ..., num_bins]`` of the online Q members ``pair`` only.
 
@@ -274,7 +382,13 @@ def q_pair_logits(
     members = jax.tree_util.tree_map(lambda p: p[pair], wm_params["q"])
     pair_apply = make_world_model(config.replace(num_q=2)).apply
     return q_logits(
-        pair_apply, wm_params, z, action, q_params=members, dropout_key=dropout_key
+        pair_apply,
+        wm_params,
+        z,
+        action,
+        q_params=members,
+        dropout_key=dropout_key,
+        task_emb=task_emb,
     )
 
 
@@ -314,6 +428,7 @@ def td_target(
     pair: jax.Array,
     dropout_key: Optional[jax.Array],
     config: TDMPC2Config,
+    task: Optional[TaskContext] = None,
 ) -> tuple[jax.Array, jax.Array]:
     """TD targets ``y [H, B]`` and next latents ``h(s') [H, B, L]``, no gradient.
 
@@ -323,10 +438,15 @@ def td_target(
     target heads; no termination factor. The paper-era target-Q pass has
     dropout on (module docstring): pass ``dropout_key``; ``None`` gives the
     dropout-free target of the latest code. ``next_z`` is also the consistency
-    target. ``gamma`` is a Python float or a scalar array.
+    target. ``gamma`` is a Python float, a scalar array or, multi-task, the
+    per-sample discounts ``[B]`` (``discount[task]``, ``tdmpc2.py:215``);
+    ``task`` conditions every network on the (online) embedding and masks
+    the policy sample.
     """
-    next_z = wm_apply({"params": wm_params}, next_obs, method="encode")
-    action = policy_sample(pi_apply, pi_params, next_z, eps, config).action
+    emb = task_embedding(wm_params, task)
+    mask = None if task is None else task.mask
+    next_z = wm_apply({"params": wm_params}, next_obs, emb, method="encode")
+    action = policy_sample(pi_apply, pi_params, next_z, eps, config, emb, mask).action
     logits = q_logits(
         wm_apply,
         wm_params,
@@ -334,6 +454,7 @@ def td_target(
         action,
         q_params=target_q_params,
         dropout_key=dropout_key,
+        task_emb=emb,
     )
     q = reduce_q_pair(logits, pair, "min", config.two_hot)
     y = reward + gamma * q
@@ -348,6 +469,7 @@ def world_model_loss(
     td_targets: jax.Array,
     dropout_key: Optional[jax.Array],
     config: TDMPC2Config,
+    task: Optional[TaskContext] = None,
 ) -> tuple[jax.Array, tuple[dict[str, jax.Array], jax.Array]]:
     """World-model loss, its terms and the rollout latents ``zs [H + 1, B, L]``.
 
@@ -361,24 +483,37 @@ def world_model_loss(
     * total ``20 consistency + 0.1 reward + 0.1 value`` (config coefficients).
 
     ``zs`` (``z_0`` encoded, ``z_1 .. z_H`` predicted) feeds the policy loss.
+    Multi-task, ``task``'s embedding is looked up from ``wm_params`` here, so
+    the loss trains the table (``tdmpc2.py:241-252``); the buffer actions are
+    zero on the invalid dims and are not masked (spec 1.23).
     """
     horizon = config.horizon
     rho = _rho_weights(config.rho, horizon)
-    z = wm_apply({"params": wm_params}, batch.obs[0], method="encode")
+    emb = task_embedding(wm_params, task)
+    z = wm_apply({"params": wm_params}, batch.obs[0], emb, method="encode")
     zs = [z]
     consistency = jnp.zeros((), jnp.float32)
     for t in range(horizon):
-        z = wm_apply({"params": wm_params}, z, batch.action[t], method="next")
+        z = wm_apply({"params": wm_params}, z, batch.action[t], emb, method="next")
         consistency = consistency + jnp.mean(jnp.square(z - next_z[t])) * rho[t]
         zs.append(z)
     latents = jnp.stack(zs)
 
     two_hot = config.two_hot
     q = q_logits(
-        wm_apply, wm_params, latents[:-1], batch.action, dropout_key=dropout_key
+        wm_apply,
+        wm_params,
+        latents[:-1],
+        batch.action,
+        dropout_key=dropout_key,
+        task_emb=emb,
     )
     r = wm_apply(
-        {"params": wm_params}, latents[:-1], batch.action, method="reward_logits"
+        {"params": wm_params},
+        latents[:-1],
+        batch.action,
+        emb,
+        method="reward_logits",
     )
     reward_ce = jnp.mean(two_hot.loss(r, batch.reward), axis=-1)  # [H]
     value_ce = jnp.mean(two_hot.loss(q, td_targets[None]), axis=-1)  # [Nq, H]
@@ -410,6 +545,7 @@ def policy_loss(
     pair: jax.Array,
     dropout_key: Optional[jax.Array],
     config: TDMPC2Config,
+    task: Optional[TaskContext] = None,
 ) -> tuple[jax.Array, tuple[RunningScale, dict[str, jax.Array]]]:
     """Paper-era policy loss and the updated RunningScale.
 
@@ -421,12 +557,24 @@ def policy_loss(
     ``mean_t rho^t mean_B(beta log_pi - Qp / S)``. The gradient reaches the
     policy only, through the action and ``log_pi``. In :func:`update`,
     ``wm_params`` are the post-step parameters and ``zs`` the pre-step
-    latents (spec 2.19).
+    latents (spec 2.19). Multi-task, the embedding is read from the
+    stop-gradiented parameters too (``track_q_grad(False)`` freezes
+    ``_task_emb``, ``world_model.py:58-68``; spec 2.18) and the policy
+    sample is masked; one RunningScale serves every task (spec §2.A).
     """
     zs = jax.lax.stop_gradient(zs)
     frozen_wm = jax.lax.stop_gradient(wm_params)
-    sample = policy_sample(pi_apply, pi_params, zs, eps, config)
-    logits = q_logits(wm_apply, frozen_wm, zs, sample.action, dropout_key=dropout_key)
+    emb = task_embedding(frozen_wm, task)
+    mask = None if task is None else task.mask
+    sample = policy_sample(pi_apply, pi_params, zs, eps, config, emb, mask)
+    logits = q_logits(
+        wm_apply,
+        frozen_wm,
+        zs,
+        sample.action,
+        dropout_key=dropout_key,
+        task_emb=emb,
+    )
     q = reduce_q_pair(logits, pair, "avg", config.two_hot)  # [H + 1, B]
     q_scale = q_scale.update(q[0])
     q = q / q_scale.scale()
@@ -472,7 +620,8 @@ def make_world_model_tx(
     """World-model Adam with the encoder's learning rate scaled (``tdmpc2.py:21-27``).
 
     Two parameter groups (``optax.multi_transform``): ``encoder`` at
-    ``learning_rate * enc_lr_scale``, everything else (dynamics, reward, Q) at
+    ``learning_rate * enc_lr_scale``, everything else (dynamics, reward, Q
+    and, multi-task, the task embedding: ``tdmpc2.py:26``) at
     ``learning_rate``; torch Adam defaults
     (betas 0.9 / 0.999, eps 1e-8; tdmpc2_spec 2.9). Clipping is not part of
     the transformation: :func:`update` clips once over all world-model
@@ -508,14 +657,27 @@ def create_update_state(
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
     task_dim: int = 0,
+    num_tasks: int = 0,
 ) -> TDMPC2UpdateState:
     """Initial networks, optimizers, target Q, RunningScale and clip carry.
 
     The target Q starts as a copy of the online Q after its zero-initialised
     final weights (``world_model.py:29-31``); the RunningScale at 1
     (``scale.py:9``); the stale policy-gradient norm at 0. ``task_dim > 0``
-    initialises the input widths for a task embedding (M8).
+    initialises the input widths for a task embedding; with ``num_tasks > 0``
+    as well, the world-model parameters hold the embedding table
+    ``[num_tasks, task_dim]`` under :data:`TASK_EMB`, drawn ``U(-0.02,
+    0.02)`` (``init.py:10-11``) from its own key, and the world-model
+    optimizer trains it at the full learning rate (``tdmpc2.py:26``). Target
+    Q holds no copy (``world_model.py:31``). Multi-task: ``obs_dim`` and
+    ``action_dim`` are the padded maxima.
     """
+    if num_tasks < 0 or task_dim < 0 or (num_tasks and not task_dim):
+        raise ValueError(
+            f"need num_tasks >= 0 and task_dim >= 0, and task_dim > 0 for a"
+            f" task-embedding table, got num_tasks={num_tasks},"
+            f" task_dim={task_dim}"
+        )
     world_model = make_world_model(config)
     policy = make_policy_prior(config, action_dim)
     wm_key, pi_key = jax.random.split(key)
@@ -524,6 +686,15 @@ def create_update_state(
         wm_key, jnp.zeros((1, obs_dim)), jnp.zeros((1, action_dim)), emb
     )["params"]
     pi_params = policy.init(pi_key, jnp.zeros((1, config.latent_dim)), emb)["params"]
+    if num_tasks:
+        # A key of its own, so the single-task keys above are unchanged.
+        table = jax.random.uniform(
+            jax.random.fold_in(key, 1),
+            (num_tasks, task_dim),
+            minval=-0.02,
+            maxval=0.02,
+        )
+        wm_params = {**wm_params, TASK_EMB: table}
     world_model_state = LoadedTrainState.create(
         apply_fn=world_model.apply,
         params=wm_params,
@@ -564,6 +735,7 @@ def update(
     *,
     config: TDMPC2Config,
     gamma: Union[float, jax.Array],
+    task: Optional[TaskContext] = None,
 ) -> tuple[S, dict[str, jax.Array]]:
     """One paper-era TD-MPC2 update (``tdmpc2.py:218-290``); see the module docstring.
 
@@ -573,7 +745,15 @@ def update(
         batch: ``obs [H + 1, B, S]``, ``action [H, B, A]``, ``reward [H, B]``.
         noise: the update's random draws (:func:`draw_update_noise`).
         config: static hyperparameters (a jit static argument).
-        gamma: the discount, a Python float or a scalar array.
+        gamma: the discount, a Python float or a scalar array; multi-task,
+            the per-sample discounts ``[B]``.
+        task: multi-task, the batch's :class:`TaskContext` (``None``: single
+            task). The embedding rows the batch looks up are renormed and
+            written back twice (``nn.Embedding(max_norm=1)``, module
+            docstring): before the TD target, where the reference's first
+            look-up is ``encode(obs[1:], task)`` (``tdmpc2.py:232``), and
+            after the world-model Adam step, where it is the policy loss'
+            ``pi(zs, task)`` (``tdmpc2.py:186``).
 
     Returns:
         The new state and the reference's logged quantities
@@ -586,6 +766,10 @@ def update(
     wm_state = state.world_model_state
     pi_state = state.actor_state
     wm_apply, pi_apply = wm_state.apply_fn, pi_state.apply_fn
+    if task is not None:  # pre-step renorm, written back
+        wm_state = wm_state.replace(
+            params=renorm_task_embedding(wm_state.params, task.ids)
+        )
 
     td, next_z = td_target(
         wm_apply,
@@ -600,6 +784,7 @@ def update(
         noise.td_pair,
         noise.td_dropout,
         config,
+        task,
     )
 
     (_, (wm_terms, zs)), wm_grads = jax.value_and_grad(world_model_loss, has_aux=True)(
@@ -610,11 +795,16 @@ def update(
         td,
         noise.value_dropout,
         config,
+        task,
     )
     wm_grads, grad_norm = clip_grad_norm(
         wm_grads, config.grad_clip_norm, extra_sq_norm=state.pi_gradnorm_sq
     )
     wm_state = wm_state.apply_gradients(grads=wm_grads)
+    if task is not None:  # post-step renorm, written back
+        wm_state = wm_state.replace(
+            params=renorm_task_embedding(wm_state.params, task.ids)
+        )
 
     (_, (q_scale, pi_aux)), pi_grads = jax.value_and_grad(policy_loss, has_aux=True)(
         pi_state.params,
@@ -627,6 +817,7 @@ def update(
         noise.pi_pair,
         noise.pi_dropout,
         config,
+        task,
     )
     pi_grads, pi_grad_norm = clip_grad_norm(pi_grads, config.grad_clip_norm)
     # Post-clip, carried to the next update's world-model clip.

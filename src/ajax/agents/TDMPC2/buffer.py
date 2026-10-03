@@ -185,6 +185,22 @@ class EpisodeBuffer:
         """Committed episodes after tick ``tick``: ``committed_rounds * n``."""
         return self.committed_rounds(tick) * self.n_envs
 
+    def committed_slots(self, tick: int) -> tuple[np.ndarray, int]:
+        """Ring slots of the committed episodes after (host) tick ``tick``,
+        oldest first, and the number of complete episodes no longer held.
+
+        Rounds in the order they were collected, env order within a round
+        (round ``r`` is in slot ``r mod R``). A ring that never wrapped holds
+        every complete episode of the run (0 evicted); the rounds evicted by
+        a wrapped ring are the oldest. The order of an export
+        (:func:`ajax.agents.TDMPC2.dataset.export_episodes`).
+        """
+        complete = (tick + 1) // self.period
+        held = min(complete, self.n_rounds - 1)
+        rounds = np.arange(complete - held, complete) % self.n_rounds
+        slots = (rounds[:, None] * self.n_envs + np.arange(self.n_envs)).reshape(-1)
+        return slots, (complete - held) * self.n_envs
+
     def check_sampleable_from(self, tick: int) -> None:
         """Raise unless an update at (static) tick ``tick`` has an episode to draw.
 

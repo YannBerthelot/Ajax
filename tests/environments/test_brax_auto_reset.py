@@ -6,9 +6,16 @@ discard it unless some env was done. It now gates the reset with
 ``_call_if_any``. These tests pin down that the gating changes the cost and
 nothing else: the seed stream, the reset states and every transition match
 the ungated implementation, kept verbatim below as the reference (bit for
-bit on a toy env, up to float rounding on brax physics, see the last test),
-and that ``differentiable_reset=True`` restores that implementation for
-reverse-mode gradients through the reset itself. Rollouts are vmapped over
+bit on a toy env whose arithmetic is elementwise, up to float rounding on
+brax physics, see the last test), and that ``differentiable_reset=True``
+restores that implementation for reverse-mode gradients through the reset
+itself.
+
+Exact comparisons are kept to elementwise IEEE arithmetic. Anything with a
+reduction or a fusion-dependent contraction is compared to float32
+rounding: XLA may compile two equivalent programs differently, and does so
+differently across backends (CI runs on Linux x86, development on macOS
+ARM). Rollouts are vmapped over
 seeds because that is how every Ajax agent runs (``ajax.agents.base``), and
 it is the case the gating is designed for.
 """
@@ -70,7 +77,8 @@ class _DriftEnv(Env):
     The reset draws ``x`` uniformly in [0, start_scale)^3; every step adds
     ``0.25 + 0.1 * action`` and the episode terminates once ``x[0] > 2``, so
     (at the default scale) episodes last 5 to 8 steps and envs fall out of
-    step with each other.
+    step with each other. The reward is ``x[0]``: no reduction, so a
+    zero-action rollout is elementwise arithmetic end to end.
     """
 
     def __init__(self, start_scale=1.0):
@@ -87,7 +95,7 @@ class _DriftEnv(Env):
     def step(self, state, action):
         x = state.pipeline_state + 0.25 + 0.1 * action
         done = (x[0] > 2.0).astype(jnp.float32)
-        return state.replace(pipeline_state=x, obs=x, reward=x.sum(), done=done)
+        return state.replace(pipeline_state=x, obs=x, reward=x[0], done=done)
 
     @property
     def observation_size(self):
@@ -200,7 +208,7 @@ def test_gradients_flow_through_the_gated_step():
 
     g = grad(gated)
     assert np.abs(np.asarray(g)).sum() > 0
-    np.testing.assert_array_equal(g, grad(ungated))
+    np.testing.assert_allclose(g, grad(ungated), rtol=1e-6)
 
 
 _DIFFERENTIABLE = partial(AutoResetWrapper, differentiable_reset=True)
@@ -240,7 +248,7 @@ def test_reverse_mode_through_the_reset_needs_differentiable_reset():
     grad = jax.grad(_reward_through_resets)(1.0, _DIFFERENTIABLE)
     expected = jax.grad(_reward_through_resets)(1.0, _UngatedAutoResetWrapper)
     assert grad != 0
-    np.testing.assert_array_equal(grad, expected)
+    np.testing.assert_allclose(grad, expected, rtol=1e-6)
 
     _, tangent = jax.jvp(
         lambda s: _reward_through_resets(s, AutoResetWrapper), (1.0,), (1.0,)
@@ -284,34 +292,34 @@ def test_reset_is_skipped_on_steps_where_no_env_is_done():
 
 @pytest.mark.slow
 def test_gated_reset_matches_the_ungated_rollout_on_brax_physics():
-    """Same check on a real brax env, built the way agents build it. The
-    seed stream, the done flags and every reset observation match bit for
-    bit, but the states only to float32 rounding: with the reset inside the
+    """Same check on a real brax env, built the way agents build it, for
+    the gated default and for ``differentiable_reset=True``. The seed
+    stream, the done flags and every reset observation match bit for bit,
+    but the states only to float32 rounding: with the reset inside the
     gate's while_loop, XLA compiles the fields that brax's ``pipeline.init``
     derives from positions (centre of mass, inertia, ...) differently,
-    which moves them by about one ulp, and the next steps carry that on."""
+    which moves them by about one ulp, and the next steps carry that on.
+    ``differentiable_reset=True`` computes what the old wrapper did (bit for
+    bit on macOS), but whether two equivalent programs compile to the same
+    bits is up to XLA, so it is held to the same bound."""
     n_envs, n_steps = 4, 80
     env, _ = build_env_from_id("inverted_pendulum", n_envs=n_envs, episode_length=30)
     assert type(env) is AutoResetWrapper
     actions = jnp.zeros((n_steps, n_envs, env.action_size))
-    states = _rollout_fn(env, n_steps)(_seeds(), actions)
     expected = _rollout_fn(_UngatedAutoResetWrapper(env.env), n_steps)(
         _seeds(), actions
     )
-    # differentiable_reset=True is the ungated implementation: bit for bit.
-    _assert_trees_equal(
-        _rollout_fn(_DIFFERENTIABLE(env.env), n_steps)(_seeds(), actions), expected
-    )
-
-    done = np.asarray(states.done) > 0
-    assert done.any() and not done.any(axis=-1).all()
-    for name in ("rng", "steps", "truncation"):
-        np.testing.assert_array_equal(states.info[name], expected.info[name])
-    np.testing.assert_array_equal(states.done, expected.done)
-    np.testing.assert_array_equal(states.obs[done], expected.obs[done])
-    np.testing.assert_allclose(states.obs, expected.obs, rtol=1e-5, atol=1e-5)
-    for actual, ref in zip(
-        jax.tree.leaves(states.pipeline_state),
-        jax.tree.leaves(expected.pipeline_state),
-    ):
-        np.testing.assert_allclose(actual, ref, rtol=1e-5, atol=1e-5)
+    for wrapped in (env, _DIFFERENTIABLE(env.env)):
+        states = _rollout_fn(wrapped, n_steps)(_seeds(), actions)
+        done = np.asarray(states.done) > 0
+        assert done.any() and not done.any(axis=-1).all()
+        for name in ("rng", "steps", "truncation"):
+            np.testing.assert_array_equal(states.info[name], expected.info[name])
+        np.testing.assert_array_equal(states.done, expected.done)
+        np.testing.assert_array_equal(states.obs[done], expected.obs[done])
+        np.testing.assert_allclose(states.obs, expected.obs, rtol=1e-5, atol=1e-5)
+        for actual, ref in zip(
+            jax.tree.leaves(states.pipeline_state),
+            jax.tree.leaves(expected.pipeline_state),
+        ):
+            np.testing.assert_allclose(actual, ref, rtol=1e-5, atol=1e-5)

@@ -752,8 +752,11 @@ differently, moving them by ~1 ulp, which later steps carry on. On chaotic
 contact dynamics that compounds: over 1000 zero-action ant steps the two
 seeds had 265 and 239 steps containing a done instead of 268 and 246. Runs are therefore not
 bitwise reproducible against the old wrapper.
-`differentiable_reset=True` is bit-identical to the old wrapper (tested on
-inverted_pendulum).
+`differentiable_reset=True` computes what the old wrapper did and was
+bit-identical to it on inverted_pendulum on macOS ARM. The test holds it
+only to float32 rounding, because whether two equivalent programs compile
+to the same bits is up to XLA and differs across backends (CI is Linux
+x86).
 
 ## Where to look for more
 

@@ -152,7 +152,7 @@ def test_fresh_reset_with_differentiable_reset_gives_the_same_rollout():
         assert env.env.differentiable_reset is differentiable_reset
         rollouts[differentiable_reset] = _rollout(env, jnp.arange(N_SEEDS))
     (first_gated, gated), (first_every, every) = rollouts[False], rollouts[True]
-    np.testing.assert_array_equal(first_gated, first_every)
+    np.testing.assert_allclose(first_gated, first_every, rtol=1e-5, atol=1e-5)
     for name in ("done", "truncation", "rng_changed"):
         np.testing.assert_array_equal(gated[name], every[name])
     for name in ("obs", "final_obs"):

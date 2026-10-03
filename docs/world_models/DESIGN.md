@@ -252,13 +252,16 @@ Two reset modes, chosen by the agent:
 - **static** (fixed-length lockstep episodes; all DMC tasks, all TD-MPC2 runs): the hold
   tick is `i mod (T+1) == T` for every env; on it the collector calls `env.reset` with a
   fresh key inside `lax.cond` on the unbatched tick. This gives a freshly randomised
-  initial state every episode on every backend (playground's auto-reset otherwise returns
-  a cached first state) at ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
+  initial state every episode on every backend, whatever the env's own auto-reset does
+  (a playground env built with `fresh_reset=False` returns a cached first state), at
+  ≈0.1 ms/tick amortised. Off-schedule `done`s are counted as
   errors.
 - **dynamic** (data-dependent episode ends: gymnax / brax tasks with terminations):
   per-env hold via `jnp.where` on a snapshot of the env state; reset obs = the
-  auto-reset obs (fresh on gymnax and brax). On playground the auto-reset obs is cached;
-  dynamic mode on playground is registered as a deviation and warned about.
+  auto-reset obs, fresh on gymnax, brax and playground (Ajax's playground stack uses
+  `FreshAutoResetWrapper` by default since #54). Only a playground env built with
+  `fresh_reset=False` restarts from a cached first state; dynamic mode warns about it
+  (deviation E20).
 
 State: `RowCollectorState(CollectorState)` adds `reward`, `is_first`, `is_last`,
 `is_terminal`, `reset_obs`, `env_steps`, `rows`, `n_offschedule_dones`, `policy_carry`.
@@ -392,8 +395,8 @@ sample. Primary metric = training-episode returns of the stochastic policy (refe
 `is_first = True`.
 
 ### 6.6 State
-`DreamerV3State(BaseAgentState, kw_only)`: `world_model_state` (enc, dyn, dec, rew,
-con), `actor_state`, `critic_state` (`target_params` = slow critic), `retnorm`,
+`DreamerV3State(BaseAgentState, kw_only)`: `world_model_state` (enc, rssm, dec, rew,
+con; the reference's `dyn` is `rssm`), `actor_state`, `critic_state` (`target_params` = slow critic), `retnorm`,
 `collector_state` (row collector + policy carry), `replay_state` (+ online-queue
 counter).
 
@@ -443,23 +446,32 @@ agents. APG and both new agents get bench entries with a small documented preset
 
 ## 10. Testing
 
-- **Oracles.** `tests/world_models/reference_impls.py` (shared blocks) and
-  `tests/agents/<A>/reference_<a>.py`: literal jnp transcriptions of the pinned
-  reference functions (MIT-licensed, attributed line by line): TD-MPC2@5f6fade
-  `_td_target`, `update`, `update_pi` (PE entropy, clip quirk), `plan`,
-  `_estimate_value`; DreamerV3@2411f7d+29eb964 RSSM step, world-model loss,
-  imagination + λ-returns + retnorm + actor/critic losses, repval, optimizer. Ajax's
-  modular implementation is compared with the oracle at tiny sizes on random inputs
-  with injected noise (atol ~1e-5, matmul precision `highest`): every loss term,
-  per-module gradients, post-update parameters, normaliser state, target EMA, plan output.
-  **Changed in M2 for the TD-MPC2 update:** instead of a transcription, the oracle is
-  the unmodified 5f6fade code itself. `docs/world_models/parity/tdmpc2_update_fixtures.py`
-  (run in a throwaway torch venv, not collected by pytest) records consecutive real
-  `update()` calls with their random draws into `tests/agents/TDMPC2/fixtures/`, and
-  `test_tdmpc2_parity.py` replays them through Ajax's jitted update. **M3, the same for
-  the planner:** `parity/tdmpc2_plan_fixtures.py` records real `act()` decisions
-  (draws, per-iteration values, elites, scores, mean and std) and
-  `test_tdmpc2_planner_parity.py` replays them chained through Ajax's jitted `plan`.
+- **Oracles.** Two kinds; Ajax's modular implementation is compared with the oracle
+  at tiny sizes with injected noise (atol ~1e-5, matmul precision `highest`): every
+  loss term, per-module gradients, post-update parameters, normaliser state, target
+  EMA, plan output.
+  - *Reference fixtures*, where the pinned reference code can be run: a generator per
+    agent in `docs/world_models/parity/` (committed, not collected by pytest, run by
+    hand in a throwaway venv with the reference's pinned dependencies, as its docstring
+    says) runs the real reference at tiny float32 sizes, records its random draws
+    without changing what it computes, and writes small `.npz` files (parameters under
+    their reference names, inputs, recorded draws, outputs, gradients) committed under
+    `tests/agents/<A>/fixtures/`. The tests map the reference's parameter names onto
+    Ajax's tree, force the recorded draws and compare. The fixtures' sizes are pairwise
+    distinct where Ajax could confuse two of them, and the hyperparameters other than
+    widths are the reference's defaults, against which Ajax's defaults are pinned.
+    Pinned this way so far: the TD-MPC2 update (M2,
+    `parity/tdmpc2_update_fixtures.py`: consecutive real 5f6fade `update()` calls,
+    replayed by `test_tdmpc2_parity.py` through Ajax's jitted update), the TD-MPC2
+    planner (M3, `parity/tdmpc2_plan_fixtures.py`: real `act()` decisions with their
+    draws, per-iteration values, elites, scores, mean and std, replayed chained by
+    `test_tdmpc2_planner_parity.py` through Ajax's jitted `plan`) and the DreamerV3
+    world model (M5, `parity/dreamerv3_world_model_fixtures.py`: `29eb964`'s own
+    `Agent.train`).
+  - *Transcriptions*: `tests/world_models/reference_impls.py` (shared blocks) and
+    `tests/agents/<A>/reference_<a>.py`, literal jnp transcriptions of the pinned
+    reference functions (MIT-licensed, attributed line by line), where running the
+    reference is impractical.
 - **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer;
   2411f7d driver + replay add/sample/online queue + train gate + Ratio) on a counter env:
   identical row streams, seed/burst/gate ticks, queue pops, update counts.
@@ -488,7 +500,8 @@ agents. APG and both new agents get bench entries with a small documented preset
 - **M4** TD-MPC2 agent: env plumbing (§5.1), row collector (§5.2), episode buffer,
   schedule, `final_aux_fori`, `evaluate_policy`, logging lift (first commit), resume
   offset, extension support, local probes, bench entry, learning checks.
-- **M5** DreamerV3 world model (RSSM, encoder/decoder, heads, KL) + oracle parity.
+- **M5** DreamerV3 world model (RSSM, encoder/decoder, heads, KL) + parity on fixtures
+  from the real reference.
 - **M6** DreamerV3 actor-critic (imagination, λ-returns, retnorm, repval, slow critic) +
   LaProp/AGC + oracle parity (joint-gradient equivalence).
 - **M7** DreamerV3 agent: stream replay with context, online queue, write-back, schedule,

@@ -116,15 +116,19 @@ def register_playground_builder(env_id: str, builder) -> None:
 
 
 def _build_playground_env(
-    env_id: str, n_envs: int, episode_length: int, action_repeat: int = 1
+    env_id: str,
+    n_envs: int,
+    episode_length: int,
+    action_repeat: int = 1,
+    fresh_reset: bool = True,
 ):
     """Compose a mujoco_playground env with the same wrapper stack as
     `wrap_for_brax_training`, but inject FinalObsWrapper between the
     episode wrapper and the auto-reset wrapper so the terminal observation
     is preserved in info['final_obs'] for correct truncation bootstrapping.
 
-    BatchRngWrapper sits at the top: playground's BraxAutoResetWrapper expects
-    an already-batched rng (calls `jax.vmap(jax.random.split)(rng)`), so we
+    BatchRngWrapper sits at the top: the auto-reset wrapper expects an
+    already-batched rng (calls `jax.vmap(jax.random.split)(rng)`), so we
     split the caller's single key into `n_envs` keys on reset to keep Ajax's
     unbatched-rng convention intact.
 
@@ -134,6 +138,16 @@ def _build_playground_env(
     ``episode_length // action_repeat`` agent steps), and the repeat does
     not stop early on termination (brax's behaviour; the DMC tasks never
     terminate -- deviation E19 in docs/world_models/deviations.md).
+
+    `fresh_reset` selects the auto-reset. True (the default) uses
+    `FreshAutoResetWrapper`, which draws a new initial state for every
+    episode, as dm_control does. False keeps playground's
+    `BraxAutoResetWrapper`, which restarts every episode of env i from the
+    same cached first state (a run sees only `n_envs` initial conditions);
+    that was Ajax's behaviour before fresh resets became the default, so it
+    reproduces playground results produced earlier. Registered builders own
+    their whole stack, auto-reset included, and are not affected by this
+    flag.
     """
     check_action_repeat(action_repeat)
     if env_id in _PLAYGROUND_BUILDERS:
@@ -151,16 +165,19 @@ def _build_playground_env(
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
-    from ajax.wrappers import BatchRngWrapper
+    from ajax.wrappers import BatchRngWrapper, FreshAutoResetWrapper
 
     _overrides = {"impl": "jax"} if _jax.default_backend() == "cpu" else None
     env = registry.load(env_id, config_overrides=_overrides)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
     env = FinalObsWrapper(env)
-    env = BraxAutoResetWrapper(env)
+    env = FreshAutoResetWrapper(env) if fresh_reset else BraxAutoResetWrapper(env)
     env = BatchRngWrapper(env, n_envs=n_envs)
     env._ajax_env_id = env_id
+    # Read by evaluate.setup_environment so the eval rebuild keeps the same
+    # auto-reset semantics as training.
+    env._ajax_fresh_reset = fresh_reset
     return env
 
 
@@ -203,11 +220,16 @@ def _build_brax_env(
 def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
+    fresh_reset: bool = True,
     *,
     action_repeat: int = 1,
     **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
+
+    ``fresh_reset`` only concerns mujoco_playground envs (see
+    ``_build_playground_env``); gymnax and Ajax's brax stack already draw a
+    new initial state for every episode.
 
     ``action_repeat`` (default 1) repeats each agent action for that many
     simulator steps on brax / playground envs (see
@@ -258,6 +280,7 @@ def build_env_from_id(
                 n_envs=n_envs,
                 episode_length=episode_length,
                 action_repeat=action_repeat,
+                fresh_reset=fresh_reset,
             ), None
     except ImportError:
         pass

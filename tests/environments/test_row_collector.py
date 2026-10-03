@@ -3,6 +3,7 @@ reset modes on gymnax / brax / mujoco_playground, the random-action phase,
 per-env params, the raw-env precondition, and the unbatched-cond structure
 under the seed vmap."""
 
+import warnings
 from typing import Any, NamedTuple
 
 import jax
@@ -566,11 +567,16 @@ def test_dynamic_mode_time_limit_ends_are_not_terminal():
 
 @requires_playground
 def test_static_mode_on_playground_gives_fresh_episodes():
-    """Playground's auto-reset returns a cached first state; the static mode
-    re-randomises every episode with a fresh reset on the held tick."""
+    """With ``fresh_reset=False`` playground's auto-reset returns a cached
+    first state; the static mode still re-randomises every episode with its
+    own fresh reset on the held tick."""
     n_envs, action_repeat = 2, 2
     env_args = env_args_for(
-        "CartpoleBalance", n_envs, episode_length=6, action_repeat=action_repeat
+        "CartpoleBalance",
+        n_envs,
+        episode_length=6,
+        action_repeat=action_repeat,
+        fresh_reset=False,
     )
     T = agent_episode_length(env_args.env, None, action_repeat)
     assert T == 3
@@ -606,9 +612,23 @@ def test_static_mode_on_playground_gives_fresh_episodes():
 
 @requires_playground
 def test_dynamic_mode_on_playground_warns_about_the_cached_reset():
-    env_args = env_args_for("CartpoleBalance", 1, episode_length=4)
+    env_args = env_args_for("CartpoleBalance", 1, episode_length=4, fresh_reset=False)
     state = init_row_collector_state(jax.random.PRNGKey(0), env_args)
     with pytest.warns(UserWarning, match="cached first state"):
+        jax.eval_shape(
+            lambda s: collect_row(
+                s, 0, uniform_policy, env_args=env_args, reset_mode="dynamic"
+            ),
+            state,
+        )
+
+
+@requires_playground
+def test_dynamic_mode_on_a_fresh_reset_playground_env_does_not_warn():
+    env_args = env_args_for("CartpoleBalance", 1, episode_length=4)
+    state = init_row_collector_state(jax.random.PRNGKey(0), env_args)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
         jax.eval_shape(
             lambda s: collect_row(
                 s, 0, uniform_policy, env_args=env_args, reset_mode="dynamic"

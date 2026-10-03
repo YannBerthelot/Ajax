@@ -35,8 +35,9 @@ Two reset modes, chosen by the caller:
   ``lax.cond`` on that unbatched predicate (a real cond under the seed
   ``vmap``, so the reset only runs on held ticks). Every episode therefore
   starts from a freshly randomised initial state on every backend,
-  including mujoco_playground, whose auto-reset returns a cached first
-  state (deviation E20). Episode ends are the schedule's; a ``done`` the
+  including a mujoco_playground env built with ``fresh_reset=False``,
+  whose auto-reset returns a cached first state (deviation E20). Episode
+  ends are the schedule's; a ``done`` the
   env reports off the schedule is counted in
   ``RowCollectorState.n_offschedule_dones`` (an error for the caller to
   surface: the env is then auto-reset mid-episode).
@@ -46,8 +47,10 @@ Two reset modes, chosen by the caller:
   (except the batch-shared reset seed of Ajax's brax ``AutoResetWrapper``,
   which keeps its stepped value, see :func:`_dynamic_transition`).
   The reset observation is the backend's auto-reset observation, stashed
-  when the episode ended: fresh on gymnax and brax, a cached first state on
-  mujoco_playground (deviation E20; a warning is issued).
+  when the episode ended: fresh on gymnax, brax and mujoco_playground
+  (Ajax's default ``FreshAutoResetWrapper``), a cached first state on a
+  playground env built with ``fresh_reset=False`` (deviation E20; a
+  warning is issued).
 
 Random-action phase. The caller may pass an *unbatched* boolean
 ``random_phase`` (derived from the tick, so it stays a real ``lax.cond``
@@ -349,12 +352,14 @@ def collect_row(
             mode,
         )
     else:
-        if check_env_is_playground(env):
+        if check_env_is_playground(env) and not getattr(env, "_ajax_fresh_reset", True):
             warnings.warn(
-                "Dynamic reset mode on a mujoco_playground env: the auto-reset"
-                " returns a cached first state, so episodes after the first do"
-                " not start from a fresh random state (deviation E20). Use the"
-                " static mode on fixed-length tasks.",
+                "Dynamic reset mode on a mujoco_playground env built with"
+                " fresh_reset=False: its auto-reset returns a cached first"
+                " state, so episodes after the first do not start from a fresh"
+                " random state (deviation E20). Build the env with the default"
+                " fresh_reset=True, or use the static mode on fixed-length"
+                " tasks.",
                 stacklevel=2,
             )
         nxt = _dynamic_transition(cs, env_action, step_keys, env_args, mode)

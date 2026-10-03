@@ -176,8 +176,9 @@ not reproduced (registered).
 ### 4.4 Collection, replay and schedule
 - Collector in **static reset mode** (§5.2): fixed-length lockstep episodes; held tick
   `i mod (T+1) == T`; fresh `env.reset` on the held tick.
-- **Terminations are refused.** The collector counts off-schedule `done`s; the agent
-  raises `ValueError` on the host after `train()` returns (and the count is logged).
+- **Terminations are refused.** The collector counts off-schedule `done`s and the loop
+  counts true terminations on the schedule's last step (`is_terminal` rows); the agent
+  raises `ValueError` on the host after `train()` returns (and the counts are logged).
   The guard's precedent is HEAD's ValueError; PE silently treated any done as a time
   limit (registered).
 - **Episode buffer** (`agents/TDMPC2/buffer.py`, the b67b21c design): ring of
@@ -209,7 +210,8 @@ Q ensemble; `target_params` = target Q via `soft_update` on the Q subtree),
 ### 4.6 Evaluation
 `evaluate_policy` (§5.4) with the planner in `eval_mode` (no final noise; everything
 else stochastic, as in the reference), `num_episode_test` episodes on a rebuilt env with
-the training `action_repeat` and episode length; separate planner carry (registered:
+the training `action_repeat` and episode length, each evaluation from fresh initial
+states (its key folded with the evaluation count); separate planner carry (registered:
 the reference reuses the training env and prev_mean).
 
 ## 5. Shared backbone (lands with its first consumer, M4)
@@ -295,11 +297,18 @@ queue, static reset) therefore continue correctly after resume. Test: resumed ru
 the same number of updates as an uninterrupted one and never repeats the seed phase.
 
 ### 5.6 Replay capacity
-Static per run: `replay_capacity` / `buffer_size` are clamped to the run length
-(`min(capacity, rows or env steps of this run)`, the references' own `min(·, steps)`),
-resolved at the first `train()` and recorded on the agent so the resume skeleton
-(`n_timesteps=0`) gets identical shapes. Bytes per seed are logged; the docstring lists
-the memory per seed (seed vmap multiplies it).
+Static per `train()` call: `replay_capacity` / `buffer_size` are clamped to the run
+length (`min(capacity, rows or env steps the run has taken when this call ends)`, the
+references' own `min(·, steps)`, which saves memory without changing what is replayed:
+a buffer that holds the whole run never evicts). Updated after the M4b review: the
+first version resolved the capacity once, at the first `train()`, and kept it; a run
+trained in chunks then kept the first chunk's (smaller) buffer for good, and a
+checkpoint restored by a new agent met a buffer of another size. Instead, a resumed
+run sizes its buffer for the whole run so far and moves the carried data into it
+(TD-MPC2: `EpisodeBuffer.adopt`), so the resume skeleton's (`n_timesteps=0`) buffer
+shapes do not matter and a chunked run replays exactly what an uninterrupted one does.
+Capacity and bytes per seed are recorded on the agent and in its run config; the
+docstring lists the memory per seed (seed vmap multiplies it).
 
 ### 5.7 Extension support
 `ActorCritic.supported_extension_phases: frozenset = frozenset(PHASES)` checked in

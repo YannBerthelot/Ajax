@@ -34,6 +34,7 @@ from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 
 # All agents
 ALL_AGENTS = [SAC, REDQ, PPO, APO, ASAC, AVG]
@@ -329,3 +330,26 @@ class TestProbingPQN:
             budget=self.BUDGET_VALUE_PQN,
             gymnax=True,
         )
+
+
+# TD-MPC2 is not run on the stock probing envs: they terminate after 1-2
+# steps, while paper-era TD-MPC2 is for fixed-length, non-terminating tasks
+# (it refuses terminations, deviation T10 in docs/world_models/deviations.md)
+# and its training slices need episodes of T + 1 >= horizon + 1 rows. It is
+# probed on fixed-length non-terminating toy envs instead, in
+# tests/agents/TDMPC2/test_tdmpc2_probes.py (docs/world_models/DESIGN.md §8).
+_TDMPC2_SKIP_REASON = (
+    "stock probes terminate after 1-2 steps; paper-era TD-MPC2 needs"
+    " fixed-length non-terminating episodes of >= horizon + 1 rows (see"
+    " tests/agents/TDMPC2/test_tdmpc2_probes.py)"
+)
+
+
+@pytest.mark.parametrize(
+    "agent_cls",
+    [pytest.param(TDMPC2, marks=pytest.mark.skip(reason=_TDMPC2_SKIP_REASON))],
+    ids=lambda c: c.__name__,
+)
+def test_tdmpc2_uses_local_probes(agent_cls):
+    """Placeholder that records the skip; never runs."""
+    raise AssertionError(f"{agent_cls.__name__} must not run the stock probes")

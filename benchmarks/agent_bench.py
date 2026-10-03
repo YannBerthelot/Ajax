@@ -31,6 +31,33 @@ import os
 import subprocess
 import time
 
+# TD-MPC2 at its paper defaults (a 5M-parameter model, batch 256, 512
+# planning candidates over 6 MPPI iterations per env step) would take
+# minutes per bench run on CPU: it makes one update per env step and plans
+# every env step. The preset keeps every code path (seed phase, burst,
+# planner with policy-prior trajectories, episode ring, static resets on
+# Pendulum's T = 200) at a small size: the model_size=1 preset narrowed to
+# 64-unit layers and a 32-dim latent, batch 32, 64 candidates / 8 elites /
+# 4 prior trajectories, 2 MPPI iterations; seed_steps stays
+# max(1000, 5 T) = 1000. With the defaults below (--n-envs 4, --timesteps
+# 8000) a run is 2010 ticks (2000 env steps per env and 10 held ticks):
+# random actions up to the tick of per-env step 250, the first on which the
+# total env steps exceed 1000 (the n_envs > 1 rule, deviation T7 in
+# docs/world_models/deviations.md), a burst of 1000 updates right after it,
+# then on every stepping tick one planner decision per env and 4 updates
+# (one per env step): 7996 updates in total.
+_TDMPC2_PRESET = {
+    "model_size": 1,
+    "enc_dim": 64,
+    "mlp_dim": 64,
+    "latent_dim": 32,
+    "batch_size": 32,
+    "num_samples": 64,
+    "num_elites": 8,
+    "num_pi_trajs": 4,
+    "iterations": 2,
+}
+
 # agent name -> (env_id, extra constructor kwargs). Discrete-action
 # agents train on CartPole-v1, continuous ones on Pendulum-v1. Only
 # env_id / n_envs / n_timesteps are pinned; every other hyperparameter
@@ -50,6 +77,7 @@ AGENTS: dict[str, tuple[str, dict]] = {
     "AVG": ("Pendulum-v1", {}),
     "SafeSAC": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
+    "TDMPC2": ("Pendulum-v1", _TDMPC2_PRESET),
 }
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -269,6 +297,8 @@ def compare(baseline_path: str, new_path: str, tol: float) -> int:
             flag = "  <-- REGRESSION"
             regressed.append((agent, delta))
         print(f"{agent:10s} {b:12.1f} {n:12.1f} {delta:+8.1%}{flag}")
+    for agent in sorted(set(new) - set(base)):
+        print(f"{agent:10s} {'NEW':>12s} {new[agent]:12.1f}   (no baseline)")
     if regressed:
         print(
             f"\n{len(regressed)} agent(s) regressed beyond {tol:.0%}: "

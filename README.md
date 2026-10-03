@@ -28,6 +28,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | **TD3**   | Fujimoto et al., *Addressing Function Approximation Error in Actor-Critic Methods*, 2018 — [arXiv:1802.09477](https://arxiv.org/abs/1802.09477) |
 | **UDRL**  | Schmidhuber, *Reinforcement Learning Upside Down: Don't Predict Rewards, Just Map Them to Actions*, 2019 — [arXiv:1912.02875](https://arxiv.org/abs/1912.02875) |
 | **APG**   | Analytic policy gradient through a differentiable simulator. `APG.contextual_controller` is the in-context controller of Busetto, Breschi, Forgione, Piga & Formentin, *One controller to rule them all*, 2024 — [arXiv:2411.06482](https://arxiv.org/abs/2411.06482) |
+| **TDMPC2** | Hansen, Su & Wang, *TD-MPC2: Scalable, Robust World Models for Continuous Control*, ICLR 2024 — [arXiv:2310.16828](https://arxiv.org/abs/2310.16828). Paper-era `nicklashansen/tdmpc2@b67b21c` / `5f6fade`; single-task online, continuous actions, fixed-length non-terminating tasks (see `docs/world_models/`) |
 
 ### Environment Compatibility
 - **Gymnax**, **Brax**, and **MuJoCo Playground** (with full termination vs truncation handling).
@@ -202,10 +203,12 @@ src/ajax/
 ├── agents/
 │   ├── base.py              # Shared ActorCritic base class
 │   ├── cloning.py           # Behavioral-cloning utilities (actor + critic pretrain)
-│   ├── SAC/, ASAC/, REDQ/, AVG/, PPO/, APO/, TD3/, UDRL/, APG/
+│   ├── SAC/, ASAC/, REDQ/, AVG/, PPO/, APO/, TD3/, UDRL/, APG/, TDMPC2/
 │   │   ├── <AGENT>.py       # Public class (config, __init__, get_make_train)
 │   │   ├── train_<AGENT>.py # make_train, update steps, loss functions
 │   │   └── state.py         # Agent-specific flax.struct.dataclass state
+│   │                        #   (TDMPC2/ adds networks.py, core.py (one update),
+│   │                        #   planner.py (MPPI) and buffer.py (episode replay))
 ├── buffers/                 # flashbax-based replay buffer helpers
 ├── environments/            # Env creation, interaction loops, collect_experience,
 │                            #   system_class (EnvParams distributions), differentiable

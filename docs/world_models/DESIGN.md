@@ -71,26 +71,30 @@ Only blocks both agents use. Each ships with oracle tests (§10).
   - `TwoHot` (frozen dataclass): `bins` (in interpolation space), `transform`
     (`identity` | `symlog`). Encode: two-hot weights by linear interpolation between the
     neighbouring bins of `transform(y)`, edge-clipped. Decode: **symmetric** summation
-    of `p * bins` (exact 0 for uniform p; ≤1e-6 from TD-MPC2's naive sum), then the
-    inverse transform. `loss(logits, y) = -Σ w·log_softmax(logits)`.
+    of `p * bins`, written `Σ (p_j − p_i)·b_j` over mirror pairs so that it is exactly 0
+    for uniform p also under `jit` (XLA's multiply-add fusion breaks DreamerV3's
+    `p_i·b_i + p_j·b_j` pairs, D22); within `ε·(1 + 6·E_p|b|)` (≤ 4.8e-6) of TD-MPC2's
+    naive sum in symlog space; then the inverse transform. Bins are float32 roundings
+    of float64 constants (D22, T24). `loss(logits, y) = -Σ w·(logits − logsumexp(logits))`.
     - DreamerV3: `bins = symexp(linspace(-20, 20, 255))` built from a mirrored half,
       `transform = identity` (raw-space interpolation, raw-space expectation).
     - TD-MPC2: `bins = linspace(-10, 10, 101)`, `transform = symlog`
-      (clip in symlog space, decode `symexp(E_p[bins])`).
-- `src/ajax/normalizers.py`: one percentile/EMA helper (`jnp.percentile`, linear) and
-  two thin normalisers sharing it:
+      (clip in symlog space, decode `symexp(E_p[bins])`); symmetric ranges only (T24).
+- `src/ajax/normalizers.py`: one percentile helper (`jnp.percentile`, linear) and two
+  thin normalisers sharing it, each EMA an `optax.incremental_update`:
   - `ReturnNormalizer` (DreamerV3 retnorm): lo/hi EMAs at rate 0.01, init 0, no
     debias, **update then read**, `scale = max(1, hi - lo)`.
   - `RunningScale` (TD-MPC2): `S ← lerp(S, max(1, p95 - p5), 0.01)`, init 1, update
-    before divide.
+    before divide (EMA form: T25).
 - `src/ajax/networks/blocks.py`
-  - `Linear(units, kernel_init, bias_init='zeros', outscale)`; initializers registered in
-    the existing initializer registry (`networks/utils.py`): DreamerV3 fan-in truncated
-    normal (`variance_scaling(outscale², 'fan_in', 'truncated_normal')`, BlockLinear fan_in
-    = full input width), TD-MPC2 `normal(0.02)` (torch's absolute ±2 trunc bounds are
-    effectively untruncated; `jax truncated_normal(0.02)` is wrong), `zeros`.
-  - `NormedMLP(layers, units, act, norm ∈ {layer, rms}, norm_eps, dropout_first)`:
-    hidden layer = Linear → [Dropout] → Norm → Act.
+  - `linear(features, kernel_init, bias_init='zeros', outscale)` → `nn.Dense`;
+    initializers registered in the existing initializer registry (`networks/utils.py`):
+    DreamerV3 fan-in truncated normal (`variance_scaling(outscale², 'fan_in',
+    'truncated_normal')`, D23; BlockLinear fan_in = full input width), TD-MPC2
+    `normal(0.02)` (torch's absolute ±2 trunc bounds are effectively untruncated;
+    `jax truncated_normal(0.02)` is wrong), `zeros`.
+  - `NormedMLP(layers, units, act, norm ∈ {layer, rms}, norm_eps, kernel_init, dropout)`:
+    hidden layer = Dense → [Dropout (first layer only)] → Norm → Act.
     DreamerV3: RMSNorm eps 1e-4 (f32 statistics, scale only), SiLU, bias kept.
     TD-MPC2: LayerNorm eps 1e-5 (`use_fast_variance=False`), Mish, dropout 0.01 in the
     first layer of each Q member only.
@@ -106,8 +110,8 @@ Only blocks both agents use. Each ships with oracle tests (§10).
 ### 4.1 Surface
 ```
 TDMPC2(env_id, n_envs=1, model_size=5, enc_dim=None, mlp_dim=None, latent_dim=None,
-       num_enc_layers=None, num_q=None, simnorm_dim=8, num_bins=101, vmin=-10.0,
-       vmax=10.0, dropout=0.01, horizon=3, rho=0.5, consistency_coef=20.0,
+       num_enc_layers=None, num_q=None, simnorm_dim=8, num_bins=101, vmax=10.0,
+       dropout=0.01, horizon=3, rho=0.5, consistency_coef=20.0,
        reward_coef=0.1, value_coef=0.1, learning_rate=3e-4, enc_lr_scale=0.3,
        grad_clip_norm=20.0, pi_eps=1e-5, tau=0.01, entropy_coef=1e-4,
        log_std_min=-10.0, log_std_max=2.0, batch_size=256, buffer_size=1_000_000,
@@ -119,6 +123,10 @@ TDMPC2(env_id, n_envs=1, model_size=5, enc_dim=None, mlp_dim=None, latent_dim=No
 - `model_size ∈ {1, 5, 19, 48, 317}` fills the `None` widths from the reference table;
   an explicit width overrides it. `iterations += 2` when the action dim ≥ 20.
 - `gamma=None` → `discount(T)`; `seed_steps=None` → `max(1000, 5T)` (T from §2).
+- `vmax` bounds the two-hot bins at `±vmax` in symlog space (`TwoHot.tdmpc2(limit=vmax)`).
+  The reference's separate `vmin` is not exposed: the mirrored bins and the symmetric
+  sum need a symmetric range, which every TD-MPC2 config has (`vmin: -10, vmax: +10`;
+  T24).
 - Continuous actions only (raise on discrete, like SAC). Paper DMC protocol:
   `action_repeat=2, episode_length=1000` (documented in the docstring).
 - Learning rates accept `float | Callable` (house schedulable rule); static

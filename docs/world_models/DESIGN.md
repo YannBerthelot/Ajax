@@ -157,15 +157,21 @@ Spec `tdmpc2_spec.md` §1–§3 with the paper-era column everywhere, in particu
   dropout is tested on the Ajax side.
 
 ### 4.3 Planner (agent-local `agents/TDMPC2/planner.py`)
-Spec §3.C exactly: 512 candidates including 24 π trajectories (never resampled,
-re-scored each iteration), μ warm start shifted by one with last row 0, σ reset to
-`max_std` each decision, clamp before evaluation, value = Σγ^t r̂ + γ^H avg-of-2 online Q
-at `π(z_H).sample`, top-64 elites, `score = exp(0.5(V − max V))`, biased weighted std
-around the new mean clamped to [0.05, 2], 6 iterations (`fori_loop`; H-step rollouts
-unrolled in Python), executed action = score-sampled elite's first action + σ₀ noise
-unless `eval_mode`. Per-env `prev_mean [n_envs, H, A]`; `t0 = is_first`. The planner is
-not called during the seed phase (static cond) — prev_mean stays at zeros, so the
-reference's stale warm start from the step-0 eval is not reproduced (registered).
+Spec §3.C exactly, paper-era: 512 candidates including 24 π trajectories (never
+resampled, re-scored each iteration), μ warm start shifted by one with last row 0, σ
+reset to `max_std` each decision, clamp before evaluation, value = Σγ^t r̂ + γ^H
+avg-of-2 online Q at `π(z_H).sample` with Q dropout on (PE; only the drawn pair of
+members is evaluated, where the reference runs all 5 and keeps 2: the same values, the
+same dropout distribution, 20-30% less planning time at the paper size on CPU), top-64
+elites, `score = exp(0.5(V − max V))`, biased weighted std around the new mean clamped
+to [0.05, 2], 6 iterations (+2 when A ≥ 20; `lax.scan` over the per-iteration draws, H-step
+rollouts unrolled in Python), executed action = the first action of the elite drawn
+from the last score (inverse CDF of one uniform, PE's `np.random.choice`) + σ₀ noise
+unless `eval_mode`. `plan(wm_params, pi_params, obs, prev_mean, t0, noise, *, config,
+gamma, eval_mode)` for one env, vmapped over envs; per-env `prev_mean [n_envs, H, A]`;
+`t0 = is_first`. The planner is not called during the seed phase (static cond) —
+prev_mean stays at zeros, so the reference's stale warm start from the step-0 eval is
+not reproduced (registered).
 
 ### 4.4 Collection, replay and schedule
 - Collector in **static reset mode** (§5.2): fixed-length lockstep episodes; held tick
@@ -450,7 +456,10 @@ agents. APG and both new agents get bench entries with a small documented preset
   the unmodified 5f6fade code itself. `docs/world_models/parity/tdmpc2_update_fixtures.py`
   (run in a throwaway torch venv, not collected by pytest) records consecutive real
   `update()` calls with their random draws into `tests/agents/TDMPC2/fixtures/`, and
-  `test_tdmpc2_parity.py` replays them through Ajax's jitted update.
+  `test_tdmpc2_parity.py` replays them through Ajax's jitted update. **M3, the same for
+  the planner:** `parity/tdmpc2_plan_fixtures.py` records real `act()` decisions
+  (draws, per-iteration values, elites, scores, mean and std) and
+  `test_tdmpc2_planner_parity.py` replays them chained through Ajax's jitted `plan`.
 - **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer;
   2411f7d driver + replay add/sample/online queue + train gate + Ratio) on a counter env:
   identical row streams, seed/burst/gate ticks, queue pops, update counts.

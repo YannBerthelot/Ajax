@@ -154,7 +154,7 @@ FIXTURE_SETTINGS = {
 }
 
 
-class _CpuTorch(types.ModuleType):
+class CpuTorch(types.ModuleType):
     """``torch`` with ``device(...)`` mapped to the CPU; everything else forwarded."""
 
     def __init__(self) -> None:
@@ -243,12 +243,14 @@ def _record_outputs(fn: Callable[..., Any], log: list[Any]) -> Callable[..., Any
     return wrapped
 
 
-def _np(t: torch.Tensor) -> np.ndarray:
+def to_numpy(t: torch.Tensor) -> np.ndarray:
+    """A detached CPU copy of ``t`` (also used by ``tdmpc2_plan_fixtures.py``)."""
     return t.detach().cpu().numpy().copy()
 
 
-def _state(model: torch.nn.Module) -> dict[str, np.ndarray]:
-    return {k: _np(v) for k, v in model.state_dict().items()}
+def state_numpy(model: torch.nn.Module) -> dict[str, np.ndarray]:
+    """``model.state_dict()`` as numpy copies, keyed by the reference's names."""
+    return {k: to_numpy(v) for k, v in model.state_dict().items()}
 
 
 def make_batches(rng: np.random.Generator) -> list[dict[str, np.ndarray]]:
@@ -344,8 +346,8 @@ def main() -> None:
     from common import layers as ref_layers
     from common.world_model import WorldModel
 
-    ref_agent.torch = _CpuTorch()
-    ref_scale.torch = _CpuTorch()
+    ref_agent.torch = CpuTorch()
+    ref_scale.torch = CpuTorch()
 
     paper = read_config_yaml(args.reference / "config.yaml")
     for key, value in CONFIG.items():
@@ -404,7 +406,7 @@ def main() -> None:
         "meta/q_dropout_active_in_eval_mode": np.array(dropout_in_eval),
         "meta/q_param_names": np.array(q_param_names),
     }
-    out.update({f"init/{k}": v for k, v in _state(model).items()})
+    out.update({f"init/{k}": v for k, v in state_numpy(model).items()})
 
     batches = make_batches(np.random.default_rng(SEED))
     prev_pi_post_sq = 0.0
@@ -432,10 +434,10 @@ def main() -> None:
         out[prefix + "draws/td_pair"] = td_pair.astype(np.int32)
         out[prefix + "draws/pi_eps"] = pi_eps
         out[prefix + "draws/pi_pair"] = pi_pair.astype(np.int32)
-        out[prefix + "td_targets"] = _np(td_log[0][2])
-        out[prefix + "pi_actions"] = _np(pis)
-        out[prefix + "pi_log_pis"] = _np(log_pis)
-        out[prefix + "pi_q"] = _np(q_log[2][2])
+        out[prefix + "td_targets"] = to_numpy(td_log[0][2])
+        out[prefix + "pi_actions"] = to_numpy(pis)
+        out[prefix + "pi_log_pis"] = to_numpy(log_pis)
+        out[prefix + "pi_q"] = to_numpy(q_log[2][2])
         for name in ("consistency_loss", "reward_loss", "value_loss", "pi_loss"):
             out[prefix + name] = np.array(stats[name], np.float32)
         out[prefix + "total_loss"] = np.array(stats["total_loss"], np.float32)
@@ -475,7 +477,7 @@ def main() -> None:
     assert pi[0] > clip and pi[1] > clip, "updates 0-1: the pi clip must bind"
     assert any(p < clip for p in pi[1:-1]), "an unclipped pi gradient must follow"
     assert any(w < clip for w in wm[1:]), "a later non-binding world-model clip"
-    out.update({f"final/{n}": v for n, v in _state(model).items()})
+    out.update({f"final/{n}": v for n, v in state_numpy(model).items()})
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.out, **out)

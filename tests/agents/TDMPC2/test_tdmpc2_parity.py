@@ -51,6 +51,16 @@ from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2UpdateState
 from ajax.state import BaseAgentConfig
 
+from .reference_params import (
+    ErrorReport,
+    Fixture,
+    ajax_config,
+    as_jnp,
+    load_fixture,
+    reference_config,
+    torch_to_ajax,
+)
+
 FIXTURE = Path(__file__).parent / "fixtures" / "tdmpc2_update.npz"
 N_UPDATES = 4
 # (rtol, atol)
@@ -72,124 +82,20 @@ LOGGED = (
     "pi_scale",
 )
 
-Fixture = dict[str, np.ndarray]
-
 
 @pytest.fixture(scope="module")
 def fx() -> Fixture:
-    with np.load(FIXTURE) as data:
-        return {k: data[k] for k in data.files}
+    return load_fixture(FIXTURE)
 
 
 @pytest.fixture(scope="module")
 def ref_config(fx: Fixture) -> dict[str, Any]:
-    return json.loads(str(fx["meta/config"]))
+    return reference_config(fx)
 
 
 @pytest.fixture(scope="module")
 def config(ref_config: dict[str, Any]) -> TDMPC2Config:
-    ref = ref_config
-    assert ref["vmin"] == -ref["vmax"]
-    fields = (
-        "latent_dim",
-        "enc_dim",
-        "mlp_dim",
-        "num_enc_layers",
-        "num_q",
-        "simnorm_dim",
-        "num_bins",
-        "vmax",
-        "dropout",
-        "log_std_min",
-        "log_std_max",
-        "horizon",
-        "rho",
-        "consistency_coef",
-        "reward_coef",
-        "value_coef",
-        "entropy_coef",
-        "grad_clip_norm",
-        "tau",
-    )
-    return TDMPC2Config(**{name: ref[name] for name in fields})
-
-
-# ------------------------------------------------- torch -> Ajax parameter map
-
-
-def _dense(sd: Fixture, prefix: str) -> dict[str, np.ndarray]:
-    """torch ``Linear`` (weight ``[out, in]``) -> flax ``Dense`` (kernel ``[in, out]``)."""
-    return {"kernel": sd[f"{prefix}.weight"].T, "bias": sd[f"{prefix}.bias"]}
-
-
-def _layer_norm(sd: Fixture, prefix: str) -> dict[str, np.ndarray]:
-    return {"scale": sd[f"{prefix}.ln.weight"], "bias": sd[f"{prefix}.ln.bias"]}
-
-
-def _trunk(sd: Fixture, prefix: str, n: int) -> dict[str, Any]:
-    """NormedLinear layers ``prefix.0 .. prefix.{n-1}`` -> ``NormedMLP``."""
-    out: dict[str, Any] = {}
-    for i in range(n):
-        out[f"Dense_{i}"] = _dense(sd, f"{prefix}.{i}")
-        out[f"LayerNorm_{i}"] = _layer_norm(sd, f"{prefix}.{i}")
-    return out
-
-
-def _normed_linear(sd: Fixture, prefix: str) -> dict[str, Any]:
-    """One NormedLinear ``prefix`` (the SimNorm heads) -> a one-layer ``NormedMLP``."""
-    return {"Dense_0": _dense(sd, prefix), "LayerNorm_0": _layer_norm(sd, prefix)}
-
-
-def _ensemble(sd: Fixture, prefix: str, names: list[str]) -> dict[str, Any]:
-    """Stacked ``prefix.<i>`` tensors, in one member's parameter order ``names``
-    (``[num_q, out, in]`` weights), -> the vmapped ``QFunction`` tree."""
-    member = {name: sd[f"{prefix}.{i}"] for i, name in enumerate(names)}
-    member = {
-        name: v.transpose(0, 2, 1) if name.endswith("weight") and v.ndim == 3 else v
-        for name, v in member.items()
-    }
-    trunk: dict[str, Any] = {}
-    for i in range(2):
-        trunk[f"Dense_{i}"] = {
-            "kernel": member[f"{i}.weight"],
-            "bias": member[f"{i}.bias"],
-        }
-        trunk[f"LayerNorm_{i}"] = {
-            "scale": member[f"{i}.ln.weight"],
-            "bias": member[f"{i}.ln.bias"],
-        }
-    out = {"kernel": member["2.weight"], "bias": member["2.bias"]}
-    return {"members": {"trunk": trunk, "out": out}}
-
-
-def torch_to_ajax(
-    fx: Fixture, prefix: str, config: TDMPC2Config
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """World-model, target-Q and policy parameters of the snapshot ``prefix``."""
-    sd = {k[len(prefix) :]: v for k, v in fx.items() if k.startswith(prefix)}
-    names = [str(n) for n in fx["meta/q_param_names"]]
-    hidden = max(config.num_enc_layers - 1, 1)
-    wm = {
-        "encoder": {
-            "trunk": _trunk(sd, "_encoder.state", hidden),
-            "head": _normed_linear(sd, f"_encoder.state.{hidden}"),
-        },
-        "dynamics": {
-            "trunk": _trunk(sd, "_dynamics", 2),
-            "head": _normed_linear(sd, "_dynamics.2"),
-        },
-        "reward": {"trunk": _trunk(sd, "_reward", 2), "out": _dense(sd, "_reward.2")},
-        "q": _ensemble(sd, "_Qs.params", names),
-    }
-    target_q = _ensemble(sd, "_target_Qs.params", names)
-    pi = {"trunk": _trunk(sd, "_pi", 2), "out": _dense(sd, "_pi.2")}
-    n_mapped = sum(len(jax.tree_util.tree_leaves(t)) for t in (wm, target_q, pi))
-    assert n_mapped == len(sd), "every reference tensor is mapped exactly once"
-    return wm, target_q, pi
-
-
-def _as_jnp(tree: Any) -> Any:
-    return jax.tree_util.tree_map(jnp.asarray, tree)
+    return ajax_config(ref_config)
 
 
 def initial_state(
@@ -204,7 +110,7 @@ def initial_state(
         learning_rate=ref_config["lr"],
         enc_lr_scale=ref_config["enc_lr_scale"],
     )
-    wm, target_q, pi = (_as_jnp(t) for t in torch_to_ajax(fx, "init/", config))
+    wm, target_q, pi = (as_jnp(t) for t in torch_to_ajax(fx, "init/", config))
     for mapped, ajax in (
         (wm, state.world_model_state.params),
         (target_q, state.world_model_state.target_params),
@@ -244,37 +150,6 @@ def batch_and_noise(fx: Fixture, k: int) -> tuple[core.TDMPC2Batch, core.UpdateN
         pi_dropout=key,
     )
     return batch, noise
-
-
-class ErrorReport:
-    """Asserts closeness and keeps the worst absolute / relative error per name."""
-
-    def __init__(self) -> None:
-        self.worst: dict[str, tuple[float, float]] = {}
-
-    def check(
-        self, name: str, actual: Any, expected: Any, tol: tuple[float, float]
-    ) -> None:
-        rtol, atol = tol
-        a_leaves = jax.tree_util.tree_leaves(actual)
-        e_leaves = jax.tree_util.tree_leaves(expected)
-        assert len(a_leaves) == len(e_leaves), name
-        for a, e in zip(a_leaves, e_leaves):
-            np.testing.assert_allclose(
-                np.asarray(a), np.asarray(e), rtol=rtol, atol=atol, err_msg=name
-            )
-        a = np.concatenate([np.ravel(np.asarray(x, np.float64)) for x in a_leaves])
-        e = np.concatenate([np.ravel(np.asarray(x, np.float64)) for x in e_leaves])
-        err = np.abs(a - e)
-        big = np.abs(e) > 1e-3
-        rel = float((err[big] / np.abs(e[big])).max(initial=0.0))
-        old = self.worst.get(name, (0.0, 0.0))
-        self.worst[name] = (max(old[0], float(err.max())), max(old[1], rel))
-
-    def print(self) -> None:
-        print("\nTD-MPC2 parity: max |error|, max relative error (|reference| > 1e-3)")
-        for name, (abs_err, rel_err) in self.worst.items():
-            print(f"  {name:18s} {abs_err:.2e}  {rel_err:.2e}")
 
 
 def test_fixture_records_the_paper_era_q_dropout_mode(fx):
@@ -325,7 +200,7 @@ def test_update_matches_reference_over_four_updates(fx, ref_config, config):
     gamma = float(fx["meta/discount"])
     state = initial_state(fx, ref_config, config)
     step = jax.jit(lambda s, b, n: core.update(s, b, n, config=config, gamma=gamma))
-    report = ErrorReport()
+    report = ErrorReport("TD-MPC2 update parity")
 
     with jax.default_matmul_precision("highest"):
         for k in range(N_UPDATES):

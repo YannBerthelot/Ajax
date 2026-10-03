@@ -78,7 +78,10 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
         eval_ep_len = int(_native_ep) if _native_ep is not None else 1000
         if check_env_is_playground(env):
             env = _build_playground_env(
-                ajax_env_id, n_envs=num_episodes, episode_length=eval_ep_len
+                ajax_env_id,
+                n_envs=num_episodes,
+                episode_length=eval_ep_len,
+                fresh_reset=getattr(env, "_ajax_fresh_reset", True),
             )
         else:
             env = _build_brax_env(

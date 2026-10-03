@@ -35,7 +35,9 @@ import time
 # agents train on CartPole-v1, continuous ones on Pendulum-v1. Only
 # env_id / n_envs / n_timesteps are pinned; every other hyperparameter
 # uses the agent default, so the benchmark tracks the agent's own code
-# path rather than a tuned config.
+# path rather than a tuned config. Agents that cannot train on a plain env
+# id get a small documented preset in _CUSTOM_BUILDERS instead (env_id is
+# then a label).
 AGENTS: dict[str, tuple[str, dict]] = {
     "SAC": ("Pendulum-v1", {}),
     "PPO": ("CartPole-v1", {}),
@@ -47,6 +49,7 @@ AGENTS: dict[str, tuple[str, dict]] = {
     "ASAC": ("Pendulum-v1", {}),
     "AVG": ("Pendulum-v1", {}),
     "SafeSAC": ("Pendulum-v1", {}),
+    "APG": ("Pendulum-v1 (APG tracking)", {}),
 }
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -74,7 +77,56 @@ def _agent_class(name: str):
     return cls
 
 
+def _apg_tracking(n_envs: int):
+    """APG preset: the tests/agents/APG tracking task. APG differentiates
+    through the env, so it needs a model-reference task rather than a reward
+    env: gravity-free Pendulum-v1 under ModelReferenceWrapper (step
+    references in [-0.5, 0.5] rad held 4-8 steps, the paper's first-order
+    reference model), mass and length perturbed by 10 %, BPTT horizon 16, a
+    16-unit ReLU actor, lr 3e-3. Logging is off (as for every agent here):
+    a ``train`` with a logging config also starts and stops the logging
+    worker process, which costs seconds and would dominate the timing."""
+    import jax.numpy as jnp
+    from gymnax import make as make_gymnax_env
+
+    from ajax.agents.APG.APG import APG
+    from ajax.environments.model_reference import (
+        LinearReferenceModel,
+        ModelReferenceWrapper,
+        StepReference,
+    )
+    from ajax.environments.system_class import UniformPerturbation
+
+    env, params = make_gymnax_env("Pendulum-v1")
+    params = params.replace(g=0.0)
+    reference = StepReference(
+        horizon=16, min_value=-0.5, max_value=0.5, min_duration=4, max_duration=8
+    )
+    task = ModelReferenceWrapper(
+        env,
+        reference,
+        LinearReferenceModel.first_order(),
+        output_fn=lambda obs: jnp.arctan2(obs[1], obs[0]),
+    )
+    system_class = UniformPerturbation(params, fields=("m", "l"), scale=0.1)
+    return APG(
+        task,
+        n_envs=n_envs,
+        horizon=16,
+        learning_rate=3e-3,
+        actor_architecture=("16", "relu"),
+        system_class=system_class,
+        env_params=system_class.nominal,
+    )
+
+
+# agent name -> builder(n_envs) for the presets that are not a plain env id.
+_CUSTOM_BUILDERS = {"APG": _apg_tracking}
+
+
 def _build(name: str, env_id: str, kw: dict, n_envs: int):
+    if name in _CUSTOM_BUILDERS:
+        return _CUSTOM_BUILDERS[name](n_envs, **kw)
     return _agent_class(name)(env_id=env_id, n_envs=n_envs, **kw)
 
 

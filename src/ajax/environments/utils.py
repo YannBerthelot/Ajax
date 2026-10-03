@@ -2,8 +2,10 @@ from typing import Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from gymnax import EnvParams
 
+from ajax.environments.system_class import env_params_is_batched
 from ajax.types import (
     BraxEnv,
     EnvType,
@@ -147,3 +149,144 @@ def maybe_append_train_frac(
         return obs
     new_col = jnp.full((obs.shape[0], 1), train_frac)
     return jnp.concatenate([obs, new_col], axis=-1)
+
+
+def env_action_repeat(env: EnvType) -> int:
+    """Simulator steps one ``env.step`` runs: the ``action_repeat`` of the
+    brax ``EpisodeWrapper`` in a brax / playground stack (read through the
+    wrappers' attribute forwarding), 1 for gymnax envs and for brax stacks
+    without an ``EpisodeWrapper``."""
+    if not check_env_is_brax(env):
+        return 1
+    repeat = getattr(env, "action_repeat", None)
+    return 1 if repeat is None else int(repeat)
+
+
+def check_action_repeat(action_repeat: int) -> None:
+    if int(action_repeat) != action_repeat or action_repeat < 1:
+        raise ValueError(f"action_repeat must be a positive int, got {action_repeat!r}")
+
+
+def _n_param_envs(env_params: EnvParams) -> int:
+    """Leading (per-env) axis of a batched params (see ``system_class``)."""
+    return int(jnp.shape(jax.tree.leaves(env_params)[0])[0])
+
+
+def agent_episode_length(
+    env: EnvType, env_params: Optional[EnvParams], action_repeat: int = 1
+) -> int:
+    """Episode length in *agent* steps (the T of fixed-length schedules).
+
+    brax / playground: ``env.episode_length // action_repeat``
+    (``EpisodeWrapper`` counts simulator steps, see
+    ``ajax.environments.create``); the wrapper's own repeat
+    (:func:`env_action_repeat`) must equal ``action_repeat``. gymnax:
+    ``env_params.max_steps_in_episode // action_repeat`` (the env's own
+    params when ``env_params`` is None); per-env (batched) params must
+    agree on it, since a fixed-length schedule has one ``T``. The
+    simulator-step length must be a multiple of ``action_repeat``,
+    otherwise the last agent step of an episode would be cut short; that
+    raises.
+    """
+    check_action_repeat(action_repeat)
+    if get_env_type(env) == "brax":
+        sim_steps = getattr(env, "episode_length", None)
+        if sim_steps is None:
+            raise ValueError(
+                "Cannot infer the episode length of this brax/playground env:"
+                " it has no `episode_length` (no brax EpisodeWrapper in its"
+                " stack). Build it with ajax.environments.create."
+            )
+        env_repeat = env_action_repeat(env)
+        if env_repeat != action_repeat:
+            raise ValueError(
+                f"The env repeats each action {env_repeat} times (its"
+                f" EpisodeWrapper), not action_repeat={action_repeat}."
+            )
+    else:
+        params = env_params if env_params is not None else env.default_params
+        sim_steps = params.max_steps_in_episode
+        if env_params_is_batched(params):
+            lengths = np.unique(np.asarray(sim_steps))
+            if lengths.size != 1:
+                raise ValueError(
+                    "The per-env params disagree on max_steps_in_episode"
+                    f" ({lengths.tolist()}); an episode length in agent steps"
+                    " needs one value."
+                )
+            sim_steps = lengths[0]
+    sim_steps = int(sim_steps)
+    if sim_steps % action_repeat:
+        raise ValueError(
+            f"The episode length ({sim_steps} simulator steps) is not a multiple"
+            f" of action_repeat={action_repeat}."
+        )
+    return sim_steps // action_repeat
+
+
+def _concrete(x) -> Optional[np.ndarray]:
+    """``x`` as a NumPy array, or None when it is a tracer (unknown at trace time)."""
+    if isinstance(x, jax.core.Tracer):
+        return None
+    return np.asarray(x)
+
+
+def agent_action_to_env(
+    action: jax.Array, env: EnvType, env_params: Optional[EnvParams] = None
+) -> jax.Array:
+    """Map an agent action in ``[-1, 1]`` to the env's action bounds.
+
+    ``action`` is ``[n_envs, *action_shape]``. Continuous actions are
+    clipped to ``[-1, 1]`` and, on every dimension of the Box with finite
+    bounds ``[low, high]``, mapped affinely: ``low + (clip(a, -1, 1) + 1) /
+    2 * (high - low)``. This is DreamerV3's ``ClipAction`` +
+    ``NormalizeAction`` (a dimension with an infinite bound keeps the
+    clipped action) and TD-MPC2's action scaling. For ``[-1, 1]`` bounds --
+    every brax / playground env, gymnax envs like MountainCarContinuous --
+    the map is the identity on in-range actions (only the clip acts);
+    gymnax Pendulum's torque is ``[-2, 2]``. Per-env (batched) gymnax
+    params (``ajax.environments.system_class``) give per-env bounds: env
+    ``e``'s action is mapped with its own system's bounds. Discrete actions
+    pass through. Replay stores the agent's raw action, not this one.
+    """
+    if not check_if_environment_has_continuous_actions(env, env_params):
+        return action
+    clipped = jnp.clip(action, -1.0, 1.0)
+    if check_env_is_brax(env):
+        return clipped  # brax / playground actions live in [-1, 1]
+    if env_params_is_batched(env_params):
+        if _n_param_envs(env_params) != action.shape[0]:
+            raise ValueError(
+                f"Per-env params for {_n_param_envs(env_params)} envs, but"
+                f" actions for {action.shape[0]}."
+            )
+
+        def bounds(params):
+            space = env.action_space(params)
+            per_env_shape = action.shape[1:]
+            return (
+                jnp.broadcast_to(space.low, per_env_shape),
+                jnp.broadcast_to(space.high, per_env_shape),
+            )
+
+        low, high = jax.vmap(bounds)(env_params)  # [n_envs, *action_shape]
+    else:
+        space = env.action_space(env_params)
+        low, high = space.low, space.high
+    concrete_low, concrete_high = _concrete(low), _concrete(high)
+    if (
+        concrete_low is not None
+        and concrete_high is not None
+        and bool(np.all(concrete_low == -1.0))
+        and bool(np.all(concrete_high == 1.0))
+    ):
+        return clipped  # exact, without the affine round trip
+    low = jnp.asarray(low, dtype=action.dtype)
+    high = jnp.asarray(high, dtype=action.dtype)
+    finite = jnp.isfinite(low) & jnp.isfinite(high)
+    # Substitute [-1, 1] on infinite dims so the arithmetic stays finite;
+    # those dims take the clipped action in the final select anyway.
+    safe_low = jnp.where(finite, low, -1.0)
+    safe_high = jnp.where(finite, high, 1.0)
+    scaled = safe_low + (clipped + 1.0) / 2.0 * (safe_high - safe_low)
+    return jnp.where(finite, scaled, clipped)

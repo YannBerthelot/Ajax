@@ -786,3 +786,31 @@ benefit.
    correctness-defensive (no observable wins at current scale) or
    blocked by external library shape coupling (Brax VmapWrapper). The
    diminishing-returns line is reached.**
+
+## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
+
+`benchmarks/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
+at `model_size=1` with every other hyperparameter at the paper default (512
+planning samples including 24 policy-prior trajectories, 64 elites, 6 MPPI
+iterations, batch 256, UTD 1, one env, `seed_steps = max(1000, 5 T)`, `gamma`
+from `T`), evaluated by the planner in `eval_mode`. Seeds 0 and 1, run on the
+uncommitted M4b worktree on top of `af0295e`, on a shared M-series CPU at load
+average 25-40 (other jobs running).
+
+| Check | Budget (agent steps) | Eval returns per seed (at steps) | Final | Bar | Verdict | Wall (2 seeds) |
+|---|---|---|---|---|---|---|
+| gymnax Pendulum-v1 (T = 200, bounds [-2, 2] mapped) | 6,000 | seed 0: -177, -134, -143; seed 1: -203, -287, -124 (2k, 4k, 6k) | -143, -124 | > -400 | PASS | 45 min |
+| playground CartpoleBalance, action repeat 2 (T = 500) | 10,000 (20,000 frames) | seed 0: 656, 810; seed 1: 533, 854 (5k, 10k) | 810, 854 | > 800 | PASS | 88 min |
+
+Pendulum is solved after the first 1,000 updates (a random policy scores about
+-1200). CartpoleBalance is still improving at the end of its budget (533-656 at
+5k steps, 810-854 at 10k; the paper's curve sits near 1000 from 100k frames).
+Seed 0 clears its bar by only 10, so the bar is not met with much margin at
+this budget.
+
+Bench entry (`benchmarks/agent_bench.py`, preset documented there): no
+baseline row yet. One run at load average ~35 gave 64-66 steps/s (8,000 env
+steps, 4 envs, 7,996 updates; compile 46 s); that number is not a baseline.
+Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py --only TDMPC2
+--out benchmarks/agent_m4b.jsonl` on a quiet machine. Until then `--compare`
+lists TDMPC2 as `NEW (no baseline)`.

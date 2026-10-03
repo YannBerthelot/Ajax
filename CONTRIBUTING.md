@@ -70,11 +70,16 @@ src/ajax/
 │   environments/system_class.py   # SystemClass: distributions over EnvParams
 │   environments/differentiable.py # closed_loop_rollout: BPTT through gymnax envs
 │   environments/model_reference.py# ModelReferenceWrapper: tracking tasks
+│   environments/row_collector.py  # obs-aligned row collector (static /
+│                                  #   dynamic resets) for agents that own
+│                                  #   their collection (world models)
 │   modules/pid_head.py            # learnable PID layer on a network output
 ├── state.py                 # BaseAgentState (carries ext_state: tuple),
 │                            #   BaseAgentConfig, shared config dataclasses
-├── evaluate.py, log.py      # Eval loop + metric logging + compose_eval_metrics
-├── perf_utils.py            # build_resumable_train (init-or-resume + scan skeleton)
+├── evaluate.py, log.py      # Eval loops (evaluate, evaluate_policy) + metric
+│                            #   logging (evaluate_and_log, maybe_eval_and_log)
+├── perf_utils.py            # build_resumable_train (init-or-resume + scan
+│                            #   skeleton, resume offset), final_aux_scan/_fori
 ├── schedule.py              # Schedulable scalars
 └── wrappers.py              # Env wrappers
 ```
@@ -142,6 +147,15 @@ is exactly as invasive as the phases it overrides):
 | `eval_action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | eval-time action | ResidualPolicy |
 | `post_update(agent_state, ext_state, ctx) -> (agent_state, ext_state)` | after each update step | PhiRefresh, target-entropy schedules |
 | `eval_metrics(agent_state, ext_state, rng, ctx) -> dict` | each eval | ConditioningMetrics, BiasVoreDecomposition, CliffEta, DiagnosticSnapshots |
+
+An agent can declare the phases its training loop folds in
+`supported_extension_phases` (a class attribute of `ActorCritic`); an
+extension implementing any other phase is then rejected when the agent is
+constructed instead of being silently ignored. The check is opt-in: the
+default (every phase) checks nothing, and the existing agents have not
+opted in yet, so on them an extension implementing a phase they do not
+fold (e.g. `critic_loss` on APG) is still silently ignored. New agents
+that own their training loop declare their phases.
 
 ### Self-binding
 

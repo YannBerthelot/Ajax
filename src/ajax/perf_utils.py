@@ -12,6 +12,8 @@ Public API:
                          inner train function shared by every agent.
     final_aux_scan       lax.scan that exposes only the last-step aux,
                          without materializing the full ys axis.
+    final_aux_fori       fori_loop with a traced trip count that exposes
+                         only the last iteration's aux.
 """
 
 import inspect
@@ -92,12 +94,24 @@ def build_resumable_train(
 
     The returned ``train`` function has the signature
 
-        train(key, index=None, initial_state=None, resume_from_state=False)
+        train(key, index=None, initial_state=None, resume_from_state=False,
+              iteration_offset=0)
 
     and is decorated with :func:`train_jit`, so ``resume_from_state``
     becomes a trace-time static (init-fresh vs load-from-checkpoint
     branch is dead-code-eliminated) and ``initial_state`` buffers are
     donated on the resume path.
+
+    The scan input is the iteration index ``iteration_offset +
+    arange(num_updates)``: a resumed run passes the number of iterations
+    already done so the body sees *absolute* iteration indices and every
+    schedule computed from them (seed phase, update bursts, static resets,
+    logging cadence) continues instead of restarting. A passed offset is a
+    traced scalar (one compilation serves every offset) and must be
+    unbatched -- pass it through ``jax.vmap`` with ``in_axes=None`` -- so
+    the index, and every predicate derived from it, stays unbatched under
+    the seed vmap. The default (the Python int 0, not passed) adds nothing
+    to the program: it is exactly the one before offsets existed.
 
     Args:
         init_fn: ``(key, index) -> agent_state``. Builds a fresh agent
@@ -139,6 +153,7 @@ def build_resumable_train(
         index: Any = None,
         initial_state: Any = None,
         resume_from_state: bool = False,
+        iteration_offset: Any = 0,
     ) -> Tuple[Any, Any]:
         if resume_from_state:
             agent_state = initial_state
@@ -160,10 +175,13 @@ def build_resumable_train(
         # work on it get a trace-time-shaped predicate that stays a real
         # ``lax.cond`` under vmap, unlike anything derived from the (possibly
         # batched, on resume) agent state.
+        iterations = jnp.arange(num_updates)
+        if not (isinstance(iteration_offset, int) and iteration_offset == 0):
+            iterations = jnp.asarray(iteration_offset, iterations.dtype) + iterations
         agent_state, out = jax.lax.scan(
             f=body,
             init=agent_state,
-            xs=jnp.arange(num_updates),
+            xs=iterations,
             length=num_updates,
         )
         return agent_state, out
@@ -224,4 +242,52 @@ def final_aux_scan(
     return final_carry, last_aux
 
 
-__all__ = ["train_jit", "build_resumable_train", "final_aux_scan"]
+# ---------------------------------------------------------------------------
+# final_aux_fori
+# ---------------------------------------------------------------------------
+def final_aux_fori(
+    body: Callable[[jax.Array, Any], Tuple[Any, Any]],
+    carry: Any,
+    n: Any,
+) -> Tuple[Any, Any]:
+    """Run ``body`` ``n`` times (``n`` may be traced); keep only the last aux.
+
+    The loop-with-a-data-dependent-trip-count counterpart of
+    :func:`final_aux_scan`, for a variable number of updates per tick
+    (DESIGN §5.3)::
+
+        carry, aux = final_aux_fori(update, carry, n_updates(tick))
+
+    ``body(i, carry) -> (carry, aux)`` receives the int32 iteration index
+    ``i`` in ``[0, n)``. The result is ``(carry, aux)`` with ``aux`` from
+    the final iteration, or zeros of its shape when ``n == 0`` (the aux
+    structure comes from ``jax.eval_shape``). Only the last aux is carried,
+    never a stacked ``[n, ...]`` history.
+
+    ``n`` must be computed from *unbatched* values (the absolute tick
+    index, static hyperparameters): ``lax.fori_loop`` then lowers to one
+    ``while`` whose predicate stays unbatched under the seed ``vmap``, so
+    the loop runs exactly ``n`` times instead of becoming a select-masked
+    loop to the maximum over seeds.
+
+    ``body`` is traced once: it is wrapped in ``jax.jit`` so the abstract
+    evaluation that derives the aux structure and the loop body share
+    jit's trace cache (the index and carry have the same types in both).
+    A carry whose types change across iterations (e.g. Python-scalar weak
+    types) would only cost one extra trace, never correctness.
+    """
+    body_jit = jax.jit(body)
+    index_struct = jax.ShapeDtypeStruct((), jnp.int32)
+    aux_struct = jax.eval_shape(body_jit, index_struct, carry)[1]
+    init_aux = jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), aux_struct)
+
+    def step(i, state):
+        inner, _prev_aux = state
+        return body_jit(i, inner)
+
+    return jax.lax.fori_loop(
+        jnp.int32(0), jnp.asarray(n, jnp.int32), step, (carry, init_aux)
+    )
+
+
+__all__ = ["build_resumable_train", "final_aux_fori", "final_aux_scan", "train_jit"]

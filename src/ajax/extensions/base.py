@@ -35,8 +35,9 @@ Phases
 ``on_target``    transform the TD / value target
 ``critic_loss``  extra additive critic-loss term (summed over extensions)
 ``actor_loss``   extra additive actor-loss term (summed over extensions)
-``action``       override the collection-time action (``None`` = defer)
-``eval_action``  override the evaluation-time action (``None`` = defer)
+``action``       override the collection-time action (``None`` = defer;
+                 the last non-None proposal in the stack wins)
+``eval_action``  override the evaluation-time action (same rule)
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
 """
@@ -151,7 +152,7 @@ class Extension:
         del agent_state, ext_state, batch, ctx
         return 0.0
 
-    # -- action overrides (first non-None wins) --------------------------
+    # -- action overrides (across a stack, the last non-None wins) -------
     def action(
         self,
         agent_state: Any,

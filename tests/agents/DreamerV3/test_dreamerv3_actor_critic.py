@@ -382,7 +382,10 @@ def test_return_normaliser_is_updated_then_read_and_the_advantage_not_offset():
     old = ReturnNormalizer.create().replace(lo=jnp.float32(-3.0), hi=jnp.float32(5.0))
     out = _imagination(inputs, old)
     value = TWOHOT.decode(inputs["value_logits"])
-    np.testing.assert_allclose(out.value, value, rtol=1e-6)
+    # Jitted (inside the imagination) vs eager decode: equal up to float32
+    # rounding, which is absolute near 0 (CI on Linux x86 differs by one ulp
+    # of the expectation), hence an absolute floor of a few float32 eps.
+    np.testing.assert_allclose(out.value, value, rtol=1e-6, atol=1e-7)
     ret = np.asarray(out.ret, np.float64)
     np.testing.assert_allclose(
         ret,

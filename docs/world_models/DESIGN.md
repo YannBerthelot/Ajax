@@ -147,9 +147,14 @@ Spec `tdmpc2_spec.md` §1–§3 with the paper-era column everywhere, in particu
   gradient (PE never clears it before the world-model clip; carried as one scalar);
 - policy optimizer: Adam(3e-4, eps 1e-5), clip 20 (built with the existing `get_adam_tx`);
 - RunningScale on `Qp[0]`, update before divide.
+- Q-ensemble dropout is active in **every** Q pass at PE, the TD target's target-Q pass
+  included (found by running 5f6fade in M2; deviations §2, spec §0.5 item 10).
 - **Randomness seams:** `update(state, batch, noise)` and `plan(..., noise)` take their
-  random draws (ε, dropout masks, Q-pair indices, MPPI noise, elite draw) as explicit
-  arrays produced by `draw_*_noise(key)`, so oracle tests can inject identical draws.
+  random draws (ε, Q-pair indices, MPPI noise, elite draw) as explicit arrays produced by
+  `draw_*_noise(key)`, so oracle tests can inject identical draws. Dropout enters as one
+  key per Q pass (M2): the per-member masks are drawn inside `nn.vmap`, and torch's masks
+  inside `torch.vmap` cannot be recorded, so the parity fixture runs with dropout 0 and
+  dropout is tested on the Ajax side.
 
 ### 4.3 Planner (agent-local `agents/TDMPC2/planner.py`)
 Spec §3.C exactly: 512 candidates including 24 π trajectories (never resampled,
@@ -446,14 +451,15 @@ agents. APG and both new agents get bench entries with a small documented preset
     Ajax's tree, force the recorded draws and compare. The fixtures' sizes are pairwise
     distinct where Ajax could confuse two of them, and the hyperparameters other than
     widths are the reference's defaults, against which Ajax's defaults are pinned.
-    DreamerV3's world model (M5) is pinned this way:
-    `parity/dreamerv3_world_model_fixtures.py` runs `29eb964`'s own `Agent.train`.
+    Pinned this way so far: the TD-MPC2 update (M2,
+    `parity/tdmpc2_update_fixtures.py`: consecutive real 5f6fade `update()` calls,
+    replayed by `test_tdmpc2_parity.py` through Ajax's jitted update) and the DreamerV3
+    world model (M5, `parity/dreamerv3_world_model_fixtures.py`: `29eb964`'s own
+    `Agent.train`).
   - *Transcriptions*: `tests/world_models/reference_impls.py` (shared blocks) and
     `tests/agents/<A>/reference_<a>.py`, literal jnp transcriptions of the pinned
-    reference functions (MIT-licensed, attributed line by line): TD-MPC2@5f6fade
-    `_td_target`, `update`, `update_pi` (PE entropy, clip quirk), `plan`,
-    `_estimate_value`; DreamerV3@2411f7d+29eb964 imagination + λ-returns + retnorm +
-    actor/critic losses, repval, optimizer.
+    reference functions (MIT-licensed, attributed line by line), where running the
+    reference is impractical.
 - **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer;
   2411f7d driver + replay add/sample/online queue + train gate + Ratio) on a counter env:
   identical row streams, seed/burst/gate ticks, queue pops, update counts.

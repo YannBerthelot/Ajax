@@ -1,4 +1,4 @@
-from typing import Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -7,12 +7,19 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import get_pi, reset, step
+from ajax.environments.row_collector import PolicyFn, check_unnormalized_env
+from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
+    agent_action_to_env,
+    agent_episode_length,
     check_env_is_gymnax,
     check_env_is_playground,
     check_if_environment_has_continuous_actions,
+    env_action_repeat,
+    get_env_type,
     get_raw_env,
 )
+from ajax.state import EnvironmentConfig
 from ajax.wrappers import (
     ClipAction,
     ClipActionBrax,
@@ -32,8 +39,27 @@ def repeat_first_entry(tree: T, num_repeats: int) -> T:
     return jax.tree.map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
 
 
-def setup_environment(env, env_params, num_episodes, norm_info, gamma):
-    """Prepare and wrap the environment (gymnax or brax)."""
+def setup_environment(
+    env,
+    env_params,
+    num_episodes,
+    norm_info,
+    gamma,
+    action_repeat: int = 1,
+    episode_length: Optional[int] = None,
+    clip_actions: bool = True,
+):
+    """Prepare and wrap the environment (gymnax or brax) for evaluation.
+
+    brax / playground envs are rebuilt with ``num_episodes`` parallel envs.
+    ``episode_length`` (simulator steps) and ``action_repeat`` are the
+    training env's; the defaults (``None`` -> the env's native episode
+    length, falling back to 1000; repeat 1) are the historical behaviour.
+    ``clip_actions=False`` drops the ``[-1, 1]`` action clip for callers
+    that map actions to the env's bounds themselves
+    (:func:`ajax.environments.utils.agent_action_to_env`). gymnax envs do
+    not support ``action_repeat > 1``.
+    """
     mode = "gymnax" if check_env_is_gymnax(env) else "brax"
     clip_wrapper = ClipAction if mode == "gymnax" else ClipActionBrax
     norm_wrapper = (
@@ -76,11 +102,14 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
                 None,
             )
         eval_ep_len = int(_native_ep) if _native_ep is not None else 1000
+        if episode_length is not None:
+            eval_ep_len = int(episode_length)
         if check_env_is_playground(env):
             env = _build_playground_env(
                 ajax_env_id,
                 n_envs=num_episodes,
                 episode_length=eval_ep_len,
+                action_repeat=action_repeat,
                 fresh_reset=getattr(env, "_ajax_fresh_reset", True),
             )
         else:
@@ -88,9 +117,16 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
                 ajax_env_id,
                 n_envs=num_episodes,
                 episode_length=eval_ep_len,
+                action_repeat=action_repeat,
             )
-        env = clip_wrapper(env)
+        if clip_actions:
+            env = clip_wrapper(env)
     else:
+        if action_repeat > 1:
+            raise NotImplementedError(
+                "action_repeat > 1 is not supported on gymnax envs (see"
+                " ajax.environments.create.build_env_from_id)."
+            )
         env = env.unwrapped if hasattr(env, "unwrapped") else env
         # `.unwrapped` peels the whole training stack, which is intended for
         # the bookkeeping wrappers but also drops the observation flattening.
@@ -108,7 +144,7 @@ def setup_environment(env, env_params, num_episodes, norm_info, gamma):
         # discrete index like action=3 down to 1.0). Only wrap continuous
         # gymnax envs. Brax envs are always continuous, so that branch is
         # left untouched above.
-        if continuous:
+        if continuous and clip_actions:
             env = clip_wrapper(env)
 
     if norm_info is not None:
@@ -416,12 +452,14 @@ def _infer_max_eval_steps(env, env_params) -> int:
 
     Gymnax envs expose `max_steps_in_episode` via env_params; brax/playground
     envs expose `episode_length` through the EpisodeWrapper (propagated by
-    __getattr__ through outer wrappers).
+    __getattr__ through outer wrappers). That length counts simulator steps;
+    with an action repeat an episode lasts ceil(episode_length / repeat)
+    env.step calls (the length itself when the repeat is 1).
     """
     if env_params is not None and hasattr(env_params, "max_steps_in_episode"):
         return int(env_params.max_steps_in_episode)
     if hasattr(env, "episode_length"):
-        return int(env.episode_length)
+        return -(-int(env.episode_length) // env_action_repeat(env))
     return 1000
 
 
@@ -467,9 +505,15 @@ def evaluate(
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
 ) -> jax.Array:
-    # Setup
+    # Setup. The rebuild repeats each action as often as the training env
+    # does (1 for every env built without a repeat: the default rebuild).
     env, mode, continuous = setup_environment(
-        env, env_params, num_episodes, norm_info, gamma
+        env,
+        env_params,
+        num_episodes,
+        norm_info,
+        gamma,
+        action_repeat=env_action_repeat(env),
     )
     key, reset_key = jax.random.split(rng, 2)
     reset_keys = (
@@ -612,3 +656,107 @@ def evaluate(
         step_count.mean(),
         jnp.nanmean(rewards_expert) if expert_policy is not None else jnp.nan,
     )
+
+
+def evaluate_policy(
+    env_args: EnvironmentConfig,
+    policy_fn: PolicyFn,
+    init_carry_fn: Callable[[int], Any],
+    num_episodes: int,
+    key: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Mean return and mean length of one episode in each of ``num_episodes`` envs.
+
+    The evaluation protocol of the agents that own their collection (the
+    world-model agents, DESIGN §5.4), for a *stateful* policy with the row
+    collector's protocol ``policy_fn(carry, obs, is_first, key) -> (action,
+    carry, extras)`` (extras ignored):
+
+    * the env is rebuilt through :func:`setup_environment` with
+      ``num_episodes`` parallel envs and the *training* ``action_repeat``
+      and episode length, without the ``[-1, 1]`` action clip: actions go
+      through :func:`ajax.environments.utils.agent_action_to_env`, as in
+      the row collector, so train and eval act on the env identically;
+    * the envs are reset with ``key`` (the same reset-key derivation as
+      :func:`evaluate`, so both see the same initial states for one key);
+    * the policy starts from ``init_carry_fn(num_episodes)`` (a zero carry)
+      with ``is_first`` set on the first step only;
+    * every env runs exactly one episode: a scan over the episode length in
+      agent steps (:func:`ajax.environments.utils.agent_episode_length`)
+      with rewards and lengths masked after each env's first ``done``.
+
+    Preconditions (they raise): the training env does not normalise
+    observations or rewards (the rebuild is the raw env, see
+    :func:`ajax.environments.row_collector.check_unnormalized_env`), and
+    ``env_params`` describes one system (per-env, batched params cannot be
+    rebuilt with ``num_episodes`` envs; evaluate a nominal system instead).
+    """
+    env, env_params = env_args.env, env_args.env_params
+    check_unnormalized_env(env, "evaluate_policy")
+    if env_params_is_batched(env_params):
+        raise ValueError(
+            "evaluate_policy evaluates one system: pass unbatched env_params"
+            " (e.g. a system class's nominal params), not per-env params."
+        )
+    # brax / playground envs carry their (simulator-step) episode length on
+    # the EpisodeWrapper; gymnax envs carry it in env_params.
+    train_episode_length = (
+        getattr(env, "episode_length", None) if get_env_type(env) == "brax" else None
+    )
+    env, mode, _ = setup_environment(
+        env,
+        env_params,
+        num_episodes,
+        norm_info=None,
+        gamma=0.99,  # unused without norm_info
+        action_repeat=env_args.action_repeat,
+        episode_length=train_episode_length,
+        clip_actions=False,
+    )
+    horizon = agent_episode_length(env, env_params, env_args.action_repeat)
+
+    def env_keys(key):
+        return jax.random.split(key, num_episodes) if mode == "gymnax" else key
+
+    key, reset_key = jax.random.split(key)
+    obs, env_state = reset(env_keys(reset_key), env, mode, env_params)
+
+    def body(carry, _):
+        obs, env_state, policy_carry, is_first, done, ret, length, key = carry
+        key, policy_key, step_key = jax.random.split(key, 3)
+        action, policy_carry, _ = policy_fn(policy_carry, obs, is_first, policy_key)
+        obs, env_state, reward, terminated, truncated, _ = step(
+            env_keys(step_key),
+            env_state,
+            agent_action_to_env(action, env, env_params),
+            env,
+            mode,
+            env_params,
+        )
+        running = jnp.logical_not(done)
+        ret = ret + jnp.where(running, reward, 0.0)
+        length = length + running.astype(jnp.float32)
+        done = done | (terminated > 0) | (truncated > 0)
+        return (
+            obs,
+            env_state,
+            policy_carry,
+            jnp.zeros_like(is_first),
+            done,
+            ret,
+            length,
+            key,
+        ), None
+
+    init = (
+        obs,
+        env_state,
+        init_carry_fn(num_episodes),
+        jnp.ones(num_episodes, bool),
+        jnp.zeros(num_episodes, bool),
+        jnp.zeros(num_episodes, jnp.float32),
+        jnp.zeros(num_episodes, jnp.float32),
+        key,
+    )
+    final, _ = jax.lax.scan(body, init, None, length=horizon)
+    return final[5].mean(), final[6].mean()

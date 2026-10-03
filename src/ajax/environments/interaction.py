@@ -484,22 +484,38 @@ def compute_episodic_reward_mean(
     mode: str,
 ) -> tuple[RollinEpisodicMeanRewardState, jnp.ndarray]:
     reward = get_raw_reward(reward, env, agent_state, mode)
-    new_cumulative_reward = (
-        agent_state.collector_state.episodic_return_state.cumulative_reward
-        + reward.reshape(reward.shape[0], 1)
+    return update_episodic_return(
+        agent_state.collector_state.episodic_return_state, reward, done
+    )
+
+
+def update_episodic_return(
+    episodic_return_state: RollinEpisodicMeanRewardState,
+    reward: jnp.ndarray,
+    done: jnp.ndarray,
+) -> tuple[RollinEpisodicMeanRewardState, jnp.ndarray]:
+    """Advance the per-env rolling mean of episode returns by one step.
+
+    ``reward`` (``[n_envs]``, raw) is added to every env's running return;
+    an env whose episode is ``done`` pushes that return into its rolling
+    window and restarts at 0. Returns the new state and the mean over envs
+    of each env's rolling mean (NaN until every env finished an episode),
+    the house ``Train/episodic mean reward``.
+    """
+    new_cumulative_reward = episodic_return_state.cumulative_reward + reward.reshape(
+        reward.shape[0], 1
     )
     last_return = jax.lax.select(
         done.reshape(done.shape[0], 1),
         new_cumulative_reward,
-        agent_state.collector_state.episodic_return_state.last_return,
+        episodic_return_state.last_return,
     )  # nan if no episode has finished yet
     updated_episodic_return_state, updated_episodic_mean_return = update_rolling_mean(
-        agent_state.collector_state.episodic_return_state,
+        episodic_return_state,
         last_return,
     )
     previous_episodic_mean_return = (
-        agent_state.collector_state.episodic_return_state.sum
-        / agent_state.collector_state.episodic_return_state.count
+        episodic_return_state.sum / episodic_return_state.count
     )
 
     episodic_mean_return = jax.lax.select(
@@ -524,7 +540,7 @@ def compute_episodic_reward_mean(
             done.reshape(done.shape[0], 1), new_val, old_val
         ),
         updated_episodic_return_state,
-        agent_state.collector_state.episodic_return_state,
+        episodic_return_state,
     )
 
     new_episodic_return_state = new_episodic_return_state.replace(

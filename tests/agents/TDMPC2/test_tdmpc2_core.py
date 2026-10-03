@@ -170,6 +170,40 @@ def test_reduce_q_pair_on_decoded_values():
         core.reduce_q_pair(logits, pair, "max", two_hot)  # type: ignore[arg-type]
 
 
+def test_q_pair_logits_evaluates_only_the_pair(state):
+    """Without dropout, the full ensemble's rows ``pair`` in the pair's order
+    (traced pair included); with a dropout key, deterministic per key and an
+    independent mask per member (a member paired with itself differs)."""
+    wm = state.world_model_state
+    k1, k2, k3, k4 = jax.random.split(jax.random.PRNGKey(4), 4)
+    z = jax.random.normal(k1, (B, TINY.latent_dim))
+    action = jax.random.uniform(k2, (B, ACT), minval=-1, maxval=1)
+    full = core.q_logits(wm.apply_fn, wm.params, z, action)
+    tol = {"rtol": 1e-5, "atol": 1e-6}
+    for pair in ([4, 1], [0, 2]):
+        idx = jnp.array(pair, jnp.int32)
+        logits = core.q_pair_logits(TINY, wm.params, z, action, idx)
+        assert logits.shape == (2, B, TINY.num_bins)
+        np.testing.assert_allclose(logits, full[idx], **tol)
+    traced = jax.jit(lambda p: core.q_pair_logits(TINY, wm.params, z, action, p))
+    np.testing.assert_allclose(
+        traced(jnp.array([3, 0])), full[jnp.array([3, 0])], **tol
+    )
+
+    config = TINY.replace(dropout=0.3)
+
+    def dropped(pair, key):
+        return core.q_pair_logits(
+            config, wm.params, z, action, jnp.array(pair), dropout_key=key
+        )
+
+    np.testing.assert_array_equal(dropped([4, 1], k3), dropped([4, 1], k3))
+    assert not np.allclose(dropped([4, 1], k3), dropped([4, 1], k4))
+    assert not np.allclose(dropped([4, 1], k3), full[jnp.array([4, 1])])
+    twice = dropped([1, 1], k3)
+    assert not np.allclose(twice[0], twice[1])
+
+
 # ------------------------------------------------------------ policy sampling
 
 

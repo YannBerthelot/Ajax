@@ -386,7 +386,7 @@ def normal_init(std=0.02, outscale=1.0)   # T2: W = outscale * N(0, std^2)
 
 **Math.** Kernel W has shape (g, I/g, U/g) and the bias has shape (U,). The output is y = einsum('...ki,kio->...ko', x.reshape(..., g, I/g), W).reshape(..., U) + b. Init fan_in = I, the full width (B5). Used in the GRU core: `dynhid0` with U = D and `dyngru` with U = 3D (D§2.4).
 
-**Signature.** `BlockLinear(features: int, blocks: int, kernel_init, dtype)`.
+**Signature.** `BlockLinear(features: int, blocks: int)` (agent-local in `agents/DreamerV3/networks.py`, `DESIGN.md` §3). The kernel init is fixed to B5's fan-in truncated normal at outscale 1: the reference's RSSM builds `dyn0` and `dyncore` with BlockLinear's default outscale (29eb964 `nets.py:161-166`), and its only other BlockLinear, the image decoder's `space0`, is out of scope. f32 only (D4).
 
 **Tests.**
 1. The Jacobian block (output k, input j) is zero for j ≠ k.

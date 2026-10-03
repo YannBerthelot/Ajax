@@ -77,6 +77,84 @@ def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -
     jax.debug.callback(_gated, flag, metrics, index)
 
 
+def maybe_eval_and_log(
+    agent_state: Any,
+    aux: Any,
+    index: Any,
+    iteration: Any,
+    *,
+    metrics_fn: Callable[[Any, Any], dict],
+    evaluate_fn: Callable[[Any, jax.Array], dict],
+    extra_eval_metrics: Optional[Callable],
+    log: bool,
+    log_fn: Callable,
+    log_frequency: Optional[int],
+    per_update: int,
+) -> tuple[Any, dict]:
+    """Evaluate + log every ``log_frequency`` env steps, gated on the scan index.
+
+    For agents that own their logging cadence (APG, the world-model
+    agents). The gate is ``(iteration + 1) % every == 0`` with
+    ``every = max(log_frequency // per_update, 1)`` scan iterations
+    (``per_update`` = env steps per iteration, so ``log_frequency`` is
+    rounded to a whole number of iterations). ``iteration`` is the scan
+    input -- unbatched even when the agent state is batched across seeds
+    (resume, curriculum) -- so the ``lax.cond`` stays a real cond and the
+    evaluation only runs on the iterations that log. With an iteration
+    offset (``build_resumable_train``) the cadence is absolute; without one
+    it is relative to the start of this ``train`` call.
+
+    On a logging iteration the metrics are ``metrics_fn(agent_state, aux)``
+    (the agent's training metrics, e.g. ``timestep`` and losses) updated
+    with ``evaluate_fn(agent_state, eval_key)`` and, when given,
+    ``extra_eval_metrics(agent_state, extra_key)``, where ``eval_key,
+    extra_key = split(agent_state.eval_rng)``; they are sent to ``log_fn``
+    through :func:`gated_log_callback` and ``agent_state.n_logs`` is
+    incremented. Otherwise the same structure is returned filled with NaN
+    (``-1`` for integer leaves) and ``n_logs`` is unchanged. When logging is
+    disabled (``log`` false or no ``log_frequency``) nothing is evaluated.
+
+    Returns ``(agent_state, metrics)``.
+    """
+    enabled = log and bool(log_frequency)
+    every = (
+        max(int(log_frequency) // max(per_update, 1), 1)
+        if enabled and log_frequency is not None
+        else 1
+    )
+    flag = jnp.logical_and(enabled, (iteration + 1) % every == 0)
+
+    def run(agent_state, aux, index):
+        eval_key, extra_key = jax.random.split(agent_state.eval_rng)
+        metrics = dict(metrics_fn(agent_state, aux))
+        metrics.update(evaluate_fn(agent_state, eval_key))
+        if extra_eval_metrics is not None:
+            metrics.update(extra_eval_metrics(agent_state, extra_key))
+        if log:
+            # gated inside the callback: see gated_log_callback
+            gated_log_callback(log_fn, flag, metrics, index)
+        return metrics
+
+    def skip(agent_state, aux, index):
+        shapes = jax.eval_shape(run, agent_state, aux, index)
+        return jax.tree.map(
+            lambda s: (
+                jnp.asarray(-1, s.dtype)
+                if jnp.issubdtype(s.dtype, jnp.integer)
+                else jnp.full(s.shape, jnp.nan, s.dtype)
+            ),
+            shapes,
+        )
+
+    if not enabled:
+        return agent_state, skip(agent_state, aux, index)
+    metrics = jax.lax.cond(flag, run, skip, agent_state, aux, index)
+    agent_state = agent_state.replace(
+        n_logs=jax.lax.select(flag, agent_state.n_logs + 1, agent_state.n_logs)
+    )
+    return agent_state, metrics
+
+
 class AuxiliaryLogsProtocol(Protocol): ...
 
 

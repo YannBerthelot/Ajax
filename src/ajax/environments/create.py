@@ -1,4 +1,5 @@
-from typing import Optional, Tuple, Union
+import inspect
+from typing import Callable, Optional, Tuple, Union
 
 import brax
 import brax.envs
@@ -7,7 +8,9 @@ from gymnax import EnvParams
 
 from ajax.environments.utils import (
     EnvType,
+    check_action_repeat,
     check_if_environment_has_continuous_actions,
+    env_action_repeat,
     get_env_type,
 )
 from ajax.wrappers import (
@@ -23,9 +26,66 @@ from ajax.wrappers import (
 # builder signature is (n_envs, episode_length) -> env with `_ajax_env_id`
 # set. Used when the caller needs extra wrappers (safety termination,
 # observation augmentation, narrowed reset distribution) that must persist
-# through eval's env rebuild.
+# through eval's env rebuild. A builder that supports action repeat also
+# accepts an ``action_repeat`` keyword; it is only passed when > 1, so the
+# two-argument builders registered so far keep working unchanged.
 _PLAYGROUND_BUILDERS: dict = {}
 _BRAX_BUILDERS: dict = {}
+
+
+def _builder_accepts_action_repeat(builder: Callable) -> bool:
+    try:
+        params = inspect.signature(builder).parameters
+    except (TypeError, ValueError):  # builtins / C callables: no signature
+        return False
+    return "action_repeat" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
+
+
+def _call_registered_builder(
+    kind: str,
+    builder: Callable,
+    env_id: str,
+    n_envs: int,
+    episode_length: int,
+    action_repeat: int,
+):
+    """Call a registered ``(n_envs, episode_length)`` builder.
+
+    At ``action_repeat == 1`` the builder is called exactly as before (two
+    arguments). Above 1, ``action_repeat`` is forwarded as a keyword when the
+    builder's signature takes it (by name or ``**kwargs``), and the built
+    env -- not the signature -- decides: it must repeat each action
+    ``action_repeat`` times (:func:`env_action_repeat`), otherwise this
+    raises. A two-argument builder is accepted only when its env already
+    repeats that many times (a repeat hardcoded in its EpisodeWrapper).
+    """
+    if action_repeat == 1:
+        return builder(n_envs, episode_length)
+    accepts = _builder_accepts_action_repeat(builder)
+    env = (
+        builder(n_envs, episode_length, action_repeat=action_repeat)
+        if accepts
+        else builder(n_envs, episode_length)
+    )
+    built = env_action_repeat(env)
+    if built == action_repeat:
+        return env
+    if not accepts:
+        raise ValueError(
+            f"The {kind} builder registered for {env_id!r} does not accept an"
+            f" `action_repeat` keyword and its env repeats each action {built}"
+            f" times, so action_repeat={action_repeat} cannot be applied. Add"
+            " `action_repeat` to the builder's signature (and pass it to its"
+            " EpisodeWrapper) to use action repeat with this env."
+        )
+    raise ValueError(
+        f"The {kind} builder registered for {env_id!r} accepted"
+        f" action_repeat={action_repeat} but returned an env that repeats each"
+        f" action {built} times. Pass `action_repeat` to the builder's"
+        " EpisodeWrapper."
+    )
 
 
 def register_brax_builder(env_id: str, builder) -> None:
@@ -37,6 +97,8 @@ def register_brax_builder(env_id: str, builder) -> None:
     `_build_brax_env(env_id, ...)` delegate to this builder. Used when a
     safety-experiments-style env wraps a stock brax robot with custom
     termination/observation-augmentation that must survive eval's rebuild.
+    To support ``action_repeat > 1`` the builder must also accept an
+    ``action_repeat`` keyword (passed only when > 1).
     """
     _BRAX_BUILDERS[env_id] = builder
 
@@ -47,6 +109,8 @@ def register_playground_builder(env_id: str, builder) -> None:
     The builder takes (n_envs, episode_length) and must return a fully
     wrapped env whose `_ajax_env_id` attribute equals `env_id`. Subsequent
     calls to `_build_playground_env(env_id, ...)` delegate to this builder.
+    To support ``action_repeat > 1`` the builder must also accept an
+    ``action_repeat`` keyword (passed only when > 1).
     """
     _PLAYGROUND_BUILDERS[env_id] = builder
 
@@ -55,6 +119,7 @@ def _build_playground_env(
     env_id: str,
     n_envs: int,
     episode_length: int,
+    action_repeat: int = 1,
     fresh_reset: bool = True,
     differentiable_reset: bool = False,
 ):
@@ -68,6 +133,13 @@ def _build_playground_env(
     split the caller's single key into `n_envs` keys on reset to keep Ajax's
     unbatched-rng convention intact.
 
+    ``action_repeat`` goes to brax's ``EpisodeWrapper``: one agent step runs
+    the simulator ``action_repeat`` times and returns the summed reward.
+    ``episode_length`` counts *simulator* steps (the episode lasts
+    ``episode_length // action_repeat`` agent steps), and the repeat does
+    not stop early on termination (brax's behaviour; the DMC tasks never
+    terminate -- deviation E19 in docs/world_models/deviations.md).
+
     `fresh_reset` selects the auto-reset. True (the default) uses
     `FreshAutoResetWrapper`, which draws a new initial state for every
     episode, as dm_control does. False keeps playground's
@@ -80,8 +152,16 @@ def _build_playground_env(
     Registered builders own their whole stack, auto-reset included, and are
     not affected by these flags.
     """
+    check_action_repeat(action_repeat)
     if env_id in _PLAYGROUND_BUILDERS:
-        return _PLAYGROUND_BUILDERS[env_id](n_envs, episode_length)
+        return _call_registered_builder(
+            "playground",
+            _PLAYGROUND_BUILDERS[env_id],
+            env_id,
+            n_envs,
+            episode_length,
+            action_repeat,
+        )
 
     import jax as _jax
     from brax.envs.wrappers import training as brax_training
@@ -92,7 +172,7 @@ def _build_playground_env(
 
     _overrides = {"impl": "jax"} if _jax.default_backend() == "cpu" else None
     env = registry.load(env_id, config_overrides=_overrides)
-    env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=1)
+    env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
     env = FinalObsWrapper(env)
     if fresh_reset:
@@ -108,7 +188,11 @@ def _build_playground_env(
 
 
 def _build_brax_env(
-    env_id: str, n_envs: int, episode_length: int, differentiable_reset: bool = False
+    env_id: str,
+    n_envs: int,
+    episode_length: int,
+    action_repeat: int = 1,
+    differentiable_reset: bool = False,
 ):
     """Build a brax env with the same stack Ajax uses for playground:
     Ajax owns vectorization via VmapWrapper (not brax's native batch_size
@@ -116,16 +200,28 @@ def _build_brax_env(
     and has been implicated in the Ant GPU double-free crash). EpisodeWrapper
     exposes truncation in info, FinalObsWrapper preserves the pre-reset
     observation, and AutoResetWrapper re-samples the reset seed.
-    `differentiable_reset` is passed to AutoResetWrapper (see
-    `build_env_from_id`); registered builders are not affected by it.
+
+    ``action_repeat`` is handled by ``EpisodeWrapper`` exactly as in
+    :func:`_build_playground_env` (episode_length in simulator steps,
+    summed reward, no early stop on termination). `differentiable_reset` is
+    passed to AutoResetWrapper (see `build_env_from_id`); registered
+    builders are not affected by it.
     """
+    check_action_repeat(action_repeat)
     if env_id in _BRAX_BUILDERS:
-        return _BRAX_BUILDERS[env_id](n_envs, episode_length)
+        return _call_registered_builder(
+            "brax",
+            _BRAX_BUILDERS[env_id],
+            env_id,
+            n_envs,
+            episode_length,
+            action_repeat,
+        )
 
     from brax.envs.wrappers import training as brax_training
 
     env = brax.envs._envs[env_id]()
-    env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=1)
+    env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env, batch_size=n_envs)
     env = FinalObsWrapper(env)
     env = AutoResetWrapper(env, differentiable_reset=differentiable_reset)
@@ -137,23 +233,30 @@ def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
     fresh_reset: bool = True,
+    *,
+    action_repeat: int = 1,
     differentiable_reset: bool = False,
     **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
-    """Build ``env_id`` from gymnax, mujoco_playground or brax.
+    """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
 
     ``fresh_reset`` only concerns mujoco_playground envs (see
     ``_build_playground_env``); gymnax and Ajax's brax stack already draw a
     new initial state for every episode.
+
+    ``action_repeat`` (default 1) repeats each agent action for that many
+    simulator steps on brax / playground envs (see
+    :func:`_build_playground_env`); ``episode_length`` (a keyword, default
+    1000) then counts simulator steps. gymnax envs do not support it.
 
     ``differentiable_reset`` concerns the auto-resets that compute a fresh
     reset inside ``step``: brax envs, and playground envs with
     ``fresh_reset=True`` (the default). With ``differentiable_reset=False``
     (the default) they evaluate the reset only on steps where some env is
     done, inside a ``lax.while_loop``, because the reset can cost as much as
-    many env steps. Gradients through such an env still
-    flow with respect to the actions, the policy parameters and the env
-    state, and forward mode (``jax.jvp``) works with respect to anything.
+    many env steps. Gradients through such an env still flow with respect
+    to the actions, the policy parameters and the env state, and forward
+    mode (``jax.jvp``) works with respect to anything.
     Only reverse mode *through the reset itself* -- ``jax.grad`` with
     respect to something the reset depends on, such as physics parameters
     of the env -- fails, loudly, at trace time: "Reverse-mode
@@ -166,7 +269,14 @@ def build_env_from_id(
     (``evaluate.setup_environment``), which never differentiates, rebuilds
     the env with the default.
     """
+    check_action_repeat(action_repeat)
     if env_id in gymnax.registered_envs:
+        if action_repeat > 1:
+            raise NotImplementedError(
+                f"action_repeat={action_repeat} is not supported on gymnax envs"
+                f" ({env_id!r}); it is implemented for brax / mujoco_playground"
+                " envs only (no gymnax task in the reproduced papers uses it)."
+            )
         env, env_params = gymnax.make(env_id)
         # Ajax's actor/critic heads consume a flat observation vector: a Dense
         # layer applied to an unflattened (H, W, C) observation produces one
@@ -188,7 +298,10 @@ def build_env_from_id(
     # builder registry before falling through to the upstream registry.
     if env_id in _PLAYGROUND_BUILDERS:
         return _build_playground_env(
-            env_id, n_envs=n_envs, episode_length=episode_length
+            env_id,
+            n_envs=n_envs,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
         ), None
 
     try:
@@ -199,6 +312,7 @@ def build_env_from_id(
                 env_id,
                 n_envs=n_envs,
                 episode_length=episode_length,
+                action_repeat=action_repeat,
                 fresh_reset=fresh_reset,
                 differentiable_reset=differentiable_reset,
             ), None
@@ -210,6 +324,7 @@ def build_env_from_id(
             env_id,
             n_envs=n_envs,
             episode_length=episode_length,
+            action_repeat=action_repeat,
             differentiable_reset=differentiable_reset,
         ), None
     raise ValueError(f"Environment {env_id} not found in gymnax or brax")
@@ -225,15 +340,35 @@ def prepare_env(
     gamma: Optional[float] = None,  # Discount factor for reward normalization
     noise_scale: Optional[float] = None,
     apply_obs_normalization: bool = True,
+    action_repeat: int = 1,
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
+    check_action_repeat(action_repeat)
     if isinstance(env_id, str):
         env, env_params = build_env_from_id(
             env_id,
             episode_length=episode_length or 1000,
             n_envs=n_envs,
+            action_repeat=action_repeat,
         )
     else:
         env = env_id  # Assume prebuilt env
+        # Action repeat lives in the EpisodeWrapper Ajax composes when it
+        # builds an env from its id, and the eval rebuild
+        # (``evaluate.setup_environment``) rebuilds from that id. A prebuilt
+        # env carries its own wrapper stack, so neither a requested repeat
+        # nor one the env already carries can be kept consistent between
+        # the env, ``EnvironmentConfig.action_repeat`` and the eval rebuild:
+        # both raise. The check reads the env itself, not only the argument.
+        env_repeat = env_action_repeat(env)
+        if action_repeat > 1 or env_repeat != 1:
+            raise ValueError(
+                f"Action repeat (action_repeat={action_repeat}, the prebuilt env"
+                f" repeats each action {env_repeat} times) is only supported for"
+                " envs built from an id. Pass the env id and action_repeat, or"
+                " register a builder that accepts `action_repeat`"
+                " (register_brax_builder / register_playground_builder) and pass"
+                " its id."
+            )
     continuous = check_if_environment_has_continuous_actions(env)
 
     mode = get_env_type(env)

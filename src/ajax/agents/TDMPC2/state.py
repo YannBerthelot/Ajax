@@ -1,15 +1,14 @@
 """TD-MPC2 static configuration and learner state.
 
-:class:`TDMPC2Config` holds the static hyperparameters of the world model and
-of one training update (tdmpc2_spec §1-§2, paper-era defaults of
-``nicklashansen/tdmpc2@5f6fade:tdmpc2/config.yaml``). It is the agent's
-``<AGENT>Config`` of the agent anatomy (``CONTRIBUTING.md``): a
+:class:`TDMPC2Config` holds the static hyperparameters of the world model, of
+one training update and of the MPPI planner (tdmpc2_spec §1-§3, paper-era
+defaults of ``nicklashansen/tdmpc2@5f6fade:tdmpc2/config.yaml``). It is the
+agent's ``<AGENT>Config`` of the agent anatomy (``CONTRIBUTING.md``): a
 :class:`~ajax.state.BaseAgentConfig` whose own fields are all static
 (``pytree_node=False``), so it is hashable and jitted functions take it as a
-static argument; the agent (M4) adds its planning and collection
-hyperparameters to it. The learning rates are not in it: they are schedulable
-(``float | Callable``) and live in the optimizers
-(:func:`ajax.agents.TDMPC2.core.create_update_state`).
+static argument; the agent (M4) adds its collection hyperparameters to it.
+The learning rates are not in it: they are schedulable (``float | Callable``)
+and live in the optimizers (:func:`ajax.agents.TDMPC2.core.create_update_state`).
 
 :class:`TDMPC2UpdateState` is the part of the agent state one update reads and
 writes. :func:`ajax.agents.TDMPC2.core.update` only accesses these four
@@ -57,6 +56,19 @@ class TDMPC2Config(BaseAgentConfig):
         entropy_coef: policy entropy coefficient beta (1e-4).
         grad_clip_norm: global-norm clip of each optimizer (20).
         tau: target-Q EMA rate and RunningScale rate (0.01).
+
+    Planning (tdmpc2_spec §3; :mod:`ajax.agents.TDMPC2.planner`):
+        iterations: MPPI iterations (6); :meth:`planning_iterations` adds the
+            reference's +2 for action dimensions >= 20.
+        num_samples: candidate action sequences per iteration, policy-prior
+            trajectories included (512).
+        num_elites: elites kept by top-k (64).
+        num_pi_trajs: policy-prior trajectories among the candidates (24; 0
+            is the reference's "planning without policy" ablation).
+        min_std, max_std: clamp of the sampling std; ``max_std`` is also its
+            value at the start of every decision (0.05, 2).
+        temperature: multiplies the elite values in the MPPI score
+            ``exp(temperature (V - max V))`` (0.5).
     """
 
     latent_dim: int = _static(512)
@@ -78,10 +90,33 @@ class TDMPC2Config(BaseAgentConfig):
     entropy_coef: float = _static(1e-4)
     grad_clip_norm: float = _static(20.0)
     tau: float = _static(0.01)
+    iterations: int = _static(6)
+    num_samples: int = _static(512)
+    num_elites: int = _static(64)
+    num_pi_trajs: int = _static(24)
+    min_std: float = _static(0.05)
+    max_std: float = _static(2.0)
+    temperature: float = _static(0.5)
 
     def __post_init__(self) -> None:
         if self.num_q < 2:
             raise ValueError(f"num_q must be >= 2 (random pairs), got {self.num_q}")
+        if self.iterations < 1:
+            raise ValueError(f"iterations must be >= 1, got {self.iterations}")
+        if not 1 <= self.num_elites <= self.num_samples:
+            raise ValueError(
+                f"num_elites must be in [1, num_samples={self.num_samples}], got "
+                f"{self.num_elites}"
+            )
+        if not 0 <= self.num_pi_trajs <= self.num_samples:
+            raise ValueError(
+                f"num_pi_trajs must be in [0, num_samples={self.num_samples}], got "
+                f"{self.num_pi_trajs}"
+            )
+        if not 0 < self.min_std <= self.max_std:
+            raise ValueError(
+                f"need 0 < min_std <= max_std, got {self.min_std}, {self.max_std}"
+            )
         if self.latent_dim % self.simnorm_dim:
             raise ValueError(
                 f"latent_dim {self.latent_dim} must be divisible by simnorm_dim "
@@ -116,6 +151,15 @@ class TDMPC2Config(BaseAgentConfig):
             num_q=num_q,
         )
         return cls(**sizes, **kwargs)
+
+    def planning_iterations(self, action_dim: int) -> int:
+        """MPPI iterations for ``action_dim``: ``iterations + 2`` when it is >= 20.
+
+        The reference's heuristic for large action spaces, applied once to its
+        config in ``TDMPC2.__init__`` (``5f6fade:tdmpc2/tdmpc2.py:31``;
+        tdmpc2_spec 3.1): 8 iterations for dog (A = 38) and humanoid (A = 21).
+        """
+        return self.iterations + 2 * int(action_dim >= 20)
 
     @property
     def two_hot(self) -> TwoHot:

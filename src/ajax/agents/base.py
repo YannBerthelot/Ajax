@@ -18,7 +18,7 @@ except ImportError:
     wandb = None  # type: ignore[assignment]
 
 from ajax.environments.create import prepare_env
-from ajax.extensions.base import Extension, ExtensionStack
+from ajax.extensions.base import PHASES, Extension, ExtensionStack
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -40,6 +40,15 @@ class ActorCritic:
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` / `lstm_hidden_size` is provided.
     supports_memory: bool = False
+    # Extension phases this agent's training loop folds; an extension that
+    # implements any other phase is rejected at construction instead of
+    # being silently ignored. The check is opt-in per agent: the default
+    # (every phase) checks nothing, and the existing agents keep it, so an
+    # extension implementing a phase one of them does not fold (e.g.
+    # `critic_loss` on APG) is still ignored there. Agents that own their
+    # training loop (e.g. the world-model agents) declare the phases they
+    # fold.
+    supported_extension_phases: frozenset = frozenset(PHASES)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -72,6 +81,7 @@ class ActorCritic:
         squash: bool = False,
         episode_length: Optional[int] = None,
         apply_obs_normalization: bool = True,
+        action_repeat: int = 1,
         extensions: Sequence[Extension] = (),
     ) -> None:
         """
@@ -94,6 +104,10 @@ class ActorCritic:
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
             lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
+            action_repeat (int): simulator steps per agent step on brax /
+                playground envs (``episode_length`` then counts simulator
+                steps); stored on ``env_args``. gymnax envs and prebuilt
+                envs support only 1.
         """
 
         # Resolve the memory config once: explicit `memory` wins; the legacy
@@ -114,6 +128,7 @@ class ActorCritic:
             n_envs=n_envs,
             episode_length=episode_length,
             apply_obs_normalization=apply_obs_normalization,
+            action_repeat=action_repeat,
         )
 
         self.env_args = EnvironmentConfig(
@@ -121,6 +136,7 @@ class ActorCritic:
             env_params=env_params,
             n_envs=n_envs,
             continuous=continuous,
+            action_repeat=action_repeat,
         )
 
         self.network_args = NetworkConfig(
@@ -162,6 +178,38 @@ class ActorCritic:
         # training step. An empty stack is a true no-op. See
         # `ajax.extensions.base`.
         self.extension_stack = ExtensionStack(extensions)
+        self._check_extension_phases()
+
+    def _check_extension_phases(self) -> None:
+        """Reject extensions implementing phases this agent never folds."""
+        unsupported = [
+            (ext, sorted(ext.implemented_phases() - self.supported_extension_phases))
+            for ext in self.extension_stack
+        ]
+        details = "; ".join(
+            f"extension {ext.name!r} ({type(ext).__name__}) implements {phases}"
+            for ext, phases in unsupported
+            if phases
+        )
+        if details:
+            raise ValueError(
+                f"{type(self).__name__} does not support these extension phases:"
+                f" {details}. Supported phases:"
+                f" {sorted(self.supported_extension_phases)}."
+            )
+
+    def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
+        """Absolute index of the first scan iteration when resuming.
+
+        ``train`` feeds it to the inner train function so a resumed run
+        sees absolute iteration indices (see ``build_resumable_train``).
+        The default 0 restarts the indices at every ``train`` call (every
+        existing agent; APG's per-stage cadence relies on it). Agents whose
+        schedules are functions of the absolute tick override this to
+        return their tick counter -- a host-side int, equal across seeds.
+        """
+        del initial_state
+        return 0
 
     def get_make_train(self) -> Callable:
         raise NotImplementedError
@@ -235,20 +283,33 @@ class ActorCritic:
             if isinstance(initial_state, tuple) and len(initial_state) == 2:
                 initial_state = initial_state[0]
 
-            def set_key_and_train_resume(seed, index, state):
+            # Only passed when non-zero: the default (0) keeps the call --
+            # and the train functions that predate the offset -- unchanged.
+            iteration_offset = int(self.resume_iteration_offset(initial_state))
+            offset_kwargs = (
+                {} if iteration_offset == 0 else {"iteration_offset": iteration_offset}
+            )
+
+            def set_key_and_train_resume(seed, index, state, offset_kwargs):
                 key = jax.random.PRNGKey(seed)
                 return train_jit(
                     key,
                     index,
                     initial_state=state,
                     resume_from_state=True,
+                    **offset_kwargs,
                 )
 
             index = jnp.arange(len(seed))
             seed = jnp.array(seed)
             _t0 = time.time()
-            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0))(
-                seed, index, initial_state
+            # The offset is unbatched (in_axes None): every schedule derived
+            # from the iteration index must stay unbatched under the vmap.
+            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None))(
+                seed,
+                index,
+                initial_state,
+                jax.tree.map(lambda o: jnp.asarray(o, jnp.int32), offset_kwargs),
             )
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()

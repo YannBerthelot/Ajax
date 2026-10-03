@@ -250,6 +250,34 @@ def q_logits(
     )
 
 
+def q_pair_logits(
+    config: TDMPC2Config,
+    wm_params: Params,
+    z: jax.Array,
+    action: jax.Array,
+    pair: jax.Array,
+    *,
+    dropout_key: Optional[jax.Array] = None,
+) -> jax.Array:
+    """Logits ``[2, ..., num_bins]`` of the online Q members ``pair`` only.
+
+    For a pass that reduces a random pair (``world_model.py:170``): the
+    reference evaluates all ``num_q`` members and keeps two; this gathers the
+    pair's stacked parameters and runs them as a two-member ensemble, so the
+    other ``num_q - 2`` members cost nothing. Without dropout the logits equal
+    ``q_logits(...)[pair]``. With ``dropout_key`` each of the two members
+    draws its own mask, independent across members and calls, as in the full
+    ensemble: the distribution is the reference's, only the mapping from the
+    key to the masks differs from :func:`q_logits` (torch's masks are not
+    replayable anyway).
+    """
+    members = jax.tree_util.tree_map(lambda p: p[pair], wm_params["q"])
+    pair_apply = make_world_model(config.replace(num_q=2)).apply
+    return q_logits(
+        pair_apply, wm_params, z, action, q_params=members, dropout_key=dropout_key
+    )
+
+
 def reduce_q_pair(
     logits: jax.Array, pair: jax.Array, kind: Literal["min", "avg"], two_hot: TwoHot
 ) -> jax.Array:

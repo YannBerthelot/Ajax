@@ -665,10 +665,12 @@ custom UTD>1 SAC variants).
 
 ## Playground fresh auto-reset (2026-10-02)
 
-Opt-in `build_env_from_id(env_id, fresh_reset=True)` swaps playground's
+`build_env_from_id(env_id, fresh_reset=True)` swaps playground's
 `BraxAutoResetWrapper` (every episode of env `i` restarts from one cached
 state) for `ajax.wrappers.FreshAutoResetWrapper` (a new initial state per
-episode). The default is unchanged. CPU, `JAX_PLATFORMS=cpu`, MJX
+episode). Fresh resets are the default since 2026-10-03, so the costs
+below now apply to every playground run; `fresh_reset=False` restores the
+cached behaviour and its timings. CPU, `JAX_PLATFORMS=cpu`, MJX
 `impl="jax"`; measured while an unrelated CPU job used ~5.5 cores, so
 single-digit-% deltas are noise.
 

@@ -1,11 +1,12 @@
 """Playground auto-reset: every episode must start from a fresh initial state.
 
-Playground's ``BraxAutoResetWrapper`` (``full_reset=False``) restarts every
+``FreshAutoResetWrapper`` (the default; ``build_env_from_id(...,
+fresh_reset=True)``) draws a new initial state per episode, as dm_control
+does. Playground's ``BraxAutoResetWrapper`` (``full_reset=False``), kept
+behind ``fresh_reset=False`` to reproduce earlier results, restarts every
 episode of env i from the same cached first state, so a run sees only
-``n_envs`` initial conditions. ``FreshAutoResetWrapper`` (selected with
-``build_env_from_id(..., fresh_reset=True)``) draws a new one per episode,
-as dm_control does. Rollouts are vmapped over seeds because that is how
-every Ajax agent runs (``ajax.agents.base``), and it is the case the
+``n_envs`` initial conditions. Rollouts are vmapped over seeds because that
+is how every Ajax agent runs (``ajax.agents.base``), and it is the case the
 wrapper's gating is designed for.
 """
 
@@ -77,14 +78,18 @@ def _n_distinct(rows):
 
 
 @requires_playground
-def test_cached_reset_is_still_the_default():
-    """The default keeps playground's cached semantics (the setting existing
-    results were produced with): every episode of an env restarts from the
-    same observation. Flipping the default must update this test."""
+def test_opting_out_restores_the_cached_reset():
+    """``fresh_reset=False`` keeps playground's cached semantics, the setting
+    playground results produced before fresh resets became the default were
+    trained with: every episode of an env restarts from the same
+    observation."""
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
     env, _ = build_env_from_id(
-        "CartpoleBalance", n_envs=N_ENVS, episode_length=EPISODE_LENGTH
+        "CartpoleBalance",
+        n_envs=N_ENVS,
+        episode_length=EPISODE_LENGTH,
+        fresh_reset=False,
     )
     assert isinstance(env.env, BraxAutoResetWrapper)
     first_obs, out = _rollout(env, jnp.arange(N_SEEDS))
@@ -94,12 +99,9 @@ def test_cached_reset_is_still_the_default():
 
 
 @requires_playground
-def test_fresh_reset_starts_every_episode_from_a_new_state():
+def test_default_starts_every_episode_from_a_new_state():
     env, _ = build_env_from_id(
-        "CartpoleBalance",
-        n_envs=N_ENVS,
-        episode_length=EPISODE_LENGTH,
-        fresh_reset=True,
+        "CartpoleBalance", n_envs=N_ENVS, episode_length=EPISODE_LENGTH
     )
     assert isinstance(env.env, FreshAutoResetWrapper)
     first_obs, out = _rollout(env, jnp.arange(N_SEEDS))
@@ -118,10 +120,7 @@ def test_fresh_reset_keeps_the_transition_bookkeeping():
     bootstrapped on the reset observation) and EpisodeWrapper's episode
     summary. The base env's own per-episode info (its ``rng``) is renewed."""
     env, _ = build_env_from_id(
-        "CartpoleBalance",
-        n_envs=N_ENVS,
-        episode_length=EPISODE_LENGTH,
-        fresh_reset=True,
+        "CartpoleBalance", n_envs=N_ENVS, episode_length=EPISODE_LENGTH
     )
     _, out = _rollout(env, jnp.arange(N_SEEDS))
     done = out["done"] > 0

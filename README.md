@@ -34,7 +34,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 - Parallel environments via `n_envs`.
 - Env lookup is by id: a gymnax id (e.g. `"Pendulum-v1"`) routes to gymnax, a playground id (e.g. `"HopperHop"`, `"CheetahRun"`, `"Go1JoystickFlatTerrain"`) routes to playground, and a brax id (e.g. `"ant"`, `"halfcheetah"`, `"humanoid"`) routes to brax. Brax and playground have disjoint env sets — both backends are kept side-by-side rather than one superseding the other.
 - Terminal observations on truncation are preserved in `state.info["final_obs"]` via an Ajax-supplied `FinalObsWrapper`, so PPO/SAC value bootstrap is correct at time-limit truncations.
-- Playground envs auto-reset to a *cached* first state by default (playground's `BraxAutoResetWrapper`), so every episode of env `i` starts from the same state and a run sees only `n_envs` initial conditions. Build the env with `build_env_from_id(env_id, n_envs=..., fresh_reset=True)` and pass it to the agent to draw a new initial state every episode, as dm_control does; the reset is computed only on steps where some env is done.
+- Playground envs draw a new initial state every episode, as dm_control does (Ajax's `FreshAutoResetWrapper`; the reset is computed only on steps where some env is done). Before this became the default, Ajax used playground's `BraxAutoResetWrapper`, which restarts every episode of env `i` from the same cached first state, so a run saw only `n_envs` initial conditions. To reproduce results produced that way, build the env with `build_env_from_id(env_id, n_envs=..., fresh_reset=False)` and pass it to the agent.
 
 ### Replay Buffer
 - Trajectory storage and sampling via **flashbax**.

@@ -52,7 +52,7 @@ def register_playground_builder(env_id: str, builder) -> None:
 
 
 def _build_playground_env(
-    env_id: str, n_envs: int, episode_length: int, fresh_reset: bool = False
+    env_id: str, n_envs: int, episode_length: int, fresh_reset: bool = True
 ):
     """Compose a mujoco_playground env with the same wrapper stack as
     `wrap_for_brax_training`, but inject FinalObsWrapper between the
@@ -64,12 +64,15 @@ def _build_playground_env(
     split the caller's single key into `n_envs` keys on reset to keep Ajax's
     unbatched-rng convention intact.
 
-    `fresh_reset` selects the auto-reset. False keeps playground's
+    `fresh_reset` selects the auto-reset. True (the default) uses
+    `FreshAutoResetWrapper`, which draws a new initial state for every
+    episode, as dm_control does. False keeps playground's
     `BraxAutoResetWrapper`, which restarts every episode of env i from the
-    same cached first state (a run sees only `n_envs` initial conditions).
-    True uses `FreshAutoResetWrapper`, which draws a new initial state for
-    every episode, as dm_control does. Registered builders own their whole
-    stack, auto-reset included, and are not affected by this flag.
+    same cached first state (a run sees only `n_envs` initial conditions);
+    that was Ajax's behaviour before fresh resets became the default, so it
+    reproduces playground results produced earlier. Registered builders own
+    their whole stack, auto-reset included, and are not affected by this
+    flag.
     """
     if env_id in _PLAYGROUND_BUILDERS:
         return _PLAYGROUND_BUILDERS[env_id](n_envs, episode_length)
@@ -120,7 +123,7 @@ def _build_brax_env(env_id: str, n_envs: int, episode_length: int):
 def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
-    fresh_reset: bool = False,
+    fresh_reset: bool = True,
     **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build ``env_id`` from gymnax, mujoco_playground or brax.

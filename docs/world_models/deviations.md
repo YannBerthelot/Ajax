@@ -31,6 +31,7 @@ Pinned sources:
 | Integer vector observations | cast to f32 and symlogged | one-hot, not symlogged | 2411f7d (Ajax observations are float) |
 | Stored stochastic latent | int32 class indices | f32 one-hot | indices (uint8 when classes ≤ 256) |
 | Key order / decoder input order | obs-space order / concat(deter, stoch) | sorted / concat(stoch, deter) | layout only |
+| Two-hot output width (reward head; critic) | `Linear(bins + 1 = 256)`, last logit dropped (`nets.py:432-438`) | `Linear(bins = 255)` (`embodied/jax/heads.py:132-135`) | 255, layout only: the dropped column starts at 0 (outscale 0) and gets exactly zero gradient, so it stays 0 under AGC + LaProp and training is identical; `units + 1` fewer parameters per head |
 | LaProp β2 | 0.999 (paper text says 0.99) | 0.999 | 0.999 (the code behind the curves) |
 | Paper Table 3, 12M recurrent units | — | — | 2048 (= 8d; the printed 1024 is a typo) |
 | Paper Table 11 task mean / median rows | — | — | swapped in the paper; mean ≈ 754, median ≈ 871 at 500K |

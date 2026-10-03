@@ -239,7 +239,11 @@ def _config(extra: dict[str, Any] | None = None) -> Any:
     return config.update({**TINY, **(extra or {})})
 
 
-def _spaces(discrete: bool, obs_dim: int = OBS_DIM, act_dim: int = 2) -> tuple:
+def _spaces(
+    discrete: bool, obs_dim: int = OBS_DIM, act_dim: int = 2, num_actions: int = 3
+) -> tuple:
+    """Observation and action spaces: a continuous action of dimension
+    ``act_dim`` in ``[-1, 1]``, or ``num_actions`` discrete actions."""
     obs_space = {
         "vector": embodied.Space(np.float32, (obs_dim,)),
         "reward": embodied.Space(np.float32),
@@ -248,7 +252,7 @@ def _spaces(discrete: bool, obs_dim: int = OBS_DIM, act_dim: int = 2) -> tuple:
         "is_terminal": embodied.Space(bool),
     }
     if discrete:
-        action = embodied.Space(np.int32, (), 0, 3)
+        action = embodied.Space(np.int32, (), 0, num_actions)
     else:
         action = embodied.Space(np.float32, (act_dim,), -1, 1)
     act_space = {"action": action, "reset": embodied.Space(bool)}
@@ -276,7 +280,9 @@ def _build(config: Any, discrete: bool, **space_kwargs: Any) -> tuple:
 # --------------------------------------------------------------- the batch
 
 
-def _batch(discrete: bool, seed: int) -> dict[str, np.ndarray]:
+def _batch(
+    discrete: bool, seed: int, act_dim: int = 2, num_actions: int = 3
+) -> dict[str, np.ndarray]:
     """A fixed replay batch ``[2, 9]`` with episode boundaries.
 
     Row 0: context, then an episode that terminates at index 3, a reset at 4
@@ -286,7 +292,8 @@ def _batch(discrete: bool, seed: int) -> dict[str, np.ndarray]:
     and ``is_last`` before every reset follow the replay annotation
     (``embodied/replay``, ``is_last |= next is_first``). Actions are zeroed at
     ``is_last`` as the driver does; continuous actions exceed ``|a| = 1`` so
-    that the dynamics' ``a / max(1, |a|)`` is exercised.
+    that the dynamics' ``a / max(1, |a|)`` is exercised. The action sizes
+    are those of :func:`_spaces`.
     """
     rng = np.random.default_rng(seed)
     deter, stoch, classes = (
@@ -311,9 +318,9 @@ def _batch(discrete: bool, seed: int) -> dict[str, np.ndarray]:
     vector[0, 5, 1] = 250.0
     vector[1, 2, 3] = -80.0
     if discrete:
-        action = rng.integers(0, 3, (BATCH, LENGTH)).astype(np.int32)
+        action = rng.integers(0, num_actions, (BATCH, LENGTH)).astype(np.int32)
     else:
-        action = rng.uniform(-1.6, 1.6, (BATCH, LENGTH, 2)).astype(np.float32)
+        action = rng.uniform(-1.6, 1.6, (BATCH, LENGTH, act_dim)).astype(np.float32)
     action[is_last] = 0
     return {
         "vector": vector,

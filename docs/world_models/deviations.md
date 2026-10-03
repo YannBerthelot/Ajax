@@ -24,7 +24,7 @@ Pinned sources:
 | Start-state reward / continuation in imagination | from replay data: `reward_t`, hard `1 - is_terminal_t` | model predictions (`ĉ_0 ≈ 0.997` enters the weight) | 2411f7d |
 | Vector-decoder output scale | 0.1 (Dist default) | 1.0 | 2411f7d |
 | Symlog-MSE | squared errors < 1e-8 zeroed; no ½ factor | no tolerance; no ½ factor | 2411f7d |
-| Slow critic | separate f32 module, hard copy after the first optimizer step, then EMA 0.02 | copy at creation, EMA 0.02 from step 1 | 2411f7d rule (`mix = 1` at update 0) |
+| Slow critic | separate f32 module, hard copy after the first optimizer step, then EMA 0.02 | copy at creation, EMA 0.02 from step 1 | 2411f7d rule (`mix = 1` at update 0, then 0.02); created as a copy of the critic, which predicts what 2411f7d's separate module predicts until the first update replaces it (both output layers are zero) |
 | First `prevact` in the replay context | bug: previous unrelated batch's carry | `data[action][:, K-1]` | **fixed** (29eb964, an upstream bug fix) |
 | RMSNorm statistics | input dtype (bf16) | f32 | n/a (Ajax computes in f32, see D4) |
 | Policy tanh / sigmoid | after the f32 cast | on bf16 outputs | n/a (f32) |

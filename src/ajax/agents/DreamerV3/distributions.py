@@ -1,8 +1,8 @@
-"""Output distributions of the DreamerV3 world model.
+"""Output distributions of the DreamerV3 world model and actor.
 
-Three distributions, as in the paper-era code ``danijar/dreamerv3@2411f7d``
-(the fidelity target; ``docs/world_models/deviations.md`` section 1), all in
-float32:
+The distributions of the paper-era code ``danijar/dreamerv3@2411f7d`` (the
+fidelity target; ``docs/world_models/deviations.md`` section 1), all in
+float32. World model:
 
 * :class:`OneHot` -- the categorical latents: ``S`` independent categoricals
   over ``C`` classes with a 1 % uniform mixture, sampled as a straight-through
@@ -13,19 +13,34 @@ float32:
 * :func:`symlog_mse` -- the vector decoder, squared error in symlog space with
   the 2411f7d tolerance (dreamerv3_spec 1.11; ``jaxutils.py:179-207``).
 
-The reward head's two-hot distribution is the shared
-:class:`ajax.distributional.TwoHot` (``TwoHot.dreamerv3``).
+The reward head's and the critic's two-hot distribution is the shared
+:class:`ajax.distributional.TwoHot` (``TwoHot.dreamerv3``). Actor
+(dreamerv3_spec 3.13, 3.14; ``2411f7d:dreamerv3/nets.py:486-493``, ``:518-529``
+= ``29eb964:dreamerv3/nets.py:491-498``, ``:523-534``):
+
+* :class:`BoundedNormal` -- continuous actions (``actor_dist_cont: normal``):
+  ``Normal(tanh(m), (maxstd - minstd) sigmoid(s + 2) + minstd)``, independent
+  over the action dimensions, *not* tanh-squashed: samples are unbounded and
+  log-probabilities carry no Jacobian term.
+* :class:`OneHotPolicy` -- discrete actions (``actor_dist_disc: onehot``): a
+  categorical over the actions with a 1 % uniform mixture, sampled as a
+  straight-through one-hot; log-probability and entropy are those of the
+  mixed distribution (deviations.md section 1, "Discrete actor").
 
 Sampling takes its randomness as an explicit argument: :meth:`OneHot.sample`
-consumes Gumbel noise drawn by :func:`draw_onehot_noise`, and returns
-``argmax(log p + noise)``, which is how tfp's JAX backend samples a
-categorical (``random_generators._categorical_jax``). Production code draws
-the noise from a key; the parity tests pass the noise the reference drew.
+and :meth:`OneHotPolicy.sample` consume Gumbel noise drawn by
+:func:`draw_onehot_noise` and return ``argmax(log p + noise)``, which is how
+tfp's JAX backend samples a categorical
+(``random_generators._categorical_jax``); :meth:`BoundedNormal.sample`
+consumes standard normal noise and returns ``noise * std + mean``, tfp's
+``Normal._sample_n``. Production code draws the noise from a key; the parity
+tests pass the noise the reference drew.
 """
 
 from __future__ import annotations
 
-from typing import NamedTuple
+import math
+from typing import NamedTuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -34,6 +49,8 @@ from ajax.distributional import symlog
 
 #: 2411f7d ``TransformedMseDist(tol=1e-8)``: squared errors below it count 0.
 SYMLOG_MSE_TOLERANCE = 1e-8
+#: tfp's ``Normal`` log-normaliser constant ``0.5 log(2 pi)`` (normal.py:187).
+_HALF_LOG_TWO_PI = 0.5 * math.log(2.0 * math.pi)
 
 
 def draw_onehot_noise(key: jax.Array, shape: tuple[int, ...]) -> jax.Array:
@@ -138,3 +155,149 @@ def symlog_mse(prediction: jax.Array, target: jax.Array) -> jax.Array:
     distance = (jnp.asarray(prediction, jnp.float32) - target) ** 2
     distance = jnp.where(distance < SYMLOG_MSE_TOLERANCE, 0, distance)
     return jnp.sum(distance, -1)
+
+
+# ------------------------------------------------------------------ the actor
+
+
+def draw_normal_noise(key: jax.Array, shape: tuple[int, ...]) -> jax.Array:
+    """Standard normal noise of ``shape = (..., A)`` for :meth:`BoundedNormal.sample`."""
+    return jax.random.normal(key, shape, jnp.float32)
+
+
+class BoundedNormal(NamedTuple):
+    """The continuous actor's distribution: ``Normal(mean, std)`` per dimension.
+
+    ``2411f7d`` ``Dist('normal')`` (``nets.py:486-493``): the mean and
+    standard deviation are bounded, ``mean = tanh(m)`` and ``std = (maxstd -
+    minstd) sigmoid(s + 2) + minstd``, computed after the float32 cast of the
+    two output layers (``nets.py:437-443``); the samples are not
+    (dreamerv3_spec 3.13). The environment clips them to the action bounds;
+    the replay stores them unclipped and the dynamics bound them with
+    ``a / max(1, |a|)``. Log-probabilities and entropies are tfp's, summed
+    over the last axis (``tfd.Independent(..., 1)``).
+
+    Attributes:
+        mean: ``[..., A]`` in ``(-1, 1)``.
+        std: ``[..., A]`` in ``(minstd, maxstd)``.
+    """
+
+    mean: jax.Array
+    std: jax.Array
+
+    @classmethod
+    def from_outputs(
+        cls, mean: jax.Array, std: jax.Array, minstd: float, maxstd: float
+    ) -> BoundedNormal:
+        """From the raw outputs of the actor's ``mean`` and ``std`` layers."""
+        mean = jnp.tanh(jnp.asarray(mean, jnp.float32))
+        std = jnp.asarray(std, jnp.float32)
+        return cls(mean, (maxstd - minstd) * jax.nn.sigmoid(std + 2.0) + minstd)
+
+    def sample(self, noise: jax.Array) -> jax.Array:
+        """``noise * std + mean`` for standard normal ``noise [..., A]``
+        (tfp ``Normal._sample_n``: ``sampled * scale + loc``). The sample is
+        reparameterised; the actor loss differentiates only its
+        log-probability at the stop-gradiented sample (REINFORCE)."""
+        return noise * self.std + self.mean
+
+    def log_prob(self, x: jax.Array) -> jax.Array:
+        """``sum_A log N(x; mean, std)``, shape ``[...]``.
+
+        tfp ``Normal._log_prob``: ``-0.5 ((x / std) - (mean / std))^2 -
+        (0.5 log(2 pi) + log std)``.
+        """
+        z = x / self.std - self.mean / self.std
+        log_normalization = jnp.float32(_HALF_LOG_TWO_PI) + jnp.log(self.std)
+        return jnp.sum(-0.5 * jnp.square(z) - log_normalization, -1)
+
+    def entropy(self) -> jax.Array:
+        """``sum_A (0.5 + 0.5 log(2 pi) + log std)``, shape ``[...]``
+        (tfp ``Normal._entropy``; each term in ``[-0.88, 1.42]`` for ``std``
+        in ``[0.1, 1]``)."""
+        log_normalization = jnp.float32(_HALF_LOG_TWO_PI) + jnp.log(self.std)
+        return jnp.sum((0.5 + log_normalization) * jnp.ones_like(self.mean), -1)
+
+    @staticmethod
+    def entropy_range(action_dim: int, minstd: float, maxstd: float) -> tuple:
+        """The smallest and largest entropy, at ``std = minstd`` and ``maxstd``
+        (``nets.py:491-492``, ``minent`` / ``maxent``; for the ``rand``
+        metric)."""
+
+        def entropy(std: float) -> float:
+            return action_dim * (0.5 + _HALF_LOG_TWO_PI + math.log(std))
+
+        return entropy(minstd), entropy(maxstd)
+
+
+class OneHotPolicy(NamedTuple):
+    """The discrete actor's distribution: one categorical over the actions.
+
+    ``2411f7d`` ``Dist('onehot')`` with ``unimix = 0.01`` (``nets.py:518-529``):
+    the probabilities are ``(1 - unimix) softmax(l) + unimix / A`` and
+    sampling, log-probability and entropy all use that mixed distribution
+    (dreamerv3_spec 3.14; the later code drops the mixture). The sample is a
+    straight-through one-hot (``jaxutils.OneHotDist``), which the dynamics
+    read as the action; the environment receives its index.
+
+    Attributes:
+        logits: ``[..., A]``, the log of the mixed probabilities.
+    """
+
+    logits: jax.Array
+
+    @classmethod
+    def from_logits(cls, raw_logits: jax.Array, unimix: float) -> OneHotPolicy:
+        """Mix ``softmax(raw_logits)`` with the uniform distribution
+        (:meth:`OneHot.from_logits`, the same transformation)."""
+        return cls(OneHot.from_logits(raw_logits, unimix).logits)
+
+    def sample(self, noise: jax.Array) -> jax.Array:
+        """Straight-through one-hot ``[..., A]`` for Gumbel ``noise [..., A]``
+        (:meth:`OneHot.sample`)."""
+        return OneHot(self.logits).sample(noise)
+
+    def log_prob(self, x: jax.Array) -> jax.Array:
+        """``log p(x)`` of a one-hot ``x [..., A]``, shape ``[...]``.
+
+        tfp ``OneHotCategorical._log_prob``: ``-softmax_cross_entropy(x,
+        logits)``, i.e. ``sum_A x (logits - logsumexp(logits))`` with the
+        zero entries of ``x`` contributing exactly 0.
+        """
+        log_probs = self.logits - jax.scipy.special.logsumexp(
+            self.logits, -1, keepdims=True
+        )
+        return jnp.sum(jnp.where(x == 0, 0.0, x * log_probs), -1)
+
+    def entropy(self) -> jax.Array:
+        """``-sum_A p log p``, shape ``[...]``.
+
+        tfp ``OneHotCategorical._entropy``: ``logsumexp(l) - sum_A l e^{l - m}
+        / sum_A e^{l - m}`` with ``m = max l``.
+        """
+        m = jnp.max(self.logits, -1, keepdims=True)
+        x = self.logits - m
+        lse = m[..., 0] + jax.scipy.special.logsumexp(x, -1)
+        exp_x = jnp.exp(x)
+        weighted = jnp.where(exp_x == 0, 0.0, self.logits * exp_x)
+        return lse - jnp.sum(weighted, -1) / jnp.sum(exp_x, -1)
+
+    @staticmethod
+    def entropy_range(action_dim: int) -> tuple:
+        """``(0, log A)`` (``nets.py:527-528``, ``minent`` / ``maxent``)."""
+        return 0.0, math.log(action_dim)
+
+
+#: The actor's distribution, by action space.
+Policy = Union[BoundedNormal, OneHotPolicy]
+
+
+def draw_action_noise(
+    key: jax.Array, shape: tuple[int, ...], discrete: bool
+) -> jax.Array:
+    """Noise of ``shape = (..., A)`` for the actor's samples: Gumbel for a
+    discrete actor (:class:`OneHotPolicy`), standard normal for a continuous
+    one (:class:`BoundedNormal`)."""
+    if discrete:
+        return draw_onehot_noise(key, shape)
+    return draw_normal_noise(key, shape)

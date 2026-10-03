@@ -361,8 +361,9 @@ repval (not stop-gradiented, trains the world model, fixed γ, ~is_last mask);
   the retnorm update, repval and the write-back latents all come from that forward. Then
   three optimizer instances (LaProp: per-tensor AGC → RMS(β2 0.999, eps 1e-20 after
   sqrt, bias-corrected) → momentum(β1 0.9, bias-corrected) → −lr with 1000-step linear
-  warmup from 0) — bit-identical to one optimizer over all modules (probed), asserted
-  by a test that also shows a sequential variant differs. Step counters asserted equal.
+  warmup from 0) — bit-identical to one optimizer over all modules (CPU; the test
+  allows 4 float32 ulps, the two programs being compiled separately), asserted by a
+  test that also shows a sequential variant differs. Step counters asserted equal.
 - **Randomness seams** as in §4.2 (posterior samples, imagined actions, replay draws).
 
 ### 6.3 Replay (`agents/DreamerV3/replay.py`)
@@ -474,9 +475,12 @@ agents. APG and both new agents get bench entries with a small documented preset
     replayed by `test_tdmpc2_parity.py` through Ajax's jitted update), the TD-MPC2
     planner (M3, `parity/tdmpc2_plan_fixtures.py`: real `act()` decisions with their
     draws, per-iteration values, elites, scores, mean and std, replayed chained by
-    `test_tdmpc2_planner_parity.py` through Ajax's jitted `plan`) and the DreamerV3
+    `test_tdmpc2_planner_parity.py` through Ajax's jitted `plan`), the DreamerV3
     world model (M5, `parity/dreamerv3_world_model_fixtures.py`: `29eb964`'s own
-    `Agent.train`).
+    `Agent.train`) and the whole DreamerV3 training step (M6,
+    `parity/dreamerv3_train_fixtures.py`: three chained `Agent.train` calls with every
+    loss scale at its default (warmup 2), recording every random draw, the loss terms,
+    gradients, optimizer updates, slow critic, normaliser and write-back latents).
   - *Transcriptions*: `tests/world_models/reference_impls.py` (shared blocks) and
     `tests/agents/<A>/reference_<a>.py`, literal jnp transcriptions of the pinned
     reference functions (MIT-licensed, attributed line by line), where running the

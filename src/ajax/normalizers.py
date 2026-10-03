@@ -83,9 +83,17 @@ class ReturnNormalizer:
 
     @classmethod
     def create(cls, rate: float = 0.01, limit: float = 1.0) -> ReturnNormalizer:
-        """Initial state: ``lo = hi = 0`` (``jaxutils.py:319-321``)."""
-        zero = jnp.zeros((), jnp.float32)
-        return cls(lo=zero, hi=zero, rate=rate, limit=limit)
+        """Initial state: ``lo = hi = 0`` (``jaxutils.py:319-321``).
+
+        ``lo`` and ``hi`` are two arrays, not one aliased twice, so that a
+        state holding the normaliser can be donated to a jitted function.
+        """
+        return cls(
+            lo=jnp.zeros((), jnp.float32),
+            hi=jnp.zeros((), jnp.float32),
+            rate=rate,
+            limit=limit,
+        )
 
     def update(self, x: jax.Array) -> ReturnNormalizer:
         """Fold the percentiles of all elements of ``x`` into the EMAs.

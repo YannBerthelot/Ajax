@@ -1,10 +1,11 @@
-"""DreamerV3 world-model networks: block-GRU RSSM, vector encoder, decoder, heads.
+"""DreamerV3 networks: block-GRU RSSM, vector encoder, decoder, heads, actor, critic.
 
 A transcription of the paper-era code ``danijar/dreamerv3@2411f7d`` with the
 upstream bug fix ``29eb964`` (the fidelity target, ``docs/world_models/
 deviations.md`` section 1; ``DESIGN.md`` section 6.2), for vector
 observations and in float32 (deviation D4). The specification is
-``docs/world_models/dreamerv3_spec.md`` sections 1-2 (Algorithms A-C);
+``docs/world_models/dreamerv3_spec.md`` sections 1-3 (Algorithms A-C,
+3.13-3.15);
 parity with the reference code itself is tested in
 ``tests/agents/DreamerV3/test_dreamerv3_parity.py`` on fixtures that the
 reference produced
@@ -33,6 +34,13 @@ tree of :class:`WorldModel` is::
     rew       mlp (1 layer), out (255 logits, outscale 0)
     con       mlp (1 layer), out (1 logit, outscale 1)
 
+and the actor (:class:`Actor`) and critic (:func:`make_critic`) are separate
+modules on the same input ``concat(deter, stoch)``::
+
+    actor     mlp (3 layers), then mean and std (continuous) or logits
+              (discrete), each outscale 0.01
+    critic    mlp (3 layers), out (255 logits, outscale 0)
+
 Reference names: ``dyn`` is ``rssm`` here, ``dyn0`` / ``dyncore`` are
 ``dynhid0`` / ``dyngru`` (the later code's names, dreamerv3_spec Algorithm
 A) and ``img0`` / ``img1`` / ``imglogit`` are ``prior`` / ``priorlogit``.
@@ -53,7 +61,12 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.DreamerV3.distributions import OneHot
+from ajax.agents.DreamerV3.distributions import (
+    BoundedNormal,
+    OneHot,
+    OneHotPolicy,
+    Policy,
+)
 from ajax.agents.DreamerV3.state import DreamerV3Config
 from ajax.distributional import symlog
 from ajax.networks.blocks import NormedMLP, linear
@@ -70,6 +83,12 @@ DECODER_OUTSCALE = 0.1
 #: single ``dynhid0`` layer of :meth:`RSSM.core`.
 PRIOR_LAYERS = 2
 POSTERIOR_LAYERS = 1
+#: Output scales of the actor's layers and of the critic's
+#: (``29eb964:dreamerv3/configs.yaml:128-129``; dreamerv3_spec 3.15): the
+#: policy starts near ``mean = 0``, ``std = 0.89`` (or uniform), and the
+#: critic's logits are exactly 0, so it predicts exactly 0.
+ACTOR_OUTSCALE = 0.01
+CRITIC_OUTSCALE = 0.0
 
 
 class RSSMState(NamedTuple):
@@ -386,6 +405,67 @@ class WorldModel(nn.Module):
     def cont_logit(self, feat: jax.Array) -> jax.Array:
         """Continue logit ``[...]`` (spec 2.13)."""
         return self.con(feat)[..., 0]
+
+
+class Actor(nn.Module):
+    """The policy ``pi(a | concat(h, z))`` (dreamerv3_spec 3.13-3.15).
+
+    ``actor_layers`` hidden layers ``Dense -> RMSNorm -> SiLU`` of width
+    ``units``, then -- for a continuous action of ``action_dim`` dimensions --
+    two separate output layers ``mean`` and ``std`` (the reference's
+    ``action/out`` and ``action/std``), giving a :class:`BoundedNormal`; or --
+    for ``action_dim`` discrete actions -- one output layer ``logits``
+    (``action/out``), giving a :class:`OneHotPolicy` with ``actor_unimix``.
+    Every output layer has outscale 0.01 (``29eb964:dreamerv3/nets.py:372-408``
+    MLP, ``:441-448`` the output layers, ``:491-498`` / ``:523-534`` the
+    distributions; ``agent.py:60-68``).
+    """
+
+    config: DreamerV3Config
+    action_dim: int
+    discrete: bool
+
+    @nn.compact
+    def __call__(self, feat: jax.Array) -> Policy:
+        c = self.config
+        x = NormedMLP.dreamerv3(c.actor_layers, c.units, name="mlp")(feat)
+
+        def out(name: str) -> jax.Array:
+            layer = linear(
+                self.action_dim, KERNEL_INIT, outscale=ACTOR_OUTSCALE, name=name
+            )
+            return layer(x)
+
+        if self.discrete:
+            return OneHotPolicy.from_logits(out("logits"), c.actor_unimix)
+        return BoundedNormal.from_outputs(out("mean"), out("std"), c.minstd, c.maxstd)
+
+
+def make_critic(config: DreamerV3Config) -> MLPHead:
+    """The critic (and the slow critic, the same module on other parameters).
+
+    ``critic_layers`` hidden layers of width ``units`` and ``bins`` two-hot
+    logits with outscale 0 (dreamerv3_spec 3.15-3.16; ``29eb964:dreamerv3/
+    agent.py:74-76``): the logits start exactly 0, so the critic predicts
+    exactly 0 (:meth:`ajax.distributional.TwoHot.decode`, deviation D22). As
+    for the reward head, 2411f7d's ``bins + 1`` logits with the last dropped
+    become ``bins`` (deviations.md section 1, "Two-hot output width").
+    """
+    return MLPHead(config.critic_layers, config.units, config.bins, CRITIC_OUTSCALE)
+
+
+def init_actor(
+    key: jax.Array, config: DreamerV3Config, action_dim: int, discrete: bool
+) -> dict:
+    """Initial parameters of ``Actor(config, action_dim, discrete)``."""
+    feat = jnp.zeros((1, config.feat_dim), jnp.float32)
+    return Actor(config, action_dim, discrete).init(key, feat)["params"]
+
+
+def init_critic(key: jax.Array, config: DreamerV3Config) -> dict:
+    """Initial parameters of :func:`make_critic`."""
+    feat = jnp.zeros((1, config.feat_dim), jnp.float32)
+    return make_critic(config).init(key, feat)["params"]
 
 
 def init_world_model(

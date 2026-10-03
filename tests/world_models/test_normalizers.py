@@ -34,6 +34,15 @@ def test_initial_states():
     assert scale.value.dtype == jnp.float32
 
 
+def test_initial_states_can_be_donated():
+    """No two leaves of a fresh state alias one buffer, so a jitted update
+    can take it by donation (XLA refuses to donate one buffer twice)."""
+    x = _ramp(1.0)
+    for create in (ReturnNormalizer.create, RunningScale.create):
+        update = jax.jit(lambda norm, x: norm.update(x), donate_argnums=0)
+        jax.block_until_ready(update(create(), x))
+
+
 def test_pinned_ramp_sequence():
     """Ranges 0.2295, 2.295, 229.5, 2295 in turn (shared_blocks.md B3)."""
     norm, scale = ReturnNormalizer.create(), RunningScale.create()

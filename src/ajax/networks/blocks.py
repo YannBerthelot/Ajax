@@ -167,8 +167,9 @@ class NormedMLP(nn.Module):
         """Apply the trunk to ``x [..., in]``; returns ``[..., units]``.
 
         ``deterministic`` must be given when ``dropout > 0``: True disables
-        dropout (evaluation, TD targets, planning), False enables it and
-        needs a ``'dropout'`` RNG.
+        dropout, False enables it and needs a ``'dropout'`` RNG. Which passes
+        use dropout is the agent's choice (paper-era TD-MPC2 enables it in
+        every Q pass, ``docs/world_models/deviations.md`` §2).
         """
         act = parse_activation(self.act)
         for i in range(self.layers):

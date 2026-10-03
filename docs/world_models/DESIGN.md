@@ -147,9 +147,14 @@ Spec `tdmpc2_spec.md` §1–§3 with the paper-era column everywhere, in particu
   gradient (PE never clears it before the world-model clip; carried as one scalar);
 - policy optimizer: Adam(3e-4, eps 1e-5), clip 20 (built with the existing `get_adam_tx`);
 - RunningScale on `Qp[0]`, update before divide.
+- Q-ensemble dropout is active in **every** Q pass at PE, the TD target's target-Q pass
+  included (found by running 5f6fade in M2; deviations §2, spec §0.5 item 10).
 - **Randomness seams:** `update(state, batch, noise)` and `plan(..., noise)` take their
-  random draws (ε, dropout masks, Q-pair indices, MPPI noise, elite draw) as explicit
-  arrays produced by `draw_*_noise(key)`, so oracle tests can inject identical draws.
+  random draws (ε, Q-pair indices, MPPI noise, elite draw) as explicit arrays produced by
+  `draw_*_noise(key)`, so oracle tests can inject identical draws. Dropout enters as one
+  key per Q pass (M2): the per-member masks are drawn inside `nn.vmap`, and torch's masks
+  inside `torch.vmap` cannot be recorded, so the parity fixture runs with dropout 0 and
+  dropout is tested on the Ajax side.
 
 ### 4.3 Planner (agent-local `agents/TDMPC2/planner.py`)
 Spec §3.C exactly: 512 candidates including 24 π trajectories (never resampled,
@@ -441,6 +446,11 @@ agents. APG and both new agents get bench entries with a small documented preset
   modular implementation is compared with the oracle at tiny sizes on random inputs
   with injected noise (atol ~1e-5, matmul precision `highest`): every loss term,
   per-module gradients, post-update parameters, normaliser state, target EMA, plan output.
+  **Changed in M2 for the TD-MPC2 update:** instead of a transcription, the oracle is
+  the unmodified 5f6fade code itself. `docs/world_models/parity/tdmpc2_update_fixtures.py`
+  (run in a throwaway torch venv, not collected by pytest) records consecutive real
+  `update()` calls with their random draws into `tests/agents/TDMPC2/fixtures/`, and
+  `test_tdmpc2_parity.py` replays them through Ajax's jitted update.
 - **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer;
   2411f7d driver + replay add/sample/online queue + train gate + Ratio) on a counter env:
   identical row streams, seed/burst/gate ticks, queue pops, update counts.

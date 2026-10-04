@@ -10,7 +10,8 @@ One registry serves every agent: :data:`CHECKS` maps ``<agent>-<task>`` to a
 arguments, a budget in the agent's own unit, a logging and evaluation
 cadence, a bar). A check trains the agent once per seed (one vmapped run),
 reads the curve of its metric from the logged metrics and passes when every
-seed's last logged value exceeds the bar. Agents add their checks as
+seed's statistic exceeds the bar: the last logged value, or the mean over a
+window of logs (``Check.window``). Agents add their checks as
 entries; the CLI is shared.
 
 Usage::
@@ -25,14 +26,17 @@ script itself; it says nothing about learning and gives no verdict. Each
 check appends one JSON line (curves, finals, bar, verdict, wall time, git
 sha) to ``--out``; the exit code is 1 when a (non-smoke) check fails.
 
-**The metric** is ``Eval/episodic mean reward`` at the last log: the mean
-return of ``num_episode_test`` episodes of the final policy from fresh
-resets (for DreamerV3, sampled actions from a zero carry: the reference has
+**The metric** is ``Eval/episodic mean reward``: the mean return of
+``num_episode_test`` episodes of the current policy from fresh resets (for DreamerV3, sampled actions from a zero carry: the reference has
 no deterministic mode, dreamerv3_spec 7.3). The training-episode rolling
 mean (``Train/episodic mean reward``, the reference's score) is reported
 next to it but not judged: it averages each env's last 10 episodes, so on
 these budgets it still holds the early episodes of the run (16 envs share
 20 000 rows: 1 250 rows per env, two to six episodes) and lags the policy.
+A single evaluation of a sampling policy is noisy (DreamerV3 on CartPole
+swings between about 100 and 500 from one log to the next, in Ajax and in
+the reference code alike), so a check may judge the mean over a window of
+logs instead of the last one.
 
 **DreamerV3** (paper-era recipe, every hyperparameter at its default but
 the model size): the ``1m`` preset (``d = 64``: deter 512, 4 classes), 16
@@ -42,7 +46,14 @@ agent's unit: one per env per vector step, reset rows included), so about
 Apple CPU at load 25-30 (two checks running side by side).
 
 * ``dreamerv3-cartpole``: gymnax CartPole-v1 (discrete, terminating,
-  returns at most 500); bar: > 400.
+  returns at most 500), 24 000 rows (about 11 500 updates), evaluated every
+  400 rows; statistic: the mean evaluation return over the 31 logs in
+  [12 000, 24 000] rows; bar: > 156, half the mean of the same statistic
+  over five runs of the reference code itself on the same protocol
+  (danijar/dreamerv3 at 29eb964: 312.7, seeds 270 to 347; a random policy
+  scores about 22). The bar asks whether the agent learns, not whether it
+  matches the reference: that comparison was run once and is recorded in
+  ``PERFORMANCE_REPORT.md`` (DreamerV3 agent, reference comparison).
 * ``dreamerv3-pendulum``: gymnax Pendulum-v1 (continuous, torque bounds
   [-2, 2] mapped from [-1, 1], 200-step episodes; a random policy scores
   about -1200, a swung-up, balanced pendulum about -150); bar: > -400.
@@ -80,7 +91,7 @@ import json
 import os
 import subprocess
 import time
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -101,8 +112,11 @@ class Check:
         log_frequency: logging and evaluation cadence, in the same unit; it
             divides ``n_timesteps``, so that the last tick evaluates.
         num_episode_test: evaluation episodes per log.
-        bar: every seed's last logged ``metric`` must exceed it.
+        bar: every seed's statistic (:func:`statistic`) must exceed it.
         metric: the logged metric compared with the bar.
+        window: ``(lo, hi)`` in the budget's unit: the statistic is the mean
+            of ``metric`` over the logs at ``lo <= timestep <= hi``; ``None``
+            judges the last log.
     """
 
     agent: str
@@ -114,6 +128,7 @@ class Check:
     num_episode_test: int = 10
     bar: float = 0.0
     metric: str = "Eval/episodic mean reward"
+    window: Optional[tuple[int, int]] = None
 
 
 _DREAMERV3: dict[str, Any] = {"model_size": "1m"}
@@ -125,9 +140,10 @@ CHECKS: dict[str, Check] = {
         env_id="CartPole-v1",
         description="DreamerV3 1m on gymnax CartPole-v1 (discrete, terminating)",
         kwargs=_DREAMERV3,
-        n_timesteps=20_000,
-        log_frequency=2_000,
-        bar=400.0,
+        n_timesteps=24_000,
+        log_frequency=400,
+        window=(12_000, 24_000),
+        bar=156.0,
     ),
     "dreamerv3-pendulum": Check(
         agent="DreamerV3",
@@ -203,6 +219,7 @@ SMOKE: dict[str, Check] = {
             n_timesteps=400,
             log_frequency=200,
             num_episode_test=2,
+            window=None,
         )
         for name in ("dreamerv3-cartpole", "dreamerv3-pendulum")
     },
@@ -244,6 +261,24 @@ def _logged(metrics: dict, key: str, ticks: np.ndarray) -> np.ndarray:
     return np.asarray(metrics[key], np.float64)[:, ticks]
 
 
+def statistic(
+    curve: np.ndarray, timesteps: np.ndarray, window: Optional[tuple[int, int]]
+) -> np.ndarray:
+    """Per-seed statistic judged against the bar, shape ``[seeds]``.
+
+    ``curve`` is ``[seeds, logs]`` at the logged ``timesteps`` ``[logs]``:
+    the last log when ``window`` is ``None``, else the mean over the logs
+    with ``lo <= timestep <= hi``.
+    """
+    if window is None:
+        return curve[:, -1]
+    lo, hi = window
+    inside = (timesteps >= lo) & (timesteps <= hi)
+    if not inside.any():
+        raise ValueError(f"no log in the window {window}; logs at {timesteps}")
+    return curve[:, inside].mean(axis=1)
+
+
 def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
     """Train ``check`` for every seed (one vmapped run) and judge it."""
     import jax
@@ -253,6 +288,10 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
 
     agent = getattr(ajax, check.agent)(env_id=check.env_id, **check.kwargs)
     n_envs = agent.env_args.n_envs
+    if check.window is not None and not (
+        0 <= check.window[0] <= check.window[1] <= check.n_timesteps
+    ):
+        raise ValueError(f"{name}: window {check.window} outside the budget")
     if check.log_frequency % n_envs or check.n_timesteps % check.log_frequency:
         raise ValueError(
             f"{name}: log_frequency must be a multiple of n_envs = {n_envs} and"
@@ -289,7 +328,8 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
     ticks = np.flatnonzero(np.isfinite(np.asarray(metrics[check.metric])[0]))
     curve = _logged(metrics, check.metric, ticks)
     train_curve = _logged(metrics, "Train/episodic mean reward", ticks)
-    final = curve[:, -1]
+    timesteps = np.asarray(metrics["timestep"])[0, ticks]
+    judged = statistic(curve, timesteps, check.window)
     return {
         "check": name,
         "description": check.description,
@@ -301,12 +341,14 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
         "n_timesteps": check.n_timesteps,
         "env_frames": check.n_timesteps * agent.env_args.action_repeat,
         "metric": check.metric,
-        "timesteps": np.asarray(metrics["timestep"])[0, ticks].tolist(),
+        "timesteps": timesteps.tolist(),
         "curve": curve.tolist(),
         "train_curve": train_curve.tolist(),
-        "final": final.tolist(),
+        "final": curve[:, -1].tolist(),
+        "window": check.window,
+        "statistic": judged.tolist(),
         "bar": check.bar,
-        "passed": bool(np.all(final > check.bar)),
+        "passed": bool(np.all(judged > check.bar)),
         "n_updates": np.asarray(state.n_updates).tolist(),
         "resolved": {
             key: getattr(agent, key)
@@ -356,7 +398,9 @@ def main() -> int:
         print(
             f"[{name}] {check.metric} at {result['timesteps']}: {result['curve']}\n"
             f"[{name}] Train/episodic mean reward: {result['train_curve']}\n"
-            f"[{name}] final {result['final']} vs bar > {check.bar}: {verdict}"
+            f"[{name}] statistic {result['statistic']}"
+            f" ({'last log' if check.window is None else f'mean over {check.window}'})"
+            f" vs bar > {check.bar}: {verdict}"
             f" ({result['wall_s']} s, {result['n_updates']} updates)",
             flush=True,
         )

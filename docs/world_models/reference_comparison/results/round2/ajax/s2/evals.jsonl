@@ -1,0 +1,10 @@
+{"seed": 2, "rows": 2000, "updates": 481, "returns": null, "mean": 16.30000114440918, "len_mean": 16.30000114440918}
+{"seed": 2, "rows": 4000, "updates": 1481, "returns": null, "mean": 137.10000610351562, "len_mean": 137.10000610351562}
+{"seed": 2, "rows": 6000, "updates": 2481, "returns": null, "mean": 338.6000061035156, "len_mean": 338.6000061035156}
+{"seed": 2, "rows": 8000, "updates": 3481, "returns": null, "mean": 291.1000061035156, "len_mean": 291.1000061035156}
+{"seed": 2, "rows": 10000, "updates": 4481, "returns": null, "mean": 122.70000457763672, "len_mean": 122.70000457763672}
+{"seed": 2, "rows": 12000, "updates": 5481, "returns": null, "mean": 65.70000457763672, "len_mean": 65.70000457763672}
+{"seed": 2, "rows": 14000, "updates": 6481, "returns": null, "mean": 172.5, "len_mean": 172.5}
+{"seed": 2, "rows": 16000, "updates": 7481, "returns": null, "mean": 264.8999938964844, "len_mean": 264.8999938964844}
+{"seed": 2, "rows": 18000, "updates": 8481, "returns": null, "mean": 455.0, "len_mean": 455.0}
+{"seed": 2, "rows": 20000, "updates": 9481, "returns": null, "mean": 207.6999969482422, "len_mean": 207.6999969482422}

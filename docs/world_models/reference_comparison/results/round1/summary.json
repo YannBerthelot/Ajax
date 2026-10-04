@@ -1,0 +1,259 @@
+{
+ "smoke": false,
+ "seeds": [
+  0,
+  1,
+  2
+ ],
+ "rows": [
+  2000,
+  4000,
+  6000,
+  8000,
+  10000,
+  12000,
+  14000,
+  16000,
+  18000,
+  20000
+ ],
+ "s1_rows": [
+  16000,
+  18000,
+  20000
+ ],
+ "A": 204.13333638509116,
+ "ref_S1_min": 241.36666666666667,
+ "ref_S1_max": 386.09999999999997,
+ "LEARNS": false,
+ "WITHIN_RANGE": false,
+ "per_seed": {
+  "ref": {
+   "0": {
+    "S1": 386.09999999999997,
+    "S2": 98.04999999999998,
+    "eval": [
+     17.4,
+     144.8,
+     202.3,
+     113.5,
+     115.3,
+     192.3,
+     222.4,
+     253.5,
+     500.0,
+     404.8
+    ],
+    "S2_curve": [
+     23.08720238095238,
+     25.50453869047619,
+     27.876760912698412,
+     45.71438492063493,
+     57.42204861111111,
+     61.17482638888889,
+     67.4498263888889,
+     73.0546875,
+     84.475,
+     98.04999999999998
+    ]
+   },
+   "1": {
+    "S1": 246.4333333333333,
+    "S2": 114.83263888888888,
+    "eval": [
+     25.2,
+     141.7,
+     132.6,
+     88.4,
+     190.6,
+     130.6,
+     136.9,
+     151.0,
+     122.2,
+     466.1
+    ],
+    "S2_curve": [
+     23.367113095238096,
+     26.928249007936508,
+     33.65515873015873,
+     38.14337797619048,
+     56.858754960317455,
+     69.5156498015873,
+     73.43544146825397,
+     88.09672619047619,
+     100.42256944444443,
+     114.83263888888888
+    ]
+   },
+   "2": {
+    "S1": 241.36666666666667,
+    "S2": 106.94097222222223,
+    "eval": [
+     33.4,
+     196.1,
+     143.5,
+     170.3,
+     90.2,
+     158.9,
+     345.6,
+     180.5,
+     143.8,
+     399.8
+    ],
+    "S2_curve": [
+     21.1749503968254,
+     23.625892857142855,
+     29.310788690476187,
+     42.2984375,
+     51.6125,
+     66.60892857142856,
+     66.60892857142856,
+     81.01249999999999,
+     95.575,
+     106.94097222222223
+    ]
+   }
+  },
+  "ajax": {
+   "0": {
+    "S1": 180.63333384195963,
+    "S2": 108.51875305175781,
+    "eval": [
+     22.399999618530273,
+     102.30000305175781,
+     480.5,
+     142.60000610351562,
+     163.90000915527344,
+     147.40000915527344,
+     224.6999969482422,
+     290.0,
+     108.5999984741211,
+     143.3000030517578
+    ],
+    "S2_curve": [
+     19.538541793823242,
+     24.144840240478516,
+     29.74709701538086,
+     36.034027099609375,
+     52.67152786254883,
+     62.212501525878906,
+     69.41250610351562,
+     78.12638854980469,
+     89.1312484741211,
+     108.51875305175781
+    ]
+   },
+   "1": {
+    "S1": 143.5000025431315,
+    "S2": 107.01250457763672,
+    "eval": [
+     19.399999618530273,
+     189.3000030517578,
+     230.5,
+     322.3999938964844,
+     500.0,
+     118.4000015258789,
+     174.10000610351562,
+     84.70000457763672,
+     167.5,
+     178.3000030517578
+    ],
+    "S2_curve": [
+     21.398212432861328,
+     23.908432006835938,
+     29.949480056762695,
+     31.461755752563477,
+     36.22916793823242,
+     50.22013854980469,
+     71.67396545410156,
+     94.96875,
+     96.20625305175781,
+     107.01250457763672
+    ]
+   },
+   "2": {
+    "S1": 288.2666727701823,
+    "S2": 107.37760162353516,
+    "eval": [
+     15.90000057220459,
+     60.900001525878906,
+     476.3999938964844,
+     336.5,
+     149.10000610351562,
+     389.5,
+     246.5,
+     212.90000915527344,
+     151.90000915527344,
+     500.0
+    ],
+    "S2_curve": [
+     20.53132438659668,
+     26.367385864257812,
+     29.299827575683594,
+     31.514360427856445,
+     46.56996536254883,
+     69.11567687988281,
+     79.4937973022461,
+     89.67343139648438,
+     92.44218444824219,
+     107.37760162353516
+    ]
+   }
+  }
+ },
+ "ajax_s2_audit": {
+  "0": {
+   "logged": 108.51875305175781,
+   "audited": 108.51875000000001
+  },
+  "1": {
+   "logged": 107.01250457763672,
+   "audited": 107.01249999999999
+  },
+  "2": {
+   "logged": 107.37760162353516,
+   "audited": 107.37760416666666
+  }
+ },
+ "checks": [
+  "PASS  ref_s0: exit code 0 (ref_s0.DONE)",
+  "PASS  ref_s1: exit code 0 (ref_s1.DONE)",
+  "PASS  ref_s2: exit code 0 (ref_s2.DONE)",
+  "PASS  ajax: exit code 0 (ajax.DONE)",
+  "PASS  ref s0: config.yaml has the protocol values",
+  "PASS  ref s0: reference code imported from the 29eb964 checkout (['<reference-checkout>/dreamerv3/agent.py', '<reference-checkout>/embodied/__init__.py'])",
+  "PASS  ref s0: run_args.json has the protocol values",
+  "PASS  ref s0: every evaluation has 10 episodes",
+  "PASS  ref s0: episodes length == score, 1 <= length <= 500 (194 episodes)",
+  "PASS  ref s0: terminal False only for 500-step episodes",
+  "PASS  ref s0: per worker the episodes tile rows 0..row_last with L + 1 rows each",
+  "PASS  ref s0: run finished and the flush step ran (timing.json t_end present; flush_episodes 0 == episodes with row_last 1250: 0)",
+  "PASS  ref s1: config.yaml has the protocol values",
+  "PASS  ref s1: reference code imported from the 29eb964 checkout (['<reference-checkout>/dreamerv3/agent.py', '<reference-checkout>/embodied/__init__.py'])",
+  "PASS  ref s1: run_args.json has the protocol values",
+  "PASS  ref s1: every evaluation has 10 episodes",
+  "PASS  ref s1: episodes length == score, 1 <= length <= 500 (182 episodes)",
+  "PASS  ref s1: terminal False only for 500-step episodes",
+  "PASS  ref s1: per worker the episodes tile rows 0..row_last with L + 1 rows each",
+  "PASS  ref s1: run finished and the flush step ran (timing.json t_end present; flush_episodes 0 == episodes with row_last 1250: 0)",
+  "PASS  ref s2: config.yaml has the protocol values",
+  "PASS  ref s2: reference code imported from the 29eb964 checkout (['<reference-checkout>/dreamerv3/agent.py', '<reference-checkout>/embodied/__init__.py'])",
+  "PASS  ref s2: run_args.json has the protocol values",
+  "PASS  ref s2: every evaluation has 10 episodes",
+  "PASS  ref s2: episodes length == score, 1 <= length <= 500 (212 episodes)",
+  "PASS  ref s2: terminal False only for 500-step episodes",
+  "PASS  ref s2: per worker the episodes tile rows 0..row_last with L + 1 rows each",
+  "PASS  ref s2: run finished and the flush step ran (timing.json t_end present; flush_episodes 0 == episodes with row_last 1250: 0)",
+  "PASS  ajax: config.json has the protocol values",
+  "PASS  10 records per seed per side at rows 2000 k",
+  "PASS  updates = 1 + floor((N - 1040) / 2) at every N on both sides (9481 at 20000)",
+  "PASS  9481 updates at 20000 rows on both sides",
+  "PASS  ajax s0: logged S2 108.519 == final buffer mean 108.519 (tol 1e-4)",
+  "PASS  ajax s1: logged S2 107.013 == final buffer mean 107.012 (tol 1e-4)",
+  "PASS  ajax s2: logged S2 107.378 == final buffer mean 107.378 (tol 1e-4)",
+  "PASS  ajax s0: final state rows 20000, n_updates 9481",
+  "PASS  ajax s1: final state rows 20000, n_updates 9481",
+  "PASS  ajax s2: final state rows 20000, n_updates 9481"
+ ],
+ "checks_failed": 0
+}

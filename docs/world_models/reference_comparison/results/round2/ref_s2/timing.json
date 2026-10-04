@@ -1,0 +1,10 @@
+{
+ "t_start": 1791080035.262047,
+ "t_loop_start": 1791080201.641203,
+ "first_update_step": 1040,
+ "t_first_update": 1791080203.678732,
+ "flush_episodes": 0,
+ "t_end": 1791092815.431602,
+ "build_and_compile_s": 166.37915587425232,
+ "total_s": 12780.169554948807
+}

@@ -1,0 +1,7 @@
+launched: 2026-10-04 04:13:53 +0200
+host: Darwin arm64
+load:  4:13  up 16 days,  8:53, 1 user, load averages: 17.45 17.68 29.52
+reference: <reference-checkout> @ 29eb964e2918a3f4db04086f7f51b60388e97f3d
+ajax: <ajax-root> @ 5cb0738f3a2e127a3f8d64994eac3be1bc8c926e; uncommitted diff vs HEAD sha1: da39a3ee5e6b4b0d3255bfef95601890afd80709
+REF_XLA_FLAGS='' AJAX_XLA_FLAGS=''
+rows 20000, every 2000, eval episodes 10, seeds 0 1 2

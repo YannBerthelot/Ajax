@@ -1,0 +1,255 @@
+ac_grads: none
+actent: 0.0003
+actor:
+  act: silu
+  block_fans: false
+  block_norm: false
+  inputs: [deter, stoch]
+  layers: 3
+  maxstd: 1.0
+  minstd: 0.1
+  norm: rms
+  outscale: 0.01
+  unimix: 0.01
+  units: 64
+  winit: normal
+actor_dist_cont: normal
+actor_dist_disc: onehot
+advnorm: {impl: off, limit: 1e-08, rate: 0.01}
+batch_length: 65
+batch_length_eval: 33
+batch_size: 16
+conhead:
+  act: silu
+  block_fans: false
+  block_norm: false
+  dist: binary
+  inputs: [deter, stoch]
+  layers: 1
+  norm: rms
+  outscale: 1.0
+  units: 64
+  winit: normal
+contdisc: true
+critic:
+  act: silu
+  bins: 255
+  block_fans: false
+  block_norm: false
+  dist: symexp_twohot
+  inputs: [deter, stoch]
+  layers: 3
+  norm: rms
+  outscale: 0.0
+  units: 64
+  winit: normal
+dec:
+  simple:
+    act: silu
+    block_fans: false
+    block_norm: false
+    block_space: 8
+    depth: 64
+    hidden_stoch: true
+    inputs: [deter, stoch]
+    kernel: 5
+    layers: 3
+    minres: 4
+    mults: [1, 2, 3, 4, 4]
+    norm: rms
+    outer: true
+    outscale: 1.0
+    space_hidden: 0
+    units: 64
+    vecdist: symlog_mse
+    winit: normal
+  spaces: .*
+  typ: simple
+dyn:
+  rssm: {absolute: false, act: silu, block_fans: false, block_norm: false, 
+      blocks: 8, cell: blockgru, classes: 4, deter: 512, dynlayers: 1, hidden: 
+      64, imglayers: 2, norm: rms, obslayers: 1, outscale: 1.0, stoch: 32, 
+      unimix: 0.01, winit: normal}
+  typ: rssm
+enc:
+  simple:
+    act: silu
+    depth: 64
+    kernel: 5
+    layers: 3
+    minres: 4
+    mults: [1, 2, 3, 4, 4]
+    norm: rms
+    outer: true
+    symlog: true
+    units: 64
+    winit: normal
+  spaces: .*
+  typ: simple
+env:
+  atari:
+    actions: all
+    aggregate: max
+    autostart: false
+    gray: true
+    lives: unused
+    noops: 0
+    pooling: 2
+    repeat: 4
+    resize: pillow
+    size: [64, 64]
+    sticky: true
+  atari100k:
+    actions: all
+    autostart: false
+    gray: false
+    length: 100000
+    lives: unused
+    noops: 0
+    repeat: 4
+    resize: pillow
+    size: [64, 64]
+    sticky: false
+  crafter:
+    logs: false
+    size: [64, 64]
+    use_logdir: false
+  dmc:
+    camera: -1
+    image: true
+    repeat: 2
+    size: [64, 64]
+  dmlab:
+    actions: popart
+    episodic: true
+    repeat: 4
+    size: [64, 64]
+    use_seed: false
+  loconav:
+    camera: -1
+    repeat: 2
+    size: [64, 64]
+  minecraft:
+    break_speed: 100.0
+    logs: false
+    size: [64, 64]
+  procgen:
+    size: [64, 64]
+eval_dir: ''
+filter: score|length|fps|ratio|train/.*_loss$|train/rand/.*/mean
+horizon: 333
+imag_length: 15
+imag_repeat: 1
+imag_start: all
+imag_unroll: false
+jax:
+  assert_num_devices: -1
+  checks: false
+  compute_dtype: float32
+  debug: false
+  fetch_policy_carry: false
+  jit: true
+  logical_cpus: 0
+  nvidia_flags: false
+  param_dtype: float32
+  platform: cpu
+  policy_devices: [0]
+  prealloc: false
+  profiler: false
+  sync_every: 1
+  train_devices: [0]
+  transfer_guard: false
+  xla_dump: false
+logdir: 
+  <scratch>/refrun/full2/ref_s0
+loss_scales: {actor: 1.0, cont: 1.0, critic: 1.0, dec_cnn: 1.0, dec_mlp: 1.0, 
+    dyn: 1.0, rep: 0.1, replay_critic: 0.3, reward: 1.0}
+lrs: {actor: 3e-05, con: 0.0001, critic: 3e-05, dec: 0.0001, dyn: 0.0001, enc: 
+    0.0001, rew: 0.0001}
+method: name
+opt: {agc: 0.3, anneal: 0, beta1: 0.9, beta2: 0.999, details: false, eps: 1e-20, 
+    globclip: 0.0, lr: 4e-05, momentum: true, pmin: 0.001, scaler: rms, schedule: 
+    constant, warmup: 1000, wd: 0.0}
+random_agent: false
+replay:
+  chunksize: 1024
+  fracs: {priority: 0.0, recency: 0.0, uniform: 1.0}
+  online: true
+  prio: {exponent: 0.8, initial: inf, maxfrac: 0.5, zero_on_sample: true}
+  priosignal: model
+  recexp: 1.0
+  save_wait: false
+  size: 5000000.0
+replay_context: 1
+replay_critic_bootstrap: imag
+replay_critic_grad: true
+replay_critic_loss: true
+replay_length: 65
+replay_length_eval: 33
+report: true
+report_gradnorms: false
+report_openl_context: 8
+reset_context: 0.0
+retnorm: {impl: perc, limit: 1.0, perchi: 95.0, perclo: 5.0, rate: 0.01}
+return_lambda: 0.95
+return_lambda_replay: 0.95
+reward_grad: true
+rewhead:
+  act: silu
+  bins: 255
+  block_fans: false
+  block_norm: false
+  dist: symexp_twohot
+  inputs: [deter, stoch]
+  layers: 1
+  norm: rms
+  outscale: 0.0
+  units: 64
+  winit: normal
+rssm_loss: {free: 1.0}
+run:
+  actor_addr: tcp://localhost:{auto}
+  actor_batch: 8
+  actor_threads: 4
+  agent_process: false
+  driver_parallel: false
+  duration: 0
+  env_replica: -1
+  eval_eps: 1
+  eval_every: -1
+  eval_fill: 0
+  eval_initial: true
+  expl_until: 0
+  from_checkpoint: ''
+  ipv6: false
+  log_episode_timeout: 60
+  log_every: -1
+  log_keys_avg: ^$
+  log_keys_max: ^$
+  log_keys_sum: ^$
+  log_keys_video: [image]
+  log_video_fps: 20
+  log_video_streams: 4
+  log_zeros: true
+  logger_addr: tcp://localhost:{auto}
+  num_envs: 16
+  num_envs_eval: 4
+  remote_replay: false
+  replay_addr: tcp://localhost:{auto}
+  save_every: -1
+  script: train
+  steps: 20000.0
+  timer: true
+  train_fill: 0
+  train_ratio: 512.0
+  usage: {gc: false, gputil: false, malloc: false, nvsmi: true, psutil: true}
+seed: 0
+separate_lrs: false
+slow_critic_fraction: 0.02
+slow_critic_update: 1
+slowreg: 1.0
+slowtar: false
+task: gymnax_cartpole
+tensorboard_videos: true
+valnorm: {impl: off, limit: 1e-08, rate: 0.01}
+wrapper: {checks: true, discretize: 0, length: 0, reset: true}

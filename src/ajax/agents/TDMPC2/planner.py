@@ -42,20 +42,39 @@ draws recorded from the reference
 uniform number turned into an index by the inverse CDF, the algorithm of the
 reference's ``np.random.choice(p=score)``.
 
-Single-task only. Multi-task (M8) adds the task embedding to every network
-call, the action masks on the candidates and on mean / std (spec 3.9) and a
-per-task discount.
+Multi-task (M8; ``tdmpc2.py:94-171`` with ``task``, tdmpc2_spec 3.9, 3.12):
+every function takes an optional :class:`~ajax.agents.TDMPC2.core.TaskContext`
+of one task (``ids`` a scalar, ``mask [A]``; ``None``, the default, is the
+single-task computation, unchanged). The task embedding conditions every
+network call; the policy samples are masked; all candidates are masked after
+sampling in every iteration, and the mean and std after the std clamp, so the
+invalid dims are exactly 0 in the candidates, the warm start and the
+executed action (in the first iteration they are sampled with the unmasked
+``max_std`` and then zeroed, as in the reference). ``gamma`` is the task's
+discount (a float32 scalar in the reference, ``discount[task]``). The
+iteration rule uses the padded action dim (``cfg.action_dim``,
+``tdmpc2.py:31``). :func:`plan` renorms the task's embedding row as the
+reference's look-up does (``nn.Embedding(max_norm=1)``), on a copy of the
+parameters: the decision sees the renormed row, but the renorm is not
+persisted (deviation T15; the reference writes it into its parameters).
 """
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Union
+from typing import Any, NamedTuple, Optional, Union
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 
-from ajax.agents.TDMPC2.core import draw_q_pair, policy_sample, q_pair_logits
+from ajax.agents.TDMPC2.core import (
+    TaskContext,
+    draw_q_pair,
+    policy_sample,
+    q_pair_logits,
+    renorm_task_embedding,
+    task_embedding,
+)
 from ajax.agents.TDMPC2.networks import make_policy_prior, make_world_model
 from ajax.agents.TDMPC2.state import TDMPC2Config
 
@@ -183,6 +202,7 @@ def estimate_value(
     *,
     config: TDMPC2Config,
     gamma: Union[float, jax.Array],
+    task: Optional[TaskContext] = None,
 ) -> jax.Array:
     """Values ``[N]`` of the action sequences ``actions [H, N, A]`` from ``z [N, L]``.
 
@@ -195,23 +215,29 @@ def estimate_value(
     drawn heads are evaluated (:func:`~ajax.agents.TDMPC2.core.q_pair_logits`;
     the reference runs all ``num_q`` and keeps two). Q dropout is on (paper
     era; key ``q_dropout``, a no-op when ``config.dropout == 0``). No target
-    network, no RunningScale, no termination masking (paper era).
+    network, no RunningScale, no termination masking (paper era). Multi-task:
+    ``task`` conditions every network call and masks the terminal policy
+    sample; ``gamma`` is the task's discount (``tdmpc2.py:102``).
     """
     action_dim = actions.shape[-1]
     wm_apply = make_world_model(config).apply
     pi_apply = make_policy_prior(config, action_dim).apply
     two_hot = config.two_hot
+    emb = task_embedding(wm_params, task)
+    mask = None if task is None else task.mask
     discount = _discount_powers(gamma, config.horizon)
     value: Any = 0.0  # G = 0, then G += gamma^t r_t (tdmpc2.py:97-101)
     for t in range(config.horizon):
         reward = two_hot.decode(
-            wm_apply({"params": wm_params}, z, actions[t], method="reward_logits")
+            wm_apply({"params": wm_params}, z, actions[t], emb, method="reward_logits")
         )
-        z = wm_apply({"params": wm_params}, z, actions[t], method="next")
+        z = wm_apply({"params": wm_params}, z, actions[t], emb, method="next")
         value = value + discount[t] * reward
-    terminal = policy_sample(pi_apply, pi_params, z, terminal_eps, config).action
+    terminal = policy_sample(
+        pi_apply, pi_params, z, terminal_eps, config, emb, mask
+    ).action
     logits = q_pair_logits(
-        config, wm_params, z, terminal, q_pair, dropout_key=q_dropout
+        config, wm_params, z, terminal, q_pair, dropout_key=q_dropout, task_emb=emb
     )
     q1, q2 = two_hot.decode(logits)  # world_model.py:171-172
     return value + discount[config.horizon] * ((q1 + q2) / 2)
@@ -224,25 +250,30 @@ def policy_trajectories(
     eps: jax.Array,
     *,
     config: TDMPC2Config,
+    task: Optional[TaskContext] = None,
 ) -> jax.Array:
     """The policy-prior candidates ``[H, P, A]`` from the latent ``z [L]``.
 
     ``tdmpc2.py:119-126`` (tdmpc2_spec 3.5, 3.6): ``P`` copies of ``z``; for
     ``t < H - 1`` a stochastic prior sample (noise ``eps[t] [P, A]``) and a
-    dynamics step; then the last sample at ``z_{H-1}``.
+    dynamics step; then the last sample at ``z_{H-1}``. Multi-task: the
+    samples are masked (zero on the invalid dims) and every call conditioned
+    on the task.
     """
     horizon, p, action_dim = eps.shape
     if p == 0:  # the "planning without policy" ablation (spec 3.4)
         return jnp.zeros((horizon, 0, action_dim), jnp.float32)
     wm_apply = make_world_model(config).apply
     pi_apply = make_policy_prior(config, action_dim).apply
+    emb = task_embedding(wm_params, task)
+    mask = None if task is None else task.mask
     z = jnp.broadcast_to(z, (p, z.shape[-1]))
     actions = []
     for t in range(horizon):
-        action = policy_sample(pi_apply, pi_params, z, eps[t], config).action
+        action = policy_sample(pi_apply, pi_params, z, eps[t], config, emb, mask).action
         actions.append(action)
         if t < horizon - 1:
-            z = wm_apply({"params": wm_params}, z, action, method="next")
+            z = wm_apply({"params": wm_params}, z, action, emb, method="next")
     return jnp.stack(actions)
 
 
@@ -278,7 +309,12 @@ class MPPIStep(NamedTuple):
     std: jax.Array
 
 
-def mppi_step(value: jax.Array, actions: jax.Array, config: TDMPC2Config) -> MPPIStep:
+def mppi_step(
+    value: jax.Array,
+    actions: jax.Array,
+    config: TDMPC2Config,
+    mask: Optional[jax.Array] = None,
+) -> MPPIStep:
     """One MPPI update from candidate values ``[N]`` and actions ``[H, N, A]``.
 
     ``tdmpc2.py:149-159`` (tdmpc2_spec 3.15-3.17):
@@ -298,7 +334,10 @@ def mppi_step(value: jax.Array, actions: jax.Array, config: TDMPC2Config) -> MPP
     * ``score = exp(temperature (V - max V))``, normalised to sum 1;
     * ``mean = sum_k score_k a_k / (sum score + 1e-9)`` and the biased
       weighted ``std`` around the new mean with the same denominator,
-      clamped to ``[min_std, max_std]``.
+      clamped to ``[min_std, max_std]``;
+    * multi-task, ``mean`` and ``std`` multiplied by the task's action
+      ``mask [A]`` *after* the clamp (``tdmpc2.py:160-162``, spec 3.17): a
+      masked std is 0, below ``min_std``, deliberately.
     """
     value = jnp.nan_to_num(value, nan=0.0)
     elite_value, elite_idx = jax.lax.top_k(value, config.num_elites)
@@ -310,6 +349,8 @@ def mppi_step(value: jax.Array, actions: jax.Array, config: TDMPC2Config) -> MPP
     mean = jnp.sum(weight * elite_actions, axis=1) / denom
     var = jnp.sum(weight * jnp.square(elite_actions - mean[:, None]), axis=1) / denom
     std = jnp.clip(jnp.sqrt(var), config.min_std, config.max_std)
+    if mask is not None:
+        mean, std = mean * mask, std * mask
     return MPPIStep(
         value=value,
         elite_idx=elite_idx,
@@ -380,17 +421,20 @@ def plan_from_latent(
     config: TDMPC2Config,
     gamma: Union[float, jax.Array],
     eval_mode: bool,
+    task: Optional[TaskContext] = None,
 ) -> tuple[jax.Array, jax.Array, PlanInfo]:
     """MPPI from the latent ``z [L]`` (the reference's ``plan(z)``,
-    ``tdmpc2.py:105-171``); see :func:`plan`."""
+    ``tdmpc2.py:105-171``); see :func:`plan`. Multi-task, ``wm_params``
+    must already hold the renormed embedding row (:func:`plan` does it)."""
     horizon, action_dim = prev_mean.shape
     if horizon != config.horizon:
         raise ValueError(
             f"prev_mean has horizon {horizon}, config.horizon is {config.horizon}"
         )
     check_plan_noise(noise, config, action_dim)
+    mask = None if task is None else task.mask
     pi_actions = policy_trajectories(
-        wm_params, pi_params, z, noise.pi_eps, config=config
+        wm_params, pi_params, z, noise.pi_eps, config=config, task=task
     )
     zs = jnp.broadcast_to(z, (config.num_samples, z.shape[-1]))
     init_mean = warm_start_mean(prev_mean, t0)
@@ -403,6 +447,8 @@ def plan_from_latent(
         candidate_eps, terminal_eps, q_pair, q_dropout = draws
         sampled = jnp.clip(mean[:, None] + std[:, None] * candidate_eps, -1.0, 1.0)
         actions = jnp.concatenate([pi_actions, sampled], axis=1)  # [H, N, A]
+        if mask is not None:  # every candidate, after sampling (tdmpc2.py:145-146)
+            actions = actions * mask
         value = estimate_value(
             wm_params,
             pi_params,
@@ -413,8 +459,9 @@ def plan_from_latent(
             q_dropout,
             config=config,
             gamma=gamma,
+            task=task,
         )
-        step = mppi_step(value, actions, config)
+        step = mppi_step(value, actions, config, mask)
         return (step.mean, step.std), step
 
     draws = (noise.candidate_eps, noise.terminal_eps, noise.q_pair, noise.q_dropout)
@@ -452,6 +499,7 @@ def plan(
     config: TDMPC2Config,
     gamma: Union[float, jax.Array],
     eval_mode: bool,
+    task: Optional[TaskContext] = None,
 ) -> tuple[jax.Array, jax.Array, PlanInfo]:
     """One paper-era TD-MPC2 MPPI decision for one environment.
 
@@ -472,17 +520,26 @@ def plan(
         config: static hyperparameters; the number of iterations is
             ``config.planning_iterations(A)``, and ``noise`` must have been
             drawn for it (:func:`check_plan_noise`, else ``ValueError``).
-        gamma: the discount, a Python float or a scalar array.
+        gamma: the discount, a Python float or a scalar array (multi-task:
+            the task's discount).
         eval_mode: static; True drops only the final exploration noise.
             Everything else stays stochastic (spec 3.20).
+        task: multi-task, the task's :class:`~ajax.agents.TDMPC2.core.TaskContext`
+            (scalar ``ids``, ``mask [A]``); ``obs`` is then zero-padded and
+            ``A`` is the padded action dim (module docstring).
 
     Returns:
         ``(action [A], new_prev_mean [H, A], info)``: the executed action in
         ``[-1, 1]``, the last iteration's mean (stored before the exploration
         noise, in both modes; spec 3.21) and a :class:`PlanInfo`.
     """
+    if task is not None:
+        # act()'s look-up renorms the row (world_model.py:86); here on a
+        # copy, never persisted (deviation T15).
+        wm_params = renorm_task_embedding(wm_params, task.ids)
     wm_apply = make_world_model(config).apply
-    z = wm_apply({"params": wm_params}, obs[None], method="encode")[0]
+    emb = task_embedding(wm_params, task)
+    z = wm_apply({"params": wm_params}, obs[None], emb, method="encode")[0]
     return plan_from_latent(
         wm_params,
         pi_params,
@@ -493,4 +550,5 @@ def plan(
         config=config,
         gamma=gamma,
         eval_mode=eval_mode,
+        task=task,
     )

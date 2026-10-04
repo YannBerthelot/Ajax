@@ -1,5 +1,5 @@
-"""perf_utils: final_aux_fori and the resume iteration offset of
-build_resumable_train / ActorCritic.train."""
+"""perf_utils: final_aux_fori, and the resume iteration offset and the shared
+input of build_resumable_train / ActorCritic.train."""
 
 import jax
 import jax.numpy as jnp
@@ -181,3 +181,60 @@ def test_default_resume_offset_keeps_existing_agents_unchanged():
     state, _ = agent.train(seed=0, n_timesteps=3)
     _, seen = agent.train(seed=0, n_timesteps=2, initial_state=state)
     np.testing.assert_array_equal(seen, [[0, 1]])
+
+
+# ---------------------------------------------------------------------------
+# build_resumable_train: the shared input
+# ---------------------------------------------------------------------------
+
+
+def make_shared_train(num_updates):
+    """A scan that reads ``shared["w"][i]`` and carries its running sum."""
+
+    def init_fn(key, index):
+        return {"total": jnp.zeros(())}
+
+    def make_scan_fn(agent_state, resume_from_state, key, index, *, shared):
+        def body(state, i):
+            w = shared["w"][i]
+            return {"total": state["total"] + w}, w
+
+        return body
+
+    return build_resumable_train(
+        init_fn=init_fn, make_scan_fn=make_scan_fn, num_updates=num_updates
+    )
+
+
+def test_shared_input_reaches_the_body_as_one_argument_of_the_seed_vmap():
+    """``shared`` reaches ``make_scan_fn`` (as ``shared=``), unbatched under
+    the seed vmap (``in_axes=None``): the program takes it as one argument,
+    neither a per-seed copy nor a constant."""
+    train = make_shared_train(3)
+    shared = {"w": jnp.arange(1.0, 6.0)}
+    keys = jax.random.split(jax.random.PRNGKey(0), 2)
+
+    def run(key, data):
+        return train(key, shared=data)
+
+    states, seen = jax.vmap(run, in_axes=(0, None))(keys, shared)
+    np.testing.assert_array_equal(seen, [[1.0, 2.0, 3.0]] * 2)
+    np.testing.assert_array_equal(states["total"], [6.0, 6.0])
+    text = jax.jit(jax.vmap(run, in_axes=(0, None))).lower(keys, shared).as_text()
+    assert "tensor<5xf32>" in text and "tensor<2x5xf32>" not in text
+    # Resumed with the same input: the scan continues from the carried sum.
+    states, _ = jax.vmap(
+        lambda key, state, data: train(
+            key, initial_state=state, resume_from_state=True, shared=data
+        ),
+        in_axes=(0, 0, None),
+    )(keys, states, shared)
+    np.testing.assert_array_equal(states["total"], [12.0, 12.0])
+
+
+def test_builders_without_a_shared_input_are_unchanged():
+    """Without ``shared`` the builder is called with its four positional
+    arguments, as before the slot existed."""
+    train = make_toy_train(2)
+    _, seen = train(jax.random.PRNGKey(0))
+    np.testing.assert_array_equal(seen, [0, 1])

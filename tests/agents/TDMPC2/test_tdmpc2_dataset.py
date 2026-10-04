@@ -5,11 +5,14 @@ tdmpc2_spec 4.18-4.19): a tiny single-task TD-MPC2 run on the counter env
 (whose rows are recoverable from its actions) is exported, pooled with a
 second task of other dims and read back; the export's slot order is checked
 on a wrapped ring; the sampler is b67b21c's uniform episode x uniform crop
-over the pooled episodes.
+over the pooled episodes; a dataset saved to disk loads back identical and
+checked.
 """
 
 from __future__ import annotations
 
+import json
+import os
 from types import SimpleNamespace
 
 import jax
@@ -24,7 +27,9 @@ from ajax.agents.TDMPC2.dataset import (
     TaskEpisodes,
     concatenate_episodes,
     export_episodes,
+    load_dataset,
     pool_tasks,
+    save_dataset,
 )
 
 from .toy_envs import CounterEnv
@@ -239,3 +244,56 @@ def test_schema_is_validated():
     assert dataset.nbytes == sum(
         x.nbytes for x in (dataset.obs, dataset.action, dataset.reward, dataset.task)
     )
+
+
+def test_saved_dataset_loads_back_identical_and_checked(run, tmp_path):
+    """save_dataset + load_dataset round trip on the pooled exports: the same
+    arrays (dtypes included) and metadata, host arrays, no pickle; the
+    loaded dataset is checked, so a file with broken padding or another
+    format is refused; an existing file is replaced whole."""
+    agent, state = run
+    counter = concatenate_episodes(
+        [export_episodes(agent, state, seed_index=i, name="counter") for i in (0, 1)]
+    )
+    dataset = pool_tasks([counter, synthetic(4, obs_dim=3, action_dim=2, name="o")])
+    path = str(tmp_path / "sub" / "dataset.npz")
+    save_dataset(dataset, path)
+    assert sorted(os.listdir(tmp_path / "sub")) == ["dataset.npz"]
+    loaded = load_dataset(path)
+    for field in ("obs", "action", "reward", "task"):
+        ours, theirs = getattr(loaded, field), np.asarray(getattr(dataset, field))
+        assert isinstance(ours, np.ndarray) and ours.dtype == theirs.dtype
+        np.testing.assert_array_equal(ours, theirs)
+    for field in ("obs_dims", "action_dims", "episode_lengths", "names"):
+        assert getattr(loaded, field) == getattr(dataset, field)
+    np.testing.assert_array_equal(
+        loaded.task_episodes(0).obs, dataset.task_episodes(0).obs
+    )
+    with np.load(path, allow_pickle=False) as data:
+        assert sorted(data.files) == ["action", "meta", "obs", "reward", "task"]
+        meta = json.loads(str(data["meta"]))
+    assert meta["names"] == ["counter", "o"] and meta["version"] == 1
+
+    # Overwrite with a one-task dataset: the file is replaced whole.
+    save_dataset(pool_tasks([counter]), path)
+    assert load_dataset(path).names == ("counter",)
+
+    # Broken padding is refused on load (and on save).
+    arrays = {k: np.asarray(getattr(dataset, k)) for k in ("obs", "action", "reward")}
+    arrays["obs"] = arrays["obs"].copy()
+    arrays["obs"][0, 0, 2] = 1.0
+    broken = str(tmp_path / "broken.npz")
+    np.savez(
+        broken,
+        task=np.asarray(dataset.task),
+        meta=np.asarray(json.dumps(meta)),
+        **arrays,
+    )
+    with pytest.raises(ValueError, match="zero beyond"):
+        load_dataset(broken)
+    with pytest.raises(ValueError, match="zero beyond"):
+        save_dataset(dataset.replace(obs=jnp.asarray(arrays["obs"])), path)
+    other = str(tmp_path / "other.npz")
+    np.savez(other, meta=np.asarray(json.dumps({**meta, "version": 2})), **arrays)
+    with pytest.raises(ValueError, match="not a ajax.tdmpc2.multitask_dataset v1"):
+        load_dataset(other)

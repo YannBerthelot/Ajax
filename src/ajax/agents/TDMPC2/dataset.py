@@ -10,7 +10,10 @@ module holds the data side, independent of the trainer:
   committed episode, in the order collected), :func:`concatenate_episodes`
   joins runs of the same task (several seeds);
 * :class:`MultiTaskDataset`: the pooled, padded dataset the trainer samples,
-  built by :func:`pool_tasks` (task ``i`` = the ``i``-th pooled task).
+  built by :func:`pool_tasks` (task ``i`` = the ``i``-th pooled task),
+  written to and read from disk by :func:`save_dataset` and
+  :func:`load_dataset` (an ``.npz`` of the arrays and a JSON metadata
+  string, no pickle).
 
 Schema (``N`` episodes of ``L`` rows; ``L = T + 1`` for whole episodes):
 
@@ -52,6 +55,8 @@ balancing; spec 4.19) and a uniform crop of ``H + 1`` rows
 from __future__ import annotations
 
 import dataclasses
+import json
+import os
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -437,10 +442,86 @@ def pool_tasks(tasks: Sequence[TaskEpisodes]) -> MultiTaskDataset:
     return dataset
 
 
+#: Identifies the file format of :func:`save_dataset` (bump the version on
+#: any change of the stored fields).
+DATASET_FORMAT = "ajax.tdmpc2.multitask_dataset"
+DATASET_FORMAT_VERSION = 1
+
+
+def save_dataset(dataset: MultiTaskDataset, path: str) -> None:
+    """Write ``dataset`` to ``path`` (an uncompressed NumPy ``.npz``).
+
+    The file holds the four arrays under their field names and ``meta``, a
+    JSON string with the format name and version and the per-task metadata
+    (obs dims, action dims, episode lengths, names): plain arrays and text,
+    readable without pickle (:func:`load_dataset`). The dataset is checked
+    first (:meth:`MultiTaskDataset.check`) and the file is written to a
+    temporary name and renamed, so an interrupted save leaves no partial
+    file under ``path``.
+    """
+    dataset.check()
+    meta = {
+        "format": DATASET_FORMAT,
+        "version": DATASET_FORMAT_VERSION,
+        "obs_dims": list(dataset.obs_dims),
+        "action_dims": list(dataset.action_dims),
+        "episode_lengths": list(dataset.episode_lengths),
+        "names": list(dataset.names),
+    }
+    path = os.path.abspath(path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp"
+    with open(tmp, "wb") as f:
+        np.savez(
+            f,
+            obs=_host(dataset.obs),
+            action=_host(dataset.action),
+            reward=_host(dataset.reward),
+            task=_host(dataset.task),
+            meta=np.asarray(json.dumps(meta)),
+        )
+    os.replace(tmp, path)
+
+
+def load_dataset(path: str) -> MultiTaskDataset:
+    """The dataset :func:`save_dataset` wrote to ``path``, checked.
+
+    The arrays stay host NumPy arrays (``TDMPC2MultiTask`` places the
+    dataset on the device once). Raises ``ValueError`` on another format or
+    version, or when the data do not follow the schema.
+    """
+    with np.load(path, allow_pickle=False) as data:
+        meta = json.loads(str(data["meta"]))
+        if (meta.get("format"), meta.get("version")) != (
+            DATASET_FORMAT,
+            DATASET_FORMAT_VERSION,
+        ):
+            raise ValueError(
+                f"{path} is not a {DATASET_FORMAT} v{DATASET_FORMAT_VERSION} file"
+                f" (format {meta.get('format')!r}, version {meta.get('version')!r})"
+            )
+        dataset = MultiTaskDataset(
+            obs=data["obs"],
+            action=data["action"],
+            reward=data["reward"],
+            task=data["task"],
+            obs_dims=tuple(int(d) for d in meta["obs_dims"]),
+            action_dims=tuple(int(d) for d in meta["action_dims"]),
+            episode_lengths=tuple(int(t) for t in meta["episode_lengths"]),
+            names=tuple(str(n) for n in meta["names"]),
+        )
+    dataset.check()
+    return dataset
+
+
 __all__ = [
+    "DATASET_FORMAT",
+    "DATASET_FORMAT_VERSION",
     "MultiTaskDataset",
     "TaskEpisodes",
     "concatenate_episodes",
     "export_episodes",
+    "load_dataset",
     "pool_tasks",
+    "save_dataset",
 ]

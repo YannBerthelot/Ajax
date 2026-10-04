@@ -27,7 +27,9 @@ from ajax.agents.TDMPC2.dataset import (
     TaskEpisodes,
     concatenate_episodes,
     export_episodes,
+    load_dataset,
     pool_tasks,
+    save_dataset,
 )
 from ajax.agents.TDMPC2.multitask import PAPER_TASK_DIM, TaskSet
 from ajax.agents.TDMPC2.networks import MODEL_SIZE, resolve_model_size
@@ -71,10 +73,12 @@ __all__ = [
     "draw_plan_noise",
     "draw_update_noise",
     "export_episodes",
+    "load_dataset",
     "plan",
     "plan_from_latent",
     "pool_tasks",
     "renorm_task_embedding",
     "resolve_model_size",
+    "save_dataset",
     "update",
 ]

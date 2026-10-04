@@ -476,7 +476,7 @@ a function of the absolute tick.
   the playground versions of the 19 original mt30 DMC tasks (mt30 order as task ids,
   action repeat 2); acceptance = the offline model reaches a stated fraction of each
   source agent's final return; reported as validating the mechanisms, not the paper's
-  numbers.
+  numbers (settings and criterion: `VALIDATION.md` §4).
 
 ## 8. Probing
 
@@ -566,8 +566,21 @@ agents. APG and both new agents get bench entries with a small documented preset
 - **M7** DreamerV3 agent: stream replay with context, online queue, write-back, schedule,
   dynamic-mode collector, probes, bench entry, learning checks.
 - **M8** TD-MPC2 multi-task mechanisms + offline trainer + synthetic-data gate.
-- **M9** validation scripts: GPU report (DreamerV3 DMC-proprio Table 11 tasks available in
-  playground; TD-MPC2 DMC subset), multi-task dataset generation and validation.
+- **M9** validation scripts (`VALIDATION.md`; `benchmarks/world_models/`): the published
+  curves extracted to committed JSON (DreamerV3's bundled 5-seed DMC-proprio curves of
+  `2411f7d`, all 18 Table 11 tasks in playground; TD-MPC2's `results/*.csv` for the 22
+  DMC tasks playground implements, and mt30's 19 original tasks), with explicit task
+  maps; a resumable paper-protocol runner (DreamerV3 12m / ratio 512 / 16 envs / repeat 2
+  / 500K env steps / 5 seeds, training-episode returns; TD-MPC2 5M / repeat 2 / the CSV
+  budgets / 3 seeds, 10 `eval_mode` episodes every 50K steps), chunked through the
+  agents' resume path and checkpointed with `ajax.checkpoint`; a report against
+  acceptance criteria fixed in `wm_acceptance.py` before any run (window means, per-task
+  bar at the reference's lowest seed − 50, task median and mean within 50, ≥ 80% of the
+  tasks; runs off their registry protocol reported, never judged; provenance listed);
+  the multi-task pipeline (sources with their full history, dataset saved and loaded
+  through `save_dataset` / `load_dataset` and pinned by hash, offline 19M training,
+  offline return ≥ 0.5 x the sources' on ≥ 80% of the judged tasks, ≥ 80% of the tasks
+  judged). CPU smoke and unit tests in CI; the GPU runs come later.
 
 ## 12. Deviations register
 

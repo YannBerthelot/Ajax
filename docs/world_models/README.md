@@ -16,6 +16,7 @@ Reference material for Ajax's implementations of
 | `dreamerv3_spec.md` | Component-by-component specification of DreamerV3 with exact values, paper and code citations, paper-vs-code conflicts and version notes. |
 | `tdmpc2_spec.md` | The same for TD-MPC2, single-task and multi-task. |
 | `shared_blocks.md` | The building blocks both algorithms use (symlog, two-hot, percentile normalisers, normed MLPs, ...), with one parameterisation covering both papers and the unit tests that pin them. |
+| `VALIDATION.md` | The GPU validation against the published curves (M9): reference data, paper-protocol runner, report and acceptance criteria, multi-task pipeline, GPU commands and resource estimates. |
 | `parity/` | Fixture generators: scripts that run the pinned reference code itself at tiny sizes (in a throwaway venv, see each script's docstring) and write the `.npz` parity fixtures committed under `tests/agents/<Agent>/fixtures/` (`DESIGN.md` §10). |
 
 ## How the specifications were produced

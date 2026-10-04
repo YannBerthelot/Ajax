@@ -1,0 +1,4 @@
+# launch.sh and run outputs default to .work/ (reference checkout, venv, runs).
+.work/
+# The repository ignores *.txt; the results keep launch_info.txt and PATCH.txt.
+!/results/**/*.txt

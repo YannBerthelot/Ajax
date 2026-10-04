@@ -1,0 +1,1 @@
+TwoHot.decode -> reference literal pair sum (run_ajax_refdecode.py)

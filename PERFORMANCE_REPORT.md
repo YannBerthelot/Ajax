@@ -865,19 +865,24 @@ follows) was run on the identical protocol in a throwaway venv (jax 0.4.26):
 
 Both sides make their first update at row 1,040 and 9,481 updates by 20,000
 rows. The statistics and decision rules were written down before each round's
-results. The harness, protocol and pre-registrations are kept outside the
-repository, in the session scratchpad.
+results. The harness, protocol, pre-registrations, root-cause investigation and
+compact results of all three rounds are in `docs/world_models/reference_comparison/`
+(`README.md` there says how to rerun each round and recompute every table).
 
 **Round 1** (3 seeds per side, 20k rows). What matched:
-- the training-episode score, within 1% at every checkpoint (106.6 vs 107.6 at
-  20k rows);
-- the world-model losses, within 5%.
+- the training-episode score, within 1% at 20k rows (106.6 vs 107.6); along
+  the way the means were up to 22% apart (42.1 vs 33.0 at 8k rows);
+- the dynamics, representation and reward losses, within 1.1% from 4k rows.
 
 What did not:
 - the pre-registered evaluation statistic, the mean evaluation at 16k-20k rows,
   failed: Ajax 204 vs reference seeds 241-386;
-- two training statistics differed in every seed: the actor's entropy was 11%
-  lower in Ajax from 4k rows, and the mean |encoder output| was 7-9% lower.
+- the reconstruction loss was 16-25% lower in Ajax at 10k, 12k and 16k-20k
+  rows (seed ranges disjoint only at 10k);
+- two training statistics differed: the actor's entropy was lower in Ajax in
+  every window from 4k to 18k rows (window means 6-23% lower, seed ranges
+  disjoint in 5 of 10 windows), and the mean |encoder output| was 5-10% lower,
+  the gap shrinking over training.
 
 **Root causes**, from an independent investigation with every claim
 adversarially verified:
@@ -898,7 +903,8 @@ exact expectation, and Ajax with the reference's.
   all ten windows in both pairs. In round 1, five windows did not overlap.
 - The evaluation statistic still failed, driven by one checkpoint. All six
   reference runs scored at least 399 at 20k rows (1 of 6 at 18k, 0 of 6 at
-  16k); no Ajax run did.
+  16k); one of the six Ajax runs did (round 1 seed 2, 500), the other five
+  scored 109-245.
 
 **Round 3** (5 seeds per side, 24k rows, evaluation every 400 rows). The
 reference used the exact expectation and a replay sampler seeded per run, as
@@ -914,8 +920,18 @@ came from those correlated reference runs. Pre-registered results:
 | mean eval at 16k, 18k, 20k | 282.1 [201.5, 358.1] | 305.8 [250.7, 373.8] | passes (within range) | 0.52 |
 
 **Conclusion: no Ajax bug was found.**
-- With D22 matched, every training statistic matches the reference within the
-  seed ranges.
+- With D22 matched and the replay sampler seeded per run (round 3, 5 seeds per
+  side), the seed ranges of the 90 training statistics both sides log overlap
+  in at least 52 of the 58 400-row windows that contain updates: the
+  replay-value loss in 52, the advantage spread in 53, every other statistic in
+  54 or more, the non-overlapping windows lying between 7.6k and 20k rows.
+  Three exceptions carry no information: the update counter `opt_grad_steps`
+  (its reference window mean is 0.5 lower because the reference returns the
+  previous call's metrics) and `ent/action/max` / `rand/action/max`, which sit
+  at their maximum (ln 2, 1) on both sides and differ only in the last float32
+  digit (0.693147 vs 0.693146). In round 2's pair E (3 seeds, D22
+  matched, the stock reference sampler), Ajax's imagined return and value were
+  17-31% higher at 10k-18k rows, with disjoint seed ranges in 5 of 10 windows.
 - On evaluation, Ajax's late-phase mean is 15% below the reference's. This is
   not significant at 5 seeds (p = 0.12). The strict pre-registered rule (Ajax
   mean at least the lowest reference seed) fails by 4.9 points.

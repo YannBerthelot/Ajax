@@ -77,6 +77,25 @@ AGENTS: dict[str, tuple[str, dict]] = {
     "AVG": ("Pendulum-v1", {}),
     "SafeSAC": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
+    # DreamerV3 preset: the 1m model (d = 64, deter 512, 4 classes) on 8
+    # windows of 16 + 1 rows, train ratio 8 (one update per 16 rows after
+    # the training start: ~500 updates in 8000 rows), every other
+    # hyperparameter at its paper-era default (the replay ring is the whole
+    # run: min(capacity / n_envs, rows per env)). The warmup does not compile
+    # the measured program (the scan length, n_timesteps // n_envs, is
+    # static, as for every agent here): a measured trial also traces and
+    # lowers, ~15-20% of it at this preset, and the first one compiles
+    # unless the persistent cache holds the program -- compare medians of
+    # the default 3 trials.
+    "DreamerV3": (
+        "CartPole-v1",
+        {
+            "model_size": "1m",
+            "batch_size": 8,
+            "batch_length": 16,
+            "train_ratio": 8,
+        },
+    ),
     "TDMPC2": ("Pendulum-v1", _TDMPC2_PRESET),
 }
 

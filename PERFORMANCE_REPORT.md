@@ -814,3 +814,138 @@ steps, 4 envs, 7,996 updates; compile 46 s); that number is not a baseline.
 Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py --only TDMPC2
 --out benchmarks/agent_m4b.jsonl` on a quiet machine. Until then `--compare`
 lists TDMPC2 as `NEW (no baseline)`.
+
+The checks are the entries `tdmpc2-pendulum` and `tdmpc2-cartpole-balance` of
+the shared `benchmarks/learning_checks.py` registry (merged with DreamerV3's in
+M7; same agent arguments, budgets, cadences and bars as the runs above).
+
+## DreamerV3 agent (M7): CPU learning checks, reference comparison and bench entry (2026-10-03)
+
+`benchmarks/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
+512, 4 classes) with every other hyperparameter at the paper-era default (16
+envs, train ratio 512, batches of 16 x 64, imagination horizon 15), 20,000 rows
+(the agent's unit: one row per env per vector step, reset rows included), so
+about 9,500 updates; evaluated every 2,000 rows on 10 episodes of sampled
+actions from fresh resets (the reference has no deterministic mode). Seed 0, run
+on the uncommitted M7 worktree on top of `db65f10`, both checks side by side on a
+shared M-series CPU at load average 25-30.
+
+| Check | Eval returns at 2k, 4k, ..., 20k rows | Final | Bar | Verdict | Wall |
+|---|---|---|---|---|---|
+| gymnax Pendulum-v1 (bounds [-2, 2] mapped) | -1182, -1198, -1118, -1252, -1177, -620, -264, -250, -198, -222 | -222 | > -400 | PASS | 68 min |
+| gymnax CartPole-v1 (returns at most 500) | 22, 100, 378, 123, 182, 219, 186, 126, 121, 155 | 155 | > 400 | **FAIL** | 68 min |
+
+Pendulum swings up from 12k rows on and stays up. CartPole learns but does not
+reach the bar at this budget, and its evaluation curve is not monotonic.
+Diagnostic runs (same configuration, outside the registry):
+
+- Seeds 1 and 2, 20k rows, evaluated every 992 rows: both rise from about 19
+  to 286-342 by 6k rows, then oscillate (peaks 462 and 342; finals 487 and
+  121).
+- Seed 0, 40k rows: the first 20k rows follow the check's curve (21, 105,
+  390, 126, ..., 157 at 20k), then the policy reaches the 500 cap at 22k, 30k, 32k and 40k rows, but scores 150-400 on
+  the evaluations in between. The training-episode return (the reference's
+  score, a rolling mean of each env's last 10 episodes) rises monotonically,
+  from 20 to 112 at 20k rows and 211 at 40k.
+
+The agent learns CartPole, but this first check failed. The bar (400 at the
+last log) is ours, not the paper's: DreamerV3 reports no gymnax CartPole result.
+
+### Reference comparison (2026-10-03 to 10-04)
+
+The first CartPole check failed a bar of our own (400 at the last log), and the
+question was whether that is normal DreamerV3 behaviour or an end-to-end bug.
+The real reference code (`danijar/dreamerv3` at `29eb964`, the version Ajax
+follows) was run on the identical protocol in a throwaway venv (jax 0.4.26):
+- a numpy port of gymnax CartPole-v1, checked step by step against gymnax;
+- the 1m widths set key by key (637,511 vs 637,381 parameters; the 130 extra
+  are the reference's padded two-hot output column);
+- float32, 16 envs, train ratio 512, and 10-episode evaluations of the sampling
+  policy from fresh resets at fixed seeds.
+
+Both sides make their first update at row 1,040 and 9,481 updates by 20,000
+rows. The statistics and decision rules were written down before each round's
+results. The harness, protocol and pre-registrations are kept outside the
+repository, in the session scratchpad.
+
+**Round 1** (3 seeds per side, 20k rows). What matched:
+- the training-episode score, within 1% at every checkpoint (106.6 vs 107.6 at
+  20k rows);
+- the world-model losses, within 5%.
+
+What did not:
+- the pre-registered evaluation statistic, the mean evaluation at 16k-20k rows,
+  failed: Ajax 204 vs reference seeds 241-386;
+- two training statistics differed in every seed: the actor's entropy was 11%
+  lower in Ajax from 4k rows, and the mean |encoder output| was 7-9% lower.
+
+**Root causes**, from an independent investigation with every claim
+adversarially verified:
+- **Encoder output:** the seeds' initial draws, not code. With the same
+  parameters both encoders agree to 2e-6, and 300 initialisations per side give
+  the same mean.
+- **Entropy:** deviation D22, the two-hot expectation. Under jit, XLA contracts
+  the reference's mirror-pair sum into fused multiply-adds. Early in training
+  this adds noise of std about 0.085 to every reward and value prediction.
+  Ajax's mirror-difference form is exact. Patching the reference formula into
+  Ajax reproduces the reference's entropy, advantage spread and losses at
+  4k rows. `deviations.md` D22 now says so; it previously called the effect
+  negligible.
+
+**Round 2** (3 seeds per side, both directions): the reference with Ajax's
+exact expectation, and Ajax with the reference's.
+- With the same expectation on both sides, the entropy seed ranges overlap in
+  all ten windows in both pairs. In round 1, five windows did not overlap.
+- The evaluation statistic still failed, driven by one checkpoint. All six
+  reference runs scored at least 399 at 20k rows (1 of 6 at 18k, 0 of 6 at
+  16k); no Ajax run did.
+
+**Round 3** (5 seeds per side, 24k rows, evaluation every 400 rows). The
+reference used the exact expectation and a replay sampler seeded per run, as
+Ajax does (D2). The stock `make_replay` seeds every run's sampler with 0, so the
+reference's runs had drawn identical replay indices and were not independent.
+
+The 20k concordance disappears: 2 of 5 runs reach 400 at 20k on each side. It
+came from those correlated reference runs. Pre-registered results:
+
+| Statistic (per seed) | Reference mean [range] | Ajax mean [range] | Rule | Welch p |
+|---|---|---|---|---|
+| mean eval over [12k, 24k] (primary) | 312.7 [270.3, 346.7] | 265.4 [198.3, 321.1] | fails: Ajax mean 4.9 below the lowest reference seed | 0.12 |
+| mean eval at 16k, 18k, 20k | 282.1 [201.5, 358.1] | 305.8 [250.7, 373.8] | passes (within range) | 0.52 |
+
+**Conclusion: no Ajax bug was found.**
+- With D22 matched, every training statistic matches the reference within the
+  seed ranges.
+- On evaluation, Ajax's late-phase mean is 15% below the reference's. This is
+  not significant at 5 seeds (p = 0.12). The strict pre-registered rule (Ajax
+  mean at least the lowest reference seed) fails by 4.9 points.
+- The remaining structural difference is the reference's asynchronous acting
+  (D1: parameters about 16 updates stale). It cannot be removed without
+  changing the reference.
+
+### The CartPole check, redefined
+
+`dreamerv3-cartpole` now runs round 3's protocol: 24k rows, evaluated every 400
+rows. Its statistic is the mean evaluation return over [12k, 24k] rows (31
+logs), and the bar is > 156: half the reference's mean of that statistic (312.7).
+A random policy scores about 22.
+
+The check asks whether the agent learns. Whether it matches the reference is
+answered by the comparison above. All five of round 3's Ajax seeds pass (310.6,
+321.1, 198.3, 232.6, 264.6), and so do all five of the reference's.
+
+Seed 0 run through the script (`--only dreamerv3-cartpole --seeds 0`, on
+`aef355f` plus this change): statistic 295.1, PASS, 11,481 updates, 70 min at
+load average about 15. Its curve up to 20k rows is the same as the first
+check's, value for value (22, 100, 378, 123, ..., 155), because it is the same
+program; it then reaches 500 at 22k rows.
+
+
+### Bench entry
+
+Bench entry (`benchmarks/agent_bench.py`, preset documented there: the 1m model
+on 8 windows of 16 + 1 rows, train ratio 8, about 500 updates in 8,000 rows, 4
+envs): no baseline row yet. One run at load average about 25 gave a median of
+80.9 steps/s (3 trials at 66.5, 82.1 and 80.9 steps/s; compile 41 s); that
+number is not a baseline. Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py
+--only DreamerV3 --out benchmarks/agent_m7.jsonl` on a quiet machine.

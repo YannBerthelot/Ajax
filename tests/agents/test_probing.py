@@ -6,6 +6,10 @@ coupling) are working correctly. This is the TDD baseline for the
 refactoring — if these pass, the agent is functionally correct.
 """
 
+from typing import Any
+
+import jax.numpy as jnp
+import numpy as np
 import pytest
 from probing_environments.adaptors.ajax import (
     get_action,
@@ -30,11 +34,21 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.DQN.DQN import DQN
+from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
+from ajax.agents.DreamerV3.networks import (
+    RSSM,
+    Actor,
+    WorldModel,
+    features,
+    initial_state,
+    make_critic,
+)
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.distributional import TwoHot
 
 # All agents
 ALL_AGENTS = [SAC, REDQ, PPO, APO, ASAC, AVG]
@@ -353,3 +367,193 @@ _TDMPC2_SKIP_REASON = (
 def test_tdmpc2_uses_local_probes(agent_cls):
     """Placeholder that records the skip; never runs."""
     raise AssertionError(f"{agent_cls.__name__} must not run the stock probes")
+
+
+# ---------------------------------------------------------------------------
+# DreamerV3: local adaptors (docs/world_models/DESIGN.md section 8)
+# ---------------------------------------------------------------------------
+
+#: A tiny DreamerV3 (d = 32) with 8 x 8 batches and one update per 8 rows.
+#: Everything else is the paper-era default, but the learning rate is the
+#: probing harness's and ``return_horizon = 1 / (1 - gamma)``.
+_DREAMER_TINY: dict[str, Any] = {
+    "model_size": "1m",
+    "units": 32,
+    "hidden": 32,
+    "deter": 64,
+    "classes": 4,
+    "stoch": 8,
+    "blocks": 4,
+    "batch_size": 8,
+    "batch_length": 8,
+    "train_ratio": 8,
+    "imag_horizon": 5,
+    "warmup": 100,
+}
+#: Rows per check: values within 0.02 of the targets, the advantage-policy
+#: action at 0.999, in ~30 s of CPU per check.
+BUDGET_DREAMER = 6000
+
+
+def dreamer_init_agent(
+    agent,
+    env,
+    run_name="",
+    gamma=0.5,
+    learning_rate=1e-3,
+    num_envs=1,
+    seed=42,
+    budget=None,
+):
+    """The probing adaptor's ``init_agent`` for DreamerV3 (a dict like the
+    package adaptor's, trained by its ``train_agent``)."""
+    del run_name, budget
+    env_instance = env()
+    env_params = env_instance.default_params.replace(max_steps_in_episode=10_000)
+    instance = agent(
+        env_instance,
+        n_envs=num_envs or 1,
+        env_params=env_params,
+        return_horizon=1.0 / (1.0 - gamma),
+        learning_rate=learning_rate,
+        **_DREAMER_TINY,
+    )
+    return {
+        "agent_instance": instance,
+        "gamma": gamma,
+        "seed": seed,
+        "env": env_instance,
+        "state": None,
+    }
+
+
+def _canonical_trajectory(env, obs):
+    """The observations of an episode up to ``obs``.
+
+    In RewardDiscountingEnv the observation is the time step, so ``[t]`` is
+    reached through ``[0], ..., [t]``; every other probe's observations are
+    first observations.
+    """
+    obs = np.asarray(obs, np.float32).reshape(-1)
+    if type(env).__name__ == "RewardDiscountingEnv":
+        return [np.array([float(t)], np.float32) for t in range(int(obs[0]) + 1)]
+    return [obs]
+
+
+def _dreamer_filter(agent, obs):
+    """Features and policy at the posterior after filtering the canonical
+    trajectory to ``obs`` from ``is_first``: the posterior's mode (zero
+    noise), the policy's mode as each previous action."""
+    instance, state = agent["agent_instance"], agent["state"]
+    config = instance.dreamer_config
+    params = state.world_model_state.params
+    steps = _canonical_trajectory(agent["env"], obs)
+    model = WorldModel(config, steps[0].shape[-1])
+    actor = Actor(config, 1, False)
+    carry = initial_state(config, (1,))
+    action = jnp.zeros((1, 1))
+    for i, x in enumerate(steps):
+        token = model.apply(
+            {"params": params}, jnp.asarray(x)[None], method=WorldModel.encode
+        )
+        carry, _ = RSSM(config).apply(
+            {"params": params["rssm"]},
+            carry,
+            token,
+            action,
+            jnp.asarray([i == 0]),
+            jnp.zeros((1, config.stoch, config.classes)),
+            method=RSSM.observe_step,
+        )
+        feat = features(carry.deter, carry.stoch)
+        policy = actor.apply({"params": state.actor_state.params}, feat)
+        action = policy.mean
+    return feat, policy
+
+
+def dreamer_get_value(agent, obs):
+    """The critic's decoded value at the filtered posterior."""
+    feat, _ = _dreamer_filter(agent, obs)
+    config = agent["agent_instance"].dreamer_config
+    logits = make_critic(config).apply(
+        {"params": agent["state"].critic_state.params}, feat
+    )
+    return float(TwoHot.dreamerv3(config.bins).decode(logits)[0])
+
+
+def dreamer_get_action(agent, obs, key=None):
+    """The mode of the policy (its bounded mean) at the filtered posterior."""
+    del key
+    _, policy = _dreamer_filter(agent, obs)
+    return float(policy.mean[0, 0])
+
+
+class TestProbingDreamerV3:
+    """DreamerV3 on the continuous probes, with the local adaptors above.
+
+    The coupling probe is skipped: its action space is ``Box(0, 1)``, onto
+    which the agent's actions are mapped (``a_env = (clip(a) + 1) / 2``,
+    the reference's NormalizeAction, DESIGN 5.1). Its reward at the
+    observation ``-1`` needs ``a_env <= 0``, i.e. a sample ``a <= -1``,
+    which a policy whose mean is ``tanh(.) > -1`` draws with probability
+    below 1/2, so the expected value there stays below 0 and the check's
+    ``V >= 0.8`` is unreachable by design.
+    """
+
+    def test_loss_or_optimizer(self):
+        check_loss_or_optimizer_value_net(
+            agent=DreamerV3,
+            init_agent=dreamer_init_agent,
+            train_agent=train_agent,
+            get_value=dreamer_get_value,
+            budget=BUDGET_DREAMER,
+            gymnax=True,
+            continuous=True,
+        )
+
+    def test_backprop(self):
+        check_backprop_value_net(
+            agent=DreamerV3,
+            init_agent=dreamer_init_agent,
+            train_agent=train_agent,
+            get_value=dreamer_get_value,
+            budget=BUDGET_DREAMER,
+            gymnax=True,
+            continuous=True,
+        )
+
+    def test_reward_discounting(self):
+        check_reward_discounting(
+            agent=DreamerV3,
+            init_agent=dreamer_init_agent,
+            train_agent=train_agent,
+            get_value=dreamer_get_value,
+            get_gamma=get_gamma,
+            budget=BUDGET_DREAMER,
+            gymnax=True,
+            continuous=True,
+        )
+
+    def test_advantage_policy(self):
+        check_advantage_policy_continuous(
+            agent=DreamerV3,
+            init_agent=dreamer_init_agent,
+            train_agent=train_agent,
+            get_action=dreamer_get_action,
+            budget=BUDGET_DREAMER,
+            gymnax=True,
+        )
+
+    @pytest.mark.skip(
+        reason="unreachable by design: Box(0, 1) action mapping (class docstring)"
+    )
+    def test_actor_critic_coupling(self):
+        check_actor_and_critic_coupling_continuous(
+            agent=DreamerV3,
+            init_agent=dreamer_init_agent,
+            train_agent=train_agent,
+            get_action=dreamer_get_action,
+            get_value=dreamer_get_value,
+            budget=BUDGET_DREAMER,
+            gymnax=True,
+        )

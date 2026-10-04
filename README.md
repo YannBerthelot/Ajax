@@ -27,6 +27,7 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 | **APO**   | Ma et al., *Average-Reward Reinforcement Learning with Trust Region Methods*, 2021 — [arXiv:2106.03442](https://arxiv.org/abs/2106.03442) |
 | **TD3**   | Fujimoto et al., *Addressing Function Approximation Error in Actor-Critic Methods*, 2018 — [arXiv:1802.09477](https://arxiv.org/abs/1802.09477) |
 | **UDRL**  | Schmidhuber, *Reinforcement Learning Upside Down: Don't Predict Rewards, Just Map Them to Actions*, 2019 — [arXiv:1912.02875](https://arxiv.org/abs/1912.02875) |
+| **DreamerV3** | Hafner et al., *Mastering Diverse Domains through World Models*, 2023/2025 — [arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2); the paper-era code (`danijar/dreamerv3@2411f7d` + fix `29eb964`), vector observations ([docs/world_models](docs/world_models/README.md)) |
 | **APG**   | Analytic policy gradient through a differentiable simulator. `APG.contextual_controller` is the in-context controller of Busetto, Breschi, Forgione, Piga & Formentin, *One controller to rule them all*, 2024 — [arXiv:2411.06482](https://arxiv.org/abs/2411.06482) |
 | **TDMPC2** | Hansen, Su & Wang, *TD-MPC2: Scalable, Robust World Models for Continuous Control*, ICLR 2024 — [arXiv:2310.16828](https://arxiv.org/abs/2310.16828). Paper-era `nicklashansen/tdmpc2@b67b21c` / `5f6fade`; single-task online, continuous actions, fixed-length non-terminating tasks (see `docs/world_models/`) |
 | **TDMPC2MultiTask** | The same paper's multi-task agent: one task-conditioned model trained offline on the pooled data of several tasks of different observation and action dims (`TDMPC2MultiTask(dataset, eval_envs)`; datasets from single-task runs with `ajax.agents.TDMPC2.dataset`; see `docs/world_models/DESIGN.md` §7) |
@@ -205,7 +206,7 @@ src/ajax/
 ├── agents/
 │   ├── base.py              # Shared ActorCritic base class
 │   ├── cloning.py           # Behavioral-cloning utilities (actor + critic pretrain)
-│   ├── SAC/, ASAC/, REDQ/, AVG/, PPO/, APO/, TD3/, UDRL/, APG/, TDMPC2/
+│   ├── SAC/, ASAC/, REDQ/, AVG/, PPO/, APO/, TD3/, UDRL/, APG/, DreamerV3/, TDMPC2/
 │   │   ├── <AGENT>.py       # Public class (config, __init__, get_make_train)
 │   │   ├── train_<AGENT>.py # make_train, update steps, loss functions
 │   │   └── state.py         # Agent-specific flax.struct.dataclass state

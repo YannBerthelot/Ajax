@@ -9,9 +9,14 @@ world-model loss with the replay context), :mod:`.actor_critic`
 (imagination, lambda-returns, actor and critic losses, replay critic),
 :mod:`.optim` (LaProp with adaptive gradient clipping and warmup),
 :mod:`.learner` (one training step: joint gradient, three optimizers, slow
-critic) and :mod:`.state` (static hyperparameters and size presets).
+critic) and :mod:`.state` (static hyperparameters, size presets and the
+agent state). Milestone M7, the agent: :mod:`.replay` (the stream replay
+with the replay context, online queue and latent write-back),
+:mod:`.train_DreamerV3` (the training loop and its schedule) and
+:class:`.DreamerV3.DreamerV3`.
 """
 
+from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.DreamerV3.state import MODEL_SIZES, DreamerV3Config
 
-__all__ = ["MODEL_SIZES", "DreamerV3Config"]
+__all__ = ["MODEL_SIZES", "DreamerV3", "DreamerV3Config"]

@@ -533,6 +533,10 @@ def test_task_planner_policy_pads_observations_and_slices_actions(task):
         )
     )
     gamma = jnp.float32((0.95, 0.975, 0.99)[task])
+    # The policy (vmapped over 2 lanes) and the per-lane plan are different
+    # programs, so float32 rounding through the MPPI iterations differs between
+    # them: up to 1.6e-6 on Linux x86 (CI). 1e-5 keeps a 10x margin below the
+    # 1e-4 by which another task's discount moves the plan (checked below).
     for i in range(2):
         inputs = (
             jnp.concatenate([obs[i], jnp.zeros(TASKS.obs_dim - obs_dim)]),
@@ -540,8 +544,8 @@ def test_task_planner_policy_pads_observations_and_slices_actions(task):
             jax.tree.map(lambda x, i=i: x[i], noise),
         )
         a, m, _ = reference(*inputs, gamma)
-        np.testing.assert_allclose(action[i], a[:action_dim], atol=1e-6)
-        np.testing.assert_allclose(new_carry[i], m, atol=1e-6)
+        np.testing.assert_allclose(action[i], a[:action_dim], atol=1e-5)
+        np.testing.assert_allclose(new_carry[i], m, atol=1e-5)
         assert np.all(np.asarray(m)[:, action_dim:] == 0)
         # Another task's discount plans differently.
         other = jnp.float32((0.975, 0.99, 0.95)[task])

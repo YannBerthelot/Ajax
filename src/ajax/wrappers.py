@@ -749,19 +749,30 @@ class BraxToGymnasium(BraxWrapper):
         raise NotImplementedError
 
 
-def identity(x):
-    return x
-
-
 def split(x):
     return jax.random.split(x)[0]
 
 
 class AutoResetWrapper(BraxWrapper):
-    """Automatically resets Brax envs that are done, sampling a new random seed for initialization at each reset. This seed is propagated through info["rng"]"""
+    """Automatically resets Brax envs that are done, sampling a new random seed for initialization at each reset. This seed is propagated through info["rng"]
 
-    def __init__(self, env: BraxWrapper):
+    By default the reset is evaluated only on steps where some env is done,
+    inside a ``lax.while_loop`` (see :func:`_call_if_any`), and skipped on
+    the others. Rollouts stay differentiable with respect to the actions,
+    the policy parameters and the env state, none of which the reset depends
+    on, and forward mode (``jax.jvp``) works with respect to anything. What
+    reverse mode cannot do is differentiate *through the reset itself*, with
+    respect to something it depends on (e.g. physics parameters of the env):
+    ``jax.grad`` then raises "Reverse-mode differentiation does not work for
+    lax.while_loop" at trace time. ``differentiable_reset=True`` evaluates
+    the reset on every step instead and keeps the result only for done envs
+    (the behaviour before the gating), which reverse mode can cross, at the
+    cost of a reset per step.
+    """
+
+    def __init__(self, env: BraxWrapper, differentiable_reset: bool = False):
         super().__init__(env)
+        self.differentiable_reset = differentiable_reset
         self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
         self.single_env = self.n_envs == 1
 
@@ -775,6 +786,19 @@ class AutoResetWrapper(BraxWrapper):
         )
         return state
 
+    def _initial_state(self, rng: jax.Array):
+        """Pipeline state and observation of every env after a reset keyed by
+        ``rng``."""
+        state = self.env.reset(rng)
+        return state.pipeline_state, state.obs
+
+    @staticmethod
+    def _advance(rng: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        """``_call_if_any``'s key advance: the reset is keyed by the seed's
+        next value itself, as ``step`` stores it."""
+        rng = split(rng)
+        return rng, rng
+
     def step(self, state: State, action: jax.Array) -> State:
         if "steps" in state.info:
             steps = state.info["steps"]
@@ -783,20 +807,26 @@ class AutoResetWrapper(BraxWrapper):
 
         state = state.replace(done=jnp.zeros_like(state.done))
         state = self.env.step(state, action)
+        # The seed advances only on steps where at least one env is done. The
+        # done envs restart from a batched reset keyed by the new seed, in
+        # which VmapWrapper gives every env its own sub-key.
         rng = state.info["rng"][0]
-        new_rng = jax.lax.cond(
-            state.done.any(), split, identity, rng
-        )  # Only generate a new seed when at least one env is done
-
-        # Should generate as much new states as finished environments, so that each one has a different seed.
-        new_init_state = self.reset(
-            new_rng
-        )  # If I am correct, as long as the seed is the same jax will use the cached result and not recompute reset, only recomputing for a new seed.
+        new_rng = jnp.where(state.done.any(), split(rng), rng)
+        if self.differentiable_reset:
+            first_pipeline_state, first_obs = self._initial_state(new_rng)
+        else:
+            # The same reset, keyed by new_rng too: the loop advances rng to
+            # it (see _advance and _call_if_any on why the loop must).
+            first_pipeline_state, first_obs = _call_if_any(
+                state.done, self._initial_state, rng, advance=self._advance
+            )
+        # The seed is tiled to the batch size so that info entries keep a
+        # leading env axis; only row 0 is read.
         state.info["rng"] = (
             new_rng.reshape(1, -1)
             if self.single_env
             else jnp.tile(new_rng, (self.n_envs, 1))
-        )  # shape shenanigans to adapt to parallel environments, they are suboptimal at the moment as the seed is only copied to match the batch size, but only one is really used. TODO : Check if it works correcly on parallel environments : check that each one has a proper different reset.
+        )
 
         def where_done(x, y):
             done = state.done
@@ -805,11 +835,9 @@ class AutoResetWrapper(BraxWrapper):
             return jnp.where(done, x, y)
 
         pipeline_state = jax.tree.map(
-            where_done,
-            new_init_state.info["first_pipeline_state"],
-            state.pipeline_state,
+            where_done, first_pipeline_state, state.pipeline_state
         )
-        obs = where_done(new_init_state.info["first_obs"], state.obs)
+        obs = where_done(first_obs, state.obs)
         info = state.info
         # info["obs_st"] = state.obs
         state = state.replace(pipeline_state=pipeline_state, obs=obs, info=info)
@@ -939,13 +967,18 @@ def _split_each(keys: jax.Array) -> Tuple[jax.Array, jax.Array]:
     return pairs[:, 0], pairs[:, 1]
 
 
-def _call_if_any(pred: jax.Array, fn: Callable[[jax.Array], Any], keys: jax.Array):
+def _call_if_any(
+    pred: jax.Array,
+    fn: Callable[[jax.Array], Any],
+    keys: jax.Array,
+    advance: Callable[[jax.Array], Tuple[jax.Array, jax.Array]] = _split_each,
+):
     """Return ``fn(subkeys)`` if any element of ``pred`` is set, else zeros of
     the same structure -- evaluating ``fn`` at most once, and not at all when
     no element is set, including under ``jax.vmap``.
 
-    ``keys`` is an ``(n, 2)`` batch of PRNG keys; ``fn`` receives keys split
-    from them.
+    ``advance(keys)`` returns ``(next_keys, subkeys)``. By default ``keys`` is
+    an ``(n, 2)`` batch of PRNG keys and ``advance`` splits each of them.
 
     Why a ``while_loop`` and not a ``lax.cond``: Ajax always vmaps training
     over seeds, so a predicate computed from the env state is batched, and a
@@ -960,14 +993,16 @@ def _call_if_any(pred: jax.Array, fn: Callable[[jax.Array], Any], keys: jax.Arra
     computation would be loop-invariant and XLA's while-loop invariant code
     motion would hoist it out of the loop, evaluating it unconditionally
     again (measured on CheetahRun: the same cost as resetting every step).
+    So ``next_keys`` must differ from ``keys``, as any split's output does.
     """
     zeros = jax.tree.map(
-        lambda s: jnp.zeros(s.shape, s.dtype), jax.eval_shape(fn, keys)
+        lambda s: jnp.zeros(s.shape, s.dtype),
+        jax.eval_shape(lambda k: fn(advance(k)[1]), keys),
     )
 
     def body(carry):
         _, loop_keys, _ = carry
-        loop_keys, subkeys = _split_each(loop_keys)
+        loop_keys, subkeys = advance(loop_keys)
         return jnp.zeros((), dtype=bool), loop_keys, fn(subkeys)
 
     _, _, out = jax.lax.while_loop(
@@ -1004,12 +1039,17 @@ class FreshAutoResetWrapper:
     ``reward``, ``done``, ``metrics``, and the bookkeeping that the wrappers
     below write into ``info`` on every step (EpisodeWrapper's ``steps``,
     ``truncation`` and ``episode_*``; FinalObsWrapper's ``final_obs``).
+
+    ``differentiable_reset=True`` evaluates the reset on every step instead,
+    for reverse-mode gradients through the reset itself; see
+    :class:`AutoResetWrapper`.
     """
 
     _RNG_KEY = "fresh_auto_reset_rng"
 
-    def __init__(self, env):
+    def __init__(self, env, differentiable_reset: bool = False):
         self.env = env
+        self.differentiable_reset = differentiable_reset
 
     def __getattr__(self, name):
         if name == "__setstate__":
@@ -1043,7 +1083,10 @@ class FreshAutoResetWrapper:
 
         rng, key = _split_each(state.info[self._RNG_KEY])
         done = state.done.astype(bool)
-        fresh = _call_if_any(done, self.env.reset, key)
+        if self.differentiable_reset:
+            fresh = self.env.reset(_split_each(key)[1])
+        else:
+            fresh = _call_if_any(done, self.env.reset, key)
 
         def where_done(new, old):
             mask = jnp.reshape(done, done.shape + (1,) * (old.ndim - done.ndim))

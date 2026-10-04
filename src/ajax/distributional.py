@@ -222,13 +222,19 @@ class TwoHot:
         ``p_m b_m + sum_i (p_i b_i + p_j b_j)`` over the mirror pairs
         ``(i, j)``. Under ``jax.jit`` XLA contracts each pair into a fused
         multiply-add, which skips the rounding of one of the two products,
-        so the pairs no longer cancel: for uniform logits on DreamerV3's
-        bins the reference code then gives 0.07 to 0.16 on CPU, depending
-        on the batch shape. With
+        so the pairs no longer cancel: on DreamerV3's bins the reference code
+        then gives a constant at zero logits that depends on the compiled
+        program (-0.17 to +0.16 on CPU) and, once the logits move, noise of
+        std about 0.085 on every prediction, enough to slow the actor's early
+        entropy decline (deviation D22). With
         ``b_m = 0`` and ``b_i = -b_j`` exactly, the same sum is
-        ``sum_j (p_j - p_i) b_j``; the difference is exactly 0 for uniform
+        ``sum_j (p_j - p_i) b_j``; the difference is exactly 0 for mirror-equal
         ``p`` before any multiplication, so the result is exactly 0 however
-        the operations are fused (deviation D22). A naive ``jnp.sum`` of
+        the operations are fused. It stays noise-free only while the outer
+        logits are bitwise mirror-symmetric, which depends on the compiled
+        program: the outer bins (up to 4.85e8 on DreamerV3's bins) hold about
+        1/255 of the mass early on, so last-ulp differences between mirrored
+        logits move the prediction by 1e-2 to 1e-1. A naive ``jnp.sum`` of
         ``p * bins`` gives 2.0 on DreamerV3's bins (CPU).
         """
         probs = jax.nn.softmax(jnp.asarray(logits, jnp.float32), -1)

@@ -7,7 +7,7 @@ import os
 import struct as pystruct
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -321,7 +321,7 @@ def prepare_metrics(aux: Any) -> Dict[str, Any]:
 def vmap_log(
     log_metrics: Dict[str, Any],
     index: int,
-    run_ids: Tuple[int],
+    run_ids: Sequence[str],
     logging_config: LoggingConfig,
 ) -> None:
     """Forward per-seed metrics to the logging process."""

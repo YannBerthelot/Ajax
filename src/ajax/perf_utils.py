@@ -95,7 +95,7 @@ def build_resumable_train(
     The returned ``train`` function has the signature
 
         train(key, index=None, initial_state=None, resume_from_state=False,
-              iteration_offset=0)
+              iteration_offset=0, shared=None)
 
     and is decorated with :func:`train_jit`, so ``resume_from_state``
     becomes a trace-time static (init-fresh vs load-from-checkpoint
@@ -113,6 +113,15 @@ def build_resumable_train(
     the seed vmap. The default (the Python int 0, not passed) adds nothing
     to the program: it is exactly the one before offsets existed.
 
+    ``shared`` is an optional pytree the body reads but never carries -- an
+    offline dataset, say -- handed to ``make_scan_fn`` as the keyword
+    argument ``shared`` (only when it is not ``None``, so builders that do
+    not take it are unchanged). Pass it through the seed vmap with
+    ``in_axes=None``: it then enters the compiled program once, as an
+    argument shared by every seed. Closing over it instead would bake it into
+    the program as a constant (HLO bloat, a recompilation per dataset), and
+    a batched argument would copy it per seed.
+
     Args:
         init_fn: ``(key, index) -> agent_state``. Builds a fresh agent
             state. Called only on the fresh-init path. ``index`` is the
@@ -128,7 +137,8 @@ def build_resumable_train(
             Use this when the body must be finished from values produced
             during ``init_fn`` (e.g. SAC's value-box bounds), must
             branch on whether this is a resume, or needs the per-call
-            ``key`` / per-seed ``index``. Mutually exclusive with
+            ``key`` / per-seed ``index`` or the ``shared`` input (passed
+            as ``shared=`` when given). Mutually exclusive with
             ``scan_fn``.
         num_updates: number of scan iterations (static int).
         init_transform: optional one-shot ``(agent_state, key) ->
@@ -154,6 +164,7 @@ def build_resumable_train(
         initial_state: Any = None,
         resume_from_state: bool = False,
         iteration_offset: Any = 0,
+        shared: Any = None,
     ) -> Tuple[Any, Any]:
         if resume_from_state:
             agent_state = initial_state
@@ -164,11 +175,14 @@ def build_resumable_train(
             if init_transform is not None:
                 agent_state = init_transform(agent_state, key)
 
-        body = (
-            scan_fn
-            if make_scan_fn is None
-            else make_scan_fn(agent_state, resume_from_state, key, index)
-        )
+        if make_scan_fn is None:
+            body = scan_fn
+        elif shared is None:
+            body = make_scan_fn(agent_state, resume_from_state, key, index)
+        else:
+            body = make_scan_fn(
+                agent_state, resume_from_state, key, index, shared=shared
+            )
 
         # The body receives the (unbatched) iteration index as its scan input.
         # Every existing body ignores it (``_``); bodies that gate periodic

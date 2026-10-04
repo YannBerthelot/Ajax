@@ -248,3 +248,36 @@ class TDMPC2State(BaseAgentState):
     buffer_state: EpisodeBufferState
     update_metrics: dict[str, jax.Array]
     n_terminations: jax.Array
+
+
+@functools.partial(struct.dataclass, kw_only=True)
+class TDMPC2MultiTaskState(BaseAgentState):
+    """The offline multi-task TD-MPC2 state (``DESIGN.md`` §7; M8).
+
+    :class:`TDMPC2State` without the env interaction: the dataset is not part
+    of the state (it is shared by every seed, an argument of the jitted
+    program), and nothing is collected. Carries the four
+    :class:`TDMPC2UpdateState` attributes, so
+    :func:`ajax.agents.TDMPC2.core.update` takes it directly.
+
+    Attributes:
+        actor_state: the policy prior and its Adam state.
+        critic_state: ``None``; the Q ensemble belongs to the world model.
+        collector_state: ``None``; offline training collects nothing.
+        world_model_state: encoder, dynamics, reward head, Q ensemble and the
+            task-embedding table (``params[core.TASK_EMB]``) with their Adam
+            state; ``target_params`` is the target Q ensemble.
+        q_scale: the RunningScale of the policy loss (one for all tasks).
+        pi_gradnorm_sq: squared norm of the previous update's post-clip
+            policy gradient (paper-era world-model clip norm).
+        update_metrics: the last update's logged quantities.
+        n_updates: updates done, the run's clock (``n_timesteps`` counts
+            updates, as the reference's offline iterations).
+    """
+
+    critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
+    collector_state: Optional[RowCollectorState] = None  # type: ignore[assignment]
+    world_model_state: LoadedTrainState
+    q_scale: RunningScale
+    pi_gradnorm_sq: jax.Array
+    update_metrics: dict[str, jax.Array]

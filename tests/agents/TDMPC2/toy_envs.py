@@ -13,8 +13,13 @@ are not (``docs/world_models/DESIGN.md`` §8). These envs are:
   action is +1.
 * :class:`TerminatingEnv`: terminates after ``terminate_at`` steps, before
   its time limit (refused by TD-MPC2).
+* :class:`TargetEnv`: ``obs_dim``-dim observations and ``action_dim``-dim
+  actions (the multi-task tests' tasks of different dims); a random initial
+  state, ``x' = 0.9 x + 0.1 mean(a)`` and reward ``1 - mean((a - target)^2)``,
+  so the best action is ``target`` on every dim.
 
-Actions are 1-D in ``[-1, 1]``; episodes last ``max_steps_in_episode`` steps.
+Actions are in ``[-1, 1]`` (1-D except :class:`TargetEnv`); episodes last
+``max_steps_in_episode`` steps.
 """
 
 from __future__ import annotations
@@ -113,3 +118,47 @@ class TerminatingEnv(ConstantRewardEnv):
 
     def _terminated(self, state: ToyState) -> jax.Array:
         return state.time >= self.terminate_at
+
+
+class TargetEnv(_ToyEnv):
+    """``obs_dim`` observations, ``action_dim`` actions, reward peaked at
+    ``target`` (module docstring)."""
+
+    def __init__(
+        self, obs_dim: int, action_dim: int, length: int = 10, target: float = 0.5
+    ):
+        super().__init__(length)
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.target = target
+
+    def _obs(self, state: ToyState) -> jax.Array:
+        return jnp.broadcast_to(state.x, (self.obs_dim,)).astype(jnp.float32)
+
+    def step_env(
+        self, key: jax.Array, state: ToyState, action: Any, params: ToyParams
+    ) -> tuple[jax.Array, ToyState, jax.Array, jax.Array, dict]:
+        a = jnp.clip(jnp.asarray(action, jnp.float32).reshape(-1), -1.0, 1.0)
+        reward = 1.0 - jnp.mean(jnp.square(a - self.target))
+        x = 0.9 * state.x + 0.1 * jnp.mean(a)
+        state = ToyState(time=state.time + 1, x=x)
+        return self._obs(state), state, reward, jnp.array(False), {}
+
+    def reset_env(
+        self, key: jax.Array, params: ToyParams
+    ) -> tuple[jax.Array, ToyState]:
+        x = jax.random.uniform(key, (self.obs_dim,), minval=-1.0, maxval=1.0)
+        state = ToyState(time=0, x=x)
+        return self._obs(state), state
+
+    @property
+    def num_actions(self) -> int:
+        return self.action_dim
+
+    def action_space(self, params: ToyParams | None = None) -> spaces.Box:
+        return spaces.Box(
+            low=-1.0, high=1.0, shape=(self.action_dim,), dtype=jnp.float32
+        )
+
+    def observation_space(self, params: ToyParams) -> spaces.Box:
+        return spaces.Box(-jnp.inf, jnp.inf, (self.obs_dim,), jnp.float32)

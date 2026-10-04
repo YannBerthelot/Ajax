@@ -18,7 +18,12 @@ except ImportError:
     wandb = None  # type: ignore[assignment]
 
 from ajax.environments.create import prepare_env
-from ajax.extensions.base import PHASES, Extension, ExtensionStack
+from ajax.extensions.base import (
+    PHASES,
+    Extension,
+    ExtensionStack,
+    check_extension_phases,
+)
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -182,21 +187,9 @@ class ActorCritic:
 
     def _check_extension_phases(self) -> None:
         """Reject extensions implementing phases this agent never folds."""
-        unsupported = [
-            (ext, sorted(ext.implemented_phases() - self.supported_extension_phases))
-            for ext in self.extension_stack
-        ]
-        details = "; ".join(
-            f"extension {ext.name!r} ({type(ext).__name__}) implements {phases}"
-            for ext, phases in unsupported
-            if phases
+        check_extension_phases(
+            type(self).__name__, self.extension_stack, self.supported_extension_phases
         )
-        if details:
-            raise ValueError(
-                f"{type(self).__name__} does not support these extension phases:"
-                f" {details}. Supported phases:"
-                f" {sorted(self.supported_extension_phases)}."
-            )
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
         """Absolute index of the first scan iteration when resuming.

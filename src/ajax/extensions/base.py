@@ -44,7 +44,7 @@ Phases
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import jax
@@ -79,6 +79,29 @@ PHASES: tuple[str, ...] = (
     "post_update",
     "eval_metrics",
 )
+
+
+def check_extension_phases(
+    agent_name: str, stack: Iterable["Extension"], supported: frozenset
+) -> None:
+    """Reject the extensions of ``stack`` that implement phases outside
+    ``supported`` (the phases ``agent_name``'s training loop folds).
+
+    Raises ``ValueError`` naming every offending extension and phase: an
+    extension whose phase an agent never folds would otherwise be silently
+    ignored. Agents call it at construction (``ActorCritic.__init__``).
+    """
+    unsupported = [(ext, sorted(ext.implemented_phases() - supported)) for ext in stack]
+    details = "; ".join(
+        f"extension {ext.name!r} ({type(ext).__name__}) implements {phases}"
+        for ext, phases in unsupported
+        if phases
+    )
+    if details:
+        raise ValueError(
+            f"{agent_name} does not support these extension phases: {details}."
+            f" Supported phases: {sorted(supported)}."
+        )
 
 
 class Extension:

@@ -11,7 +11,8 @@ state being committed:
 1. **pre-commit** — `poetry run pre-commit run --all-files`
    (ruff lint, ruff-format, mypy).
 2. **Test suite + coverage** — `poetry run coverage run -m pytest
-   --deselect tests/agents/test_probing.py`, then
+   --deselect tests/agents/test_probing.py`, then `poetry run coverage
+   combine` (coverage measures subprocesses, one data file each), then
    `poetry run coverage report --fail-under=70`.
 3. **Probing tests** — `poetry run pytest tests/agents/test_probing.py`.
 

@@ -138,6 +138,12 @@ markers = [
 
 [tool.coverage.run]
 branch = true
+# The async logging worker (ajax.logging.wandb_logging) runs in a spawned
+# subprocess: measure subprocesses too ("thread" keeps the default thread
+# tracing). Every process writes its own data file, so run
+# `coverage combine` before `coverage report`.
+concurrency = ["thread", "multiprocessing"]
+parallel = true
 
 
 [tool.coverage.report]

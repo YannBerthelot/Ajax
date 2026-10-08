@@ -1,47 +1,56 @@
-import os
+import json
 from unittest.mock import patch
 
 import jax.numpy as jnp
-import pytest
 
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     finish_logging,
     init_logging,
+    load_scalars_from_tfevents,
     log_variables,
+    start_async_logging,
+    stop_async_logging,
+    vmap_log,
 )
 
 
-@pytest.fixture
-def logging_config():
-    return LoggingConfig(
-        project_name="test_project",
+def test_async_tensorboard_logging_round_trip(tmp_path):
+    """What the training loop sends reaches TensorBoard through the worker.
+
+    Exercises the real chain end to end: ``init_logging`` before the worker
+    exists (its messages are buffered), the spawned worker process, NaN
+    filtering in ``vmap_log``, the shutdown drain in ``stop_async_logging``,
+    and reading the event file back with ``load_scalars_from_tfevents``.
+    """
+    run_id = "run0"
+    config = LoggingConfig(
+        config={"lr": 0.1},
         run_name="test_run",
-        config={"param1": 1, "param2": 2},
-        log_frequency=1000,
+        folder=str(tmp_path),
+        use_tensorboard=True,
+        use_wandb=False,
     )
+    init_logging(run_id, config, run_seed=3)
+    start_async_logging()
+    try:
+        for step in (10, 20):
+            metrics = {
+                "timestep": jnp.asarray(step),
+                "loss": jnp.asarray(step / 10.0),
+                "not_ready": jnp.asarray(jnp.nan),
+            }
+            vmap_log(metrics, 0, run_ids=[run_id], logging_config=config)
+    finally:
+        stop_async_logging()
 
-
-@pytest.mark.skip  # cannot make it work at the moment
-@patch("ajax.logging.wandb_logging.wandb.init")
-@patch("ajax.logging.wandb_logging.SummaryWriter")
-def test_init_logging(mock_summary_writer, mock_wandb_init, tmp_path, logging_config):
-    folder = tmp_path / "logs"
-    folder.mkdir()
-    logging_config.replace(folder=folder, use_tensorboard=True, use_wandb=True)
-
-    init_logging(logging_config=logging_config, run_id="test_run")
-
-    # # Validate wandb initialization
-    # mock_wandb_init.assert_called_once_with(
-    #     **to_state_dict(logging_config), run_id="test_run", index=1
-    # )
-
-    # Validate TensorBoard writer initialization
-    run_id = mock_wandb_init.return_value.id
-    log_dir = os.path.join(str(folder), "tensorboard", run_id)
-    mock_summary_writer.assert_called_once_with(log_dir=log_dir)
-    assert run_id in tensorboard_writers  # noqa: F821
+    log_dir = tmp_path / "tensorboard" / run_id
+    scalars = load_scalars_from_tfevents(log_dir)
+    assert scalars["loss"] == [(10, 1.0), (20, 2.0)]
+    assert scalars["timestep"] == [(10, 10.0), (20, 20.0)]
+    assert "not_ready" not in scalars
+    with open(log_dir / "config.json") as fh:
+        assert json.load(fh) == {"lr": 0.1, "seed": 3, "run_id": run_id}
 
 
 @patch("ajax.logging.wandb_logging.wandb.log")
@@ -59,46 +68,3 @@ def test_finish_logging(mock_wandb_finish):
 
     # Validate wandb finish
     mock_wandb_finish.assert_called_once()
-
-
-@pytest.mark.skip  # cannot make it work at the moment
-@patch("ajax.logging.wandb_logging.wandb.init")
-@patch("ajax.logging.wandb_logging.SummaryWriter")
-@patch("ajax.logging.wandb_logging.logging_queue.put")
-def test_tensorboard_logging(mock_queue_put, mock_summary_writer, mock_wandb_init):
-    logging_config = LoggingConfig(
-        project_name="test_project",
-        run_name="test_run",
-        config={"param1": 1, "param2": 2},
-        log_frequency=1000,
-        use_tensorboard=True,
-    )
-    init_logging(logging_config)
-
-    run_id = mock_wandb_init.return_value.id
-    metrics = {"loss": jnp.array(0.5), "accuracy": jnp.array(0.9)}
-    step = 10
-    tensorboard_writer = tensorboard_writers[run_id]  # noqa: F821
-
-    # Simulate logging to TensorBoard
-    for key, value in metrics.items():
-        tensorboard_writer.add_scalar(key, float(value), step)
-
-    # Check if correct values were logged (with tolerance for float precision)
-    calls = tensorboard_writer.add_scalar.call_args_list
-
-    def get_logged_value(tag):
-        for call in calls:
-            logged_tag, value, logged_step = call[0]
-            if logged_tag == tag and logged_step == step:
-                return value
-        return None
-
-    logged_loss = get_logged_value("loss")
-    logged_accuracy = get_logged_value("accuracy")
-
-    assert logged_loss is not None
-    assert pytest.approx(logged_loss) == 0.5
-
-    assert logged_accuracy is not None
-    assert pytest.approx(logged_accuracy) == 0.9

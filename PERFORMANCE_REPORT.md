@@ -10,6 +10,13 @@ executive summary.
 The biggest single win is the persistent JAX compile cache (patch #10),
 which dwarfs every per-step micro-optimisation combined.
 
+It only applies to programs without host callbacks: JAX never writes a
+program that calls `jax.debug.callback` to the persistent cache, so a
+run with logging enabled recompiles on every fresh process. The numbers
+below are from benchmark runs with logging off. The cache keeps one
+subdirectory per host fingerprint (CPU, Python, JAX and jaxlib
+versions; see [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py)).
+
 |                              | before | after  | delta            |
 | ---------------------------- | -----: | -----: | :--------------- |
 | **Wall-clock (steady-state, stress_sac)** | 11.98s | 11.33s | **-5.4%**        |
@@ -36,7 +43,7 @@ fast does a freshly-launched HPO trial reach steady state".
 | #6 network init shape `(n_envs,*) -> (1,*)` | [networks.py](src/ajax/networks/networks.py) | One-shot allocation drop at agent build time | Material when obs is high-dim (images) or n_envs is large. |
 | #4 carry-only inner critic-update scan | [perf_utils.py](src/ajax/perf_utils.py), used by SAC + REDQ + TD3 | Drops `[num_critic_updates, *aux]` of per-step diagnostics that get discarded | Material under vmap-over-seeds with large `num_critic_updates` (REDQ-style UTD>1). |
 | #5 `donate_argnames` on top-level train jit | [perf_utils.py](src/ajax/perf_utils.py) | XLA reuses caller's `initial_state` buffer instead of cloning | Material on resume-from-checkpoint paths. No-op (and free) on init paths. |
-| **#10 persistent JAX compile cache** | [`ajax/__init__.py`](src/ajax/__init__.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process (HPO sweep, repeated agent rebuilds). |
+| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process (HPO sweep, repeated agent rebuilds). |
 
 The peak-memory column on benchmark rows tracks the per-fresh-process
 peak, which is dominated by JIT compilation transients on first
@@ -51,7 +58,7 @@ becomes the actual peak.
 | #2 gate redundant `q_preds_for_var` | [SAC/train_SAC.py:1209-1265](src/ajax/agents/SAC/train_SAC.py#L1209-L1265) | Pure SAC saves a full `[N_critics, B]` critic forward per critic step | Always on for default SAC. Bigger relative win at higher `num_critics`. |
 | #7 `nan_safe=False` opt-in for agent obs | [utils.py](src/ajax/utils.py), [obs_norm.py](src/ajax/agents/obs_norm.py) | `mean` instead of `nanmean` per call (skips the per-element NaN-mask compare) | Always on. AVG keeps `nan_safe=True` because of its NaN-sentinel `G_return`. |
 | #9 reuse buffer-mix sample indices | [SAC/train_SAC.py:1635-1654](src/ajax/agents/SAC/train_SAC.py#L1635-L1654) | One `randint` call replaces N `random.choice` calls inside `tree.map` | Only triggers on the IBRL/expert buffer-mix path. Not on default SAC. |
-| **#10 persistent JAX compile cache** | [`ajax/__init__.py`](src/ajax/__init__.py) | **~17s of HLO compile saved per fresh process when shapes match** | Hits on second and subsequent invocations of the same code. |
+| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **~17s of HLO compile saved per fresh process when shapes match** | Hits on second and subsequent invocations of the same code. |
 
 ### Scaling wins (already present, now verified)
 
@@ -637,7 +644,8 @@ Headline expectations for edge-qa:
 
 - **Cold-vs-warm process**: full -77% wall-clock and -95% peak GPU
   memory advantage as measured. The compile cache doesn't care which
-  variant runs; it caches the compiled HLO regardless.
+  variant runs, as long as logging is off: programs with host
+  callbacks are never cached.
 - **Steady-state per-step**: roughly -1 to -2% from #1 + #7. Less than
   the -5.4% on `stress_sac` because #2 (the largest single
   steady-state contributor) is inactive here. The remaining wins are

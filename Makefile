@@ -26,6 +26,7 @@ ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 
 ci-test:  ## Full test suite (deselects probing) + coverage >= 70
 	$(CPU_ENV) poetry run coverage run -m pytest --deselect tests/agents/test_probing.py
+	poetry run coverage combine
 	poetry run coverage report --fail-under=70
 
 ci-probe:  ## Cross-agent probing tests
@@ -53,6 +54,7 @@ mypy:
 
 coverage:
 	poetry run coverage run -m pytest tests
+	poetry run coverage combine
 	poetry run coverage report -m --fail-under 80
 
 missing-annotations:

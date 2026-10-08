@@ -27,6 +27,7 @@ from ajax.agents.TDMPC2.dataset import (
 )
 
 
+@pytest.mark.slow
 def test_smoke_pipeline_end_to_end(tmp_path, capsys):
     out = str(tmp_path)
     assert mt.main(["--smoke", "--out", out]) == 0

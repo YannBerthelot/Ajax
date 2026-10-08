@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import numpy as np
 import paper_report
+import pytest
 
 from .smoke_helpers import run_resumed
+
+pytestmark = pytest.mark.slow
 
 NAME = "tdmpc2-cartpole-balance"
 

@@ -10,13 +10,18 @@ state being committed:
 
 1. **pre-commit** — `poetry run pre-commit run --all-files`
    (ruff lint, ruff-format, mypy).
-2. **Test suite + coverage** — `poetry run coverage run -m pytest
-   --deselect tests/agents/test_probing.py`, then `poetry run coverage
-   combine` (coverage measures subprocesses, one data file each), then
-   `poetry run coverage report --fail-under=70`.
-3. **Probing tests** — `poetry run pytest tests/agents/test_probing.py`.
+2. **Tests not marked slow + coverage** — `poetry run coverage erase`
+   (parallel mode never removes old data files), then `poetry run
+   coverage run -m pytest -m "not slow" --deselect
+   tests/agents/test_probing.py`, then `poetry run coverage combine`
+   (coverage measures subprocesses, one data file each), then `poetry
+   run coverage report --fail-under=70`.
+3. **Slow tests** — `poetry run pytest -m slow --deselect
+   tests/agents/test_probing.py`.
+4. **Probing tests** — `poetry run pytest tests/agents/test_probing.py`.
 
-These are exactly the checks in `.github/workflows/ci.yml`. Do not create
+`make ci` runs all four. These are the checks in
+`.github/workflows/ci.yml`, which splits step 2 across three runners. Do not create
 a commit while any of them is red. If a failure is pre-existing and
 unrelated to the change, call it out explicitly instead of committing
 over it.

@@ -7,7 +7,7 @@ LINT_PATHS=src/ tests/
 # (newer) + JAX_PLATFORM_NAME (older) are belt-and-suspenders.
 CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
 
-.PHONY: ci ci-precommit ci-test ci-probe test-cpu probe-cpu \
+.PHONY: ci ci-precommit ci-test ci-slow ci-probe test-cpu probe-cpu \
         test mypy coverage missing-annotations type lint format \
         check-codestyle commit-checks help
 
@@ -15,19 +15,25 @@ help:  ## Show this help message
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 # ---------------------------------------------------------------------------
-# Canonical local-CI -- mirrors .github/workflows/ci.yml exactly. Use these
-# instead of running ad-hoc commands so the local checks match what merges.
+# Canonical local-CI -- mirrors .github/workflows/ci.yml: the same commands,
+# CPU environment and markers. CI splits ci-test across three runners and
+# only adds reporting flags (--durations, -v). Use these instead of ad-hoc
+# commands so the local checks match what merges.
 # ---------------------------------------------------------------------------
 
-ci: ci-precommit ci-test ci-probe  ## Full local CI triple (matches .github/workflows/ci.yml)
+ci: ci-precommit ci-test ci-slow ci-probe  ## Full local CI: pre-commit, tests not marked slow + coverage, slow tests, probing
 
 ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 	poetry run pre-commit run --all-files
 
-ci-test:  ## Full test suite (deselects probing) + coverage >= 70
-	$(CPU_ENV) poetry run coverage run -m pytest --deselect tests/agents/test_probing.py
+ci-test:  ## Tests not marked slow (deselects probing) + coverage >= 70
+	poetry run coverage erase
+	$(CPU_ENV) poetry run coverage run -m pytest -m "not slow" --deselect tests/agents/test_probing.py
 	poetry run coverage combine
 	poetry run coverage report --fail-under=70
+
+ci-slow:  ## Tests marked slow (deselects probing), without coverage
+	$(CPU_ENV) poetry run pytest -m slow --deselect tests/agents/test_probing.py
 
 ci-probe:  ## Cross-agent probing tests
 	$(CPU_ENV) poetry run pytest tests/agents/test_probing.py

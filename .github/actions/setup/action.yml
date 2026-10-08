@@ -1,0 +1,20 @@
+name: Set up Python and Poetry
+description: Python 3.12, Poetry, and the project installed with its dependencies.
+
+# No virtualenv cache: on Linux the environment holds the CUDA wheels
+# (about 2.5 GB compressed), so restoring it would save little over the
+# ~80 s install while filling the repository's cache quota.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Install Poetry
+      shell: bash
+      run: pipx install poetry
+
+    - name: Install dependencies and the project
+      shell: bash
+      run: poetry install --no-interaction

@@ -132,12 +132,17 @@ exclude = """(?x)(
 # ".*" restores pytest's default of skipping hidden dirs (overriding
 # norecursedirs drops it), so worktrees under .claude/ are not collected.
 norecursedirs = [".*", "tests/classical/*", "tests/recurrent/*"]
+# A run without paths collects exactly what the CI shards cover together.
+testpaths = ["tests"]
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "slow: long trainings; CI runs them in their own job, without coverage (select with -m slow, deselect with -m \"not slow\")",
 ]
 
 [tool.coverage.run]
 branch = true
+# The library only: not tests/, benchmarks/ or third-party code installed
+# from a local path (probing_environments).
+source = ["src/ajax"]
 # The async logging worker (ajax.logging.wandb_logging) runs in a spawned
 # subprocess: measure subprocesses too ("thread" keeps the default thread
 # tracing). Every process writes its own data file, so run
@@ -147,11 +152,6 @@ parallel = true
 
 
 [tool.coverage.report]
-# probing_environments is a third-party dependency. CI installs it into
-# site-packages (which coverage skips), but an editable local install
-# lives under a source path coverage would otherwise measure -- omit it
-# so coverage reflects Ajax code only, consistently with CI.
-omit = ["tests/*", "*/probing_environments/*"]
 ignore_errors = true
 fail_under = 70
 

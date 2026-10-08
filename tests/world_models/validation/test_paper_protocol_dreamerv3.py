@@ -8,8 +8,11 @@ import os
 
 import numpy as np
 import paper_report
+import pytest
 
 from .smoke_helpers import run_twice
+
+pytestmark = pytest.mark.slow
 
 NAME = "dreamerv3-cartpole_balance"
 

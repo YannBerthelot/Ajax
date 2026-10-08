@@ -6,42 +6,120 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a pull request cancels the run it supersedes (one group per
+# pull request number). Every push to main gets its own group (run_id), so no
+# main run is cancelled or queued.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+# The same CPU isolation as the Makefile's CPU_ENV.
+env:
+  CUDA_VISIBLE_DEVICES: ""
+  JAX_PLATFORMS: cpu
+  JAX_PLATFORM_NAME: cpu
+
 jobs:
-  lint-and-test:
-    name: Lint and Test
+  lint:
+    name: Pre-commit
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Restore the pre-commit environments
+        uses: actions/cache@v6
         with:
-          python-version: "3.12"
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - run: poetry run pre-commit run --all-files
 
-      - name: Install Poetry
+  # The tests not marked slow, under coverage, split across three runners.
+  # Shards 1 and 2 name directories; shard 3 runs everything else under
+  # tests/ (pyproject's testpaths), so a new test file always runs somewhere.
+  # The split balances the per-file times of the CI runs at a1658d9.
+  # Probing is deselected here and in the slow job: the probing job owns it.
+  tests:
+    name: Tests (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      SHARD_1: tests/agents/TDMPC2 tests/environments
+      SHARD_2: tests/agents/DreamerV3 tests/extensions tests/agents/PPO tests/world_models
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Run the shard under coverage
         run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          case "${{ matrix.shard }}" in
+            1) paths="$SHARD_1" ;;
+            2) paths="$SHARD_2" ;;
+            3) paths="tests $(printf -- '--ignore=%s ' $SHARD_1 $SHARD_2)" ;;
+          esac
+          poetry run coverage run -m pytest $paths -m "not slow" \
+            --deselect tests/agents/test_probing.py --durations=30
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.shard }}
+          path: .coverage.*
+          include-hidden-files: true
+          if-no-files-found: error
 
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root
-
-      - name: Install project
-        run: poetry install
-
-      - name: Run pre-commit
-        run: |
-          poetry run pre-commit install
-          poetry run pre-commit run --all-files
-
-      - name: Run tests with coverage
-        run: |
-          poetry run coverage run -m pytest --deselect tests/agents/test_probing.py
+  coverage:
+    name: Coverage
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - run: |
           poetry run coverage combine
           poetry run coverage report --fail-under=70
 
-      - name: Run cross-agent probing tests
-        run: |
-          poetry run pytest tests/agents/test_probing.py -v
+  # Long trainings, run without coverage so its tracing overhead does not
+  # lengthen them.
+  slow:
+    name: Slow tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: poetry run pytest -m slow --deselect tests/agents/test_probing.py --durations=30
+
+  # The agent-level learning checks, in their own job so adding probes does
+  # not lengthen the other jobs.
+  probing:
+    name: Probing
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: poetry run pytest tests/agents/test_probing.py -v --durations=30
+
+  # The one check branch protection requires: it passes only when every job
+  # above passed.
+  gate:
+    name: Lint and Test
+    if: always()
+    needs: [lint, tests, coverage, slow, probing]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo 'lint=${{ needs.lint.result }} tests=${{ needs.tests.result }} coverage=${{ needs.coverage.result }} slow=${{ needs.slow.result }} probing=${{ needs.probing.result }}'
+          test '${{ needs.lint.result }}' = success
+          test '${{ needs.tests.result }}' = success
+          test '${{ needs.coverage.result }}' = success
+          test '${{ needs.slow.result }}' = success
+          test '${{ needs.probing.result }}' = success

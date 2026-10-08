@@ -38,7 +38,8 @@ jobs:
   # Shards 1 and 2 name directories; shard 3 runs everything else under
   # tests/ (pyproject's testpaths), so a new test file always runs somewhere.
   # The split balances the per-file times of the CI runs at a1658d9.
-  # Probing is deselected here and in the slow job: the probing job owns it.
+  # Probing (tests/agents/test_probing.py and tests/probing) is left out here
+  # and in the slow job: the probing job owns it.
   tests:
     name: Tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -61,7 +62,7 @@ jobs:
             3) paths="tests $(printf -- '--ignore=%s ' $SHARD_1 $SHARD_2)" ;;
           esac
           poetry run coverage run -m pytest $paths -m "not slow" \
-            --deselect tests/agents/test_probing.py --durations=30
+            --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.shard }}
@@ -94,7 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - run: poetry run pytest -m slow --deselect tests/agents/test_probing.py --durations=30
+      - run: poetry run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
 
   # The agent-level learning checks, in their own job so adding probes does
   # not lengthen the other jobs.
@@ -105,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - run: poetry run pytest tests/agents/test_probing.py -v --durations=30
+      - run: poetry run pytest tests/agents/test_probing.py tests/probing -v --durations=30
 
   # The one check branch protection requires: it passes only when every job
   # above passed.

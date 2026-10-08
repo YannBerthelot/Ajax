@@ -28,15 +28,15 @@ ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 
 ci-test:  ## Tests not marked slow (deselects probing) + coverage >= 70
 	poetry run coverage erase
-	$(CPU_ENV) poetry run coverage run -m pytest -m "not slow" --deselect tests/agents/test_probing.py
+	$(CPU_ENV) poetry run coverage run -m pytest -m "not slow" --deselect tests/agents/test_probing.py --ignore=tests/probing
 	poetry run coverage combine
 	poetry run coverage report --fail-under=70
 
 ci-slow:  ## Tests marked slow (deselects probing), without coverage
-	$(CPU_ENV) poetry run pytest -m slow --deselect tests/agents/test_probing.py
+	$(CPU_ENV) poetry run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing
 
-ci-probe:  ## Cross-agent probing tests
-	$(CPU_ENV) poetry run pytest tests/agents/test_probing.py
+ci-probe:  ## Cross-agent probing tests (old checks and the known-answer probes)
+	$(CPU_ENV) poetry run pytest tests/agents/test_probing.py tests/probing
 
 # ---------------------------------------------------------------------------
 # Convenience: fast CPU-only test runs that skip the coverage gate.
@@ -46,7 +46,7 @@ test-cpu:  ## Run tests on CPU only (no coverage gate)
 	$(CPU_ENV) poetry run pytest --tb=short --disable-warnings
 
 probe-cpu:  ## Run probing on CPU only
-	$(CPU_ENV) poetry run pytest tests/agents/test_probing.py -v
+	$(CPU_ENV) poetry run pytest tests/agents/test_probing.py tests/probing -v
 
 # ---------------------------------------------------------------------------
 # Legacy targets (kept for back-compat; prefer the ci-* targets above).

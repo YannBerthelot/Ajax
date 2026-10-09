@@ -54,6 +54,30 @@ as an Extension or a downstream script — not in the core agent.
 
 We are not in a rush; do things as cleanly as possible.
 
+### Refactoring rules
+
+1. **Pin behaviour first.** Before moving code, a test must record what
+   it does today (goldens, `tests/probing`, the downstream API pin).
+2. **Restructure or change behaviour, never both** in one commit. A fix
+   that moves numbers re-records its goldens in its own commit, saying why.
+3. **Small green steps**, each one bisectable.
+4. **One source of truth per piece of knowledge.** Descendants import
+   the parent's maths. Merge only what is truly the same; abstract on the
+   third occurrence, not the second.
+5. **Delete before abstracting.** Dead code and unused options go first.
+6. **Same problem, same solution:** one way to build a training loop, log,
+   resume and fold extensions across all agents.
+7. **No hidden global state:** RNG keys, config and caches are passed in.
+8. **Code says what, comments say why.** Docstrings and comments that
+   restate the code go; keep reasons, citations and deviations from the
+   paper.
+9. **Budget size up front.** State a line budget before a step and measure
+   it after; code generated without a budget is presumed too long.
+10. **Expand, then contract** for public names, checkpoints and config
+    keys: add the new form, migrate the downstream projects, then remove
+    the old.
+11. **One concern per PR**, small enough to read.
+
 ### Extensions are self-contained
 
 An :class:`Extension` is a composable mutation of an agent's training

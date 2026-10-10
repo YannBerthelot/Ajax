@@ -1,10 +1,12 @@
 """Behaviour pins for the agents a refactoring step restructures: SAC's
 descendants (ASAC, REDQ, AVG), TD3, recurrent SAC, PPO on each minibatch
-geometry, APO, PQN and DQN.
+geometry, APO, PQN, DQN, the world models (DreamerV3, TD-MPC2 single- and
+multi-task), UDRL and APG.
 
 Each case trains a tiny fixed run and compares a fingerprint (the sum of
-squares of each parameter tree, alpha, the ``Nudge`` extension's state) with
-the one recorded before the restructure: a restructure must reproduce it.
+squares of each parameter tree, alpha, the ``Nudge`` or ``Drift``
+extension's state) with the one recorded before the restructure: a
+restructure must reproduce it.
 The relative tolerance absorbs CPU platform drift (fp32 reduction order
 differs between CI's Linux x86 and macOS ARM); an algorithmic change moves a
 fingerprint far more.
@@ -13,20 +15,29 @@ fingerprint far more.
 from dataclasses import dataclass
 from typing import Any
 
+import gymnax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
+from ajax.agents.APG.APG import APG
+from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.networks import DuelingQNetwork
+from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
+from ajax.agents.UDRL.UDRL import UDRL
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 
@@ -63,6 +74,39 @@ class Nudge(Extension):
         return {"nudge": ext_state}
 
 
+@dataclass(frozen=True)
+class Drift(Extension):
+    """The phases the world models fold: its state drawn at init, drifted
+    on the key of every update."""
+
+    name: str = "drift"
+
+    def init_state(self, agent_state, rng):
+        return jax.random.normal(rng)
+
+    def post_update(self, agent_state, ext_state, ctx):
+        return agent_state, ext_state + 0.01 * jax.random.normal(ctx.rng)
+
+    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+        return {"drift": ext_state}
+
+
+def _multitask(**kwargs: Any) -> TDMPC2MultiTask:
+    """Two toy tasks of 6-row episodes, dims (3, 2) and (2, 1)."""
+    rng = np.random.default_rng(0)
+    tasks = [
+        TaskEpisodes(
+            obs=rng.normal(size=(4, 6, obs)).astype(np.float32),
+            action=rng.uniform(-1, 1, (4, 6, act)).astype(np.float32),
+            reward=rng.uniform(0, 1, (4, 6)).astype(np.float32),
+            episode_length=5,
+            name=name,
+        )
+        for name, obs, act in (("a", 3, 2), ("b", 2, 1))
+    ]
+    return TDMPC2MultiTask(pool_tasks(tasks), **kwargs)
+
+
 _SMALL: dict[str, Any] = {
     "env_id": "Pendulum-v1",
     "n_envs": 2,
@@ -79,7 +123,44 @@ _CARTPOLE: dict[str, Any] = {"env_id": "CartPole-v1", "architecture": ("16", "re
 _SPLIT: dict[str, Any] = {"n_envs": 4, "n_steps": 16, "num_minibatches": 2}
 _PQN: dict[str, Any] = {**_CARTPOLE, **_SPLIT, "n_epochs": 2}
 _DQN: dict[str, Any] = {**_CARTPOLE, **_REPLAY, "target_update_interval": 7}
-_CASES: dict[str, tuple[type, dict[str, Any], int]] = {
+_TDMPC2_TINY: dict[str, Any] = {
+    "enc_dim": 16,
+    "mlp_dim": 16,
+    "latent_dim": 8,
+    "num_q": 2,
+    "batch_size": 8,
+    "num_samples": 16,
+    "num_elites": 4,
+    "num_pi_trajs": 2,
+    "iterations": 2,
+    "extensions": (Drift(),),
+}
+_DREAMER_TINY: dict[str, Any] = {
+    "env_id": "CartPole-v1",
+    "n_envs": 2,
+    "model_size": "1m",
+    "units": 16,
+    "hidden": 16,
+    "deter": 32,
+    "classes": 4,
+    "stoch": 4,
+    "blocks": 4,
+    "imag_horizon": 3,
+    "batch_size": 4,
+    "batch_length": 8,
+    "warmup": 10,
+    "train_ratio": 32,
+    "replay_capacity": 80,
+    "extensions": (Drift(),),
+}
+_APG: dict[str, Any] = {
+    "env_id": "Pendulum-v1",
+    "n_envs": 2,
+    "horizon": 8,
+    "actor_architecture": ("16", "relu"),
+    "extensions": (Nudge(),),
+}
+_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "ASAC": (ASAC, {**_SMALL, **_REPLAY}, 200),
     "REDQ": (
         REDQ,
@@ -184,6 +265,38 @@ _CASES: dict[str, tuple[type, dict[str, Any], int]] = {
         {**_DQN, "q_network_cls": DuelingQNetwork, "extensions": (Nudge(),)},
         200,
     ),
+    # 40 ticks of 2 rows; the first update after tick 9, one per row after.
+    "DreamerV3-drift": (DreamerV3, _DREAMER_TINY, 80),
+    # Episodes of 10 steps; the 20-update burst on step 20, one per step after.
+    "TDMPC2-drift": (
+        TDMPC2,
+        {
+            "env_id": "Pendulum-v1",
+            "env_params": gymnax.make("Pendulum-v1")[1].replace(
+                max_steps_in_episode=10
+            ),
+            "seed_steps": 20,
+            **_TDMPC2_TINY,
+        },
+        40,
+    ),
+    "TDMPC2MultiTask-drift": (_multitask, {**_TDMPC2_TINY, "task_dim": 4}, 12),
+    "UDRL-nudge": (
+        UDRL,
+        {
+            "env_id": "CartPole-v1",
+            "n_envs": 2,
+            "actor_architecture": ("16", "relu"),
+            "n_steps": 16,
+            "batch_size": 16,
+            "buffer_capacity": 8,
+            "n_updates_per_iter": 4,
+            "extensions": (Nudge(),),
+        },
+        128,
+    ),
+    "APG-nudge": (APG, _APG, 80),
+    "APG-pid-nudge": (APG, {**_APG, "pid": PIDHeadConfig()}, 80),
 }
 _TOL = 1e-3
 # Recorded on macOS ARM CPU at the parent of the step-16 lineage commit.
@@ -242,21 +355,46 @@ _GOLDEN |= {
         "nudge": 0.22634370625019073,
     },
 }
+# Recorded on macOS ARM CPU before step 17 moved the world models onto
+# TrainLoop and tidied APG and UDRL. UDRL's critic and its actor's target
+# are never-updated copies: not pinned.
+_GOLDEN |= {
+    "DreamerV3-drift": {
+        "actor": 95.9735107421875,
+        "critic": 98.06221008300781,
+        "world_model": 549.5582275390625,
+        "drift": -0.4817560017108917,
+    },
+    "TDMPC2-drift": {
+        "actor": 32.16371154785156,
+        "world_model": 160.74551391601562,
+        "drift": -0.5747801661491394,
+    },
+    "TDMPC2MultiTask-drift": {
+        "actor": 32.2055549621582,
+        "world_model": 161.17027282714844,
+        "drift": -0.5517616271972656,
+    },
+    "UDRL-nudge": {"actor": 23.97211456298828, "nudge": 0.3160724639892578},
+    "APG-nudge": {"actor": 35.93582534790039, "nudge": -0.5658732652664185},
+    "APG-pid-nudge": {"actor": 36.93951416015625, "nudge": -0.5658732652664185},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
     state, _ = agent_cls(**kwargs).train(seed=0, n_timesteps=steps)
-    out = {
-        "actor": float(_checksum(state.actor_state.params)),
-        "critic": float(_checksum(state.critic_state.params)),
-    }
+    out = {"actor": float(_checksum(state.actor_state.params))}
+    if state.critic_state is not None:
+        out["critic"] = float(_checksum(state.critic_state.params))
+    if getattr(state, "world_model_state", None) is not None:
+        out["world_model"] = float(_checksum(state.world_model_state.params))
     if getattr(state.actor_state, "target_params", None) is not None:
         out["target"] = float(_checksum(state.actor_state.target_params))
     if hasattr(state, "alpha"):
         out["alpha"] = float(jnp.exp(state.alpha.params["log_alpha"]).reshape(-1)[0])
-    if state.ext_state:
-        out["nudge"] = float(jnp.asarray(state.ext_state[0]).reshape(-1)[0])
+    for ext, ext_state in zip(kwargs.get("extensions", ()), state.ext_state):
+        out[ext.name] = float(jnp.asarray(ext_state).reshape(-1)[0])
     return out
 
 

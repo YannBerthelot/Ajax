@@ -478,7 +478,8 @@ def _force_reset(
 
     The env wrapper's reset re-initialises its observation normaliser: the
     running statistics are kept, the fresh observation re-normalised with
-    them.
+    them. The cut episodes are abandoned, not finished: the next return
+    starts from zero.
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
     saved_norm = None
@@ -510,8 +511,12 @@ def _force_reset(
         new_obs = (raw_obs - saved_mean) / saved_std
         new_env_state.info["normalization_info"] = saved_norm
         new_env_state = new_env_state.replace(obs=new_obs)
+    returns = agent_state.collector_state.episodic_return_state
+    returns = returns.replace(
+        cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
+    )
     new_collector = agent_state.collector_state.replace(
-        _env_state=new_env_state, last_obs=new_obs
+        _env_state=new_env_state, last_obs=new_obs, episodic_return_state=returns
     )
     return agent_state.replace(collector_state=new_collector, rng=new_rng)
 

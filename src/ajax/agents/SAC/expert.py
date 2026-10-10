@@ -63,7 +63,10 @@ def collect_and_store_expert_transitions(
     rng: jax.Array,
     n_steps: int,
 ) -> Any:
-    """Collect expert transitions and store them in the replay buffer."""
+    """Collect ``n_steps`` expert steps per env and store them in the replay
+    buffer row by row as the live collector does: one step of every env
+    per add (the buffer's add batch is the env axis), with the expert's
+    actions at s and s' as ``a_expert`` and ``next_a_expert``."""
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     transitions = collect_experience_from_expert_policy(
         expert_policy=expert_policy,
@@ -72,44 +75,30 @@ def collect_and_store_expert_transitions(
         env_args=env_args,
         n_timesteps=n_steps,
     )
+    schema = buffer_state.experience
+    widened = schema["obs"].shape[-1] == transitions.obs.shape[-1] + 1
+    train_frac = 0.0 if widened else None
 
-    flat = jax.tree.map(
-        lambda x: x.reshape(-1, *x.shape[2:]) if x is not None else None,
-        transitions,
-        is_leaf=lambda x: x is None,
-    )
-
-    buffer_obs_dim = buffer_state.experience["obs"].shape[-1]
-    expert_obs_dim = flat.obs.shape[-1]
-    train_frac = 0.0 if buffer_obs_dim == expert_obs_dim + 1 else None
-    flat_obs = maybe_append_train_frac(flat.obs, train_frac=train_frac)
-    # The expert collector's next observations are the final ones at every
-    # end, the live collector's (bootstrap_obs) at time limits only: they
-    # differ at terminations alone, which SAC's target masks.
-    flat_next_obs = maybe_append_train_frac(
-        flat.next_obs.astype(jnp.float32), train_frac=train_frac
-    )
-    flat_raw_obs = flat.raw_obs if flat.raw_obs is not None else flat.obs
-
-    n_total = flat_obs.shape[0]
-
-    def add_one(buffer_state, i):
-        def take(x):
-            return jnp.take(x, i, axis=0, mode="clip")[None]
-
-        _transition = {
-            "obs": take(flat_obs),
-            "action": take(flat.action),
-            "reward": take(flat.reward),
-            "terminated": take(flat.terminated),
-            "truncated": take(flat.truncated),
-            "next_obs": take(flat_next_obs),
-            "raw_obs": take(flat_raw_obs),
-            "is_expert": take(jnp.ones_like(flat_obs[..., :1])),
+    def add_step(buffer_state: Any, step: Any) -> tuple[Any, None]:
+        # The expert collector's next observations are the final ones at
+        # every end, the live collector's (bootstrap_obs) at time limits
+        # only: they differ at terminations alone, which SAC's target masks.
+        row = {
+            "obs": maybe_append_train_frac(step.obs, train_frac=train_frac),
+            "action": step.action,
+            "reward": step.reward,
+            "terminated": step.terminated,
+            "truncated": step.truncated,
+            "next_obs": maybe_append_train_frac(step.next_obs, train_frac=train_frac),
+            "raw_obs": step.raw_obs,
+            "is_expert": jnp.ones_like(step.reward),
+            "a_expert": step.a_expert,
+            "next_a_expert": step.next_a_expert,
         }
-        return buffer.add(buffer_state, _transition), None
+        row = {k: v.astype(schema[k].dtype) for k, v in row.items()}
+        return buffer.add(buffer_state, row), None
 
-    buffer_state, _ = jax.lax.scan(add_one, buffer_state, jnp.arange(n_total))
+    buffer_state, _ = jax.lax.scan(add_step, buffer_state, transitions)
     return buffer_state
 
 

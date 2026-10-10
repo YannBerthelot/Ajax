@@ -323,29 +323,33 @@ _GOLDEN: dict[str, dict[str, float]] = {
     },
     "TD3": {"actor": 4.087213039398193, "critic": 79.58155059814453},
 }
-# Recorded on macOS ARM CPU once PPO and PQN took TrainLoop's init keys,
-# before step 17 restructured them. DQN's and PQN's critic state is a
-# never-updated copy of the initial Q-network: not pinned.
+# Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
+# partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
-    "PPO-flat": {"actor": 20.46432876586914, "critic": 21.161226272583008},
-    "PPO-env-split": {"actor": 19.116395950317383, "critic": 20.26976776123047},
-    "PPO-unroll": {"actor": 20.528013229370117, "critic": 21.03093910217285},
-    "PPO-gru": {"actor": 69.79020690917969, "critic": 68.853759765625},
+    "PPO-flat": {"actor": 20.36318016052246, "critic": 21.18039321899414},
+    "PPO-env-split": {"actor": 19.09400177001953, "critic": 20.218984603881836},
+    "PPO-unroll": {"actor": 20.432720184326172, "critic": 21.03376007080078},
+    "PPO-gru": {"actor": 69.55516052246094, "critic": 68.83757019042969},
     "PPO-discrete-nudge": {
-        "actor": 21.793909072875977,
-        "critic": 21.164554595947266,
+        "actor": 21.77309799194336,
+        "critic": 21.17990493774414,
         "nudge": 0.29222556948661804,
     },
     "PPO-env-split-nudge": {
-        "actor": 19.185230255126953,
-        "critic": 20.3308048248291,
+        "actor": 19.13752555847168,
+        "critic": 20.32254409790039,
         "nudge": 0.3099551498889923,
     },
     "APO-nudge": {
-        "actor": 3.837249994277954,
-        "critic": 4.151569843292236,
+        "actor": 3.8527090549468994,
+        "critic": 4.158751964569092,
         "nudge": 0.33622848987579346,
     },
+}
+# Recorded on macOS ARM CPU once PQN took TrainLoop's init keys, before
+# step 17 restructured it. DQN's and PQN's critic state is a never-updated
+# copy of the initial Q-network: not pinned.
+_GOLDEN |= {
     "PQN": {"actor": 25.90884017944336},
     "PQN-nudge": {"actor": 25.898910522460938, "nudge": 0.33566388487815857},
     "DQN": {"actor": 28.83551025390625, "target": 28.488685607910156},

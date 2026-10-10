@@ -104,16 +104,26 @@ def resolve_clip_coef(agent_config: Any, timestep: jax.Array) -> Any:
 
 def run_epochs(
     agent_state: Any,
-    minibatches: Any,
+    key: jax.Array,
+    minibatches: Callable[[jax.Array], Any],
     step: Callable[[Any, Any], tuple[Any, Any]],
     n_epochs: int,
 ) -> tuple[Any, Any]:
     """``n_epochs`` passes of ``step(agent_state, minibatch) -> (agent_state,
-    aux)`` over ``minibatches`` (minibatch axis leading); the metrics
-    averaged over every epoch and minibatch."""
+    aux)``, each over its own partition ``minibatches(epoch_key)`` of the
+    rollout (minibatch axis leading); the metrics averaged over every epoch
+    and minibatch.
 
-    def epoch(agent_state: Any, _: Any) -> tuple[Any, Any]:
-        return jax.lax.scan(step, agent_state, minibatches)
+    Each epoch reshuffles, as the PPO references do: OpenAI baselines' ppo2
+    and CleanRL's ``ppo.py`` shuffle the sample indices inside their epoch
+    loop, and APO's official code (``xtma/apo``,
+    ``apo/algos/apg/appo.py``, ``APPO.optimize_agent``) draws
+    ``iterate_mb_idxs(..., shuffle=True)`` once per epoch.
+    """
 
-    agent_state, aux = jax.lax.scan(epoch, agent_state, None, length=n_epochs)
+    def epoch(agent_state: Any, epoch_key: jax.Array) -> tuple[Any, Any]:
+        return jax.lax.scan(step, agent_state, minibatches(epoch_key))
+
+    epoch_keys = jax.random.split(key, n_epochs)
+    agent_state, aux = jax.lax.scan(epoch, agent_state, epoch_keys)
     return agent_state, jax.tree.map(jnp.mean, aux)

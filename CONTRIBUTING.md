@@ -15,13 +15,7 @@ Thanks for your interest in contributing. This document covers:
 > "composable hook" API — `target_modifier`, `runtime_maintenance`,
 > `action_pipeline` etc. as `Optional[Callable]` kwargs on each agent
 > — has been superseded by the [Extension framework](#the-extension-framework)
-> for nearly every research feature. A small set of escape-hatch
-> callables remains accepted on `SAC.__init__` for backward
-> compatibility (`action_pipeline`, `obs_preprocessor`,
-> `policy_action_transform`, `eval_action_transform`,
-> `extra_actor_loss_fn`, `extra_critic_loss_fn`, `her_relabel_fn`,
-> `init_transform`, `auxiliary_update`, `extra_eval_metrics`); outside
-> SAC only hooks with a live user remain (see
+> for every research feature; only hooks with a live user remain (see
 > [Legacy hook API](#legacy-hook-api-back-compat-only)). **All new
 > features should be Extensions, not new hooks.**
 
@@ -195,17 +189,14 @@ tests on each.
 
 ### Legacy hook API (back-compat only)
 
-The pre-rework hook API (`Optional[Callable]` kwargs like `action_pipeline`,
-`obs_preprocessor`, `policy_action_transform`, `eval_action_transform`,
-`extra_actor_loss_fn`, `extra_critic_loss_fn`, `her_relabel_fn`,
-`init_transform`, `auxiliary_update`, `extra_eval_metrics`) is still
-accepted by SAC for backward compatibility with external callers.
-Outside SAC the surviving hooks are those with a live user: TD3's
-`action_pipeline`, PPO's `reward_shaping_fn` and the DQN / PQN variants
-(`td_target_fn`, `td_loss_fn`, `q_network_cls`). The other agents'
-copies (`target_modifier`, `obs_preprocessor`, `policy_action_transform`,
-`eval_action_transform`, PPO's `extra_*_loss_fn` / `init_transform` /
-`auxiliary_update` / `extra_eval_metrics`, …) were removed, as was the
+The surviving pre-rework hooks (`Optional[Callable]` kwargs) are those
+with a live user: TD3's `action_pipeline`, PPO's `reward_shaping_fn` and
+the DQN / PQN variants (`td_target_fn`, `td_loss_fn`, `q_network_cls`).
+The rest (`target_modifier`, `obs_preprocessor`, `policy_action_transform`,
+`eval_action_transform`, `extra_actor_loss_fn`, `extra_critic_loss_fn`,
+`her_relabel_fn`, `init_transform`, `auxiliary_update`,
+`extra_eval_metrics`, SAC's `early_termination_condition`, …) were
+removed, as was the
 online-imitation keyword `imitation_coef` (now the `ImitationLoss`
 extension); the `runtime_maintenance` surface and the `use_X` boolean
 flags (`ibrl_bootstrap`, `use_critic_blend`,

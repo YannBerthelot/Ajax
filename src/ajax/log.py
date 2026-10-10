@@ -190,7 +190,6 @@ def _make_no_op(extra_eval_metrics=None):
             "Eval/mean episodic length": jnp.nan,
             "Eval/mean bias": jnp.nan,
             "Train/episodic mean reward": jnp.nan,
-            "Schedule": jnp.nan,
         }
         aux_keys = flatten_dict(to_state_dict(aux)).keys()
         fake_metrics_to_log.update(dict.fromkeys(aux_keys, jnp.nan))
@@ -221,7 +220,6 @@ def _make_no_op(extra_eval_metrics=None):
         "avg_reward_mode",
         "expert_policy",
         "sweep",
-        "early_termination_condition",
         "eval_action_transform",
         "extra_eval_metrics",
         "pid_gain_policy",
@@ -244,7 +242,6 @@ def evaluate_and_log(
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
     sweep: bool = False,
-    early_termination_condition: Optional[Callable] = None,
     train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
@@ -319,7 +316,6 @@ def evaluate_and_log(
             ),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
-            early_termination_condition=early_termination_condition,
             train_frac=train_frac,
             eval_action_transform=eval_action_transform,
             agent_state=agent_state,
@@ -327,24 +323,6 @@ def evaluate_and_log(
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
         )
-        schedule = (
-            early_termination_condition.keywords["schedule"]  # type: ignore[union-attr]
-            if "keywords" in dir(early_termination_condition)
-            else None
-        )
-        schedule_value = 1.0
-        if schedule is not None:
-            if schedule == "linear":
-                schedule_value = agent_state.collector_state.env_state.linear_schedule
-            elif schedule == "exponential":
-                schedule_value = (
-                    agent_state.collector_state.env_state.exponential_schedule
-                )
-            elif schedule == "polynomial":
-                schedule_value = (
-                    agent_state.collector_state.env_state.polynomial_schedule
-                )
-
         metrics_to_log = {
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards.mean(),
@@ -357,7 +335,6 @@ def evaluate_and_log(
             "Train/episodic mean reward": (
                 agent_state.collector_state.episodic_mean_return
             ),
-            "Schedule": schedule_value,
         }
 
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))

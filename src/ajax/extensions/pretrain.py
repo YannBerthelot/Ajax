@@ -323,10 +323,9 @@ class PhiRefresh(Extension):
         buffer = self.buffer
 
         def _do_refresh(s: Any) -> Any:
-            new_s, _aux = refresh_phi_star(
+            return refresh_phi_star(
                 s, buffer, steps, gamma, reward_scale, expert_policy
             )
-            return new_s
 
         new_state = jax.lax.cond(
             agent_state.collector_state.timestep % interval == 0,

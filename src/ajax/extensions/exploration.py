@@ -133,7 +133,7 @@ class EDGEExploration(Extension):
         gate = self.gate
 
         if gate == "thompson":
-            mu_e, sigma_e, mu_p, sigma_p, _ = edge_compute_thompson_stats(
+            mu_e, sigma_e, mu_p, sigma_p = edge_compute_thompson_stats(
                 obs_for_edge,
                 policy_action,
                 expert_action,
@@ -165,15 +165,7 @@ class EDGEExploration(Extension):
                 if self.lcb_asymmetric
                 else edge_compute_lcb_scores
             )
-            (
-                score_e,
-                score_p,
-                _q_policy,
-                _mu_p,
-                _mu_e,
-                _sigma_p,
-                _sigma_e,
-            ) = _scores_fn(
+            score_e, score_p = _scores_fn(
                 obs_for_edge,
                 policy_action,
                 expert_action,
@@ -216,6 +208,13 @@ class EDGEExploration(Extension):
         obs["gate_rng"] = gate_rng
         obs["_edge_use_expert"] = use_expert_edge.astype(jnp.bool_)
         return jnp.where(use_expert_edge, expert_action, post_warmup_action)
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        """The fraction of envs an expert drove on the last collection step."""
+        del ext_state, rng, ctx
+        return {"edge/live_expert_frac": agent_state.collector_state.last_expert_frac}
 
 
 __all__ = ["EDGEExploration"]

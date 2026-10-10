@@ -21,7 +21,6 @@ from typing import Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from flax import struct
 
 from ajax.networks.networks import predict_value
 
@@ -131,11 +130,8 @@ def edge_compute_lcb_scores(
     critic_state,
     critic_params,
     beta: jax.Array,
-) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
-    """Lower-confidence-bound scores for each candidate action.
-
-    Returns (score_expert, score_policy, q_policy_mean, mu_actor,
-    mu_expert, sigma_actor, sigma_expert).
+) -> Tuple[jax.Array, jax.Array]:
+    """Lower-confidence-bound scores ``(score_expert, score_policy)``.
 
     score(a) = Q_min(s,a) - beta * (Q_max(s,a) - Q_min(s,a))
 
@@ -145,10 +141,6 @@ def edge_compute_lcb_scores(
     disagreement (OOD) actions get a hefty penalty. The action_pipeline
     consumer typically gates on (score_e > score_p), optionally
     stochastically via a softmax over the difference.
-
-    The trailing four returns are diagnostic per-batch summaries
-    (mean/std of the critic ensemble for each candidate action) used
-    for live telemetry — they are not consumed by the gate itself.
     """
     q_e = predict_value(
         critic_state=critic_state,
@@ -166,12 +158,7 @@ def edge_compute_lcb_scores(
     q_max_p = jnp.max(q_p, axis=0)
     score_e = q_min_e - beta * (q_max_e - q_min_e)
     score_p = q_min_p - beta * (q_max_p - q_min_p)
-    # Diagnostics (mean/std across the critic ensemble axis 0).
-    mu_p = jnp.mean(q_p, axis=0)
-    mu_e = jnp.mean(q_e, axis=0)
-    sigma_p = jnp.std(q_p, axis=0)
-    sigma_e = jnp.std(q_e, axis=0)
-    return score_e, score_p, q_min_p, mu_p, mu_e, sigma_p, sigma_e
+    return score_e, score_p
 
 
 def edge_compute_asym_scores(
@@ -181,7 +168,7 @@ def edge_compute_asym_scores(
     critic_state,
     critic_params,
     beta: jax.Array,
-) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+) -> Tuple[jax.Array, jax.Array]:
     """Asymmetric pessimism scores: LCB on expert arm, UCB on policy arm.
 
     Used by ``r_edge_bow`` (and any caller that opts into
@@ -201,9 +188,7 @@ def edge_compute_asym_scores(
     score_expert = Q_min(s, a_exp) - beta * (Q_max - Q_min)   (LCB)
     score_policy = Q_max(s, a_pi)  + beta * (Q_max - Q_min)   (UCB)
 
-    Returns the same 7-tuple shape as ``edge_compute_lcb_scores`` so
-    consumers can swap in this function without changing the rest of
-    the pipeline.
+    Returns the same pair as ``edge_compute_lcb_scores``.
     """
     q_e = predict_value(
         critic_state=critic_state,
@@ -223,11 +208,7 @@ def edge_compute_asym_scores(
     # UCB on policy (give the policy credit for its uncertainty).
     score_e = q_min_e - beta * (q_max_e - q_min_e)
     score_p = q_max_p + beta * (q_max_p - q_min_p)
-    mu_p = jnp.mean(q_p, axis=0)
-    mu_e = jnp.mean(q_e, axis=0)
-    sigma_p = jnp.std(q_p, axis=0)
-    sigma_e = jnp.std(q_e, axis=0)
-    return score_e, score_p, q_min_p, mu_p, mu_e, sigma_p, sigma_e
+    return score_e, score_p
 
 
 def edge_lcb_argmax_gate(
@@ -277,13 +258,9 @@ def edge_compute_thompson_stats(
     expert_action: jax.Array,
     critic_state,
     critic_params,
-) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
-    """Per-action Q mean / std across critic ensemble.
-
-    Returns (mu_e, sigma_e, mu_p, sigma_p, mu_p) where the last item keeps
-    the call-signature parity with edge_compute_lcb_scores (q_policy summary
-    consumed downstream as the critic-side training signal).
-    """
+) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    """Per-action Q mean / std across critic ensemble: (mu_e, sigma_e,
+    mu_p, sigma_p)."""
     q_e = predict_value(
         critic_state=critic_state,
         critic_params=critic_params,
@@ -298,7 +275,7 @@ def edge_compute_thompson_stats(
     sigma_e = jnp.std(q_e, axis=0)
     mu_p = jnp.mean(q_p, axis=0)
     sigma_p = jnp.std(q_p, axis=0)
-    return mu_e, sigma_e, mu_p, sigma_p, mu_p
+    return mu_e, sigma_e, mu_p, sigma_p
 
 
 def edge_thompson_gate(
@@ -402,48 +379,3 @@ def box_action_override(
 ) -> jax.Array:
     """Override with expert action inside the value box."""
     return jnp.where(in_box, expert_action, action)
-
-
-# ---------------------------------------------------------------------------
-# Diagnostics
-# ---------------------------------------------------------------------------
-
-
-@struct.dataclass
-class EDGEAuxiliaries:
-    """EDGE diagnostics computed on the training batch."""
-
-    value_gap: jax.Array  # Q(s,pi*) - Q(s,pi): gate signal
-    p_expert_mean: jax.Array  # sigmoid(gap / (tau*|Q_pi|)): Boltzmann p before decay
-    expert_action_fraction: jax.Array  # fraction of batch with is_expert=1
-    # Live gating telemetry (per-step batch means from the latest
-    # collect_experience call, NOT from the replay batch). Useful for
-    # studying gate dynamics over training; NaN for vanilla SAC.
-    live_expert_frac: jax.Array
-    live_q_advantage: jax.Array  # mean(mu_actor - mu_expert), LCB/Thompson only
-    live_critic_sigma_actor: jax.Array
-    live_critic_sigma_expert: jax.Array
-    live_p_expert_max: jax.Array  # max(p_t) of LCB softmax gate, NaN otherwise
-
-
-def compute_edge_diagnostics(
-    q_gap: jax.Array,
-    q_pred_min: jax.Array,
-    exploration_tau: float,
-    expert_frac_in_buffer: jax.Array,
-) -> EDGEAuxiliaries:
-    """EDGE diagnostics on the training batch (same distribution as collection)."""
-    q_scale = jax.lax.stop_gradient(jnp.abs(q_pred_min).mean() + 1e-6)
-    p_expert = jax.nn.sigmoid(q_gap / (exploration_tau * q_scale))
-    return EDGEAuxiliaries(
-        value_gap=q_gap.flatten(),
-        p_expert_mean=jnp.atleast_1d(p_expert.mean()),
-        expert_action_fraction=jnp.atleast_1d(expert_frac_in_buffer),
-        # Inner-update diag returns NaN; the outer aggregator overwrites
-        # these with the actual values from collector_state.last_*.
-        live_expert_frac=jnp.array([jnp.nan]),
-        live_q_advantage=jnp.array([jnp.nan]),
-        live_critic_sigma_actor=jnp.array([jnp.nan]),
-        live_critic_sigma_expert=jnp.array([jnp.nan]),
-        live_p_expert_max=jnp.array([jnp.nan]),
-    )

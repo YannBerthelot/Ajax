@@ -253,7 +253,7 @@ class CriticBlend(Extension):
         total_timesteps = max(int(ctx.total_steps), 1)
         train_frac = agent_state.collector_state.timestep / total_timesteps
         alpha_blend_val = jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
-        target_new, _ = blend_modify_target(target, v_expert_next, alpha_blend_val)
+        target_new = blend_modify_target(target, v_expert_next, alpha_blend_val)
         return jax.lax.stop_gradient(target_new)
 
 
@@ -286,7 +286,7 @@ class MCVarianceCorrection(Extension):
         actions = batch["actions"]
         q_preds = batch["q_preds"]
         q_var = q_preds.var(axis=0)[..., 0]
-        target_new, _ = mc_correction_modify_target(
+        return mc_correction_modify_target(
             target,
             agent_state.critic_state,
             agent_state.expert_critic_params,
@@ -295,7 +295,6 @@ class MCVarianceCorrection(Extension):
             q_var,
             self.threshold,
         )
-        return target_new
 
 
 @dataclass(frozen=True)

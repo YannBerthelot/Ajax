@@ -323,7 +323,6 @@ SAC_ORDER = "SAC folds post_update before the update (train_SAC.py:1337 vs 1384)
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     "E1-SAC": f"{SAC_TARGET}; right V(1) 1.5, V(0) 1.43; today 1.00, 0.62",
     "E9-SAC": f"{SAC_TARGET}; right V(0) 1.24; today 0.62",
-    "E2-SAC": "SAC never calls fold_critic_loss, only extra_critic_loss_fn (train_SAC.py:421-427); right V(0) 0.0099, today 1.00",
     "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
     "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
     "E3-gated-SAC": "SAC runs actor_loss with ExtensionContext(step=0) and agent_state=None (train_SAC.py:642-653): the gate never opens; right a(0) -0.5, today -0.03 to 0.03",

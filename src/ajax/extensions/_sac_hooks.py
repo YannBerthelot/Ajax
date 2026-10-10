@@ -385,22 +385,12 @@ def make_action_pipeline(
         )
 
         # --- Post-warmup action (default) ---
-        # ``trunc_condition`` is an env-defined safe-region indicator,
-        # unrelated to the value-box. The residual / non-residual branch
-        # here is independent of the Extension stack.
-        in_box = (
-            env_args.env.trunc_condition(
-                agent_state.collector_state.env_state, env_args.env_params
-            )
-            if "trunc_condition" in dir(env_args.env)
-            else jnp.zeros_like(action[..., :1])
-        )
         if use_residual_rl:
             post_warmup_action = jnp.clip(
                 expert_action + residual_scale * action, -1.0, 1.0
             )
         else:
-            post_warmup_action = (1 - in_box) * action + in_box * expert_action
+            post_warmup_action = action
 
         # --- Collection-time override extensions
         # (:class:`EDGEExploration`, :class:`JSRLCurriculum`) ---

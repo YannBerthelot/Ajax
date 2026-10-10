@@ -2,10 +2,10 @@
 
 The Extension framework (``extensions=``) is the surface for research
 features. A few ``Optional[Callable]`` hooks remain, each with a live user:
-SAC's escape hatches (see CONTRIBUTING.md), TD3's ``action_pipeline``
-(AjaxExperiments' TD3 variants), PPO's ``reward_shaping_fn``, and the
-DQN / PQN variants (Double DQN, Huber). ``pid_actor_config`` (a network
-option, not a callable) is checked alongside.
+TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants), PPO's
+``reward_shaping_fn``, and the DQN / PQN variants (Double DQN, Huber).
+``pid_actor_config`` (a network option, not a callable) is checked
+alongside.
 
 These are API-contract tests: construct each agent with each hook (and
 ``None``) and confirm construction succeeds and the attribute is stored and
@@ -25,21 +25,9 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.agents.SafeSAC.SafeSAC import SafeSAC
 from ajax.agents.TD3.TD3 import TD3
 
-SAC_HOOKS = (
-    "pid_actor_config",
-    "action_pipeline",
-    "eval_action_transform",
-    "obs_preprocessor",
-    "policy_action_transform",
-    "extra_actor_loss_fn",
-    "extra_critic_loss_fn",
-    "init_transform",
-    "auxiliary_update",
-)
-
 AGENT_HOOKS = {
-    SAC: SAC_HOOKS,
-    SafeSAC: SAC_HOOKS,
+    SAC: ("pid_actor_config",),
+    SafeSAC: ("pid_actor_config",),
     TD3: ("pid_actor_config", "action_pipeline"),
     REDQ: ("pid_actor_config",),
     ASAC: ("pid_actor_config",),

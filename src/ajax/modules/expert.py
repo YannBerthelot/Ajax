@@ -5,8 +5,8 @@ the core SAC algorithm. They compose at the call site:
 
 Critic-side target modifiers:
     target_q = core.compute_td_target(...)
-    target_q = blend_modify_target(target_q, ...)[0]   # optional
-    target_q = mc_correction_modify_target(target_q, ...)[0]  # optional
+    target_q = blend_modify_target(target_q, ...)   # optional
+    target_q = mc_correction_modify_target(target_q, ...)  # optional
 
 Policy-side modifiers:
     obs = detach_obs_expert_dims(obs, ...)             # optional
@@ -15,7 +15,6 @@ Policy-side modifiers:
 
 Diagnostics:
     compute_expert_diagnostics(...)
-    compute_behavior_kpis(...)
 
 Value-threshold box:
     see exploration.py
@@ -37,10 +36,9 @@ def blend_modify_target(
     target_q: jax.Array,
     v_expert_next: jax.Array,
     alpha_blend: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
+) -> jax.Array:
     """Blended Bellman: (1-alpha)*y_bellman + alpha*V*(s')."""
-    blended = (1.0 - alpha_blend) * target_q + alpha_blend * v_expert_next
-    return blended, alpha_blend.mean().flatten()
+    return (1.0 - alpha_blend) * target_q + alpha_blend * v_expert_next
 
 
 def mc_correction_modify_target(
@@ -51,10 +49,9 @@ def mc_correction_modify_target(
     actions: jax.Array,
     q_var: jax.Array,
     mc_variance_threshold: float,
-) -> Tuple[jax.Array, jax.Array]:
+) -> jax.Array:
     """Replace high-variance Bellman targets with MC-pretrained oracle estimate."""
     uncertain_mask = q_var > mc_variance_threshold
-    mc_correction_frac = uncertain_mask.mean().reshape(1)
     q_mc_target = jnp.min(
         predict_value(
             critic_state=critic_state,
@@ -63,12 +60,11 @@ def mc_correction_modify_target(
         ),
         axis=0,
     )
-    target_q = jnp.where(
+    return jnp.where(
         uncertain_mask[..., None],
         jax.lax.stop_gradient(q_mc_target),
         target_q,
     )
-    return target_q, mc_correction_frac
 
 
 # ---------------------------------------------------------------------------
@@ -203,19 +199,3 @@ def compute_online_bc_loss(
             )
         ).mean()
     )
-
-
-def compute_behavior_kpis(
-    raw_obs: jax.Array,
-    altitude_obs_idx: int,
-    target_obs_idx: int,
-) -> Tuple[jax.Array, jax.Array]:
-    """Behavior KPIs from raw env observations.
-
-    Returns (altitude_error, z_dot_mean).
-    """
-    altitude_error = jnp.abs(
-        raw_obs[..., altitude_obs_idx] - raw_obs[..., target_obs_idx]
-    ).mean()
-    z_dot_mean = jnp.abs(raw_obs[..., 2]).mean()
-    return altitude_error, z_dot_mean

@@ -19,7 +19,7 @@ from ajax.networks.memory import MEMORY_KINDS, MemoryConfig
 
 from . import agents, envs, oracles, runs
 from . import readouts as R
-from .verdict import Case, Query, check, params, xfail
+from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
 ANSWER_DIGEST = "80b1fbb6d47b"  # verdict.digest(CASES): every answer, pinned
@@ -127,10 +127,6 @@ def test_p0b_env_pays_the_cue_at_the_last_step() -> None:
         np.testing.assert_array_equal(jnp.stack(seen), want)
 
 
-@xfail(
-    "recurrent SAC's actor loss takes observations[..., :-1] as the raw observation (train_SAC.py:506-507), empty for one feature, and its behaviour KPIs index it (train_SAC.py:661, modules/expert.py:236-237), so the design's scalar cue cannot train it (hence the one-hot); right: it trains, today IndexError at trace time",
-    IndexError,
-)
 def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
     runs.train(_p0b_agent("SAC", SCALAR_CUE, buffer_size=1000), (0,), 200)
 

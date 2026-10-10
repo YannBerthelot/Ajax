@@ -16,11 +16,7 @@ import optax
 import pytest
 from flax import struct
 
-from ajax.modules.pretrain import (
-    MCPretrainAux,
-    PhiRefreshAuxiliaries,
-    pretrain_critic_online_light,
-)
+from ajax.modules.pretrain import MCPretrainAux, pretrain_critic_online_light
 from ajax.state import LoadedTrainState
 
 OBS_DIM = 4
@@ -89,16 +85,6 @@ def test_mc_pretrain_aux_fields_round_trip():
     replaced = aux.replace(final_loss=jnp.asarray(0.25))
     assert float(replaced.final_loss) == pytest.approx(0.25)
     assert float(replaced.initial_loss) == pytest.approx(1.0)
-
-
-def test_phi_refresh_aux_pytree_flatten():
-    aux = PhiRefreshAuxiliaries(
-        loss_before=jnp.asarray([1.0]),
-        loss_after=jnp.asarray([0.1]),
-        expert_buffer_size=jnp.asarray([16.0]),
-    )
-    leaves, _ = jax.tree_util.tree_flatten(aux)
-    assert len(leaves) == 3
 
 
 # ---------------------------------------------------------------------------

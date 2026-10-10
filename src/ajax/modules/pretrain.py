@@ -49,15 +49,6 @@ class MCPretrainAux:
     v_max: jax.Array
 
 
-@struct.dataclass
-class PhiRefreshAuxiliaries:
-    """φ* refresh diagnostics. All-zero when no refresh triggered this step."""
-
-    loss_before: jax.Array
-    loss_after: jax.Array
-    expert_buffer_size: jax.Array
-
-
 # ---------------------------------------------------------------------------
 # MC critic pretraining
 # ---------------------------------------------------------------------------
@@ -386,60 +377,21 @@ def refresh_phi_star(
     gamma: float,
     reward_scale: float,
     expert_policy: Callable,
-) -> Tuple[Any, PhiRefreshAuxiliaries]:
+) -> Any:
     """Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
 
     Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
     Non-expert transitions are masked out, so the gradient comes only from
     (s, a_expert, r, s') rows where EDGE fired the expert action.
-
-    Returns updated agent state and PhiRefreshAuxiliaries.
     """
     buffer_state = agent_state.collector_state.buffer_state
     expert_critic_state = agent_state.expert_critic_state
 
-    diag_key, refresh_key, new_rng = jax.random.split(agent_state.rng, 3)
+    # Three keys: the first once drew a diagnostic batch; splitting three
+    # keeps the refresh's key and the agent's stream unchanged.
+    _, refresh_key, new_rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=new_rng)
 
-    # Diagnostic batch for loss_before / loss_after / expert_buffer_size
-    (
-        obs_d,
-        terminated_d,
-        truncated_d,
-        next_obs_d,
-        rewards_d,
-        actions_d,
-        _,
-        is_expert_d,
-    ) = get_batch_from_buffer(buffer, buffer_state, diag_key)
-    expert_mask_d = is_expert_d[..., 0]
-    expert_buffer_size = expert_mask_d.sum()
-    rewards_d = rewards_d * reward_scale
-    dones_d = jnp.logical_or(terminated_d, truncated_d).astype(jnp.float32)
-
-    a_expert_d = jax.lax.stop_gradient(expert_policy(next_obs_d))
-    q_next_d = predict_value(
-        critic_state=expert_critic_state,
-        critic_params=expert_critic_state.target_params,
-        x=jnp.concatenate([next_obs_d, a_expert_d], axis=-1),
-    )
-    target_d = jax.lax.stop_gradient(
-        rewards_d + gamma * (1.0 - dones_d) * jnp.min(q_next_d, axis=0)
-    )
-
-    def compute_diag_loss(params):
-        q_preds = predict_value(
-            critic_state=expert_critic_state,
-            critic_params=params,
-            x=jnp.concatenate([obs_d, actions_d], axis=-1),
-        )
-        mse_per = jnp.mean((q_preds - target_d) ** 2, axis=(0, 2))
-        n_expert = expert_mask_d.sum() + 1e-6
-        return (mse_per * expert_mask_d).sum() / n_expert
-
-    loss_before = compute_diag_loss(expert_critic_state.params)
-
-    # Gradient refresh steps
     def refresh_step(carry, _):
         expert_critic_state, step_key = carry
         sample_key, step_key = jax.random.split(step_key)
@@ -479,23 +431,10 @@ def refresh_phi_star(
     (new_expert_critic_state, _), _ = jax.lax.scan(
         refresh_step, (expert_critic_state, refresh_key), None, length=phi_refresh_steps
     )
-
-    loss_after = compute_diag_loss(new_expert_critic_state.params)
-
     new_expert_critic_state = new_expert_critic_state.soft_update(tau=1.0)
-    frozen_params = jax.lax.stop_gradient(new_expert_critic_state.params)
-
-    phi_refresh_aux = PhiRefreshAuxiliaries(
-        loss_before=jnp.atleast_1d(loss_before),
-        loss_after=jnp.atleast_1d(loss_after),
-        expert_buffer_size=jnp.atleast_1d(expert_buffer_size),
-    )
-    return (
-        agent_state.replace(
-            expert_critic_state=new_expert_critic_state,
-            expert_critic_params=frozen_params,
-        ),
-        phi_refresh_aux,
+    return agent_state.replace(
+        expert_critic_state=new_expert_critic_state,
+        expert_critic_params=jax.lax.stop_gradient(new_expert_critic_state.params),
     )
 
 

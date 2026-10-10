@@ -517,7 +517,7 @@ edge-qa.
 
 Implementation: shared `_predict_value_pair(critic_state,
 critic_params, obs, action_a, action_b)` helper in
-[exploration.py](src/ajax/modules/exploration.py); applied to all
+[exploration.py](src/ajax/extensions/exploration.py); applied to all
 four affected functions.
 
 Bench (Plane3DCircle, edge-qa scenario with `exploration_lcb=True`,

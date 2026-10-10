@@ -1,23 +1,14 @@
-"""SAC action pipeline + ``next_expert_fn`` helper.
+"""SAC's action pipeline (collection-time action selection) and its
+``next_expert_fn``.
 
-After Phase 2b every SAC research feature whose math could be moved
-onto a real :class:`~ajax.extensions.base.Extension` phase method
-(``on_target`` / ``actor_loss`` / ``action`` / ``eval_action`` /
-``post_update`` / ``pretrain`` / ``on_obs``) has done so. What remains
-in this module is the SAC-specific *action pipeline* glue —
-collection-time bookkeeping (``is_expert_flag`` / ``buffer_action`` /
-expert-state threading), the gain-policy short-circuit, construction-
-time obs augmentation, warmup expert/uniform mixing — plus the small
-helper that builds ``next_expert_fn``. The pipeline dispatches the
-collection-time substitution extensions (EDGEExploration /
-JSRLCurriculum / ValueBox) via their :meth:`Extension.action` method.
-
-:mod:`ajax.agents.SAC.train_SAC` reads an :class:`~ajax.extensions.base.\
-ExtensionStack` and calls these helpers to assemble the action
-pipeline the proven training functions consume. The thin
-:class:`~ajax.extensions.base.Extension` config classes live in
-``ajax/extensions/{expert,target_mods,exploration,pretrain}.py``; this
-module is their shared private machinery.
+The pipeline owns SAC's collection bookkeeping (``is_expert_flag``,
+``buffer_action``, expert-state threading), the gain-policy
+short-circuit, the expert-action obs augmentation and the warmup
+expert/uniform mix. Extensions that declare an ``action_slot`` substitute
+the action through their :meth:`~ajax.extensions.base.Extension.action`
+phase: ``"pre_warmup"`` ones (EDGEExploration, JSRLCurriculum) before the
+warmup choice, ``"post_warmup"`` ones (ValueBox) after it. They read and
+write a dict of the step's quantities passed as ``obs``.
 """
 
 from typing import Optional
@@ -30,17 +21,6 @@ from ajax.environments.interaction import (
     get_action_and_log_probs,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
-
-# ---------------------------------------------------------------------------
-# Action pipeline — composable exploration for collect_experience
-# ---------------------------------------------------------------------------
-
-# Names of the three collection-time action-substitution extensions
-# whose math has been migrated onto :meth:`Extension.action`. The
-# pipeline below routes by ``name`` rather than ``isinstance`` so the
-# resolver stays free of cross-module circular imports.
-_PRE_WARMUP_OVERRIDE_NAMES = frozenset({"edge_exploration", "jsrl_curriculum"})
-_POST_WARMUP_OVERRIDE_NAMES = frozenset({"value_box"})
 
 
 def _resolve_expert_state(expert_policy, collector_state, n_envs):
@@ -125,121 +105,19 @@ def _gain_policy_step(
     )
 
 
-def _apply_pre_warmup_overrides(
-    *,
-    agent_state,
-    extensions_indexed,
-    action,
-    expert_action,
-    post_warmup_action,
-    augmented_obs,
-    augment_obs_with_expert_action,
-    raw_obs,
-    rng,
-    total_timesteps,
-):
-    """Dispatch :class:`EDGEExploration` / :class:`JSRLCurriculum`.
-
-    They consume / produce a Python dict threaded through the ``obs``
-    argument of :meth:`Extension.action` — duck-typed; mirrors the
-    ``batch``-dict pattern used by ``on_target`` / ``actor_loss``. Each
-    extension writes its decision back into the dict; iteration order
-    matches the legacy pipeline (EDGE first, then JSRL, so JSRL wins
-    when both are stacked).
-    """
-    edge_use_expert = jnp.zeros_like(action[..., :1], dtype=jnp.bool_)
-    if not extensions_indexed:
-        return post_warmup_action, rng, edge_use_expert
-
-    edge_critic_params = (
-        agent_state.expert_critic_params
-        if agent_state.expert_critic_params is not None
-        else agent_state.critic_state.params
-    )
-    obs_for_edge = (
-        augmented_obs
-        if augment_obs_with_expert_action
-        else agent_state.collector_state.last_obs
-    )
-    ext_batch: dict = {
-        "policy_action": action,
-        "expert_action": expert_action,
-        "post_warmup_action": post_warmup_action,
-        "obs_for_edge": obs_for_edge,
-        "edge_critic_params": edge_critic_params,
-        "critic_state": agent_state.critic_state,
-        "raw_obs": raw_obs,
-        "gate_rng": rng,
-    }
+def _dispatch_actions(agent_state, extensions_indexed, batch, slot, rng, total_steps):
+    """Fold the ``(index, extension)`` pairs' ``action`` phase over
+    ``batch``, which they read and write: each non-None proposal replaces
+    ``batch[slot]``. Stack order, so the last proposal wins (JSRL after
+    EDGE)."""
     ctx = ExtensionContext(
-        step=agent_state.collector_state.timestep,
-        rng=rng,
-        total_steps=total_timesteps,
+        step=agent_state.collector_state.timestep, rng=rng, total_steps=total_steps
     )
-    ext_state = agent_state.ext_state
     for idx, ext in extensions_indexed:
-        proposed = ext.action(agent_state, ext_state[idx], ext_batch, rng, ctx)
+        proposed = ext.action(agent_state, agent_state.ext_state[idx], batch, rng, ctx)
         if proposed is not None:
-            post_warmup_action = proposed
-            ext_batch["post_warmup_action"] = post_warmup_action
-    # Thread the gate's updated rng back to the pipeline + pull the
-    # EDGE substitution mask for is_expert_flag bookkeeping.
-    rng = ext_batch.get("gate_rng", rng)
-    if "_edge_use_expert" in ext_batch:
-        edge_use_expert = ext_batch["_edge_use_expert"]
-    return post_warmup_action, rng, edge_use_expert
-
-
-def _apply_post_warmup_overrides(
-    *,
-    agent_state,
-    extensions_indexed,
-    env_action,
-    expert_action,
-    raw_obs,
-    rng,
-    box_v_min,
-    box_v_max,
-    total_timesteps,
-    n_envs,
-):
-    """Dispatch :class:`~ajax.extensions.target_mods.ValueBox`.
-
-    Runs after the warmup vs post-warmup ``jax.lax.cond`` so it can
-    rewrite the executed action regardless of which branch produced it.
-    Writes back ``in_value_box`` / ``entry_bonus`` so the SAC pipeline
-    can record them on the transition (buffer-write suppression, reward
-    shaping).
-    """
-    in_value_box = jnp.zeros((n_envs, 1), dtype=jnp.float32)
-    entry_bonus = jnp.zeros((n_envs, 1), dtype=jnp.float32)
-    if not extensions_indexed:
-        return env_action, in_value_box, entry_bonus
-
-    ctx = ExtensionContext(
-        step=agent_state.collector_state.timestep,
-        rng=rng,
-        total_steps=total_timesteps,
-    )
-    box_batch: dict = {
-        "expert_action": expert_action,
-        "env_action": env_action,
-        "raw_obs": raw_obs,
-        "box_v_min": box_v_min,
-        "box_v_max": box_v_max,
-        "total_timesteps": total_timesteps,
-    }
-    ext_state = agent_state.ext_state
-    for idx, ext in extensions_indexed:
-        proposed = ext.action(agent_state, ext_state[idx], box_batch, rng, ctx)
-        if proposed is not None:
-            env_action = proposed
-            box_batch["env_action"] = env_action
-    if "in_value_box" in box_batch:
-        in_value_box = box_batch["in_value_box"]
-    if "entry_bonus" in box_batch:
-        entry_bonus = box_batch["entry_bonus"]
-    return env_action, in_value_box, entry_bonus
+            batch[slot] = proposed
+    return batch
 
 
 def make_action_pipeline(
@@ -300,24 +178,18 @@ def make_action_pipeline(
         _anchor_gains = expert_policy.anchor_gains  # (n_gains,)
         _gain_log_scale = jnp.log(10.0)
 
-    # Pre-classify the extensions in the stack into the two
-    # collection-time slots (pre-warmup vs post-warmup). Both happen
-    # at trace time so the compiled graph only contains the active
-    # branches; the lists are Python-level and never carried into
-    # ``pipeline``.
-    extensions = (
-        tuple(extension_stack.extensions) if extension_stack is not None else ()
-    )
-    _pre_warmup_exts = tuple(
-        (i, e) for i, e in enumerate(extensions) if e.name in _PRE_WARMUP_OVERRIDE_NAMES
-    )
-    _post_warmup_exts = tuple(
-        (i, e)
-        for i, e in enumerate(extensions)
-        if e.name in _POST_WARMUP_OVERRIDE_NAMES
-    )
-    _has_edge = any(e.name == "edge_exploration" for _, e in _pre_warmup_exts)
-    _has_value_box = bool(_post_warmup_exts)
+    # The extensions of each collection-time slot, classified at trace
+    # time by their declared ``action_slot``.
+    extensions = extension_stack.extensions if extension_stack is not None else ()
+
+    def _slot(name):
+        return tuple(
+            (i, e)
+            for i, e in enumerate(extensions)
+            if getattr(e, "action_slot", None) == name
+        )
+
+    _pre_warmup_exts, _post_warmup_exts = _slot("pre_warmup"), _slot("post_warmup")
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
         collector_state = agent_state.collector_state
@@ -385,37 +257,44 @@ def make_action_pipeline(
         )
 
         # --- Post-warmup action (default) ---
-        # ``trunc_condition`` is an env-defined safe-region indicator,
-        # unrelated to the value-box. The residual / non-residual branch
-        # here is independent of the Extension stack.
-        in_box = (
-            env_args.env.trunc_condition(
-                agent_state.collector_state.env_state, env_args.env_params
-            )
-            if "trunc_condition" in dir(env_args.env)
-            else jnp.zeros_like(action[..., :1])
-        )
         if use_residual_rl:
             post_warmup_action = jnp.clip(
                 expert_action + residual_scale * action, -1.0, 1.0
             )
         else:
-            post_warmup_action = (1 - in_box) * action + in_box * expert_action
+            post_warmup_action = action
 
-        # --- Collection-time override extensions
-        # (:class:`EDGEExploration`, :class:`JSRLCurriculum`) ---
-        post_warmup_action, rng, _edge_use_expert = _apply_pre_warmup_overrides(
-            agent_state=agent_state,
-            extensions_indexed=_pre_warmup_exts,
-            action=action,
-            expert_action=expert_action,
-            post_warmup_action=post_warmup_action,
-            augmented_obs=_augmented_obs,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            raw_obs=raw_obs,
-            rng=rng,
-            total_timesteps=total_timesteps,
-        )
+        # --- Pre-warmup action extensions (EDGEExploration, JSRLCurriculum).
+        # A gate's randomness is threaded through ``gate_rng`` (read and
+        # overwritten) so the collector's key stream is the gate's own.
+        pre = {}
+        if _pre_warmup_exts:
+            pre = _dispatch_actions(
+                agent_state,
+                _pre_warmup_exts,
+                {
+                    "policy_action": action,
+                    "expert_action": expert_action,
+                    "post_warmup_action": post_warmup_action,
+                    "obs_for_edge": (
+                        _augmented_obs
+                        if augment_obs_with_expert_action
+                        else agent_state.collector_state.last_obs
+                    ),
+                    "edge_critic_params": (
+                        agent_state.expert_critic_params
+                        if agent_state.expert_critic_params is not None
+                        else agent_state.critic_state.params
+                    ),
+                    "critic_state": agent_state.critic_state,
+                    "raw_obs": raw_obs,
+                    "gate_rng": rng,
+                },
+                "post_warmup_action",
+                rng,
+                total_timesteps,
+            )
+            post_warmup_action, rng = pre["post_warmup_action"], pre["gate_rng"]
 
         # --- Warmup action ---
         if use_residual_rl:
@@ -432,33 +311,37 @@ def make_action_pipeline(
             uniform, lambda: warmup_action, lambda: post_warmup_action
         )
 
-        # --- ValueBox post-warmup override ---
-        # ValueBox runs AFTER the warmup vs post-warmup ``jax.lax.cond``
-        # so it can rewrite the executed action regardless of which
-        # branch produced it. It writes back ``in_value_box`` /
-        # ``entry_bonus`` so the SAC pipeline can record them on the
-        # transition (buffer-write suppression, reward shaping).
-        env_action, in_value_box, entry_bonus = _apply_post_warmup_overrides(
-            agent_state=agent_state,
-            extensions_indexed=_post_warmup_exts,
-            env_action=env_action,
-            expert_action=expert_action,
-            raw_obs=raw_obs,
-            rng=rng,
-            box_v_min=box_v_min,
-            box_v_max=box_v_max,
-            total_timesteps=total_timesteps,
-            n_envs=env_args.n_envs,
-        )
-
-        # --- Expert flag tracking ---
-        _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
-        if _has_edge:
-            _post_expert = jnp.maximum(
-                _post_expert, _edge_use_expert.astype(jnp.float32)
+        # --- Post-warmup action extensions (ValueBox): they rewrite the
+        # executed action whichever branch produced it, and record
+        # ``in_value_box`` / ``entry_bonus`` for the transition.
+        no_box = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
+        post = {}
+        if _post_warmup_exts:
+            post = _dispatch_actions(
+                agent_state,
+                _post_warmup_exts,
+                {
+                    "expert_action": expert_action,
+                    "env_action": env_action,
+                    "raw_obs": raw_obs,
+                    "box_v_min": box_v_min,
+                    "box_v_max": box_v_max,
+                    "total_timesteps": total_timesteps,
+                },
+                "env_action",
+                rng,
+                total_timesteps,
             )
-        if _has_value_box:
-            _post_expert = jnp.maximum(_post_expert, in_value_box.astype(jnp.float32))
+            env_action = post["env_action"]
+        in_value_box = post.get("in_value_box", no_box)
+        entry_bonus = post.get("entry_bonus", no_box)
+
+        # --- Expert flag tracking: where an extension handed the expert
+        # the step.
+        _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
+        for mask in (pre.get("_edge_use_expert"), post.get("in_value_box")):
+            if mask is not None:
+                _post_expert = jnp.maximum(_post_expert, mask.astype(jnp.float32))
         _warmup_expert = jnp.ones_like(
             action[..., :1], dtype=jnp.float32
         ) * use_expert_this_step.astype(jnp.float32)

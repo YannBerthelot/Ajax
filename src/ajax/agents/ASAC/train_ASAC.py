@@ -22,30 +22,15 @@ from ajax.agents.ASAC.utils import (
     compute_episode_termination_penalty,
     get_episode_termination_penalized_rewards,
 )
-from ajax.agents.loop import TrainLoop, gradient_step
-from ajax.agents.recurrent import (
-    RecurrentCarries,
-    actor_dist,
-    q_values,
-    sample_replay,
-    stored_actor_carry_dim,
-)
-from ajax.agents.SAC.train_SAC import (
-    TemperatureAuxiliaries,
-    create_alpha_train_state,
-)
-from ajax.agents.SAC.train_SAC import update_temperature as sac_temperature_step
-from ajax.environments.interaction import init_collector_state
-from ajax.environments.utils import check_env_is_gymnax
+from ajax.agents.loop import TrainLoop, critic_step
+from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
+from ajax.agents.SAC import core
+from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import zeros_carry_like
-from ajax.networks.networks import (
-    get_initialized_actor_critic,
-    predict_value,
-    predict_value_sequence,
-)
+from ajax.networks.networks import predict_value, predict_value_sequence
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -100,32 +85,25 @@ def init_ASAC(
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> ASACState:
     rng, init_key, collector_key = jax.random.split(key, num=3)
-    actor_state, critic_state = get_initialized_actor_critic(
-        key=init_key,
-        env_config=env_args,
-        actor_optimizer_config=actor_optimizer_args,
-        critic_optimizer_config=critic_optimizer_args,
-        network_config=network_args,
-        continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=2,
-        pid_actor_config=pid_actor_config,
-    )
-    collector_state = init_collector_state(
+    actor_state, critic_state, collector_state = core.init_soft_actor_critic(
+        init_key,
         collector_key,
-        env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
-        buffer=buffer,
+        env_args,
+        actor_optimizer_args,
+        critic_optimizer_args,
+        network_args,
+        buffer,
+        num_critics=2,
         window_size=window_size,
-        actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
+        stored_state=stored_state,
+        pid_actor_config=pid_actor_config,
     )
     return ASACState(
         rng=rng,
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
         episode_termination_penalty=jnp.zeros(()),
         theta=0.0,
@@ -151,12 +129,10 @@ def compute_asac_td_target(
     end, terminations being charged their penalty in the rewards instead.
     """
     rewards = rewards * reward_scale
-    next_pi = actor_dist(
-        actor_state, actor_state.params, next_observations, carries, bootstrap=True
-    )
     sample_key, _ = jax.random.split(rng)
-    next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
-    log_probs = log_probs.sum(-1, keepdims=True)
+    next_actions, log_probs = core.sample_next_actions(
+        actor_state, next_observations, sample_key, carries
+    )
     q_targets = q_values(
         critic_states,
         critic_states.target_params,
@@ -212,39 +188,6 @@ def value_loss_function(
     )
 
 
-def policy_loss_function(
-    actor_params: FrozenDict,
-    actor_state: LoadedTrainState,
-    critic_states: LoadedTrainState,
-    observations: jax.Array,
-    alpha: jax.Array,
-    rng: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array]]:
-    """``alpha log pi(a|s) - min_i Q_i(s, a)``, ``a ~ pi(.|s)``; also returns
-    the policy mean for the actor-loss extensions.
-
-    In sequence mode the critic carry was burned in on the BUFFER actions;
-    evaluating fresh policy actions from it is the standard stored /
-    burned-state approximation.
-    """
-    pi = actor_dist(actor_state, actor_params, observations, carries)
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    q_preds = q_values(
-        critic_states, critic_states.params, observations, actions, carries
-    )
-    q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
-    q_min = jnp.minimum(q1_pred, q2_pred).squeeze(0)
-    log_probs = log_probs.sum(-1, keepdims=True)
-    assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
-    total_loss = (alpha * log_probs - q_min).mean()
-    aux = PolicyAuxiliaries(
-        policy_loss=total_loss, log_pi=log_probs.mean(), q_min=q_min.mean()
-    )
-    return total_loss, (aux, pi.mean())
-
-
 def update_value_functions(
     agent_state: ASACState,
     batch: Transition,
@@ -256,7 +199,6 @@ def update_value_functions(
 ) -> Tuple[ASACState, ValueAuxiliaries]:
     """The critic step on the differential target of the penalised ``rewards``."""
     key, rng = jax.random.split(agent_state.rng)
-    step = agent_state.collector_state.timestep
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     dones = jnp.logical_or(batch.terminated, batch.truncated)
     target_q, next_log_probs = compute_asac_td_target(
@@ -271,45 +213,31 @@ def update_value_functions(
         reward_scale,
         carries,
     )
-    # ASAC is average-reward: no gamma, None tells the extensions so.
-    target_batch = {
-        "observations": batch.obs,
-        "actions": batch.action,
-        "next_observations": batch.next_obs,
-        "rewards": rewards,
-        "dones": dones,
-        "gamma": None,
-        "reward_scale": reward_scale,
-    }
-    target_q = jax.lax.stop_gradient(
-        extension_stack.fold_on_target(
-            agent_state, target_batch, target_q, step, key, total_timesteps
-        )
-    )
-    critic_state = agent_state.critic_state
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
-        loss, aux = value_loss_function(
+    def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
+        return value_loss_function(
             params,
-            critic_state,
+            agent_state.critic_state,
             batch.obs,
             batch.action,
             target_q,
             next_log_probs,
             carries,
         )
-        loss_batch = {
-            "observations": batch.obs,
-            "actions": batch.action,
-            "critic_params": params,
-            "critic_state": critic_state,
-        }
-        extra = extension_stack.fold_critic_loss(
-            agent_state, loss_batch, step, key, total_timesteps
-        )
-        return loss + extra, aux
 
-    critic_state, aux = gradient_step(critic_state, loss_fn)
+    # ASAC is average-reward: no gamma, None tells the extensions so.
+    critic_state, aux = critic_step(
+        agent_state,
+        batch,
+        target_q,
+        value_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        rewards=rewards,
+        gamma=None,
+        reward_scale=reward_scale,
+    )
     return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 
@@ -321,39 +249,19 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[ASACState, PolicyAuxiliaries]:
-    """The actor step."""
-    rng, policy_key = jax.random.split(agent_state.rng)
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    actor_state = agent_state.actor_state
-
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
-        loss, (aux, pi_mean) = policy_loss_function(
-            params,
-            actor_state,
-            agent_state.critic_state,
-            observations,
-            alpha,
-            policy_key,
-            carries,
-        )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-        }
-        extra = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            policy_key,
-            total_timesteps,
-        )
-        return loss + extra, aux
-
-    actor_state, aux = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(rng=rng, actor_state=actor_state), aux
+    """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``."""
+    agent_state, (loss, log_probs, q_min) = core.soft_actor_step(
+        agent_state,
+        observations,
+        raw_observations,
+        extension_stack,
+        total_timesteps,
+        carries,
+    )
+    aux = PolicyAuxiliaries(
+        policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
+    )
+    return agent_state, aux
 
 
 def update_temperature(
@@ -367,10 +275,8 @@ def update_temperature(
     actor_state = agent_state.actor_state
     pi = actor_dist(actor_state, actor_state.params, observations, carries)
     _, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    return sac_temperature_step(  # type: ignore[return-value]
-        agent_state.replace(rng=rng),  # type: ignore[arg-type]
-        log_probs,
-        jnp.asarray(target_entropy),
+    return core.update_temperature(
+        agent_state.replace(rng=rng), log_probs, jnp.asarray(target_entropy)
     )
 
 
@@ -453,9 +359,7 @@ def update_agent(
         carries=carries,
     )
     agent_state = update_theta(agent_state, tau, rewards, transition.obs, carries)
-    agent_state = agent_state.replace(
-        critic_state=agent_state.critic_state.soft_update(tau=tau)
-    )
+    agent_state = core.update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(
         temperature=aux_temperature,
         policy=aux_policy,

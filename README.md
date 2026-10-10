@@ -179,22 +179,20 @@ stages = [  # Algorithm 2: nominal system first, then the whole class
 (state, aux), *_ = train_curriculum(stages, seed=0)
 ```
 
-### Composable hooks
+### Composable research features
 
-Agents expose `Optional[Callable]` hooks that let you override behavior without subclassing. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full list and semantics.
+Research features are Extensions passed as `extensions=`; see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the phases and the catalogue.
 
 ```python
 from ajax import SAC
-from ajax.agents.SAC.train_SAC import make_action_pipeline
+from ajax.extensions.exploration import EDGEExploration
 
-pipeline = make_action_pipeline(
+agent = SAC(
+    env_id="Pendulum-v1",
     expert_policy=my_expert,
-    recurrent=False,
-    env_args=env_args,
-    use_expert_guided_exploration=True,
-    total_timesteps=1_000_000,
+    extensions=(EDGEExploration(expert_policy=my_expert, gate="lcb"),),
 )
-agent = SAC(env_id="Pendulum-v1", action_pipeline=pipeline)
 ```
 
 ---
@@ -219,7 +217,7 @@ src/ajax/
 │                            #   system_class (EnvParams distributions), differentiable
 │                            #   (closed-loop BPTT rollouts), model_reference (tracking tasks)
 ├── logging/                 # wandb / tensorboard logging
-├── modules/                 # Composable pieces (expert, exploration, pretrain, pid_actor, pid_head)
+├── modules/                 # PID network pieces (pid_actor, pid_head)
 ├── networks/                # Actor / Critic / ScannedRNN
 ├── state.py                 # Shared config dataclasses
 ├── wrappers.py              # Env wrappers (AutoReset, Normalize, Noise, …)

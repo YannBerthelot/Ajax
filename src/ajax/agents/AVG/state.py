@@ -2,7 +2,8 @@ import jax.numpy as jnp
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.agents.SAC.state import SoftACState
+from ajax.state import BaseAgentConfig
 
 
 @struct.dataclass
@@ -14,10 +15,9 @@ class NormalizationInfo:
 
 
 @partial(struct.dataclass, kw_only=True)
-class AVGState(BaseAgentState):
-    """The agent properties to be carried over iterations of environment interaction and updates"""
+class AVGState(SoftACState):
+    """AVG's state: a soft actor-critic's plus the TD-error scale statistics."""
 
-    alpha: LoadedTrainState  # Temperature parameter
     reward: NormalizationInfo
     gamma: NormalizationInfo
     G_return: NormalizationInfo

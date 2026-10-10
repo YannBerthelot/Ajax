@@ -15,13 +15,7 @@ Thanks for your interest in contributing. This document covers:
 > "composable hook" API — `target_modifier`, `runtime_maintenance`,
 > `action_pipeline` etc. as `Optional[Callable]` kwargs on each agent
 > — has been superseded by the [Extension framework](#the-extension-framework)
-> for nearly every research feature. A small set of escape-hatch
-> callables remains accepted on `SAC.__init__` for backward
-> compatibility (`action_pipeline`, `obs_preprocessor`,
-> `policy_action_transform`, `eval_action_transform`,
-> `extra_actor_loss_fn`, `extra_critic_loss_fn`, `her_relabel_fn`,
-> `init_transform`, `auxiliary_update`, `extra_eval_metrics`); outside
-> SAC only hooks with a live user remain (see
+> for every research feature; only hooks with a live user remain (see
 > [Legacy hook API](#legacy-hook-api-back-compat-only)). **All new
 > features should be Extensions, not new hooks.**
 
@@ -55,8 +49,8 @@ src/ajax/
 │   └── <AGENT>/
 │       ├── <AGENT>.py       # Public class — __init__, get_make_train
 │       ├── train_<AGENT>.py # make_train, update_<step>, loss functions
-│       ├── core.py          # (SAC family) The proven algorithm math, lifted
-│       │                    #   for lineage descendants to import (REDQ/SafeSAC)
+│       ├── core.py          # (SAC family) The soft actor-critic maths that
+│       │                    #   descendants (ASAC, REDQ, AVG) import
 │       ├── state.py         # flax.struct.dataclass state types
 │       └── utils.py         # Agent-specific utilities
 ├── extensions/
@@ -68,6 +62,7 @@ src/ajax/
 │   │                        #   MCVarianceCorrection / ValueBox
 │   ├── exploration.py       # EDGEExploration (6 gates)
 │   ├── pretrain.py          # MCPretrain / BellmanPretrain / PhiRefresh
+│   ├── ensemble.py          # KernelRepulsion
 │   └── instrumentation.py   # EVarEst-style measurement: ConditioningMetrics
 │                            #   / BiasVoreDecomposition / CliffEta /
 │                            #   DiagnosticSnapshots / BiasVorePenalty
@@ -95,7 +90,7 @@ Every agent follows the same split:
 
 - **`<AGENT>.py`** — the public class. Inherits `ActorCritic` (see [src/ajax/agents/base.py](src/ajax/agents/base.py)), stores algorithm-specific hyperparameters, accepts `extensions: Sequence[Extension] = ()`, and exposes `get_make_train()` returning a `functools.partial` over `make_train`.
 - **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents with a loop of their own (SAC, PPO, DQN, PQN, the world models) build on `build_resumable_train` directly.
-- **`core.py`** (SAC family only) — proven reusable algorithm pieces (e.g. `compute_td_target`, `critic_loss_fn`). Lineage descendants (REDQ, SafeSAC, ASAC) import from here rather than duplicating.
+- **`core.py`** (SAC family only) — the soft actor-critic maths (init, bootstrap sampling, TD target, critic and actor losses, actor step, temperature, target update). Lineage descendants (ASAC, REDQ, AVG) import from here rather than duplicating.
 - **`state.py`** — `<AGENT>State` and `<AGENT>Config` extending `BaseAgentState` / `BaseAgentConfig`.
 
 ---
@@ -188,6 +183,7 @@ expert network).
 | `extensions/target_mods.py` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox` |
 | `extensions/exploration.py` | `EDGEExploration` (6 gates) |
 | `extensions/pretrain.py` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` |
+| `extensions/ensemble.py` | `KernelRepulsion` |
 | `extensions/instrumentation.py` | `ConditioningMetrics`, `BiasVoreDecomposition`, `BiasVorePenalty`, `CliffEta`, `DiagnosticSnapshots` |
 
 See [tests/extensions/](tests/extensions/) for behaviour-pinning
@@ -195,17 +191,14 @@ tests on each.
 
 ### Legacy hook API (back-compat only)
 
-The pre-rework hook API (`Optional[Callable]` kwargs like `action_pipeline`,
-`obs_preprocessor`, `policy_action_transform`, `eval_action_transform`,
-`extra_actor_loss_fn`, `extra_critic_loss_fn`, `her_relabel_fn`,
-`init_transform`, `auxiliary_update`, `extra_eval_metrics`) is still
-accepted by SAC for backward compatibility with external callers.
-Outside SAC the surviving hooks are those with a live user: TD3's
-`action_pipeline`, PPO's `reward_shaping_fn` and the DQN / PQN variants
-(`td_target_fn`, `td_loss_fn`, `q_network_cls`). The other agents'
-copies (`target_modifier`, `obs_preprocessor`, `policy_action_transform`,
-`eval_action_transform`, PPO's `extra_*_loss_fn` / `init_transform` /
-`auxiliary_update` / `extra_eval_metrics`, …) were removed, as was the
+The surviving pre-rework hooks (`Optional[Callable]` kwargs) are those
+with a live user: TD3's `action_pipeline`, PPO's `reward_shaping_fn` and
+the DQN / PQN variants (`td_target_fn`, `td_loss_fn`, `q_network_cls`).
+The rest (`target_modifier`, `obs_preprocessor`, `policy_action_transform`,
+`eval_action_transform`, `extra_actor_loss_fn`, `extra_critic_loss_fn`,
+`her_relabel_fn`, `init_transform`, `auxiliary_update`,
+`extra_eval_metrics`, SAC's `early_termination_condition`, …) were
+removed, as was the
 online-imitation keyword `imitation_coef` (now the `ImitationLoss`
 extension); the `runtime_maintenance` surface and the `use_X` boolean
 flags (`ibrl_bootstrap`, `use_critic_blend`,
@@ -228,9 +221,11 @@ everything that isn't algorithm-specific.
 **Lineage rule:** if your agent descends from an existing one (e.g.
 REDQ from SAC), **import** the parent's reusable mechanisms from its
 `core.py`; do not copy-paste. SAC's `core.py` exports
-`compute_td_target`, `critic_loss_fn`, `actor_loss_fn`,
-`temperature_loss_fn`, `create_alpha_train_state`
-for descendants.
+`init_soft_actor_critic`, `create_alpha_train_state`,
+`sample_next_actions`, `compute_td_target`, `critic_loss_fn`,
+`soft_policy_loss`, `soft_actor_step`, `update_temperature` and
+`update_target_networks` for descendants; `agents/loop.py` has the
+replay agents' `critic_step`.
 
 Let's say you want to add an agent called `FOO`.
 

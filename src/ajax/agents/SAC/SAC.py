@@ -6,10 +6,9 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
-from ajax.agents.recurrent import check_recurrent_learning_starts
+from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
-from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
@@ -17,7 +16,7 @@ from ajax.environments.utils import (
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
-from ajax.state import AlphaConfig, NetworkConfig
+from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
 
@@ -41,8 +40,8 @@ class SAC(ActorCritic):
     ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
     ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``,
-    ``extra_critic_head_*``, the ``Optional[Callable]`` user-hook
-    overrides). They mirror the matching extension's "static" flag.
+    ``extra_critic_head_*``). They mirror the matching extension's
+    "static" flag.
     """
 
     name: str = "SAC"
@@ -100,7 +99,6 @@ class SAC(ActorCritic):
         # Ignored, never had an effect (evaluation does not read it); still
         # accepted because AjaxExperiments passes ``action_scale=1.0``.
         action_scale: float = 1.0,
-        early_termination_condition: Optional[Callable] = None,
         # Residual RL: kept because ``residual`` turns on the collection-
         # time residual substitution in ``make_action_pipeline``
         # (``use_residual_rl``). The ResidualPolicy extension owns the
@@ -130,9 +128,6 @@ class SAC(ActorCritic):
         num_critic_updates: int = 1,
         expert_buffer_n_steps: int = 20_000,
         expert_mix_fraction: float = 0.1,
-        box_threshold: float = 500.0,
-        altitude_obs_idx: int = 1,
-        target_obs_idx: int = 6,
         # MC sizing kwarg threaded into the inline Bellman-pretrain
         # block (``use_bellman_critic_pretrain``). MCPretrain extensions
         # own the equivalent for the MC path via ``n_steps``.
@@ -152,10 +147,6 @@ class SAC(ActorCritic):
         # resolution in ``make_scan_fn``; the ValueBox extension owns
         # the override math via :meth:`action`.
         use_box: bool = False,
-        # EDGE telemetry plumbing (threaded into ``training_iteration``
-        # for logging). The EDGEExploration extension owns the gate
-        # math; this is just the τ scalar.
-        exploration_tau: float = 1.0,
         # Warmup expert-vs-uniform mix fraction (gates uniform sampling
         # in the action pipeline). Distinct from the ExpertGuidance
         # extension's own fields.
@@ -180,22 +171,9 @@ class SAC(ActorCritic):
         skip_critic_pretrain: bool = True,
         reset_log_std_after_bc: bool = False,
         reset_actor_head_after_bc: bool = False,
-        # Distance-modulated entropy target (None = disabled).
-        target_entropy_far: Optional[float] = None,
         # PID actor: actor network predicts PID gains instead of raw
         # actions (affects network architecture).
         pid_actor_config: Optional[PIDActorConfig] = None,
-        # --- Composable hook overrides (None = build from extensions / defaults) ---
-        action_pipeline: Optional[Callable] = None,
-        obs_preprocessor: Optional[Callable] = None,
-        policy_action_transform: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
-        extra_actor_loss_fn: Optional[Callable] = None,
-        extra_critic_loss_fn: Optional[Callable] = None,
-        her_relabel_fn: Optional[Callable] = None,
-        init_transform: Optional[Callable] = None,
-        auxiliary_update: Optional[Callable] = None,
-        extra_eval_metrics: Optional[Callable] = None,
         # --- Composable research features ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -214,18 +192,11 @@ class SAC(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            squash=True,
             extensions=extensions,
         )
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate, alpha_init=alpha_init
-        )
-        self.network_args = NetworkConfig(
-            actor_architecture=actor_architecture,
-            critic_architecture=critic_architecture,
-            # base parsed the memory config already
-            memory=self.network_args.memory,
-            squash=True,
-            penultimate_normalization=False,
         )
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("SAC only supports continuous action spaces.")
@@ -261,21 +232,8 @@ class SAC(ActorCritic):
             sequence_length=sequence_length,
             stored_state=stored_state,
         )
-        recurrent = self.network_args.memory is not None
-        if stored_state and not recurrent:
-            raise ValueError(
-                "stored_state=True requires a memory config (recurrent networks)."
-            )
-        if recurrent:
-            check_recurrent_learning_starts(
-                learning_starts, n_envs, burn_in, sequence_length
-            )
-        self.buffer = get_buffer(
-            buffer_size=buffer_size,
-            batch_size=batch_size,
-            n_envs=n_envs,
-            # burn-in prefix + trained segment + bootstrap step
-            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
+        self.buffer = make_replay_buffer(
+            self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
         self.num_critics = num_critics
         self.extra_critic_head_names = tuple(extra_critic_head_names)
@@ -295,7 +253,6 @@ class SAC(ActorCritic):
         )
         self.expert_policy = expert_policy
         self.eval_expert_policy = eval_expert_policy
-        self.early_termination_condition = early_termination_condition
         self.residual = residual
         self.residual_scale = residual_scale
         self.jsrl_curriculum = jsrl_curriculum
@@ -305,9 +262,6 @@ class SAC(ActorCritic):
         self.num_critic_updates = num_critic_updates
         self.expert_buffer_n_steps = expert_buffer_n_steps
         self.expert_mix_fraction = expert_mix_fraction
-        self.box_threshold = box_threshold
-        self.altitude_obs_idx = altitude_obs_idx
-        self.target_obs_idx = target_obs_idx
         self.mc_pretrain_n_steps = mc_pretrain_n_steps
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
         self.use_bellman_critic_pretrain = use_bellman_critic_pretrain
@@ -315,7 +269,6 @@ class SAC(ActorCritic):
         self.policy_update_start = policy_update_start
         self.alpha_update_start = alpha_update_start
         self.use_box = use_box
-        self.exploration_tau = exploration_tau
         self.expert_fraction = expert_fraction
         self.augment_obs_with_expert_state = augment_obs_with_expert_state
         self.store_policy_action = store_policy_action
@@ -334,18 +287,7 @@ class SAC(ActorCritic):
             else None
         )
         self.target_entropy_ramp_frac = target_entropy_ramp_frac
-        self.target_entropy_far = target_entropy_far
         self.pid_actor_config = pid_actor_config
-        self.action_pipeline = action_pipeline
-        self.obs_preprocessor = obs_preprocessor
-        self.policy_action_transform = policy_action_transform
-        self.eval_action_transform = eval_action_transform
-        self.extra_actor_loss_fn = extra_actor_loss_fn
-        self.extra_critic_loss_fn = extra_critic_loss_fn
-        self.her_relabel_fn = her_relabel_fn
-        self.init_transform = init_transform
-        self.auxiliary_update = auxiliary_update
-        self.extra_eval_metrics = extra_eval_metrics
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -355,7 +297,6 @@ class SAC(ActorCritic):
             cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
             eval_expert_policy=self.eval_expert_policy,
-            early_termination_condition=self.early_termination_condition,
             use_pid_policy=self.use_pid_policy,
             fixed_alpha=self.fixed_alpha,
             num_critics=self.num_critics,
@@ -365,9 +306,6 @@ class SAC(ActorCritic):
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,
             expert_mix_fraction=self.expert_mix_fraction,
-            box_threshold=self.box_threshold,
-            altitude_obs_idx=self.altitude_obs_idx,
-            target_obs_idx=self.target_obs_idx,
             mc_pretrain_n_steps=self.mc_pretrain_n_steps,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
             use_bellman_critic_pretrain=self.use_bellman_critic_pretrain,
@@ -375,7 +313,6 @@ class SAC(ActorCritic):
             policy_update_start=self.policy_update_start,
             alpha_update_start=self.alpha_update_start,
             use_box=self.use_box,
-            exploration_tau=self.exploration_tau,
             expert_fraction=self.expert_fraction,
             augment_obs_with_expert_state=self.augment_obs_with_expert_state,
             store_policy_action=self.store_policy_action,
@@ -386,18 +323,7 @@ class SAC(ActorCritic):
             use_residual_rl=self.residual,
             residual_scale=self.residual_scale,
             jsrl_curriculum=self.jsrl_curriculum,
-            target_entropy_far=self.target_entropy_far,
             pid_actor_config=self.pid_actor_config,
             action_dim_override=self.action_dim_override,
-            action_pipeline=self.action_pipeline,
-            obs_preprocessor=self.obs_preprocessor,
-            policy_action_transform=self.policy_action_transform,
-            eval_action_transform=self.eval_action_transform,
-            extra_actor_loss_fn=self.extra_actor_loss_fn,
-            extra_critic_loss_fn=self.extra_critic_loss_fn,
-            her_relabel_fn=self.her_relabel_fn,
-            init_transform=self.init_transform,
-            auxiliary_update=self.auxiliary_update,
-            extra_eval_metrics=self.extra_eval_metrics,
             extensions=tuple(self.extension_stack.extensions),
         )

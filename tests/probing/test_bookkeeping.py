@@ -634,7 +634,7 @@ CASES["q4-SAC-uniform"] = Case(
     tuple(Q4_UNIFORM),
     Q4_READ,
     Q4_BUDGET,
-    defect="one mix_key draws both the warm-up decision and the uniform action (extensions/_sac_hooks.py:411-413, 453); right env 0 dim 0 mean 0 and share below 0.4 = 0.7, today 0.70 and 0.0",
+    defect="one mix_key draws both the warm-up decision and the uniform action (agents/SAC/action_pipeline.py); right env 0 dim 0 mean 0 and share below 0.4 = 0.7, today 0.70 and 0.0",
 )
 ONE, SHARE_WRONG = {"one draw shared by the two cells": 1.0}, {"expert never used": 0.0}
 CASES["q4-SAC-independence"] = Case(

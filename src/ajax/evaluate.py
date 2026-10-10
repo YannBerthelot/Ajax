@@ -197,7 +197,6 @@ def step_environment(
     actor_state,
     continuous,
     expert_policy=None,
-    early_termination_condition=None,
     train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
     agent_state=None,
@@ -305,9 +304,7 @@ def step_environment(
             actions, new_expert_state = expert_policy.step_with_gains(
                 expert_state, obs, gains
             )
-        elif (
-            eval_action_transform is not None or early_termination_condition is not None
-        ):
+        elif eval_action_transform is not None:
             if expert_policy is not None:
                 if expert_is_stateful:
                     expert_actions, new_expert_state = expert_policy(expert_state, obs)
@@ -317,19 +314,9 @@ def step_environment(
             else:
                 expert_actions = 0.0
                 new_expert_state = expert_state
-            inside_the_box = (
-                early_termination_condition(state, env_params).reshape(-1, 1)
-                if early_termination_condition is not None
-                else 0.0
+            actions = eval_action_transform(
+                raw_actions, expert_actions, obs, agent_state
             )
-            if eval_action_transform is not None:
-                actions = eval_action_transform(
-                    raw_actions, expert_actions, obs, agent_state
-                )
-            else:
-                actions = (
-                    1.0 - inside_the_box
-                ) * raw_actions + inside_the_box * expert_actions
         else:
             actions = raw_actions
             # If we already advanced the expert state for obs augmentation,
@@ -464,7 +451,6 @@ def _infer_max_eval_steps(env, env_params) -> int:
         "env",
         "avg_reward_mode",
         "expert_policy",
-        "early_termination_condition",
         "eval_action_transform",
         "max_eval_steps",
         "pid_gain_policy",
@@ -484,7 +470,6 @@ def evaluate(
     avg_reward_mode: bool = False,
     num_steps_average_reward: int = int(1e4),
     expert_policy: Optional[Callable] = None,
-    early_termination_condition: Optional[Callable] = None,
     train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
     max_eval_steps: Optional[int] = None,
@@ -577,7 +562,6 @@ def evaluate(
         actor_state,
         continuous,
         expert_policy=expert_policy,
-        early_termination_condition=early_termination_condition,
         train_frac=train_frac,
         eval_action_transform=eval_action_transform,
         agent_state=agent_state,

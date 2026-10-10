@@ -19,14 +19,14 @@ from flax.serialization import to_state_dict
 
 from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
 from ajax.agents.AVG.utils import compute_td_error_scaling
-from ajax.agents.loop import TrainLoop, gradient_step
-from ajax.agents.SAC.train_SAC import TemperatureAuxiliaries, create_alpha_train_state
-from ajax.environments.interaction import get_pi, init_collector_state
-from ajax.environments.utils import check_env_is_gymnax
+from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.recurrent import q_values
+from ajax.agents.SAC import core
+from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.networks import get_initialized_actor_critic, predict_value
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -72,23 +72,16 @@ def init_AVG(
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> AVGState:
     rng, init_key, collector_key = jax.random.split(key, num=3)
-    actor_state, critic_state = get_initialized_actor_critic(
-        key=init_key,
-        env_config=env_args,
-        actor_optimizer_config=actor_optimizer_args,
-        critic_optimizer_config=critic_optimizer_args,
-        network_config=network_args,
-        continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=num_critics,
-        pid_actor_config=pid_actor_config,
-    )
-    collector_state = init_collector_state(
+    actor_state, critic_state, collector_state = core.init_soft_actor_critic(
+        init_key,
         collector_key,
-        env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
+        env_args,
+        actor_optimizer_args,
+        critic_optimizer_args,
+        network_args,
+        num_critics=num_critics,
         window_size=window_size,
+        pid_actor_config=pid_actor_config,
     )
     # One running statistic per scalar (reward, discount, return), shared
     # by every env.
@@ -103,7 +96,7 @@ def init_AVG(
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
         reward=init_norm_info,
         gamma=init_norm_info,
@@ -155,16 +148,12 @@ def compute_avg_td_target(
 ) -> Tuple[jax.Array, jax.Array]:
     """AVG bellman target (no target network, uses current critic_params)."""
     rewards = rewards * reward_scale
-    next_pi, _ = get_pi(actor_state, actor_state.params, next_observations)
     sample_key, _ = jax.random.split(rng)
-    next_actions, next_log_probs = next_pi.sample_and_log_prob(seed=sample_key)
-    next_log_probs = next_log_probs.sum(-1, keepdims=True)
+    next_actions, next_log_probs = core.sample_next_actions(
+        actor_state, next_observations, sample_key
+    )
     q_target = jnp.min(
-        predict_value(
-            critic_states,
-            critic_params,
-            jnp.concatenate((next_observations, next_actions), axis=-1),
-        ),
+        q_values(critic_states, critic_params, next_observations, next_actions),
         axis=0,
     )
     target = jax.lax.stop_gradient(
@@ -184,12 +173,7 @@ def value_loss_function(
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """The squared TD error divided by its running scale."""
     q_pred = jnp.min(
-        predict_value(
-            critic_states,
-            critic_params,
-            jnp.concatenate((observations, actions), axis=-1),
-        ),
-        axis=0,
+        q_values(critic_states, critic_params, observations, actions), axis=0
     )
     assert target_q.shape == q_pred.shape, f"{target_q.shape} != {q_pred.shape}"
     scaled_delta = (q_pred - target_q) / scaling_coef
@@ -225,11 +209,7 @@ def policy_loss_function(
     raw = loc + scale * eps
     log_probs = pi.log_prob_from_raw(raw)
     q_pred = jnp.min(
-        predict_value(
-            critic_states,
-            critic_states.params,
-            jnp.concatenate((observations, jnp.tanh(raw)), axis=-1),
-        ),
+        q_values(critic_states, critic_states.params, observations, jnp.tanh(raw)),
         axis=0,
     )
     assert log_probs.shape == q_pred.shape, f"{log_probs.shape} != {q_pred.shape}"
@@ -248,7 +228,6 @@ def update_value_functions(
 ) -> Tuple[AVGState, ValueAuxiliaries]:
     """The critic step on the scaled TD error of ``transition``."""
     key, rng = jax.random.split(agent_state.rng)
-    step = agent_state.collector_state.timestep
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     critic_state = agent_state.critic_state
     dones = jnp.logical_or(transition.terminated, transition.truncated)
@@ -264,23 +243,9 @@ def update_value_functions(
         alpha,
         agent_config.reward_scale,
     )
-    target_batch = {
-        "observations": transition.obs,
-        "actions": transition.action,
-        "next_observations": transition.next_obs,
-        "rewards": transition.reward,
-        "dones": dones,
-        "gamma": agent_config.gamma,
-        "reward_scale": agent_config.reward_scale,
-    }
-    target_q = jax.lax.stop_gradient(
-        extension_stack.fold_on_target(
-            agent_state, target_batch, target_q, step, key, total_timesteps
-        )
-    )
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
-        loss, aux = value_loss_function(
+    def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
+        return value_loss_function(
             params,
             critic_state,
             transition.obs,
@@ -289,18 +254,19 @@ def update_value_functions(
             next_log_probs,
             agent_state.scaling_coef,
         )
-        loss_batch = {
-            "observations": transition.obs,
-            "actions": transition.action,
-            "critic_params": params,
-            "critic_state": critic_state,
-        }
-        extra = extension_stack.fold_critic_loss(
-            agent_state, loss_batch, step, key, total_timesteps
-        )
-        return loss + extra, aux
 
-    critic_state, aux = gradient_step(critic_state, loss_fn)
+    critic_state, aux = critic_step(
+        agent_state,
+        transition,
+        target_q,
+        value_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        rewards=transition.reward,
+        gamma=agent_config.gamma,
+        reward_scale=agent_config.reward_scale,
+    )
     return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 

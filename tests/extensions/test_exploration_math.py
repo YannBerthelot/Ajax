@@ -1,4 +1,4 @@
-"""Tests for ajax.modules.exploration — EDGE gates and value-box override."""
+"""The EDGE gates' and the value box's maths."""
 
 from types import SimpleNamespace
 
@@ -6,17 +6,17 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.modules.exploration import (
-    EDGEAuxiliaries,
-    box_action_override,
-    box_compute_state,
-    box_compute_threshold,
-    compute_edge_diagnostics,
+from ajax.extensions.exploration import (
     edge_argmax_gate,
     edge_boltzmann_gate,
     edge_compute_decay,
     edge_compute_value_gap,
     edge_fixed_gate,
+)
+from ajax.extensions.target_mods import (
+    box_action_override,
+    box_compute_state,
+    box_compute_threshold,
 )
 
 
@@ -199,23 +199,12 @@ def test_box_action_override_passes_through_outside_box():
     assert jnp.allclose(out, action)
 
 
-# ---------------------------------------------------------------------------
-# Diagnostics
-# ---------------------------------------------------------------------------
+def test_edge_eval_metrics_report_the_live_expert_fraction():
+    from ajax.extensions.exploration import EDGEExploration
 
-
-def test_compute_edge_diagnostics_returns_expected_aux_shape():
-    gap = jnp.array([[1.0], [2.0]])
-    q_pred = jnp.array([[3.0], [3.0]])
-    aux = compute_edge_diagnostics(
-        q_gap=gap,
-        q_pred_min=q_pred,
-        exploration_tau=1.0,
-        expert_frac_in_buffer=jnp.asarray(0.25),
+    ext = EDGEExploration(expert_policy=lambda obs: obs)
+    state = SimpleNamespace(
+        collector_state=SimpleNamespace(last_expert_frac=jnp.asarray(0.25))
     )
-    assert isinstance(aux, EDGEAuxiliaries)
-    assert aux.value_gap.shape == (2,)
-    assert aux.p_expert_mean.shape == (1,)
-    assert aux.expert_action_fraction.shape == (1,)
-    # With a positive gap, p_expert_mean > 0.5.
-    assert float(aux.p_expert_mean.squeeze()) > 0.5
+    metrics = ext.eval_metrics(state, (), jax.random.PRNGKey(0), None)
+    assert metrics == {"edge/live_expert_frac": 0.25}

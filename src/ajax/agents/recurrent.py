@@ -22,8 +22,13 @@ from typing import Any, Optional, Tuple
 import jax
 import jax.numpy as jnp
 from flax import struct
+from jax.tree_util import Partial as partial
 
-from ajax.buffers.utils import get_batch_from_buffer, get_sequence_batch_from_buffer
+from ajax.buffers.utils import (
+    get_batch_from_buffer,
+    get_buffer,
+    get_sequence_batch_from_buffer,
+)
 from ajax.environments.interaction import get_pi, get_pi_sequence
 from ajax.networks.memory import (
     MemoryConfig,
@@ -32,8 +37,20 @@ from ajax.networks.memory import (
     zeros_carry_like,
 )
 from ajax.networks.networks import predict_value, predict_value_sequence
-from ajax.state import BaseAgentState, LoadedTrainState, Transition
+from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
+
+
+@partial(struct.dataclass, kw_only=True)
+class RecurrentReplayConfig(BaseAgentConfig):
+    """An off-policy agent's sequence-replay settings, read only when it has
+    memory: replayed windows of ``burn_in + sequence_length + 1`` steps."""
+
+    burn_in: int = 8
+    sequence_length: int = 16
+    # R2D2 stored-state replay: read actor carries back from the buffer
+    # instead of burning them in from zero (Kapturowski et al. 2019).
+    stored_state: bool = False
 
 
 @struct.dataclass
@@ -277,12 +294,27 @@ def stored_actor_carry_dim(memory: Optional[MemoryConfig], stored_state: bool) -
     return flat_carry_dim(memory) if stored_state and memory is not None else 0
 
 
-def check_recurrent_learning_starts(
-    learning_starts: int, n_envs: int, burn_in: int, sequence_length: int
-) -> None:
-    """Fail fast if the trajectory buffer cannot hold one full sequence per
-    env before the first update."""
-    if learning_starts // n_envs <= burn_in + sequence_length + 1:
+def make_replay_buffer(
+    agent_config: Any,
+    n_envs: int,
+    memory: Optional[MemoryConfig],
+    buffer_size: int,
+    batch_size: int,
+) -> BufferType:
+    """The replay buffer of an off-policy agent configured by ``agent_config``
+    (a :class:`RecurrentReplayConfig` with ``learning_starts``): transitions,
+    or per-env trajectories sampled as windows when ``memory`` is set."""
+    burn_in, sequence_length = agent_config.burn_in, agent_config.sequence_length
+    if agent_config.stored_state and memory is None:
+        raise ValueError(
+            "stored_state=True requires a memory config (recurrent networks)."
+        )
+    learning_starts = agent_config.learning_starts
+    if (
+        memory is not None
+        and learning_starts // n_envs <= burn_in + sequence_length + 1
+    ):
+        # The trajectory buffer must hold one full window per env by then.
         raise ValueError(
             "learning_starts must exceed n_envs * (burn_in +"
             " sequence_length + 1) so the trajectory buffer holds at"
@@ -290,6 +322,13 @@ def check_recurrent_learning_starts(
             f" (got learning_starts={learning_starts}, n_envs={n_envs},"
             f" burn_in={burn_in}, sequence_length={sequence_length})."
         )
+    return get_buffer(
+        buffer_size=buffer_size,
+        batch_size=batch_size,
+        n_envs=n_envs,
+        # burn-in prefix + trained segment + bootstrap step
+        sequence_length=(burn_in + sequence_length + 1 if memory is not None else None),
+    )
 
 
 def unsupported_recurrent_options(agent_name: str, **options: Optional[Any]) -> None:

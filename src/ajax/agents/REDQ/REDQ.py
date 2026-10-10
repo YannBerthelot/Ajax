@@ -6,10 +6,9 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
-from ajax.agents.recurrent import check_recurrent_learning_starts
+from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
-from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
@@ -17,7 +16,7 @@ from ajax.environments.utils import (
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
-from ajax.state import AlphaConfig, NetworkConfig
+from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
 
@@ -49,7 +48,6 @@ class REDQ(ActorCritic):
         num_critic_updates: int = 20,
         num_critics: int = 10,
         subset_size: int = 2,
-        repulsion_coef: float = 0.0,
         # Pluggable memory block (see ajax.networks.memory); trains on
         # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
         memory: Optional[Union[MemoryConfig, dict]] = None,
@@ -111,21 +109,13 @@ class REDQ(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            squash=True,
             extensions=extensions,
         )
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,
             alpha_init=alpha_init,
-        )
-
-        self.network_args = NetworkConfig(
-            actor_architecture=actor_architecture,
-            critic_architecture=critic_architecture,
-            # base parsed the memory config already
-            memory=self.network_args.memory,
-            squash=True,
-            penultimate_normalization=False,
         )
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("REDQ only supports continuous action spaces.")
@@ -140,27 +130,12 @@ class REDQ(ActorCritic):
             num_critic_updates=num_critic_updates,
             num_critics=num_critics,
             subset_size=subset_size,
-            repulsion_coef=repulsion_coef,
             burn_in=burn_in,
             sequence_length=sequence_length,
             stored_state=stored_state,
         )
-
-        recurrent = self.network_args.memory is not None
-        if stored_state and not recurrent:
-            raise ValueError(
-                "stored_state=True requires a memory config (recurrent networks)."
-            )
-        if recurrent:
-            check_recurrent_learning_starts(
-                learning_starts, n_envs, burn_in, sequence_length
-            )
-        self.buffer = get_buffer(
-            buffer_size=buffer_size,
-            batch_size=batch_size,
-            n_envs=n_envs,
-            # burn-in prefix + trained segment + bootstrap step
-            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
+        self.buffer = make_replay_buffer(
+            self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
 
         self.cloning_config = CloningConfig(

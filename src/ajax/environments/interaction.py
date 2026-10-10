@@ -601,9 +601,7 @@ def maybe_vmap(f, vmap_on, **kwargs):
     return f
 
 
-def get_raw_obs(
-    env_state: EnvState, env: Environment, mode: str
-) -> Optional[jax.Array]:
+def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
     from ajax.environments.utils import check_env_is_playground, get_raw_env
 
     vmap_on = (
@@ -642,10 +640,6 @@ def get_raw_obs(
 
 def identity(*args):
     return args
-
-
-def return_first(*args):
-    return args[0]
 
 
 def get_buffer_action_and_env_action(
@@ -775,22 +769,14 @@ def collect_experience(
             critic_state=agent_state.critic_state.replace(obs_norm_info=_new_obs_norm),
         )
 
-    # Raw obs (needed by action_pipeline for expert policy)
-    assert agent_state.collector_state.rollout is not None
-    has_raw_obs = agent_state.collector_state.rollout.raw_obs is not None
-    raw_obs = (
-        get_raw_obs(
-            env_state=agent_state.collector_state.env_state,
-            env=env_args.env,
-            mode=mode,
-        )
-        if has_raw_obs
-        else None
-    )
-    # raw_obs is written to the float32-schema buffer; coerce int obs
-    # (e.g. discrete probing envs) so flashbax's dtype check passes.
-    if raw_obs is not None:
-        raw_obs = raw_obs.astype(jnp.float32)
+    # Raw obs (needed by action_pipeline for expert policy). It is written
+    # to the float32-schema buffer; coerce int obs (e.g. discrete probing
+    # envs) so flashbax's dtype check passes.
+    raw_obs = get_raw_obs(
+        env_state=agent_state.collector_state.env_state,
+        env=env_args.env,
+        mode=mode,
+    ).astype(jnp.float32)
 
     if action_pipeline is not None:
         # Agent-specific action pipeline (SAC with expert, EDGE, box, etc.)
@@ -806,11 +792,6 @@ def collect_experience(
         rng = result.rng
         new_expert_state = getattr(result, "new_expert_state", None)
         _buffer_action_override = getattr(result, "buffer_action", None)
-        # Live LCB / Thompson telemetry — NaN if the gate didn't compute it.
-        _live_q_advantage = getattr(result, "q_advantage", None)
-        _live_sigma_actor = getattr(result, "critic_sigma_actor", None)
-        _live_sigma_expert = getattr(result, "critic_sigma_expert", None)
-        _live_p_expert_max = getattr(result, "p_expert_max", None)
         _a_expert = getattr(result, "a_expert", None)
         # Recurrent actors: pipelines that run the policy themselves must
         # hand back the advanced carry, else the actor's memory would stay
@@ -837,10 +818,6 @@ def collect_experience(
     else:
         new_expert_state = None
         _buffer_action_override = None
-        _live_q_advantage = None
-        _live_sigma_actor = None
-        _live_sigma_expert = None
-        _live_p_expert_max = None
         _a_expert = None
         # Vanilla: uniform during warmup, policy action after
         action, log_probs, raw_action, agent_state = get_action_and_log_probs(
@@ -883,15 +860,6 @@ def collect_experience(
         ),
     )
 
-    # in_box_after for buffer write suppression and cumulative reward tracking
-    in_box_after = (
-        env_args.env.trunc_condition(
-            agent_state.collector_state.env_state, env_args.env_params
-        )
-        if "trunc_condition" in dir(env_args.env)
-        else jnp.zeros_like(terminated)
-    )
-
     raw_next_obs = get_final_obs(info, obsv)
 
     # Box reward/termination modification (no-op when entry_bonus is zeros)
@@ -932,20 +900,7 @@ def collect_experience(
             _transition["next_a_expert"] = _next_a_expert_for_buf
         if store_hidden:
             _transition["actor_carry"] = _pre_actor_carry_flat
-        should_write = jnp.logical_or(
-            uniform,
-            jnp.logical_not(
-                in_box_after[0]
-                * jnp.logical_not(jnp.logical_or(terminated, truncated))[0]
-            ),
-        )
-        buffer_state = jax.lax.cond(
-            should_write,
-            buffer.add,
-            return_first,
-            agent_state.collector_state.buffer_state,
-            _transition,
-        )
+        buffer_state = buffer.add(buffer_state, _transition)
 
     # If the env runs with augment_obs_with_expert_state, the
     # collector's last_obs is already augmented with the (BEFORE-expert)
@@ -971,7 +926,6 @@ def collect_experience(
         raw_obs=raw_obs,
         next_obs=next_obs_for_buffer,
         log_prob=log_probs,
-        inside_box=in_value_box if action_pipeline is not None else None,
         a_expert=_a_expert_for_buf,
         next_a_expert=_next_a_expert_for_buf,
     )
@@ -991,19 +945,6 @@ def collect_experience(
     new_last_obs = (
         next_obs_for_buffer if next_obs_for_buffer.shape[-1] != obsv.shape[-1] else obsv
     )
-
-    # Live gating telemetry (per-step batch means).
-    _gate_diag_updates = {
-        "last_expert_frac": jnp.mean(is_expert_flag),
-    }
-    if _live_q_advantage is not None:
-        _gate_diag_updates["last_q_advantage"] = _live_q_advantage
-    if _live_sigma_actor is not None:
-        _gate_diag_updates["last_critic_sigma_actor"] = _live_sigma_actor
-    if _live_sigma_expert is not None:
-        _gate_diag_updates["last_critic_sigma_expert"] = _live_sigma_expert
-    if _live_p_expert_max is not None:
-        _gate_diag_updates["last_p_expert_max"] = _live_p_expert_max
 
     # Per-env step_in_episode counter for JSRL curriculum: increment
     # by 1 each step, reset to 0 on episode end (terminated|truncated).
@@ -1030,10 +971,7 @@ def collect_experience(
         episodic_return_state=new_episodic_return_state,
         episodic_mean_return=episodic_mean_return,
         buffer_state=buffer_state,
-        cumulative_reward=(
-            in_box_after * (agent_state.collector_state.cumulative_reward + reward)
-        ),
-        **_gate_diag_updates,
+        last_expert_frac=jnp.mean(is_expert_flag),
         **(
             {"last_in_box": in_value_box.astype(jnp.float32)}
             if action_pipeline is not None
@@ -1303,9 +1241,6 @@ def init_collector_state(
         last_truncated=last_done,
         rollout=transition,
         episodic_return_state=episodic_return_state,
-        cumulative_reward=jnp.zeros(
-            (env_args.n_envs)
-        ),  # TODO : switch to (env_args.n_envs,1)
         max_timesteps=max_timesteps,
         last_in_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
         obs_norm_info=obs_norm_info,

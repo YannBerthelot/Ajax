@@ -1,4 +1,5 @@
-"""Tests for ajax.modules.expert — composable expert-guidance modifiers."""
+"""The expert-guidance maths: the expert extensions' and target modifiers'
+helpers and SAC's expert plumbing."""
 
 from types import SimpleNamespace
 
@@ -6,16 +7,13 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.modules.expert import (
-    augment_obs_if_needed,
-    blend_modify_target,
-    compute_behavior_kpis,
-    compute_expert_diagnostics,
+from ajax.agents.SAC.expert import augment_obs_if_needed, compute_expert_diagnostics
+from ajax.extensions.expert import (
     compute_online_bc_loss,
     detach_obs_expert_dims,
-    mc_correction_modify_target,
     residual_action_transform,
 )
+from ajax.extensions.target_mods import blend_modify_target, mc_correction_modify_target
 
 
 def _fake_critic_state(fn):
@@ -40,10 +38,9 @@ def test_blend_modify_target_matches_convex_combination():
     target_q = jnp.array([[1.0], [2.0], [4.0]])
     v_expert = jnp.array([[5.0], [5.0], [5.0]])
     alpha = jnp.array([[0.25]])
-    out, diag = blend_modify_target(target_q, v_expert, alpha)
+    out = blend_modify_target(target_q, v_expert, alpha)
     expected = 0.75 * target_q + 0.25 * v_expert
     assert jnp.allclose(out, expected)
-    assert diag.shape == (1,)
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +56,7 @@ def test_mc_correction_preserves_low_variance_entries():
     critic_state = _fake_critic_state(apply_fn)
     target_q = jnp.array([[1.0], [2.0], [3.0]])
     q_var = jnp.array([0.0, 0.0, 0.0])  # below threshold
-    out, frac = mc_correction_modify_target(
+    out = mc_correction_modify_target(
         target_q,
         critic_state,
         critic_params_mc={"mc": 1.0},
@@ -69,7 +66,6 @@ def test_mc_correction_preserves_low_variance_entries():
         mc_variance_threshold=0.5,
     )
     assert jnp.allclose(out, target_q)
-    assert float(frac.squeeze()) == pytest.approx(0.0)
 
 
 def test_mc_correction_replaces_high_variance_entries():
@@ -80,7 +76,7 @@ def test_mc_correction_replaces_high_variance_entries():
     critic_state = _fake_critic_state(apply_fn)
     target_q = jnp.array([[1.0], [2.0], [3.0]])
     q_var = jnp.array([1.0, 1.0, 1.0])  # above threshold everywhere
-    out, frac = mc_correction_modify_target(
+    out = mc_correction_modify_target(
         target_q,
         critic_state,
         critic_params_mc={"mc": 1.0},
@@ -91,7 +87,6 @@ def test_mc_correction_replaces_high_variance_entries():
     )
     # All entries replaced by q_mc_target = 9.0.
     assert jnp.allclose(out, jnp.full_like(target_q, 9.0))
-    assert float(frac.squeeze()) == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -217,11 +212,3 @@ def test_compute_online_bc_loss_decays_after_warmup():
     loss_after = compute_online_bc_loss(train_frac=jnp.asarray(0.9), **common)
     assert float(loss_during) > 0.0
     assert float(loss_after) == pytest.approx(0.0)
-
-
-def test_compute_behavior_kpis_altitude_error_and_z_dot():
-    # raw_obs layout: [current, _, z_dot, target]
-    raw = jnp.array([[1.0, 0.0, -0.3, 4.0]])
-    alt_err, z_dot = compute_behavior_kpis(raw, altitude_obs_idx=0, target_obs_idx=3)
-    assert float(alt_err) == pytest.approx(3.0)
-    assert float(z_dot) == pytest.approx(0.3)

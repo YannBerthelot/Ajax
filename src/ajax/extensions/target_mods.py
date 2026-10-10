@@ -1,12 +1,7 @@
 """TD-target modifier research features as composable :class:`Extension`s.
 
 These reshape the SAC Bellman target before it enters the critic loss
-(the ``on_target`` phase). The four target-mod extensions each implement
-their math directly on :meth:`Extension.on_target`; the SAC loop folds
-them through ``stack.on_target(...)``. The pre-refactor flag-driven
-``make_target_modifier`` builder used to assemble the same four pieces
-into a single callable — that builder has been removed; the math lives
-here.
+(the ``on_target`` phase):
 
 * :class:`IBRL`               — ``ibrl_bootstrap``: add the positive gap
   ``γ(1-d)·max(Q_expert - Q_policy, 0)`` so the value function matches an
@@ -20,35 +15,112 @@ here.
 * :class:`ValueBox`           — ``use_box``: value-threshold expert
   action override during collection (the ``action`` phase).
 
-The ``batch`` argument to ``on_target`` is a dict carrying every input
-each modifier needs, threaded through by ``update_value_functions`` in
-``ajax.agents.SAC.train_SAC``:
-
-``observations``, ``actions``, ``next_observations``, ``dones``,
-``rng_key``, ``q_preds``, ``gamma``, ``augment_obs_with_expert_action``,
-``recurrent``.
+The ``batch`` argument to ``on_target`` is the dict SAC's
+``update_value_functions`` builds: ``observations``, ``actions``,
+``next_observations``, ``dones``, ``rng_key``, ``q_preds``, ``gamma``,
+``augment_obs_with_expert_action``, ``recurrent``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.modules.expert import (
-    blend_modify_target,
-    mc_correction_modify_target,
-)
-from ajax.modules.exploration import (
-    box_action_override,
-    box_compute_state,
-    box_compute_threshold,
-)
+from ajax.extensions.exploration import lcb_beta, lcb_score
 from ajax.networks.networks import predict_value
+
+
+def blend_modify_target(
+    target_q: jax.Array,
+    v_expert_next: jax.Array,
+    alpha_blend: jax.Array,
+) -> jax.Array:
+    """Blended Bellman: (1-alpha)*y_bellman + alpha*V*(s')."""
+    return (1.0 - alpha_blend) * target_q + alpha_blend * v_expert_next
+
+
+def mc_correction_modify_target(
+    target_q: jax.Array,
+    critic_state,
+    critic_params_mc,
+    observations: jax.Array,
+    actions: jax.Array,
+    q_var: jax.Array,
+    mc_variance_threshold: float,
+) -> jax.Array:
+    """Replace high-variance Bellman targets with MC-pretrained oracle estimate."""
+    uncertain_mask = q_var > mc_variance_threshold
+    q_mc_target = jnp.min(
+        predict_value(
+            critic_state=critic_state,
+            critic_params=critic_params_mc,
+            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+        ),
+        axis=0,
+    )
+    return jnp.where(
+        uncertain_mask[..., None],
+        jax.lax.stop_gradient(q_mc_target),
+        target_q,
+    )
+
+
+def box_compute_threshold(
+    v_min: jax.Array,
+    v_max: jax.Array,
+    train_frac: jax.Array,
+) -> jax.Array:
+    """Curriculum threshold: v_min + (v_max - v_min) * train_frac."""
+    return v_min + (v_max - v_min) * train_frac
+
+
+def box_compute_state(
+    obs: jax.Array,
+    raw_obs: jax.Array,
+    expert_policy,
+    critic_state,
+    expert_critic_params,
+    threshold: jax.Array,
+    last_in_box: Optional[jax.Array],
+) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    """Compute box membership and entry bonus.
+
+    Returns (in_box, entry_bonus, v_box).
+    """
+    a_exp = jax.lax.stop_gradient(expert_policy(raw_obs))
+    v_box = jnp.min(
+        predict_value(
+            critic_state=critic_state,
+            critic_params=expert_critic_params,
+            x=jnp.concatenate([obs, a_exp], axis=-1),
+        ),
+        axis=0,
+    )
+    in_box = v_box > threshold
+
+    if last_in_box is None:
+        last_in_box = jnp.zeros_like(in_box)
+
+    entry_bonus = jnp.where(
+        (last_in_box < 0.5) & (in_box > 0.5),
+        v_box,
+        jnp.zeros_like(v_box),
+    )
+    return in_box, entry_bonus, v_box
+
+
+def box_action_override(
+    action: jax.Array,
+    expert_action: jax.Array,
+    in_box: jax.Array,
+) -> jax.Array:
+    """Override with expert action inside the value box."""
+    return jnp.where(in_box, expert_action, action)
 
 
 def _next_raw(batch: dict) -> jax.Array:
@@ -57,6 +129,31 @@ def _next_raw(batch: dict) -> jax.Array:
     if batch.get("augment_obs_with_expert_action", False):
         return next_obs[..., :-1]
     return next_obs
+
+
+def _next_target_q(
+    expert_policy: Callable, agent_state: Any, batch: dict
+) -> tuple[jax.Array, jax.Array]:
+    """The target critics' ensemble at ``s'`` for the expert's action and
+    for a policy sample: ``(Q_target(s', a_E), Q_target(s', a'))``."""
+    next_observations = batch["next_observations"]
+    critic_state = agent_state.critic_state
+
+    def q(actions: jax.Array) -> jax.Array:
+        x = jnp.concatenate((next_observations, actions), axis=-1)
+        return predict_value(critic_state, critic_state.target_params, x)
+
+    next_expert_actions = jax.lax.stop_gradient(expert_policy(_next_raw(batch)))
+    next_pi, _ = get_pi(
+        actor_state=agent_state.actor_state,
+        actor_params=agent_state.actor_state.params,
+        obs=next_observations,
+        done=batch["dones"],
+        recurrent=batch.get("recurrent", False),
+    )
+    key, _ = jax.random.split(batch["rng_key"])
+    next_actions, _ = next_pi.sample_and_log_prob(seed=key)
+    return q(next_expert_actions), q(next_actions)
 
 
 @dataclass(frozen=True)
@@ -79,43 +176,14 @@ class IBRL(Extension):
         target: jax.Array,
         ctx: ExtensionContext,
     ) -> jax.Array:
-        del ext_state
-        next_observations = batch["next_observations"]
-        dones = batch["dones"]
-        gamma = batch["gamma"]
-        rng = batch["rng_key"]
-        recurrent = batch.get("recurrent", False)
-
-        next_expert_actions = jax.lax.stop_gradient(
-            self.expert_policy(_next_raw(batch))
-        )
-        q_targets_expert = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.target_params,
-            x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
-        )
-        min_q_expert = jnp.min(q_targets_expert, axis=0, keepdims=False)
-
-        next_pi, _ = get_pi(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=next_observations,
-            done=dones,
-            recurrent=recurrent,
-        )
-        ibrl_key, _ = jax.random.split(rng)
-        next_actions_ibrl, _ = next_pi.sample_and_log_prob(seed=ibrl_key)
-        q_targets_policy = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.target_params,
-            x=jnp.concatenate((next_observations, next_actions_ibrl), axis=-1),
-        )
-        min_q_policy = jnp.min(q_targets_policy, axis=0, keepdims=False)
-
+        del ext_state, ctx
+        dones, gamma = batch["dones"], batch["gamma"]
+        q_expert, q_policy = _next_target_q(self.expert_policy, agent_state, batch)
+        min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
+        min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
         gap = jax.lax.stop_gradient(
             gamma * (1.0 - dones) * jnp.maximum(min_q_expert - min_q_policy, 0.0)
         )
-        del ctx
         return target + gap
 
 
@@ -143,58 +211,21 @@ class LCBGatedBootstrap(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state
-        # LCB-gated bootstrap: at s', score each candidate by
-        #   score(a) = Q_min(s', a) - β · (Q_max(s', a) - Q_min(s', a))
-        # then soft-blend the policy and expert TD targets by
+        # Score each next action by its LCB (beta annealed as the EDGE
+        # gate's, on the collector's timestep), then soft-blend the policy
+        # and expert TD targets by
         #   P_expert = σ((score_e - score_p) / lcb_temperature).
-        next_observations = batch["next_observations"]
-        dones = batch["dones"]
-        gamma = batch["gamma"]
-        rng = batch["rng_key"]
-        recurrent = batch.get("recurrent", False)
-
-        next_expert_actions = jax.lax.stop_gradient(
-            self.expert_policy(_next_raw(batch))
+        dones, gamma = batch["dones"], batch["gamma"]
+        q_expert, q_policy = _next_target_q(self.expert_policy, agent_state, batch)
+        beta = lcb_beta(
+            agent_state.collector_state.timestep,
+            ctx.total_steps,
+            self.lcb_beta_init,
+            self.lcb_beta_decay_k,
         )
-        q_targets_expert = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.target_params,
-            x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
-        )
-        next_pi_lcb, _ = get_pi(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=next_observations,
-            done=dones,
-            recurrent=recurrent,
-        )
-        lcb_key, _ = jax.random.split(rng)
-        next_actions_lcb, _ = next_pi_lcb.sample_and_log_prob(seed=lcb_key)
-        q_targets_policy = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.target_params,
-            x=jnp.concatenate((next_observations, next_actions_lcb), axis=-1),
-        )
-        q_min_e = jnp.min(q_targets_expert, axis=0, keepdims=False)
-        q_max_e = jnp.max(q_targets_expert, axis=0, keepdims=False)
-        q_min_p = jnp.min(q_targets_policy, axis=0, keepdims=False)
-        q_max_p = jnp.max(q_targets_policy, axis=0, keepdims=False)
-        # Anneal beta over training same as the action-selection gate. Use
-        # the agent_state's collector_state.timestep / total_timesteps so
-        # the rate matches the pre-refactor make_target_modifier exactly
-        # (ctx.step / ctx.total_steps would also work but we keep the
-        # historical numerics by reading the same fields).
-        total_timesteps = max(int(ctx.total_steps), 1)
-        train_frac = jnp.clip(
-            agent_state.collector_state.timestep / total_timesteps,
-            0.0,
-            1.0,
-        )
-        beta_eff = self.lcb_beta_init * jnp.power(
-            1.0 - train_frac, self.lcb_beta_decay_k
-        )
-        score_e = q_min_e - beta_eff * (q_max_e - q_min_e)
-        score_p = q_min_p - beta_eff * (q_max_p - q_min_p)
+        score_e, score_p = lcb_score(q_expert, beta), lcb_score(q_policy, beta)
+        q_min_e = jnp.min(q_expert, axis=0, keepdims=False)
+        q_min_p = jnp.min(q_policy, axis=0, keepdims=False)
         p_expert = jax.nn.sigmoid(
             (score_e - score_p) / jnp.maximum(self.lcb_temperature, 1e-6)
         )
@@ -253,7 +284,7 @@ class CriticBlend(Extension):
         total_timesteps = max(int(ctx.total_steps), 1)
         train_frac = agent_state.collector_state.timestep / total_timesteps
         alpha_blend_val = jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
-        target_new, _ = blend_modify_target(target, v_expert_next, alpha_blend_val)
+        target_new = blend_modify_target(target, v_expert_next, alpha_blend_val)
         return jax.lax.stop_gradient(target_new)
 
 
@@ -286,7 +317,7 @@ class MCVarianceCorrection(Extension):
         actions = batch["actions"]
         q_preds = batch["q_preds"]
         q_var = q_preds.var(axis=0)[..., 0]
-        target_new, _ = mc_correction_modify_target(
+        return mc_correction_modify_target(
             target,
             agent_state.critic_state,
             agent_state.expert_critic_params,
@@ -295,7 +326,6 @@ class MCVarianceCorrection(Extension):
             q_var,
             self.threshold,
         )
-        return target_new
 
 
 @dataclass(frozen=True)
@@ -314,13 +344,14 @@ class ValueBox(Extension):
     and the previous step's ``last_in_box`` flag) and writes
     ``in_value_box`` / ``entry_bonus`` back into the dict so the pipeline
     can record them on the transition. The substitution itself is
-    ``box_action_override`` from :mod:`ajax.modules.exploration` and is
+    ``box_action_override`` above and is
     applied AFTER the warmup/post-warmup choice — matching the legacy
     ``make_action_pipeline`` ordering byte-for-byte.
     """
 
     expert_policy: Callable
     name: str = "value_box"
+    action_slot: ClassVar[str] = "post_warmup"
 
     def action(
         self,

@@ -53,6 +53,14 @@ def test_implemented_phases_introspection():
 
     assert TargetMod().implemented_phases() == frozenset({"on_target", "critic_loss"})
     assert Extension().implemented_phases() == frozenset()
+
+    class Metric(Extension):
+        def eval_metrics(self, agent_state, ext_state, rng, ctx):
+            return {}
+
+    stack = ExtensionStack((TargetMod(), Metric(), Extension()))
+    assert stack.implemented_phases() == {"on_target", "critic_loss", "eval_metrics"}
+    assert ExtensionStack().implemented_phases() == frozenset()
     # every declared phase is a real method on the base class
     for phase in PHASES:
         assert callable(getattr(Extension, phase))

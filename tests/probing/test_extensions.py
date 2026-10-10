@@ -318,7 +318,6 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
 
 
 NO_FOLD = "no fold_{} call anywhere in src/ajax, yet every agent but the world models declares the phase (base.py:56, all phases by default)"
-SAC_ORDER = "SAC folds post_update before the update (train_SAC.py:1337 vs 1384); right the last call sees the final optimizer steps (852, 1852), today one update earlier (850, 1850)"
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
     "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
@@ -330,7 +329,6 @@ P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     "E5-*": NO_FOLD.format("eval_action")
     + " (evaluate_and_log runs the actor, log.py:317-347); right eval return -0.2 (discrete 0), today the policy's own (SAC 0.05-0.07, PPO, DQN, PQN 1.0)",
     "metric-UDRL": "UDRL declares eval_metrics (base.py:56 by default) but never evaluates or logs: train_UDRL.py has no evaluate_and_log or compose_eval_metrics call; right 7.0 in the log, today no record (NaN)",
-    "E8-order-SAC": SAC_ORDER,
 }
 # "test-agent": cell, budget, tolerances calibrated on seeds 1000-1031 and
 # 2000-2031, certified 32/32 on 3000-3031 unless noted (none: a defect).

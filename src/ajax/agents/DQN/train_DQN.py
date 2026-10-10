@@ -31,22 +31,13 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.DQN.networks import get_initialized_q_network, predict_q
 from ajax.agents.DQN.state import DQNConfig, DQNState
+from ajax.agents.loop import TrainLoop
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import (
-    ActionPipelineResult,
-    collect_experience,
-    init_collector_state,
-    should_use_uniform_sampling,
-)
+from ajax.environments.interaction import ActionPipelineResult, init_collector_state
 from ajax.environments.utils import check_env_is_gymnax, get_action_dim
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
-from ajax.perf_utils import build_resumable_train, final_aux_scan
+from ajax.logging.wandb_logging import LoggingConfig
+from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -54,7 +45,6 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
-from ajax.utils import fill_with_nan
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclass (for logging)
@@ -408,106 +398,6 @@ def update_agent(
 
 
 # ---------------------------------------------------------------------------
-# Training iteration (collect 1 step + maybe update + log)
-# ---------------------------------------------------------------------------
-
-
-def training_iteration(
-    agent_state: DQNState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
-    buffer: BufferType,
-    agent_config: DQNConfig,
-    total_timesteps: int,
-    log_frequency: Optional[int] = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    action_pipeline: Optional[Callable] = None,
-    td_target_fn: Callable = compute_dqn_td_target,
-    td_loss_fn: Callable = mse_td_loss,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> Tuple[DQNState, Any]:
-    timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
-
-    collect_scan_fn = partial(
-        collect_experience,
-        recurrent=False,
-        mode=mode,
-        env_args=env_args,
-        buffer=buffer,
-        uniform=uniform,
-        action_pipeline=action_pipeline,
-    )
-    agent_state, _transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=1
-    )
-    timestep = agent_state.collector_state.timestep
-
-    def do_update(agent_state):
-        update_scan_fn = partial(
-            update_agent,
-            buffer=buffer,
-            gamma=agent_config.gamma,
-            tau=agent_config.tau,
-            target_update_interval=agent_config.target_update_interval,
-            reward_scale=agent_config.reward_scale,
-            td_target_fn=td_target_fn,
-            td_loss_fn=td_loss_fn,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-        )
-        # Carry-only scan: only the final-step aux is materialised.
-        agent_state, aux = final_aux_scan(
-            update_scan_fn, agent_state, length=agent_config.n_gradient_steps
-        )
-        aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
-
-        # Extension post_update — folded once per training_iteration, after
-        # the gradient-step scan, so phi-refresh-style hooks see the
-        # updated agent_state. Empty stack ⇒ identity.
-        if extension_stack:
-            _pu_rng, rng2 = jax.random.split(agent_state.rng)
-            agent_state = agent_state.replace(rng=rng2)
-            agent_state = extension_stack.fold_post_update(
-                agent_state,
-                agent_state.collector_state.timestep,
-                _pu_rng,
-                total_timesteps,
-            )
-        return agent_state, aux
-
-    def skip_update(agent_state):
-        return agent_state, fill_with_nan(AuxiliaryLogs)
-
-    agent_state, aux = jax.lax.cond(
-        timestep >= agent_config.learning_starts,
-        do_update,
-        skip_update,
-        operand=agent_state,
-    )
-
-    agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        False,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        extra_eval_metrics=compose_eval_metrics(None, extension_stack, total_timesteps),
-    )
-    return agent_state, metrics_to_log
-
-
-# ---------------------------------------------------------------------------
 # Training factory
 # ---------------------------------------------------------------------------
 
@@ -532,18 +422,45 @@ def make_train(
     q_network_cls: Optional[type] = None,
     extensions: Sequence = (),
 ):
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids)
-
-    if logging_config is not None:
-        start_async_logging()
-
+    """DQN's train function: one step per env, then (from ``learning_starts``)
+    ``n_gradient_steps`` updates, per iteration."""
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
-
     # Resolve composable hooks to their vanilla-DQN defaults when unset.
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
+
+    def init(key: jax.Array, _pretrain_key: jax.Array) -> DQNState:
+        return init_DQN(
+            key=key,
+            env_args=env_args,
+            optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            buffer=buffer,
+            n_actions=n_actions,
+            q_network_cls=q_network_cls,
+        )
+
+    def update(agent_state: DQNState, _transition: Any) -> Any:
+        # The step just collected is in the buffer: DQN samples it from there.
+        gradient_step = partial(
+            update_agent,
+            buffer=buffer,
+            gamma=agent_config.gamma,
+            tau=agent_config.tau,
+            target_update_interval=agent_config.target_update_interval,
+            reward_scale=agent_config.reward_scale,
+            td_target_fn=td_target_fn,
+            td_loss_fn=td_loss_fn,
+            extension_stack=loop.stack,
+            total_timesteps=total_timesteps,
+        )
+        # Carry-only scan: only the final-step aux is materialised.
+        return final_aux_scan(
+            gradient_step, agent_state, length=agent_config.n_gradient_steps
+        )
 
     action_pipeline = make_epsilon_greedy_pipeline(
         env_args=env_args,
@@ -553,46 +470,10 @@ def make_train(
         epsilon_decay_frac=epsilon_decay_frac,
         total_timesteps=total_timesteps,
     )
-
-    num_updates = total_timesteps // env_args.n_envs
-
-    extension_stack = ExtensionStack(extensions)
-
-    def init_fn(key, _index):
-        agent_state = init_DQN(
-            key=key,
-            env_args=env_args,
-            optimizer_args=critic_optimizer_args,
-            network_args=network_args,
-            buffer=buffer,
-            n_actions=n_actions,
-            q_network_cls=q_network_cls,
-        )
-        return extension_stack.fold_init(agent_state, key, total_timesteps)
-
-    def make_scan_fn(_agent_state, _resume_from_state, _key, index):
-        return partial(
-            training_iteration,
-            buffer=buffer,
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
-            ),
-            action_pipeline=action_pipeline,
-            td_target_fn=td_target_fn,
-            td_loss_fn=td_loss_fn,
-            extension_stack=extension_stack,
-        )
-
-    return build_resumable_train(
-        init_fn=init_fn,
-        make_scan_fn=make_scan_fn,
-        num_updates=num_updates,
+    return loop.off_policy(
+        init,
+        update,
+        AuxiliaryLogs,
+        agent_config.learning_starts,
+        collect_kwargs={"buffer": buffer, "action_pipeline": action_pipeline},
     )

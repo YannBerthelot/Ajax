@@ -24,6 +24,13 @@ temperature optimizers all clipped at 0.5 before). Every fingerprint
 moved by 1e-3..2e-3 in the same direction — the plain-SAC parity goldens
 in ``tests/agents/SAC/test_sac_parity.py`` moved identically — so the
 shift is the optimizer change, not extension wiring.
+
+Re-captured when SAC moved the extensions' ``post_update`` after its
+update, on a key split from the state's as in ``TrainLoop.post_update``:
+every non-empty stack moved by 6e-5..7.4e-4 (the new key stream), the
+empty stack not at all. The five MCPretrain goldens were re-captured
+again when SAC's init drew the extensions' keys as ``TrainLoop`` does
+(MCPretrain trains phi* on a new key): moves of 9e-6..8.7e-4.
 """
 
 from __future__ import annotations
@@ -548,11 +555,6 @@ def test_value_box_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        # ``use_box`` on the SAC class is kept because it gates the
-        # ``_box_v_min/_box_v_max`` resolution from MC-pretrain
-        # ``expert_v_min/v_max`` inside :func:`make_scan_fn`. The
-        # ValueBox extension owns the override math via :meth:`action`.
-        use_box=True,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,

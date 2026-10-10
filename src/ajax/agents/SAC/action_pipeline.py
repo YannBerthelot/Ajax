@@ -125,11 +125,6 @@ def make_action_pipeline(
     recurrent,
     env_args,
     extension_stack: Optional[ExtensionStack] = None,
-    # Box bounds: only consumed when a :class:`ValueBox` is present in
-    # the extension stack. The SAC factory passes the MC-pretrain
-    # ``expert_v_min`` / ``expert_v_max`` (or 0.0 on resume / no MC).
-    box_v_min=0.0,
-    box_v_max=0.0,
     # Action transforms
     use_residual_rl=False,
     residual_scale=1.0,
@@ -324,8 +319,6 @@ def make_action_pipeline(
                     "expert_action": expert_action,
                     "env_action": env_action,
                     "raw_obs": raw_obs,
-                    "box_v_min": box_v_min,
-                    "box_v_max": box_v_max,
                     "total_timesteps": total_timesteps,
                 },
                 "env_action",

@@ -37,7 +37,7 @@ class SAC(ActorCritic):
     Several kwargs survived because they thread into network init,
     collection, or the action pipeline at a level the extension
     framework doesn't reach (``residual``, ``jsrl_curriculum``,
-    ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
+    ``use_bellman_critic_pretrain``, ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
     ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``).
     They mirror the matching extension's "static" flag.
@@ -114,7 +114,7 @@ class SAC(ActorCritic):
         # gates the expert-action telemetry / loss term inside
         # ``update_agent`` (deeper than extension surface). The
         # ExpertGuidance extension owns the user-facing config; these
-        # mirror its fields so ``init_SAC`` / ``training_iteration``
+        # mirror its fields so ``init_SAC`` / ``update_agent``
         # can read them as plain Python values.
         use_expert_guidance: bool = False,
         num_critic_updates: int = 1,
@@ -135,10 +135,6 @@ class SAC(ActorCritic):
         # Update start thresholds
         policy_update_start: int = 2_000,
         alpha_update_start: int = 2_000,
-        # Value-threshold box: gates ``_box_v_min/_box_v_max``
-        # resolution in ``make_scan_fn``; the ValueBox extension owns
-        # the override math via :meth:`action`.
-        use_box: bool = False,
         # Warmup expert-vs-uniform mix fraction (gates uniform sampling
         # in the action pipeline). Distinct from the ExpertGuidance
         # extension's own fields.
@@ -263,7 +259,6 @@ class SAC(ActorCritic):
         self.use_train_frac = use_train_frac
         self.policy_update_start = policy_update_start
         self.alpha_update_start = alpha_update_start
-        self.use_box = use_box
         self.expert_fraction = expert_fraction
         self.augment_obs_with_expert_state = augment_obs_with_expert_state
         self.store_policy_action = store_policy_action
@@ -305,7 +300,6 @@ class SAC(ActorCritic):
             use_train_frac=self.use_train_frac,
             policy_update_start=self.policy_update_start,
             alpha_update_start=self.alpha_update_start,
-            use_box=self.use_box,
             expert_fraction=self.expert_fraction,
             augment_obs_with_expert_state=self.augment_obs_with_expert_state,
             store_policy_action=self.store_policy_action,

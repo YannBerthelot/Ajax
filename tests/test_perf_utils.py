@@ -1,11 +1,14 @@
 """perf_utils: the resume iteration offset and the shared input of
 build_resumable_train / ActorCritic.train."""
 
+from types import SimpleNamespace
+
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, shared_counters
 from ajax.perf_utils import build_resumable_train
 
 # ---------------------------------------------------------------------------
@@ -110,6 +113,22 @@ def test_actor_critic_keeps_the_resume_offset_unbatched_under_the_seed_vmap():
     agent.train(seed=[0, 1], n_timesteps=3, initial_state=state)
     jax.effects_barrier()
     assert record == [3]
+
+
+def test_a_resume_reads_the_counters_its_seeds_share():
+    """The resumed timestep and logged evaluations, unbatched; none for a
+    state without them; seeds standing at different points are refused."""
+
+    def state(timesteps):
+        collector = SimpleNamespace(timestep=jnp.array(timesteps, jnp.int32))
+        return SimpleNamespace(collector_state=collector, n_logs=jnp.array([2, 2]))
+
+    counters = shared_counters(state([5, 5]))
+    assert {k: int(v) for k, v in counters.items()} == {"timestep": 5, "n_logs": 2}
+    assert all(v.shape == () for v in counters.values())
+    assert shared_counters({"ticks": jnp.array([3, 3])}) == {}
+    with pytest.raises(ValueError, match="timestep differ"):
+        shared_counters(state([5, 6]))
 
 
 def test_default_resume_offset_keeps_existing_agents_unchanged():

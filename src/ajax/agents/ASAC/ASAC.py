@@ -65,6 +65,7 @@ class ASAC(ActorCritic):
         stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         pid_actor_config: Optional[PIDActorConfig] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
@@ -104,6 +105,7 @@ class ASAC(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
             extensions=extensions,
         )

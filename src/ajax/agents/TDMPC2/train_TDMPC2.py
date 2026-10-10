@@ -440,6 +440,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     *,
     gamma: float,
     schedule: Schedule,
@@ -452,8 +453,9 @@ def make_train(
 ) -> Callable:
     """TD-MPC2's train function on :meth:`TrainLoop.off_policy`.
 
-    ``total_timesteps`` counts env steps (summed over envs); the scan runs
-    :meth:`Schedule.num_ticks` ticks from ``start_tick``, the absolute tick a
+    ``total_timesteps`` counts env steps (summed over envs), the run's
+    horizon (:class:`TrainLoop`); the scan runs :meth:`Schedule.num_ticks`
+    ticks of the call's budget from ``start_tick``, the absolute tick a
     resumed run starts at (the ``iteration_offset`` the agent's ``train``
     passes, :meth:`ajax.agents.TDMPC2.TDMPC2.TDMPC2.resume_iteration_offset`;
     0 for a fresh run). ``schedule`` and ``buffer`` are the agent's (the
@@ -469,7 +471,13 @@ def make_train(
     del actor_optimizer_args, critic_optimizer_args, network_args
     config = agent_config
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, pretrain_key: jax.Array) -> TDMPC2State:
@@ -503,7 +511,7 @@ def make_train(
                 num_episodes=num_episode_test,
             ),
         ),
-        num_ticks=schedule.num_ticks(total_timesteps, start_tick),
+        num_ticks=schedule.num_ticks(loop.budget, start_tick),
     )
 
 

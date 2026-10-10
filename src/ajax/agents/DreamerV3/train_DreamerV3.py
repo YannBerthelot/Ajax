@@ -571,6 +571,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     *,
     config: DreamerV3Config,
     replay_rows_per_env: int,
@@ -578,7 +579,8 @@ def make_train(
 ) -> Callable:
     """DreamerV3's train function on :meth:`TrainLoop.off_policy`.
 
-    ``total_timesteps`` counts rows: ``total_timesteps // n_envs`` ticks.
+    ``total_timesteps`` counts rows, the run's horizon (:class:`TrainLoop`):
+    the call runs its budget ``// n_envs`` ticks.
     ``replay_rows_per_env`` is the ring length ``C`` the agent resolved.
     The optimizer, network and actor/critic-split arguments of the shared
     :meth:`ActorCritic.train` are unused: :class:`DreamerV3Config` holds
@@ -615,6 +617,7 @@ def make_train(
         run_ids,
         logging_config,
         stack.extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, pretrain_key: jax.Array) -> DreamerV3State:

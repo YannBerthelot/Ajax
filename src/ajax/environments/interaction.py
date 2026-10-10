@@ -22,6 +22,7 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
+from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_REWARD_KEY
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -124,6 +125,12 @@ def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
         if key in info:
             return info[key]
     return fallback
+
+
+def get_raw_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
+    """:func:`get_final_obs` in the env's own units: an observation
+    normaliser normalises the final observation and keeps the raw one."""
+    return info.get(RAW_FINAL_OBS_KEY, get_final_obs(info, fallback))
 
 
 def bootstrap_obs(
@@ -262,10 +269,14 @@ def step(
                 lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
                 env_state.normalization_info.obs,
             )
-            reward_norm_info = jax.tree.map(
-                lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
-                env_state.normalization_info.reward,
-            )
+            reward_norm_info = env_state.normalization_info.reward
+            if reward_norm_info is not None:
+                # One normaliser per env: the statistics are pooled, each
+                # env's discounted-return accumulator stays its own.
+                reward_norm_info = jax.tree.map(
+                    lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
+                    reward_norm_info.replace(returns=None),
+                ).replace(returns=reward_norm_info.returns)
             env_state = env_state.replace(
                 normalization_info=env_state.normalization_info.replace(
                     obs=obs_norm_info, reward=reward_norm_info
@@ -491,19 +502,6 @@ def assert_shape(x, expected_shape, name="tensor"):
     ), f"{name} has shape {x.shape}, expected {expected_shape}"
 
 
-def compute_episodic_reward_mean(
-    agent_state: BaseAgentState,
-    reward: jnp.ndarray,
-    done: jnp.ndarray,
-    env: Environment,
-    mode: str,
-) -> tuple[RollinEpisodicMeanRewardState, jnp.ndarray]:
-    reward = get_raw_reward(reward, env, agent_state, mode)
-    return update_episodic_return(
-        agent_state.collector_state.episodic_return_state, reward, done
-    )
-
-
 def update_episodic_return(
     episodic_return_state: RollinEpisodicMeanRewardState,
     reward: jnp.ndarray,
@@ -564,21 +562,6 @@ def update_episodic_return(
     )
 
     return new_episodic_return_state, jnp.mean(episodic_mean_return)
-
-
-def get_raw_reward(reward, env, agent_state, mode):
-    if "unnormalize_reward" in dir(env):
-        raw_reward = env.unnormalize_reward(
-            reward,
-            (
-                agent_state.collector_state.env_state.norm_info.reward
-                if mode == "gymnax"
-                else agent_state.collector_state.env_state.info["norm_info"]
-            ),
-        )
-    else:
-        raw_reward = reward
-    return raw_reward
 
 
 def get_action_and_log_probs(
@@ -880,15 +863,16 @@ def collect_experience(
     # Read before the train_frac column below, which info's final obs lacks.
     final_obs = get_final_obs(info, obsv).astype(obsv.dtype)
 
-    # Append train_time_fraction to observation
+    # An agent conditioned on the training fraction sees it as a last
+    # column of every observation, the next one (the final observation off
+    # an episode end) included.
     train_frac = (
         agent_state.collector_state.train_time_fraction
         if agent_state.collector_state.max_timesteps is not None
         else None
     )
-    obsv = maybe_append_train_frac(obsv, train_frac=train_frac)
-
-    raw_next_obs = get_final_obs(info, obsv)
+    raw_next_obs = maybe_append_train_frac(get_final_obs(info, obsv), train_frac)
+    obsv = maybe_append_train_frac(obsv, train_frac)
 
     # Box reward/termination modification (no-op when entry_bonus is zeros)
     reward = reward + entry_bonus[..., 0]
@@ -906,7 +890,7 @@ def collect_experience(
     )
     if next_expert_fn is not None:
         _next_a_expert_for_buf = jax.lax.stop_gradient(
-            next_expert_fn(new_expert_state, raw_next_obs)
+            next_expert_fn(new_expert_state, get_raw_final_obs(info, raw_next_obs))
         )
     else:
         _next_a_expert_for_buf = jnp.zeros_like(buffer_action)
@@ -979,12 +963,17 @@ def collect_experience(
         next_a_expert=_next_a_expert_for_buf,
     )
 
-    new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
-        agent_state=agent_state,
-        reward=reward,
+    # The Train return sums what the env paid, in its own units (a reward
+    # normaliser keeps it in info), and the value box's bonus.
+    paid = (
+        info[RAW_REWARD_KEY].astype(jnp.float32) + entry_bonus[..., 0]
+        if RAW_REWARD_KEY in info
+        else reward
+    )
+    new_episodic_return_state, episodic_mean_return = update_episodic_return(
+        agent_state.collector_state.episodic_return_state,
+        paid,
         done=jnp.logical_or(terminated, truncated),
-        env=env_args.env,
-        mode=mode,
     )
 
     # Per-env step_in_episode counter for JSRL curriculum: increment

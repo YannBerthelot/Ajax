@@ -354,6 +354,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
     pid_actor_config: Optional[PIDActorConfig] = None,
@@ -362,7 +363,13 @@ def make_train(
     """APO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, pretrain_key: jax.Array) -> APOState:

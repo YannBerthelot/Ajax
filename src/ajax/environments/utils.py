@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -78,6 +78,23 @@ def get_raw_env(env: EnvType) -> EnvType:
     if hasattr(env, "env"):
         return get_raw_env(env.env)
     return env
+
+
+def wrapper_chain(env: Any):
+    """``env`` and every env it wraps, outermost first.
+
+    Follows the attribute each wrapper stores its inner env in (``_env`` for
+    gymnax wrappers, ``env`` for brax / Ajax brax-stack wrappers), read from
+    the instance dict so attribute forwarding (``__getattr__``) is never
+    mistaken for a wrapped env.
+    """
+    seen: set = set()
+    layer = env
+    while layer is not None and id(layer) not in seen:
+        seen.add(id(layer))
+        yield layer
+        attrs = getattr(layer, "__dict__", {})
+        layer = attrs.get("_env", attrs.get("env"))
 
 
 def check_env_is_playground(env) -> bool:

@@ -635,7 +635,6 @@ _SKIP = {"cloning pre-training skipped": 0.0}
 _RAW = {"trained on standardised, queried on raw observations": 0.5}
 SIGNED = (Query("a(-1)", -0.5, _SKIP), Query("a(1)", 0.5, _SKIP))
 SHIFTED = (Query("a(1)", -0.5, _RAW | _SKIP), Query("a(3)", 0.5, _SKIP))
-STANDARDISED = "the cloning pre-training standardises its observations (cloning.py:301-304) but seeds the runtime statistics only when obs_norm_info is set (cloning.py:505; None unless normalize_obs_running, interaction.py:1251-1255), so get_pi queries the actor on raw observations (interaction.py:347-350); right a(1) = -0.5, today +0.5 (on {-1, 1} z is within 0.005 of s)"
 # Epochs (10, 20): 10, the default, qualifies; cert 32/32. APO's update moves
 # its action outwards (at 4 steps per iteration no rung qualified).
 CLONED = {"SAC": (0.02, 0.02), "REDQ": (0.02, 0.02), "APO": (0.071, 0.081), "TD3": ()}
@@ -647,7 +646,6 @@ for name, shift, queries in (("cloning", 0.0, SIGNED), ("shifted", 2.0, SHIFTED)
             cloning(agent, shift),
             0,
             () if shift else tol,
-            STANDARDISED if shift else "",
             slow=True,
         )
 

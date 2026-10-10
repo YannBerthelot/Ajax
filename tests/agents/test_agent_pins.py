@@ -325,7 +325,6 @@ _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
     "PPO-flat": {"actor": 20.36318016052246, "critic": 21.18039321899414},
-    "PPO-env-split": {"actor": 19.09400177001953, "critic": 20.218984603881836},
     "PPO-unroll": {"actor": 20.432720184326172, "critic": 21.03376007080078},
     "PPO-gru": {"actor": 69.55516052246094, "critic": 68.83757019042969},
     "PPO-discrete-nudge": {
@@ -385,6 +384,13 @@ _GOLDEN |= {
 _GOLDEN |= {
     "APG-nudge": {"actor": 35.82789611816406, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.82305145263672, "nudge": 0.27262088656425476},
+}
+
+# Recorded on macOS ARM CPU once PPO trained on the observations its env
+# normaliser handed it at collection, not re-normalised at the loss with the
+# latest agent-side statistics (actor -0.16%, critic -0.04%).
+_GOLDEN |= {
+    "PPO-env-split": {"actor": 19.064250946044922, "critic": 20.2108154296875},
 }
 
 # Recorded on macOS ARM CPU once the observation normaliser normalised the

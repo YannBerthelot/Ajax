@@ -784,10 +784,7 @@ def q8_run(cell: str) -> runs.Run:
     return runs.train(model, STAGE_1, 10 * per, per)
 
 
-NORMALIZED = pytest.mark.skip(
-    reason="right answer awaits an owner decision: PPO's agent-side observation statistics move at every collection step (interaction.py:742-755) but the loss normalises with the end-of-rollout statistics (clip_fraction 0.56 in the first rollout, 0 from about the 13th)"
-)
-Q8_MARKS = {"PPO-squash": [], "PPO-normalized": [NORMALIZED]}
+Q8_MARKS: dict[str, list] = {"PPO-squash": []}
 
 
 @pytest.mark.parametrize(

@@ -63,11 +63,8 @@ wandb = "^0.19.9"
 
 
 
-[tool.poetry.group.hyperparameters.dependencies]
-optuna = "^4.5.0"
-
-# The Plane experiment scripts (sweep/) need target_gym; the framework does
-# not. Opt in with `poetry install --with plane`.
+# The Plane3DCircle scenarios of benchmarks/perf_bench.py need target_gym;
+# the framework does not. Opt in with `poetry install --with plane`.
 [tool.poetry.group.plane]
 optional = true
 

@@ -189,7 +189,6 @@ pending_runs.json
 profile
 *.db
 pyrightconfig.json
-sweep/**/results/
 expert_policy.pkl
 hp_results/
 plots/

@@ -137,10 +137,10 @@ python benchmarks/perf_bench.py --tag cache_warm --scenario p3dcircle_sac
 The synthetic Pendulum / Plane3DCircle benches above show near-ideal
 scaling. Scanning the actual HPO results in
 [hp_results/](../AjaxExperiments/hp_results/) tells a different
-story. The harness lives at
-[`benchmarks/hpo_seed_scan.py`](benchmarks/hpo_seed_scan.py); it reads
+story. The harness was `benchmarks/hpo_seed_scan.py` (removed with
+the other experiment scripts in 2026-10; it is in git history); it read
 `elapsed_s`, `n_seeds`, `phase` from every `trial_NNN_result.json`
-and reports microseconds per (seed × timestep) at N=20 (Phase 1) and
+and reported microseconds per (seed × timestep) at N=20 (Phase 1) and
 N=50 (Phase 2/3).
 
 If scaling were ideal, the P2/P1 ratio would be < 1 (more seeds means
@@ -223,8 +223,7 @@ Pragmatic operational advice given the current state:
 
 - **Stop assuming sublinear scaling holds past the L2-cache crossover
   for your method.** It only holds for some method-env-config combos.
-  Measure with `benchmarks/hpo_seed_scan.py` before committing to a
-  large-N study.
+  Measure per-seed-per-step cost before committing to a large-N study.
 - **For methods on the regression list above, the cheapest seed
   budget is at the largest N where the per-seed-per-step cost is
   still < ~1.5× the N=1 number.** This is empirical; there's no
@@ -272,11 +271,9 @@ The bf16 plumbing has been **fully removed** from
 [`networks/utils.py`](src/ajax/networks/utils.py). The
 `AJAX_BF16_NETS` / `AJAX_BF16_PARAMS` / `AJAX_BF16_CRITIC` env vars
 are no longer read anywhere; setting them has no effect. The
-convergence-parity harness
-([`benchmarks/convergence_check.py`](benchmarks/convergence_check.py))
-stays in tree because the `--match-hpo-metric` flag is generally
-useful for any future precision / algorithmic experiment that needs
-to be compared apples-to-apples against the HPO leaderboard.
+convergence-parity harness (`benchmarks/convergence_check.py`) and its
+`convergence*.jsonl` results were removed with the other experiment
+scripts in 2026-10; they are in git history.
 
 The historical Patch #11 / #12 results below are preserved as a
 record of what was tried and why it was rejected.
@@ -380,9 +377,9 @@ Re-ran with the **same configuration the HPO harness uses**:
 - `normalize_obs_running=True` (set by HPO's `_build_method_kwargs("sac")`)
 - `num_critics=2` (HPO vanilla SAC default)
 - 20 seeds (matching HPO's seed-per-trial count)
-- `convergence_check.py --match-hpo-metric` writes
+- `convergence_check.py --match-hpo-metric` wrote
   `Eval/episodic_mean_reward` to a tensorboard folder during training
-  and reads the last logged value across all run_ids — exactly
+  and read the last logged value across all run_ids — exactly
   reproducing AjaxExperiments' `read_final_metric`
   ([sac_hyperparam_search.py:528-563](../AjaxExperiments/sac_hyperparam_search.py#L528-L563)).
 
@@ -420,10 +417,10 @@ two metrics differ only in random seed selection.)
   wall-clock and -2% memory.
 - **Do not ship `AJAX_BF16_PARAMS=1`**. Catastrophic on both envs.
 
-Reproducibility: any future precision experiment can use
-`benchmarks/convergence_check.py --match-hpo-metric` to emit the
-same metric AjaxExperiments reads, so future numbers are directly
-comparable to the HPO leaderboard.
+Reproducibility: these numbers came from
+`benchmarks/convergence_check.py --match-hpo-metric`, which emitted the
+same metric AjaxExperiments reads. The script was removed in 2026-10
+and is in git history.
 
 ## Patch #12: full bf16 (actor + critic + params) (2026-05-08)
 

@@ -13,6 +13,7 @@ from ajax.environments.utils import (
     env_action_repeat,
     get_env_type,
 )
+from ajax.types import EnvNormalizationInfo
 from ajax.wrappers import (
     AutoResetWrapper,
     FinalObsWrapper,
@@ -330,6 +331,36 @@ def build_env_from_id(
     raise ValueError(f"Environment {env_id} not found in gymnax or brax")
 
 
+def add_ajax_wrappers(
+    env: EnvType,
+    *,
+    clip: bool = False,
+    normalize_obs: bool = False,
+    normalize_reward: bool = False,
+    gamma: Optional[float] = None,
+    apply_obs_normalization: bool = True,
+    train: bool = True,
+    norm_info: Optional[EnvNormalizationInfo] = None,
+) -> EnvType:
+    """Ajax's own layers over a task env: the observation / reward
+    normaliser (``train=False`` with ``norm_info`` freezes its statistics),
+    then the ``[-1, 1]`` action clip. The one place they are composed."""
+    ClipAction, NormalizeVecObservation = get_wrappers(get_env_type(env))
+    if normalize_obs or normalize_reward:
+        env = NormalizeVecObservation(
+            env,
+            train=train,
+            norm_info=norm_info,
+            normalize_obs=normalize_obs,
+            normalize_reward=normalize_reward,
+            gamma=gamma if normalize_reward else None,
+            apply_normalization=apply_obs_normalization,
+        )
+    if clip:
+        env = ClipAction(env)
+    return env
+
+
 def prepare_env(
     env_id: Union[str, EnvType],
     episode_length: Optional[int] = None,
@@ -370,22 +401,14 @@ def prepare_env(
                 " its id."
             )
     continuous = check_if_environment_has_continuous_actions(env)
-
-    mode = get_env_type(env)
-    if normalize_obs or normalize_reward:
-        ClipAction, NormalizeVecObservation = get_wrappers(mode)
-
-    # Apply wrappers based on flags
-    if normalize_obs or normalize_reward:
-        env = ClipAction(
-            NormalizeVecObservation(
-                env,
-                normalize_reward=normalize_reward,
-                normalize_obs=normalize_obs,
-                gamma=gamma if normalize_reward else None,
-                apply_normalization=apply_obs_normalization,
-            )
-        )
+    env = add_ajax_wrappers(
+        env,
+        clip=normalize_obs or normalize_reward,
+        normalize_obs=normalize_obs,
+        normalize_reward=normalize_reward,
+        gamma=gamma,
+        apply_obs_normalization=apply_obs_normalization,
+    )
     if noise_scale is not None:
         print("noise wrapper")
         env = NoiseWrapper(env, scale=noise_scale)

@@ -224,7 +224,7 @@ src/ajax/
 ├── state.py                 # Shared config dataclasses
 ├── wrappers.py              # Env wrappers (AutoReset, Normalize, Noise, …)
 ├── evaluate.py, log.py      # Eval loop and metric logging
-└── schedule.py              # Scalar schedules (constant, linear, exponential, polynomial)
+└── schedule.py              # Optimizer step schedules (warmup_cosine_schedule)
 
 tests/                       # Unit + probing tests (see tests/agents/test_probing.py)
 ```

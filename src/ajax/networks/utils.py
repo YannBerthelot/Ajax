@@ -45,10 +45,6 @@ def get_adam_tx(
         GradientTransformationExtraArgs: The configured optimizer.
 
     """
-    # # if not isinstance(learning_rate, float):
-    # learning_rate = (
-    #     1.0  # deactivate learning_rate here, to handle it custom in the training loop
-    # )
     if weight_decay < 0:
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
     if weight_decay > 0:

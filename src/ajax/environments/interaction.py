@@ -161,10 +161,6 @@ def reset(
     return obsv, env_state
 
 
-# @partial(
-#     jax.jit,
-#     static_argnames=["mode", "env"],
-# )
 def step(
     rng: jax.Array,
     state: jax.Array,
@@ -224,7 +220,6 @@ def step(
         else:
             out = step_wrapper(rng, state, action, env_params)
 
-        # jax.debug.print("Action: {action}", action=action)
         if len(out) == 5:
             # Pre-1.0 five-value contract: a single ``done`` that folds the
             # time limit into termination. Prefer the env's own ``truncated``
@@ -261,10 +256,7 @@ def step(
             env_state.done,
             env_state.info,
         )
-        # if "truncation" in info:
         truncated = env_state.info["truncation"]
-        # else:
-        #     truncated = jnp.zeros_like(done)
         terminated = done * (1 - truncated)
 
     else:
@@ -1163,7 +1155,6 @@ def collect_experience_from_expert_policy(
     return transitions
 
 
-# @partial(jax.jit, static_argnames=["mode", "env_args", "buffer", "window_size"])
 def init_collector_state(
     rng: jax.Array,
     env_args: EnvironmentConfig,
@@ -1252,7 +1243,7 @@ def init_collector_state(
     if normalize_obs_running:
         from ajax.agents.obs_norm import init_agent_obs_norm
 
-        obs_norm_info = init_agent_obs_norm(env_args.n_envs, last_obs.shape[-1])
+        obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
 
     return CollectorState(
         rng=rng,

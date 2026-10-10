@@ -22,7 +22,7 @@ from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo, init_norm_info
 
 
-def init_agent_obs_norm(n_envs: int, obs_dim: int) -> NormalizationInfo:
+def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
     """Initialise running stats for an obs vector of size ``obs_dim``.
 
     Stats are stored with leading shape 1 (not ``n_envs``): online_normalize
@@ -30,10 +30,8 @@ def init_agent_obs_norm(n_envs: int, obs_dim: int) -> NormalizationInfo:
     same scalar stats anyway, and ``apply_obs_norm`` only needs the
     per-feature mean/var. The size-1 leading axis preserves broadcasting
     against batched obs ``(*, obs_dim)`` while saving an n_envs× memory
-    factor on every checkpoint and vmap broadcast. ``n_envs`` is kept in
-    the signature for backwards compatibility but ignored.
+    factor on every checkpoint and vmap broadcast.
     """
-    del n_envs
     return init_norm_info(batch_size=1, obs_shape=(obs_dim,))
 
 
@@ -73,28 +71,3 @@ def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.n
     std = jnp.sqrt(info.var + 1e-8)
     normalized = (obs - info.mean) / std
     return jnp.where(count_total > 0, normalized, obs)
-
-
-def seed_obs_norm_from_dataset(
-    dataset_obs: jnp.ndarray, n_envs: int
-) -> NormalizationInfo:
-    """Compute one-shot stats from a fixed BC dataset and emit a
-    NormalizationInfo seeded with those values, so the agent's
-    online running stats start at the BC dataset's distribution.
-    Subsequent online updates evolve the stats from there.
-
-    ``dataset_obs`` shape: ``(T, n_envs, obs_dim)`` or ``(N, obs_dim)``.
-    """
-    del n_envs  # kept for signature compatibility; stats are not per-env
-    flat = dataset_obs.reshape(-1, dataset_obs.shape[-1])
-    mean = flat.mean(axis=0, keepdims=True)
-    var = flat.var(axis=0, keepdims=True) + 1e-6
-    n = flat.shape[0]
-    # Stats live with leading axis size 1 (see init_agent_obs_norm).
-    return NormalizationInfo(
-        count=jnp.full((1, 1), float(n)),
-        mean=mean,
-        mean_2=var * n,
-        var=var,
-        returns=None,
-    )

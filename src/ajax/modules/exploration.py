@@ -404,19 +404,6 @@ def box_action_override(
     return jnp.where(in_box, expert_action, action)
 
 
-def box_modify_reward_done(
-    reward: jax.Array,
-    terminated: jax.Array,
-    entry_bonus: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
-    """Add entry bonus to reward and mark as terminal on entry."""
-    reward = reward + entry_bonus[..., 0]
-    terminated = jnp.logical_or(
-        terminated.astype(bool), entry_bonus[..., 0] > 0
-    ).astype(terminated.dtype)
-    return reward, terminated
-
-
 # ---------------------------------------------------------------------------
 # Diagnostics
 # ---------------------------------------------------------------------------

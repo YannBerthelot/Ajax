@@ -5,7 +5,6 @@ the core SAC algorithm. They compose at the call site:
 
 Critic-side target modifiers:
     target_q = core.compute_td_target(...)
-    target_q = ibrl_modify_target(target_q, ...)      # optional
     target_q = blend_modify_target(target_q, ...)[0]   # optional
     target_q = mc_correction_modify_target(target_q, ...)[0]  # optional
 
@@ -32,24 +31,6 @@ from ajax.networks.networks import predict_value
 # ---------------------------------------------------------------------------
 # Critic-side target modifiers
 # ---------------------------------------------------------------------------
-
-
-def ibrl_modify_target(
-    target_q: jax.Array,
-    min_q_target_from_core: jax.Array,
-    critic_state,
-    next_observations: jax.Array,
-    next_expert_actions: jax.Array,
-) -> jax.Array:
-    """IBRL: max(Q_policy, Q_expert) so value function matches argmax policy."""
-    q_targets_expert = predict_value(
-        critic_state=critic_state,
-        critic_params=critic_state.target_params,
-        x=jnp.concatenate((next_observations, next_expert_actions), axis=-1),
-    )
-    min_q_target_expert = jnp.min(q_targets_expert, axis=0, keepdims=False)
-    gap = jnp.maximum(min_q_target_expert - min_q_target_from_core, 0.0)
-    return target_q + gap
 
 
 def blend_modify_target(

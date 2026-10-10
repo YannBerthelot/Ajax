@@ -11,7 +11,6 @@ from ajax.modules.exploration import (
     box_action_override,
     box_compute_state,
     box_compute_threshold,
-    box_modify_reward_done,
     compute_edge_diagnostics,
     edge_argmax_gate,
     edge_boltzmann_gate,
@@ -198,17 +197,6 @@ def test_box_action_override_passes_through_outside_box():
     expert = jnp.array([[0.9, -0.9]])
     out = box_action_override(action, expert, in_box=jnp.asarray(False))
     assert jnp.allclose(out, action)
-
-
-def test_box_modify_reward_done_adds_entry_bonus_and_sets_terminal():
-    reward = jnp.array([0.5, 0.5])
-    terminated = jnp.array([False, False])
-    entry_bonus = jnp.array([[2.0], [0.0]])
-    new_reward, new_term = box_modify_reward_done(reward, terminated, entry_bonus)
-    assert jnp.allclose(new_reward, jnp.array([2.5, 0.5]))
-    # First sample had a non-zero bonus so it must be marked terminal.
-    assert bool(new_term[0])
-    assert not bool(new_term[1])
 
 
 # ---------------------------------------------------------------------------

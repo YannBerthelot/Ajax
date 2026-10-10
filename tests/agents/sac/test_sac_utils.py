@@ -2,20 +2,9 @@ import distrax
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.SAC.utils import (  # correct_log_probs,; sample_actions_and_log_prob,
+from ajax.agents.SAC.utils import (
     SquashedNormal,
 )
-
-# def test_correct_log_probs():
-#     log_prob = jnp.array([1.0, 2.0])
-#     raw_action = jnp.array([[0.5, -0.5], [1.0, -1.0]])
-
-#     corrected = correct_log_probs(log_prob, raw_action)
-
-#     assert corrected.shape == log_prob.shape, "Shape mismatch in corrected log probs."
-#     assert jnp.all(
-#         jnp.isfinite(corrected)
-#     ), "Corrected log probs contain invalid values."
 
 
 def test_sample_actions_and_log_prob():

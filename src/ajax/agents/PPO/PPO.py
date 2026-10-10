@@ -8,14 +8,10 @@ from ajax.agents.base import ActorCritic
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train
 from ajax.extensions.base import Extension
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-)
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import OptimizerConfig
 from ajax.types import EnvType, InitializationFunction
-from ajax.utils import get_and_prepare_hyperparams
 
 
 class PPO(ActorCritic):
@@ -253,80 +249,3 @@ class PPO(ActorCritic):
             reward_shaping_fn=self.reward_shaping_fn,
             extensions=tuple(self.extension_stack.extensions),
         )
-
-
-if __name__ == "__main__":
-    n_seeds = 100
-    log_frequency = 20_000
-    use_wandb = True
-    logging_config = LoggingConfig(
-        project_name="mission_debug_PPO_Ant_3",
-        run_name="PPO",
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-            "faulty_boostrap": False,
-        },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=True,
-        use_wandb=use_wandb,
-    )
-    # env_id = "HalfCheetah-v4"
-    # env_id = "CartPole-v1"
-    env_id = "Ant-v4"
-    init_hyperparams, train_hyperparams = get_and_prepare_hyperparams(
-        "./hyperparams/ppo.yml", env_id=env_id
-    )
-
-    print(train_hyperparams)
-
-    def process_brax_env_id(env_id: str) -> str:
-        """Remove version from env_id for brax compatibility."""
-        short_env_id = env_id.split("-")[0].lower()
-        brax_envs = [
-            "hopper",
-            "halfcheetah",
-            "hopper",
-            "walker2d",
-            "humanoid",
-            "reacher",
-            "swimmer",
-        ]
-        if short_env_id in brax_envs:
-            return short_env_id
-        return env_id
-
-    env_id = process_brax_env_id(env_id)
-
-    env_id = "CartPole-v1"
-    # env_id = "Pendulum-v1"
-
-    # env, env_params = gymnax.make(env_id)
-
-    PPO_agent = PPO(
-        env_id=env_id,
-        # batch_size=256,
-        # gamma=0.999,
-        # clip_range=0.1,
-        # # n_envs=8,
-        # # n_steps=1024,
-        # actor_learning_rate=3e-4,
-        # critic_learning_rate=1e-3,
-        # # **init_hyperparams,
-        # normalize_observations=True,
-        # normalize_rewards=True,
-        # ent_coef=1e-7,
-        # n_envs=1,
-        # n_steps=512,
-        # gae_lambda=0.8,
-        # n_envs=1,
-        # n_steps=8,
-    )  # Remove version from env_id for brax compatibility
-    PPO_agent.train(
-        seed=list(range(n_seeds)),
-        logging_config=logging_config,
-        n_timesteps=int(1e6),
-        # **train_hyperparams,
-    )

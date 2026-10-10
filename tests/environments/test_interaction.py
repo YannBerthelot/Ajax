@@ -9,9 +9,8 @@ from gymnax.environments.classic_control.pendulum import EnvParams as PendulumPa
 
 import ajax.environments.interaction as step_module
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.buffers.utils import get_buffer, init_buffer
+from ajax.buffers.utils import get_buffer
 from ajax.environments.interaction import (
-    collect_experience,
     get_action_and_new_agent_state,
     get_pi,
     init_collector_state,
@@ -28,13 +27,6 @@ from ajax.state import (
 )
 
 n_envs = 4
-
-
-class ReshapedCategorical(distrax.Categorical):
-    """A Normal distribution with tanh-squashed samples and corrected log probabilities."""
-
-    def sample(self, seed: jax.Array) -> jax.Array:
-        return super().sample(seed=seed)[:, None]
 
 
 @pytest.fixture
@@ -258,7 +250,6 @@ def test_get_action_and_new_agent_state(
     if recurrent:
         assert new_agent_state.actor_state.hidden_state.shape == (n_envs, 2)
 
-    # assert not jnp.array_equal(new_agent_state.rng, agent_state.rng)
     assert jnp.array_equal(new_agent_state.eval_rng, agent_state.eval_rng)
 
 
@@ -373,147 +364,6 @@ def test_get_action_and_new_agent_state_recurrent_without_done(
 
     with pytest.raises(AssertionError):
         get_action_and_new_agent_state(rng, agent_state, obs, recurrent=True)
-
-
-@pytest.mark.skip
-def test_collect_experience_non_recurrent_discrete(
-    mock_actor_state_discrete, gymnax_env
-):
-    """Test collect_experience in non-recurrent mode for discrete action environments."""
-    env, env_params = gymnax_env
-    reset_key, rng = jax.random.split(jax.random.PRNGKey(0))
-    reset_keys = jax.random.split(reset_key, n_envs)
-    obs, env_state = reset(reset_keys, env, mode="gymnax", env_params=env_params)
-    env_args = EnvironmentConfig(
-        env=env,
-        env_params=env_params,
-        n_envs=n_envs,
-        continuous=False,
-    )
-    buffer = get_buffer(buffer_size=10, batch_size=2, n_envs=n_envs)
-    buffer_state = init_buffer(buffer, env_args=env_args)
-    collector_state = CollectorState(
-        rng=rng,
-        env_state=env_state,
-        last_obs=obs,
-        last_terminated=jnp.zeros((n_envs,)),
-        last_truncated=jnp.zeros((n_envs,)),  # Added last_done
-        buffer_state=buffer_state,
-    )
-
-    agent_state = BaseAgentState(
-        rng=rng,
-        actor_state=mock_actor_state_discrete,
-        critic_state=mock_actor_state_discrete,
-        collector_state=collector_state,
-    )
-
-    updated_agent_state, _ = collect_experience(
-        agent_state,
-        None,
-        recurrent=False,
-        mode="gymnax",
-        env_args=env_args,
-        buffer=buffer,
-    )
-
-    assert updated_agent_state.collector_state.last_obs.shape == obs.shape
-    assert updated_agent_state.collector_state.last_terminated.shape == (n_envs,)
-
-
-@pytest.mark.skip
-def test_collect_experience_non_recurrent_continuous(
-    mock_actor_state_continuous, gymnax_env
-):
-    """Test collect_experience in non-recurrent mode for continuous action environments."""
-    env, env_params = gymnax_env
-    reset_key, rng = jax.random.split(jax.random.PRNGKey(0))
-    reset_keys = jax.random.split(reset_key, n_envs)
-    obs, env_state = reset(reset_keys, env, mode="gymnax", env_params=env_params)
-    env_args = EnvironmentConfig(
-        env=env,
-        env_params=env_params,
-        n_envs=n_envs,
-        continuous=True,
-    )
-    buffer = get_buffer(buffer_size=10, batch_size=2, n_envs=n_envs)
-    buffer_state = init_buffer(buffer, env_args=env_args)
-    collector_state = CollectorState(
-        rng=rng,
-        env_state=env_state,
-        last_obs=obs,
-        last_terminated=jnp.zeros((n_envs,)),
-        last_truncated=jnp.zeros((n_envs,)),  # Added last_done
-        buffer_state=buffer_state,
-    )
-
-    agent_state = BaseAgentState(
-        rng=rng,
-        actor_state=mock_actor_state_continuous,
-        critic_state=mock_actor_state_continuous,
-        collector_state=collector_state,
-    )
-
-    updated_agent_state, _ = collect_experience(
-        agent_state,
-        None,
-        recurrent=False,
-        mode="gymnax",
-        env_args=env_args,
-        buffer=buffer,
-    )
-
-    assert updated_agent_state.collector_state.last_obs.shape == obs.shape
-    assert updated_agent_state.collector_state.last_terminated.shape == (n_envs,)
-
-
-@pytest.mark.skip
-def test_collect_experience_recurrent(mock_recurrent_actor_state, gymnax_env):
-    """Test collect_experience in recurrent mode."""
-    env, env_params = gymnax_env
-    reset_key, rng = jax.random.split(jax.random.PRNGKey(0))
-    reset_keys = jax.random.split(reset_key, n_envs)
-    obs, env_state = reset(reset_keys, env, mode="gymnax", env_params=env_params)
-
-    env_args = EnvironmentConfig(
-        env=env, env_params=env_params, n_envs=n_envs, continuous=False
-    )
-
-    buffer = get_buffer(buffer_size=10, batch_size=2, n_envs=n_envs)
-    buffer_state = init_buffer(buffer, env_args=env_args)
-
-    collector_state = CollectorState(
-        rng=rng,
-        env_state=env_state,
-        last_obs=obs,
-        last_terminated=jnp.zeros((n_envs,)),
-        last_truncated=jnp.zeros((n_envs,)),  # Added last_done
-        buffer_state=buffer_state,
-    )
-
-    mock_recurrent_actor_state = mock_recurrent_actor_state.replace(
-        hidden_state=jnp.zeros((n_envs, 2))
-    )
-
-    agent_state = BaseAgentState(
-        rng=rng,
-        actor_state=mock_recurrent_actor_state,
-        critic_state=mock_recurrent_actor_state,
-        collector_state=collector_state,
-    )
-
-    updated_agent_state, _ = collect_experience(
-        agent_state,
-        None,
-        recurrent=True,
-        mode="gymnax",
-        env_args=env_args,
-        buffer=buffer,
-    )
-
-    assert updated_agent_state.collector_state.last_obs.shape == obs.shape
-    assert updated_agent_state.collector_state.last_terminated.shape == (n_envs,)
-    assert updated_agent_state.actor_state.hidden_state.shape == (n_envs, 2)
 
 
 def test_init_collector_state_gymnax(gymnax_env):

@@ -1060,8 +1060,6 @@ def training_iteration(
     Returns:
         Tuple[REDQState, None]: Updated agent state.
     """
-    # collector_state = agent_state.collector_state
-
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
 

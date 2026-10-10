@@ -230,8 +230,6 @@ def init_SAC(
         action_value=True,
         squash=True,
         num_critics=num_critics,
-        expert_policy=expert_policy,
-        residual=False,
         max_timesteps=max_timesteps,
         extra_obs_dim=extra_obs_dim,
         pid_actor_config=pid_actor_config,

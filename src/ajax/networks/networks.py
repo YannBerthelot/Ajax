@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import NamedTuple, Optional, Tuple, Union
 
 import distrax
@@ -297,7 +297,7 @@ class Actor(nn.Module):
             )
         return self.model(embedding)
 
-    def __call__(self, obs, raw_obs=None, hidden_state=None, done=None):
+    def __call__(self, obs, hidden_state=None, done=None):
         embedding = self.encoder(obs)
         if self.memory is not None:
             if hidden_state is None or done is None:
@@ -382,159 +382,6 @@ class Critic(nn.Module):
         their own decoder/prior/posterior heads.
         """
         return self.encoder(x)
-
-
-class SharedActorCritic(nn.Module):
-    """Shared-encoder actor-critic (one backbone, two heads).
-
-    For agents where the policy and value share a single feature
-    extractor (Atari-style PPO, A2C, IMPALA). Contrasts with the
-    legacy Ajax pattern of two independent ``Actor`` + ``Critic``
-    networks (used by SAC, brax-tuned PPO on continuous-control).
-
-    Surface mirrors :class:`Actor` for the policy head (continuous +
-    squash + log_std modes + mean init) so the shared variant is a
-    drop-in replacement at the agent level; the value head is a
-    single Dense(1) sharing the encoder features.
-
-    Returns ``(distribution, value)`` from a single forward pass.
-    Callers that need only one output can do
-    ``dist, _ = net.apply(params, obs)`` or use the targeted
-    :meth:`apply_actor` / :meth:`apply_value` methods.
-    """
-
-    input_architecture: Sequence[Union[str, ActivationFunction]]
-    action_dim: int
-    continuous: bool = True
-    squash: bool = False
-    penultimate_normalization: bool = False
-    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
-    actor_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    actor_bias_init: Optional[Union[str, InitializationFunction]] = None
-    critic_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    critic_bias_init: Optional[Union[str, InitializationFunction]] = None
-    mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    log_std_state_independent: bool = False
-    log_std_init: float = -1.0
-    disable_encoder_output_norm: bool = False
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None
-    cnn_extra_obs_dim: int = 0
-    cnn_spec: Optional[CNNSpec] = None
-
-    def setup(self):
-        if self.cnn_image_shape is not None:
-            self.encoder = build_cnn_encoder(
-                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
-            )
-        else:
-            self.encoder = Encoder(
-                input_architecture=self.input_architecture,
-                penultimate_normalization=self.penultimate_normalization,
-                kernel_init=self.encoder_kernel_init,
-                bias_init=self.encoder_bias_init,
-                disable_output_norm=self.disable_encoder_output_norm,
-            )
-        # Value head
-        v_kernel = (
-            orthogonal(1.0)
-            if self.critic_kernel_init is None
-            else parse_initialization(self.critic_kernel_init)
-        )
-        v_bias = (
-            constant(0.0)
-            if self.critic_bias_init is None
-            else parse_initialization(self.critic_bias_init)
-        )
-        self.value_head = nn.Dense(
-            1,
-            kernel_init=v_kernel,
-            bias_init=v_bias,
-            name="value_head",
-        )
-        # Actor head: continuous or discrete
-        a_bias = (
-            constant(0.0)
-            if self.actor_bias_init is None
-            else parse_initialization(self.actor_bias_init)
-        )
-        if self.continuous:
-            if self.mean_kernel_init is None:
-                m_kernel = orthogonal(0.01)
-            elif callable(self.mean_kernel_init):
-                m_kernel = self.mean_kernel_init
-            else:
-                m_kernel = parse_initialization(self.mean_kernel_init)
-            self.mean = nn.Dense(
-                self.action_dim,
-                kernel_init=m_kernel,
-                bias_init=a_bias,
-                name="mean",
-            )
-            if not self.log_std_state_independent:
-                self.log_std = nn.Dense(
-                    self.action_dim,
-                    kernel_init=nn.initializers.zeros,
-                    bias_init=nn.initializers.constant(self.log_std_init),
-                    name="log_std",
-                )
-            else:
-                self.log_std_param = self.param(
-                    "log_std_param",
-                    nn.initializers.constant(self.log_std_init),
-                    (self.action_dim,),
-                )
-        else:
-            a_kernel = (
-                orthogonal(1.0)
-                if self.actor_kernel_init is None
-                else parse_initialization(self.actor_kernel_init)
-            )
-            self.model = nn.Sequential(
-                [
-                    nn.Dense(self.action_dim, kernel_init=a_kernel, bias_init=a_bias),
-                    distrax.Categorical,
-                ]
-            )
-
-    def _heads(self, emb):
-        value = self.value_head(emb)
-        if self.continuous:
-            mean = self.mean(emb)
-            if self.log_std_state_independent:
-                log_std = jnp.clip(
-                    jnp.broadcast_to(self.log_std_param, mean.shape),
-                    -20,
-                    2,
-                )
-            else:
-                log_std = jnp.clip(self.log_std(emb), -20, 2)
-            std = jnp.exp(log_std)
-            dist = (
-                SquashedNormal(mean, std) if self.squash else distrax.Normal(mean, std)
-            )
-        else:
-            dist = self.model(emb)
-        return dist, value
-
-    def __call__(self, obs):
-        emb = self.encoder(obs)
-        return self._heads(emb)
-
-    def apply_actor(self, obs):
-        """Run encoder + actor head only (value head's params still
-        live in the same pytree but aren't applied here)."""
-        dist, _ = self._heads(self.encoder(obs))
-        return dist
-
-    def apply_value(self, obs):
-        """Run encoder + value head only."""
-        _, value = self._heads(self.encoder(obs))
-        return value
-
-    def apply_encoder(self, obs):
-        """Expose the encoder features alone."""
-        return self.encoder(obs)
 
 
 class MultiHeadCritic(Critic):
@@ -838,8 +685,6 @@ def get_initialized_actor_critic(
     critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
-    residual: bool = False,  # kept for API compatibility, ignored
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     pid_actor_config: Optional[PIDActorConfig] = None,
@@ -1006,92 +851,6 @@ def get_initialized_actor_critic(
     return actor_state, critic_state
 
 
-def get_initialized_shared_actor_critic(
-    key: jax.Array,
-    env_config: EnvironmentConfig,
-    optimizer_config: OptimizerConfig,
-    network_config: NetworkConfig,
-    continuous: bool = True,
-    squash: bool = False,
-    actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    log_std_state_independent: bool = False,
-    log_std_init: float = -1.0,
-    disable_encoder_output_norm: bool = False,
-    max_timesteps: Optional[int] = None,
-    extra_obs_dim: int = 0,
-    action_dim_override: Optional[int] = None,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
-) -> LoadedTrainState:
-    """Initialise a :class:`SharedActorCritic` (one encoder, two heads)
-    with a single optimizer. Returns ONE TrainState (vs the dual
-    :func:`get_initialized_actor_critic` which returns two).
-
-    The single TrainState is what enables fused-loss training (brax-
-    PPO-style ``policy + vf_coef*value + ent_coef*entropy`` with one
-    backward pass + one optimizer step). The caller (PPO with
-    ``shared_encoder=True``) sets both ``state.actor_state`` and
-    ``state.critic_state`` to point at this same object so the rest
-    of the agent infrastructure that expects the dual surface (e.g.
-    ``predict_value``, ``get_pi``) keeps working unchanged.
-    """
-    action_dim = (
-        action_dim_override
-        if action_dim_override is not None
-        else get_action_dim(env_config.env, env_config.env_params)
-    )
-    if cnn_image_shape is None:
-        cnn_image_shape = network_config.cnn_image_shape
-    cnn_spec = network_config.cnn_spec
-    # The actor_architecture is treated as THE shared encoder arch.
-    # (Caller should set actor_architecture == critic_architecture or
-    # accept that the shared backbone uses the actor one.)
-    net = SharedActorCritic(
-        input_architecture=network_config.actor_architecture,
-        action_dim=action_dim,
-        continuous=continuous,
-        squash=squash,
-        penultimate_normalization=network_config.penultimate_normalization,
-        encoder_kernel_init=encoder_kernel_init,
-        encoder_bias_init=encoder_bias_init,
-        actor_kernel_init=actor_kernel_init,
-        actor_bias_init=actor_bias_init,
-        critic_kernel_init=critic_kernel_init,
-        critic_bias_init=critic_bias_init,
-        mean_kernel_init=mean_kernel_init,
-        log_std_state_independent=log_std_state_independent,
-        log_std_init=log_std_init,
-        disable_encoder_output_norm=disable_encoder_output_norm,
-        cnn_image_shape=cnn_image_shape,
-        cnn_extra_obs_dim=extra_obs_dim,
-        cnn_spec=cnn_spec,
-    )
-    tx = get_adam_tx(**to_state_dict(optimizer_config))
-    observation_shape, _ = get_state_action_shapes(env_config.env)
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
-    if obs_extra > 0:
-        _obs_shape = list(observation_shape)
-        _obs_shape[-1] += obs_extra
-        observation_shape = tuple(_obs_shape)
-    init_obs = jnp.zeros((1, *observation_shape))
-    state = init_network_state(
-        init_x=init_obs,
-        network=net,
-        key=key,
-        tx=tx,
-        recurrent=network_config.lstm_hidden_size is not None,
-        lstm_hidden_size=network_config.lstm_hidden_size,
-        n_envs=env_config.n_envs,
-        lr_schedule=optimizer_config.learning_rate,
-    )
-    return state
-
-
 def get_initialized_critic(
     key: jax.Array,
     env_config: EnvironmentConfig,
@@ -1132,21 +891,6 @@ def get_initialized_critic(
         ),
         n_envs=env_config.n_envs,
         lr_schedule=critic_optimizer_config.learning_rate,
-    )
-
-
-def init_hidden_state(
-    lstm_hidden_size: int,
-    n_envs: int,
-    rng: jax.random.PRNGKey,
-) -> HiddenState:
-    """Deprecated: legacy GRU carry initializer, kept for backward compat.
-
-    Note the historical field name: it always built a GRU. Prefer
-    ``ajax.networks.memory.init_carry`` with an explicit MemoryConfig.
-    """
-    return init_carry(
-        MemoryConfig(kind="gru", hidden_size=lstm_hidden_size), rng, n_envs
     )
 
 

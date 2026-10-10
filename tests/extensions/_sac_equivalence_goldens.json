@@ -35,7 +35,6 @@
     "target": 1034.3653564453125,
     "alpha": 0.9814101457595825
   },
-  "test_expert_obs_aug_constructs_and_trains": "not_applicable",
   "test_edge_exploration_matches_legacy_flags[fixed]": {
     "critic": 1038.6107177734375,
     "actor": 517.5764770507812,

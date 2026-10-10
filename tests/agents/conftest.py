@@ -17,7 +17,7 @@ Tests should be split into three tiers per agent (per
 
 * ``test_<agent>_code.py``     -- programmatic invariants (function
   call counts, config values reach consumers, output types, error
-  paths). JIT-disabled where needed via the ``no_jit`` fixture below.
+  paths).
 
 * ``test_<agent>_structure.py`` -- network architecture, param tree
   shape, minibatch dimensions, wrapper-stack composition. JIT-safe.
@@ -32,30 +32,3 @@ The existing ``test_<agent>.py`` files are integration smoke tests
 (train returns without error on toy envs); keep those but treat them
 as the weakest layer.
 """
-
-from __future__ import annotations
-
-import jax
-import pytest
-
-
-@pytest.fixture
-def no_jit():
-    """Disable JIT inside the test for spy/mock visibility.
-
-    pytest-mock's ``mocker.spy`` / ``mocker.patch.object`` wraps a
-    Python function reference; once a function is traced inside
-    ``jax.jit``, the inner Python is inlined into the compiled
-    artifact and subsequent calls bypass the Python wrapper. To
-    count actual invocations (or capture argument values) we need to
-    keep each call going through Python.
-
-    Compile time on toy envs is already higher than run time, so
-    disabling JIT here is approximately free for the agent-test
-    surface (CartPole / Pendulum / etc.).
-
-    Uses ``jax.disable_jit()`` (the official context manager) so the
-    restore-on-teardown is automatic and respects nested usage.
-    """
-    with jax.disable_jit():
-        yield

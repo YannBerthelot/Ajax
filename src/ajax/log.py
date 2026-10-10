@@ -178,11 +178,6 @@ def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
     return return_dict
 
 
-def prepare_metrics(aux):
-    log_metrics = flatten_dict(to_state_dict(aux))
-    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
-
-
 def _make_no_op(extra_eval_metrics=None):
     def no_op(agent_state, aux, *args):
         fake_metrics_to_log = {
@@ -210,14 +205,6 @@ def _make_no_op(extra_eval_metrics=None):
         return fake_metrics_to_log
 
     return no_op
-
-
-def no_op(agent_state, aux, *args):
-    return _make_no_op(None)(agent_state, aux, *args)
-
-
-def no_op_none(agent_state, index, timestep):
-    pass
 
 
 @partial(
@@ -288,7 +275,6 @@ def evaluate_and_log(
     flag = jnp.logical_and(
         jnp.logical_and(log_flag, timestep > 1),
         not_finished_flag,
-        # timestep >= (total_timesteps - env_args.n_envs),
     )
     flag = jnp.logical_and(flag, close_to_end_flag)
 

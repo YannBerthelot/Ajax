@@ -1,6 +1,3 @@
-from types import SimpleNamespace
-from typing import Any
-
 import jax
 import jax.numpy as jnp
 import pytest
@@ -87,18 +84,6 @@ class MockGymnaxState:
     step_count: jnp.ndarray
 
 
-@struct.dataclass
-class MockBraxState:
-    """Mock Brax state for testing."""
-
-    obs: jnp.ndarray
-    reward: float
-    done: bool
-    metrics: dict
-    pipeline_state: Any
-    info: dict
-
-
 class BatchedMockGymnaxEnv:
     """Mock Gymnax environment for batched testing."""
 
@@ -163,18 +148,6 @@ class BatchedMockGymnaxState:
     step_count: jnp.ndarray
 
 
-@struct.dataclass
-class BatchedMockBraxState:
-    """Mock Brax state for batched testing."""
-
-    obs: jnp.ndarray
-    reward: jnp.ndarray
-    done: jnp.ndarray
-    metrics: dict
-    pipeline_state: Any
-    info: dict
-
-
 @pytest.fixture
 def gymnax_env():
     return MockGymnaxEnv(), None
@@ -193,11 +166,6 @@ def batched_gymnax_env():
 @pytest.fixture
 def batched_brax_env():
     return BatchedMockBraxEnv()
-
-
-def extract_obs(state, mode):
-    """Extract observation based on environment type."""
-    return state.obs if mode == "brax" else state[0]
 
 
 @pytest.mark.parametrize(
@@ -388,58 +356,9 @@ def fast_brax_env():
 
 
 @pytest.fixture
-def batched_fast_brax_env():
-    """Fixture to create a Brax environment."""
-    return create_brax_env("fast", batch_size=2, auto_reset=False)
-
-
-@pytest.fixture
 def fail_brax_env():
     """Fixture to create a Brax environment."""
     return create_brax_env("fast")
-
-
-@pytest.mark.skip
-def test_brax_to_gymnasium_reset(fast_brax_env):
-    """Test the reset functionality of the BraxToGymnasium wrapper."""
-    wrapped_env = BraxToGymnasium(fast_brax_env)
-    obs, info = wrapped_env.reset(seed=42)
-    assert obs.shape == (1, fast_brax_env.observation_size)
-    assert isinstance(info, dict)
-
-
-@pytest.mark.skip
-def test_brax_to_gymnasium_step(fast_brax_env):
-    """Test the step functionality of the BraxToGymnasium wrapper."""
-    wrapped_env = BraxToGymnasium(fast_brax_env)
-    wrapped_env.reset(seed=42)
-    action = jnp.zeros((fast_brax_env.action_size,))
-    obs, reward, done, truncated, info = wrapped_env.step(action)
-    assert obs.shape == (1, fast_brax_env.observation_size)
-    assert isinstance(reward, float)
-    assert isinstance(done, bool)
-    assert isinstance(truncated, bool)
-    assert isinstance(info, dict)
-
-
-@pytest.mark.skip
-def test_brax_to_gymnasium_action_space(fast_brax_env):
-    """Test the action space of the BraxToGymnasium wrapper."""
-    wrapped_env = BraxToGymnasium(fast_brax_env)
-    action_space = wrapped_env.action_space
-    assert action_space.shape == (fast_brax_env.action_size)
-    assert jnp.all(action_space.low == -1)
-    assert jnp.all(action_space.high == 1)
-
-
-@pytest.mark.skip
-def test_brax_to_gymnasium_observation_space(fast_brax_env):
-    """Test the observation space of the BraxToGymnasium wrapper."""
-    wrapped_env = BraxToGymnasium(fast_brax_env)
-    observation_space = wrapped_env.observation_space
-    assert observation_space.shape == (1, fast_brax_env.observation_size)
-    assert jnp.isinf(observation_space.low).all()
-    assert jnp.isinf(observation_space.high).all()
 
 
 def test_fails_with_autoreset(fail_brax_env):
@@ -483,27 +402,6 @@ def test_autoreset_initialization_differs(brax_env_with_autoreset):
     assert not jnp.array_equal(
         initial_obs, new_init_obs
     ), "Initial obs should differ after reset"
-
-
-class DummyEnv:
-    """Mock Brax env for testing"""
-
-    def __init__(self):
-        self._obs_seq = [
-            jnp.array([1.0, 2.0, 3.0]),  # reset obs
-            jnp.array([4.0, 5.0, 6.0]),  # step 1 obs
-            jnp.array([7.0, 8.0, 9.0]),  # step 2 obs
-        ]
-        self._step_count = 0
-
-    def reset(self, key):
-        obs = self._obs_seq[0]
-        return SimpleNamespace(obs=obs, info={})
-
-    def step(self, state, action):
-        self._step_count += 1
-        obs = self._obs_seq[self._step_count]
-        return SimpleNamespace(obs=obs, info=state.info)
 
 
 @pytest.mark.parametrize(
@@ -677,11 +575,9 @@ def test_normalize_vec_observation_batched(wrapper, env_fixture, mode, request):
     # Mock batched observations
     if mode == "gymnax":
         raw_obs, state = env.reset(key, env_params)
-        # raw_obs = jnp.stack([raw_obs, raw_obs * 2])  # Create batched observations
     else:  # Brax
         state = env.reset(key)
         raw_obs = state.obs
-        # raw_obs = jnp.stack([state.obs, state.obs * 2])  # Create batched observations
 
     # Provide initial normalization info
     mean_2 = jnp.array([[0.5, 0.5], [1.0, 1.0]])

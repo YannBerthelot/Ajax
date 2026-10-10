@@ -13,7 +13,6 @@ from ajax.modules.expert import (
     compute_expert_diagnostics,
     compute_online_bc_loss,
     detach_obs_expert_dims,
-    ibrl_modify_target,
     mc_correction_modify_target,
     residual_action_transform,
 )
@@ -30,51 +29,6 @@ def _fake_critic_state(fn):
         params={"online": 1.0},
         target_params={"target": 1.0},
     )
-
-
-# ---------------------------------------------------------------------------
-# IBRL target modifier
-# ---------------------------------------------------------------------------
-
-
-def test_ibrl_modifier_adds_positive_gap_when_expert_better():
-    def apply_fn(params, x):
-        # Two-critic ensemble: first critic outputs 2.0, second outputs 3.0
-        # → min over axis=0 keepdims=False is 2.0 for every element.
-        batch = jnp.ones((x.shape[0], 1)) * 2.0
-        return jnp.stack([batch, batch + 1.0], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
-    target_q = jnp.zeros((4, 1))
-    min_q_from_core = jnp.ones((4, 1)) * -1.0  # pretend policy Q = -1
-    out = ibrl_modify_target(
-        target_q,
-        min_q_from_core,
-        critic_state,
-        next_observations=jnp.zeros((4, 3)),
-        next_expert_actions=jnp.zeros((4, 2)),
-    )
-    # Gap = min(expert_q) - min_q_from_core = 2.0 - (-1.0) = 3.0
-    assert jnp.allclose(out, target_q + 3.0)
-
-
-def test_ibrl_modifier_zero_gap_when_expert_worse():
-    def apply_fn(params, x):
-        batch = jnp.ones((x.shape[0], 1)) * -5.0
-        return jnp.stack([batch, batch], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
-    target_q = jnp.zeros((3, 1))
-    min_q_from_core = jnp.ones((3, 1)) * 1.0  # policy beats expert
-    out = ibrl_modify_target(
-        target_q,
-        min_q_from_core,
-        critic_state,
-        next_observations=jnp.zeros((3, 3)),
-        next_expert_actions=jnp.zeros((3, 2)),
-    )
-    # Gap clipped to 0 → output unchanged.
-    assert jnp.allclose(out, target_q)
 
 
 # ---------------------------------------------------------------------------

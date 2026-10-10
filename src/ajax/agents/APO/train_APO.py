@@ -7,7 +7,6 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
 from ajax.agents.APO.state import APOConfig, APOState
@@ -38,7 +37,6 @@ from ajax.logging.wandb_logging import (
 )
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
-    get_adam_tx,
     get_initialized_actor_critic,
     predict_value,
 )
@@ -51,14 +49,6 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.utils import get_one
-
-PROFILER_PATH = "./tensorboard"
-
-DEBUG = False
-
-
-def get_alpha_from_params(params: FrozenDict) -> float:
-    return jnp.exp(params["log_alpha"])
 
 
 @struct.dataclass
@@ -201,9 +191,6 @@ def policy_loss_function(
     )
 
 
-POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
-
-
 @partial(
     jax.jit,
     static_argnames=[
@@ -286,33 +273,6 @@ def update_policy(
         actor_state=updated_actor_state,
     )
     return agent_state, aux
-
-
-def create_alpha_train_state(
-    learning_rate: float = 3e-4,
-    alpha_init: float = 1.0,
-) -> TrainState:
-    """
-    Initialize the train state for the temperature parameter (alpha).
-
-    Args:
-        learning_rate (float): Learning rate for alpha optimizer.
-        alpha_init (float): Initial value for alpha.
-
-    Returns:
-        TrainState: Initialized train state for alpha.
-    """
-    log_alpha = jnp.log(alpha_init)
-    params = FrozenDict({"log_alpha": log_alpha})
-    # Unclipped, as in SAC core: clipping the scalar dual gradient
-    # erases the entropy-target term from the update (see
-    # ajax.agents.SAC.core.create_alpha_train_state).
-    tx = get_adam_tx(learning_rate)
-    return TrainState.create(
-        apply_fn=get_alpha_from_params,  # Optional
-        params=params,
-        tx=tx,
-    )
 
 
 def init_APO(
@@ -515,7 +475,6 @@ def update_value_functions(
     (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
         agent_state.critic_state.params,
     )
-    # jax.debug.print("Critic loss: {loss_val}", loss_val=loss)
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     agent_state = agent_state.replace(
         critic_state=updated_critic_state,
@@ -766,7 +725,6 @@ def training_iteration(
         .squeeze(0)
         .squeeze(0)  # don't need the first dimension for a single transition
     )
-    # dones = jnp.vstack([first_done.reshape(1, -1, 1), transition.terminated[:-1]])
     dones = transition.terminated
 
     average_reward = (
@@ -949,7 +907,6 @@ def training_iteration(
     )
 
     jax.clear_caches()
-    # gc.collect()
     return agent_state, metrics_to_log
 
 

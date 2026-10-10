@@ -952,18 +952,6 @@ def training_iteration(
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
-        # ExtensionStack.post_update — PhiRefresh owns the periodic
-        # interval gate + self-consistent refresh of
-        # ``agent_state.expert_critic_params``. Other extensions'
-        # post_update defaults to identity; empty stack ⇒ no-op.
-        if extension_stack is not None:
-            agent_state = extension_stack.fold_post_update(
-                agent_state,
-                agent_state.collector_state.timestep,
-                agent_state.rng,
-                total_timesteps,
-            )
-
         agent_state, aux = update_agent(
             agent_state,
             buffer=buffer,
@@ -988,6 +976,16 @@ def training_iteration(
             burn_in=agent_config.burn_in,
             stored_state=agent_config.stored_state,
         )
+        # The extensions' post_update sees the updated state, on a fresh
+        # key, as in TrainLoop.post_update.
+        if extension_stack:
+            key, rng = jax.random.split(agent_state.rng)
+            agent_state = extension_stack.fold_post_update(
+                agent_state.replace(rng=rng),
+                agent_state.collector_state.timestep,
+                key,
+                total_timesteps,
+            )
         # One (1,)-shaped leaf per metric: the metric-flattening contract.
         return agent_state, jax.tree.map(lambda x: x.reshape((1,)), aux)
 

@@ -6,111 +6,111 @@
     "alpha": 0.9814563989639282
   },
   "test_expert_guidance_matches_legacy_expert_policy": {
-    "critic": 1038.4046630859375,
-    "actor": 517.3845825195312,
-    "target": 1034.3760986328125,
-    "alpha": 0.9814165830612183
+    "critic": 1038.6265869140625,
+    "actor": 517.5933227539062,
+    "target": 1034.3931884765625,
+    "alpha": 0.9814984202384949
   },
   "test_online_bc_matches_legacy_flag": {
-    "critic": 1038.4046630859375,
-    "actor": 517.3845825195312,
-    "target": 1034.3760986328125,
-    "alpha": 0.9814165830612183
+    "critic": 1038.6265869140625,
+    "actor": 517.5933227539062,
+    "target": 1034.3931884765625,
+    "alpha": 0.9814984202384949
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
-    "critic": 1038.3302001953125,
-    "actor": 517.31884765625,
-    "target": 1034.3795166015625,
-    "alpha": 0.9814444184303284
+    "critic": 1038.4599609375,
+    "actor": 517.3619384765625,
+    "target": 1034.382568359375,
+    "alpha": 0.9815405607223511
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
-    "critic": 1038.4384765625,
-    "actor": 517.3472290039062,
-    "target": 1034.377685546875,
-    "alpha": 0.981408417224884
+    "critic": 1038.6546630859375,
+    "actor": 517.5733642578125,
+    "target": 1034.3895263671875,
+    "alpha": 0.981507420539856
   },
   "test_ibrl_matches_legacy_flag": {
-    "critic": 1038.2486572265625,
-    "actor": 517.385498046875,
-    "target": 1034.3653564453125,
-    "alpha": 0.9814101457595825
+    "critic": 1038.482177734375,
+    "actor": 517.591552734375,
+    "target": 1034.3817138671875,
+    "alpha": 0.9815018773078918
   },
   "test_edge_exploration_matches_legacy_flags[fixed]": {
-    "critic": 1038.6107177734375,
-    "actor": 517.5764770507812,
-    "target": 1034.3829345703125,
-    "alpha": 0.9816356897354126
+    "critic": 1038.708740234375,
+    "actor": 517.7371215820312,
+    "target": 1034.390625,
+    "alpha": 0.9814928770065308
   },
   "test_edge_exploration_matches_legacy_flags[argmax]": {
-    "critic": 1038.531494140625,
-    "actor": 517.3436889648438,
-    "target": 1034.3814697265625,
-    "alpha": 0.9813951253890991
+    "critic": 1038.6575927734375,
+    "actor": 517.56005859375,
+    "target": 1034.389404296875,
+    "alpha": 0.9815117716789246
   },
   "test_edge_exploration_matches_legacy_flags[boltzmann]": {
-    "critic": 1038.6107177734375,
-    "actor": 517.5764770507812,
-    "target": 1034.3829345703125,
-    "alpha": 0.9816356897354126
+    "critic": 1038.708740234375,
+    "actor": 517.7371215820312,
+    "target": 1034.390625,
+    "alpha": 0.9814928770065308
   },
   "test_edge_exploration_matches_legacy_flags[lcb]": {
-    "critic": 1038.848388671875,
-    "actor": 517.572265625,
-    "target": 1034.3974609375,
-    "alpha": 0.9816021919250488
+    "critic": 1039.083984375,
+    "actor": 517.8055419921875,
+    "target": 1034.41357421875,
+    "alpha": 0.9814757704734802
   },
   "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
-    "critic": 1038.661376953125,
-    "actor": 517.3634033203125,
-    "target": 1034.3985595703125,
-    "alpha": 0.9813802242279053
+    "critic": 1038.744140625,
+    "actor": 517.5632934570312,
+    "target": 1034.393798828125,
+    "alpha": 0.9815214276313782
   },
   "test_edge_exploration_matches_legacy_flags[thompson]": {
-    "critic": 1038.7061767578125,
-    "actor": 517.6170043945312,
-    "target": 1034.3885498046875,
-    "alpha": 0.9816109538078308
+    "critic": 1038.7872314453125,
+    "actor": 517.8059692382812,
+    "target": 1034.39404296875,
+    "alpha": 0.9814658164978027
   },
   "test_lcb_gated_bootstrap_matches_legacy_flag": {
-    "critic": 1038.356201171875,
-    "actor": 517.3748779296875,
-    "target": 1034.373291015625,
-    "alpha": 0.9814090728759766
+    "critic": 1038.5540771484375,
+    "actor": 517.6010131835938,
+    "target": 1034.386962890625,
+    "alpha": 0.9815008044242859
   },
   "test_mc_pretrain_matches_legacy_flag": {
-    "critic": 1038.749755859375,
-    "actor": 517.429931640625,
-    "target": 1034.4031982421875,
-    "alpha": 0.9814378619194031
+    "critic": 1039.0084228515625,
+    "actor": 517.5620727539062,
+    "target": 1034.4334716796875,
+    "alpha": 0.9814741611480713
   },
   "test_bellman_pretrain_matches_legacy_flag": {
-    "critic": 1038.6434326171875,
-    "actor": 517.1541748046875,
-    "target": 1034.3936767578125,
-    "alpha": 0.9815283417701721
+    "critic": 1038.8875732421875,
+    "actor": 517.5390625,
+    "target": 1034.4097900390625,
+    "alpha": 0.9814276099205017
   },
   "test_critic_blend_matches_legacy_flag": {
-    "critic": 1038.6517333984375,
-    "actor": 517.37841796875,
-    "target": 1034.3912353515625,
-    "alpha": 0.9814289808273315
+    "critic": 1038.91162109375,
+    "actor": 517.5774536132812,
+    "target": 1034.4208984375,
+    "alpha": 0.981491208076477
   },
   "test_mc_variance_correction_matches_legacy_flag": {
-    "critic": 1037.2574462890625,
-    "actor": 517.2152099609375,
-    "target": 1034.3321533203125,
-    "alpha": 0.9815416932106018
+    "critic": 1037.2178955078125,
+    "actor": 517.2345581054688,
+    "target": 1034.3319091796875,
+    "alpha": 0.9814794659614563
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 1040.0938720703125,
-    "actor": 517.5379638671875,
-    "target": 1034.561279296875,
-    "alpha": 0.9814669489860535
+    "critic": 1039.9686279296875,
+    "actor": 517.5144653320312,
+    "target": 1034.5479736328125,
+    "alpha": 0.9814777374267578
   },
   "test_phi_refresh_matches_legacy_flag": {
-    "critic": 1038.96484375,
-    "actor": 517.4469604492188,
-    "target": 1034.4093017578125,
-    "alpha": 0.9814842939376831
+    "critic": 1038.9005126953125,
+    "actor": 517.41796875,
+    "target": 1034.4205322265625,
+    "alpha": 0.981504499912262
   }
 }

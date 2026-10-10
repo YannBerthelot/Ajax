@@ -24,6 +24,11 @@ temperature optimizers all clipped at 0.5 before). Every fingerprint
 moved by 1e-3..2e-3 in the same direction — the plain-SAC parity goldens
 in ``tests/agents/SAC/test_sac_parity.py`` moved identically — so the
 shift is the optimizer change, not extension wiring.
+
+Re-captured when SAC moved the extensions' ``post_update`` after its
+update, on a key split from the state's as in ``TrainLoop.post_update``:
+every non-empty stack moved by 6e-5..7.4e-4 (the new key stream), the
+empty stack not at all.
 """
 
 from __future__ import annotations

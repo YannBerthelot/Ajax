@@ -568,11 +568,11 @@ class PhiRefresh(Extension):
         ext_state: Any,
         ctx: ExtensionContext,
     ) -> tuple[Any, Any]:
-        # ``post_update`` runs once per ``do_update`` (after the collect
-        # step, before the inner gradient-step scan). The interval gate
-        # below is byte-equivalent to the pre-refactor
-        # ``make_runtime_maintenance`` callable: refresh whenever
-        # ``timestep % interval == 0``; otherwise pass through unchanged.
+        # ``post_update`` runs once per update iteration, after the
+        # update. The interval gate below is byte-equivalent to the
+        # pre-refactor ``make_runtime_maintenance`` callable: refresh
+        # whenever ``timestep % interval == 0``; otherwise pass through
+        # unchanged.
         del ctx
         if self.buffer is None or self.gamma is None or self.reward_scale is None:
             # Unconfigured PhiRefresh — no-op (the SAC factory's

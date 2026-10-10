@@ -247,7 +247,7 @@ def test_update_matches_reference_over_four_updates(fx, ref_config, config):
             logits = core.q_logits(
                 wm.apply_fn, state.world_model_state.params, zs, sample.action
             )
-            q = core.reduce_q_pair(logits, noise.pi_pair, "avg", config.two_hot)
+            q = core.reduce_q_pair(logits[noise.pi_pair], "avg", config.two_hot)
             report.check("pi_q", q, fx[p + "pi_q"][..., 0], POST_STEP_Q_TOL)
             for name in LOGGED:
                 report.check(name, aux[name], fx[p + name], SCALAR_TOL)

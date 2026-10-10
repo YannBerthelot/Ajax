@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "7d3835420718"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "67a787ddb67b"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -303,13 +303,14 @@ def test_p6_evaluation_runs_the_training_time_limit(case: Case) -> None:
 
 
 # --- P5: reward scale and the average-reward estimators -----------------------
-# Every cell at reward_scale s = 2. (i) The 1-step value probe: Q(0) = s,
-# no bootstrap. (ii) Every on_target batch carrying rewards states the
-# scale. (iii) TwoStepCoin: obs 0, two-step episodes ending by termination,
-# each step paying 2 Bernoulli(1/2), actions ignored. A moving average of
-# independent draws steps by ``ema_step_rms``; a trace of the last updates
-# reads each step as log2 of its ratio to that (a swapped weight: +3.6 or
-# more; never updated: -inf), which the converged levels cannot see.
+# Every cell at reward_scale s = 2. (i) The 1-step value probe, observed at
+# 1 (envs.package): Q(1) = s, no bootstrap. (ii) Every on_target batch
+# carrying rewards states the scale. (iii) TwoStepCoin: obs 0, two-step
+# episodes ending by termination, each step paying 2 Bernoulli(1/2),
+# actions ignored. A moving average of independent draws steps by
+# ``ema_step_rms``; a trace of the last updates reads each step as log2 of
+# its ratio to that (a swapped weight: +3.6 or more; never updated: -inf),
+# which the converged levels cannot see.
 
 S5, G5 = 2.0, agents.GAMMA
 
@@ -340,7 +341,7 @@ def _scaled(cell: str, extensions: tuple = ()) -> Any:
 
 
 VALUE_Q = Query(
-    "Q(0)",
+    "Q(1)",
     S5,
     {
         "reward_scale ignored (wrapper default 1.0)": 1.0,
@@ -354,13 +355,19 @@ VALUE_Q = Query(
 # at 5000: one seed read 0.90 at 1250); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
 P5_VALUE |= {"AVG": 5000, "DQN": 1250, "PQN": 160_000}
-for cell, budget in P5_VALUE.items():
+
+
+def _p5_read(cell: str, run: runs.Run) -> dict:
+    """Q(1) through the env-side normaliser (AVG's): at observation 0 the
+    raw and the normalised input coincided."""
     read = functools.partial(R.value, cell.removesuffix("+on_target"))
+    n = R.nets(run.state, stats=R.env_stats(run))
+    return R.per_seed(lambda n: {"Q(1)": read(n, 1.0)}, n)
+
+
+for cell, budget in P5_VALUE.items():
     reads = runs.readings(
-        functools.partial(_scaled, cell),
-        lambda run, read=read: R.per_seed(
-            lambda n: {"Q(0)": read(n, 0.0)}, R.nets(run.state)
-        ),
+        functools.partial(_scaled, cell), functools.partial(_p5_read, cell)
     )
     tol5 = (0.062 if cell == "AVG" else 0.02,)
     CASES[f"p5-value-{cell}"] = Case(
@@ -660,8 +667,8 @@ P9_CELLS: dict[str, tuple] = {
         ("gae", 4096, 0.5),
         {"A": (0.0, 1.0), "B": (1.102, 1.940), "C": (1.028, 2.066), "P10": (0.0, 1.663)}
         | D0,
-        160_000,
-        (0.047, 0.066),
+        320_000,  # 160,000 failed: 0.128
+        (0.04, 0.056),
         {"n_steps": 4096, "num_minibatches": 2, "gae_lambda": 0.5, "batch_size": 64},
     ),
     "PQN": (

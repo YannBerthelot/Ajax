@@ -81,7 +81,7 @@ class ActorCritic:
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        disable_encoder_output_norm: bool = False,
+        encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
         apply_obs_normalization: bool = True,
@@ -157,7 +157,7 @@ class ActorCritic:
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
             mean_kernel_init=mean_kernel_init,
-            disable_encoder_output_norm=disable_encoder_output_norm,
+            encoder_layer_norm=encoder_layer_norm,
             squash=squash,
         )
 

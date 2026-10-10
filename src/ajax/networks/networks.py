@@ -13,6 +13,7 @@ from flax.serialization import to_state_dict
 
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
 from ajax.networks.memory import (
     MemoryCell,
     MemoryConfig,
@@ -488,6 +489,9 @@ def get_initialized_actor_critic(
     augment_obs_with_expert_action=True, so the network is initialised with
     the correct input size matching what augment_obs_if_needed produces.
 
+    A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
+    actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).
+
     All other expert-guidance is handled at the loss level (value
     constraint, online BC) so the architecture is always a plain Actor/MultiCritic.
     """
@@ -515,25 +519,35 @@ def get_initialized_actor_critic(
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
 
-    actor = Actor(
-        input_architecture=network_config.actor_architecture,
-        action_dim=action_dim,
-        continuous=continuous,
-        squash=squash,
-        penultimate_normalization=network_config.penultimate_normalization,
-        kernel_init=actor_kernel_init,
-        bias_init=actor_bias_init,
-        encoder_kernel_init=encoder_kernel_init,
-        encoder_bias_init=encoder_bias_init,
-        cnn_image_shape=cnn_image_shape,
-        cnn_extra_obs_dim=extra_obs_dim,
-        cnn_spec=cnn_spec,
-        log_std_state_independent=log_std_state_independent,
-        log_std_init=log_std_init,
-        mean_kernel_init=mean_kernel_init,
-        disable_encoder_output_norm=disable_encoder_output_norm,
-        memory=memory,
-    )
+    actor: nn.Module
+    if isinstance(network_config.actor_architecture, PIDPolicy):
+        check_pid_actor(continuous, memory)
+        actor = PIDActor(
+            policy=network_config.actor_architecture,
+            action_dim=action_dim,
+            squash=squash,
+            log_std_init=log_std_init,
+        )
+    else:
+        actor = Actor(
+            input_architecture=network_config.actor_architecture,
+            action_dim=action_dim,
+            continuous=continuous,
+            squash=squash,
+            penultimate_normalization=network_config.penultimate_normalization,
+            kernel_init=actor_kernel_init,
+            bias_init=actor_bias_init,
+            encoder_kernel_init=encoder_kernel_init,
+            encoder_bias_init=encoder_bias_init,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=extra_obs_dim,
+            cnn_spec=cnn_spec,
+            log_std_state_independent=log_std_state_independent,
+            log_std_init=log_std_init,
+            mean_kernel_init=mean_kernel_init,
+            disable_encoder_output_norm=disable_encoder_output_norm,
+            memory=memory,
+        )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,

@@ -1,4 +1,13 @@
-from typing import Any, Callable, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import flashbax as fbx
 import flax
@@ -13,6 +22,9 @@ from jax.tree_util import Partial as partial
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvStateType, EnvType, InitializationFunction
 from ajax.wrappers import NormalizationInfo
+
+if TYPE_CHECKING:
+    from ajax.modules.pid_actor import PIDPolicy
 
 
 @struct.dataclass
@@ -305,7 +317,9 @@ class BaseAgentConfig:
 
 @struct.dataclass
 class NetworkConfig:
-    actor_architecture: Tuple[str]
+    # Hidden layers, or a PIDPolicy: the actor is then a PID controller
+    # (ajax.modules.pid_actor).
+    actor_architecture: Union[Tuple[str, ...], "PIDPolicy"]
     critic_architecture: Tuple[str]
     # Pluggable memory block (encoder -> memory -> heads); None keeps the
     # network feedforward. Static (hashable) so trace-time branching on it

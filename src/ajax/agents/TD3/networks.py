@@ -17,6 +17,7 @@ from flax.linen.initializers import constant
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.memory import MemoryCell, MemoryConfig
 from ajax.networks.networks import MultiCritic, init_network_state
 from ajax.networks.utils import (
@@ -109,6 +110,24 @@ class DeterministicActor(nn.Module):
         return Deterministic(jnp.tanh(self.head(h)))
 
 
+class DeterministicPIDActor(nn.Module):
+    """TD3's actor as a PID: ``tanh`` of the PID output, as
+    :class:`DeterministicActor` squashes its head (see
+    :mod:`ajax.modules.pid_actor`)."""
+
+    policy: PIDPolicy
+    action_dim: int
+
+    def setup(self):
+        self.pid = PIDLaw(self.policy, self.action_dim)
+
+    def gains(self, obs: jax.Array) -> jax.Array:
+        return self.pid.gains(obs)
+
+    def __call__(self, obs: jax.Array) -> Deterministic:
+        return Deterministic(jnp.tanh(self.pid(obs)))
+
+
 def get_initialized_td3_actor_critic(
     key: jax.Array,
     env_config: EnvironmentConfig,
@@ -119,14 +138,21 @@ def get_initialized_td3_actor_critic(
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """TD3-specific init: deterministic actor + standard MultiCritic ensemble
     (its encoder's output LayerNorm per ``network_config``; TD3 turns it off).
+    A :class:`PIDPolicy` architecture makes the actor a
+    :class:`DeterministicPIDActor`.
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
     memory = network_config.memory
-    actor = DeterministicActor(
-        input_architecture=network_config.actor_architecture,
-        action_dim=action_dim,
-        memory=memory,
-    )
+    actor: nn.Module
+    if isinstance(network_config.actor_architecture, PIDPolicy):
+        check_pid_actor(True, memory)
+        actor = DeterministicPIDActor(network_config.actor_architecture, action_dim)
+    else:
+        actor = DeterministicActor(
+            input_architecture=network_config.actor_architecture,
+            action_dim=action_dim,
+            memory=memory,
+        )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,

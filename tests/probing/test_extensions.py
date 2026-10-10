@@ -605,7 +605,7 @@ CASES["q7-online_bc-SAC"] = Case(
         "SAC",
         CHAIN,
         _bc,
-        (mc(), OnlineBC(expert_policy=EXPERT, bc_coef=100.0, critic_warmup_frac=ONE)),
+        (mc(), OnlineBC(bc_coef=100.0, critic_warmup_frac=ONE)),
         expert_policy=AgentExpert(EXPERT),  # the clone's target (train_SAC.py:597-603)
         expert_buffer_n_steps=0,
         policy_update_start=200,

@@ -202,7 +202,7 @@ def test_box_action_override_passes_through_outside_box():
 def test_edge_eval_metrics_report_the_live_expert_fraction():
     from ajax.extensions.exploration import EDGEExploration
 
-    ext = EDGEExploration(expert_policy=lambda obs: obs)
+    ext = EDGEExploration()
     state = SimpleNamespace(
         collector_state=SimpleNamespace(last_expert_frac=jnp.asarray(0.25))
     )

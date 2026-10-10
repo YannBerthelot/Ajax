@@ -11,8 +11,10 @@ objects. The expert-dependent group lives here:
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
 * :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
 
-Each extension carries only frozen config on ``self`` (a frozen expert
-callable, scalar hyper-parameters); the maths are the functions below.
+Each extension carries only frozen config on ``self``; the maths are the
+functions below. The expert is SAC's ``expert_policy``: OnlineBC,
+ResidualPolicy and JSRLCurriculum read the expert action SAC computes.
+ImitationLoss, for agents without an expert of their own, holds its own.
 """
 
 from __future__ import annotations
@@ -131,10 +133,9 @@ class OnlineBC(Extension):
     ``stack.actor_loss(...)``; this method reads ``pi_loc``,
     ``a_expert``, ``observations`` and ``train_frac`` from ``batch``
     (populated by :func:`policy_loss_function` in
-    ``ajax.agents.SAC.train_SAC``).
+    ``ajax.agents.SAC.train_SAC`` with SAC's expert action).
     """
 
-    expert_policy: Callable
     bc_coef: float = 1.0
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
@@ -237,7 +238,6 @@ class ResidualPolicy(Extension):
     via the legacy ``use_residual_rl=True`` flag the resolver echoes.
     """
 
-    expert_policy: Callable
     scale: float = 1.0
     name: str = "residual_policy"
 
@@ -310,7 +310,6 @@ class JSRLCurriculum(Extension):
     :func:`collect_experience`).
     """
 
-    expert_policy: Callable
     episode_length: int = 1000
     decay_frac: float = 0.5
     name: str = "jsrl_curriculum"

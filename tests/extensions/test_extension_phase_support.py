@@ -119,7 +119,7 @@ def _expert(obs):
 def test_sac_dispatches_action_only_to_its_pipeline_slots():
     """SAC's pipeline runs ``action`` only for an extension of a slot and only
     with an expert policy: any other is rejected at construction."""
-    slotted = JSRLCurriculum(expert_policy=_expert)
+    slotted = JSRLCurriculum()
     with pytest.raises(ValueError, match="'unslotted'"):
         SAC("Pendulum-v1", expert_policy=_expert, extensions=[Unslotted()])
     with pytest.raises(ValueError, match="expert_policy"):

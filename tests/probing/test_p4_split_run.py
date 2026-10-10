@@ -81,7 +81,7 @@ def _apg() -> Any:
 # coupling env (the discrete discounting env has one action), epsilon constant
 # (its default decays over each call's own total, train_DQN.py:135-138); PQN's
 # two minibatches make its shuffle matter. PPO and PQN run one iteration more per
-# call (train_PPO.py:1446, train_PQN.py:339): their second leg is one shorter.
+# call (TrainLoop.n_rollouts): their second leg is one shorter.
 NETS = {"actor_architecture": N32, "critic_architecture": N32}
 STARTS = ("learning_starts", "policy_update_start", "alpha_update_start")
 SAC_KW = {**NETS, "buffer_size": 1000, "batch_size": 32, **dict.fromkeys(STARTS, 50)}

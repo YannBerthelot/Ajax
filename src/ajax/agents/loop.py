@@ -392,16 +392,18 @@ class TrainLoop:
         *,
         recurrent: bool = False,
         expose_rollout: bool = False,
+        collect_kwargs: Optional[dict] = None,
         eval_kwargs: Optional[dict] = None,
     ) -> Callable:
         """Train on an ``n_steps`` rollout per env per iteration.
 
-        Each iteration collects the rollout from the state ``start``, then
-        runs ``update(agent_state, rollout, start)`` and folds
-        ``post_update``; ``expose_rollout`` keeps the rollout on
-        ``agent_state.last_rollout``. The budget is :meth:`n_rollouts`.
+        Each iteration collects the rollout from the state ``start``
+        (:func:`collect_experience` with ``collect_kwargs``), then runs
+        ``update(agent_state, rollout, start)`` and folds ``post_update``;
+        ``expose_rollout`` keeps the rollout on ``agent_state.last_rollout``.
+        The budget is :meth:`n_rollouts`.
         """
-        collect = self.collect_kwargs(recurrent)
+        collect = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 
         def iteration(start: Any, index: Any) -> tuple[Any, dict]:
             agent_state, rollout = jax.lax.scan(

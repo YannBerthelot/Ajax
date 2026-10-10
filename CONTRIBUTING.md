@@ -89,7 +89,7 @@ src/ajax/
 Every agent follows the same split:
 
 - **`<AGENT>.py`** — the public class. Inherits `ActorCritic` (see [src/ajax/agents/base.py](src/ajax/agents/base.py)), stores algorithm-specific hyperparameters, accepts `extensions: Sequence[Extension] = ()`, and exposes `get_make_train()` returning a `functools.partial` over `make_train`.
-- **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents with a loop of their own (PQN, APG, UDRL, the world models) build on `build_resumable_train` directly.
+- **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents with a loop of their own (APG, UDRL, the world models) build on `build_resumable_train` directly.
 - **`core.py`** (SAC and PPO only) — SAC's soft actor-critic maths (init, bootstrap sampling, TD target, critic and actor losses, actor step, temperature, target update); PPO's clipped surrogate (log-prob recompute, entropy bonus, minibatch epochs). Lineage descendants (ASAC, REDQ, AVG; APO, which also builds its state with `init_PPO`) import from here rather than duplicating.
 - **`state.py`** — `<AGENT>State` and `<AGENT>Config` extending `BaseAgentState` / `BaseAgentConfig`.
 
@@ -304,7 +304,7 @@ def make_train(
 An on-policy agent uses `loop.on_policy(init, update, n_steps)`, its
 `update(agent_state, rollout, start)` receiving the `(n_steps, n_envs)`
 rollout and the state it was collected from, whose carries a recurrent
-agent replays it from (PPO, APO). The loop owns the rest: the extensions' initial state and
+agent replays it from (PPO, APO, PQN). The loop owns the rest: the extensions' initial state and
 pretraining on a fresh run (`ExtensionStack.fold_init`), resuming from a
 checkpoint, the warm-up gate before `learning_starts` (the update's metrics
 then NaN), `post_update`, evaluation and logging with the extensions'

@@ -172,7 +172,7 @@ def iterations(
 ) -> list[int]:
     """The post-collection timestep of every training iteration of
     ``rollout`` steps per env: rollout agents run one past the budget
-    (train_PPO.py:1446), others at least one."""
+    (TrainLoop.n_rollouts), others at least one."""
     per = n_envs * rollout
     count = budget // per + 1 if agent in ROLLOUT_AGENTS else max(budget // per, 1)
     return [start + k * per for k in range(1, count + 1)]

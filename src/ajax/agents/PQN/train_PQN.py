@@ -20,7 +20,6 @@ from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax.tree_util import Partial as partial
 
 from ajax.agents.DQN.networks import predict_q
 from ajax.agents.DQN.train_DQN import (
@@ -30,97 +29,62 @@ from ajax.agents.DQN.train_DQN import (
     mse_td_loss,
     q_gradient_step,
 )
+from ajax.agents.loop import TrainLoop
 from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
-from ajax.environments.interaction import (
-    collect_experience,
-    preallocate_last_rollout,
-)
-from ajax.environments.utils import check_env_is_gymnax, get_action_dim
+from ajax.environments.utils import get_action_dim
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
-from ajax.perf_utils import build_resumable_train
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
+    Transition,
 )
 
 # ---------------------------------------------------------------------------
-# Training iteration (collect rollout + Q(lambda) targets + epoch updates)
+# The update: Q(lambda) targets, then minibatched TD epochs
 # ---------------------------------------------------------------------------
 
 
-def training_iteration(
+def update_agent(
     agent_state: PQNState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
+    rollout: Transition,
     agent_config: PQNConfig,
+    td_loss_fn: Callable,
+    extension_stack: ExtensionStack,
     total_timesteps: int,
-    log_frequency: Optional[int] = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    action_pipeline: Optional[Callable] = None,
-    td_loss_fn: Callable = mse_td_loss,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> Tuple[PQNState, Any]:
-    # 1. Collect an on-policy rollout of n_steps across the parallel envs.
-    collect_scan_fn = partial(
-        collect_experience,
-        recurrent=False,
-        mode=mode,
-        env_args=env_args,
-        action_pipeline=action_pipeline,
-    )
-    agent_state, transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=agent_config.n_steps
-    )
-
-    # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout
-    # on ``agent_state.last_rollout`` for downstream measurement
-    # extensions. Off by default — see :attr:`BaseAgentState.last_rollout`.
-    if agent_config.expose_recent_rollout:
-        agent_state = agent_state.replace(last_rollout=transition)
-
-    # 2. Q(lambda) targets. No target network -- bootstrap on the current
-    #    network's max-Q at the next states.
+) -> Tuple[PQNState, AuxiliaryLogs]:
+    """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
+    targets bootstrapped on the current network (no target network), then
+    ``n_epochs`` epochs of TD steps, the rollout reshuffled each epoch."""
     next_q = predict_q(
         agent_state.actor_state,
         agent_state.actor_state.params,
-        transition.next_obs,
+        rollout.next_obs,
     )
     next_q_max = jnp.max(next_q, axis=-1, keepdims=True)
     targets = compute_q_lambda_targets(
-        transition.reward * agent_config.reward_scale,
+        rollout.reward * agent_config.reward_scale,
         next_q_max,
-        transition.terminated,
-        transition.truncated,
+        rollout.terminated,
+        rollout.truncated,
         agent_config.gamma,
         agent_config.q_lambda,
     )
-    # Extension fold: allow on_target to reshape the Q(lambda) regression
-    # target before stop_gradient (e.g. a residual-of-residual reweighting,
-    # bias correction, or auxiliary penalty operand).
+    # The extensions reshape the target before it is held constant.
     if extension_stack:
         _tgt_rng, _tgt_seed = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_tgt_rng)
         _tgt_batch = {
-            "observations": transition.obs,
-            "actions": transition.action,
-            "next_observations": transition.next_obs,
-            "rewards": transition.reward,
-            "terminated": transition.terminated,
-            "truncated": transition.truncated,
+            "observations": rollout.obs,
+            "actions": rollout.action,
+            "next_observations": rollout.next_obs,
+            "rewards": rollout.reward,
+            "terminated": rollout.terminated,
+            "truncated": rollout.truncated,
             "gamma": agent_config.gamma,
         }
         targets = extension_stack.fold_on_target(
@@ -132,21 +96,18 @@ def training_iteration(
             total_timesteps,
         )
     targets = jax.lax.stop_gradient(targets)
+    batch = (rollout.obs, rollout.action, targets)
 
-    batch = (transition.obs, transition.action, targets)
-
-    # 3. Multi-epoch minibatched TD updates over the rollout.
     rng, epoch_rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
     epoch_keys = jax.random.split(epoch_rng, agent_config.n_epochs)
 
-    def epoch_body(agent_state, epoch_key):
-        # Re-shuffle the rollout into fresh minibatches each epoch.
+    def epoch_body(agent_state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:
         minibatches = get_minibatches_from_batch(
             batch, epoch_key, agent_config.num_minibatches
         )
 
-        def mb_body(agent_state, minibatch):
+        def mb_body(agent_state: PQNState, minibatch: tuple) -> Tuple[Any, Any]:
             q_state, value_aux = q_gradient_step(
                 agent_state, *minibatch, td_loss_fn, extension_stack, total_timesteps
             )
@@ -155,39 +116,10 @@ def training_iteration(
         return jax.lax.scan(mb_body, agent_state, minibatches)
 
     agent_state, value_aux = jax.lax.scan(epoch_body, agent_state, epoch_keys)
-    # value_aux is (n_epochs, num_minibatches, ...) -> mean to a (1,) scalar.
+    # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
     value_aux = jax.tree.map(lambda x: x.mean().reshape((1,)), value_aux)
-    aux = AuxiliaryLogs(value=value_aux)
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
-
-    # Extension post_update hook (state-threading + φ-refresh-style state
-    # mutation). Empty stack ⇒ identity.
-    if extension_stack:
-        _pu_key, _pu_rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=_pu_rng)
-        agent_state = extension_stack.fold_post_update(
-            agent_state,
-            agent_state.collector_state.timestep,
-            _pu_key,
-            total_timesteps,
-        )
-
-    # 4. Evaluate + log, with the stack's eval_metrics in the log dict.
-    agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        False,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        extra_eval_metrics=compose_eval_metrics(None, extension_stack, total_timesteps),
-    )
-    return agent_state, metrics_to_log
+    return agent_state, AuxiliaryLogs(value=value_aux)
 
 
 # ---------------------------------------------------------------------------
@@ -212,15 +144,31 @@ def make_train(
     td_loss_fn: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids)
-
-    if logging_config is not None and logging_config.backend:
-        start_async_logging()
-
+    """PQN's train function: an ``n_steps`` epsilon-greedy rollout per env,
+    then one update, per iteration."""
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
+
+    def init(key: jax.Array, _pretrain_key: jax.Array) -> PQNState:
+        return init_DQN(
+            key,
+            env_args,
+            critic_optimizer_args,
+            network_args,
+            n_actions,
+            q_network_cls=PQNNetwork,
+            state_cls=PQNState,
+        )
+
+    def update(
+        agent_state: PQNState, rollout: Transition, _start: PQNState
+    ) -> Tuple[PQNState, AuxiliaryLogs]:
+        return update_agent(
+            agent_state, rollout, agent_config, td_loss_fn, loop.stack, total_timesteps
+        )
 
     action_pipeline = make_epsilon_greedy_pipeline(
         n_actions=n_actions,
@@ -229,60 +177,10 @@ def make_train(
         epsilon_decay_frac=epsilon_decay_frac,
         total_timesteps=total_timesteps,
     )
-
-    # One iteration consumes n_envs * n_steps environment steps.
-    num_updates = total_timesteps // (env_args.n_envs * agent_config.n_steps) + 1
-
-    extension_stack = ExtensionStack(extensions)
-
-    def init_fn(key, _index):
-        init_key, pretrain_key = jax.random.split(key)
-        agent_state = init_DQN(
-            init_key,
-            env_args,
-            critic_optimizer_args,
-            network_args,
-            n_actions,
-            q_network_cls=PQNNetwork,
-            state_cls=PQNState,
-        )
-        # The extensions' state and pretraining: fresh runs only (a resumed
-        # state already carries ``ext_state``).
-        agent_state = extension_stack.fold_init(
-            agent_state, pretrain_key, total_timesteps
-        )
-        if agent_config.expose_recent_rollout:
-            agent_state = preallocate_last_rollout(
-                agent_state,
-                agent_config.n_steps,
-                recurrent=False,
-                mode=mode,
-                env_args=env_args,
-                action_pipeline=action_pipeline,
-            )
-        return agent_state
-
-    def make_scan_fn(_agent_state, _resume_from_state, _key, index):
-        return partial(
-            training_iteration,
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
-            ),
-            action_pipeline=action_pipeline,
-            td_loss_fn=td_loss_fn,
-            extension_stack=extension_stack,
-        )
-
-    return build_resumable_train(
-        init_fn=init_fn,
-        make_scan_fn=make_scan_fn,
-        num_updates=num_updates,
+    return loop.on_policy(
+        init,
+        update,
+        agent_config.n_steps,
+        expose_rollout=agent_config.expose_recent_rollout,
+        collect_kwargs={"action_pipeline": action_pipeline},
     )

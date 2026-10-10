@@ -13,6 +13,9 @@ are not (``docs/world_models/DESIGN.md`` §8). These envs are:
   action is +1.
 * :class:`TerminatingEnv`: terminates after ``terminate_at`` steps, before
   its time limit (refused by TD-MPC2).
+* :class:`ChainEnv`: ``obs = one_hot(t)``, terminates after ``terminate_at``
+  steps with reward 1 on the last one: the values are ``gamma^(k - 1 - t)``
+  (TD-MPC2's episodic mode).
 * :class:`TargetEnv`: ``obs_dim``-dim observations and ``action_dim``-dim
   actions (the multi-task tests' tasks of different dims); a random initial
   state, ``x' = 0.9 x + 0.1 mean(a)`` and reward ``1 - mean((a - target)^2)``,
@@ -115,6 +118,22 @@ class TerminatingEnv(ConstantRewardEnv):
     def __init__(self, length: int = 10, terminate_at: int = 3):
         super().__init__(length)
         self.terminate_at = terminate_at
+
+    def _terminated(self, state: ToyState) -> jax.Array:
+        return state.time >= self.terminate_at
+
+
+class ChainEnv(_ToyEnv):
+    def __init__(self, length: int = 10, terminate_at: int = 3):
+        super().__init__(length)
+        self.terminate_at = terminate_at
+
+    def _obs(self, state: ToyState) -> jax.Array:
+        t = jnp.minimum(state.time, self.terminate_at)
+        return jax.nn.one_hot(t, self.terminate_at + 1)
+
+    def _reward(self, state: ToyState, action: jax.Array) -> jax.Array:
+        return (state.time + 1 == self.terminate_at).astype(jnp.float32)
 
     def _terminated(self, state: ToyState) -> jax.Array:
         return state.time >= self.terminate_at

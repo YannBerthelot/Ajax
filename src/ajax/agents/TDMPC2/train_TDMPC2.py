@@ -44,6 +44,12 @@ off-schedule ``done``s, the loop counts the true terminations on scheduled
 episode ends (``is_terminal`` rows), and
 :meth:`ajax.agents.TDMPC2.TDMPC2.TDMPC2.train` raises after the run if either
 is non-zero; the paper-era TD targets have no termination factor.
+
+The episodic mode (``config.episodic``, deviation T29) takes terminating
+tasks: the row collector's dynamic mode (each env ends its episodes when
+the env does, holding it for the tick of the final observation), the
+variable-length replay (:class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`)
+and :class:`EpisodicSchedule`.
 """
 
 from __future__ import annotations
@@ -58,7 +64,12 @@ import jax.numpy as jnp
 
 from ajax.agents.loop import Evaluation, TrainLoop
 from ajax.agents.TDMPC2 import core
-from ajax.agents.TDMPC2.buffer import EpisodeBuffer
+from ajax.agents.TDMPC2.buffer import (
+    EpisodeBuffer,
+    EpisodeBufferState,
+    EpisodicBuffer,
+    EpisodicBufferState,
+)
 from ajax.agents.TDMPC2.planner import draw_plan_noise, plan
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.environments.row_collector import collect_row, init_row_collector_state
@@ -169,6 +180,56 @@ class Schedule:
         return jnp.where(self.is_held(tick), 0, stepping).astype(jnp.int32)
 
 
+@dataclasses.dataclass(frozen=True)
+class EpisodicSchedule:
+    """The episodic mode's schedule (deviation T29): data-dependent episode ends.
+
+    The row collector's dynamic mode holds an env for one tick after each
+    episode end (the row of its final observation), so a tick steps the
+    envs that are not held, and ticks are not env steps. On the absolute
+    tick ``i``, with the seed tick ``k_S = max(S div n, T)``:
+
+    * actions are uniform random on ticks ``0 .. k_S``: the seed phase is
+      counted in ticks, held rows included (``S`` rows over the envs, so
+      about ``S k / (k + 1)`` env steps for episodes of ``k`` steps), and
+      lasts at least ``T + 1`` ticks, so every env has finished an episode;
+    * ``n_updates(i, stepped)`` is ``S`` on the seed tick (the burst) and
+      ``stepped``, the envs the tick stepped, after it: one update per env
+      step, as the reference; the caller gates both on a sampleable episode;
+    * a run of ``n_timesteps`` lasts ``n_timesteps div n`` ticks:
+      ``n_timesteps`` counts rows (env steps plus one per finished episode),
+      as for DreamerV3, since the env steps of a tick are not known ahead.
+    """
+
+    n_envs: int
+    episode_length: int
+    seed_steps: int
+
+    def __post_init__(self) -> None:
+        if self.n_envs < 1 or self.episode_length < 1 or self.seed_steps < 0:
+            raise ValueError(
+                "need n_envs >= 1, episode_length >= 1 and seed_steps >= 0, got"
+                f" {self.n_envs}, {self.episode_length}, {self.seed_steps}"
+            )
+
+    @property
+    def seed_tick(self) -> int:
+        return max(self.seed_steps // self.n_envs, self.episode_length)
+
+    def num_ticks(self, n_timesteps: int, start_tick: int = 0) -> int:
+        del start_tick  # every tick is a row per env
+        return n_timesteps // self.n_envs
+
+    def random_phase(self, tick: Any) -> Any:
+        return tick <= self.seed_tick
+
+    def n_updates(self, tick: Any, stepped: Any) -> Any:
+        after = jnp.where(tick > self.seed_tick, stepped, 0)
+        return jnp.where(tick == self.seed_tick, self.seed_steps, after).astype(
+            jnp.int32
+        )
+
+
 # ---------------------------------------------------------------------------
 # Acting
 # ---------------------------------------------------------------------------
@@ -242,6 +303,7 @@ def update_metrics_zeros(
         obs=jnp.zeros((h + 1, b, obs_dim)),
         action=jnp.zeros((h, b, action_dim)),
         reward=jnp.zeros((h, b)),
+        terminated=jnp.zeros((h, b)) if config.episodic else None,
     )
     noise = core.draw_update_noise(jax.random.PRNGKey(0), config, b, action_dim)
 
@@ -259,7 +321,7 @@ def init_TDMPC2(
     key: jax.Array,
     env_args: EnvironmentConfig,
     config: TDMPC2Config,
-    buffer: EpisodeBuffer,
+    buffer: Union[EpisodeBuffer, EpisodicBuffer],
     *,
     gamma: float,
     learning_rate: FloatOrCallable,
@@ -346,7 +408,7 @@ def train_metrics(
     cs = agent_state.collector_state
     metrics = {
         "timestep": cs.timestep,
-        "env_frames": cs.timestep * action_repeat,
+        "env_frames": cs.env_steps * action_repeat,
         "Train/episodic mean reward": cs.episodic_mean_return,
         "Train/n_updates": agent_state.n_updates,
         "Train/offschedule_dones": cs.n_offschedule_dones,
@@ -367,30 +429,41 @@ def collect(
     *,
     env_args: EnvironmentConfig,
     config: TDMPC2Config,
-    schedule: Schedule,
-    buffer: EpisodeBuffer,
+    schedule: Union[Schedule, EpisodicSchedule],
+    buffer: Union[EpisodeBuffer, EpisodicBuffer],
     gamma: float,
 ) -> tuple[TDMPC2State, jax.Array]:
     """Act and store one row per env on the absolute, unbatched tick
     ``tick``; returns the state and ``tick``, which locates the buffer's
-    newest rows for the tick's updates (:func:`update`)."""
+    newest rows for the tick's updates (:func:`update`). The episodic mode
+    collects in the dynamic reset mode, counting rows."""
+    cs = agent_state.collector_state
     collector_state, row = collect_row(
-        agent_state.collector_state,
+        cs,
         tick,
         _policy(agent_state, config, gamma, eval_mode=False),
         env_args=env_args,
-        reset_mode="static",
-        episode_length=schedule.episode_length,
+        reset_mode="dynamic" if config.episodic else "static",
+        episode_length=schedule.episode_length,  # the static mode's
         random_phase=schedule.random_phase(tick),
-        timestep_unit="env_steps",
+        timestep_unit="rows" if config.episodic else "env_steps",
     )
+    replay = agent_state.buffer_state
+    if isinstance(buffer, EpisodicBuffer):
+        assert isinstance(replay, EpisodicBufferState)
+        # The row's index in its episode: a final row (the env held) is
+        # its episode's last, after last_episode_length steps.
+        step = jnp.where(cs.is_last, cs.last_episode_length, cs.step_in_episode)
+        replay = buffer.add(replay, row, step, tick)
+    else:
+        assert isinstance(replay, EpisodeBufferState)
+        replay = buffer.add(replay, row.obs, row.action, row.reward, tick)
     agent_state = agent_state.replace(
         collector_state=collector_state,
-        buffer_state=buffer.add(
-            agent_state.buffer_state, row.obs, row.action, row.reward, tick
-        ),
+        buffer_state=replay,
         # True terminations on scheduled episode ends (the off-schedule
-        # ones are the collector's n_offschedule_dones).
+        # ones are the collector's n_offschedule_dones); every one in the
+        # episodic mode.
         n_terminations=agent_state.n_terminations
         + jnp.sum(row.is_terminal, dtype=jnp.int32),
     )
@@ -402,7 +475,7 @@ def update(
     tick: jax.Array,
     *,
     config: TDMPC2Config,
-    buffer: EpisodeBuffer,
+    buffer: Union[EpisodeBuffer, EpisodicBuffer],
     gamma: float,
 ) -> tuple[TDMPC2State, None]:
     """One ``agent.update(buffer)`` after tick ``tick``'s rows: a fresh batch
@@ -410,9 +483,17 @@ def update(
     quantities kept on ``update_metrics``. The loop folds ``post_update``
     after it."""
     rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
-    batch = buffer.sample(
-        agent_state.buffer_state, sample_key, tick, config.batch_size, config.horizon
-    )
+    replay = agent_state.buffer_state
+    if isinstance(buffer, EpisodicBuffer):
+        assert isinstance(replay, EpisodicBufferState)
+        batch = buffer.sample(
+            replay, sample_key, tick, config.batch_size, config.horizon
+        )
+    else:
+        assert isinstance(replay, EpisodeBufferState)
+        batch = buffer.sample(
+            replay, sample_key, tick, config.batch_size, config.horizon
+        )
     noise = core.draw_update_noise(
         noise_key, config, config.batch_size, buffer.action_dim
     )
@@ -442,8 +523,8 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     *,
     gamma: float,
-    schedule: Schedule,
-    buffer: EpisodeBuffer,
+    schedule: Union[Schedule, EpisodicSchedule],
+    buffer: Union[EpisodeBuffer, EpisodicBuffer],
     learning_rate: FloatOrCallable = 3e-4,
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
@@ -464,7 +545,12 @@ def make_train(
     multiple of ``T * n_envs``, as the reference's ``eval_freq`` 50,000 is of
     DMC's 500). The optimizers are built by :func:`core.create_update_state`
     from ``learning_rate``, ``enc_lr_scale`` and ``pi_eps``; the base class's
-    actor / critic optimizer and network configs do not apply.
+    actor / critic optimizer and network configs do not apply. The episodic
+    mode takes an :class:`EpisodicSchedule` and an
+    :class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`: its updates follow
+    the env steps each tick took (the envs not held, read from the
+    collector's ``is_first``, set exactly on the rows after a held tick),
+    and wait for a sampleable episode.
     """
     del actor_optimizer_args, critic_optimizer_args, network_args
     config = agent_config
@@ -487,11 +573,23 @@ def make_train(
 
     models = {"config": config, "buffer": buffer, "gamma": gamma}
     every = loop.log_frequency and max(schedule.num_ticks(loop.log_frequency), 1)
+
+    def n_updates(tick: jax.Array, agent_state: TDMPC2State) -> jax.Array:
+        if isinstance(schedule, Schedule):
+            return schedule.n_updates(tick)
+        replay = agent_state.buffer_state
+        assert isinstance(buffer, EpisodicBuffer)
+        assert isinstance(replay, EpisodicBufferState)
+        held = agent_state.collector_state.is_first  # held this tick
+        stepped = env_args.n_envs - jnp.sum(held, dtype=jnp.int32)
+        ready = buffer.num_episodes(replay, tick, config.horizon)
+        return jnp.where(ready > 0, schedule.n_updates(tick, stepped), 0)
+
     return loop.off_policy(
         init,
         partial(update, **models),
         collect=partial(collect, env_args=env_args, schedule=schedule, **models),
-        n_updates=lambda tick, _: schedule.n_updates(tick),
+        n_updates=n_updates,
         evaluation=Evaluation(
             metrics=partial(train_metrics, action_repeat=env_args.action_repeat),
             every=every,
@@ -508,6 +606,7 @@ def make_train(
 
 
 __all__ = [
+    "EpisodicSchedule",
     "Schedule",
     "collect",
     "evaluate_tdmpc2",

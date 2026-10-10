@@ -38,7 +38,7 @@ from ajax.normalizers import RunningScale
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
 
 if TYPE_CHECKING:  # buffer.py builds core.TDMPC2Batch; core imports this module
-    from ajax.agents.TDMPC2.buffer import EpisodeBufferState
+    from ajax.agents.TDMPC2.buffer import EpisodeBufferState, EpisodicBufferState
 
 
 def _static(default: Any) -> Any:
@@ -250,7 +250,8 @@ class TDMPC2State(BaseAgentState):
             planner's per-env warm-start mean ``prev_mean [n_envs, H, A]``.
             ``collector_state.timestep`` counts env (agent) steps.
         buffer_state: the episode replay ring
-            (:class:`~ajax.agents.TDMPC2.buffer.EpisodeBuffer`).
+            (:class:`~ajax.agents.TDMPC2.buffer.EpisodeBuffer`; the episodic
+            mode's :class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`).
         update_metrics: the last update's logged quantities
             (:func:`ajax.agents.TDMPC2.core.update`), kept across ticks
             without updates (held ticks, seed phase) for logging, as the
@@ -258,7 +259,8 @@ class TDMPC2State(BaseAgentState):
         n_terminations: true terminations on scheduled episode ends
             (``is_terminal`` rows); with the collector's
             ``n_offschedule_dones`` it makes the agent refuse terminating
-            tasks after ``train`` (deviation T10).
+            tasks after ``train`` (deviation T10). The episodic mode counts
+            every termination.
     """
 
     critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
@@ -266,7 +268,7 @@ class TDMPC2State(BaseAgentState):
     q_scale: RunningScale
     pi_gradnorm_sq: jax.Array
     collector_state: RowCollectorState
-    buffer_state: EpisodeBufferState
+    buffer_state: EpisodeBufferState | EpisodicBufferState
     update_metrics: dict[str, jax.Array]
     n_terminations: jax.Array
 

@@ -33,7 +33,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "e3bd651d85de"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "9648817f419a"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -828,7 +828,10 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 # max-entropy tanh-Gaussian (PPO starts at e^0.5: no fault crosses it). Off:
 # advantage normalisation and gradient clipping (both move the stationary
 # point); APO's gae_lambda 0 (advantage r - rho). 8 envs; learning rates set
-# the spread, not the answer. Measured wrong answers: medians, 1000-1031.
+# the spread, not the answer. PPO takes 4 full-batch Adam steps a 256-step
+# rollout, each moving a weight by about the rate: its plain MLP needs four
+# times the updates its LayerNorm one did at 1e-5 (pi(best) 0.668 after
+# 160,000 steps), hence 4e-5. Measured wrong answers: medians, 1000-1031.
 
 
 def _bandit(reward: Callable, actions: int = 0, dim: int = 1) -> envs.Spec:
@@ -852,7 +855,7 @@ BANDITS = {
 
 
 def _q6_agent(agent: str, bandit: str, c: float, **kw: Any) -> Any:
-    lr = {"PPO": 1e-5, "APO": 3e-4}[agent]
+    lr = {"PPO": 4e-5, "APO": 3e-4}[agent]
     kw |= {"gae_lambda": 0.0} if agent == "APO" else {}
     kw |= {"normalize_advantage": False, "max_grad_norm": None, "ent_coef": c}
     kw |= {"n_envs": 8, "actor_learning_rate": lr, "critic_learning_rate": lr}
@@ -909,16 +912,16 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
 }
 Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
     # agent, bandit, c, budget, tolerances (32/32 of 3000-3031), overrides
-    "PPO-a": ("PPO", "a", 1.0, 80_000, (0.02,), {}),  # 40,000 failed: 0.106
+    "PPO-a": ("PPO", "a", 1.0, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
     "APO-a": ("APO", "a", 1.0, 20_000, (0.023,), {}),
-    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.054, 0.048), {}),  # 80,000: 0.251
+    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.082, 0.086), {}),  # 80,000: 0.061
     "PPO-b2": ("PPO", "b2", 2.0, 160_000, (), {}),
-    "PPO-c": (  # 240,000 failed: 0.157
+    "PPO-c": (  # 40,000 failed: 0.382
         "PPO",
         "c",
         0.1,
-        320_000,
-        (0.06,),
+        80_000,
+        (0.053,),
         {"squash": True, "log_std_init": 0.5},
     ),
     "APO-c": ("APO", "c", 0.1, 80_000, (0.062,), {}),  # half the gap to 1.0

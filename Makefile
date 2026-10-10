@@ -24,44 +24,44 @@ help:  ## Show this help message
 ci: ci-precommit ci-test ci-slow ci-probe  ## Full local CI: pre-commit, tests not marked slow + coverage, slow tests, probing
 
 ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
-	poetry run pre-commit run --all-files
+	uv run pre-commit run --all-files
 
 ci-test:  ## Tests not marked slow (deselects probing) + coverage >= 70
-	poetry run coverage erase
-	$(CPU_ENV) poetry run coverage run -m pytest -m "not slow" --deselect tests/agents/test_probing.py --ignore=tests/probing
-	poetry run coverage combine
-	poetry run coverage report --fail-under=70
+	uv run coverage erase
+	$(CPU_ENV) uv run coverage run -m pytest -m "not slow" --deselect tests/agents/test_probing.py --ignore=tests/probing
+	uv run coverage combine
+	uv run coverage report --fail-under=70
 
 ci-slow:  ## Tests marked slow (deselects probing), without coverage
-	$(CPU_ENV) poetry run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing
+	$(CPU_ENV) uv run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing
 
 ci-probe:  ## Cross-agent probing tests (old checks and the known-answer probes)
-	$(CPU_ENV) poetry run pytest tests/agents/test_probing.py tests/probing
+	$(CPU_ENV) uv run pytest tests/agents/test_probing.py tests/probing
 
 # ---------------------------------------------------------------------------
 # Convenience: fast CPU-only test runs that skip the coverage gate.
 # ---------------------------------------------------------------------------
 
 test-cpu:  ## Run tests on CPU only (no coverage gate)
-	$(CPU_ENV) poetry run pytest --tb=short --disable-warnings
+	$(CPU_ENV) uv run pytest --tb=short --disable-warnings
 
 probe-cpu:  ## Run probing on CPU only
-	$(CPU_ENV) poetry run pytest tests/agents/test_probing.py tests/probing -v
+	$(CPU_ENV) uv run pytest tests/agents/test_probing.py tests/probing -v
 
 # ---------------------------------------------------------------------------
 # Legacy targets (kept for back-compat; prefer the ci-* targets above).
 # ---------------------------------------------------------------------------
 
 test:
-	poetry run pytest --tb=short --disable-warnings
+	uv run pytest --tb=short --disable-warnings
 
 mypy:
 	mypy ${LINT_PATHS}
 
 coverage:
-	poetry run coverage run -m pytest tests
-	poetry run coverage combine
-	poetry run coverage report -m --fail-under 80
+	uv run coverage run -m pytest tests
+	uv run coverage combine
+	uv run coverage report -m --fail-under 80
 
 missing-annotations:
 	mypy --disallow-untyped-calls --disallow-untyped-defs --ignore-missing-imports src
@@ -71,15 +71,15 @@ type: mypy
 lint:
 	# stop the build if there are Python syntax errors or undefined names
 	# see https://www.flake8rules.com/
-	poetry run ruff check ${LINT_PATHS} --select=E9,F63,F7,F82 --output-format=full
+	uv run ruff check ${LINT_PATHS} --select=E9,F63,F7,F82 --output-format=full
 	# exit-zero treats all errors as warnings.
-	poetry run ruff check ${LINT_PATHS} --exit-zero --output-format=concise
+	uv run ruff check ${LINT_PATHS} --exit-zero --output-format=concise
 
 format:
 	# Sort imports
-	poetry run ruff check --select I $(LINT_PATHS) --fix
+	uv run ruff check --select I $(LINT_PATHS) --fix
 	# Reformat using black
-	poetry run black $(LINT_PATHS)
+	uv run black $(LINT_PATHS)
 
 check-codestyle:
 	# Sort imports

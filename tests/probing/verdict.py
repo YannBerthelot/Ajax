@@ -7,7 +7,7 @@ seeds 0-7 in one program: 7 or more within tolerance pass, 4 or fewer fail,
 otherwise seeds 8-15 are added and 13 of 16 pass. Preconditions raise
 RuntimeError, never AssertionError, so a strict xfail cannot absorb them::
 
-    poetry run python -m tests.probing.verdict {ladder|choose|certify|answers} MODULE ...
+    uv run python -m tests.probing.verdict {ladder|choose|certify|answers} MODULE ...
 """
 
 from __future__ import annotations

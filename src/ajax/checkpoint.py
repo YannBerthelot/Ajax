@@ -12,7 +12,7 @@ Minimal API:
     state = restore_into(skeleton_state, path)
     checkpoint_exists(path)
 
-Typical resume flow (see ``run_final_eval.py``):
+Typical resume flow (``resume`` in tests/probing/runs.py runs it):
     skeleton = agent.train(seed=seeds, n_timesteps=0)       # init only
     if checkpoint_exists(path):
         skeleton = restore_into(skeleton, path)

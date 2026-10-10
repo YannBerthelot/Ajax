@@ -632,7 +632,6 @@ CASES["q7-mc-lockstep-SAC"] = Case(
     V_RANGE,
     q7_readings("SAC", CHAIN, _phi, (mc(),), reward_scale=RS, n_envs=256),
     0,
-    defect="MCPretrain takes v_min/v_max from the last regression batch only (modules/pretrain.py:229-237); with 256 envs in lockstep the 512 MC rows are 2 timesteps and that batch is the second, every env at observation 1; right (v_min, v_max) = (1.24, 2.0), today (2.0, 2.0), and OnlineBC's weight is 0 everywhere",
 )
 _V_E, _S = "docstring, V(terminal) = 0", "blend of V_E(s') alone"
 CASES["q7-blend-SAC"] = Case(

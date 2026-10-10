@@ -195,11 +195,15 @@ def pretrain_critic_mc(
 
     frozen_expert_params = jax.lax.stop_gradient(expert_critic_state.params)
 
-    # Q-value diagnostics on the last batch
+    # The value range (OnlineBC's weight, ValueBox's threshold) and the
+    # diagnostics over every regression row: one batch may hold a few
+    # timesteps only (envs in lockstep).
     q_preds_final = predict_value(
         critic_state=expert_critic_state,
         critic_params=frozen_expert_params,
-        x=jnp.concatenate([obs_batched[-1], action_batched[-1]], axis=-1),
+        x=jnp.concatenate([obs_batched, action_batched], axis=-1).reshape(
+            n_batches * batch_size, -1
+        ),
     )
     q_for_stats = jnp.min(q_preds_final, axis=0)
     v_min = q_for_stats.min()

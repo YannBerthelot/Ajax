@@ -227,14 +227,11 @@ class ImitationLoss(Extension):
 class ResidualPolicy(Extension):
     """Residual RL (Johannink et al. 2019).
 
-    The executed action is ``clip(a_expert + scale·a_pi, -1, 1)``. The
-    actor's policy gradient and the TD-target bootstrap both flow through
-    the residual transform. Equivalent to ``use_residual_rl``.
-
-    The actor-loss / TD-target call sites pull this extension's
-    :meth:`transform_action` helper directly off the stack; the
-    collection-time substitution stays with ``make_action_pipeline``
-    via the legacy ``use_residual_rl=True`` flag the resolver echoes.
+    The executed action is ``clip(a_expert + scale·a_pi, -1, 1)``: SAC's
+    action pipeline applies :meth:`transform_action` at collection (its
+    warmup samples uniformly), and the actor's policy gradient, the
+    TD-target bootstrap and evaluation flow through the same transform.
+    Its presence alone turns residual RL on, with SAC's expert policy.
     """
 
     expert_policy: Callable

@@ -38,8 +38,7 @@ class SAC(ActorCritic):
 
     Several kwargs survived because they thread into network init,
     collection, or the action pipeline at a level the extension
-    framework doesn't reach (``residual``, ``jsrl_curriculum``,
-    ``use_pid_policy``,
+    framework doesn't reach (``jsrl_curriculum``, ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
     ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``).
     They mirror the matching extension's "static" flag.
@@ -105,12 +104,6 @@ class SAC(ActorCritic):
         # Ignored, never had an effect (evaluation does not read it); still
         # accepted because AjaxExperiments passes ``action_scale=1.0``.
         action_scale: float = 1.0,
-        # Residual RL: kept because ``residual`` turns on the collection-
-        # time residual substitution in ``make_action_pipeline``
-        # (``use_residual_rl``). The ResidualPolicy extension owns the
-        # actor-loss / TD-target transform math via :meth:`transform_action`.
-        residual: bool = False,
-        residual_scale: float = 1.0,
         # JSRL: kept because ``jsrl_curriculum=True`` gates the
         # per-env ``step_in_episode`` counter init in :func:`init_SAC`.
         # The curriculum math lives on :class:`JSRLCurriculum`.action.
@@ -210,11 +203,6 @@ class SAC(ActorCritic):
                     "use_pid_policy=True requires a FunctionalExpertPolicy with"
                     " learnable_fields (registered via register_learnable_gains)."
                 )
-            if residual:
-                raise ValueError(
-                    "use_pid_policy=True is incompatible with residual=True;"
-                    " gain-mode uses a 7-D action space."
-                )
             self.action_dim_override = len(expert_policy.learnable_fields)
 
         action_dim = (
@@ -252,8 +240,6 @@ class SAC(ActorCritic):
         )
         self.expert_policy = expert_policy
         self.eval_expert_policy = eval_expert_policy
-        self.residual = residual
-        self.residual_scale = residual_scale
         self.jsrl_curriculum = jsrl_curriculum
         self.use_pid_policy = use_pid_policy
         self.fixed_alpha = fixed_alpha
@@ -311,8 +297,6 @@ class SAC(ActorCritic):
             normalize_obs_running=self.normalize_obs_running,
             target_entropy_initial=self.target_entropy_initial,
             target_entropy_ramp_frac=self.target_entropy_ramp_frac,
-            use_residual_rl=self.residual,
-            residual_scale=self.residual_scale,
             jsrl_curriculum=self.jsrl_curriculum,
             pid_actor_config=self.pid_actor_config,
             action_dim_override=self.action_dim_override,

@@ -16,7 +16,7 @@ It also flags **false friends**: blocks that look shared but differ in a way tha
 - **Re-checked against the reference code (both official repositories at the commits pinned in the two specs):**
   - D3: `embodied/jax/{outs,heads,nets,opt,utils}.py` and `dreamerv3/agent.py:480-488` (lambda_return).
   - T2: `tdmpc2/common/{math,scale,init,layers}.py`, `tdmpc2/tdmpc2.py:208-230` (update_pi) and `common/world_model.py:186-216` (Q).
-- **Pinned numbers.** Every number in the test lists below was computed by the reference translations shipped with the block tests (`tests/world_models/reference_impls.py`), which contains literal translations of the reference functions: D3 is already JAX, and T2's torch code is translated to numpy line for line. The environment was Ajax poetry: jax 0.7.2, flax 0.10.7, optax 0.2.6. Unless stated otherwise, the tolerance is rtol 1e-6 in f32.
+- **Pinned numbers.** Every number in the test lists below was computed by the reference translations shipped with the block tests (`tests/world_models/reference_impls.py`), which contains literal translations of the reference functions: D3 is already JAX, and T2's torch code is translated to numpy line for line. The environment was Ajax's locked one: jax 0.7.2, flax 0.10.7, optax 0.2.6. Unless stated otherwise, the tolerance is rtol 1e-6 in f32.
 - **Ajax conventions this spec assumes** (from CLAUDE.md and the codebase):
   - flax.linen modules plus pure functions.
   - Hyperparameters live in frozen dataclasses.

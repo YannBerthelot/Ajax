@@ -236,6 +236,21 @@ def sample_replay(
     return batch, None
 
 
+def bootstrap_cuts(batch: Transition, carries: Optional[RecurrentCarries]) -> jax.Array:
+    """Where a replayed target stops bootstrapping: on termination only, as
+    the references do; a truncated row bootstraps on the final observation
+    it stores (``interaction.bootstrap_obs``).
+
+    Replayed sequences (``carries``) still cut at time limits too, a
+    deliberate workaround: their next observations are the next rows, the
+    reset one after an end, and bootstrapping on the final one needs the
+    target carries from before the reset, which the burn-in does not keep.
+    """
+    if carries is None:
+        return batch.terminated
+    return jnp.logical_or(batch.terminated, batch.truncated)
+
+
 def actor_dist(
     actor_state: LoadedTrainState,
     params: Any,

@@ -4,8 +4,6 @@ Phase 2 of the agent-architecture rework moves SAC's 14 inline research
 features out of ``train_SAC.py`` into composable :class:`Extension`
 objects. The expert-dependent group lives here:
 
-* :class:`ExpertGuidance`        — frozen expert policy + warmup/buffer/
-  pre-training seeding; the shared base the others build on.
 * :class:`OnlineBC`              — value-weighted decaying BC loss term.
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
@@ -91,27 +89,6 @@ def compute_online_bc_loss(
             )
         ).mean()
     )
-
-
-@dataclass(frozen=True)
-class ExpertGuidance(Extension):
-    """A frozen expert policy attached to the agent.
-
-    The shared base for every expert-dependent feature. It carries the
-    expert callable used by the SAC loop to seed warmup actions, prefill
-    the expert replay buffer and (optionally) pre-train the critic. The
-    ``expert_fraction`` controls the warmup mix (expert vs uniform);
-    ``expert_buffer_n_steps`` how many expert transitions to prefill;
-    ``expert_mix_fraction`` how much expert data to blend into each
-    training batch. Defaults reproduce ``train_SAC.py``'s.
-    """
-
-    expert_policy: Callable
-    expert_fraction: float = 0.7
-    expert_buffer_n_steps: int = 20_000
-    expert_mix_fraction: float = 0.1
-    use_expert_guidance: bool = True
-    name: str = "expert_guidance"
 
 
 @dataclass(frozen=True)
@@ -343,7 +320,6 @@ class JSRLCurriculum(Extension):
 
 
 __all__ = [
-    "ExpertGuidance",
     "OnlineBC",
     "ImitationLoss",
     "ResidualPolicy",

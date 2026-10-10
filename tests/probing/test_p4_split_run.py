@@ -24,7 +24,6 @@ import ajax.log
 from ajax.environments import model_reference as mr
 from ajax.environments.system_class import UniformPerturbation
 from ajax.extensions import target_mods
-from ajax.extensions.expert import ExpertGuidance
 from ajax.extensions.pretrain import MCPretrain
 
 from . import agents, envs, runs
@@ -272,7 +271,6 @@ def value_box_agent(records: list) -> Any:
         records.append(tuple(float(np.asarray(v).item()) for v in values))
 
     exts = (
-        ExpertGuidance(expert_policy=e, **off),
         MCPretrain(expert_policy=e, **mc),
         RecordingValueBox(expert_policy=e, sink=sink),
     )

@@ -31,6 +31,10 @@ every non-empty stack moved by 6e-5..7.4e-4 (the new key stream), the
 empty stack not at all. The five MCPretrain goldens were re-captured
 again when SAC's init drew the extensions' keys as ``TrainLoop`` does
 (MCPretrain trains phi* on a new key): moves of 9e-6..8.7e-4.
+
+The expert-policy golden (ExpertGuidance's until that inert extension
+went) was re-captured when its stack became empty: SAC then draws no
+post_update key, a move of 1.6e-5..2.9e-4.
 """
 
 from __future__ import annotations
@@ -45,7 +49,6 @@ import pytest
 
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import (
-    ExpertGuidance,
     JSRLCurriculum,
     OnlineBC,
     ResidualPolicy,
@@ -178,34 +181,19 @@ def test_empty_stack_matches_legacy_plain_sac():
 
 
 # --------------------------------------------------------------------------
-# Expert-guidance base extension equals pre-Phase-5 ``expert_policy=``.
-#
-# Phase 5: SAC's ``expert_policy`` / ``expert_buffer_n_steps`` /
-# ``expert_mix_fraction`` / ``use_expert_guidance`` kwargs were kept on
-# the class because they thread into collection / cloning / init_SAC at
-# a level the extension framework doesn't reach. Callers using
-# :class:`ExpertGuidance` must pass them to SAC as well — the extension
-# carries them only for the (currently unused) post-Phase-5
-# auto-extraction path.
+# SAC's expert policy alone (no extension) equals pre-Phase-5
+# ``expert_policy=``.
 # --------------------------------------------------------------------------
-def test_expert_guidance_matches_legacy_expert_policy():
+def test_expert_policy_matches_legacy_expert_policy():
     expert = _noise_expert()
     new = SAC(
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-                use_expert_guidance=False,
-            ),
-        ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     _assert_matches_golden(
-        s_new, "test_expert_guidance_matches_legacy_expert_policy", "expert_guidance"
+        s_new, "test_expert_policy_matches_legacy_expert_policy", "expert_policy"
     )
 
 
@@ -227,11 +215,6 @@ def test_online_bc_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
             OnlineBC(expert_policy=expert, bc_coef=0.5, critic_warmup_frac=0.5),
         ),
     )
@@ -253,14 +236,7 @@ def test_residual_policy_matches_legacy_use_residual_rl():
         # an honest equivalence check against the golden.
         residual=True,
         residual_scale=0.5,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
-            ResidualPolicy(expert_policy=expert, scale=0.5),
-        ),
+        extensions=(ResidualPolicy(expert_policy=expert, scale=0.5),),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     _assert_matches_golden(
@@ -281,11 +257,6 @@ def test_jsrl_curriculum_matches_legacy_flag():
         # ``step_in_episode`` counter init inside :func:`init_SAC`.
         jsrl_curriculum=True,
         extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
             JSRLCurriculum(expert_policy=expert, episode_length=50, decay_frac=0.5),
         ),
     )
@@ -304,14 +275,7 @@ def test_ibrl_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
-            IBRL(expert_policy=expert),
-        ),
+        extensions=(IBRL(expert_policy=expert),),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     _assert_matches_golden(s_new, "test_ibrl_matches_legacy_flag", "ibrl")
@@ -331,13 +295,6 @@ def test_expert_obs_aug_constructs_and_trains():
         # The flag changes the network input dim (init_SAC /
         # collect_experience).
         augment_obs_with_expert_action=True,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
-        ),
     )
     state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     assert state is not None
@@ -358,14 +315,7 @@ def test_edge_exploration_matches_legacy_flags(gate: str):
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
-            EDGEExploration(expert_policy=expert, gate=gate),
-        ),
+        extensions=(EDGEExploration(expert_policy=expert, gate=gate),),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     # mypy occasionally fails to type-narrow the parametrised SAC(**dict)
@@ -389,14 +339,7 @@ def test_lcb_gated_bootstrap_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
-            LCBGatedBootstrap(expert_policy=expert),
-        ),
+        extensions=(LCBGatedBootstrap(expert_policy=expert),),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     _assert_matches_golden(
@@ -424,14 +367,7 @@ def test_mc_pretrain_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
-            MCPretrain(expert_policy=expert, **_MC_KW),
-        ),
+        extensions=(MCPretrain(expert_policy=expert, **_MC_KW),),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     _assert_matches_golden(s_new, "test_mc_pretrain_matches_legacy_flag", "mc_pretrain")
@@ -452,14 +388,7 @@ def test_bellman_pretrain_matches_legacy_flag():
         # mirrors them.
         use_bellman_critic_pretrain=True,
         mc_pretrain_n_steps=20,
-        extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
-            BellmanPretrain(expert_policy=expert, n_steps=20),
-        ),
+        extensions=(BellmanPretrain(expert_policy=expert, n_steps=20),),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     _assert_matches_golden(
@@ -478,11 +407,6 @@ def test_critic_blend_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
             MCPretrain(expert_policy=expert, **_MC_KW),
             CriticBlend(expert_policy=expert, critic_warmup_frac=0.5),
             # The pre-Phase-5 legacy default ``use_online_bc=True`` ⇒
@@ -509,11 +433,6 @@ def test_mc_variance_correction_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
             MCPretrain(expert_policy=expert, **_MC_KW),
             MCVarianceCorrection(threshold=0.0),
         ),
@@ -538,11 +457,6 @@ def test_value_box_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
             MCPretrain(expert_policy=expert, **_MC_KW),
             ValueBox(expert_policy=expert),
         ),
@@ -564,11 +478,6 @@ def test_phi_refresh_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         extensions=(
-            ExpertGuidance(
-                expert_policy=expert,
-                expert_buffer_n_steps=0,
-                expert_mix_fraction=0.0,
-            ),
             MCPretrain(expert_policy=expert, **_MC_KW),
             PhiRefresh(expert_policy=expert, interval=30, steps=2),
         ),

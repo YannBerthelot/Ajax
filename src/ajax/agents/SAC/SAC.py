@@ -139,8 +139,7 @@ class SAC(ActorCritic):
         policy_update_start: int = 2_000,
         alpha_update_start: int = 2_000,
         # Warmup expert-vs-uniform mix fraction (gates uniform sampling
-        # in the action pipeline). Distinct from the ExpertGuidance
-        # extension's own fields.
+        # in the action pipeline).
         expert_fraction: float = 0.7,
         # Expert-state augmentation (PID integrator state etc.).
         # Changes the network input dim.

@@ -387,7 +387,7 @@ class RecordTargetBatch(Extension):
 @pytest.mark.parametrize(
     "cell",
     [
-        *("DQN", "TD3", "REDQ", "AVG", "ASAC"),
+        *("SAC", "DQN", "TD3", "REDQ", "AVG", "ASAC"),
         xparam(
             "PQN",
             "PQN's on_target batch carries raw rewards and no reward_scale (train_PQN.py:182-190) while its target scales them (:169); right reward_scale 2 in the batch, today absent (an extension rebuilding the target from batch['rewards'] reads 1, not 2)",
@@ -396,8 +396,8 @@ class RecordTargetBatch(Extension):
 )
 def test_p5_on_target_batch_states_its_reward_scale(cell: str) -> None:
     """Rewards reach every on_target batch unscaled, so the batch states the
-    scale the target applies (2); traced on one seed, never run. SAC's batch
-    carries no rewards (train_SAC.py:370-403); PPO and APO have no scale."""
+    scale the target applies (2); traced on one seed, never run. PPO and APO
+    have no scale."""
     label = f"{cell}-{len(SEEN)}"
     ext = (RecordTargetBatch(label),)
     agent = _asac(ext) if cell == "ASAC" else _scaled(cell, ext)

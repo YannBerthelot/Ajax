@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xfail, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "53be5c49a794"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "a19a99cb37bf"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -638,10 +638,8 @@ _V_E, _S = "docstring, V(terminal) = 0", "blend of V_E(s') alone"
 CASES["q7-blend-SAC"] = Case(
     "q7-blend-SAC",
     (
-        Query("Q(0)", GAMMA, {f"{_S} (today)": 1.0, _V_E: 1.0}),
-        Query(
-            "Q(1)", 1.0, {f"{_S}, s' the reset observation (today)": GAMMA, _V_E: 0.0}
-        ),
+        Query("Q(0)", GAMMA, {_S: 1.0, _V_E: 1.0}),
+        Query("Q(1)", 1.0, {f"{_S}, s' the reset observation": GAMMA, _V_E: 0.0}),
     ),
     q7_readings(
         "SAC",
@@ -650,7 +648,6 @@ CASES["q7-blend-SAC"] = Case(
         (mc(), CriticBlend(expert_policy=EXPERT, critic_warmup_frac=ONE)),
     ),
     1250,
-    defect="CriticBlend's target is (1 - w) y + w V_E(s') with no reward, discount or done mask (target_mods.py:222-257), and a terminal row's s' is the next episode's reset observation (buffers/utils.py:140); right, consistent in time, (Q(0), Q(1)) = (0.62, 1.0), today (1.0, 0.62); the docstring's V(terminal) = 0 would give (1.0, 0.0) (r/gamma convention: owner's call)",
     slow=True,
 )
 _X02 = "gap not masked at the terminal step (X02, target_mods.py:116)"

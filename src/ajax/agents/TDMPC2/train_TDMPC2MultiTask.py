@@ -38,6 +38,7 @@ from typing import Any, Callable, Optional
 import jax
 import jax.numpy as jnp
 
+from ajax.agents.loop import fold_post_update, fresh_state
 from ajax.agents.TDMPC2 import core, multitask
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import TaskSet
@@ -103,8 +104,9 @@ def update_step(
     total_timesteps: int,
 ) -> TDMPC2MultiTaskState:
     """One ``agent.update(buffer)`` on a fresh batch with fresh noise, then
-    the ``post_update`` fold (``step`` = updates done, ``total_steps`` = the
-    run's updates when this ``train`` call ends)."""
+    the ``post_update`` fold (:func:`ajax.agents.loop.fold_post_update`;
+    ``step`` = updates done, ``total_steps`` = the run's updates when this
+    ``train`` call ends)."""
     rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
     batch, task = dataset.sample(sample_key, config.batch_size, config.horizon)
     noise = core.draw_update_noise(
@@ -116,15 +118,9 @@ def update_step(
     agent_state = agent_state.replace(
         n_updates=agent_state.n_updates + 1, update_metrics=metrics
     )
-    if extension_stack:
-        post_key, rng = jax.random.split(agent_state.rng)
-        agent_state = extension_stack.fold_post_update(
-            agent_state.replace(rng=rng),
-            agent_state.n_updates,
-            post_key,
-            total_timesteps,
-        )
-    return agent_state
+    return fold_post_update(
+        extension_stack, agent_state, agent_state.n_updates, total_timesteps
+    )
 
 
 def make_init(
@@ -142,18 +138,16 @@ def make_init(
 
     :func:`init_TDMPC2MultiTask`, then the extensions' ``init_state`` and
     ``pretrain`` (step 0) folds, ``total_timesteps`` being their
-    ``total_steps`` (the single-task agent's ``init_transform``). The fresh
-    path of :func:`make_train`, and the agent's separate initialisation
-    program (one program then serves every chunk of a run, fresh or
-    resumed).
+    ``total_steps`` (:func:`ajax.agents.loop.fresh_state`, as every agent
+    does). The fresh path of :func:`make_train`, and the agent's separate
+    initialisation program (one program then serves every chunk of a run,
+    fresh or resumed).
     """
     extension_stack = ExtensionStack(extensions)
 
-    def init(key: jax.Array, index: Any) -> TDMPC2MultiTaskState:
-        del index
-        init_key, pretrain_key = jax.random.split(key)
-        agent_state = init_TDMPC2MultiTask(
-            init_key,
+    def init_tdmpc2(key: jax.Array, _pretrain_key: jax.Array) -> TDMPC2MultiTaskState:
+        return init_TDMPC2MultiTask(
+            key,
             config,
             tasks,
             task_dim=task_dim,
@@ -161,7 +155,10 @@ def make_init(
             enc_lr_scale=enc_lr_scale,
             pi_eps=pi_eps,
         )
-        return extension_stack.fold_init(agent_state, pretrain_key, total_timesteps)
+
+    def init(key: jax.Array, index: Any) -> TDMPC2MultiTaskState:
+        del index
+        return fresh_state(init_tdmpc2, extension_stack, total_timesteps, key)
 
     return init
 

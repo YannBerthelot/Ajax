@@ -86,10 +86,8 @@ class TDMPC2(ActorCritic):
     (obs_dim + A + 1) * 4`` bytes with ``R = ceil(capacity / (T n_envs)) +
     1``: 124 MB for DMC walker (obs 24, A 6, T 500) at the full
     1,000,000-step capacity; the seed ``vmap`` multiplies it. With a
-    ``logging_config``, :meth:`train` also returns the per-tick metrics: 4
-    bytes per key (18, plus the extensions' metrics) per tick per seed, a
-    tick being one env step of every env (``T + 1`` ticks per episode);
-    without one it returns no metrics.
+    ``logging_config``, :meth:`train` also returns the evaluations, a row
+    per evaluation per seed; without one it returns no metrics.
 
     Evaluation (with a ``logging_config``): every ``log_frequency`` env
     steps, ``num_episode_test`` episodes of the planner in ``eval_mode`` on
@@ -292,7 +290,7 @@ class TDMPC2(ActorCritic):
         return partial(
             make_train,
             gamma=self.gamma,
-            seed_steps=self.seed_steps,
+            schedule=self.schedule,
             learning_rate=self.learning_rate,
             enc_lr_scale=self.enc_lr_scale,
             pi_eps=self.pi_eps,
@@ -341,9 +339,10 @@ class TDMPC2(ActorCritic):
 
         Sizes the replay ring for the env steps the run will have taken when
         this call ends and, on a resume, moves the carried episodes into it
-        (class docstring). Returns ``(state, metrics)``: the per-tick metrics
-        with a ``logging_config`` (NaN on the ticks that do not log), else
-        ``None`` (nothing is evaluated or logged). Raises ``ValueError``
+        (class docstring). Returns ``(state, evaluations)``, as every agent
+        on the shared loop (:mod:`ajax.agents.loop`): every logged key's
+        values at the evaluations with a ``logging_config``, else ``None``
+        (nothing is evaluated or logged). Raises ``ValueError``
         after the run if any env terminated (deviation T10): the paper-era
         TD-MPC2 bootstraps through every episode end, so a terminating task
         would train on wrong targets.
@@ -371,7 +370,7 @@ class TDMPC2(ActorCritic):
             logging_config=logging_config,
             on_ids_ready=on_ids_ready,
             initial_state=initial_state,
-            capacity=self.replay_capacity,
+            buffer=buffer,
             start_tick=start_tick,
             **kwargs,
         )

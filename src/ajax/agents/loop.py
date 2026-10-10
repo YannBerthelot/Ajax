@@ -123,6 +123,26 @@ def record(rows: dict, count: jax.Array, metrics: dict) -> tuple[dict, jax.Array
     return rows, count + evaluated
 
 
+def fresh_state(init: Init, stack: ExtensionStack, total_steps: int, key: Any) -> Any:
+    """A fresh run's state: ``init(init_key, pretrain_key)`` on
+    ``split(key)``, then the extensions' initial states and one-shot
+    pretraining on ``pretrain_key`` (:meth:`ExtensionStack.fold_init`)."""
+    init_key, pretrain_key = jax.random.split(key)
+    agent_state = init(init_key, pretrain_key)
+    return stack.fold_init(agent_state, pretrain_key, total_steps)
+
+
+def fold_post_update(
+    stack: Optional[ExtensionStack], agent_state: Any, step: Any, total_steps: int
+) -> Any:
+    """Fold the extensions' ``post_update`` at ``step`` on a fresh key split
+    from ``agent_state.rng`` (no key is drawn without extensions)."""
+    if not stack:
+        return agent_state
+    key, rng = jax.random.split(agent_state.rng)
+    return stack.fold_post_update(agent_state.replace(rng=rng), step, key, total_steps)
+
+
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any]:
     """One optimiser step down ``loss_fn(params) -> (loss, aux)``.
 
@@ -251,16 +271,11 @@ class TrainLoop:
         return common | kwargs
 
     def post_update(self, agent_state: Any) -> Any:
-        """Fold the extensions' ``post_update`` on a fresh key (no key is
-        drawn without extensions)."""
-        if not self.stack:
-            return agent_state
-        key, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
-        return self.stack.fold_post_update(
+        """:func:`fold_post_update` at the collector's timestep."""
+        return fold_post_update(
+            self.stack,
             agent_state,
             agent_state.collector_state.timestep,
-            key,
             self.total_timesteps,
         )
 
@@ -378,11 +393,7 @@ class TrainLoop:
 
         def init_fn(key: jax.Array, index: Any) -> Any:
             del index
-            init_key, pretrain_key = jax.random.split(key)
-            agent_state = init(init_key, pretrain_key)
-            agent_state = self.stack.fold_init(
-                agent_state, pretrain_key, self.total_timesteps
-            )
+            agent_state = fresh_state(init, self.stack, self.total_timesteps, key)
             if last_rollout is not None:
                 length, collect_kwargs = last_rollout
                 agent_state = preallocate_last_rollout(
@@ -552,4 +563,11 @@ class TrainLoop:
         )
 
 
-__all__ = ["Evaluation", "TrainLoop", "critic_step", "gradient_step"]
+__all__ = [
+    "Evaluation",
+    "TrainLoop",
+    "critic_step",
+    "fold_post_update",
+    "fresh_state",
+    "gradient_step",
+]

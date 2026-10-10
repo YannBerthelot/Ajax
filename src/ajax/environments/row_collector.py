@@ -98,6 +98,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
     get_env_type,
+    wrapper_chain,
 )
 from ajax.state import CollectorState, EnvironmentConfig
 from ajax.wrappers import (
@@ -166,23 +167,6 @@ class RowCollectorState(CollectorState):
     policy_carry: Any = None
 
 
-def _wrapper_chain(env: Any):
-    """``env`` and every env it wraps, outermost first.
-
-    Follows the attribute each wrapper stores its inner env in (``_env`` for
-    gymnax wrappers, ``env`` for brax / Ajax brax-stack wrappers), read from
-    the instance dict so attribute forwarding (``__getattr__``) is never
-    mistaken for a wrapped env.
-    """
-    seen: set = set()
-    layer = env
-    while layer is not None and id(layer) not in seen:
-        seen.add(id(layer))
-        yield layer
-        attrs = getattr(layer, "__dict__", {})
-        layer = attrs.get("_env", attrs.get("env"))
-
-
 def check_unnormalized_env(env: Any, consumer: str) -> None:
     """Raise if ``env``'s wrapper stack normalises observations or rewards.
 
@@ -194,7 +178,7 @@ def check_unnormalized_env(env: Any, consumer: str) -> None:
     stack also clips actions to ``[-1, 1]``, defeating the bound mapping).
     """
     normalizing = (NormalizeVecObservationBrax, NormalizeVecObservationGymnax)
-    for layer in _wrapper_chain(env):
+    for layer in wrapper_chain(env):
         if isinstance(layer, normalizing):
             raise ValueError(
                 f"{consumer} stores and evaluates the env's raw observations and"
@@ -579,7 +563,7 @@ def _keep_batch_shared_seed(env: Any, restored: Any, stepped: Any) -> Any:
     keeps one key per env (``AutoResetWrapper_rng``), restored per env like
     the rest of the held env's state.
     """
-    if not any(isinstance(layer, AutoResetWrapper) for layer in _wrapper_chain(env)):
+    if not any(isinstance(layer, AutoResetWrapper) for layer in wrapper_chain(env)):
         return restored
     info = dict(restored.info)
     info["rng"] = stepped.info["rng"]

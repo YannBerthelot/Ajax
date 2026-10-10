@@ -3,8 +3,18 @@ import jax.numpy as jnp
 import pytest
 from gymnax import make as make_gymnax_env
 
-from ajax.environments.create import build_env_from_id, prepare_env
-from ajax.wrappers import NormalizeVecObservationBrax, NormalizeVecObservationGymnax
+from ajax.environments.create import (
+    add_ajax_wrappers,
+    build_env_from_id,
+    prepare_env,
+    strip_ajax_wrappers,
+)
+from ajax.environments.utils import wrapper_chain
+from ajax.wrappers import (
+    InitialStateWrapper,
+    NormalizeVecObservationBrax,
+    NormalizeVecObservationGymnax,
+)
 
 
 def _playground_available():
@@ -119,3 +129,24 @@ def test_build_brax_env_preserves_final_obs():
 def test_playground_unknown_env_raises():
     with pytest.raises(ValueError):
         build_env_from_id("NotARealPlaygroundEnv")
+
+
+def test_strip_ajax_wrappers_reads_back_the_layers_prepare_env_added():
+    """The evaluation rebuild's two halves: the task under prepare_env's
+    layers (a user's wrapper kept) and the keywords that rebuild them."""
+    env, _ = make_gymnax_env("Pendulum-v1")
+    task = InitialStateWrapper(env, lambda key, state, params: state)
+    trained, *_ = prepare_env(task, normalize_obs=True, apply_obs_normalization=False)
+    stripped, layers = strip_ajax_wrappers(trained)
+    assert stripped is task and strip_ajax_wrappers(task) == (task, {})
+    assert layers == {
+        "clip": True,
+        "normalize_obs": True,
+        "normalize_reward": False,
+        "gamma": None,
+        "apply_obs_normalization": False,
+    }
+    rebuilt = add_ajax_wrappers(stripped, **layers)
+    assert list(map(type, wrapper_chain(rebuilt))) == list(
+        map(type, wrapper_chain(trained))
+    )

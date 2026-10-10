@@ -453,7 +453,9 @@ def evaluate(
     augment_obs_with_expert_state: bool = False,
 ) -> jax.Array:
     # Setup. The rebuild repeats each action as often as the training env
-    # does (1 for every env built without a repeat: the default rebuild).
+    # does (1 for every env built without a repeat: the default rebuild)
+    # and runs its time limit: brax / playground envs carry it on the
+    # EpisodeWrapper, gymnax envs in env_params.
     env, mode, continuous = setup_environment(
         env,
         env_params,
@@ -461,6 +463,11 @@ def evaluate(
         norm_info,
         gamma,
         action_repeat=env_action_repeat(env),
+        episode_length=(
+            getattr(env, "episode_length", None)
+            if get_env_type(env) == "brax"
+            else None
+        ),
     )
     key, reset_key = jax.random.split(rng, 2)
     reset_keys = (

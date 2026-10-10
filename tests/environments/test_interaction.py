@@ -1,6 +1,7 @@
 import distrax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import pytest
 from brax.envs import create as create_brax_env
@@ -8,6 +9,7 @@ from gymnax import make as make_gymnax_env
 from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
 
 import ajax.environments.interaction as step_module
+from ajax.agents.SAC.SAC import SAC
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_buffer
 from ajax.environments.interaction import (
@@ -458,3 +460,51 @@ def test_step_gymnax_truncation_is_not_termination():
     # terminal one has to come from info.
     final_obs = step_module.get_final_obs(info, obsv)
     assert not jnp.allclose(final_obs, obsv)
+
+
+def test_bootstrap_obs_keeps_the_final_obs_where_the_time_limit_alone_ended():
+    """Rows: running, truncated, terminated, both (gymnax flags a termination
+    on the limit's step as both): the final obs on the truncated row only."""
+    next_obs, final_obs = jnp.zeros((4, 2)), jnp.ones((4, 2))
+    terminated = jnp.array([0.0, 0.0, 1.0, 1.0])
+    truncated = jnp.array([0.0, 1.0, 0.0, 1.0])
+    got = step_module.bootstrap_obs(next_obs, final_obs, terminated, truncated)
+    assert jnp.array_equal(got[:, 0], jnp.array([0.0, 1.0, 0.0, 0.0]))
+    column = step_module.bootstrap_obs(
+        next_obs, final_obs, terminated[:, None], truncated[:, None]
+    )
+    assert jnp.array_equal(column, got)
+
+
+def test_replayed_next_obs_is_one_step_on_from_obs_through_time_limits():
+    """Every replay row's (obs, next_obs) is one pendulum step (theta' =
+    theta + thdot' dt), the time-limited rows too, whose next row holds the
+    reset observation instead."""
+    env, env_params = make_gymnax_env("Pendulum-v1")
+    env_params = env_params.replace(max_steps_in_episode=3)
+    net = ("8", "relu")
+    agent = SAC(
+        env_id=env,
+        env_params=env_params,
+        n_envs=2,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=100,
+        batch_size=4,
+        buffer_size=40,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=14)  # 7 rows per env
+    rows = state.collector_state.buffer_state.experience
+    obs, next_obs, truncated = (
+        np.asarray(rows[k])[0, :, :7] for k in ("obs", "next_obs", "truncated")
+    )
+
+    def step_gap(o: np.ndarray, o_next: np.ndarray) -> np.ndarray:
+        theta, theta_next = (np.arctan2(x[..., 1], x[..., 0]) for x in (o, o_next))
+        gap = theta_next - theta - o_next[..., 2] * env_params.dt
+        return np.abs(np.angle(np.exp(1j * gap)))
+
+    cut = truncated[..., 0] > 0
+    assert cut[:, [2, 5]].all() and cut.sum() == 4
+    assert step_gap(obs, next_obs).max() < 1e-4
+    assert (step_gap(obs[:, :-1], obs[:, 1:])[cut[:, :-1]] > 1e-2).all()

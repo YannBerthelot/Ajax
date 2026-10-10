@@ -12,7 +12,7 @@ Minimal API:
     state = restore_into(skeleton_state, path)
     checkpoint_exists(path)
 
-Typical resume flow (see ``run_final_eval.py``):
+Typical resume flow (``resume`` in tests/probing/runs.py runs it):
     skeleton = agent.train(seed=seeds, n_timesteps=0)       # init only
     if checkpoint_exists(path):
         skeleton = restore_into(skeleton, path)
@@ -63,12 +63,35 @@ def restore_into(skeleton: Any, path: str) -> Any:
         raise FileNotFoundError(f"No checkpoint file at {path}")
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
+    state_dict = _with_replay_next_obs(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     # Push data back onto device
     return jax.tree.map(
         lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
         restored,
     )
+
+
+def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
+    """Give a replay buffer saved before it stored ``next_obs`` that field,
+    rebuilt as each row's successor: the observation its replay read then.
+
+    Deliberate expand-then-contract shim (CLAUDE.md, refactoring rule 10),
+    so a run resumes across the change; delete it once no checkpoint from
+    before it remains. The buffer state is pickled whole (flashbax's state
+    is no flax-serialisable node), hence the attribute access.
+    """
+    buffer = getattr(getattr(skeleton, "collector_state", None), "buffer_state", None)
+    if "next_obs" not in getattr(buffer, "experience", {}):
+        return state_dict
+    saved = state_dict["collector_state"]["buffer_state"]
+    if "next_obs" in saved.experience:
+        return state_dict
+    # Rows run along the second-to-last axis, the ring wrapping round.
+    next_obs = np.roll(saved.experience["obs"], -1, axis=-2)
+    saved = saved.replace(experience={**saved.experience, "next_obs": next_obs})
+    collector = {**state_dict["collector_state"], "buffer_state": saved}
+    return {**state_dict, "collector_state": collector}
 
 
 def checkpoint_exists(path: str) -> bool:

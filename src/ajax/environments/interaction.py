@@ -126,6 +126,28 @@ def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
     return fallback
 
 
+def bootstrap_obs(
+    next_obs: jax.Array,
+    final_obs: jax.Array,
+    terminated: jax.Array,
+    truncated: jax.Array,
+) -> jax.Array:
+    """The observation a replayed transition's target bootstraps on.
+
+    ``next_obs`` is the one the agent sees next, the reset observation after
+    an end. A time limit is not part of the task: where it alone ended the
+    episode, the episode was cut, not finished, so the target bootstraps on
+    the final pre-reset observation ``final_obs`` (SB3's
+    ``handle_timeout_termination``, CleanRL's ``real_next_obs``). After a
+    termination the reset observation stays: a discounted target masks it,
+    and ASAC's differential target, which never cuts, continues into the
+    next episode from it. Flags are shaped ``(n,)`` or ``(n, 1)``.
+    """
+    cut = (truncated > 0) & ~(terminated > 0)
+    cut = cut.reshape(cut.shape[0], *(1,) * (next_obs.ndim - 1))
+    return jnp.where(cut, final_obs, next_obs)
+
+
 @partial(jax.jit, static_argnames=["mode", "env"])
 def reset(
     rng: jax.Array,
@@ -850,15 +872,16 @@ def collect_experience(
         )
     )
 
+    # Read before the train_frac column below, which info's final obs lacks.
+    final_obs = get_final_obs(info, obsv).astype(obsv.dtype)
+
     # Append train_time_fraction to observation
-    obsv = maybe_append_train_frac(
-        obsv,
-        train_frac=(
-            agent_state.collector_state.train_time_fraction
-            if agent_state.collector_state.max_timesteps is not None
-            else None
-        ),
+    train_frac = (
+        agent_state.collector_state.train_time_fraction
+        if agent_state.collector_state.max_timesteps is not None
+        else None
     )
+    obsv = maybe_append_train_frac(obsv, train_frac=train_frac)
 
     raw_next_obs = get_final_obs(info, obsv)
 
@@ -883,15 +906,43 @@ def collect_experience(
     else:
         _next_a_expert_for_buf = jnp.zeros_like(buffer_action)
 
+    # If the env runs with augment_obs_with_expert_state, the
+    # collector's last_obs is already augmented with the (BEFORE-expert)
+    # expert_state. Augment next_obs symmetrically with the AFTER-expert
+    # new_expert_state so the buffer stores consistent shapes.
+    _next_state_aug = flatten_expert_state(new_expert_state)
+    augmented = (
+        _next_state_aug is not None
+        and agent_state.collector_state.last_obs.shape[-1]
+        == raw_next_obs.shape[-1] + _next_state_aug.shape[-1]
+    )
+    if augmented:
+        next_obs_for_buffer = jnp.concatenate([raw_next_obs, _next_state_aug], axis=-1)
+    else:
+        next_obs_for_buffer = raw_next_obs
+
+    # If running with augment_obs_with_expert_state, the next iteration's
+    # last_obs must carry the post-step (after-expert) expert_state so the
+    # actor and critic see the right Markov state. Detect by shape parity
+    # with the buffer-stored next_obs above.
+    new_last_obs = (
+        next_obs_for_buffer if next_obs_for_buffer.shape[-1] != obsv.shape[-1] else obsv
+    )
+
     # --- Buffer write ---
     buffer_state = agent_state.collector_state.buffer_state
     if buffer_state is not None and buffer is not None:
+        # The final observation as wide as the next row's.
+        final_obs = maybe_append_train_frac(final_obs, train_frac=train_frac)
+        if augmented:
+            final_obs = jnp.concatenate([final_obs, _next_state_aug], axis=-1)
         _transition = {
             "obs": agent_state.collector_state.last_obs,
             "action": buffer_action,
             "reward": reward[:, None],
             "terminated": terminated[:, None],
             "truncated": truncated[:, None],
+            "next_obs": bootstrap_obs(new_last_obs, final_obs, terminated, truncated),
             "raw_obs": raw_obs,
             "is_expert": is_expert_flag,
         }
@@ -901,20 +952,6 @@ def collect_experience(
         if store_hidden:
             _transition["actor_carry"] = _pre_actor_carry_flat
         buffer_state = buffer.add(buffer_state, _transition)
-
-    # If the env runs with augment_obs_with_expert_state, the
-    # collector's last_obs is already augmented with the (BEFORE-expert)
-    # expert_state. Augment next_obs symmetrically with the AFTER-expert
-    # new_expert_state so the buffer stores consistent shapes.
-    _next_state_aug = flatten_expert_state(new_expert_state)
-    if (
-        _next_state_aug is not None
-        and agent_state.collector_state.last_obs.shape[-1]
-        == raw_next_obs.shape[-1] + _next_state_aug.shape[-1]
-    ):
-        next_obs_for_buffer = jnp.concatenate([raw_next_obs, _next_state_aug], axis=-1)
-    else:
-        next_obs_for_buffer = raw_next_obs
 
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
@@ -936,14 +973,6 @@ def collect_experience(
         done=jnp.logical_or(terminated, truncated),
         env=env_args.env,
         mode=mode,
-    )
-
-    # If running with augment_obs_with_expert_state, the next iteration's
-    # last_obs must carry the post-step (after-expert) expert_state so the
-    # actor and critic see the right Markov state. Detect by shape parity
-    # with the buffer-stored next_obs above.
-    new_last_obs = (
-        next_obs_for_buffer if next_obs_for_buffer.shape[-1] != obsv.shape[-1] else obsv
     )
 
     # Per-env step_in_episode counter for JSRL curriculum: increment

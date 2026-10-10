@@ -293,12 +293,7 @@ def test_p6_time_limit_fires_and_flags_every_end(case: Case) -> None:
     np.testing.assert_array_equal(rows["truncated"], want)
 
 
-EVAL_HORIZON = "evaluate() rebuilds the brax env without the training episode_length (evaluate.py:510-517) and setup_environment falls back to 1000 (evaluate.py:82-106), so type-A eval episodes run 1000 steps; right return 4 and length 5 on every seed, today 4 + 995 f_A and 5 + 995 f_A (f_A the share of type-A eval lanes): 302.5 to 601 (SAC), 302.5 to 800 (PPO) on seeds 0-7"
-
-
-@pytest.mark.parametrize(
-    "case", params(P6, lambda c: EVAL_HORIZON if c.id.endswith("brax") else "")
-)
+@pytest.mark.parametrize("case", params(P6, lambda c: ""))
 def test_p6_evaluation_runs_the_training_time_limit(case: Case) -> None:
     """The agent's own evaluation (training env rebuilt, its eval key, 10
     episodes) reads return 4 and length 5 on every seed."""

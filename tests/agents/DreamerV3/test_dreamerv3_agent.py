@@ -355,10 +355,11 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(cartpole
     absolute tick continues (the training-start gate is not re-applied, the
     queue and ratio go on), and the first half's ring -- sized by its own
     60 rows per env -- grows to the 100 rows of the whole run's, so the
-    updates, the replay and the parameters are those of one run of all the
-    rows (the extensions and the logging of the uninterrupted run do not
-    touch the training state)."""
-    agent = cartpole_agent()
+    updates, the replay, the parameters and the extensions' states are those
+    of one run of all the rows, with the same extensions (whose
+    ``post_update`` keys come from the agent's stream; the logging of the
+    uninterrupted run does not touch the training state)."""
+    agent = cartpole_agent(extensions=[Counter(), Metric()])
     half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
@@ -369,7 +370,7 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(cartpole
     np.testing.assert_array_equal(state.world_model_state.step, full.n_updates)
     np.testing.assert_array_equal(state.collector_state.rows, full.collector_state.rows)
     np.testing.assert_array_equal(state.replay_state.popped, full.replay_state.popped)
-    assert state.ext_state == ()
+    jax.tree.map(np.testing.assert_array_equal, state.ext_state, full.ext_state)
     for ours, theirs in zip(
         jax.tree.leaves(state.world_model_state.params),
         jax.tree.leaves(full.world_model_state.params),

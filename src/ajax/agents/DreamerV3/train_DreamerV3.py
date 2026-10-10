@@ -422,7 +422,7 @@ def update(
     are written back at once (synchronous, deviation D1); the Extension
     ``post_update`` phase is folded after the update.
     """
-    rng, sample_key, noise_key, post_key = jax.random.split(agent_state.rng, 4)
+    rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
     replay_state, index = replay.sample(agent_state.replay_state, rows, sample_key)
     batch = replay.gather(
         replay_state, index, spec.action_dim if spec.discrete else None
@@ -449,8 +449,9 @@ def update(
         train_metrics=agent_state.train_metrics.add(metrics),
     )
     if extension_stack:
+        post_key, rng = jax.random.split(agent_state.rng)
         agent_state = extension_stack.fold_post_update(
-            agent_state,
+            agent_state.replace(rng=rng),
             agent_state.collector_state.timestep,
             post_key,
             total_timesteps,
@@ -664,8 +665,12 @@ def make_train(
     }
 
     def init_fn(key, index):
-        agent_state = init_dreamer(key, env_args, config, spec, replay, metric_keys)
-        return agent_state.replace(index=index)
+        del index
+        init_key, pretrain_key = jax.random.split(key)
+        agent_state = init_dreamer(
+            init_key, env_args, config, spec, replay, metric_keys
+        )
+        return extension_stack.fold_init(agent_state, pretrain_key, total_timesteps)
 
     def make_scan_fn(_agent_state, _resume, _key, index):
         return partial(
@@ -685,7 +690,6 @@ def make_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=num_ticks,
-        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
     )
 
 

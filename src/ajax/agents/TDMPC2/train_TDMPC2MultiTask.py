@@ -105,7 +105,7 @@ def update_step(
     """One ``agent.update(buffer)`` on a fresh batch with fresh noise, then
     the ``post_update`` fold (``step`` = updates done, ``total_steps`` = the
     run's updates when this ``train`` call ends)."""
-    rng, sample_key, noise_key, post_key = jax.random.split(agent_state.rng, 4)
+    rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
     batch, task = dataset.sample(sample_key, config.batch_size, config.horizon)
     noise = core.draw_update_noise(
         noise_key, config, config.batch_size, tasks.action_dim
@@ -117,8 +117,12 @@ def update_step(
         n_updates=agent_state.n_updates + 1, update_metrics=metrics
     )
     if extension_stack:
+        post_key, rng = jax.random.split(agent_state.rng)
         agent_state = extension_stack.fold_post_update(
-            agent_state, agent_state.n_updates, post_key, total_timesteps
+            agent_state.replace(rng=rng),
+            agent_state.n_updates,
+            post_key,
+            total_timesteps,
         )
     return agent_state
 
@@ -146,16 +150,18 @@ def make_init(
     extension_stack = ExtensionStack(extensions)
 
     def init(key: jax.Array, index: Any) -> TDMPC2MultiTaskState:
+        del index
+        init_key, pretrain_key = jax.random.split(key)
         agent_state = init_TDMPC2MultiTask(
-            key,
+            init_key,
             config,
             tasks,
             task_dim=task_dim,
             learning_rate=learning_rate,
             enc_lr_scale=enc_lr_scale,
             pi_eps=pi_eps,
-        ).replace(index=index)
-        return extension_stack.fold_init(agent_state, key, total_timesteps)
+        )
+        return extension_stack.fold_init(agent_state, pretrain_key, total_timesteps)
 
     return init
 

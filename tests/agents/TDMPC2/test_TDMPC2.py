@@ -507,12 +507,13 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
     updates: dict = {}
     update = core.update
 
-    def record(index, obs, td_eps):
-        updates.setdefault(int(index), []).append((np.array(obs), np.array(td_eps)))
+    def record(seed_key, obs, td_eps):  # the seed's eval_rng, fixed in training
+        seed = np.asarray(seed_key).tobytes()
+        updates.setdefault(seed, []).append((np.array(obs), np.array(td_eps)))
 
     def update_spy(state, batch, noise, **kwargs):
         if isinstance(state, TDMPC2State):  # not the init's shape-only call
-            jax.debug.callback(record, state.index, batch.obs, noise.td_eps)
+            jax.debug.callback(record, state.eval_rng, batch.obs, noise.td_eps)
         return update(state, batch, noise, **kwargs)
 
     monkeypatch.setattr(core, "update", update_spy)
@@ -562,7 +563,7 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
     assert planner_calls == {(False, N_ENVS), (True, 3)}
     # Every update samples a fresh batch with fresh noise: no two updates of
     # a seed share either, within the burst or across ticks.
-    assert sorted(updates) == list(range(len(SEEDS)))
+    assert len(updates) == len(SEEDS)
     for records in updates.values():
         assert len(records) == expected
         for i, (obs, eps) in enumerate(records):

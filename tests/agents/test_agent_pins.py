@@ -356,24 +356,25 @@ _GOLDEN |= {
     },
 }
 # Recorded on macOS ARM CPU before step 17 moved the world models onto
-# TrainLoop and tidied APG and UDRL. UDRL's critic and its actor's target
-# are never-updated copies: not pinned.
+# TrainLoop and tidied APG and UDRL (the world models once they took
+# TrainLoop's init and post_update keys). UDRL's critic and its actor's
+# target are never-updated copies: not pinned.
 _GOLDEN |= {
     "DreamerV3-drift": {
-        "actor": 95.9735107421875,
-        "critic": 98.06221008300781,
-        "world_model": 549.5582275390625,
-        "drift": -0.4817560017108917,
+        "actor": 92.46167755126953,
+        "critic": 95.06945037841797,
+        "world_model": 548.8908081054688,
+        "drift": 0.23474201560020447,
     },
     "TDMPC2-drift": {
-        "actor": 32.16371154785156,
-        "world_model": 160.74551391601562,
-        "drift": -0.5747801661491394,
+        "actor": 32.17240905761719,
+        "world_model": 160.75112915039062,
+        "drift": 0.3190682828426361,
     },
     "TDMPC2MultiTask-drift": {
-        "actor": 32.2055549621582,
-        "world_model": 161.17027282714844,
-        "drift": -0.5517616271972656,
+        "actor": 32.23477554321289,
+        "world_model": 161.12486267089844,
+        "drift": 0.2877737283706665,
     },
     "UDRL-nudge": {"actor": 23.97211456298828, "nudge": 0.3160724639892578},
     "APG-nudge": {"actor": 35.93582534790039, "nudge": -0.5658732652664185},

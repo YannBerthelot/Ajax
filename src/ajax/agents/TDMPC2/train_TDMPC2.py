@@ -73,7 +73,7 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     vmap_log,
 )
-from ajax.perf_utils import build_resumable_train, final_aux_fori
+from ajax.perf_utils import build_resumable_train
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import FloatOrCallable
 
@@ -379,10 +379,11 @@ def update_step(
     gamma: float,
     extension_stack: Optional[ExtensionStack],
     total_timesteps: int,
-) -> tuple[TDMPC2State, dict[str, jax.Array]]:
+) -> tuple[TDMPC2State, None]:
     """One ``agent.update(buffer)``: a fresh batch and fresh noise, then
-    :func:`core.update` (tdmpc2_spec §2) and the ``post_update`` fold."""
-    rng, sample_key, noise_key, post_key = jax.random.split(agent_state.rng, 4)
+    :func:`core.update` (tdmpc2_spec §2), its logged quantities kept on
+    ``update_metrics``, and the ``post_update`` fold."""
+    rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
     batch = buffer.sample(
         agent_state.buffer_state, sample_key, tick, config.batch_size, config.horizon
     )
@@ -392,15 +393,18 @@ def update_step(
     agent_state, metrics = core.update(
         agent_state.replace(rng=rng), batch, noise, config=config, gamma=gamma
     )
-    agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
+    agent_state = agent_state.replace(
+        n_updates=agent_state.n_updates + 1, update_metrics=metrics
+    )
     if extension_stack:
+        post_key, rng = jax.random.split(agent_state.rng)
         agent_state = extension_stack.fold_post_update(
-            agent_state,
+            agent_state.replace(rng=rng),
             agent_state.collector_state.timestep,
             post_key,
             total_timesteps,
         )
-    return agent_state, metrics
+    return agent_state, None
 
 
 def training_iteration(
@@ -444,8 +448,9 @@ def training_iteration(
         + jnp.sum(row.is_terminal, dtype=jnp.int32),
     )
 
-    n_updates = schedule.n_updates(tick)
-    agent_state, metrics = final_aux_fori(
+    agent_state = jax.lax.fori_loop(
+        0,
+        schedule.n_updates(tick),
         lambda _, state: update_step(
             state,
             tick,
@@ -454,16 +459,8 @@ def training_iteration(
             gamma=gamma,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
-        ),
+        )[0],
         agent_state,
-        n_updates,
-    )
-    agent_state = agent_state.replace(
-        update_metrics=jax.tree.map(
-            lambda new, old: jnp.where(n_updates > 0, new, old),
-            metrics,
-            agent_state.update_metrics,
-        )
     )
     if log_kwargs is None:
         return agent_state, None
@@ -563,8 +560,10 @@ def make_train(
         }
 
     def init_fn(key, index):
+        del index
+        init_key, pretrain_key = jax.random.split(key)
         agent_state = init_TDMPC2(
-            key,
+            init_key,
             env_args,
             config,
             buffer,
@@ -573,7 +572,7 @@ def make_train(
             enc_lr_scale=enc_lr_scale,
             pi_eps=pi_eps,
         )
-        return agent_state.replace(index=index)
+        return extension_stack.fold_init(agent_state, pretrain_key, total_timesteps)
 
     def make_scan_fn(_agent_state, _resume, _key, index):
         return partial(
@@ -593,7 +592,6 @@ def make_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=schedule.num_ticks(total_timesteps, start_tick),
-        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
     )
 
 

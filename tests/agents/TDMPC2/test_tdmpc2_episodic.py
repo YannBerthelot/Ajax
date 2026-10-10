@@ -15,8 +15,10 @@ import numpy as np
 import pytest
 
 from ajax.agents.TDMPC2 import core, planner
+from ajax.agents.TDMPC2.buffer import EpisodicBuffer, EpisodicBufferState
 from ajax.agents.TDMPC2.networks import make_world_model
 from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.environments.row_collector import Row
 
 EPISODIC = TDMPC2Config(
     latent_dim=16,
@@ -310,3 +312,98 @@ def _rewards_only(params, z, actions):
         z = apply({"params": params[0]}, z, actions[t], method="next")
         value, discount = value + discount * reward, discount * GAMMA
     return value
+
+
+# -------------------------------------------------------------------- replay
+
+# Per env, episodes as (steps, ends by a termination), then a running one.
+# H = 2 needs episodes of at least 2 steps (3 rows).
+EPISODES = (
+    ((4, True), (1, True), (3, False), (1, None)),  # A, B (too short), C, D running
+    ((6, False), (2, True), (2, None)),  # E (time limit), F, G running
+)
+TICKS = 13  # both envs: 5 + 2 + 4 + 2 and 7 + 3 + 3 rows
+
+
+def _fill(buffer: EpisodicBuffer) -> EpisodicBufferState:
+    """Write the ``EPISODES`` row by row; each row's observation is
+    ``[env, episode, step]`` and its action ``10 * episode + step``."""
+    rows = []
+    for env, episodes in enumerate(EPISODES):
+        out = []
+        for episode, (steps, terminated) in enumerate(episodes):
+            for step in range(steps + 1):
+                ends = terminated is not None and step == steps
+                out.append(([env, episode, step], ends, ends and terminated))
+        rows.append(out[:TICKS])
+    state = buffer.init()
+    for tick in range(TICKS):
+        columns, last, terminal = zip(*(rows[env][tick] for env in range(2)))
+        obs = jnp.asarray(columns, jnp.float32)
+        row = Row(
+            obs=obs,
+            reward=obs[:, 2],
+            is_first=obs[:, 2] == 0,
+            is_last=jnp.asarray(last),
+            is_terminal=jnp.asarray(terminal),
+            action=(10 * obs[:, 1] + obs[:, 2])[:, None],
+        )
+        state = buffer.add(state, row, obs[:, 2].astype(jnp.int32), tick)
+    return state
+
+
+def _draws(buffer: EpisodicBuffer, n: int = 4000) -> core.TDMPC2Batch:
+    state = _fill(buffer)
+    return jax.jit(buffer.sample, static_argnums=(3, 4))(
+        state, jax.random.PRNGKey(0), TICKS - 1, n, 2
+    )
+
+
+def test_the_replay_draws_whole_episodes_uniformly_then_a_uniform_offset():
+    """The finished episodes of at least H + 1 rows (A, C, E, F: not the
+    one-step B, not the running D and G) are drawn uniformly, then an offset
+    uniformly inside each; a slice never leaves its episode, its actions and
+    rewards are the reference's (``a_s .. a_{s+H-1}``, ``r_s .. r_{s+H-1}``)
+    and ``terminated`` is 1 only on a terminating episode's last row, not
+    after a time limit."""
+    buffer = EpisodicBuffer.create(buffer_size=32, n_envs=2, obs_dim=3, action_dim=1)
+    assert buffer.capacity == 16
+    assert int(buffer.num_episodes(_fill(buffer), TICKS - 1, 2)) == 4
+    batch = _draws(buffer)
+    obs = np.asarray(batch.obs)  # [H + 1, n, 3]
+    env, episode, step = obs[0].T
+    assert np.all(obs[:, :, :2] == obs[:1, :, :2])  # one episode per slice
+    assert np.all(obs[:, :, 2] - step == np.arange(3)[:, None])  # consecutive
+    np.testing.assert_array_equal(
+        batch.action[..., 0], 10 * obs[:-1, :, 1] + obs[:-1, :, 2]
+    )
+    np.testing.assert_array_equal(batch.reward, obs[1:, :, 2])  # r_{t} on row t + 1
+    lengths = {(0, 0): 4, (0, 2): 3, (1, 0): 6, (1, 1): 2}
+    terminating = {(0, 0), (1, 1)}
+    keys = list(zip(env.astype(int), episode.astype(int)))
+    counts = {k: keys.count(k) for k in lengths}
+    assert set(keys) == set(lengths)
+    assert all(abs(c - 1000) < 150 for c in counts.values()), counts
+    for (e, ep), steps in lengths.items():
+        mine = (env == e) & (episode == ep)
+        offsets = np.bincount(step[mine].astype(int), minlength=steps - 1)
+        assert len(offsets) == steps - 1  # offsets 0 .. steps - H
+        expected = mine.sum() / (steps - 1)
+        assert np.all(np.abs(offsets - expected) < 5 * np.sqrt(expected)), offsets
+        ends = obs[-1, mine, 2] == steps
+        terminated = np.asarray(batch.terminated)[:, mine]
+        np.testing.assert_array_equal(terminated[-1], ends & ((e, ep) in terminating))
+        assert not terminated[:-1].any()
+
+
+def test_an_overwritten_episode_keeps_its_remaining_rows():
+    """With 10 rows per env the ring holds ticks 3 .. 12: A keeps 2 rows and
+    E 4 (rows 3 .. 6), so E's slices start at its rows 3 or 4 and A is no
+    longer sampleable."""
+    buffer = EpisodicBuffer(n_envs=2, capacity=10, obs_dim=3, action_dim=1)
+    assert int(buffer.num_episodes(_fill(buffer), TICKS - 1, 2)) == 3  # C, E, F
+    obs = np.asarray(_draws(buffer, 600).obs)
+    env, episode, step = obs[0].T
+    assert not np.any((env == 0) & (episode == 0))
+    e = (env == 1) & (episode == 0)
+    assert e.any() and set(step[e].astype(int)) == {3, 4}

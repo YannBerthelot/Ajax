@@ -53,6 +53,25 @@ behaves as a ring of ``buffer_size``. A resumed run may need a larger ring than
 the one it carries (a run trained in chunks); :meth:`EpisodeBuffer.adopt`
 moves the carried rounds into it, so a chunked run replays exactly what an
 uninterrupted one does.
+
+Episodic mode (:class:`EpisodicBuffer`; deviation T29). Terminating tasks
+end episodes at data-dependent ticks, so the episode ring above cannot hold
+them. The latest code's replay (``e9f5932:tdmpc2/common/buffer.py``,
+torchrl 0.8.1's ``SliceSampler(traj_key='episode', strict_length=True)``)
+stores the rows of finished episodes, draws an episode uniformly among
+those of at least ``H + 1`` rows (shorter ones are filtered out) and a
+sub-trajectory at a uniform offset inside it, and adds ``terminated`` (of
+the rows ``s + 1 .. s + H``). :class:`EpisodicBuffer` does the same on
+per-env rings of rows written in lockstep by the row collector's dynamic
+mode (tick ``i`` writes slot ``i mod C`` of every env), each row also
+holding whether its observation is terminal, whether it ends its episode
+and its index in the episode: an episode is sampleable once its last row
+is written. A time-limit end is not terminal, so its last transition
+bootstraps. When the ring wraps, an episode whose first rows are
+overwritten keeps its remaining rows, as the reference's storage keeps the
+remaining rows of an episode it overwrites. The capacity is
+``ceil(buffer_size / n_envs)`` rows per env, not clamped to the run length,
+so a resumed run carries a ring of the same size.
 """
 
 from __future__ import annotations
@@ -67,6 +86,7 @@ import numpy as np
 from flax import struct
 
 from ajax.agents.TDMPC2.core import IntLike, TDMPC2Batch
+from ajax.environments.row_collector import Row
 
 
 def replay_capacity(buffer_size: int, total_timesteps: int) -> int:
@@ -398,9 +418,178 @@ def slice_batch(
     )
 
 
+@struct.dataclass
+class EpisodicBufferState:
+    """Per-env rings of rows (:class:`EpisodicBuffer`), ``[n_envs, C, ...]``.
+
+    Attributes:
+        obs, action, reward: the row collector's obs-aligned row.
+        terminal: the observation is a terminal state (``is_terminal``).
+        last: the row ends its episode (``is_last``).
+        step: the row's index in its episode (0 on the reset row).
+    """
+
+    obs: jax.Array
+    action: jax.Array
+    reward: jax.Array
+    terminal: jax.Array
+    last: jax.Array
+    step: jax.Array
+
+
+@dataclasses.dataclass(frozen=True)
+class EpisodicBuffer:
+    """Variable-length episode replay of the episodic mode (module docstring).
+
+    Attributes:
+        n_envs: lockstep envs, one ring each.
+        capacity: ``C``, rows per env.
+        obs_dim: flat observation size.
+        action_dim: action size ``A``.
+    """
+
+    n_envs: int
+    capacity: int
+    obs_dim: int
+    action_dim: int
+
+    def __post_init__(self) -> None:
+        if self.n_envs < 1 or self.capacity < 1:
+            raise ValueError(
+                f"need n_envs >= 1 and capacity >= 1 row, got {self.n_envs},"
+                f" {self.capacity}"
+            )
+
+    @classmethod
+    def create(
+        cls, *, buffer_size: int, n_envs: int, obs_dim: int, action_dim: int
+    ) -> EpisodicBuffer:
+        """The rings for ``buffer_size`` rows: ``ceil(buffer_size / n_envs)``
+        rows per env."""
+        if buffer_size < 1:
+            raise ValueError(f"buffer_size must be >= 1, got {buffer_size}")
+        return cls(n_envs, math.ceil(buffer_size / n_envs), obs_dim, action_dim)
+
+    @property
+    def nbytes(self) -> int:
+        """Bytes of one seed's storage."""
+        per_row = (self.obs_dim + self.action_dim + 1) * 4 + 1 + 1 + 4
+        return self.n_envs * self.capacity * per_row
+
+    def init(self) -> EpisodicBufferState:
+        """Zero-filled rings (no row ends an episode)."""
+        rows = (self.n_envs, self.capacity)
+        return EpisodicBufferState(
+            obs=jnp.zeros((*rows, self.obs_dim), jnp.float32),
+            action=jnp.zeros((*rows, self.action_dim), jnp.float32),
+            reward=jnp.zeros(rows, jnp.float32),
+            terminal=jnp.zeros(rows, bool),
+            last=jnp.zeros(rows, bool),
+            step=jnp.zeros(rows, jnp.int32),
+        )
+
+    def check_layout(self, state: EpisodicBufferState) -> None:
+        """Raise unless ``state`` is this buffer's (a trace-time check)."""
+        expected = (self.n_envs, self.capacity, self.obs_dim)
+        if state.obs.shape[-3:] != expected:
+            raise ValueError(
+                f"replay obs has shape {state.obs.shape}, expected [..., {expected}]"
+                " (n_envs, ceil(buffer_size / n_envs) rows, obs_dim)"
+            )
+
+    def add(
+        self, state: EpisodicBufferState, row: Row, step: jax.Array, tick: IntLike
+    ) -> EpisodicBufferState:
+        """Write tick ``tick``'s rows (``[n_envs, ...]``) at slot ``tick mod C``;
+        ``step [n_envs]`` is each row's index in its episode."""
+        self.check_layout(state)
+        slot = jnp.asarray(tick, jnp.int32) % self.capacity
+        zero = jnp.zeros((), jnp.int32)
+
+        def write(store: jax.Array, value: jax.Array) -> jax.Array:
+            value = value.reshape(store.shape[:1] + store.shape[2:])
+            value = value.astype(store.dtype)[:, None]
+            start = (zero, slot) + (zero,) * (store.ndim - 2)
+            return jax.lax.dynamic_update_slice(store, value, start)
+
+        return EpisodicBufferState(
+            obs=write(state.obs, row.obs),
+            action=write(state.action, row.action),
+            reward=write(state.reward, row.reward),
+            terminal=write(state.terminal, row.is_terminal),
+            last=write(state.last, row.is_last),
+            step=write(state.step, step),
+        )
+
+    def episodes(
+        self, state: EpisodicBufferState, tick: IntLike, horizon: int
+    ) -> tuple[jax.Array, jax.Array]:
+        """The sampleable episodes after tick ``tick``'s rows, by last row.
+
+        Returns ``[n_envs, C]`` masks of the rows that end an episode with at
+        least ``horizon + 1`` stored rows, and the tick of each episode's
+        first stored row: its first row, or the oldest row in the ring when
+        the ring has overwritten its head.
+        """
+        now = jnp.asarray(tick, jnp.int32)
+        row_tick = now - (now - jnp.arange(self.capacity)) % self.capacity
+        first = jnp.maximum(row_tick - state.step, now - self.capacity + 1)
+        valid = state.last & (row_tick >= 0) & (row_tick - first >= horizon)
+        return valid, first
+
+    def num_episodes(
+        self, state: EpisodicBufferState, tick: IntLike, horizon: int
+    ) -> jax.Array:
+        """How many episodes :meth:`sample` draws from."""
+        return jnp.sum(self.episodes(state, tick, horizon)[0], dtype=jnp.int32)
+
+    def sample(
+        self,
+        state: EpisodicBufferState,
+        key: jax.Array,
+        tick: IntLike,
+        batch_size: int,
+        horizon: int,
+    ) -> TDMPC2Batch:
+        """``batch_size`` sub-trajectories of ``horizon + 1`` rows with
+        ``terminated``: each an episode drawn uniformly with replacement
+        among :meth:`episodes`, then an offset uniformly among its stored
+        rows. Draws garbage when there is no episode: the caller checks
+        :meth:`num_episodes` first."""
+        self.check_layout(state)
+        valid, first = self.episodes(state, tick, horizon)
+        counts = jnp.cumsum(valid.reshape(-1), dtype=jnp.int32)
+        episode_key, start_key = jax.random.split(key)
+        draw = jax.random.randint(
+            episode_key, (batch_size,), 0, jnp.maximum(counts[-1], 1)
+        )
+        end = jnp.searchsorted(counts, draw, side="right")  # its last row
+        env, slot = end // self.capacity, end % self.capacity
+        now = jnp.asarray(tick, jnp.int32)
+        start = first.reshape(-1)[end]
+        rows = now - (now - slot) % self.capacity - start + 1
+        start = start + jax.random.randint(
+            start_key, (batch_size,), 0, jnp.maximum(rows - horizon, 1)
+        )
+        slots = (start[:, None] + jnp.arange(horizon + 1)) % self.capacity
+        envs = env[:, None]
+
+        def take(store: jax.Array, columns: jax.Array) -> jax.Array:
+            return jnp.swapaxes(store[envs, columns], 0, 1)  # time-major
+
+        return TDMPC2Batch(
+            obs=take(state.obs, slots),
+            action=take(state.action, slots[:, :-1]),
+            reward=take(state.reward, slots[:, 1:]),
+            terminated=take(state.terminal, slots[:, 1:]).astype(jnp.float32),
+        )
+
+
 __all__ = [
     "EpisodeBuffer",
     "EpisodeBufferState",
+    "EpisodicBuffer",
+    "EpisodicBufferState",
     "replay_capacity",
     "slice_batch",
 ]

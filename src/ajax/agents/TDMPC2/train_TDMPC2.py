@@ -46,10 +46,9 @@ episode ends (``is_terminal`` rows), and
 is non-zero; the paper-era TD targets have no termination factor.
 
 The episodic mode (``config.episodic``, deviation T29) takes terminating
-tasks: the row collector's dynamic mode (each env ends its episodes when
-the env does, holding it for the tick of the final observation), the
-variable-length replay (:class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`)
-and :class:`EpisodicSchedule`.
+tasks: the dynamic reset mode, the variable-length replay
+(:class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`) and
+:class:`EpisodicSchedule`.
 """
 
 from __future__ import annotations
@@ -182,23 +181,15 @@ class Schedule:
 
 @dataclasses.dataclass(frozen=True)
 class EpisodicSchedule:
-    """The episodic mode's schedule (deviation T29): data-dependent episode ends.
+    """The episodic mode's schedule (deviation T29).
 
-    The row collector's dynamic mode holds an env for one tick after each
-    episode end (the row of its final observation), so a tick steps the
-    envs that are not held, and ticks are not env steps. On the absolute
-    tick ``i``, with the seed tick ``k_S = max(S div n, T)``:
-
-    * actions are uniform random on ticks ``0 .. k_S``: the seed phase is
-      counted in ticks, held rows included (``S`` rows over the envs, so
-      about ``S k / (k + 1)`` env steps for episodes of ``k`` steps), and
-      lasts at least ``T + 1`` ticks, so every env has finished an episode;
-    * ``n_updates(i, stepped)`` is ``S`` on the seed tick (the burst) and
-      ``stepped``, the envs the tick stepped, after it: one update per env
-      step, as the reference; the caller gates both on a sampleable episode;
-    * a run of ``n_timesteps`` lasts ``n_timesteps div n`` ticks:
-      ``n_timesteps`` counts rows (env steps plus one per finished episode),
-      as for DreamerV3, since the env steps of a tick are not known ahead.
+    The dynamic reset mode holds an env for the tick of its final
+    observation, so ticks are not env steps. With ``k_S = max(S div n, T)``:
+    random actions on ticks ``0 .. k_S`` (the seed phase counts rows, held
+    ones included; at least ``T + 1`` ticks, so every env has finished an
+    episode); the burst of ``S`` on tick ``k_S``, then one update per env
+    the tick stepped (``stepped``); a run of ``n_timesteps`` rows lasts
+    ``n_timesteps div n`` ticks.
     """
 
     n_envs: int
@@ -546,11 +537,9 @@ def make_train(
     DMC's 500). The optimizers are built by :func:`core.create_update_state`
     from ``learning_rate``, ``enc_lr_scale`` and ``pi_eps``; the base class's
     actor / critic optimizer and network configs do not apply. The episodic
-    mode takes an :class:`EpisodicSchedule` and an
-    :class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`: its updates follow
-    the env steps each tick took (the envs not held, read from the
-    collector's ``is_first``, set exactly on the rows after a held tick),
-    and wait for a sampleable episode.
+    mode's updates follow the envs each tick stepped (those not held: the
+    collector sets ``is_first`` exactly after a held tick) and wait for a
+    sampleable episode.
     """
     del actor_optimizer_args, critic_optimizer_args, network_args
     config = agent_config

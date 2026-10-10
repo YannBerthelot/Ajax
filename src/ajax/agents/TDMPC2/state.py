@@ -68,12 +68,9 @@ class TDMPC2Config(BaseAgentConfig):
         grad_clip_norm: global-norm clip of each optimizer (20).
         tau: target-Q EMA rate and RunningScale rate (0.01).
 
-    Episodic mode (the latest code's ``episodic``, completed in
-    ``nicklashansen/tdmpc2@eece801``; deviation T29), single task only:
-        episodic: a termination head on the latent, trained by binary
-            cross-entropy, ``1 - terminated`` in the TD targets and the
-            planner's value estimate, and the variable-length episode replay
-            (False: the paper-era agent, which refuses terminations, T10).
+    Episodic mode (the latest code's, ``nicklashansen/tdmpc2@eece801``;
+    deviation T29), single task:
+        episodic: terminating tasks (False: the paper-era agent, T10).
         termination_coef: the termination loss coefficient (1).
 
     Planning (tdmpc2_spec §3; :mod:`ajax.agents.TDMPC2.planner`):

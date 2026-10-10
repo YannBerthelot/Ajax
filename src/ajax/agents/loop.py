@@ -316,11 +316,8 @@ class TrainLoop:
         """``n`` times ``update`` then ``post_update``; the updates keep what
         they log on the state. An ``n`` derived from unbatched values (the
         tick, static hyperparameters) keeps the loop one ``while`` under the
-        seed ``vmap``, running exactly ``n`` times. An ``n`` read from the
-        per-seed state (a count of the env steps a tick took) is batched:
-        the ``while`` then runs to the largest count, and each seed's state
-        stops changing after its own count (``vmap``'s select-masked
-        loop)."""
+        seed ``vmap``; one read from the per-seed state runs it to the
+        largest count, each seed's state frozen after its own."""
         return jax.lax.fori_loop(
             0,
             n,
@@ -473,11 +470,11 @@ class TrainLoop:
         An agent acting, training and evaluating its own way (the module
         docstring) supplies those steps: ``collect`` replaces the collection
         and the arguments configuring it; ``n_updates(tick, agent_state)``
-        updates, a function of the absolute, unbatched tick (a train ratio,
-        a seed-phase burst) and of the state after the collection (the env
-        steps a tick took, when episode ends are data-dependent), replace
-        the ``learning_starts`` gate (:meth:`repeat_update`); ``evaluation`` replaces the actor's
-        evaluation (:meth:`evaluate_every`); ``num_ticks`` the budget.
+        updates (of the absolute, unbatched tick: a train ratio, a burst;
+        or of the collected state: the env steps the tick took) replace the
+        ``learning_starts`` gate (:meth:`repeat_update`); ``evaluation``
+        replaces the actor's evaluation (:meth:`evaluate_every`);
+        ``num_ticks`` the budget.
         """
         collect_args = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 

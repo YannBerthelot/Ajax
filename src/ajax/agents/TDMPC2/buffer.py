@@ -54,24 +54,15 @@ the one it carries (a run trained in chunks); :meth:`EpisodeBuffer.adopt`
 moves the carried rounds into it, so a chunked run replays exactly what an
 uninterrupted one does.
 
-Episodic mode (:class:`EpisodicBuffer`; deviation T29). Terminating tasks
-end episodes at data-dependent ticks, so the episode ring above cannot hold
-them. The latest code's replay (``e9f5932:tdmpc2/common/buffer.py``,
-torchrl 0.8.1's ``SliceSampler(traj_key='episode', strict_length=True)``)
-stores the rows of finished episodes, draws an episode uniformly among
-those of at least ``H + 1`` rows (shorter ones are filtered out) and a
-sub-trajectory at a uniform offset inside it, and adds ``terminated`` (of
-the rows ``s + 1 .. s + H``). :class:`EpisodicBuffer` does the same on
-per-env rings of rows written in lockstep by the row collector's dynamic
-mode (tick ``i`` writes slot ``i mod C`` of every env), each row also
-holding whether its observation is terminal, whether it ends its episode
-and its index in the episode: an episode is sampleable once its last row
-is written. A time-limit end is not terminal, so its last transition
-bootstraps. When the ring wraps, an episode whose first rows are
-overwritten keeps its remaining rows, as the reference's storage keeps the
-remaining rows of an episode it overwrites. The capacity is
-``ceil(buffer_size / n_envs)`` rows per env, not clamped to the run length,
-so a resumed run carries a ring of the same size.
+Episodic mode (:class:`EpisodicBuffer`; deviation T29): episodes end at
+data-dependent ticks. The latest code's replay (``e9f5932:tdmpc2/common/
+buffer.py``, torchrl 0.8.1's ``SliceSampler(traj_key='episode',
+strict_length=True)``) draws a finished episode uniformly among those of at
+least ``H + 1`` rows, a uniform offset inside it, and adds ``terminated``
+(rows ``s + 1 .. s + H``; a time limit is not terminal, so it bootstraps).
+:class:`EpisodicBuffer` does the same on per-env rings of ``C`` rows written
+in lockstep by the row collector's dynamic mode (tick ``i`` at slot ``i mod
+C``). An overwritten episode keeps its stored tail, as in the reference.
 """
 
 from __future__ import annotations
@@ -333,19 +324,11 @@ class EpisodeBuffer:
         """
         self.check_layout(state)
         tick = jnp.asarray(tick, jnp.int32)
-        row = tick % self.period
-        first_slot = (tick // self.period) % self.n_rounds * self.n_envs
-        zero = jnp.zeros((), jnp.int32)
-
-        def write(store: jax.Array, value: jax.Array) -> jax.Array:
-            value = value.astype(store.dtype)[:, None]
-            start = (first_slot, row) + (zero,) * (store.ndim - 2)
-            return jax.lax.dynamic_update_slice(store, value, start)
-
+        at = ((tick // self.period) % self.n_rounds * self.n_envs, tick % self.period)
         return EpisodeBufferState(
-            obs=write(state.obs, obs.reshape(self.n_envs, self.obs_dim)),
-            action=write(state.action, action.reshape(self.n_envs, self.action_dim)),
-            reward=write(state.reward, reward.reshape(self.n_envs)),
+            obs=_write_rows(state.obs, obs, at),
+            action=_write_rows(state.action, action, at),
+            reward=_write_rows(state.reward, reward, at),
         )
 
     def episode_slot(self, tick: IntLike, episode: jax.Array) -> jax.Array:
@@ -392,8 +375,16 @@ class EpisodeBuffer:
         return slice_batch(state, self.episode_slot(tick, episode), start, horizon)
 
 
+def _write_rows(store: jax.Array, value: jax.Array, at: tuple) -> jax.Array:
+    """``value [n, ...]`` into ``store[at[0] : at[0] + n, at[1]]``: one
+    ``dynamic_update_slice`` (the ``n`` rows of a tick are contiguous)."""
+    value = value.reshape((-1,) + store.shape[2:]).astype(store.dtype)[:, None]
+    zeros = (jnp.zeros((), jnp.int32),) * (store.ndim - 2)
+    return jax.lax.dynamic_update_slice(store, value, tuple(at) + zeros)
+
+
 def slice_batch(
-    state: EpisodeBufferState,
+    state: EpisodeBufferState | EpisodicBufferState,
     slot: jax.Array,
     start: jax.Array,
     horizon: int,
@@ -403,18 +394,25 @@ def slice_batch(
 
     Obs rows ``s .. s + H``, action rows ``s .. s + H - 1``, reward rows
     ``s + 1 .. s + H`` (module docstring): ``DataPrepTransform`` of b67b21c
-    (``buffer.py:26-28``) on the obs-aligned layout.
+    (``buffer.py:26-28``) on the obs-aligned layout. On the episodic rings
+    (slot = env) the rows wrap around the ring, and ``terminated`` is read
+    from the rows ``s + 1 .. s + H``.
     """
-    steps = jnp.arange(horizon + 1)
-    rows = start[:, None] + steps[None]  # [B, H + 1]
+    rows = start[:, None] + jnp.arange(horizon + 1)[None]  # [B, H + 1]
     episodes = slot[:, None]
-    obs = state.obs[episodes, rows]  # [B, H + 1, obs_dim]
-    action = state.action[episodes, rows[:, :-1]]  # [B, H, A]
-    reward = state.reward[episodes, rows[:, 1:]]  # [B, H]
+
+    def take(store: jax.Array, columns: jax.Array) -> jax.Array:
+        return jnp.swapaxes(store[episodes, columns], 0, 1)  # time-major
+
+    terminated = None
+    if isinstance(state, EpisodicBufferState):
+        rows = rows % state.obs.shape[-2]
+        terminated = take(state.terminal, rows[:, 1:]).astype(jnp.float32)
     return TDMPC2Batch(
-        obs=jnp.swapaxes(obs, 0, 1),
-        action=jnp.swapaxes(action, 0, 1),
-        reward=jnp.swapaxes(reward, 0, 1),
+        obs=take(state.obs, rows),
+        action=take(state.action, rows[:, :-1]),
+        reward=take(state.reward, rows[:, 1:]),
+        terminated=terminated,
     )
 
 
@@ -503,22 +501,14 @@ class EpisodicBuffer:
         """Write tick ``tick``'s rows (``[n_envs, ...]``) at slot ``tick mod C``;
         ``step [n_envs]`` is each row's index in its episode."""
         self.check_layout(state)
-        slot = jnp.asarray(tick, jnp.int32) % self.capacity
-        zero = jnp.zeros((), jnp.int32)
-
-        def write(store: jax.Array, value: jax.Array) -> jax.Array:
-            value = value.reshape(store.shape[:1] + store.shape[2:])
-            value = value.astype(store.dtype)[:, None]
-            start = (zero, slot) + (zero,) * (store.ndim - 2)
-            return jax.lax.dynamic_update_slice(store, value, start)
-
+        at = (jnp.zeros((), jnp.int32), jnp.asarray(tick, jnp.int32) % self.capacity)
         return EpisodicBufferState(
-            obs=write(state.obs, row.obs),
-            action=write(state.action, row.action),
-            reward=write(state.reward, row.reward),
-            terminal=write(state.terminal, row.is_terminal),
-            last=write(state.last, row.is_last),
-            step=write(state.step, step),
+            obs=_write_rows(state.obs, row.obs, at),
+            action=_write_rows(state.action, row.action, at),
+            reward=_write_rows(state.reward, row.reward, at),
+            terminal=_write_rows(state.terminal, row.is_terminal, at),
+            last=_write_rows(state.last, row.is_last, at),
+            step=_write_rows(state.step, step, at),
         )
 
     def episodes(
@@ -571,18 +561,7 @@ class EpisodicBuffer:
         start = start + jax.random.randint(
             start_key, (batch_size,), 0, jnp.maximum(rows - horizon, 1)
         )
-        slots = (start[:, None] + jnp.arange(horizon + 1)) % self.capacity
-        envs = env[:, None]
-
-        def take(store: jax.Array, columns: jax.Array) -> jax.Array:
-            return jnp.swapaxes(store[envs, columns], 0, 1)  # time-major
-
-        return TDMPC2Batch(
-            obs=take(state.obs, slots),
-            action=take(state.action, slots[:, :-1]),
-            reward=take(state.reward, slots[:, 1:]),
-            terminated=take(state.terminal, slots[:, 1:]).astype(jnp.float32),
-        )
+        return slice_batch(state, env, start, horizon)
 
 
 __all__ = [

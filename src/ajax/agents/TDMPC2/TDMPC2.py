@@ -108,17 +108,12 @@ class TDMPC2(ActorCritic):
     (deviation T10). Observations and rewards are the
     env's raw values (no normalisation, as in the reference).
 
-    ``episodic=True`` takes terminating tasks instead, as the latest code's
-    episodic mode (``nicklashansen/tdmpc2@eece801``; deviation T29): a
-    termination head trained with ``termination_coef``, ``1 - terminated``
-    in the TD targets and the planner's value estimate, the variable-length
-    episode replay (:class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`,
-    ``ceil(buffer_size / n_envs)`` rows per env, not clamped to the run)
-    and the dynamic-reset loop
-    (:class:`~ajax.agents.TDMPC2.train_TDMPC2.EpisodicSchedule`), where
-    ``n_timesteps`` counts rows (env steps plus one per finished episode).
-    ``T`` is then the time limit, still bootstrapped; episodes shorter than
-    ``horizon`` steps are never sampled.
+    ``episodic=True`` takes terminating tasks instead (the latest code's
+    episodic mode, ``nicklashansen/tdmpc2@eece801``; deviation T29): a
+    termination head, ``1 - terminated`` in the targets and the planner,
+    the variable-length replay of ``ceil(buffer_size / n_envs)`` rows per
+    env, and ``n_timesteps`` counting rows (env steps plus one per finished
+    episode). ``T`` is then the time limit, still bootstrapped.
 
     Extensions: ``pretrain``, ``post_update`` (folded after every update,
     ``step`` = env steps) and ``eval_metrics`` (with ``init_state``); the
@@ -294,13 +289,13 @@ class TDMPC2(ActorCritic):
         and size (class docstring)."""
         buffer: EpisodeBuffer | EpisodicBuffer
         if self.agent_config.episodic:
+            capacity = self.agent_config.buffer_size
             buffer = EpisodicBuffer.create(
-                buffer_size=self.agent_config.buffer_size,
+                buffer_size=capacity,
                 n_envs=self.env_args.n_envs,
                 obs_dim=self.obs_dim,
                 action_dim=self.action_dim,
             )
-            capacity = buffer.capacity * buffer.n_envs
         else:
             capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
             buffer = EpisodeBuffer.create(

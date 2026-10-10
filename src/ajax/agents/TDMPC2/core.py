@@ -365,22 +365,28 @@ def q_pair_logits(
     action: jax.Array,
     pair: jax.Array,
     *,
+    q_params: Optional[Params] = None,
     dropout_key: Optional[jax.Array] = None,
     task_emb: Optional[jax.Array] = None,
 ) -> jax.Array:
-    """Logits ``[2, ..., num_bins]`` of the online Q members ``pair`` only.
+    """Logits ``[2, ..., num_bins]`` of the Q members ``pair`` only.
 
-    For a pass that reduces a random pair (``world_model.py:170``): the
+    For every pass that reduces a random pair (``world_model.py:170``): the
+    TD target, the policy loss and the planner's value estimate. The
     reference evaluates all ``num_q`` members and keeps two; this gathers the
-    pair's stacked parameters and runs them as a two-member ensemble, so the
+    pair's stacked parameters (``q_params``, the target Q, or by default the
+    online ``wm_params["q"]``) and runs them as a two-member ensemble, so the
     other ``num_q - 2`` members cost nothing. Without dropout the logits equal
     ``q_logits(...)[pair]``. With ``dropout_key`` each of the two members
     draws its own mask, independent across members and calls, as in the full
-    ensemble: the distribution is the reference's, only the mapping from the
-    key to the masks differs from :func:`q_logits` (torch's masks are not
-    replayable anyway).
+    ensemble; the pair is drawn independently of the masks, so the kept
+    members' masks are independent draws in the reference too: the
+    distribution is the reference's, only the mapping from the key to the
+    masks differs from :func:`q_logits` (torch's masks are not replayable
+    anyway).
     """
-    members = jax.tree_util.tree_map(lambda p: p[pair], wm_params["q"])
+    ensemble = wm_params["q"] if q_params is None else q_params
+    members = jax.tree_util.tree_map(lambda p: p[pair], ensemble)
     pair_apply = make_world_model(config.replace(num_q=2)).apply
     return q_logits(
         pair_apply,
@@ -394,15 +400,15 @@ def q_pair_logits(
 
 
 def reduce_q_pair(
-    logits: jax.Array, pair: jax.Array, kind: Literal["min", "avg"], two_hot: TwoHot
+    logits: jax.Array, kind: Literal["min", "avg"], two_hot: TwoHot
 ) -> jax.Array:
-    """``min`` or average of the decoded Q values of heads ``pair`` (``[...]``).
+    """``min`` or average of the decoded Q values of a pair's logits
+    ``[2, ..., num_bins]`` (:func:`q_pair_logits`), ``[...]``.
 
     ``world_model.py:170-172``: one pair per call, shared by the whole batch
     and horizon; the reduction acts on decoded scalars, ``(Q1 + Q2) / 2``.
     """
-    q1 = two_hot.decode(logits[pair[0]])
-    q2 = two_hot.decode(logits[pair[1]])
+    q1, q2 = two_hot.decode(logits)
     if kind == "min":
         return jnp.minimum(q1, q2)
     if kind == "avg":
@@ -437,7 +443,8 @@ def td_target(
     ``tdmpc2.py:201-216, 231-233`` (tdmpc2_spec 2.3): ``next_z = h(obs[1:])``
     with the *online* encoder; ``a' = pi(next_z)`` a stochastic sample;
     ``y = r + gamma * min(Qbar_i, Qbar_j)(next_z, a')`` with a random pair of
-    target heads; no termination factor. The paper-era target-Q pass has
+    target heads (only the pair is evaluated, :func:`q_pair_logits`); no
+    termination factor. The paper-era target-Q pass has
     dropout on (module docstring): pass ``dropout_key``; ``None`` gives the
     dropout-free target of the latest code. ``next_z`` is also the consistency
     target. ``gamma`` is a Python float, a scalar array or, multi-task, the
@@ -449,16 +456,17 @@ def td_target(
     mask = None if task is None else task.mask
     next_z = wm_apply({"params": wm_params}, next_obs, emb, method="encode")
     action = policy_sample(pi_apply, pi_params, next_z, eps, config, emb, mask).action
-    logits = q_logits(
-        wm_apply,
+    logits = q_pair_logits(
+        config,
         wm_params,
         next_z,
         action,
+        pair,
         q_params=target_q_params,
         dropout_key=dropout_key,
         task_emb=emb,
     )
-    q = reduce_q_pair(logits, pair, "min", config.two_hot)
+    q = reduce_q_pair(logits, "min", config.two_hot)
     y = reward + gamma * q
     return jax.lax.stop_gradient(y), jax.lax.stop_gradient(next_z)
 
@@ -541,7 +549,6 @@ def policy_loss(
     pi_params: Params,
     *,
     pi_apply: ApplyFn,
-    wm_apply: ApplyFn,
     wm_params: Params,
     zs: jax.Array,
     q_scale: RunningScale,
@@ -555,8 +562,9 @@ def policy_loss(
 
     ``tdmpc2.py:173-199`` (tdmpc2_spec 2.11-2.13): on the stop-gradiented
     latents ``zs [H + 1, B, L]``, ``a ~ pi(zs)`` (reparameterised),
-    ``Qp = avg`` of a random pair of online heads with their parameters
-    stop-gradiented (``track_q_grad(False)``), dropout on;
+    ``Qp = avg`` of a random pair of online heads (only the pair is
+    evaluated, :func:`q_pair_logits`) with their parameters stop-gradiented
+    (``track_q_grad(False)``), dropout on;
     the RunningScale is updated with ``Qp[0]`` *before* dividing; the loss is
     ``mean_t rho^t mean_B(beta log_pi - Qp / S)``. The gradient reaches the
     policy only, through the action and ``log_pi``. In :func:`update`,
@@ -571,15 +579,16 @@ def policy_loss(
     emb = task_embedding(frozen_wm, task)
     mask = None if task is None else task.mask
     sample = policy_sample(pi_apply, pi_params, zs, eps, config, emb, mask)
-    logits = q_logits(
-        wm_apply,
+    logits = q_pair_logits(
+        config,
         frozen_wm,
         zs,
         sample.action,
+        pair,
         dropout_key=dropout_key,
         task_emb=emb,
     )
-    q = reduce_q_pair(logits, pair, "avg", config.two_hot)  # [H + 1, B]
+    q = reduce_q_pair(logits, "avg", config.two_hot)  # [H + 1, B]
     q_scale = q_scale.update(q[0])
     q = q / q_scale.scale()
     rho = _rho_weights(config.rho, zs.shape[0])
@@ -813,7 +822,6 @@ def update(
     (_, (q_scale, pi_aux)), pi_grads = jax.value_and_grad(policy_loss, has_aux=True)(
         pi_state.params,
         pi_apply=pi_apply,
-        wm_apply=wm_apply,
         wm_params=wm_state.params,
         zs=zs,
         q_scale=state.q_scale,

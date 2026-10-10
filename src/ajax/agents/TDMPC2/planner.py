@@ -73,6 +73,7 @@ from ajax.agents.TDMPC2.core import (
     draw_q_pair,
     policy_sample,
     q_pair_logits,
+    reduce_q_pair,
     renorm_task_embedding,
     task_embedding,
 )
@@ -238,8 +239,8 @@ def estimate_value(
     logits = q_pair_logits(
         config, wm_params, z, terminal, q_pair, dropout_key=q_dropout, task_emb=emb
     )
-    q1, q2 = two_hot.decode(logits)  # world_model.py:171-172
-    return value + discount[config.horizon] * ((q1 + q2) / 2)
+    q = reduce_q_pair(logits, "avg", two_hot)  # world_model.py:171-172
+    return value + discount[config.horizon] * q
 
 
 def policy_trajectories(

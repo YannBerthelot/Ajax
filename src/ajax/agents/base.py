@@ -108,6 +108,7 @@ class ActorCritic:
         memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -149,12 +150,25 @@ class ActorCritic:
             target_entropy_per_dim (float): Target entropy per action dimension.
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
+            normalize_rewards (bool): divide the rewards the agent learns
+                from by a running standard deviation (logged returns stay
+                in the env's units). By default the single-step reward's.
+            reward_normalization_gamma (Optional[float]): with
+                ``normalize_rewards``, divide by the running standard
+                deviation of the discounted return with this discount
+                instead, as SB3's ``VecNormalize`` (``gamma``) and
+                gymnasium's ``NormalizeReward`` do.
             action_repeat (int): simulator steps per agent step on brax /
                 playground envs (``episode_length`` then counts simulator
                 steps); stored on ``env_args``. gymnax envs and prebuilt
                 envs support only 1.
         """
 
+        if reward_normalization_gamma is not None and not normalize_rewards:
+            raise ValueError(
+                "reward_normalization_gamma sets how normalize_rewards normalises"
+                " the rewards: pass normalize_rewards=True with it."
+            )
         memory = parse_memory_config(memory)
         if memory is not None and not self.supports_memory:
             raise NotImplementedError(
@@ -167,6 +181,7 @@ class ActorCritic:
             env_params=env_params,
             normalize_obs=normalize_observations,
             normalize_reward=normalize_rewards,
+            gamma=reward_normalization_gamma,
             n_envs=n_envs,
             episode_length=episode_length,
             apply_obs_normalization=apply_obs_normalization,

@@ -218,11 +218,10 @@ def test_p2_avg_with_parallel_envs(part: str) -> None:
     assert not [e for e in found if AVG_PARTS[part](e[0])], found
 
 
-@xfail(
-    "with normalize_rewards=True the Train return is logged in normalised units: no gamma reaches the normaliser (base.py:128-137, create.py:385), a constant reward has std sqrt(1e-8) (utils.py:24-29), and the collector adds the normalised reward to the Train window (interaction.py:905-909); right Train 7, today 70000 (Eval reads 7)"
-)
 @pytest.mark.parametrize("agent", ["SAC", "PPO", "DQN", "PQN"])
 def test_p2_train_return_in_raw_units_with_normalized_rewards(agent: str) -> None:
+    """The Train return sums what the env paid (7), not the normalised reward
+    (a constant reward's std is sqrt(1e-8): 70000)."""
     r = p2_run(agent, 1, normalize_rewards=True)
     keys = (TRAIN, EVAL, "mean return", "returns")
     wrong = {k: set(r[k].round(4)) for k in keys if not np.allclose(r[k], L, 1e-5, 0)}

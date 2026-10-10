@@ -167,3 +167,16 @@ def test_prepare_env_clips_continuous_actions_to_their_space(normalize):
         return float(env.step(key, state, jnp.array([a]), params)[2])
 
     assert reward(3.0) == reward(2.0) != reward(1.0)
+
+
+def test_an_agent_hands_the_reward_normaliser_its_discount():
+    """reward_normalization_gamma reaches the normaliser (the discounted-return
+    variant); it means nothing without normalize_rewards, so that raises."""
+    from ajax.agents.DQN.DQN import DQN
+
+    agent = DQN("CartPole-v1", normalize_rewards=True, reward_normalization_gamma=0.9)
+    assert strip_ajax_wrappers(agent.env_args.env)[1]["gamma"] == 0.9
+    default = DQN("CartPole-v1", normalize_rewards=True)
+    assert strip_ajax_wrappers(default.env_args.env)[1]["gamma"] is None
+    with pytest.raises(ValueError, match="normalize_rewards=True"):
+        DQN("CartPole-v1", reward_normalization_gamma=0.9)

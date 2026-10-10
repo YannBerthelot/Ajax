@@ -22,7 +22,7 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
-from ajax.wrappers import RAW_FINAL_OBS_KEY
+from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_REWARD_KEY
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -269,10 +269,14 @@ def step(
                 lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
                 env_state.normalization_info.obs,
             )
-            reward_norm_info = jax.tree.map(
-                lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
-                env_state.normalization_info.reward,
-            )
+            reward_norm_info = env_state.normalization_info.reward
+            if reward_norm_info is not None:
+                # One normaliser per env: the statistics are pooled, each
+                # env's discounted-return accumulator stays its own.
+                reward_norm_info = jax.tree.map(
+                    lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
+                    reward_norm_info.replace(returns=None),
+                ).replace(returns=reward_norm_info.returns)
             env_state = env_state.replace(
                 normalization_info=env_state.normalization_info.replace(
                     obs=obs_norm_info, reward=reward_norm_info
@@ -959,9 +963,16 @@ def collect_experience(
         next_a_expert=_next_a_expert_for_buf,
     )
 
+    # The Train return sums what the env paid, in its own units (a reward
+    # normaliser keeps it in info), and the value box's bonus.
+    paid = (
+        info[RAW_REWARD_KEY].astype(jnp.float32) + entry_bonus[..., 0]
+        if RAW_REWARD_KEY in info
+        else reward
+    )
     new_episodic_return_state, episodic_mean_return = update_episodic_return(
         agent_state.collector_state.episodic_return_state,
-        reward,
+        paid,
         done=jnp.logical_or(terminated, truncated),
     )
 

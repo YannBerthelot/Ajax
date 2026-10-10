@@ -940,7 +940,9 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
 # GAE now drops V(s') at a termination and cuts the lambda-carry at every
 # end (xtma/apo's generalized_advantage_estimation): rho 1/2, V(B) = 1/2 -
 # nu b, V(A) = -(2 - lambda) nu b, b = 1/2 / (2 + nu (3 - lambda)) (nu 0.1,
-# lambda 0.95; derived, not yet read on a scratch copy).
+# lambda 0.95). CI reads these on 8 seeds since the done mask; at these
+# tolerances the case does not tell the sign of the nu b term apart, which
+# the value-loss and constant-reward cases pin.
 GROWS = {"centring sign reversed: grows without bound": math.inf}
 CASES["q1-APO-constant"] = Case(
     "q1-APO-constant",
@@ -965,13 +967,9 @@ CASES["q1-APO-termination"] = Case(
     _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}),
     10_000,
     (0.1, 0.1, 0.1),
-    f"{APO_SIGN}; right b = 0.227, V(A) = -0.024, V(B) = 0.477 (APO's done mask, the reference's convention), today b >> 10",
 )
 
 
-@xfail(
-    f"{APO_SIGN}; right |b| <= 35.8 under any convention, 1373 to 2225 before the done mask"
-)
 def test_q1_apo_termination_cycle_keeps_b_bounded() -> None:
     """Past |b| = 100 b feeds itself, and no convention can be read yet."""
     case = CASES["q1-APO-termination"]

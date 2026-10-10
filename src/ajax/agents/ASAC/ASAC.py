@@ -7,7 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.ASAC.state import ASACConfig
 from ajax.agents.ASAC.train_ASAC import make_train
 from ajax.agents.base import ActorCritic
-from ajax.buffers.utils import get_buffer
+from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
@@ -98,6 +98,7 @@ class ASAC(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            squash=True,
             extensions=extensions,
         )
 
@@ -119,27 +120,8 @@ class ASAC(ActorCritic):
             sequence_length=sequence_length,
             stored_state=stored_state,
         )
-
-        recurrent = self.network_args.memory is not None
-        if stored_state and not recurrent:
-            raise ValueError(
-                "stored_state=True requires a memory config (recurrent networks)."
-            )
-        if recurrent and learning_starts // n_envs <= burn_in + sequence_length + 1:
-            raise ValueError(
-                "learning_starts must exceed n_envs * (burn_in +"
-                " sequence_length + 1) so the trajectory buffer holds at"
-                " least one full sequence per env before the first update"
-                f" (got learning_starts={learning_starts}, n_envs={n_envs},"
-                f" burn_in={burn_in}, sequence_length={sequence_length})."
-            )
-        self.buffer = get_buffer(
-            buffer_size=buffer_size,
-            batch_size=batch_size,
-            n_envs=n_envs,
-            # Sampled window: burn-in prefix + trained segment + one step
-            # for the bootstrap next-observations.
-            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
+        self.buffer = make_replay_buffer(
+            self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
 
         self.pid_actor_config = pid_actor_config

@@ -1,34 +1,26 @@
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.agents.recurrent import RecurrentReplayConfig
+from ajax.agents.SAC.state import SoftACState
 
 
 @partial(struct.dataclass, kw_only=True)
-class ASACState(BaseAgentState):
-    """The agent properties to be carried over iterations of environment interaction and updates"""
+class ASACState(SoftACState):
+    """ASAC's state: a soft actor-critic's plus the reward rate and the
+    termination penalty."""
 
-    alpha: LoadedTrainState  # Temperature parameter
     episode_termination_penalty: float
     theta: float
 
 
 @partial(struct.dataclass, kw_only=True)
-class ASACConfig(BaseAgentConfig):
-    """The agent properties to be carried over iterations of environment interaction and updates"""
+class ASACConfig(RecurrentReplayConfig):
+    """ASAC's hyperparameters (the wrapper sets every one); no discount,
+    the criterion is the average reward."""
 
     target_entropy: float
-    tau: float = 0.005
-    learning_starts: int = 100
-    reward_scale: float = 5.0
-    p_0: float = 10.0
-    # Recurrent (memory) training only. Sampled sequences have length
-    # burn_in + sequence_length + 1: the first burn_in steps warm the
-    # carries from zero under stop_gradient (R2D2-style), the next
-    # sequence_length steps are trained on, and the final step provides
-    # the bootstrap next-observations.
-    burn_in: int = 8
-    sequence_length: int = 16
-    # R2D2 stored-state replay: read actor carries back from the buffer
-    # instead of burning them in from zero (Kapturowski et al. 2019).
-    stored_state: bool = False
+    tau: float
+    learning_starts: int
+    reward_scale: float
+    p_0: float

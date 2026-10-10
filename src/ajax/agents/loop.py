@@ -64,6 +64,60 @@ def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any]:
     return train_state.apply_gradients(grads=grads), aux
 
 
+def critic_step(
+    agent_state: Any,
+    batch: Any,
+    target_q: jax.Array,
+    value_loss: Callable[[Any, jax.Array], tuple[jax.Array, Any]],
+    extension_stack: ExtensionStack,
+    key: jax.Array,
+    total_timesteps: int,
+    *,
+    rewards: jax.Array,
+    gamma: Optional[float],
+    reward_scale: float,
+) -> tuple[Any, Any]:
+    """A replay agent's critic step on ``batch`` (a :class:`Transition`).
+
+    Folds the extensions' ``on_target`` into ``target_q`` (held constant),
+    then steps the critic down ``value_loss(params, target_q) -> (loss,
+    aux)`` plus their ``critic_loss`` terms. ``rewards``, ``gamma`` (None
+    for an average-reward agent) and ``reward_scale`` are what the target
+    used. Returns the stepped critic state and ``aux``.
+    """
+    step = agent_state.collector_state.timestep
+    target_batch = {
+        "observations": batch.obs,
+        "actions": batch.action,
+        "next_observations": batch.next_obs,
+        "rewards": rewards,
+        "dones": jnp.logical_or(batch.terminated, batch.truncated),
+        "gamma": gamma,
+        "reward_scale": reward_scale,
+    }
+    target_q = jax.lax.stop_gradient(
+        extension_stack.fold_on_target(
+            agent_state, target_batch, target_q, step, key, total_timesteps
+        )
+    )
+    critic_state = agent_state.critic_state
+
+    def loss_fn(params: Any) -> tuple[jax.Array, Any]:
+        loss, aux = value_loss(params, target_q)
+        loss_batch = {
+            "observations": batch.obs,
+            "actions": batch.action,
+            "critic_params": params,
+            "critic_state": critic_state,
+        }
+        extra = extension_stack.fold_critic_loss(
+            agent_state, loss_batch, step, key, total_timesteps
+        )
+        return loss + extra, aux
+
+    return gradient_step(critic_state, loss_fn)
+
+
 @dataclasses.dataclass(frozen=True, eq=False)
 class TrainLoop:
     """One run's environment, budget, extensions and logging (compared and
@@ -310,4 +364,4 @@ class TrainLoop:
         )
 
 
-__all__ = ["TrainLoop", "gradient_step"]
+__all__ = ["TrainLoop", "critic_step", "gradient_step"]

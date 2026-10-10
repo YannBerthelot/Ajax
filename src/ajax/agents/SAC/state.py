@@ -3,14 +3,21 @@ from typing import Any, Optional
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.agents.recurrent import RecurrentReplayConfig
+from ajax.state import BaseAgentState, LoadedTrainState
 
 
 @partial(struct.dataclass, kw_only=True)
-class SACState(BaseAgentState):
-    """The agent properties to be carried over iterations of environment interaction and updates"""
+class SoftACState(BaseAgentState):
+    """A soft actor-critic's state: the base one plus the temperature."""
 
-    alpha: LoadedTrainState  # Temperature parameter
+    alpha: LoadedTrainState  # log-temperature, params["log_alpha"]
+
+
+@partial(struct.dataclass, kw_only=True)
+class SACState(SoftACState):
+    """SAC's state, with the frozen expert critic phi* its extensions fill."""
+
     expert_critic_params: Optional[Any] = None
     expert_v_min: Optional[Any] = None
     expert_v_max: Optional[Any] = None
@@ -19,17 +26,11 @@ class SACState(BaseAgentState):
 
 
 @partial(struct.dataclass, kw_only=True)
-class SACConfig(BaseAgentConfig):
-    """The agent properties to be carried over iterations of environment interaction and updates"""
+class SACConfig(RecurrentReplayConfig):
+    """SAC's hyperparameters (the wrapper sets every one)."""
 
     gamma: float
     target_entropy: float
-    tau: float = 0.005
-    learning_starts: int = 100
-    reward_scale: float = 5.0
-    # Recurrent (memory) training only; see ajax.agents.recurrent.
-    burn_in: int = 8
-    sequence_length: int = 16
-    # R2D2 stored-state replay: read actor carries back from the buffer
-    # instead of burning them in from zero (Kapturowski et al. 2019).
-    stored_state: bool = False
+    tau: float
+    learning_starts: int
+    reward_scale: float

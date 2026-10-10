@@ -18,27 +18,19 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents.cloning import CloningConfig, pretrain_on_expert
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop, critic_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
-    actor_dist,
     q_values,
     sample_replay,
-    stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
 from ajax.agents.REDQ.state import REDQConfig, REDQState
-from ajax.agents.SAC.train_SAC import (
-    TemperatureAuxiliaries,
-    create_alpha_train_state,
-    update_temperature,
-)
-from ajax.environments.interaction import init_collector_state
-from ajax.environments.utils import check_env_is_gymnax
+from ajax.agents.SAC import core
+from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.networks import get_initialized_actor_critic
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     AlphaConfig,
@@ -146,32 +138,25 @@ def init_REDQ(
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> REDQState:
     rng, init_key, collector_key = jax.random.split(key, num=3)
-    actor_state, critic_state = get_initialized_actor_critic(
-        key=init_key,
-        env_config=env_args,
-        actor_optimizer_config=actor_optimizer_args,
-        critic_optimizer_config=critic_optimizer_args,
-        network_config=network_args,
-        continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=number_of_critics,
-        pid_actor_config=pid_actor_config,
-    )
-    collector_state = init_collector_state(
+    actor_state, critic_state, collector_state = core.init_soft_actor_critic(
+        init_key,
         collector_key,
-        env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
-        buffer=buffer,
+        env_args,
+        actor_optimizer_args,
+        critic_optimizer_args,
+        network_args,
+        buffer,
+        num_critics=number_of_critics,
         window_size=window_size,
-        actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
+        stored_state=stored_state,
+        pid_actor_config=pid_actor_config,
     )
     return REDQState(
         rng=rng,
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
     )
 
@@ -194,12 +179,10 @@ def compute_redq_td_target(
     Returns the stop_gradient'd target and the next actions' log-probs.
     """
     rewards = rewards * reward_scale
-    next_pi = actor_dist(
-        actor_state, actor_state.params, next_observations, carries, bootstrap=True
-    )
     sample_key, idx_sample_key = jax.random.split(rng)
-    next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
-    log_probs = log_probs.sum(-1, keepdims=True)
+    next_actions, log_probs = core.sample_next_actions(
+        actor_state, next_observations, sample_key, carries
+    )
     # The ensemble axis stays leading in sequence mode too, so the subset
     # sampling is the same.
     q_targets = q_values(
@@ -248,37 +231,6 @@ def value_loss_function(
     )
 
 
-def policy_loss_function(
-    actor_params: FrozenDict,
-    actor_state: LoadedTrainState,
-    critic_states: LoadedTrainState,
-    observations: jax.Array,
-    alpha: jax.Array,
-    rng: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array, jax.Array]]:
-    """``alpha log pi(a|s) - mean_i Q_i(s, a)``, ``a ~ pi(.|s)``.
-
-    Returns the loss and ``(auxiliaries, log_probs, pi_mean)``: the
-    per-sample log-probs feed the temperature update, the policy mean the
-    actor-loss extensions.
-    """
-    pi = actor_dist(actor_state, actor_params, observations, carries)
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    q_mean = jnp.mean(
-        q_values(critic_states, critic_states.params, observations, actions, carries),
-        axis=0,
-    )
-    log_probs = log_probs.sum(-1, keepdims=True)
-    assert log_probs.shape == q_mean.shape, f"{log_probs.shape} != {q_mean.shape}"
-    total_loss = (alpha * log_probs - q_mean).mean()
-    aux = PolicyAuxiliaries(
-        policy_loss=total_loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
-    )
-    return total_loss, (aux, log_probs, pi.mean())
-
-
 def update_value_functions(
     agent_state: REDQState,
     batch: Transition,
@@ -289,7 +241,6 @@ def update_value_functions(
 ) -> Tuple[REDQState, ValueAuxiliaries]:
     """One critic step of the ensemble on the random-subset target."""
     key, rng = jax.random.split(agent_state.rng)
-    step = agent_state.collector_state.timestep
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     dones = jnp.logical_or(batch.terminated, batch.truncated)
     target_q, next_log_probs = compute_redq_td_target(
@@ -305,26 +256,11 @@ def update_value_functions(
         agent_config.reward_scale,
         carries,
     )
-    target_batch = {
-        "observations": batch.obs,
-        "actions": batch.action,
-        "next_observations": batch.next_obs,
-        "rewards": batch.reward,
-        "dones": dones,
-        "gamma": agent_config.gamma,
-        "reward_scale": agent_config.reward_scale,
-    }
-    target_q = jax.lax.stop_gradient(
-        extension_stack.fold_on_target(
-            agent_state, target_batch, target_q, step, key, total_timesteps
-        )
-    )
-    critic_state = agent_state.critic_state
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
-        loss, aux = value_loss_function(
+    def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
+        return value_loss_function(
             params,
-            critic_state,
+            agent_state.critic_state,
             batch.obs,
             batch.action,
             target_q,
@@ -332,18 +268,19 @@ def update_value_functions(
             agent_config.repulsion_coef,
             carries,
         )
-        loss_batch = {
-            "observations": batch.obs,
-            "actions": batch.action,
-            "critic_params": params,
-            "critic_state": critic_state,
-        }
-        extra = extension_stack.fold_critic_loss(
-            agent_state, loss_batch, step, key, total_timesteps
-        )
-        return loss + extra, aux
 
-    critic_state, aux = gradient_step(critic_state, loss_fn)
+    critic_state, aux = critic_step(
+        agent_state,
+        batch,
+        target_q,
+        value_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        rewards=batch.reward,
+        gamma=agent_config.gamma,
+        reward_scale=agent_config.reward_scale,
+    )
     return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 
@@ -355,39 +292,21 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array]:
-    """The actor step; also returns its samples' log-probs (temperature)."""
-    rng, policy_key = jax.random.split(agent_state.rng)
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    actor_state = agent_state.actor_state
-
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
-        loss, (aux, log_probs, pi_mean) = policy_loss_function(
-            params,
-            actor_state,
-            agent_state.critic_state,
-            observations,
-            alpha,
-            policy_key,
-            carries,
-        )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-        }
-        extra = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            policy_key,
-            total_timesteps,
-        )
-        return loss + extra, (aux, log_probs)
-
-    actor_state, (aux, log_probs) = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(rng=rng, actor_state=actor_state), aux, log_probs
+    """The actor step on ``alpha log pi(a|s) - mean_i Q_i(s, a)``; also
+    returns its samples' log-probs (temperature)."""
+    agent_state, (loss, log_probs, q_mean) = core.soft_actor_step(
+        agent_state,
+        observations,
+        raw_observations,
+        extension_stack,
+        total_timesteps,
+        carries,
+        q_reduce=jnp.mean,
+    )
+    aux = PolicyAuxiliaries(
+        policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
+    )
+    return agent_state, aux, log_probs
 
 
 def update_agent(
@@ -420,12 +339,8 @@ def update_agent(
             total_timesteps,
             carries,
         )
-        critic_state = agent_state.critic_state.soft_update(tau=agent_config.tau)
-        return agent_state.replace(critic_state=critic_state), (
-            aux_value,
-            batch,
-            carries,
-        )
+        agent_state = core.update_target_networks(agent_state, agent_config.tau)
+        return agent_state, (aux_value, batch, carries)
 
     # Carry-only scan: only the last critic step's metrics and batch are kept.
     agent_state, (aux_value, batch, carries) = final_aux_scan(
@@ -439,10 +354,8 @@ def update_agent(
         total_timesteps,
         carries,
     )
-    agent_state, aux_temperature = update_temperature(  # type: ignore[assignment]
-        agent_state,  # type: ignore[arg-type]
-        log_probs=log_probs,
-        effective_target_entropy=jnp.asarray(agent_config.target_entropy),
+    agent_state, aux_temperature = core.update_temperature(
+        agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
     )
     aux = AuxiliaryLogs(temperature=aux_temperature, policy=aux_policy, value=aux_value)
     return agent_state, aux

@@ -6,15 +6,13 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
-from ajax.agents.recurrent import check_recurrent_learning_starts
+from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
-from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
-from ajax.state import NetworkConfig
 from ajax.types import EnvType
 
 
@@ -101,16 +99,8 @@ class TD3(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
-            extensions=extensions,
-        )
-
-        self.network_args = NetworkConfig(
-            actor_architecture=actor_architecture,
-            critic_architecture=critic_architecture,
-            # base parsed the memory config already
-            memory=self.network_args.memory,
             squash=True,
-            penultimate_normalization=False,
+            extensions=extensions,
         )
 
         if not check_if_environment_has_continuous_actions(self.env_args.env):
@@ -130,21 +120,8 @@ class TD3(ActorCritic):
             sequence_length=sequence_length,
             stored_state=stored_state,
         )
-        recurrent = self.network_args.memory is not None
-        if stored_state and not recurrent:
-            raise ValueError(
-                "stored_state=True requires a memory config (recurrent networks)."
-            )
-        if recurrent:
-            check_recurrent_learning_starts(
-                learning_starts, n_envs, burn_in, sequence_length
-            )
-        self.buffer = get_buffer(
-            buffer_size=buffer_size,
-            batch_size=batch_size,
-            n_envs=n_envs,
-            # burn-in prefix + trained segment + bootstrap step
-            sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
+        self.buffer = make_replay_buffer(
+            self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,

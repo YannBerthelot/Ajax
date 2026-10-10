@@ -16,13 +16,13 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 
-from ajax.agents.SAC.train_SAC import (
+from ajax.agents.SAC.core import (
     create_alpha_train_state,
-    init_SAC,
-    temperature_loss_function,
+    temperature_loss_fn,
     update_target_networks,
     update_temperature,
 )
+from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.buffers.utils import get_buffer
 from ajax.state import (
     AlphaConfig,
@@ -106,19 +106,19 @@ def test_create_alpha_train_state():
 
 
 @pytest.mark.parametrize(
-    "log_alpha_init, target_entropy, corrected_log_probs",
+    "log_alpha_init, target_entropy, log_probs",
     [
         (0.0, -1.0, jnp.array([-0.5, -1.5, -1.0])),
         (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
     ],
 )
-def test_temperature_loss_function(log_alpha_init, target_entropy, corrected_log_probs):
+def test_temperature_loss_function(log_alpha_init, target_entropy, log_probs):
     log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
 
-    loss, aux = temperature_loss_function(
+    loss, aux = temperature_loss_fn(
         log_alpha_params=log_alpha_params,
-        corrected_log_probs=corrected_log_probs,
-        effective_target_entropy=target_entropy,
+        log_probs=log_probs,
+        target_entropy=target_entropy,
     )
     aux = to_state_dict(aux)
     assert jnp.isfinite(loss)
@@ -128,22 +128,22 @@ def test_temperature_loss_function(log_alpha_init, target_entropy, corrected_log
 
 
 @pytest.mark.parametrize(
-    "log_alpha_init, target_entropy, corrected_log_probs",
+    "log_alpha_init, target_entropy, log_probs",
     [
         (0.0, -1.0, jnp.array([-0.5, -1.5, -1.0])),
         (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
     ],
 )
 def test_temperature_loss_function_with_value_and_grad(
-    log_alpha_init, target_entropy, corrected_log_probs
+    log_alpha_init, target_entropy, log_probs
 ):
     log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
 
     def loss_fn(log_alpha_params):
-        loss, _ = temperature_loss_function(
+        loss, _ = temperature_loss_fn(
             log_alpha_params=log_alpha_params,
-            corrected_log_probs=corrected_log_probs,
-            effective_target_entropy=target_entropy,
+            log_probs=log_probs,
+            target_entropy=target_entropy,
         )
         return loss
 
@@ -159,14 +159,14 @@ def test_temperature_loss_function_with_value_and_grad(
 )
 def test_update_temperature(env_config, SAC_state):
     log_probs = jnp.ones((env_config.n_envs, 1)) * -0.5
-    effective_target_entropy = jnp.array(-1.0)
+    target_entropy = jnp.array(-1.0)
 
     original_alpha_params = SAC_state.alpha.params
 
     updated_state, aux = update_temperature(
         agent_state=SAC_state,
         log_probs=log_probs,
-        effective_target_entropy=effective_target_entropy,
+        target_entropy=target_entropy,
     )
     aux = to_state_dict(aux)
     assert not compare_frozen_dicts(updated_state.alpha.params, original_alpha_params)

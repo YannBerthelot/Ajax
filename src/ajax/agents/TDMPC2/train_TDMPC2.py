@@ -491,7 +491,7 @@ def make_train(
         init,
         partial(update, **models),
         collect=partial(collect, env_args=env_args, schedule=schedule, **models),
-        n_updates=schedule.n_updates,
+        n_updates=lambda tick, _: schedule.n_updates(tick),
         evaluation=Evaluation(
             metrics=partial(train_metrics, action_repeat=env_args.action_repeat),
             every=every,

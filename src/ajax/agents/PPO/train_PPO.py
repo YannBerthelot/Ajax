@@ -22,8 +22,8 @@ from typing import Any, Callable, Optional, Tuple
 import jax
 import jax.numpy as jnp
 from flax.core import FrozenDict
-from jax.tree_util import Partial as partial
 
+from ajax.agents.loop import TrainLoop
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -44,11 +44,9 @@ from ajax.agents.PPO.utils import (
     split_fragments,
 )
 from ajax.environments.interaction import (
-    collect_experience,
     get_pi,
     get_pi_sequence,
     init_collector_state,
-    preallocate_last_rollout,
     reset,
 )
 from ajax.environments.utils import (
@@ -56,19 +54,13 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
 )
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
     predict_value_sequence,
 )
-from ajax.perf_utils import build_resumable_train
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -750,80 +742,6 @@ def update_agent(
     return agent_state, aux
 
 
-def training_iteration(
-    agent_state: PPOState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
-    recurrent: bool,
-    agent_config: PPOConfig,
-    total_timesteps: int,
-    total_n_updates: int,
-    log_frequency: Optional[int] = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    reward_shaping_fn: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> tuple[PPOState, dict]:
-    """Collect a rollout, update, fold the extensions' ``post_update``,
-    then evaluate and log."""
-    extension_stack = extension_stack or ExtensionStack()
-    start = agent_state
-    collect_scan_fn = partial(
-        collect_experience, recurrent=recurrent, mode=mode, env_args=env_args
-    )
-    agent_state, transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=agent_config.n_steps
-    )
-    if agent_config.expose_recent_rollout:
-        agent_state = agent_state.replace(last_rollout=transition)
-
-    agent_state, aux = update_agent(
-        agent_state,
-        transition,
-        start,
-        agent_config,
-        env_args,
-        mode,
-        recurrent,
-        extension_stack,
-        total_timesteps,
-        total_n_updates,
-        reward_shaping_fn,
-    )
-
-    # Extension post_update — folded after the per-iteration update loop.
-    # Empty stack ⇒ identity.
-    if extension_stack:
-        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=_pu_rng2)
-        agent_state = extension_stack.fold_post_update(
-            agent_state,
-            agent_state.collector_state.timestep,
-            _pu_rng,
-            total_timesteps,
-        )
-
-    _extra_eval = compose_eval_metrics(None, extension_stack, total_timesteps)
-    agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        recurrent,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        extra_eval_metrics=_extra_eval,
-    )
-    return agent_state, metrics_to_log
-
-
 def make_train(
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
@@ -841,69 +759,45 @@ def make_train(
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids)
-
-    _recurrent = network_args.memory is not None
-    if _recurrent and extensions:
+    recurrent = network_args.memory is not None
+    if recurrent and extensions:
         raise NotImplementedError("Recurrent PPO does not support extensions yet.")
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
 
-    # The logging worker runs only for a backend: without one PPO still
-    # evaluates and returns the metrics.
-    if logging_config is not None and logging_config.backend:
-        start_async_logging()
-
-    num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
-
-    extension_stack = ExtensionStack(extensions)
-
-    def init_fn(key, _index):
-        init_key, pretrain_key = jax.random.split(key)
-        agent_state = init_PPO(
-            key=init_key,
-            env_args=env_args,
-            actor_optimizer_args=actor_optimizer_args,
-            critic_optimizer_args=critic_optimizer_args,
-            network_args=network_args,
+    def init(key: jax.Array, _pretrain_key: jax.Array) -> PPOState:
+        return init_PPO(
+            key,
+            env_args,
+            actor_optimizer_args,
+            critic_optimizer_args,
+            network_args,
             pid_actor_config=pid_actor_config,
             normalize_obs_running=normalize_obs_running,
         )
-        agent_state = extension_stack.fold_init(
-            agent_state, pretrain_key, total_timesteps
-        )
-        if agent_config.expose_recent_rollout:
-            agent_state = preallocate_last_rollout(
-                agent_state,
-                agent_config.n_steps,
-                recurrent=_recurrent,
-                mode=mode,
-                env_args=env_args,
-            )
-        return agent_state
 
-    def make_scan_fn(_agent_state, _resume_from_state, _key, index):
-        return partial(
-            training_iteration,
-            recurrent=_recurrent,
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
-            ),
-            total_n_updates=num_updates,
-            reward_shaping_fn=reward_shaping_fn,
-            extension_stack=extension_stack,
+    def update(
+        agent_state: PPOState, rollout: Transition, start: PPOState
+    ) -> tuple[PPOState, AuxiliaryLogs]:
+        return update_agent(
+            agent_state,
+            rollout,
+            start,
+            agent_config,
+            env_args,
+            loop.mode,
+            recurrent,
+            loop.stack,
+            total_timesteps,
+            loop.n_rollouts(agent_config.n_steps),
+            reward_shaping_fn,
         )
 
-    return build_resumable_train(
-        init_fn=init_fn,
-        make_scan_fn=make_scan_fn,
-        num_updates=num_updates,
+    return loop.on_policy(
+        init,
+        update,
+        agent_config.n_steps,
+        recurrent=recurrent,
+        expose_rollout=agent_config.expose_recent_rollout,
     )

@@ -4,8 +4,10 @@ state (the update gate before ``learning_starts``, the extensions'
 evaluations ``train`` returns with a logging config. The agents' smoke and
 resume tests and the probes run the loop end to end."""
 
+import dataclasses
 import functools
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
@@ -114,6 +116,11 @@ def test_the_post_update_runs_after_the_update() -> None:
     state = _state(5, (jnp.asarray(0.0),))
     out, _ = _loop(Record()).maybe_update(state, 0, _update, Metrics)
     assert float(out.ext_state[0]) == 2.0
+
+
+def test_on_policy_runs_the_budget_in_whole_rollouts_plus_one() -> None:
+    loop = dataclasses.replace(_loop(), env_args=SimpleNamespace(n_envs=4))  # type: ignore[arg-type]
+    assert loop.n_rollouts(8) == 100 // 32 + 1
 
 
 def test_gradient_step_applies_the_loss_gradient() -> None:

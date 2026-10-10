@@ -56,6 +56,10 @@ Init = Callable[[jax.Array, jax.Array], Any]
 #: ``update(agent_state, experience) -> (agent_state, aux)``: one update on
 #: the experience just collected (a replay agent samples its buffer instead).
 Update = Callable[[Any, Any], tuple[Any, Any]]
+#: ``update(agent_state, rollout, start) -> (agent_state, aux)``: one update
+#: on the rollout just collected from the state ``start`` (a recurrent agent
+#: replays the rollout from the carries it started with).
+RolloutUpdate = Callable[[Any, Any, Any], tuple[Any, Any]]
 #: ``iteration(agent_state, index) -> (agent_state, metrics)``: one scan
 #: iteration; ``metrics`` are what it logged (the sentinel when it did not).
 Iteration = Callable[[Any, Any], tuple[Any, dict]]
@@ -182,6 +186,11 @@ class TrainLoop:
     @property
     def mode(self) -> str:
         return "gymnax" if check_env_is_gymnax(self.env_args.env) else "brax"
+
+    def n_rollouts(self, n_steps: int) -> int:
+        """The iterations of :meth:`on_policy` for ``n_steps`` rollouts: the
+        budget in whole rollouts, plus one (as PPO always ran)."""
+        return self.total_timesteps // (self.env_args.n_envs * n_steps) + 1
 
     @property
     def n_evaluations(self) -> int:
@@ -378,7 +387,7 @@ class TrainLoop:
     def on_policy(
         self,
         init: Init,
-        update: Update,
+        update: RolloutUpdate,
         n_steps: int,
         *,
         recurrent: bool = False,
@@ -387,33 +396,32 @@ class TrainLoop:
     ) -> Callable:
         """Train on an ``n_steps`` rollout per env per iteration.
 
-        Each iteration collects the rollout, then runs ``update(agent_state,
-        rollout)`` and folds ``post_update``; ``expose_rollout`` keeps the
-        rollout on ``agent_state.last_rollout``. The budget is rounded to
-        whole rollouts plus one, as in PPO.
+        Each iteration collects the rollout from the state ``start``, then
+        runs ``update(agent_state, rollout, start)`` and folds
+        ``post_update``; ``expose_rollout`` keeps the rollout on
+        ``agent_state.last_rollout``. The budget is :meth:`n_rollouts`.
         """
         collect = self.collect_kwargs(recurrent)
 
-        def iteration(agent_state: Any, index: Any) -> tuple[Any, dict]:
+        def iteration(start: Any, index: Any) -> tuple[Any, dict]:
             agent_state, rollout = jax.lax.scan(
                 partial(collect_experience, **collect),
-                agent_state,
+                start,
                 xs=None,
                 length=n_steps,
             )
             if expose_rollout:
                 agent_state = agent_state.replace(last_rollout=rollout)
-            agent_state, aux = update(agent_state, rollout)
+            agent_state, aux = update(agent_state, rollout, start)
             agent_state = self.post_update(agent_state)
             return self.evaluate_and_log(
                 agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
 
-        n_envs = self.env_args.n_envs
         return self.train(
             init,
             iteration,
-            self.total_timesteps // (n_envs * n_steps) + 1,
+            self.n_rollouts(n_steps),
             last_rollout=(n_steps, collect) if expose_rollout else None,
         )
 

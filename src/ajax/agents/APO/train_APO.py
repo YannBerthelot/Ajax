@@ -356,7 +356,7 @@ def make_train(
             actor_optimizer_args,
         )
 
-    def update(agent_state: APOState, rollout: Transition) -> Any:
+    def update(agent_state: APOState, rollout: Transition, _start: APOState) -> Any:
         return update_agent(
             agent_state, rollout, agent_config, loop.stack, total_timesteps
         )

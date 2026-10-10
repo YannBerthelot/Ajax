@@ -22,7 +22,7 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
-from ajax.wrappers import RAW_FINAL_OBS_KEY
+from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_REWARD_KEY
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -909,9 +909,16 @@ def collect_experience(
         next_a_expert=_next_a_expert_for_buf,
     )
 
+    # The Train return sums what the env paid, in its own units (a reward
+    # normaliser keeps it in info), and the value box's bonus.
+    paid = (
+        info[RAW_REWARD_KEY].astype(jnp.float32) + entry_bonus[..., 0]
+        if RAW_REWARD_KEY in info
+        else reward
+    )
     new_episodic_return_state, episodic_mean_return = update_episodic_return(
         agent_state.collector_state.episodic_return_state,
-        reward,
+        paid,
         done=jnp.logical_or(terminated, truncated),
     )
 

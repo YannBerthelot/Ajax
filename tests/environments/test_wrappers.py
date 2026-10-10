@@ -957,3 +957,35 @@ def test_normaliser_presents_the_final_observation_normalised(env_id):
     obs, *_, info = step(keys, state, jnp.full((1, 1), 0.5), env, mode, params)
     np.testing.assert_allclose(get_final_obs(info, None), obs, rtol=1e-6)
     assert not np.allclose(get_raw_final_obs(info, None), obs)
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "fast"])
+def test_reward_normaliser_keeps_the_raw_reward(env_id):
+    """The normaliser hands the reward divided by its running std and keeps
+    the env's own in info (a brax state carries it from the reset on, so its
+    info keeps one structure through a scan)."""
+    import numpy as np
+
+    from ajax.environments.create import prepare_env
+    from ajax.environments.interaction import reset, step
+    from ajax.environments.utils import get_env_type
+    from ajax.wrappers import RAW_REWARD_KEY
+
+    env, params, *_ = prepare_env(env_id, normalize_reward=True)
+    mode = get_env_type(env)
+    key = jax.random.PRNGKey(0)
+    keys = jax.random.split(key, 1) if mode == "gymnax" else key
+    _, state = reset(keys, env, mode, params)
+    action = jnp.full((1, 1), 0.5)
+
+    def one(state, _):
+        _, state, reward, *_, info = step(keys, state, action, env, mode, params)
+        return state, (reward, info[RAW_REWARD_KEY])
+
+    state, (normed, raw) = jax.lax.scan(one, state, length=3)
+    norm = (
+        state.info["normalization_info"] if mode == "brax" else state.normalization_info
+    )
+    std = np.sqrt(np.asarray(norm.reward.var).mean() + 1e-8)
+    np.testing.assert_allclose(normed[-1], raw[-1] / std, rtol=1e-5)
+    assert not np.allclose(normed, raw)

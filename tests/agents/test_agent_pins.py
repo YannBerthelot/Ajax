@@ -306,11 +306,6 @@ _GOLDEN: dict[str, dict[str, float]] = {
         "critic": 74.46932983398438,
         "alpha": 0.9724646210670471,
     },
-    "AVG": {
-        "actor": 5.874258518218994,
-        "critic": 18.981433868408203,
-        "alpha": 0.07000000029802322,
-    },
     "REDQ": {
         "actor": 37.609249114990234,
         "critic": 158.7569122314453,
@@ -390,6 +385,16 @@ _GOLDEN |= {
 _GOLDEN |= {
     "APG-nudge": {"actor": 35.82789611816406, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.82305145263672, "nudge": 0.27262088656425476},
+}
+
+# Recorded on macOS ARM CPU once the observation normaliser normalised the
+# final observation AVG bootstraps on (actor -0.59%, critic +0.65%).
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.839523792266846,
+        "critic": 19.103961944580078,
+        "alpha": 0.07000000029802322,
+    },
 }
 
 

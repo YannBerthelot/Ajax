@@ -28,7 +28,7 @@ from ajax.extensions.target_mods import IBRL, CriticBlend
 from . import agents, envs, runs
 from . import readouts as R
 from .agents import GAMMA
-from .verdict import Case, Query, check, params, xfail, xparam
+from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
 ANSWER_DIGEST = "eaa2f8d2a22b"  # verdict.digest(CASES): every answer, pinned
@@ -424,16 +424,39 @@ def test_p3_e10_undeclared_phase_raises_at_construction(agent: str) -> None:
         small(agent, 1, (ActionOverride(),), restricted)
 
 
-@xfail(
-    "SAC's expert prefill writes 7 keys with one env axis (modules/pretrain.py:622-634) into a buffer whose schema has 9 (a_expert, next_a_expert: buffers/utils.py:100-115): chex AssertionError at trace time (tree structure at n_envs 1, shape prefix (1,) != (2,) at n_envs 2); right: training runs"
-)
+@dataclasses.dataclass(frozen=True)
+class AgentExpert:
+    """An agent's ``expert_policy`` in both conventions: SAC's evaluation steps
+    it with a state (evaluate.py:421), REDQ and APO call it plainly."""
+
+    policy: Callable[[jax.Array], jax.Array]
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1), jnp.float32)
+
+    def __call__(self, *args: jax.Array) -> Any:
+        a = self.policy(args[-1])
+        return (a, args[0]) if len(args) == 2 else a
+
+
+STATELESS = "SAC's evaluation compares its policy with the expert by stepping the expert with a state (step_environment_expert, evaluate.py:406), unlike its own rollout and the collector, so a stateless expert raises TypeError at trace time; right: training runs"
+EXPERTS = [xparam(constant_expert, STATELESS, TypeError, "stateless")]
+EXPERTS += [pytest.param(AgentExpert(constant_expert), id="stateful")]
+PREFILLED = ("action", "a_expert", "next_a_expert", "is_expert")
+
+
 @pytest.mark.parametrize("n_envs", [1, 2])
-def test_p3_e11_sac_expert_prefill_trains(n_envs: int) -> None:
-    """SAC with a constant expert and a 64-step expert prefill trains."""
-    kw: dict = {"expert_policy": constant_expert, "expert_buffer_n_steps": 64}
-    runs.train(
+@pytest.mark.parametrize("expert", EXPERTS)
+def test_p3_e11_sac_expert_prefill_trains(expert: Any, n_envs: int) -> None:
+    """SAC with a constant expert (0.3) and a 64-step expert prefill trains;
+    each env's first 64 rows are the expert's, its actions at s and s'."""
+    kw: dict = {"expert_policy": expert, "expert_buffer_n_steps": 64}
+    run = runs.train(
         agents.make("SAC", *envs.package(VALUE_C), n_envs=n_envs, **kw), (0,), 500
     )
+    for k, rows in R.replay_rows(run.state, PREFILLED).items():
+        want = 1.0 if k == "is_expert" else 0.3
+        np.testing.assert_allclose(rows[:, :, :64], want, atol=1e-6, err_msg=k)
 
 
 # --- Q7: the real expert-critic extensions -----------------------------------
@@ -461,21 +484,6 @@ class ShiftedHalfExpert:
 
     def __call__(self, obs: jax.Array) -> jax.Array:
         return 0.5 * (obs - self.shift)
-
-
-@dataclasses.dataclass(frozen=True)
-class AgentExpert:
-    """An agent's ``expert_policy`` in both conventions: SAC's evaluation steps
-    it with a state (evaluate.py:421), REDQ and APO call it plainly."""
-
-    policy: Callable[[jax.Array], jax.Array]
-
-    def init_state(self, n_envs: int) -> jax.Array:
-        return jnp.zeros((n_envs, 1), jnp.float32)
-
-    def __call__(self, *args: jax.Array) -> Any:
-        a = self.policy(args[-1])
-        return (a, args[0]) if len(args) == 2 else a
 
 
 class ActionChainEnv(continuous.RewardDiscountingEnv):

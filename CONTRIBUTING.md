@@ -64,7 +64,7 @@ src/ajax/
 │   ├── pretrain.py          # MCPretrain / BellmanPretrain / PhiRefresh
 │   ├── ensemble.py          # KernelRepulsion
 │   └── instrumentation.py   # EVarEst-style measurement: ConditioningMetrics
-│                            #   / BiasVoreDecomposition / CliffEta /
+│                            #   / BiasVoreDecomposition /
 │                            #   DiagnosticSnapshots / BiasVorePenalty
 ├── buffers/, environments/, logging/, modules/, networks/
 │   environments/system_class.py   # SystemClass: distributions over EnvParams
@@ -146,7 +146,7 @@ is exactly as invasive as the phases it overrides):
 | `action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | collection-time action | EDGEExploration, ValueBox, JSRLCurriculum |
 | `eval_action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | eval-time action | ResidualPolicy |
 | `post_update(agent_state, ext_state, ctx) -> (agent_state, ext_state)` | after each update step | PhiRefresh, target-entropy schedules |
-| `eval_metrics(agent_state, ext_state, rng, ctx) -> dict` | each eval | ConditioningMetrics, BiasVoreDecomposition, CliffEta, DiagnosticSnapshots |
+| `eval_metrics(agent_state, ext_state, rng, ctx) -> dict` | each eval | ConditioningMetrics, BiasVoreDecomposition, DiagnosticSnapshots |
 
 An agent can declare the phases its training loop folds in
 `supported_extension_phases` (a class attribute of `ActorCritic`); an
@@ -184,7 +184,7 @@ expert network).
 | `extensions/exploration.py` | `EDGEExploration` (6 gates) |
 | `extensions/pretrain.py` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` |
 | `extensions/ensemble.py` | `KernelRepulsion` |
-| `extensions/instrumentation.py` | `ConditioningMetrics`, `BiasVoreDecomposition`, `BiasVorePenalty`, `CliffEta`, `DiagnosticSnapshots` |
+| `extensions/instrumentation.py` | `ConditioningMetrics`, `BiasVoreDecomposition`, `BiasVorePenalty`, `DiagnosticSnapshots` |
 
 See [tests/extensions/](tests/extensions/) for behaviour-pinning
 tests on each.

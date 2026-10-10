@@ -1241,7 +1241,7 @@ def make_train(
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+    log_fn = partial(vmap_log, run_ids=run_ids)
 
     _recurrent = network_args.memory is not None
     if _recurrent and extensions:
@@ -1255,7 +1255,7 @@ def make_train(
 
     extension_stack = ExtensionStack(extensions)
 
-    def init_fn(key, index):
+    def init_fn(key, _index):
         # Preserve the original RNG layout: key -> (_, init_key, _).
         _, init_key, _transform_key = jax.random.split(key, 3)
         agent_state = init_PPO(

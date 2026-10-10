@@ -488,7 +488,7 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
     pytest.importorskip("mujoco_playground")
     logged = []
 
-    def capture(metrics, index, run_ids, logging_config):
+    def capture(metrics, index, run_ids):
         logged.append({k: np.asarray(v) for k, v in metrics.items()})
 
     monkeypatch.setattr(train_TDMPC2, "vmap_log", capture)

@@ -133,8 +133,6 @@ def init_SAC(
     expert_state_aug_dim: int = 0,
     pid_actor_config=None,
     action_dim_override: Optional[int] = None,
-    extra_critic_head_names: Tuple[str, ...] = (),
-    extra_critic_head_dims: Tuple[int, ...] = (),
     normalize_obs_running: bool = False,
     jsrl_curriculum: bool = False,
 ) -> SACState:
@@ -169,8 +167,6 @@ def init_SAC(
             "max_timesteps": max_timesteps,
             "extra_obs_dim": extra_obs_dim,
             "action_dim_override": action_dim_override,
-            "extra_critic_head_names": extra_critic_head_names,
-            "extra_critic_head_dims": extra_critic_head_dims,
         },
         collector_extras={
             "max_timesteps": max_timesteps,
@@ -1063,8 +1059,6 @@ def make_train(
     use_expert_guidance: bool = True,
     fixed_alpha: bool = False,
     num_critics: int = 2,
-    extra_critic_head_names: Tuple[str, ...] = (),
-    extra_critic_head_dims: Tuple[int, ...] = (),
     expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
     expert_mix_fraction: float = 0.1,
@@ -1140,9 +1134,8 @@ def make_train(
     framework doesn't reach yet (``use_residual_rl``, ``jsrl_curriculum``,
     ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``use_train_frac``,
-    ``normalize_obs_running``, ``store_policy_action``,
-    ``extra_critic_head_*``, etc.). They mirror the corresponding
-    extension's "static" flag where applicable.
+    ``normalize_obs_running``, ``store_policy_action``, etc.). They
+    mirror the corresponding extension's "static" flag where applicable.
     """
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
@@ -1151,7 +1144,7 @@ def make_train(
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+    log_fn = partial(vmap_log, run_ids=run_ids)
 
     # Bind the SAC-factory-only context onto every extension (see
     # :meth:`Extension.bind_to_agent`: each picks the kwargs it needs).
@@ -1206,7 +1199,7 @@ def make_train(
     # run; on resume the shared helper reuses ``initial_state`` directly
     # so none of this expensive one-shot work is re-run.
     # ------------------------------------------------------------------
-    def init_fn(key, index):
+    def init_fn(key, _index):
         """Build a fresh SAC agent state with all one-shot pretraining."""
         # Three keys: the third once seeded a user init hook; splitting
         # three keeps init_key and expert_key, hence every run, unchanged.
@@ -1234,8 +1227,6 @@ def make_train(
             action_dim_override=action_dim_override,
             normalize_obs_running=normalize_obs_running,
             jsrl_curriculum=jsrl_curriculum,
-            extra_critic_head_names=extra_critic_head_names,
-            extra_critic_head_dims=extra_critic_head_dims,
         )
 
         # The extensions' states (on a sub-key of init_key), then their
@@ -1270,9 +1261,7 @@ def make_train(
                 env_args,
                 cloning_args,
                 mode,
-                agent_config,
                 actor_optimizer_args,
-                critic_optimizer_args,
                 augment_obs_with_expert_action=augment_obs_with_expert_action,
                 augment_obs_with_expert_state=augment_obs_with_expert_state,
             )
@@ -1288,7 +1277,7 @@ def make_train(
     # (the original ``train`` defaulted ``_box_v_min/_box_v_max`` to 0.0
     # and only overwrote them inside the fresh-init MC-pretrain branch).
     # ------------------------------------------------------------------
-    def make_scan_fn(agent_state, resume_from_state, key, index):
+    def make_scan_fn(agent_state, resume_from_state, _key, index):
         # Value-box bounds: on a fresh ``use_box`` run they equal the
         # MC-pretrain v_min/v_max persisted on the agent state; on resume
         # (or when no MC pretrain ran) they default to 0.0.

@@ -38,7 +38,6 @@ class LoggingConfig:
     project_name: Optional[str] = None
     run_name: Optional[str] = None
     log_frequency: int = 1000
-    mode: str = "online"
     group_name: Optional[str] = None
     horizon: int = 10_000
     folder: Optional[str] = None
@@ -287,7 +286,6 @@ def vmap_log(
     log_metrics: Dict[str, Any],
     index: int,
     run_ids: Sequence[str],
-    logging_config: LoggingConfig,
 ) -> None:
     """Forward per-seed metrics to the logging process."""
     if _log_queue is None:

@@ -341,7 +341,7 @@ class MultiTaskEvalProbe(Probe):
     def __init__(self, agent: Any, num_episodes: int) -> None:
         self.agent, self.num_episodes = agent, num_episodes
 
-    def measure(self, state: Any, progress: int) -> dict[str, Any]:
+    def measure(self, state: Any, _progress: int) -> dict[str, Any]:
         out = self.agent.evaluate(state, self.num_episodes)
         names = self.agent.tasks.names
         return {

@@ -40,6 +40,14 @@ def test_SAC_initialization_with_discrete_env():
         SAC(env_id=env_id)
 
 
+def test_skip_critic_pretrain_is_a_transitional_no_op():
+    """AjaxExperiments still passes True; False asks for the critic
+    pretraining that was removed, so it raises instead of being ignored."""
+    SAC(env_id="Pendulum-v1", skip_critic_pretrain=True)
+    with pytest.raises(ValueError, match="MCPretrain"):
+        SAC(env_id="Pendulum-v1", skip_critic_pretrain=False)
+
+
 @pytest.mark.parametrize(
     "env_id, seeds, n_envs",
     [

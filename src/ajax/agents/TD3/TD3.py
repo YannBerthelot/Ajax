@@ -68,13 +68,9 @@ class TD3(ActorCritic):
         # --- Cloning pretraining (mirrors REDQ); online BC is the
         # ImitationLoss extension ---
         actor_cloning_epochs: int = 10,
-        critic_cloning_epochs: int = 10,
         actor_cloning_lr: float = 1e-3,
-        critic_cloning_lr: float = 1e-3,
         skip_actor_pretrain: bool = False,
-        skip_critic_pretrain: bool = True,
         actor_cloning_batch_size: int = 64,
-        critic_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         expert_policy: Optional[Callable] = None,
         # PID actor: actor predicts PID gains instead of raw actions.
@@ -125,14 +121,10 @@ class TD3(ActorCritic):
         )
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
-            critic_epochs=critic_cloning_epochs,
             actor_lr=actor_cloning_lr,
-            critic_lr=critic_cloning_lr,
             actor_batch_size=actor_cloning_batch_size,
-            critic_batch_size=critic_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
             skip_actor_pretrain=skip_actor_pretrain,
-            skip_critic_pretrain=skip_critic_pretrain,
         )
         self.expert_policy = expert_policy
         self.pid_actor_config = pid_actor_config

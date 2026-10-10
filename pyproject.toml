@@ -46,8 +46,6 @@ pre-commit = "^3.3.3"
 pytest = "7.4.0"
 tox = "^4.6.4"
 coverage = {extras = ["toml"], version = "^7.8.0"}
-pytest-mock = "^3.14.0"
-mock = "^5.1.0"
 ruff = "^0.11.6"
 # TEMPORARY: pinned to the gymnax 1.0 migration branch. The released
 # 0.5.1 still requires `gymnax ^0.0.9`, which makes the whole graph
@@ -63,11 +61,8 @@ wandb = "^0.19.9"
 
 
 
-[tool.poetry.group.hyperparameters.dependencies]
-optuna = "^4.5.0"
-
-# The Plane experiment scripts (sweep/) need target_gym; the framework does
-# not. Opt in with `poetry install --with plane`.
+# The Plane3DCircle scenarios of benchmarks/perf_bench.py need target_gym;
+# the framework does not. Opt in with `poetry install --with plane`.
 [tool.poetry.group.plane]
 optional = true
 
@@ -96,7 +91,7 @@ fix = true
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select =  ["I", "F", "E", "W", "B", "C", "RUF"]
+select =  ["I", "F", "E", "W", "B", "C", "RUF", "ARG"]
 ignore = ["E501", "RUF002", "RUF003"]
 fixable = ["ALL"]
 # Allow unused variables when underscore-prefixed.
@@ -110,6 +105,9 @@ indent-style = "space"
 [tool.ruff.lint.per-file-ignores]
 # ClassVar, implicit optional check not needed for tests
 "./tests/*.py" = ["RUF012", "RUF013"]
+# Test stubs, fixtures and monkeypatched callbacks mirror signatures they
+# ignore: unused arguments there are noise.
+"tests/**/*.py" = ["ARG"]
 
 [tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.

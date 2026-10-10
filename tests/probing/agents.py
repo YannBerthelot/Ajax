@@ -35,7 +35,7 @@ _PPO = {**_split(NET), **_NORM, "n_steps": 32, "batch_size": 32, "n_epochs": 4}
 _PPO |= {"n_envs": 1}
 _Q = {"learning_rate": 1e-3, "architecture": NET, "gamma": GAMMA, "n_envs": 1}
 _PROBE = {
-    **dict.fromkeys(("SAC", "SafeSAC", "TD3", "REDQ"), _SAC),
+    **dict.fromkeys(("SAC", "TD3", "REDQ"), _SAC),
     "ASAC": {k: v for k, v in _SAC.items() if k != "gamma"},
     "AVG": {"actor_architecture": NET, "critic_architecture": NET}
     | {"gamma": GAMMA, "n_envs": 1},
@@ -62,7 +62,6 @@ _B_Q |= {"n_envs": 1}
 _B_SACS = {**_B_SAC, "policy_update_start": 200, "alpha_update_start": 300}
 _BOOKKEEPING = {
     "SAC": _B_SACS,
-    "SafeSAC": _B_SACS,
     "TD3": {**_B_SAC, "policy_delay": 3},
     "REDQ": {**_B_SAC, "num_critics": 4, "subset_size": 2, "num_critic_updates": 3},
     "ASAC": {k: v for k, v in _B_SAC.items() if k != "gamma"},
@@ -102,7 +101,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "0d0a54573899"
+DIGEST = "8442f391cf52"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

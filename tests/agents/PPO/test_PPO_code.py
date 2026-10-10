@@ -17,7 +17,6 @@ These tests catch bugs of the form:
 from __future__ import annotations
 
 import jax
-import pytest
 
 from ajax import PPO
 
@@ -142,56 +141,3 @@ def test_legacy_path_still_works_without_num_minibatches():
     expected = _CFG["n_epochs"] * 1 * n_upd  # implied 1 minibatch
     assert actor_step == expected
     assert critic_step == expected
-
-
-def test_vf_coef_reaches_active_path():
-    """vf_coef must reach the active critic-update path.
-
-    TODO: getting a clean assertion for this is harder than it looks.
-    Spy approaches fail because ``VALUE_AND_GRAD_FN`` is built at
-    module load and captures the original ``value_loss_function`` in
-    its closure; patching the module attribute later has no effect.
-    Param-diff approaches fail because Adam's first-step update is
-    scale-invariant in the gradient magnitude. Right fix is one of:
-
-    * Refactor PPO so ``VALUE_AND_GRAD_FN`` is constructed inside
-      ``training_iteration`` (lazy binding), then a module-level
-      patch works.
-    * Expose aux.value.critic_loss BEFORE the loss is scaled by
-      vf_coef (separate ``raw_critic_loss`` field), then run two
-      seeds and verify the ratio matches vf_coef ratio exactly.
-    * Add a runtime assertion inside ``value_loss_function`` that
-      stashes the last-seen vf_coef in a thread-local for tests.
-
-    For now, the active-path reach is verified indirectly via the
-    pilot results -- with vf_coef=0.5 in the manip override and the
-    minibatch fix in place, we observe distinct training dynamics
-    from the broken (dead-vf_coef) version.
-    """
-    pytest.skip("see docstring")
-
-
-def test_fused_grad_clip_changes_post_clip_grad_norm():
-    """When fused_grad_clip is True, the joint global norm across
-    actor+critic gradients should never exceed 1.0 after the joint
-    clip. With per-network clip (default), per-network norms are
-    bounded by ``max_grad_norm=0.5`` (the base default) but the joint
-    norm can exceed that.
-
-    Checks that fused_grad_clip is wired into the active path by
-    contrasting the two modes; if the flag is dead code the assertion
-    will fail because both modes will look the same.
-    """
-    # This is hard to assert robustly without exposing the joint norm
-    # publicly. As a proxy: with fused_grad_clip=True the joint scale
-    # factor (1.0 / joint_norm) gets applied, which slightly damps
-    # both networks' updates. So actor.step (Adam step counter) is
-    # the same but the *parameter delta magnitude* differs. Skipping
-    # a content assertion here; this test exists as a placeholder so
-    # someone adds proper coverage when exposing the joint norm
-    # becomes worthwhile.
-    pytest.skip(
-        "TODO: expose joint_norm from the training loop for assertion "
-        "(e.g. in AuxiliaryLogs) and verify fused_grad_clip path "
-        "scales it to <=1.0."
-    )

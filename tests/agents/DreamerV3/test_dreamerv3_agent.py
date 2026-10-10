@@ -139,7 +139,7 @@ def cartpole():
     train_step = train_DreamerV3.train_step
     sample, write_back = StreamReplay.sample, StreamReplay.write_back
 
-    def record(metrics, index, run_ids, logging_config):
+    def record(metrics, index, run_ids):
         logged.append((int(index), {k: np.asarray(v) for k, v in metrics.items()}))
 
     def train_step_spy(state, batch, noise, *, config):

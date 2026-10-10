@@ -113,7 +113,7 @@ class FlattenObservationWrapper(GymnaxWrapper):
         self,
         state: environment.EnvState,
         params: Optional[environment.EnvParams] = None,
-        key: Optional[chex.PRNGKey] = None,
+        key: Optional[chex.PRNGKey] = None,  # noqa: ARG002 -- gymnax's get_obs signature
     ) -> chex.Array:
         """Recompute the observation from state, flattened to match `reset`."""
         return jnp.reshape(self._env.get_obs(state, params), (-1,))
@@ -713,8 +713,9 @@ class BraxToGymnasium(BraxWrapper):
         self,
         *,
         seed: Optional[int] = None,
-        return_info: bool = False,
-        options: Optional[Any] = None,  # dict
+        # gymnasium's reset signature; neither applies to a jax env.
+        return_info: bool = False,  # noqa: ARG002
+        options: Optional[Any] = None,  # noqa: ARG002
     ) -> Tuple[core.ObsType, Any]:  # dict]:
         """Reset environment, update parameters and seed if provided."""
         if seed is not None:

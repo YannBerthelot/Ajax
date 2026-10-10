@@ -115,7 +115,9 @@ def compute_asac_td_target(
     critic_states: LoadedTrainState,
     rng: jax.Array,
     next_observations: jax.Array,
-    dones: jax.Array,
+    # Unused (see the docstring); kept so the planted Q1-mask-* faults in
+    # tests/probing can mask the target with it.
+    dones: jax.Array,  # noqa: ARG001
     rewards: jax.Array,
     theta: float,
     alpha: jax.Array,

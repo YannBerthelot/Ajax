@@ -37,7 +37,7 @@ def test_async_tensorboard_logging_round_trip(tmp_path):
                 "loss": jnp.asarray(step / 10.0),
                 "not_ready": jnp.asarray(jnp.nan),
             }
-            vmap_log(metrics, 0, run_ids=[run_id], logging_config=config)
+            vmap_log(metrics, 0, run_ids=[run_id])
     finally:
         stop_async_logging()
 

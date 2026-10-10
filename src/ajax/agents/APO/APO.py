@@ -52,11 +52,8 @@ class APO(ActorCritic):
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
         actor_cloning_epochs: int = 10,
-        critic_cloning_epochs: int = 10,
         actor_cloning_lr: float = 1e-3,
-        critic_cloning_lr: float = 1e-3,
         actor_cloning_batch_size: int = 64,
-        critic_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         # Expert for the cloning pre-training and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
@@ -141,11 +138,8 @@ class APO(ActorCritic):
         )
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
-            critic_epochs=critic_cloning_epochs,
             actor_lr=actor_cloning_lr,
-            critic_lr=critic_cloning_lr,
             actor_batch_size=actor_cloning_batch_size,
-            critic_batch_size=critic_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
         )
         self.expert_policy = expert_policy

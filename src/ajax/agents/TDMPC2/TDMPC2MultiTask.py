@@ -557,13 +557,11 @@ class TDMPC2MultiTask:
                 metrics = self._log_metrics(state, num_episode_test, end)
                 for k, v in metrics.items():
                     history[k].append(v)
-                assert logging_config is not None
                 for i in range(seeds.shape[0]):
                     vmap_log(
                         {k: v[i] for k, v in metrics.items()},
                         i,
                         self.run_ids,
-                        logging_config,
                     )
                 state = state.replace(n_logs=state.n_logs + 1)
         state = jax.block_until_ready(state)

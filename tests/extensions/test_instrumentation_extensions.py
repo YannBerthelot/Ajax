@@ -1,19 +1,18 @@
 """Smoke + key-set tests for ``ajax.extensions.instrumentation``.
 
-End-to-end checks that each of the five EVarEst measurement /
+End-to-end checks that each of the four EVarEst measurement /
 instrumentation extensions:
 
 * :class:`ConditioningMetrics`
 * :class:`BiasVoreDecomposition`
-* :class:`CliffEta`             — env-coupled, smoke test only
 * :class:`DiagnosticSnapshots`  — host-side I/O via ``io_callback``
 * :class:`BiasVorePenalty`      — additive critic-loss penalty
 
-wires into the Phase-3a Extension surface for the two end-to-end-ready
-agents (SAC for off-policy; PPO for on-policy with Gap A). Numerical
-exactness is intentionally NOT covered here -- the math is ported
-verbatim from EVAREST (see the per-extension docstring); these tests
-only pin the *integration contract*.
+wires into the Extension surface on PPO (on-policy, through
+``agent_state.last_rollout``). BiasVorePenalty's coefficient also has
+unit checks. Numerical exactness is intentionally NOT covered here --
+the math is ported verbatim from EVAREST (see the per-extension
+docstring); these tests only pin the *integration contract*.
 """
 
 from __future__ import annotations

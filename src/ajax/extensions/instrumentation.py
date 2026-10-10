@@ -2,7 +2,7 @@
 
 This module ports the measurement code from
 ``/home/yberthel/EVAREST/evarest/rl/`` to the Ajax Extension surface so
-the same plasticity / decomposition / cliff diagnostics can be folded
+the same plasticity / decomposition diagnostics can be folded
 into any Ajax agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG
 on-policy) without touching the agent code. Each extension is a frozen
 dataclass carrying its own hyperparameters; the user opts in via
@@ -19,10 +19,6 @@ Coverage
   bias^2 / Var(residual) / MSE / |bias| decomposition of the critic
   objective. Mirrors the math in EVAREST's ``loss.py`` /
   ``mechanism.py``.
-* :class:`CliffEta`                — eval_metrics phase, gauge-breaking
-  cliff measurement (rho, Delta, S_task, eta = rho(1-rho)Delta^2/S_task)
-  on the CliffCorridor diagnostic env. Mirrors EVAREST's
-  ``cliff_measure.py``.
 * :class:`DiagnosticSnapshots`     — post_update phase, periodic
   agent-state snapshot for offline post-mortem analysis (the chunked-
   training protocol from EVAREST's ``snapshots.py``).
@@ -66,12 +62,6 @@ EVAREST_DECOMP_KEYS: Tuple[str, ...] = (
     "EVarEst/var_resid",
     "EVarEst/mse",
     "EVarEst/abs_bias",
-)
-CLIFF_METRIC_KEYS: Tuple[str, ...] = (
-    "Cliff/rho_hat",
-    "Cliff/delta_hat",
-    "Cliff/s_task_hat",
-    "Cliff/eta_hat",
 )
 
 
@@ -143,7 +133,7 @@ def _sample_state_batch(
     """
     if _has_buffer(agent_state) and buffer is not None:
         # Lazy import to keep the rest of the module buffer-agnostic
-        # (CliffEta / DiagnosticSnapshots don't need flashbax at import
+        # (DiagnosticSnapshots doesn't need flashbax at import
         # time so a missing optional dep doesn't break their import).
         from ajax.buffers.utils import get_batch_from_buffer
 
@@ -414,98 +404,6 @@ class BiasVoreDecomposition(Extension):
 
 
 # ---------------------------------------------------------------------------
-# CliffCorridor gauge-breaking measurement extension
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class CliffEta(Extension):
-    """Gauge-breaking cliff measurement (eta = rho(1-rho)Delta^2 / S_task).
-
-    Ports :func:`evarest.rl.cliff_measure.measure_cliff` verbatim. Rolls
-    out the agent's policy on the CliffCorridor diagnostic env (or any
-    gymnax env exposing ``info["terminated"]``, ``info["task_reward"]``
-    and ``info["alive_reward"]``) and logs the four theory quantities
-    every eval. ``n_steps`` and ``n_episodes`` must be Python ints (the
-    scan length is static).
-    """
-
-    env: Any = None
-    env_params: Any = None
-    n_steps: int = 200
-    n_episodes: int = 256
-    gamma: float = 0.99
-    stochastic: bool = True
-    discrete: bool = False
-    epsilon: float = 0.1
-    name: str = "cliff_eta"
-
-    def _act(self, actor_state: Any, obs: jax.Array, key: jax.Array) -> jax.Array:
-        from ajax.environments.interaction import get_pi
-
-        pi, _ = get_pi(actor_state, actor_state.params, obs, None, False)
-        if self.discrete:
-            q = pi.q_values
-            greedy = jnp.argmax(q, axis=-1)
-            krnd, keps = jax.random.split(key)
-            rnd = jax.random.randint(krnd, greedy.shape, 0, q.shape[-1])
-            explore = jax.random.uniform(keps, greedy.shape) < self.epsilon
-            return jnp.where(explore, rnd, greedy)
-        return pi.sample(seed=key) if self.stochastic else pi.mean()
-
-    def eval_metrics(
-        self,
-        agent_state: Any,
-        ext_state: Any,
-        rng: jax.Array,
-        ctx: ExtensionContext,
-    ) -> dict:
-        del ext_state, ctx
-        if self.env is None:
-            return {}
-        env, params = self.env, self.env_params
-        n_steps = int(self.n_steps)
-        n_episodes = int(self.n_episodes)
-
-        key, reset_key = jax.random.split(rng)
-        obs0, st0 = jax.vmap(env.reset, in_axes=(0, None))(
-            jax.random.split(reset_key, n_episodes), params
-        )
-
-        actor_state = agent_state.actor_state
-
-        def body(carry, _):
-            key, obs, st, done = carry
-            key, ka, ks = jax.random.split(key, 3)
-            action = self._act(actor_state, obs, ka)
-            obs2, st2, _r, d, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
-                jax.random.split(ks, n_episodes), st, action, params
-            )
-            running = 1.0 - done.astype(jnp.float32)
-            out = (
-                info["terminated"].astype(jnp.float32),
-                info["task_reward"],
-                info["alive_reward"],
-                running,
-            )
-            return (key, obs2, st2, jnp.logical_or(done, d)), out
-
-        init = (key, obs0, st0, jnp.zeros(n_episodes, dtype=bool))
-        _, (term, task_r, alive_r, running) = jax.lax.scan(
-            body, init, None, length=n_steps
-        )
-
-        rho = (term * running).max(axis=0).mean()
-        disc = (self.gamma ** jnp.arange(n_steps))[:, None]
-        delta = (disc * alive_r * running).sum(axis=0).mean()
-        wsum = jnp.maximum(running.sum(), 1.0)
-        mean_t = (running * task_r).sum() / wsum
-        s_task = (running * (task_r - mean_t) ** 2).sum() / wsum
-        eta = rho * (1.0 - rho) * delta**2 / (s_task + 1e-8)
-        return dict(zip(CLIFF_METRIC_KEYS, (rho, delta, s_task, eta)))
-
-
-# ---------------------------------------------------------------------------
 # Diagnostic snapshots (post_update side-effect)
 # ---------------------------------------------------------------------------
 
@@ -683,7 +581,7 @@ class BiasVorePenalty(Extension):
         batch: dict,
         ctx: ExtensionContext,
     ) -> jax.Array:
-        del ext_state, ctx
+        del agent_state, ext_state, ctx
         coeff = self._coeff()
         if coeff == 0.0:
             return jnp.asarray(0.0)
@@ -744,12 +642,10 @@ class BiasVorePenalty(Extension):
 __all__ = [
     "ConditioningMetrics",
     "BiasVoreDecomposition",
-    "CliffEta",
     "DiagnosticSnapshots",
     "BiasVorePenalty",
     "COND_METRIC_KEYS",
     "EVAREST_DECOMP_KEYS",
-    "CLIFF_METRIC_KEYS",
     "evarest_coeff",
     "srank",
     "dormant_fraction",

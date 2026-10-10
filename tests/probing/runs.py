@@ -76,7 +76,6 @@ def log_config(every: int, folder: str | None = None) -> LoggingConfig:
         project_name="probe",
         run_name="probe",
         log_frequency=every,
-        mode="disabled",
         folder=folder,
         use_tensorboard=folder is not None,
         use_wandb=False,

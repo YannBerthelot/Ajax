@@ -646,7 +646,7 @@ def make_train(
     )
 
     log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+    log_fn = partial(vmap_log, run_ids=run_ids)
     if log:
         start_async_logging()
     log_kwargs = {

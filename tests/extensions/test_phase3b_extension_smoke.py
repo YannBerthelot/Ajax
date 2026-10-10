@@ -3,7 +3,7 @@
 End-to-end checks that an :class:`~ajax.extensions.base.Extension`
 instance passed via the agent's ``extensions=`` kwarg is wired through
 the training loop for every remaining agent migrated in Phase 3b:
-TD3 / UDRL / REDQ / ASAC / SafeSAC / APO / AVG.
+TD3 / UDRL / REDQ / ASAC / APO / AVG.
 
 Cloning (``ajax.agents.cloning``) is a helper module — it provides
 ``CloningConfig`` and pre-train utilities used by other agents
@@ -11,10 +11,6 @@ Cloning (``ajax.agents.cloning``) is a helper module — it provides
 has no smoke test of its own. The migration plan called it out as
 "train-time-only, no env interaction loop" precisely because there is
 no per-step training loop to fold extension phases into.
-
-SafeSAC subclasses SAC and re-uses ``super().__init__(*args, **kwargs)``
-verbatim, so the Phase 2 SAC extension wiring is inherited end-to-end;
-this file only adds a smoke test confirming that inheritance is alive.
 """
 
 from __future__ import annotations
@@ -27,7 +23,6 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.REDQ.REDQ import REDQ
-from ajax.agents.SafeSAC.SafeSAC import SafeSAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.extensions.base import Extension, ExtensionContext
@@ -219,28 +214,6 @@ def test_asac_eval_metrics_fold_runs():
         extensions=[MetricExt()],
     )
     agent.train(seed=42, n_timesteps=48)
-
-
-# --------------------------------------------------------------------------
-# SafeSAC (subclass of SAC — inherits Phase 2 extension wiring verbatim)
-# --------------------------------------------------------------------------
-def test_safesac_extension_counter_advances():
-    """SafeSAC.__init__ forwards ``extensions=`` via ``super().__init__``;
-    the entire SAC extension stack (init / pretrain / on_target / critic_loss /
-    actor_loss / action / eval_action / post_update / eval_metrics) is
-    inherited — no SafeSAC-specific re-wiring required."""
-    agent = SafeSAC(
-        env_id="Pendulum-v1",
-        n_envs=1,
-        actor_architecture=("16", "relu"),
-        critic_architecture=("16", "relu"),
-        learning_starts=8,
-        batch_size=8,
-        buffer_size=128,
-        extensions=[CounterExt()],
-    )
-    state = agent.train(seed=42, n_timesteps=48)
-    assert _final_counter(state) > 1
 
 
 # --------------------------------------------------------------------------

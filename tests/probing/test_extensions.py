@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xfail, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "96e66ff4eba8"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "53be5c49a794"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -331,7 +331,6 @@ P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     + " (evaluate_and_log runs the actor, log.py:317-347); right eval return -0.2 (discrete 0), today the policy's own (SAC 0.05-0.07, PPO, DQN, PQN 1.0)",
     "metric-UDRL": "UDRL declares eval_metrics (base.py:56 by default) but never evaluates or logs: train_UDRL.py has no evaluate_and_log or compose_eval_metrics call; right 7.0 in the log, today no record (NaN)",
     "E8-order-SAC": SAC_ORDER,
-    "E8-order-SafeSAC": SAC_ORDER,
 }
 # "test-agent": cell, budget, tolerances calibrated on seeds 1000-1031 and
 # 2000-2031, certified 32/32 on 3000-3031 unless noted (none: a defect).
@@ -624,12 +623,13 @@ V_RANGE = (
     Query("v_min", GAMMA * RS, {_UNSCALED: GAMMA} | _G99 | _LAST),
     Query("v_max", RS, {_UNSCALED: 1.0}),
 )
-for agent in ("SAC", "SafeSAC"):  # SafeSAC's multi-head critic, online light on
-    reads = q7_readings(agent, CHAIN, _phi, (mc(agent == "SafeSAC"),), reward_scale=RS)
+# The light case was calibrated on SafeSAC, SAC with an extra critic head
+# its losses never read; phi* and the value range are MCPretrain's own.
+for light in (False, True):
+    reads = q7_readings("SAC", CHAIN, _phi, (mc(light),), reward_scale=RS)
     note = "regression steps (250, 500): 250, worst 6e-6; cert 32/32"
-    CASES[f"q7-mc-{agent}"] = Case(
-        f"q7-mc-{agent}", PHI + V_RANGE, reads, 0, (0.02,) * 4, note=note
-    )
+    cid = f"q7-mc{'-light' * light}-SAC"
+    CASES[cid] = Case(cid, PHI + V_RANGE, reads, 0, (0.02,) * 4, note=note)
 CASES["q7-mc-lockstep-SAC"] = Case(
     "q7-mc-lockstep-SAC",
     V_RANGE,

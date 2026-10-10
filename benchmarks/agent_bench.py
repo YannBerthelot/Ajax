@@ -75,7 +75,6 @@ AGENTS: dict[str, tuple[str, dict]] = {
     "APO": ("Pendulum-v1", {}),
     "ASAC": ("Pendulum-v1", {}),
     "AVG": ("Pendulum-v1", {}),
-    "SafeSAC": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
     # DreamerV3 preset: the 1m model (d = 64, deter 512, 4 classes) on 8
     # windows of 16 + 1 rows, train ratio 8 (one update per 16 rows after

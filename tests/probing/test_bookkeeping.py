@@ -66,7 +66,7 @@ def counter(
 
 LOG_EVERY, BUDGET, SEEDS = 140, {1: 1400, 4: 2800}, tuple(range(8))
 TRAIN, EVAL, LENGTH = runs.TRAIN_KEYS
-P2_AGENTS = ("SAC", "SafeSAC", "ASAC", "REDQ", "TD3", "AVG", "PPO", "APO", "DQN", "PQN")
+P2_AGENTS = ("SAC", "ASAC", "REDQ", "TD3", "AVG", "PPO", "APO", "DQN", "PQN")
 ROLLOUT = {"PPO": 32, "APO": 32, "PQN": 16}
 
 
@@ -102,7 +102,7 @@ def steps(agent: str, n_envs: int, starts: int) -> dict[str, int]:
     (train_AVG.update_agent), DQN and PQN never their critic_state copy."""
     its = iterations(agent, n_envs)
     u, rollout = sum(t >= starts for t in its), len(its) * 2 * 2
-    if agent in ("SAC", "SafeSAC"):
+    if agent == "SAC":
         actor, alpha = (sum(t >= max(starts, s) for t in its) for s in (200, 300))
         return {"critic": u, "actor": actor, "alpha": alpha}
     return {

@@ -33,7 +33,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "08eb20de9be9"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "3093646a89a6"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -522,7 +522,6 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "APO-discrete": ("APO", "discrete", 4096, _ON | {"n_steps": 64, "batch_size": 64}),
     "AVG": ("AVG", "continuous", 10_000, {"gamma": G, "n_envs": 1}),  # its defaults
     "SAC": ("SAC", "continuous", 5000, _ON),
-    "SafeSAC": ("SafeSAC", "continuous", 5000, _ON),
     "TD3": ("TD3", "continuous", 5000, _ON),
     "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
     "ASAC": ("ASAC", "asymmetric", 10_000, _ON),
@@ -618,7 +617,6 @@ _MEASURED = {"(a) raw next obs (planted, measured)": -0.9, "untrained": 1.15}
 ASAC_GAP = Query("Q(s0,-0.5) - Q(s1,0.5) - oracle", 0.0, _MEASURED)
 P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "SAC": ("SAC", (EVAL_C, Q_SOFT), (0.036, 0.073)),
-    "SafeSAC": ("SafeSAC", (EVAL_C, Q_SOFT), (0.036, 0.073)),
     "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.051)),
     "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.051, 0.085)),
     "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.037, 0.075)),
@@ -750,7 +748,6 @@ _LR0 = {"alpha_learning_rate": 0.0, "alpha_init": 1.0}
 _SMOOTH = {"target_policy_noise": 2.0, "target_noise_clip": 0.8}
 P8_AGENTS: dict[str, dict[str, Any]] = {  # a 50,000-row buffer but for AVG
     "SAC": {"fixed_alpha": True, "alpha_init": 1.0},
-    "SafeSAC": {"fixed_alpha": True, "alpha_init": 1.0},
     "REDQ": _LR0 | {"num_critic_updates": 5},
     "AVG": _LR0 | {"actor_learning_rate": 3e-4, "critic_learning_rate": 3e-4},
     "TD3": _SMOOTH | {"exploration_noise": 0.4},
@@ -811,7 +808,6 @@ P8_SOFT = (SOFT_VALUE, *P8_POLICY, *P8_SPREAD)
 _SAC8 = (0.02, 0.035, 0.044, 0.059, 0.077, 0.02, 0.032)
 P8_CAL = {  # queries, budget, tolerances, note
     "SAC": (P8_SOFT, 10_000, _SAC8, "5000 failed (tanh mu2 0.050)"),
-    "SafeSAC": (P8_SOFT, 10_000, _SAC8, "SAC's readings, bit for bit"),
     "REDQ": (P8_SOFT, 2500, (0.087, 0.022, 0.071, 0.087, 0.091, 0.022, 0.029), ""),
     "AVG": (P8_POLICY, 20_000, (0.066, 0.1, 0.074, 0.077), "10,000 failed: 0.196"),
     "TD3": (P8_TD3, 2500, (0.046, 0.051), ""),

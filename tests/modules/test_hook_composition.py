@@ -22,12 +22,10 @@ from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.SafeSAC.SafeSAC import SafeSAC
 from ajax.agents.TD3.TD3 import TD3
 
 AGENT_HOOKS = {
     SAC: ("pid_actor_config",),
-    SafeSAC: ("pid_actor_config",),
     TD3: ("pid_actor_config", "action_pipeline"),
     REDQ: ("pid_actor_config",),
     ASAC: ("pid_actor_config",),
@@ -78,7 +76,7 @@ def _instantiate(agent_cls, **kwargs):
         "critic_architecture": ("32", "relu"),
     }
     # Off-policy agents take a buffer_size; on-policy don't accept it.
-    if agent_cls in (SAC, SafeSAC, TD3, REDQ, ASAC):
+    if agent_cls in (SAC, TD3, REDQ, ASAC):
         common["buffer_size"] = 1024
         common["batch_size"] = 32
     if agent_cls in (PPO, APO):

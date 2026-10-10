@@ -133,8 +133,6 @@ def init_SAC(
     expert_state_aug_dim: int = 0,
     pid_actor_config=None,
     action_dim_override: Optional[int] = None,
-    extra_critic_head_names: Tuple[str, ...] = (),
-    extra_critic_head_dims: Tuple[int, ...] = (),
     normalize_obs_running: bool = False,
     jsrl_curriculum: bool = False,
 ) -> SACState:
@@ -169,8 +167,6 @@ def init_SAC(
             "max_timesteps": max_timesteps,
             "extra_obs_dim": extra_obs_dim,
             "action_dim_override": action_dim_override,
-            "extra_critic_head_names": extra_critic_head_names,
-            "extra_critic_head_dims": extra_critic_head_dims,
         },
         collector_extras={
             "max_timesteps": max_timesteps,
@@ -1063,8 +1059,6 @@ def make_train(
     use_expert_guidance: bool = True,
     fixed_alpha: bool = False,
     num_critics: int = 2,
-    extra_critic_head_names: Tuple[str, ...] = (),
-    extra_critic_head_dims: Tuple[int, ...] = (),
     expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
     expert_mix_fraction: float = 0.1,
@@ -1140,9 +1134,8 @@ def make_train(
     framework doesn't reach yet (``use_residual_rl``, ``jsrl_curriculum``,
     ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``use_train_frac``,
-    ``normalize_obs_running``, ``store_policy_action``,
-    ``extra_critic_head_*``, etc.). They mirror the corresponding
-    extension's "static" flag where applicable.
+    ``normalize_obs_running``, ``store_policy_action``, etc.). They
+    mirror the corresponding extension's "static" flag where applicable.
     """
     # If no separate eval policy provided, fall back to the training policy
     # (which may be None for vanilla SAC — in that case no expert bias logged)
@@ -1234,8 +1227,6 @@ def make_train(
             action_dim_override=action_dim_override,
             normalize_obs_running=normalize_obs_running,
             jsrl_curriculum=jsrl_curriculum,
-            extra_critic_head_names=extra_critic_head_names,
-            extra_critic_head_dims=extra_critic_head_dims,
         )
 
         # The extensions' states (on a sub-key of init_key), then their

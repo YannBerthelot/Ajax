@@ -39,9 +39,8 @@ class SAC(ActorCritic):
     framework doesn't reach (``residual``, ``jsrl_curriculum``,
     ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
-    ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``,
-    ``extra_critic_head_*``). They mirror the matching extension's
-    "static" flag.
+    ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``).
+    They mirror the matching extension's "static" flag.
     """
 
     name: str = "SAC"
@@ -114,10 +113,6 @@ class SAC(ActorCritic):
         use_pid_policy: bool = False,
         fixed_alpha: bool = False,
         num_critics: int = 2,
-        # Multi-objective critic: extra value heads sharing the SAC
-        # critic's encoder. SafeSAC sets this to ("v_safety",).
-        extra_critic_head_names: tuple = (),
-        extra_critic_head_dims: tuple = (),
         # ExpertGuidance secondary plumbing. ``use_expert_guidance``
         # gates the expert-action telemetry / loss term inside
         # ``update_agent`` (deeper than extension surface). The
@@ -236,8 +231,6 @@ class SAC(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
         self.num_critics = num_critics
-        self.extra_critic_head_names = tuple(extra_critic_head_names)
-        self.extra_critic_head_dims = tuple(extra_critic_head_dims)
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
             critic_epochs=critic_cloning_epochs,
@@ -300,8 +293,6 @@ class SAC(ActorCritic):
             use_pid_policy=self.use_pid_policy,
             fixed_alpha=self.fixed_alpha,
             num_critics=self.num_critics,
-            extra_critic_head_names=self.extra_critic_head_names,
-            extra_critic_head_dims=self.extra_critic_head_dims,
             use_expert_guidance=self.use_expert_guidance,
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,

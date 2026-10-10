@@ -8,7 +8,7 @@ failing with it planted. ``run`` copies the repository to a scratch
 directory, plants the fault there and runs those nodes, so the checkout is
 never modified; a non-zero exit means caught::
 
-    JAX_PLATFORMS=cpu poetry run python -m tests.probing.faults SCRATCH ID [ID ...]
+    JAX_PLATFORMS=cpu uv run python -m tests.probing.faults SCRATCH ID [ID ...]
 """
 
 from __future__ import annotations

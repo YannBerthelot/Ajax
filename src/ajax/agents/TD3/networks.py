@@ -125,7 +125,8 @@ def get_initialized_td3_actor_critic(
     num_critics: int = 2,
     pid_actor_config: Optional[object] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
-    """TD3-specific init: deterministic actor + standard MultiCritic ensemble.
+    """TD3-specific init: deterministic actor + standard MultiCritic ensemble
+    (its encoder's output LayerNorm per ``network_config``; TD3 turns it off).
 
     Falls back to PIDActor when pid_actor_config is provided (the PID actor
     already returns a deterministic action via its `.mean()`).
@@ -160,6 +161,7 @@ def get_initialized_td3_actor_critic(
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_bias_init=network_config.encoder_bias_init,
+        disable_encoder_output_norm=network_config.disable_encoder_output_norm,
         memory=memory,
         query_dim=action_dim if memory is not None else 0,
     )

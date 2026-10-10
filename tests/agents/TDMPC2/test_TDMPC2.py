@@ -12,6 +12,8 @@ fresh resets) with logging captured in-process.
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -20,7 +22,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import TDMPC2
+from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents import loop
 from ajax.agents.TDMPC2 import core, train_TDMPC2
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
@@ -187,6 +189,20 @@ def test_episode_length_derived_defaults():
         "post_update",
         "eval_metrics",
     }
+
+
+def test_the_config_is_built_from_the_constructor_arguments():
+    """``from_arguments`` takes ``model_size`` and the fields the arguments
+    name, ignoring the others; both constructors name every field, so none
+    silently keeps its default (the multi-task agent has no replay)."""
+    arguments = {"model_size": 1, "rho": 0.3, "enc_dim": None, "env_id": "x"}
+    got = TDMPC2Config.from_arguments(arguments)
+    assert got == TDMPC2Config.from_model_size(1, rho=0.3)
+    fields = {f.name for f in dataclasses.fields(TDMPC2Config)}
+    fields.discard("expose_recent_rollout")  # BaseAgentConfig's
+    for agent, unused in ((TDMPC2, set()), (TDMPC2MultiTask, {"buffer_size"})):
+        parameters = set(inspect.signature(agent.__init__).parameters)
+        assert fields - unused <= parameters, (agent, fields - unused - parameters)
 
 
 def test_every_hyperparameter_reaches_the_config():

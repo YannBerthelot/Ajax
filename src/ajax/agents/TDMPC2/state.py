@@ -24,6 +24,8 @@ directly.
 from __future__ import annotations
 
 import functools
+import inspect
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
 import jax
@@ -162,6 +164,16 @@ class TDMPC2Config(BaseAgentConfig):
         preset = MODEL_SIZE[model_size]
         widths = {k: v for k, v in preset.items() if kwargs.get(k) is None}
         return cls(**{**kwargs, **widths})
+
+    @classmethod
+    def from_arguments(cls, arguments: Mapping[str, Any]) -> TDMPC2Config:
+        """:meth:`from_model_size` of an agent constructor's arguments:
+        ``model_size`` and every field they name (the constructors name
+        their hyperparameters as the fields); the other fields keep their
+        defaults."""
+        names = inspect.signature(cls).parameters  # the fields
+        fields = {k: v for k, v in arguments.items() if k in names}
+        return cls.from_model_size(arguments["model_size"], **fields)
 
     def resolved(self, action_dim: int) -> dict[str, int]:
         """What the preset and the planner's heuristic resolve, for the

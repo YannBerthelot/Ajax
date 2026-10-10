@@ -465,7 +465,6 @@ def test_q14_actor_sees_the_same_command_when_acting_and_training(
 # flag: every episode of the task returns 14 in 7 steps (APG: 32 per 16-step
 # rollout) whatever the policy; 7 is the bare env. Two seeds, exact.
 
-BYPASS = "InitialStateWrapper overrides reset only (wrappers.py:253-272) and gymnax's step auto-resets with the inner reset_env (gymnax environment.py:82), so only each env's first episode is wrapped; right 14 per episode (APG 32 per rollout), today 7 (UDRL's segments 10.5 then 7, APG 23)"
 STRIP = "setup_environment peels the stack with env.unwrapped (evaluate.py:130) and re-adds only flatten/clip/normaliser, so evaluation runs the bare env; right 14 per episode, today 7"
 
 
@@ -511,7 +510,6 @@ def q3_run(agent: str) -> dict[str, np.ndarray]:
     return out | {"train": train}
 
 
-@xfail(BYPASS)
 def test_q3_auto_reset_starts_the_next_episode_from_the_wrapper() -> None:
     """Three episodes stepped from the task's reset through gymnax's
     auto-reset each return 14."""
@@ -548,9 +546,7 @@ def _q3_right(agent: str) -> float:
     return 32.0 if agent == "APG" else 2.0 * L
 
 
-@pytest.mark.parametrize(
-    "agent", [xparam(a, "" if a == "TDMPC2" else BYPASS) for a in Q3_AGENTS]
-)
+@pytest.mark.parametrize("agent", list(Q3_AGENTS))
 def test_q3_training_episodes_run_the_wrapped_task(agent: str) -> None:
     """Every training return the agent keeps and every logged Train mean is
     14 (APG: 32 per 16-step rollout)."""
@@ -561,7 +557,7 @@ def test_q3_training_episodes_run_the_wrapped_task(agent: str) -> None:
 
 @pytest.mark.parametrize(
     "agent",
-    [xparam(a, BYPASS if a == "APG" else STRIP) for a in Q3_AGENTS if a != "UDRL"],
+    [xparam(a, "" if a == "APG" else STRIP) for a in Q3_AGENTS if a != "UDRL"],
 )
 def test_q3_evaluation_runs_the_wrapped_task(agent: str) -> None:
     """Every logged evaluation returns 14 in 7 steps (APG evaluates its own
@@ -671,9 +667,6 @@ def test_q4_rows_store_the_step_and_the_expert_state_before_the_call() -> None:
     assert not (uniform == -0.5).all(-1).any()
 
 
-@xfail(
-    "on a done step the next last_obs is the pre-reset final obs concatenated with the un-reset post-step expert state (environments/interaction.py:874, 933-941, 970-971); right (0, 0) on every episode-start row, today (7, 7)"
-)
 def test_q4_episode_start_rows_store_the_reset_obs_and_reset_expert_state() -> None:
     """The first row of every later episode stores (0, 0): the reset obs and
     the expert's reset state."""

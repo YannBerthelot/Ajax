@@ -348,7 +348,6 @@ def make_action_pipeline(
                 {
                     "expert_action": expert_action,
                     "env_action": env_action,
-                    "raw_obs": raw_obs,
                     "total_timesteps": total_timesteps,
                 },
                 "env_action",

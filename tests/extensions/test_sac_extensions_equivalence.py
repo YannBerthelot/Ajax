@@ -235,7 +235,7 @@ def test_online_bc_matches_legacy_flag():
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            OnlineBC(expert_policy=expert, bc_coef=0.5, critic_warmup_frac=0.5),
+            OnlineBC(bc_coef=0.5, critic_warmup_frac=0.5),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
@@ -258,7 +258,7 @@ def test_residual_policy_matches_legacy_use_residual_rl():
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            ResidualPolicy(expert_policy=expert, scale=0.5),
+            ResidualPolicy(scale=0.5),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
@@ -286,7 +286,7 @@ def test_jsrl_curriculum_matches_legacy_flag():
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            JSRLCurriculum(expert_policy=expert, episode_length=50, decay_frac=0.5),
+            JSRLCurriculum(episode_length=50, decay_frac=0.5),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
@@ -367,7 +367,7 @@ def test_edge_exploration_matches_legacy_flags(gate: str):
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            EDGEExploration(expert_policy=expert, gate=gate),
+            EDGEExploration(gate=gate),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
@@ -490,7 +490,7 @@ def test_critic_blend_matches_legacy_flag():
             # auto-appended an :class:`OnlineBC` whenever MC pretraining
             # ran. The golden was captured under that default, so add it
             # explicitly here to match.
-            OnlineBC(expert_policy=expert, bc_coef=1.0, critic_warmup_frac=0.5),
+            OnlineBC(bc_coef=1.0, critic_warmup_frac=0.5),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
@@ -547,7 +547,7 @@ def test_value_box_matches_legacy_flag():
                 expert_mix_fraction=0.0,
             ),
             MCPretrain(expert_policy=expert, **_MC_KW),
-            ValueBox(expert_policy=expert),
+            ValueBox(),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)

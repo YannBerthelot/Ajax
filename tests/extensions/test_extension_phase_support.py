@@ -119,7 +119,7 @@ def _expert(obs):
 def test_sac_dispatches_action_only_to_its_pipeline_slots():
     """SAC's pipeline runs ``action`` only for an extension of a slot and only
     with an expert policy: any other is rejected at construction."""
-    slotted = JSRLCurriculum(expert_policy=_expert)
+    slotted = JSRLCurriculum()
     with pytest.raises(ValueError, match="'unslotted'"):
         SAC("Pendulum-v1", expert_policy=_expert, extensions=[Unslotted()])
     with pytest.raises(ValueError, match="expert_policy"):
@@ -130,7 +130,7 @@ def test_sac_dispatches_action_only_to_its_pipeline_slots():
 def test_sac_applies_a_residual_policy_only_through_its_pipeline():
     """ResidualPolicy needs the pipeline SAC runs with an expert policy and
     without the gain policy; otherwise it is rejected at construction."""
-    residual = ResidualPolicy(expert_policy=_expert, scale=0.5)
+    residual = ResidualPolicy(scale=0.5)
     for kwargs in ({}, {"expert_policy": _expert, "use_pid_policy": True}):
         with pytest.raises(ValueError, match="'residual_policy'"):
             SAC("Pendulum-v1", extensions=[residual], **kwargs)

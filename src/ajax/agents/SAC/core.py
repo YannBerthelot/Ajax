@@ -251,9 +251,8 @@ def soft_policy_loss(
     critics' values reduced by ``q_reduce`` over the ensemble axis.
 
     Returns the loss and ``(log_probs, q, pi)``. In sequence mode the
-    critic carry was burned in on the BUFFER actions; evaluating fresh
-    policy actions from it is the standard stored / burned-state
-    approximation.
+    fresh actions are queried at the critic's head, its memory reading the
+    actions taken (:func:`~ajax.agents.recurrent.q_values`).
     """
     pi = actor_dist(actor_state, actor_params, observations, carries)
     sample_key, rng = jax.random.split(rng)

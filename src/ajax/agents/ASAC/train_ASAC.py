@@ -36,7 +36,11 @@ from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import zeros_carry_like
-from ajax.networks.networks import predict_value, predict_value_sequence
+from ajax.networks.networks import (
+    action_value_input,
+    predict_value,
+    predict_value_sequence,
+)
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -149,16 +153,18 @@ def compute_asac_td_target(
         carries,
         bootstrap=True,
     )
-    # The origin shift Q(0, 0): one zero input; in sequence mode with a
-    # fresh zero carry (a batch of 1).
-    zero_x = jnp.zeros((1, next_observations.shape[-1] + next_actions.shape[-1]))
+    # The origin shift Q(0, 0): one zero input; in sequence mode at an
+    # episode start (a batch of 1, a fresh carry, no previous action).
+    zero_obs = jnp.zeros((1, next_observations.shape[-1]))
+    zero_action = jnp.zeros((1, next_actions.shape[-1]))
     if carries is None:
+        zero_x = action_value_input(zero_obs, zero_action)
         shift_value = predict_value(critic_states, critic_states.target_params, zero_x)
     else:
         shift_value, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_states.target_params,
-            x=zero_x[None],
+            x=action_value_input(zero_obs, zero_action, zero_action)[None],
             resets=jnp.zeros((1, 1), dtype=bool),
             initial_hidden=zeros_carry_like(
                 carries.target_critic_hidden, 1, batch_axis=1

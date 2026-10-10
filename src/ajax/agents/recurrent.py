@@ -15,6 +15,12 @@ memory the same way:
 the per-agent losses then consume the returned :class:`RecurrentCarries`
 through :func:`actor_dist` and :func:`q_values`, which run a network on a
 feedforward batch or, given carries, on a replayed sequence.
+
+A critic's memory reads each row's observation and the action before it,
+the one taken; the action a loss asks about joins after the memory, at
+the critic's head, so a taken or a sampled action is a query on the same
+carry and never feeds it (``Critic.query_dim``; the recurrent off-policy
+critic of Ni et al. 2022, cited from memory, unverified).
 """
 
 from typing import Any, Optional, Tuple
@@ -36,7 +42,11 @@ from ajax.networks.memory import (
     unflatten_carry,
     zeros_carry_like,
 )
-from ajax.networks.networks import predict_value, predict_value_sequence
+from ajax.networks.networks import (
+    action_value_input,
+    predict_value,
+    predict_value_sequence,
+)
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
 
@@ -70,10 +80,21 @@ class RecurrentCarries:
     actor_next_hidden: Any  # carry valid for next_obs[0]
     critic_hidden: Any  # online-critic carry for (obs, action)[0]
     target_critic_hidden: Any  # target-critic carry for next inputs
+    # What the critics' memory reads with each row's observation, and with
+    # each next observation: the action taken before it (previous_actions).
+    prev_actions: jax.Array  # (S, B, A)
+    next_prev_actions: jax.Array  # (S, B, A)
     # Target-ACTOR carry for next_obs[0], burned with actor target_params.
     # Only populated for agents whose bootstrap action comes from a target
     # actor (TD3); None otherwise.
     target_actor_next_hidden: Any = None
+
+
+def previous_actions(actions: jax.Array, resets: jax.Array) -> jax.Array:
+    """Each step's previous action in its episode, ``(T, B, A)``: zero at
+    an episode start (``resets``) and at the sequence's first step."""
+    previous = jnp.concatenate([jnp.zeros_like(actions[:1]), actions[:-1]])
+    return jnp.where(resets[..., None], 0.0, previous)
 
 
 def sample_and_burnin_sequences(
@@ -114,7 +135,9 @@ def sample_and_burnin_sequences(
         [jnp.zeros_like(done_seq[:1]), done_seq[:-1]], axis=0
     ).astype(bool)
     batch_size = obs_seq.shape[1]
-    xs_seq = jnp.concatenate([obs_seq, act_seq], axis=-1)
+    prev_act_seq = previous_actions(act_seq, resets_seq)
+    # The burn-ins only need the carries: the queried actions are unread.
+    xs_seq = action_value_input(obs_seq, jnp.zeros_like(act_seq), prev_act_seq)
 
     actor_template = zeros_carry_like(
         agent_state.actor_state.hidden_state, batch_size, batch_axis=0
@@ -195,6 +218,8 @@ def sample_and_burnin_sequences(
             actor_next_hidden=actor_next_carry,
             critic_hidden=critic_carry,
             target_critic_hidden=target_critic_carry,
+            prev_actions=prev_act_seq[burn_in:-1],
+            next_prev_actions=prev_act_seq[burn_in + 1 :],
             target_actor_next_hidden=target_actor_next_carry,
         )
     )
@@ -291,15 +316,18 @@ def q_values(
 
     With ``carries``, on a replayed sequence from the online critic's
     burned-in carry, or the target critic's when ``bootstrap`` (``obs``
-    then being next observations).
+    then being next observations): the memory reads the actions taken
+    before the rows, ``actions`` are queried at the head.
     """
-    x = jnp.concatenate((obs, actions), axis=-1)
     if carries is None:
-        return predict_value(critic_state, params, x)
+        return predict_value(critic_state, params, action_value_input(obs, actions))
     if bootstrap:
         resets, hidden = carries.next_resets, carries.target_critic_hidden
+        previous = carries.next_prev_actions
     else:
         resets, hidden = carries.resets, carries.critic_hidden
+        previous = carries.prev_actions
+    x = action_value_input(obs, actions, previous)
     return predict_value_sequence(critic_state, params, x, resets, hidden)[0]
 
 

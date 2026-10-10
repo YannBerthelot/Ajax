@@ -316,12 +316,17 @@ _GOLDEN: dict[str, dict[str, float]] = {
         "critic": 158.7569122314453,
         "alpha": 0.9725564122200012,
     },
-    "SAC-gru": {
-        "actor": 87.06092834472656,
-        "critic": 173.4002227783203,
-        "alpha": 0.951093316078186,
-    },
     "TD3": {"actor": 4.087213039398193, "critic": 79.58155059814453},
+}
+# Recorded on macOS ARM CPU once a recurrent Q-critic's memory read the
+# previous action and its MLP, after the memory, the current one: new
+# critic parameters (+3.4% critic, -0.007% actor, +0.045% alpha).
+_GOLDEN |= {
+    "SAC-gru": {
+        "actor": 87.05471801757812,
+        "critic": 179.29702758789062,
+        "alpha": 0.951546311378479,
+    },
 }
 # Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).

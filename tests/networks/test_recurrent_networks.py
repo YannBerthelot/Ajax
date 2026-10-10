@@ -163,3 +163,35 @@ def test_predict_value_sequence(kind):
     )
     assert values.shape == (2, T, B, 1)
     assert jax.tree.structure(carry) == jax.tree.structure(state.hidden_state)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_recurrent_q_critic_queries_its_action_after_the_memory(kind):
+    """With ``query_dim`` the input's last features are the action asked
+    about: they move that step's value only, never the carry."""
+    memory = _memory(kind)
+    critic = MultiCritic(
+        input_architecture=ARCH, num=2, memory=memory, query_dim=ACTION_DIM
+    )
+    state = init_network_state(
+        init_x=jnp.zeros((B, OBS_DIM + 2 * ACTION_DIM)),
+        network=critic,
+        key=jax.random.PRNGKey(0),
+        tx=get_adam_tx(),
+        memory=memory,
+        n_envs=B,
+    )
+    x = jax.random.normal(jax.random.PRNGKey(1), (T, B, OBS_DIM + 2 * ACTION_DIM))
+    resets = jnp.zeros((T, B), dtype=bool)
+    values, carry = predict_value_sequence(
+        state, state.params, x, resets, state.hidden_state
+    )
+    asked = x.at[2, :, -ACTION_DIM:].add(1.0)
+    moved, moved_carry = predict_value_sequence(
+        state, state.params, asked, resets, state.hidden_state
+    )
+    same = jnp.arange(T) != 2
+    assert jnp.array_equal(values[:, same], moved[:, same])
+    assert not jnp.allclose(values[:, 2], moved[:, 2])
+    for leaf, moved_leaf in zip(jax.tree.leaves(carry), jax.tree.leaves(moved_carry)):
+        assert jnp.array_equal(leaf, moved_leaf)

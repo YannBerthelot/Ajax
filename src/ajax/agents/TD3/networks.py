@@ -18,7 +18,11 @@ from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.networks.memory import MemoryCell, MemoryConfig
-from ajax.networks.networks import MultiCritic, init_network_state
+from ajax.networks.networks import (
+    MultiCritic,
+    action_value_input,
+    init_network_state,
+)
 from ajax.networks.utils import (
     get_adam_tx,
     parse_architecture,
@@ -154,6 +158,7 @@ def get_initialized_td3_actor_critic(
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_bias_init=network_config.encoder_bias_init,
         memory=memory,
+        query_dim=action_dim if memory is not None else 0,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -173,7 +178,9 @@ def get_initialized_td3_actor_critic(
         n_envs=env_config.n_envs,
     )
     critic_state = init_network_state(
-        init_x=jnp.hstack([init_obs, init_action]),
+        init_x=action_value_input(
+            init_obs, init_action, None if memory is None else init_action
+        ),
         network=critic,
         key=critic_key,
         tx=critic_tx,

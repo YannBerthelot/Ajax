@@ -431,10 +431,9 @@ def policy_loss_function(
         else actions
     )
 
-    # Core Q evaluation and SAC loss. In recurrent mode the critic carry
-    # was burned in on buffer actions and evaluates fresh policy actions
-    # (standard burned-state approximation); gradients flow to the actor
-    # through the actions.
+    # Core Q evaluation and SAC loss. In recurrent mode the fresh actions
+    # are queried at the critic's head, its memory reading the actions
+    # taken; gradients flow to the actor through the actions.
     q_preds = q_values(
         critic_states, critic_states.params, observations, q_input_actions, carries
     )

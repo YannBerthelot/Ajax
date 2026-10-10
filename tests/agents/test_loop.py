@@ -154,7 +154,7 @@ def test_a_replayed_target_cuts_at_terminations_and_sequences_at_any_end() -> No
     """A row stores its final observation at a time limit; a sequence's
     next observations are the next rows, so it still cuts there."""
     resets = jnp.zeros((1, 4), dtype=bool)
-    carries = RecurrentCarries(resets, resets, None, None, None, None)
+    carries = RecurrentCarries(resets, resets, *(None,) * 6)
     np.testing.assert_array_equal(bootstrap_cuts(_ENDS, None)[:, 0], [0, 0, 1, 1])
     np.testing.assert_array_equal(bootstrap_cuts(_ENDS, carries)[:, 0], [0, 1, 1, 1])
 

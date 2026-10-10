@@ -274,7 +274,7 @@ def value_box_agent(records: list) -> Any:
     exts = (
         ExpertGuidance(expert_policy=e, **off),
         MCPretrain(expert_policy=e, **mc),
-        RecordingValueBox(expert_policy=e, sink=sink),
+        RecordingValueBox(sink=sink),
     )
     kw: dict[str, Any] = {**SAC_KW, **dict.fromkeys(STARTS, 20), **off, "n_envs": 1}
     kw |= {"batch_size": 16, "gamma": agents.GAMMA, "expert_policy": e}

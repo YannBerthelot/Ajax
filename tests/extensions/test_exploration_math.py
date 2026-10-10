@@ -145,13 +145,9 @@ def test_box_compute_state_initializes_last_in_box_when_none():
 
     critic_state = _fake_critic_state(apply_fn)
 
-    def expert(obs):
-        return jnp.zeros((obs.shape[0], 2))
-
     in_box, entry_bonus, v_box = box_compute_state(
         obs=jnp.zeros((3, 4)),
-        raw_obs=jnp.zeros((3, 4)),
-        expert_policy=expert,
+        a_exp=jnp.zeros((3, 2)),
         critic_state=critic_state,
         expert_critic_params={"e": 1.0},
         threshold=jnp.asarray(1.0),
@@ -170,13 +166,9 @@ def test_box_compute_state_no_bonus_when_already_inside():
 
     critic_state = _fake_critic_state(apply_fn)
 
-    def expert(obs):
-        return jnp.zeros((obs.shape[0], 2))
-
     _, entry_bonus, _ = box_compute_state(
         obs=jnp.zeros((2, 4)),
-        raw_obs=jnp.zeros((2, 4)),
-        expert_policy=expert,
+        a_exp=jnp.zeros((2, 2)),
         critic_state=critic_state,
         expert_critic_params={"e": 1.0},
         threshold=jnp.asarray(1.0),

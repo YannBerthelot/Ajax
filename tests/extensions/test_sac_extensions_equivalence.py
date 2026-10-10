@@ -558,7 +558,7 @@ def test_value_box_matches_legacy_flag():
                 expert_mix_fraction=0.0,
             ),
             MCPretrain(expert_policy=expert, **_MC_KW),
-            ValueBox(expert_policy=expert),
+            ValueBox(),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)

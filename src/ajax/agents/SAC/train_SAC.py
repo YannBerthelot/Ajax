@@ -13,6 +13,7 @@ from ajax.agents.loop import TrainLoop
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
+    bootstrap_cuts,
     q_values,
     sample_and_burnin_sequences,
     unsupported_recurrent_options,
@@ -689,7 +690,7 @@ def update_agent(
             next_a_expert=_cat(transition.next_a_expert, exp_next_a_expert),
         )
 
-    dones = jnp.logical_or(transition.terminated, transition.truncated)
+    dones = bootstrap_cuts(transition, carries)
     # The env observations without train_frac, which is what expert_policy
     # expects.
     _raw = (

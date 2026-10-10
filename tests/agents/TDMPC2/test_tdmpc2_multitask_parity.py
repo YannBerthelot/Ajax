@@ -230,22 +230,29 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
         ctx = tasks.context(task)
         pre = core.renorm_task_embedding(wm_params, task)
         td, next_z = core.td_target(
-            wm_apply,
-            pi_apply,
-            pre,
-            target_q,
-            pi_params,
-            batch.obs[1:],
-            batch.reward,
-            tasks.discount(task),
-            noise.td_eps,
-            noise.td_pair,
-            None,
-            config,
-            ctx,
+            wm_apply=wm_apply,
+            pi_apply=pi_apply,
+            wm_params=pre,
+            target_q_params=target_q,
+            pi_params=pi_params,
+            next_obs=batch.obs[1:],
+            reward=batch.reward,
+            gamma=tasks.discount(task),
+            eps=noise.td_eps,
+            pair=noise.td_pair,
+            dropout_key=None,
+            config=config,
+            task=ctx,
         )
         _, (_, zs) = core.world_model_loss(
-            pre, wm_apply, batch, next_z, td, None, config, ctx
+            pre,
+            wm_apply=wm_apply,
+            batch=batch,
+            next_z=next_z,
+            td_targets=td,
+            dropout_key=None,
+            config=config,
+            task=ctx,
         )
         return td, zs
 

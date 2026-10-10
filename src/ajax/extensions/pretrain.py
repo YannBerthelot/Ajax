@@ -298,13 +298,13 @@ def refresh_phi_star(
         expert_critic_state, step_key = carry
         sample_key, step_key = jax.random.split(step_key)
 
-        obs, terminated, truncated, next_obs, rewards, actions, _, is_expert = (
+        obs, terminated, _, next_obs, rewards, actions, _, is_expert = (
             get_batch_from_buffer(buffer, buffer_state, sample_key)
         )
 
         expert_mask = is_expert[..., 0]
         rewards = rewards * reward_scale
-        dones = jnp.logical_or(terminated, truncated).astype(jnp.float32)
+        dones = terminated.astype(jnp.float32)
 
         a_expert_next = jax.lax.stop_gradient(expert_policy(next_obs))
         q_next = predict_value(

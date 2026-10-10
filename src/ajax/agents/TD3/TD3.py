@@ -20,7 +20,7 @@ class TD3(ActorCritic):
     """Twin Delayed DDPG (Fujimoto et al., 2018) for continuous action spaces.
 
     Defaults match the original paper (Table 1 / Algorithm 1):
-      - Actor / critic: 400-300 ReLU
+      - Actor / critic: 400-300 ReLU, plain MLPs (no normalisation layer)
       - Adam, lr=1e-3
       - tau=0.005, gamma=0.99
       - Exploration noise: N(0, 0.1)
@@ -98,6 +98,10 @@ class TD3(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            # Fujimoto's critic is a plain MLP (sfujim/TD3, TD3.py, Critic:
+            # Linear -> ReLU -> Linear -> ReLU -> Linear): no LayerNorm on
+            # the shared encoder's output.
+            disable_encoder_output_norm=True,
             extensions=extensions,
         )
 

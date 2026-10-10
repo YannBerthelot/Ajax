@@ -100,11 +100,10 @@ def build_resumable_train(
             ``(agent_state, resume_from_state, key, index) -> body``
             invoked once at trace time, after init/resume is resolved.
             Use this when the body must be finished from values produced
-            during ``init_fn`` (e.g. SAC's value-box bounds), must
-            branch on whether this is a resume, or needs the per-call
-            ``key`` / per-seed ``index`` or the ``shared`` input (passed
-            as ``shared=`` when given). Mutually exclusive with
-            ``scan_fn``.
+            during ``init_fn``, must branch on whether this is a resume,
+            or needs the per-call ``key`` / per-seed ``index`` or the
+            ``shared`` input (passed as ``shared=`` when given). Mutually
+            exclusive with ``scan_fn``.
         num_updates: number of scan iterations (static int).
         init_transform: optional one-shot ``(agent_state, key) ->
             agent_state`` applied on the fresh-init path only. Pass

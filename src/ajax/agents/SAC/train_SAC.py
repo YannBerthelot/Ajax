@@ -7,9 +7,9 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from jax.tree_util import Partial as partial
 
-from ajax.agents.cloning import CloningConfig, get_pre_trained_agent
+from ajax.agents.cloning import CloningConfig, pretrain_on_expert
+from ajax.agents.loop import TrainLoop
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -33,24 +33,11 @@ from ajax.agents.SAC.expert import (
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_batch_from_buffer, get_expert_fields_from_buffer
-from ajax.environments.interaction import (
-    collect_experience,
-    should_use_uniform_sampling,
-)
-from ajax.environments.utils import (
-    check_env_is_gymnax,
-    get_action_dim,
-    get_state_action_shapes,
-)
+from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionContext, ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
-from ajax.perf_utils import build_resumable_train, final_aux_scan
+from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -60,7 +47,6 @@ from ajax.state import (
     Transition,
 )
 from ajax.types import BufferType
-from ajax.utils import fill_with_nan
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclasses for logging
@@ -891,150 +877,6 @@ def update_agent(
 
 
 # ---------------------------------------------------------------------------
-# Training iteration
-# ---------------------------------------------------------------------------
-
-
-def training_iteration(
-    agent_state: SACState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
-    recurrent: bool,
-    buffer: BufferType,
-    agent_config: SACConfig,
-    total_timesteps: int,
-    log_frequency: int = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    expert_policy: Optional[Callable] = None,  # used for training
-    eval_expert_policy: Optional[Callable] = None,  # used for eval logging only
-    use_expert_guidance: bool = True,
-    num_critic_updates: int = 1,
-    expert_mix_fraction: float = 0.1,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
-    policy_update_start: int = 2_000,
-    alpha_update_start: int = 2_000,
-    fixed_alpha: bool = False,
-    target_entropy_initial: Optional[float] = None,
-    target_entropy_ramp_frac: float = 0.5,
-    action_pipeline: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-    policy_action_transform: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
-    extra_eval_metrics: Optional[Callable] = None,
-    pid_gain_policy: bool = False,
-    next_expert_fn: Optional[Callable] = None,
-    # Eval-suppression mode: when True, evaluate_and_log only fires evals
-    # in the last 20% of training. Use for HPO phases where the only
-    # number that matters is the final-window IQM.
-    sweep: bool = False,
-) -> tuple[SACState, None]:
-    timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
-
-    collect_scan_fn = partial(
-        collect_experience,
-        store_hidden=recurrent and agent_config.stored_state,
-        recurrent=recurrent,
-        mode=mode,
-        env_args=env_args,
-        buffer=buffer,
-        uniform=uniform,
-        action_pipeline=action_pipeline,
-        next_expert_fn=next_expert_fn,
-    )
-
-    agent_state, _transition = collect_scan_fn(agent_state, None)
-    timestep = agent_state.collector_state.timestep
-
-    def do_update(agent_state):
-        agent_state, aux = update_agent(
-            agent_state,
-            buffer=buffer,
-            recurrent=recurrent,
-            gamma=agent_config.gamma,
-            target_entropy=agent_config.target_entropy,
-            tau=agent_config.tau,
-            reward_scale=agent_config.reward_scale,
-            expert_policy=expert_policy,
-            use_expert_guidance=use_expert_guidance,
-            policy_update_start=policy_update_start,
-            alpha_update_start=alpha_update_start,
-            fixed_alpha=fixed_alpha,
-            num_critic_updates=num_critic_updates,
-            expert_mix_fraction=expert_mix_fraction,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            total_timesteps=total_timesteps,
-            target_entropy_initial=target_entropy_initial,
-            target_entropy_ramp_frac=target_entropy_ramp_frac,
-            extension_stack=extension_stack,
-            policy_action_transform=policy_action_transform,
-            burn_in=agent_config.burn_in,
-            stored_state=agent_config.stored_state,
-        )
-        # The extensions' post_update sees the updated state, on a fresh
-        # key, as in TrainLoop.post_update.
-        if extension_stack:
-            key, rng = jax.random.split(agent_state.rng)
-            agent_state = extension_stack.fold_post_update(
-                agent_state.replace(rng=rng),
-                agent_state.collector_state.timestep,
-                key,
-                total_timesteps,
-            )
-        # One (1,)-shaped leaf per metric: the metric-flattening contract.
-        return agent_state, jax.tree.map(lambda x: x.reshape((1,)), aux)
-
-    def skip_update(agent_state):
-        return agent_state, fill_with_nan(AuxiliaryLogs)
-
-    agent_state, aux = jax.lax.cond(
-        timestep >= agent_config.learning_starts,
-        do_update,
-        skip_update,
-        operand=agent_state,
-    )
-
-    # Obs augmentation now happens inside evaluate.step_environment, where
-    # the per-step expert_state is already threaded through the scan
-    # carry. The previous apply_fn-wrapping approach silently used a
-    # stateless expert call, which produced a different augmented obs at
-    # eval than at training for stateful experts (PID etc.).
-    _eval_agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        recurrent,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        sweep=sweep,
-        expert_policy=eval_expert_policy,
-        train_frac=agent_state.collector_state.train_time_fraction,
-        eval_action_transform=eval_action_transform,
-        extra_eval_metrics=extra_eval_metrics,
-        pid_gain_policy=pid_gain_policy,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        augment_obs_with_expert_state=augment_obs_with_expert_state,
-    )
-    # Keep the original agent_state (with original apply_fn) for training
-    agent_state = agent_state.replace(
-        eval_rng=_eval_agent_state.eval_rng,
-        n_logs=_eval_agent_state.n_logs,
-    )
-
-    return agent_state, metrics_to_log
-
-
-# ---------------------------------------------------------------------------
 # Training factory
 # ---------------------------------------------------------------------------
 
@@ -1101,45 +943,21 @@ def make_train(
     # --- Extension framework (the research-features surface) ---
     extensions: Sequence = (),
 ):
-    """SAC training factory.
+    """SAC's train function on :meth:`TrainLoop.off_policy`.
 
     expert_policy:      used for training (warmup seeding, expert buffer
                         prefill, residual / JSRL collection-time
                         substitution). Pass None for true vanilla SAC.
     eval_expert_policy: used ONLY for eval logging (expert bias metric).
                         Defaults to ``expert_policy`` if unset.
-    extensions:         composable research features. Each
-                        :class:`~ajax.extensions.base.Extension`
-                        instance owns its own math via the phase
-                        methods (``on_target`` / ``actor_loss`` /
-                        ``action`` / ``pretrain`` / ``post_update`` /
-                        ``on_obs`` / ``init_state``). The SAC loop
-                        folds the stack at each phase. See
-                        :mod:`ajax.extensions` for the catalogue
-                        (``IBRL``, ``LCBGatedBootstrap``, ``CriticBlend``,
-                        ``MCVarianceCorrection``, ``ValueBox``,
-                        ``OnlineBC``, ``ResidualPolicy``, ``PhiRefresh``,
-                        ``EDGEExploration``, ``JSRLCurriculum``,
-                        ``ExpertGuidance``, ``ExpertObsAugmentation``,
-                        ``MCPretrain``, ``BellmanPretrain``).
+    extensions:         composable research features (see
+                        :mod:`ajax.extensions`), bound to SAC's context.
 
-    Several kwargs above are kept on the function signature because they
-    thread into init / collection / pipeline at a level the extension
-    framework doesn't reach yet (``use_residual_rl``, ``jsrl_curriculum``,
-    ``use_bellman_critic_pretrain``, ``use_pid_policy``,
-    ``augment_obs_with_expert_action``, ``use_train_frac``,
-    ``normalize_obs_running``, ``store_policy_action``, etc.). They
-    mirror the corresponding extension's "static" flag where applicable.
+    The flags above thread into init, collection or the action pipeline at
+    a level the extension framework does not reach yet; they mirror the
+    matching extension's "static" flag where there is one.
     """
-    # If no separate eval policy provided, fall back to the training policy
-    # (which may be None for vanilla SAC — in that case no expert bias logged)
-    _eval_expert_policy = (
-        eval_expert_policy if eval_expert_policy is not None else expert_policy
-    )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids)
-
+    recurrent = network_args.memory is not None
     # Bind the SAC-factory-only context onto every extension (see
     # :meth:`Extension.bind_to_agent`: each picks the kwargs it needs).
     _resolved_action_dim = (
@@ -1160,9 +978,7 @@ def make_train(
         action_dim=_resolved_action_dim,
         extensions=tuple(extensions),
     )
-
-    _recurrent = network_args.memory is not None
-    if _recurrent:
+    if recurrent:
         # Expert-guidance features (and their Extension replacements) are
         # orthogonal to memory and untested with sequence replay; fail
         # loudly instead of silently misbehaving.
@@ -1179,26 +995,18 @@ def make_train(
                 else None
             ),
         )
+    loop = TrainLoop.create(
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        stack.extensions,
+    )
 
-    if logging_config is not None:
-        start_async_logging()
-
-    pre_train_n_steps = cloning_args.pre_train_n_steps if cloning_args else 0
-    num_updates = total_timesteps // env_args.n_envs
-
-    # ------------------------------------------------------------------
-    # Fresh-init path: build the agent state and run all one-shot
-    # initialization (MC / Bellman critic pretraining,
-    # behavioural-cloning pretraining). This is *only* invoked on a fresh
-    # run; on resume the shared helper reuses ``initial_state`` directly
-    # so none of this expensive one-shot work is re-run.
-    # ------------------------------------------------------------------
-    def init_fn(key, _index):
-        """Build a fresh SAC agent state with all one-shot pretraining."""
-        init_key, pretrain_key = jax.random.split(key)
-
+    def init(key: jax.Array, pretrain_key: jax.Array) -> SACState:
         agent_state = init_SAC(
-            key=init_key,
+            key=key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
@@ -1220,11 +1028,10 @@ def make_train(
             normalize_obs_running=normalize_obs_running,
             jsrl_curriculum=jsrl_curriculum,
         )
-
         if expert_policy is not None and use_bellman_critic_pretrain:
             agent_state = pretrain_critic_bellman(
                 agent_state=agent_state,
-                recurrent=_recurrent,
+                recurrent=recurrent,
                 gamma=agent_config.gamma,
                 reward_scale=agent_config.reward_scale,
                 buffer=buffer,
@@ -1235,112 +1042,100 @@ def make_train(
             jax.debug.print(
                 "[Bellman pretrain] done ({n} steps)", n=mc_pretrain_n_steps
             )
-
-        if pre_train_n_steps > 0:
-            agent_state = get_pre_trained_agent(
-                agent_state,
-                expert_policy,
-                pretrain_key,
-                env_args,
-                cloning_args,
-                mode,
-                actor_optimizer_args,
-                augment_obs_with_expert_action=augment_obs_with_expert_action,
-                augment_obs_with_expert_state=augment_obs_with_expert_state,
-            )
-
-        # The extensions' states, then their one-shot pretraining
-        # (MCPretrain fills phi* and the value range ValueBox reads).
-        return stack.fold_init(agent_state, pretrain_key, total_timesteps)
-
-    def make_scan_fn(_agent_state, _resume_from_state, _key, index):
-        # The pipeline carries the SAC-side bookkeeping (warmup mix,
-        # ``is_expert_flag``, ``buffer_action``, expert-state threading)
-        # and the gain-policy short-circuit; the EDGE / ValueBox / JSRL
-        # gates run through the extension stack passed in here.
-        _action_pipeline = make_action_pipeline(
-            expert_policy=expert_policy,
-            recurrent=_recurrent,
-            env_args=env_args,
-            extension_stack=stack,
-            expert_fraction=expert_fraction,
-            use_residual_rl=use_residual_rl,
-            residual_scale=residual_scale,
-            use_pid_policy=use_pid_policy,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            store_policy_action=store_policy_action,
-            total_timesteps=total_timesteps,
-        )
-
-        # An extension with ``build_policy_transform`` (ResidualPolicy)
-        # supplies the actor-loss / TD-target action transform
-        # ``(actions, raw_obs, a_expert) -> actions`` and the eval-time
-        # one; ``None`` ⇒ pure SAC actor loss.
-        _rp = next(
-            (e for e in stack.extensions if hasattr(e, "build_policy_transform")),
-            None,
-        )
-        _policy_action_transform = (
-            _rp.build_policy_transform(expert_policy) if _rp is not None else None
-        )
-
-        # Eval transform: ``None`` when ``use_pid_policy`` is set
-        # (gain-mode handles its own eval transform in
-        # ``step_environment``) or when no ResidualPolicy is present.
-        _eval_action_transform = (
-            None if (use_pid_policy or _rp is None) else _rp.build_eval_transform()
-        )
-
-        training_iteration_scan_fn = partial(
-            training_iteration,
-            buffer=buffer,
-            recurrent=_recurrent,
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
-            ),
-            sweep=(logging_config.sweep if logging_config is not None else False),
-            expert_policy=expert_policy,
-            eval_expert_policy=_eval_expert_policy,
-            use_expert_guidance=use_expert_guidance,
-            num_critic_updates=num_critic_updates,
-            expert_mix_fraction=expert_mix_fraction,
+        return pretrain_on_expert(
+            agent_state,
+            pretrain_key,
+            cloning_args,
+            expert_policy,
+            env_args,
+            actor_optimizer_args,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
+        )
+
+    # An extension with ``build_policy_transform`` (ResidualPolicy)
+    # supplies the actor-loss / TD-target action transform
+    # ``(actions, raw_obs, a_expert) -> actions`` and the eval-time one;
+    # ``None`` ⇒ pure SAC actor loss. Gain mode (``use_pid_policy``)
+    # handles its own eval transform in ``step_environment``.
+    residual = next(
+        (e for e in loop.stack.extensions if hasattr(e, "build_policy_transform")),
+        None,
+    )
+    policy_action_transform = (
+        residual.build_policy_transform(expert_policy) if residual else None
+    )
+    eval_action_transform = (
+        None
+        if (use_pid_policy or residual is None)
+        else residual.build_eval_transform()
+    )
+
+    def update(agent_state: SACState, _transition: Transition) -> Any:
+        # The step just collected is in the buffer: SAC samples it from there.
+        return update_agent(
+            agent_state,
+            buffer=buffer,
+            recurrent=recurrent,
+            gamma=agent_config.gamma,
+            target_entropy=agent_config.target_entropy,
+            tau=agent_config.tau,
+            reward_scale=agent_config.reward_scale,
+            expert_policy=expert_policy,
+            use_expert_guidance=use_expert_guidance,
             policy_update_start=policy_update_start,
             alpha_update_start=alpha_update_start,
             fixed_alpha=fixed_alpha,
+            num_critic_updates=num_critic_updates,
+            expert_mix_fraction=expert_mix_fraction,
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
+            total_timesteps=total_timesteps,
             target_entropy_initial=target_entropy_initial,
             target_entropy_ramp_frac=target_entropy_ramp_frac,
-            action_pipeline=_action_pipeline,
-            extension_stack=stack,
-            policy_action_transform=_policy_action_transform,
-            eval_action_transform=_eval_action_transform,
-            pid_gain_policy=use_pid_policy,
-            next_expert_fn=make_next_expert_fn(expert_policy),
-            extra_eval_metrics=compose_eval_metrics(None, stack, total_timesteps),
+            extension_stack=loop.stack,
+            policy_action_transform=policy_action_transform,
+            burn_in=agent_config.burn_in,
+            stored_state=agent_config.stored_state,
         )
 
-        # Do not accumulate per-step metrics in the scan ys: with vmap over N
-        # seeds and T steps, each scalar metric becomes an [N, T] tensor that is
-        # materialized on-device at scan completion, OOMing on large (N, T).
-        # Metrics are already streamed to the host via ``jax.debug.callback``
-        # inside ``evaluate_and_log``, so dropping the ys here is lossless.
-        def _scan_body_no_ys(carry, x):
-            new_carry, _metrics = training_iteration_scan_fn(carry, x)
-            return new_carry, None
-
-        return _scan_body_no_ys
-
-    return build_resumable_train(
-        init_fn=init_fn,
-        make_scan_fn=make_scan_fn,
-        num_updates=num_updates,
+    # The pipeline carries the SAC-side bookkeeping (warmup mix,
+    # ``is_expert_flag``, ``buffer_action``, expert-state threading) and
+    # the gain-policy short-circuit; the EDGE / ValueBox / JSRL gates run
+    # through the extension stack.
+    action_pipeline = make_action_pipeline(
+        expert_policy=expert_policy,
+        recurrent=recurrent,
+        env_args=env_args,
+        extension_stack=loop.stack,
+        expert_fraction=expert_fraction,
+        use_residual_rl=use_residual_rl,
+        residual_scale=residual_scale,
+        use_pid_policy=use_pid_policy,
+        augment_obs_with_expert_action=augment_obs_with_expert_action,
+        store_policy_action=store_policy_action,
+        total_timesteps=total_timesteps,
+    )
+    return loop.off_policy(
+        init,
+        update,
+        AuxiliaryLogs,
+        agent_config.learning_starts,
+        recurrent=recurrent,
+        collect_kwargs={
+            "buffer": buffer,
+            "action_pipeline": action_pipeline,
+            "next_expert_fn": make_next_expert_fn(expert_policy),
+            "store_hidden": recurrent and agent_config.stored_state,
+        },
+        eval_kwargs={
+            # Evaluate only in the last 20% of training (HPO phases).
+            "sweep": logging_config is not None and logging_config.sweep,
+            "expert_policy": (
+                eval_expert_policy if eval_expert_policy is not None else expert_policy
+            ),
+            "eval_action_transform": eval_action_transform,
+            "pid_gain_policy": use_pid_policy,
+            "augment_obs_with_expert_action": augment_obs_with_expert_action,
+            "augment_obs_with_expert_state": augment_obs_with_expert_state,
+        },
     )

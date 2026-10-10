@@ -275,6 +275,8 @@ def pretrain_on_expert(
     expert_policy,
     env_args,
     actor_optimizer_args,
+    augment_obs_with_expert_action: bool = False,
+    augment_obs_with_expert_state: bool = False,
 ):
     """Behaviour-clone ``expert_policy`` when ``cloning_args`` asks for
     pre-training steps (:func:`get_pre_trained_agent`); else the state as is."""
@@ -289,6 +291,8 @@ def pretrain_on_expert(
         cloning_args,
         mode,
         actor_optimizer_args,
+        augment_obs_with_expert_action=augment_obs_with_expert_action,
+        augment_obs_with_expert_state=augment_obs_with_expert_state,
     )
 
 

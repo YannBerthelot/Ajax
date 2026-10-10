@@ -114,7 +114,7 @@ class SAC(ActorCritic):
         # gates the expert-action telemetry / loss term inside
         # ``update_agent`` (deeper than extension surface). The
         # ExpertGuidance extension owns the user-facing config; these
-        # mirror its fields so ``init_SAC`` / ``training_iteration``
+        # mirror its fields so ``init_SAC`` / ``update_agent``
         # can read them as plain Python values.
         use_expert_guidance: bool = False,
         num_critic_updates: int = 1,

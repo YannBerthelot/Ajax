@@ -242,7 +242,6 @@ def evaluate_and_log(
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
     sweep: bool = False,
-    train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
     pid_gain_policy: bool = False,
@@ -316,7 +315,9 @@ def evaluate_and_log(
             ),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
-            train_frac=train_frac,
+            # The training-fraction column the collector appends (None
+            # unless the agent conditions on it).
+            train_frac=agent_state.collector_state.train_time_fraction,
             eval_action_transform=eval_action_transform,
             agent_state=agent_state,
             pid_gain_policy=pid_gain_policy,

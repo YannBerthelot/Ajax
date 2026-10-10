@@ -66,7 +66,8 @@ class TerminalSafeShift(Extension):
 @dataclasses.dataclass(frozen=True)
 class CriticPull(Extension):
     """+ 100 mean(Q^2): a critic at w (Q - y)^2 settles at w y / (w + 100).
-    DQN and PQN pass ``q_state``, not the differentiated params."""
+    DQN and PQN pass their Q-network's ``q_state`` at the differentiated
+    params."""
 
     name: str = "p3_critic_pull"
 
@@ -319,8 +320,6 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
 
 NO_FOLD = "no fold_{} call anywhere in src/ajax, yet every agent but the world models declares the phase (base.py:56, all phases by default)"
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
-    "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
-    "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
     "on_batch-*": NO_FOLD.format("on_batch") + "; right V(0) 2.0, today 1.00",
     "E6-SAC": "(contract pending) SAC folds on_obs in the actor loss only (train_SAC.py:516-524), so the policy learns pi(.|-s) against Q(s, .); right train return > 0 and a_net(+1) < 0, today -0.39 to -0.75 and -0.70 to -0.75",
     "E6-*": "(contract pending) on_obs is folded only in SAC's actor loss (train_SAC.py:524), so the flip is ignored here; right the network acts on the flipped input (a_net(+1) < 0; discrete Q_net(1,0) > Q_net(1,1)), today the raw mapping (PPO a_net(+1) 1.3-2.0; DQN and PQN gap -1.0)",

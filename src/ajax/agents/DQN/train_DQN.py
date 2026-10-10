@@ -292,7 +292,9 @@ def q_gradient_step(
                 "observations": observations,
                 "actions": actions,
                 "targets": targets,
-                "q_state": q_state,
+                # At the parameters being differentiated, so the term has a
+                # gradient.
+                "q_state": q_state.replace(params=params),
             }
             loss = loss + extension_stack.fold_critic_loss(
                 agent_state,

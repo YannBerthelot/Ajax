@@ -39,6 +39,16 @@ dropout-free (tdmpc2_spec 2.3 and 2.16, which mark the PE behaviour; §0.5
 item 10). Ajax follows the paper-era code: :func:`td_target` takes a dropout
 key.
 
+Episodic mode (``config.episodic``; the latest code's ``episodic``,
+``nicklashansen/tdmpc2@eece801``, ``e9f5932:tdmpc2/tdmpc2.py:223-300``;
+deviation T29), single task only: the batch carries ``terminated`` (1 where
+``s_{t+1}`` is a terminal state; a time limit is not one), the TD target is
+``r + gamma (1 - terminated) Q`` and the world-model loss adds
+``termination_coef`` times the binary cross-entropy of the termination head
+at the rollout latents ``z_1 .. z_H``, a mean over the horizon and batch
+without ``rho`` weights. Off (the default), every function computes the
+paper-era update, unchanged.
+
 Multi-task conditioning (M8; the paper-era ``cfg.multitask`` branches of the
 same functions, ``world_model.py:19-23, 78-148``, ``tdmpc2.py:26, 32-34,
 215``). Every function takes an optional :class:`TaskContext` (``None``, the
@@ -137,11 +147,14 @@ class TDMPC2Batch:
         obs: ``[H + 1, B, obs_dim]``, observations ``s_0 .. s_H``.
         action: ``[H, B, A]``, the buffer actions ``a_0 .. a_{H-1}``.
         reward: ``[H, B]``, ``r_t`` received after ``a_t``.
+        terminated: ``[H, B]`` float, 1 where ``s_{t+1}`` is terminal
+            (episodic mode); ``None`` for the paper-era batches.
     """
 
     obs: jax.Array
     action: jax.Array
     reward: jax.Array
+    terminated: Optional[jax.Array] = None
 
 
 @struct.dataclass
@@ -437,6 +450,7 @@ def td_target(
     dropout_key: Optional[jax.Array],
     config: TDMPC2Config,
     task: Optional[TaskContext] = None,
+    terminated: Optional[jax.Array] = None,
 ) -> tuple[jax.Array, jax.Array]:
     """TD targets ``y [H, B]`` and next latents ``h(s') [H, B, L]``, no gradient.
 
@@ -450,7 +464,8 @@ def td_target(
     target. ``gamma`` is a Python float, a scalar array or, multi-task, the
     per-sample discounts ``[B]`` (``discount[task]``, ``tdmpc2.py:215``);
     ``task`` conditions every network on the (online) embedding and masks
-    the policy sample.
+    the policy sample. ``terminated [H, B]`` (episodic mode) gives the latest
+    code's ``y = r + gamma (1 - terminated) Q`` (``e9f5932:tdmpc2.py:223``).
     """
     emb = task_embedding(wm_params, task)
     mask = None if task is None else task.mask
@@ -467,6 +482,8 @@ def td_target(
         task_emb=emb,
     )
     q = reduce_q_pair(logits, "min", config.two_hot)
+    if terminated is not None:
+        q = (1.0 - terminated) * q
     y = reward + gamma * q
     return jax.lax.stop_gradient(y), jax.lax.stop_gradient(next_z)
 
@@ -491,13 +508,22 @@ def world_model_loss(
     * reward ``(1/H) sum_t rho^t mean_B CE(R(z_t, a_t), r_t)``;
     * value ``(1/(H Nq)) sum_t sum_k rho^t mean_B CE(Q_k(z_t, a_t), y_t)``
       over every online head, dropout on (``dropout_key``);
-    * total ``20 consistency + 0.1 reward + 0.1 value`` (config coefficients).
+    * total ``20 consistency + 0.1 reward + 0.1 value`` (config coefficients);
+    * episodic mode, ``+ termination_coef * mean_{H,B} BCE(T(z_{t+1}),
+      terminated_t)`` (``e9f5932:tdmpc2.py:248-268``), logged with the
+      latest code's ``termination_rate`` and ``termination_f1`` of the last
+      step (:func:`termination_statistics`).
 
     ``zs`` (``z_0`` encoded, ``z_1 .. z_H`` predicted) feeds the policy loss.
     Multi-task, ``task``'s embedding is looked up from ``wm_params`` here, so
     the loss trains the table (``tdmpc2.py:241-252``); the buffer actions are
     zero on the invalid dims and are not masked (spec 1.23).
     """
+    if config.episodic and (task is not None or batch.terminated is None):
+        raise ValueError(
+            "the episodic mode is single-task and needs batch.terminated"
+            " (the latest code asserts task is None)"
+        )
     horizon = config.horizon
     rho = _rho_weights(config.rho, horizon)
     emb = task_embedding(wm_params, task)
@@ -531,18 +557,43 @@ def world_model_loss(
     consistency_loss = consistency * (1.0 / horizon)
     reward_loss = jnp.sum(reward_ce * rho) * (1.0 / horizon)
     value_loss = jnp.sum(value_ce * rho[None]) * (1.0 / (horizon * config.num_q))
-    total = (
-        config.consistency_coef * consistency_loss
-        + config.reward_coef * reward_loss
-        + config.value_coef * value_loss
-    )
     terms = {
         "consistency_loss": consistency_loss,
         "reward_loss": reward_loss,
         "value_loss": value_loss,
-        "total_loss": total,
     }
+    total = (
+        config.consistency_coef * consistency_loss + config.reward_coef * reward_loss
+    )
+    if config.episodic:
+        assert batch.terminated is not None  # checked above
+        logits = wm_apply(
+            {"params": wm_params}, latents[1:], method="termination_logits"
+        )
+        loss = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, batch.terminated))
+        total = total + config.termination_coef * loss
+        terms["termination_loss"] = loss
+        terms.update(termination_statistics(logits[-1], batch.terminated[-1]))
+    total = total + config.value_coef * value_loss
+    terms["total_loss"] = total
     return total, (terms, latents)
+
+
+def termination_statistics(
+    logits: jax.Array, terminated: jax.Array, eps: float = 1e-9
+) -> dict[str, jax.Array]:
+    """The latest code's ``math.termination_statistics`` (``e9f5932:tdmpc2/
+    common/math.py:97-109``) of logits ``[B]`` against targets ``[B]``: the
+    termination rate and the F1 score of ``sigmoid(logits) > 0.5``."""
+    pred = jax.nn.sigmoid(logits) > 0.5
+    target = terminated == 1
+    tp = jnp.sum(pred & target)
+    recall = tp / (tp + jnp.sum(~pred & target) + eps)
+    precision = tp / (tp + jnp.sum(pred & ~target) + eps)
+    return {
+        "termination_rate": jnp.mean(terminated),
+        "termination_f1": 2 * (precision * recall) / (precision + recall + eps),
+    }
 
 
 def policy_loss(
@@ -755,7 +806,8 @@ def update(
     Args:
         state: a :class:`TDMPC2UpdateState`, or any state with its four
             attributes and ``replace`` (the M4 agent state).
-        batch: ``obs [H + 1, B, S]``, ``action [H, B, A]``, ``reward [H, B]``.
+        batch: ``obs [H + 1, B, S]``, ``action [H, B, A]``, ``reward [H, B]``
+            and, episodic mode, ``terminated [H, B]``.
         noise: the update's random draws (:func:`draw_update_noise`).
         config: static hyperparameters (a jit static argument).
         gamma: the discount, a Python float or a scalar array; multi-task,
@@ -774,7 +826,8 @@ def update(
         ``value_loss``, ``pi_loss``, ``total_loss``, ``grad_norm`` (the
         world-model clip norm, stale policy gradients included), ``pi_scale``)
         plus ``pi_grad_norm`` (pre-clip), ``pi_entropy`` (``-mean log_pi``) and
-        ``pi_log_std``.
+        ``pi_log_std``; episodic mode, ``termination_loss``,
+        ``termination_rate`` and ``termination_f1`` as well.
     """
     wm_state = state.world_model_state
     pi_state = state.actor_state
@@ -798,6 +851,7 @@ def update(
         dropout_key=noise.td_dropout,
         config=config,
         task=task,
+        terminated=batch.terminated if config.episodic else None,
     )
 
     (_, (wm_terms, zs)), wm_grads = jax.value_and_grad(world_model_loss, has_aux=True)(

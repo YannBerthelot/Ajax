@@ -21,7 +21,7 @@ train ratio schedules the updates) supplies those steps too, and the loop
 runs them in the same order (:meth:`TrainLoop.off_policy`)::
 
     iterate:    state, experience = collect(state, tick)
-                repeat n_updates(tick) times:
+                repeat n_updates(tick, state) times:
                     state, _ = update(state, experience)
                     fold the extensions' post_update
                 evaluate and log every evaluation.every ticks
@@ -314,9 +314,10 @@ class TrainLoop:
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
     ) -> Any:
         """``n`` times ``update`` then ``post_update``; the updates keep what
-        they log on the state. ``n`` must derive from unbatched values (the
-        tick, static hyperparameters): the loop then stays one ``while``
-        under the seed ``vmap``, running exactly ``n`` times."""
+        they log on the state. An ``n`` derived from unbatched values (the
+        tick, static hyperparameters) keeps the loop one ``while`` under the
+        seed ``vmap``; one read from the per-seed state runs it to the
+        largest count, each seed's state frozen after its own."""
         return jax.lax.fori_loop(
             0,
             n,
@@ -452,7 +453,7 @@ class TrainLoop:
         collect_kwargs: Optional[dict] = None,
         eval_kwargs: Optional[dict] = None,
         collect: Optional[Collect] = None,
-        n_updates: Optional[Callable[[Any], Any]] = None,
+        n_updates: Optional[Callable[[Any, Any], Any]] = None,
         evaluation: Optional[Evaluation] = None,
         num_ticks: Optional[int] = None,
     ) -> Callable:
@@ -468,11 +469,12 @@ class TrainLoop:
 
         An agent acting, training and evaluating its own way (the module
         docstring) supplies those steps: ``collect`` replaces the collection
-        and the arguments configuring it; ``n_updates(tick)`` updates, a
-        static function of the absolute, unbatched tick (a train ratio, a
-        seed-phase burst), replace the ``learning_starts`` gate
-        (:meth:`repeat_update`); ``evaluation`` replaces the actor's
-        evaluation (:meth:`evaluate_every`); ``num_ticks`` the budget.
+        and the arguments configuring it; ``n_updates(tick, agent_state)``
+        updates (of the absolute, unbatched tick: a train ratio, a burst;
+        or of the collected state: the env steps the tick took) replace the
+        ``learning_starts`` gate (:meth:`repeat_update`); ``evaluation``
+        replaces the actor's evaluation (:meth:`evaluate_every`);
+        ``num_ticks`` the budget.
         """
         collect_args = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 
@@ -504,7 +506,9 @@ class TrainLoop:
                     agent_state, learning_starts, step, aux_cls
                 )
             else:
-                agent_state = self.repeat_update(agent_state, n_updates(tick), step)
+                agent_state = self.repeat_update(
+                    agent_state, n_updates(tick, agent_state), step
+                )
             if evaluation is not None:
                 return self.evaluate_every(agent_state, aux, index, tick, evaluation)
             return self.evaluate_and_log(

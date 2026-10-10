@@ -211,6 +211,23 @@ class RewardHead(nn.Module):
         return linear(self.num_bins, "zeros", name="out")(x)
 
 
+class TerminationHead(nn.Module):
+    """Termination logit ``[..., 1]`` of a latent ``z`` (episodic mode).
+
+    The latest code's ``_termination`` (``e9f5932:tdmpc2/common/
+    world_model.py:28, 132-141``, built only when ``episodic``): 2 hidden
+    layers, a plain ``Linear`` to 1 at ``N(0, 0.02^2)`` (``weight_init``,
+    not zeroed). Single task: its input is ``z`` alone.
+    """
+
+    mlp_dim: int
+
+    @nn.compact
+    def __call__(self, z: jax.Array) -> jax.Array:
+        x = NormedMLP.tdmpc2(2, self.mlp_dim, name="trunk")(z)
+        return linear(1, KERNEL_INIT, name="out")(x)
+
+
 class QFunction(nn.Module):
     """One Q member: 2 hidden layers (dropout in the first), zero final weight.
 
@@ -272,9 +289,11 @@ class QEnsemble(nn.Module):
 
 class WorldModel(nn.Module):
     """Encoder, dynamics, reward head and Q ensemble (the world-model optimizer's
-    parameters, ``tdmpc2.py:21-27``). Apply one component with
-    ``method="encode" | "next" | "reward_logits" | "q_logits"``; ``__call__``
-    exists to initialise all four.
+    parameters, ``tdmpc2.py:21-27``), plus the termination head when
+    ``episodic`` (parameters ``termination``; without it the tree is the
+    paper-era one). Apply one component with ``method="encode" | "next" |
+    "reward_logits" | "q_logits" | "termination_logits"``; ``__call__``
+    exists to initialise them all.
     """
 
     latent_dim: int
@@ -285,6 +304,7 @@ class WorldModel(nn.Module):
     num_bins: int
     dropout: float
     simnorm_dim: int
+    episodic: bool = False
 
     def setup(self) -> None:
         self.encoder = Encoder(
@@ -293,6 +313,8 @@ class WorldModel(nn.Module):
         self.dynamics = Dynamics(self.mlp_dim, self.latent_dim, self.simnorm_dim)
         self.reward = RewardHead(self.mlp_dim, self.num_bins)
         self.q = QEnsemble(self.num_q, self.mlp_dim, self.num_bins, self.dropout)
+        if self.episodic:
+            self.termination = TerminationHead(self.mlp_dim)
 
     def encode(self, obs: jax.Array, task_emb: Optional[jax.Array] = None) -> jax.Array:
         """``z = h(obs, e)`` on the latent simplex product (``world_model.py:93-102``)."""
@@ -320,12 +342,19 @@ class WorldModel(nn.Module):
         """All members' logits ``[num_q, ..., num_bins]`` (``world_model.py:161-168``)."""
         return self.q(z, action, task_emb, deterministic)
 
+    def termination_logits(self, z: jax.Array) -> jax.Array:
+        """Termination logits ``[...]`` of latents ``z [..., L]`` (episodic
+        mode; ``world_model.py:132-141`` with ``unnormalized=True``)."""
+        return self.termination(z)[..., 0]
+
     def __call__(
         self, obs: jax.Array, action: jax.Array, task_emb: Optional[jax.Array] = None
     ) -> jax.Array:
         z = self.encode(obs, task_emb)
         self.reward_logits(z, action, task_emb)
         self.q_logits(z, action, task_emb)
+        if self.episodic:
+            self.termination_logits(z)
         return self.next(z, action, task_emb)
 
 
@@ -363,6 +392,7 @@ def make_world_model(config: TDMPC2Config) -> WorldModel:
         num_bins=config.num_bins,
         dropout=config.dropout,
         simnorm_dim=config.simnorm_dim,
+        episodic=config.episodic,
     )
 
 

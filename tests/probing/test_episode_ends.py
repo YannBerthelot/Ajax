@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params, xfail, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "e89ff87e07df"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "7d3835420718"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -934,9 +934,13 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     assert after < before, f"mean V went from {before:.6f} to {after:.6f}"
 
 
-# With the sign fixed on a scratch copy and a reset bootstrap at the rollout
-# end, seeds 1000-1031 read |b| < 1e-4, V(A) -0.250, V(B) 0.250 on the
-# termination cycle, and |b|, |V(1)| <= 0.005 on the constant one.
+# With the sign fixed on a scratch copy, seeds 1000-1031 read |b|, |V(1)|
+# <= 0.005 on the constant cycle; on the termination cycle, with a reset
+# bootstrap at the rollout end, |b| < 1e-4, V(A) -0.250, V(B) 0.250. APO's
+# GAE now drops V(s') at a termination and cuts the lambda-carry at every
+# end (xtma/apo's generalized_advantage_estimation): rho 1/2, V(B) = 1/2 -
+# nu b, V(A) = -(2 - lambda) nu b, b = 1/2 / (2 + nu (3 - lambda)) (nu 0.1,
+# lambda 0.95; derived, not yet read on a scratch copy).
 GROWS = {"centring sign reversed: grows without bound": math.inf}
 CASES["q1-APO-constant"] = Case(
     "q1-APO-constant",
@@ -946,24 +950,28 @@ CASES["q1-APO-constant"] = Case(
     (0.1, 0.1),
     f"{APO_SIGN}; right b = 0 (average reward 1, every advantage 0), today b >> 10",
 )
-FIXED, MASK = "mixed boundaries of today, sign fixed", "PPO-style done mask"
-B_WRONG = {FIXED: 2.553, MASK: 0.2268, "final obs everywhere": 35.78}
+FIXED = "reset obs inside a rollout, final obs at its end (the old GAE), sign fixed"
+RESET_OBS = "the reset observation bootstrapped at every end, sign fixed"
+B_MASK = 0.5 / (2 + 0.1 * (3 - 0.95))  # b at the done mask's fixed point
+B_WRONG = {FIXED: 2.553, RESET_OBS: 0.0, "final obs everywhere": 35.78}
 B_WRONG["final obs everywhere, lambda carry cut"] = 5.0
 CASES["q1-APO-termination"] = Case(
     "q1-APO-termination",
     (
-        Query("b", 0.0, B_WRONG),
-        Query("V(A)", -0.25, {FIXED: 2.296, MASK: -0.024}),
-        Query("V(B)", 0.25, {FIXED: 2.809, MASK: 0.477}),
+        Query("b", B_MASK, B_WRONG),
+        Query("V(A)", -(2 - 0.95) * 0.1 * B_MASK, {FIXED: 2.296, RESET_OBS: -0.25}),
+        Query("V(B)", 0.5 - 0.1 * B_MASK, {FIXED: 2.809, RESET_OBS: 0.25}),
     ),
     _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}),
     10_000,
     (0.1, 0.1, 0.1),
-    f"{APO_SIGN}; and its GAE bootstraps the reset obs inside a rollout but the final one at its end (APO/utils.py:48-51, train_APO.py:360-382); right b = 0, V(A) = -0.25, V(B) = 0.25 (a consistent reset bootstrap; the convention is the owner's call), today b >> 10",
+    f"{APO_SIGN}; right b = 0.227, V(A) = -0.024, V(B) = 0.477 (APO's done mask, the reference's convention), today b >> 10",
 )
 
 
-@xfail(f"{APO_SIGN}; right |b| <= 35.8 under any convention, today 1373 to 2225")
+@xfail(
+    f"{APO_SIGN}; right |b| <= 35.8 under any convention, 1373 to 2225 before the done mask"
+)
 def test_q1_apo_termination_cycle_keeps_b_bounded() -> None:
     """Past |b| = 100 b feeds itself, and no convention can be read yet."""
     case = CASES["q1-APO-termination"]

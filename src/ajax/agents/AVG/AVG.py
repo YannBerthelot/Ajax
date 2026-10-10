@@ -13,7 +13,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -55,7 +54,6 @@ class AVG(ActorCritic):
         num_critics: int = 1,
         # Expert for the eval expert-bias metric only.
         expert_policy: Optional[Callable] = None,
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # Gap A (Phase 4a): expose the most recent ``(T=1, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
@@ -123,13 +121,11 @@ class AVG(ActorCritic):
             expose_recent_rollout=expose_recent_rollout,
         )
         self.expert_policy = expert_policy
-        self.pid_actor_config = pid_actor_config
 
     def get_make_train(self) -> Callable:
         return partial(
             make_train,
             alpha_args=self.alpha_args,
             expert_policy=self.expert_policy,
-            pid_actor_config=self.pid_actor_config,
             extensions=tuple(self.extension_stack.extensions),
         )

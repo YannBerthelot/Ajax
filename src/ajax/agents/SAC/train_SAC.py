@@ -118,7 +118,6 @@ def init_SAC(
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
     expert_state_aug_dim: int = 0,
-    pid_actor_config=None,
     action_dim_override: Optional[int] = None,
     normalize_obs_running: bool = False,
     jsrl_curriculum: bool = False,
@@ -149,7 +148,6 @@ def init_SAC(
         num_critics=num_critics,
         window_size=window_size,
         stored_state=stored_state,
-        pid_actor_config=pid_actor_config,
         network_extras={
             "max_timesteps": max_timesteps,
             "extra_obs_dim": extra_obs_dim,
@@ -923,8 +921,6 @@ def make_train(
     jsrl_curriculum: bool = False,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
-    # PID actor: actor network predicts PID gains instead of raw actions.
-    pid_actor_config=None,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
     action_dim_override: Optional[int] = None,
     # --- Extension framework (the research-features surface) ---
@@ -972,7 +968,6 @@ def make_train(
         unsupported_recurrent_options(
             "SAC",
             expert_policy=expert_policy,
-            pid_actor_config=pid_actor_config,
             extensions=(stack.extensions or None),
             # SAC always builds a default CloningConfig; only actual
             # pre-training (pre_train_n_steps > 0) conflicts with memory.
@@ -1011,7 +1006,6 @@ def make_train(
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
             expert_state_aug_dim=expert_state_aug_dim,
-            pid_actor_config=pid_actor_config,
             action_dim_override=action_dim_override,
             normalize_obs_running=normalize_obs_running,
             jsrl_curriculum=jsrl_curriculum,

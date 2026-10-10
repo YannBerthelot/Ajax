@@ -116,36 +116,17 @@ def get_initialized_td3_actor_critic(
     critic_optimizer_config: OptimizerConfig,
     network_config: NetworkConfig,
     num_critics: int = 2,
-    pid_actor_config: Optional[object] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """TD3-specific init: deterministic actor + standard MultiCritic ensemble
     (its encoder's output LayerNorm per ``network_config``; TD3 turns it off).
-
-    Falls back to PIDActor when pid_actor_config is provided (the PID actor
-    already returns a deterministic action via its `.mean()`).
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
     memory = network_config.memory
-    if memory is not None and pid_actor_config is not None:
-        raise NotImplementedError("PIDActorNetwork does not support memory yet.")
-
-    if pid_actor_config is not None:
-        from ajax.modules.pid_actor import PIDActorNetwork
-
-        actor = PIDActorNetwork(
-            input_architecture=network_config.actor_architecture,
-            action_dim=action_dim,
-            obs_current_idx=pid_actor_config.obs_current_idx,
-            obs_target_idx=pid_actor_config.obs_target_idx,
-            obs_derivative_idx=pid_actor_config.obs_derivative_idx,
-            penultimate_normalization=network_config.penultimate_normalization,
-        )
-    else:
-        actor = DeterministicActor(
-            input_architecture=network_config.actor_architecture,
-            action_dim=action_dim,
-            memory=memory,
-        )
+    actor = DeterministicActor(
+        input_architecture=network_config.actor_architecture,
+        action_dim=action_dim,
+        memory=memory,
+    )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,

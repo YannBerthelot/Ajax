@@ -12,7 +12,6 @@ from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType
 
@@ -80,8 +79,6 @@ class TD3(ActorCritic):
         actor_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         expert_policy: Optional[Callable] = None,
-        # PID actor: actor predicts PID gains instead of raw actions.
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
@@ -139,7 +136,6 @@ class TD3(ActorCritic):
             skip_actor_pretrain=skip_actor_pretrain,
         )
         self.expert_policy = expert_policy
-        self.pid_actor_config = pid_actor_config
         self.action_pipeline = action_pipeline
 
     def get_make_train(self) -> Callable:
@@ -148,7 +144,6 @@ class TD3(ActorCritic):
             buffer=self.buffer,
             cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
-            pid_actor_config=self.pid_actor_config,
             action_pipeline=self.action_pipeline,
             extensions=tuple(self.extension_stack.extensions),
         )

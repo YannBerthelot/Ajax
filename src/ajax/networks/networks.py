@@ -13,7 +13,6 @@ from flax.serialization import to_state_dict
 
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.modules.pid_actor import PIDActorConfig, PIDActorNetwork
 from ajax.networks.memory import (
     MemoryCell,
     MemoryConfig,
@@ -474,7 +473,6 @@ def get_initialized_actor_critic(
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     action_dim_override: Optional[int] = None,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     log_std_state_independent: bool = False,
@@ -490,11 +488,6 @@ def get_initialized_actor_critic(
     augment_obs_with_expert_action=True, so the network is initialised with
     the correct input size matching what augment_obs_if_needed produces.
 
-    pid_actor_config: when set, uses PIDActorNetwork instead of Actor. The
-    network predicts PID gains from the full observation; the policy mean is
-    then computed as gains @ pid_terms (error and optionally derivative).
-    Fully compatible with residual RL.
-
     All other expert-guidance is handled at the loss level (value
     constraint, online BC) so the architecture is always a plain Actor/MultiCritic.
     """
@@ -506,8 +499,6 @@ def get_initialized_actor_critic(
 
     memory = parse_memory_config(network_config.memory)
     if memory is not None:
-        if pid_actor_config is not None:
-            raise NotImplementedError("PIDActorNetwork does not support memory yet.")
         if network_config.penultimate_normalization:
             # The encoder's l2-normalization is hardcoded to axis=1, which
             # is the batch axis on time-major (T, B, F) inputs.
@@ -524,35 +515,25 @@ def get_initialized_actor_critic(
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
 
-    if pid_actor_config is not None:
-        actor = PIDActorNetwork(
-            input_architecture=network_config.actor_architecture,
-            action_dim=action_dim,
-            obs_current_idx=pid_actor_config.obs_current_idx,
-            obs_target_idx=pid_actor_config.obs_target_idx,
-            obs_derivative_idx=pid_actor_config.obs_derivative_idx,
-            penultimate_normalization=network_config.penultimate_normalization,
-        )
-    else:
-        actor = Actor(
-            input_architecture=network_config.actor_architecture,
-            action_dim=action_dim,
-            continuous=continuous,
-            squash=squash,
-            penultimate_normalization=network_config.penultimate_normalization,
-            kernel_init=actor_kernel_init,
-            bias_init=actor_bias_init,
-            encoder_kernel_init=encoder_kernel_init,
-            encoder_bias_init=encoder_bias_init,
-            cnn_image_shape=cnn_image_shape,
-            cnn_extra_obs_dim=extra_obs_dim,
-            cnn_spec=cnn_spec,
-            log_std_state_independent=log_std_state_independent,
-            log_std_init=log_std_init,
-            mean_kernel_init=mean_kernel_init,
-            disable_encoder_output_norm=disable_encoder_output_norm,
-            memory=memory,
-        )
+    actor = Actor(
+        input_architecture=network_config.actor_architecture,
+        action_dim=action_dim,
+        continuous=continuous,
+        squash=squash,
+        penultimate_normalization=network_config.penultimate_normalization,
+        kernel_init=actor_kernel_init,
+        bias_init=actor_bias_init,
+        encoder_kernel_init=encoder_kernel_init,
+        encoder_bias_init=encoder_bias_init,
+        cnn_image_shape=cnn_image_shape,
+        cnn_extra_obs_dim=extra_obs_dim,
+        cnn_spec=cnn_spec,
+        log_std_state_independent=log_std_state_independent,
+        log_std_init=log_std_init,
+        mean_kernel_init=mean_kernel_init,
+        disable_encoder_output_norm=disable_encoder_output_norm,
+        memory=memory,
+    )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,

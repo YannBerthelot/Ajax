@@ -31,7 +31,6 @@ from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     AlphaConfig,
@@ -104,7 +103,6 @@ def init_REDQ(
     number_of_critics: int,
     window_size: int = 10,
     stored_state: bool = False,
-    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> REDQState:
     rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -118,7 +116,6 @@ def init_REDQ(
         num_critics=number_of_critics,
         window_size=window_size,
         stored_state=stored_state,
-        pid_actor_config=pid_actor_config,
     )
     return REDQState(
         rng=rng,
@@ -341,7 +338,6 @@ def make_train(
     start_timestep: int = 0,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
     """REDQ's train function: one step per env, then (from
@@ -359,7 +355,6 @@ def make_train(
                 if cloning_args is not None and cloning_args.pre_train_n_steps > 0
                 else None
             ),
-            pid_actor_config=pid_actor_config,
         )
     loop = TrainLoop.create(
         env_args,
@@ -382,7 +377,6 @@ def make_train(
             buffer,
             number_of_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
-            pid_actor_config=pid_actor_config,
         )
         return pretrain_on_expert(
             agent_state,

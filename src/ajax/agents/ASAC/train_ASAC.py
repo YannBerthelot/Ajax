@@ -34,7 +34,6 @@ from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import zeros_carry_like
 from ajax.networks.networks import predict_value, predict_value_sequence
 from ajax.state import (
@@ -88,7 +87,6 @@ def init_ASAC(
     buffer: BufferType,
     window_size: int = 10,
     stored_state: bool = False,
-    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> ASACState:
     rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -102,7 +100,6 @@ def init_ASAC(
         num_critics=2,
         window_size=window_size,
         stored_state=stored_state,
-        pid_actor_config=pid_actor_config,
     )
     return ASACState(
         rng=rng,
@@ -398,7 +395,6 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
     """ASAC's train function: one step per env, then (from
@@ -426,7 +422,6 @@ def make_train(
             alpha_args,
             buffer,
             stored_state=agent_config.stored_state,
-            pid_actor_config=pid_actor_config,
         )
 
     def update(agent_state: ASACState, _transition: Transition) -> Any:

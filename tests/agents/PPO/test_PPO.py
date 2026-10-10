@@ -4,6 +4,8 @@ import pytest
 
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.train_PPO import _force_reset, _normalisation_info
+from ajax.environments.create import strip_ajax_wrappers
+from ajax.environments.interaction import reset
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 
@@ -73,7 +75,8 @@ def test_PPO_train_playground_smoke():
 @pytest.mark.parametrize("env_id, mode", [("Pendulum-v1", "gymnax"), ("fast", "brax")])
 def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     """num_resets_per_eval resets the envs, not the normaliser's running
-    statistics (each gymnax env restarted its own from the reset)."""
+    statistics (each gymnax env restarted its own from the reset): the reset
+    observation is normalised with the statistics before it."""
     agent = PPO(
         env_id=env_id,
         n_envs=2,
@@ -86,3 +89,11 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     after = _force_reset(state, agent.env_args, mode).collector_state
     kept = _normalisation_info(after.env_state, mode)
     jax.tree.map(np.testing.assert_array_equal, kept, saved)
+
+    key = jax.random.split(state.rng)[0]
+    keys = jax.random.split(key, 2) if mode == "gymnax" else key
+    task = strip_ajax_wrappers(agent.env_args.env)[0]
+    raw, _ = reset(keys, task, mode, agent.env_args.env_params)
+    std = np.sqrt(np.asarray(saved.obs.var) + 1e-8).mean(axis=0)
+    want = (raw - np.asarray(saved.obs.mean).mean(axis=0)) / std
+    np.testing.assert_allclose(after.last_obs, want.reshape(raw.shape), atol=1e-4)

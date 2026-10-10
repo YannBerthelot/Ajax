@@ -137,17 +137,10 @@ class PPO(ActorCritic):
             disable_encoder_output_norm=disable_encoder_output_norm,
             squash=squash,
             episode_length=episode_length,
-            # Brax-faithful normalise-at-forward: env wrapper is told
-            # NOT to apply normalisation to ``state.obs`` (transition
-            # obs stays raw). PPO uses Ajax's existing AGENT-side
-            # running normaliser (``collector_state.obs_norm_info``
-            # synced into ``actor_state.obs_norm_info`` /
-            # ``critic_state.obs_norm_info`` at every collect step) so
-            # ``get_pi`` / ``predict_value`` apply ``apply_obs_norm``
-            # consistently at both COLLECT and LOSS forward calls. The
-            # env wrapper stays in place without applying -- the actual
-            # normalisation is fully agent-side.
-            apply_obs_normalization=not normalize_observations,
+            # The env's normaliser hands every observation normalised
+            # with the statistics of its step, and the rollout keeps it
+            # so: the loss sees what the policy acted on (the ratio is 1
+            # at the first epoch), as in SB3's VecNormalize and CleanRL.
             extensions=extensions,
         )
 
@@ -187,15 +180,6 @@ class PPO(ActorCritic):
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
         self.pid_actor_config = pid_actor_config
         self.reward_shaping_fn = reward_shaping_fn
-        # Brax-faithful normalise-at-forward: when the user opted into
-        # ``normalize_observations``, route it through the AGENT-side
-        # running stats (collector_state.obs_norm_info, applied inside
-        # get_pi / predict_value via apply_obs_norm) instead of the env
-        # wrapper. The wrapper still needs the flag plumbed (so we know
-        # the obs in transition is raw, not pre-normalised by the env)
-        # -- that's handled inside ``super().__init__`` by toggling
-        # ``apply_obs_normalization=False`` below.
-        self._normalize_obs_running = bool(normalize_observations)
 
     def get_make_train(self) -> Callable:
         """
@@ -207,7 +191,6 @@ class PPO(ActorCritic):
         return partial(
             make_train,
             pid_actor_config=self.pid_actor_config,
-            normalize_obs_running=self._normalize_obs_running,
             reward_shaping_fn=self.reward_shaping_fn,
             extensions=tuple(self.extension_stack.extensions),
         )

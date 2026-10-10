@@ -78,10 +78,8 @@ def init_PPO(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     pid_actor_config: Optional[PIDActorConfig] = None,
-    normalize_obs_running: bool = False,
 ) -> PPOState:
-    """The initial actor, critic and collector; with
-    ``normalize_obs_running``, the agent-side observation statistics."""
+    """The initial actor, critic and collector."""
     (
         rng,
         init_key,
@@ -114,24 +112,7 @@ def init_PPO(
         encoder_bias_init=network_args.encoder_bias_init,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    collector_state = init_collector_state(
-        collector_key,
-        env_args=env_args,
-        mode=mode,
-        normalize_obs_running=normalize_obs_running,
-    )
-
-    # Pre-allocate obs_norm_info on actor/critic state so the scan
-    # carry's pytree stays stable from iteration zero. The first
-    # collect step will sync the running stats from
-    # ``collector_state.obs_norm_info`` here (a fresh zero-init from
-    # ``init_agent_obs_norm``); without this preallocation, the scan
-    # input carry has ``None`` while the output carry (after the
-    # collect sync) has a ``NormalizationInfo`` -> pytree-structure
-    # mismatch and the scan rejects the body.
-    if normalize_obs_running and collector_state.obs_norm_info is not None:
-        actor_state = actor_state.replace(obs_norm_info=collector_state.obs_norm_info)
-        critic_state = critic_state.replace(obs_norm_info=collector_state.obs_norm_info)
+    collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)
 
     return PPOState(
         rng=rng,
@@ -771,7 +752,6 @@ def make_train(
     pid_actor_config: Optional[PIDActorConfig] = None,
     reward_shaping_fn: Optional[Callable] = None,
     extensions: Sequence = (),
-    normalize_obs_running: bool = False,
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
@@ -790,7 +770,6 @@ def make_train(
             critic_optimizer_args,
             network_args,
             pid_actor_config=pid_actor_config,
-            normalize_obs_running=normalize_obs_running,
         )
 
     def update(

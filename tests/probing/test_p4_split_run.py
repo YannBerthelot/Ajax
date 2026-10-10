@@ -207,10 +207,6 @@ def test_a_resumed_run_evaluates_only_when_it_logs(name: str) -> None:
 
 
 # --- Totals and bounds that must survive a resume -----------------------------
-@xfail(
-    "SAC(use_train_frac=True) does not trace: interaction.py:970-972 picks the raw next observation, which lacks the training-fraction column, as the next last_obs, so the scan carry changes shape (TypeError). Right answer: it trains to 1.0",
-    TypeError,
-)
 def test_sac_trains_with_the_training_fraction_in_its_observation() -> None:
     """A fresh run trains and ends at training fraction 1.0 (the observation
     column's source, state.py:222-226); no other test runs use_train_frac."""
@@ -220,8 +216,7 @@ def test_sac_trains_with_the_training_fraction_in_its_observation() -> None:
 
 
 @xfail(
-    "max_timesteps is the first call's total (train_SAC.py:1754) and is restored with the state (state.py:191, 222-226), so after resuming train_frac = timestep / (budget/2). Right answer 1.0 at the end, as in the uninterrupted run; 2.0 behind the trace crash (read with it repaired on a scratch copy). Today it fails first on the trace crash above",
-    (TypeError, AssertionError),
+    "max_timesteps is the first call's total (train_SAC.py:1018) and is restored with the state (state.py:189-193), so after resuming train_frac = timestep / (budget/2). Right answer 1.0 at the end, as in the uninterrupted run; today 2.0"
 )
 def test_the_training_fraction_ends_where_the_uninterrupted_run_ends(
     tmp_path: Path,

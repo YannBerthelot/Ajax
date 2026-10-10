@@ -206,21 +206,6 @@ def _twin_run(name: str, backend: str) -> Any:
 
 
 ONE_STEP = {"SAC": 5000, "REDQ": 1000, "TD3": 5000, "DQN": 5000}
-OR_MASK = {
-    "SAC": "train_SAC.py:998",
-    "REDQ": "train_REDQ.py:293",
-    "TD3": "train_TD3.py:239",
-    "DQN": "train_DQN.py:357",
-}
-TODAY_OR = {  # mean (V(0), V(A), V(B)) on seeds 0-7; OR flags predicts (0.8, 1.6, 1.6)
-    ("gymnax", "SAC"): "(0.789, 1.587, 1.605)",
-    ("gymnax", "REDQ"): "(0.831, 1.518, 1.561); medians (0.825, 1.583, 1.571)",
-    ("gymnax", "TD3"): "(0.821, 1.613, 1.617)",
-    ("gymnax", "DQN"): "(0.822, 1.622, 1.645)",
-    ("brax", "SAC"): "(0.790, 1.600, 1.598)",
-    ("brax", "REDQ"): "(0.837, 1.596, 1.589)",
-    ("brax", "TD3"): "(0.815, 1.617, 1.601)",
-}
 # Calibrated on seeds 1000-1031 and 2000-2031 (5000 fails for each: worst
 # 0.057 to 0.075); certified on 3000-3031, 32/32 for each.
 TWIN_CAL = {
@@ -231,10 +216,8 @@ TWIN_CAL = {
 P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN")]
 P6_CELLS += [("brax", n) for n in ("SAC", "PPO", "REDQ", "TD3")]
 P6: dict[str, Case] = {}
-OR_DEFECT = "the bootstrap is masked on terminated OR truncated ({}), so the time limit of type-A episodes reads as a natural end; fixing the mask alone leaves the next obs the next buffer row's, the reset obs after an end (buffers/utils.py:139); right (V(0), V(A), V(B)) = (0.9, 2.0, 1.6), today {}"
 for backend, name in P6_CELLS:
     budget, tol = TWIN_CAL.get((backend, name), (ONE_STEP.get(name, 0), ()))
-    defect = "" if tol else OR_DEFECT.format(OR_MASK[name], TODAY_OR[backend, name])
     slow = name == "REDQ" or (backend == "brax" and name not in ("SAC", "PPO"))
     queries = twin_queries(name if name in ("PPO", "PQN") else "1-step", backend)
     case = Case(
@@ -243,7 +226,6 @@ for backend, name in P6_CELLS:
         _twin_run(name, backend),
         budget,
         tol,
-        defect,
         slow=slow,
     )
     P6[case.id] = case

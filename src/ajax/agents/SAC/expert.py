@@ -148,7 +148,7 @@ def pretrain_critic_bellman(
         (
             observations,
             terminated,
-            truncated,
+            _,
             next_observations,
             rewards,
             actions,
@@ -157,7 +157,7 @@ def pretrain_critic_bellman(
         ) = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, sample_key
         )
-        dones = jnp.logical_or(terminated, truncated)
+        dones = terminated
         agent_state, _ = update_value_fn(
             observations=observations,
             actions=actions,

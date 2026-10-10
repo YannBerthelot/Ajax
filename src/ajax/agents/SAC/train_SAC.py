@@ -1075,10 +1075,6 @@ def make_train(
     # Update start thresholds
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
-    # Value-threshold box (v_min/v_max inferred from MC pretraining).
-    # Threads into ``make_scan_fn`` to resolve _box_v_min/_box_v_max from
-    # the agent state. The ValueBox.action math lives on the extension.
-    use_box: bool = False,
     expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
@@ -1130,7 +1126,7 @@ def make_train(
     Several kwargs above are kept on the function signature because they
     thread into init / collection / pipeline at a level the extension
     framework doesn't reach yet (``use_residual_rl``, ``jsrl_curriculum``,
-    ``use_box``, ``use_bellman_critic_pretrain``, ``use_pid_policy``,
+    ``use_bellman_critic_pretrain``, ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``use_train_frac``,
     ``normalize_obs_running``, ``store_policy_action``, etc.). They
     mirror the corresponding extension's "static" flag where applicable.
@@ -1229,8 +1225,8 @@ def make_train(
 
         # The extensions' states (on a sub-key of init_key), then their
         # one-shot pretraining (MCPretrain fills phi* and the value range
-        # v_min/v_max the value box reads back in make_scan_fn) on
-        # expert_key. Both folds are no-ops without extensions.
+        # v_min/v_max ValueBox reads off the state) on expert_key. Both
+        # folds are no-ops without extensions.
         agent_state = stack.fold_init_states(agent_state, jax.random.split(init_key)[0])
         agent_state = stack.fold_pretrain(
             agent_state, jnp.asarray(0), expert_key, total_timesteps
@@ -1266,26 +1262,7 @@ def make_train(
 
         return agent_state
 
-    # ------------------------------------------------------------------
-    # Per-iteration scan body. Built once at trace time *after*
-    # init/resume is resolved so the value-box bounds can be read off the
-    # resolved ``agent_state``. On the fresh-init path the MC-pretrain
-    # block above stored those bounds on ``expert_v_min/expert_v_max``;
-    # on resume they are left at 0.0, matching the pre-refactor behaviour
-    # (the original ``train`` defaulted ``_box_v_min/_box_v_max`` to 0.0
-    # and only overwrote them inside the fresh-init MC-pretrain branch).
-    # ------------------------------------------------------------------
-    def make_scan_fn(agent_state, resume_from_state, _key, index):
-        # Value-box bounds: on a fresh ``use_box`` run they equal the
-        # MC-pretrain v_min/v_max persisted on the agent state; on resume
-        # (or when no MC pretrain ran) they default to 0.0.
-        if use_box and not resume_from_state:
-            _box_v_min = agent_state.expert_v_min
-            _box_v_max = agent_state.expert_v_max
-        else:
-            _box_v_min = jnp.array(0.0)
-            _box_v_max = jnp.array(0.0)
-
+    def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         # The pipeline carries the SAC-side bookkeeping (warmup mix,
         # ``is_expert_flag``, ``buffer_action``, expert-state threading)
         # and the gain-policy short-circuit; the EDGE / ValueBox / JSRL
@@ -1295,8 +1272,6 @@ def make_train(
             recurrent=_recurrent,
             env_args=env_args,
             extension_stack=stack,
-            box_v_min=_box_v_min,
-            box_v_max=_box_v_max,
             expert_fraction=expert_fraction,
             use_residual_rl=use_residual_rl,
             residual_scale=residual_scale,

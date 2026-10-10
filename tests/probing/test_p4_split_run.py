@@ -248,7 +248,7 @@ class ConstantExpert:
 class RecordingValueBox(target_mods.ValueBox):
     """Per step: the bounds handed to ``box_compute_threshold`` (swapped in while
     ValueBox.action is traced: it looks the function up) and stored on the state
-    (target_mods.py:350-351), and the threshold's position in the box (0-1)."""
+    (target_mods.py:380-382), and the threshold's position in the box (0-1)."""
 
     sink: Any = None  # a function: hashed by identity, so each is traced afresh
 
@@ -282,7 +282,7 @@ def value_box_agent(records: list) -> Any:
         RecordingValueBox(expert_policy=e, sink=sink),
     )
     kw: dict[str, Any] = {**SAC_KW, **dict.fromkeys(STARTS, 20), **off, "n_envs": 1}
-    kw |= {"batch_size": 16, "gamma": agents.GAMMA, "expert_policy": e, "use_box": True}
+    kw |= {"batch_size": 16, "gamma": agents.GAMMA, "expert_policy": e}
     return agents.make("SAC", *envs.package(RD), preset=None, extensions=exts, **kw)
 
 
@@ -312,9 +312,6 @@ def test_the_value_box_readout_sees_what_a_fresh_leg_computes() -> None:
     np.testing.assert_allclose(np.sort(first[:, 4]), ramp, rtol=0, atol=1e-6)
 
 
-@xfail(
-    "on resume make_scan_fn sets the value-box bounds to 0.0 (train_SAC.py:1867-1872) instead of the MC-pretrain bounds stored on the state. Right answer: the stored expert_v_min/expert_v_max; today 0.0 and 0.0, so the threshold collapses"
-)
 def test_the_value_box_keeps_its_bounds_after_resuming() -> None:
     """At every step of the resumed leg ValueBox is handed the stored bounds."""
     _, second, stored = value_box()
@@ -323,7 +320,7 @@ def test_the_value_box_keeps_its_bounds_after_resuming() -> None:
 
 
 @xfail(
-    "ValueBox ramps on timestep / the call's own total (target_mods.py:350, fed from train_SAC.py:1905), and a resumed call starts at the restored timestep. Right answer: the threshold stays within the box (position at most 1) at every step; today up to 1.99 after resuming"
+    "ValueBox ramps on timestep / the call's own total (target_mods.py:379, fed from agents/SAC/action_pipeline.py:322), and a resumed call starts at the restored timestep. Right answer: the threshold stays within the box (position at most 1) at every step; today up to 1.99 after resuming"
 )
 def test_the_value_box_threshold_stays_within_the_box_after_resuming() -> None:
     """The threshold stays in the box (position <= 1) in either leg, any schedule."""

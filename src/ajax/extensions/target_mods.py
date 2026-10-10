@@ -340,10 +340,10 @@ class ValueBox(Extension):
     The :meth:`action` phase owns the override math. It reads the
     pre-computed per-step quantities off the SAC action pipeline's batch
     dict (``policy_action``, ``expert_action``, the running
-    ``post_warmup_action``, the box bounds ``box_v_min`` / ``box_v_max``
-    and the previous step's ``last_in_box`` flag) and writes
-    ``in_value_box`` / ``entry_bonus`` back into the dict so the pipeline
-    can record them on the transition. The substitution itself is
+    ``post_warmup_action``), the box bounds off the agent state (so a
+    resumed run keeps them) and writes ``in_value_box`` / ``entry_bonus``
+    back into the dict so the pipeline can record them on the
+    transition. The substitution itself is
     ``box_action_override`` above and is
     applied AFTER the warmup/post-warmup choice — matching the legacy
     ``make_action_pipeline`` ordering byte-for-byte.
@@ -364,9 +364,9 @@ class ValueBox(Extension):
         """Override with ``a_expert`` inside the value box.
 
         ``obs`` is the SAC action pipeline's per-step batch dict (see
-        :mod:`ajax.extensions.exploration` for the convention). ``box_v_min``
-        and ``box_v_max`` come from the MC-pretrain v_min/v_max written
-        onto :class:`SACState`. Returns the action with the in-box rows
+        :mod:`ajax.extensions.exploration` for the convention). The box
+        bounds are the MC-pretrain v_min/v_max stored on
+        :class:`SACState`. Returns the action with the in-box rows
         replaced by the expert action; writes ``in_value_box`` and
         ``entry_bonus`` into ``obs`` for pipeline-side bookkeeping
         (buffer-write suppression, reward shaping, ``is_expert_flag``).
@@ -374,12 +374,12 @@ class ValueBox(Extension):
         del ext_state, rng, ctx
         env_action = obs["env_action"]
         expert_action = obs["expert_action"]
-        box_v_min = obs["box_v_min"]
-        box_v_max = obs["box_v_max"]
         total_timesteps = obs["total_timesteps"]
 
         train_frac = agent_state.collector_state.timestep / total_timesteps
-        threshold = box_compute_threshold(box_v_min, box_v_max, train_frac)
+        threshold = box_compute_threshold(
+            agent_state.expert_v_min, agent_state.expert_v_max, train_frac
+        )
         last_obs = agent_state.collector_state.last_obs
         raw_obs = obs.get("raw_obs", None)
         raw_for_box = raw_obs if raw_obs is not None else last_obs[..., :-1]

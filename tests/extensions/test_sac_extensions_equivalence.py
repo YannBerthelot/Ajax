@@ -553,11 +553,6 @@ def test_value_box_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        # ``use_box`` on the SAC class is kept because it gates the
-        # ``_box_v_min/_box_v_max`` resolution from MC-pretrain
-        # ``expert_v_min/v_max`` inside :func:`make_scan_fn`. The
-        # ValueBox extension owns the override math via :meth:`action`.
-        use_box=True,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,

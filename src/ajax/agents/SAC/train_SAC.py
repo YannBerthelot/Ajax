@@ -18,10 +18,17 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
+from ajax.agents.SAC.action_pipeline import make_action_pipeline, make_next_expert_fn
 from ajax.agents.SAC.core import (
     TemperatureAuxiliaries,
     update_target_networks,
     update_temperature,
+)
+from ajax.agents.SAC.expert import (
+    augment_obs_if_needed,
+    collect_and_store_expert_transitions,
+    compute_expert_diagnostics,
+    pretrain_critic_bellman,
 )
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
@@ -35,23 +42,12 @@ from ajax.environments.utils import (
     get_action_dim,
     get_state_action_shapes,
 )
-from ajax.extensions._sac_hooks import (
-    make_action_pipeline,
-    make_next_expert_fn,
-)
 from ajax.extensions.base import ExtensionContext, ExtensionStack
-from ajax.extensions.expert import ResidualPolicy, first_of_type
-from ajax.extensions.pretrain import PhiRefresh as _PhiRefresh
 from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     start_async_logging,
     vmap_log,
-)
-from ajax.modules.expert import augment_obs_if_needed, compute_expert_diagnostics
-from ajax.modules.pretrain import (
-    collect_and_store_expert_transitions,
-    pretrain_critic_bellman,
 )
 from ajax.networks.networks import predict_value
 from ajax.perf_utils import build_resumable_train, final_aux_scan
@@ -65,23 +61,6 @@ from ajax.state import (
 )
 from ajax.types import BufferType
 from ajax.utils import fill_with_nan
-
-# Extension `name` attributes for the four target-mod extensions
-# implemented in :mod:`ajax.extensions.target_mods`. Used by
-# ``update_value_functions`` to decide whether to materialise
-# ``q_preds_for_var`` (only ``MCVarianceCorrection`` actually needs it,
-# but the legacy code path conservatively computed it whenever any
-# target modifier was active — keep the same trigger set so the parity
-# tolerance is undisturbed).
-_TARGET_MOD_NAMES = frozenset(
-    {
-        "ibrl",
-        "lcb_gated_bootstrap",
-        "critic_blend",
-        "mc_variance_correction",
-    }
-)
-
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclasses for logging
@@ -304,8 +283,9 @@ def update_value_functions(
     # ``q_preds`` batch entry for MCVarianceCorrection, or expert_q is set
     # so q_gap can be reported). The gradient-bearing pass inside
     # critic_loss_fn already exposes var_preds via core_aux.
-    has_target_mods = extension_stack is not None and any(
-        ext.name in _TARGET_MOD_NAMES for ext in extension_stack.extensions
+    has_target_mods = (
+        extension_stack is not None
+        and "on_target" in extension_stack.implemented_phases()
     )
     needs_expert_q_preds = has_target_mods or expert_q is not None
     if needs_expert_q_preds:
@@ -315,8 +295,8 @@ def update_value_functions(
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         )
 
-    # 3. Expert target modifiers fold through the ExtensionStack
-    # (IBRL → LCBGatedBootstrap → CriticBlend → MCVarianceCorrection).
+    # 3. The extensions' target modifiers (IBRL, LCBGatedBootstrap,
+    # CriticBlend, MCVarianceCorrection, ...) fold in stack order.
     if has_target_mods:
         # `has_target_mods` already asserts `extension_stack is not
         # None` — assert it again for mypy.
@@ -418,7 +398,7 @@ def policy_loss_function(
     policy_action_transform: Optional[Callable] = None,
     carries: Optional[RecurrentCarries] = None,
     extension_stack: Optional[ExtensionStack] = None,
-    ext_state: tuple = (),
+    agent_state: Any = None,
     total_timesteps: int = 1,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """SAC actor loss with composable expert modifiers.
@@ -435,15 +415,17 @@ def policy_loss_function(
     )
 
     # 1. Pre-process: the ExtensionStack's ``on_obs`` fold
-    # (ExpertObsAugmentation detaches the expert-action dims). Empty
-    # stack ⇒ identity.
-    if extension_stack is not None and extension_stack.extensions:
+    # (ExpertObsAugmentation detaches the expert-action dims) on
+    # ``agent_state``'s extension states and step. Empty stack ⇒ identity.
+    if extension_stack:
         _on_obs_ctx = ExtensionContext(
-            step=jnp.asarray(0),
+            step=agent_state.collector_state.timestep,
             rng=rng,
             total_steps=total_timesteps,
         )
-        obs_for_actor = extension_stack.on_obs(observations, ext_state, _on_obs_ctx)
+        obs_for_actor = extension_stack.on_obs(
+            observations, agent_state.ext_state, _on_obs_ctx
+        )
     else:
         obs_for_actor = observations
 
@@ -476,17 +458,15 @@ def policy_loss_function(
     q_min = jnp.min(q_preds, axis=0)
     loss_actor = alpha * log_probs - q_min
 
-    # 4. Expert diagnostics and BC loss
-    # OnlineBC is the only :class:`Extension` that currently contributes
-    # an ``actor_loss`` term; trigger the precomputed-a_expert path
-    # whenever that extension is present so the BC math finds its
-    # operand (the legacy ``needs_bc`` gate keyed on a non-None
-    # ``bc_loss_fn`` callable, which is gone now).
+    # 4. Expert diagnostics and the actor-loss extensions' terms, which
+    # get the expert action (OnlineBC's BC target) once phi* exists.
     needs_expert = expert_policy is not None and use_expert_guidance
-    has_online_bc = extension_stack is not None and any(
-        ext.name == "online_bc" for ext in extension_stack.extensions
+    needs_bc = (
+        extension_stack is not None
+        and "actor_loss" in extension_stack.implemented_phases()
+        and expert_policy is not None
+        and expert_critic_params is not None
     )
-    needs_bc = has_online_bc and expert_critic_params is not None
 
     if needs_expert or needs_bc:
         a_expert = (
@@ -513,16 +493,11 @@ def policy_loss_function(
         q_expert_logged = jnp.zeros(())
         above_expert_frac = jnp.zeros(())
 
-    # Additive actor-loss terms — folded through ``stack.actor_loss``.
-    # Each extension reads what it needs out of the ``batch`` dict
-    # (OnlineBC: pi_loc, a_expert, train_frac, critic_state,
-    # expert_critic_params, expert_v_min/v_max). When the relevant
-    # operands are missing (e.g. ``expert_critic_params is None`` ⇒ MC
-    # pre-training hasn't run) the extension's own gate returns 0.0,
-    # so this path is a silent no-op in that case — matching the
-    # pre-refactor ``bc_loss_fn`` builder, which simply returned
-    # ``None``. Empty stack ⇒ 0.0 too.
-    if extension_stack is not None and extension_stack.extensions:
+    # Additive actor-loss terms. Each extension reads what it needs out of
+    # the ``batch`` dict (OnlineBC: pi_loc, a_expert, train_frac,
+    # critic_state, expert_critic_params, expert_v_min/v_max) and returns
+    # 0.0 when an operand is missing (no phi* before MC pretraining).
+    if extension_stack:
         ext_batch = {
             "pi_loc": pi.distribution.loc,
             "a_expert": a_expert,
@@ -533,18 +508,14 @@ def policy_loss_function(
             "expert_v_min": expert_v_min,
             "expert_v_max": expert_v_max,
         }
-        ext_ctx = ExtensionContext(
-            step=jnp.asarray(0),
-            rng=rng,
-            total_steps=total_timesteps,
-        )
-        # The actor-loss extensions (OnlineBC) read every operand off
-        # ``batch``; agent_state and ext_state are passed for API
-        # symmetry. The ext_state tuple must match the stack's
-        # ``init_states`` shape (one entry per extension) so the
-        # ExtensionStack fold can index it.
         bc_term = jnp.asarray(
-            extension_stack.actor_loss(None, ext_state, ext_batch, ext_ctx)
+            extension_stack.fold_actor_loss(
+                agent_state,
+                ext_batch,
+                agent_state.collector_state.timestep,
+                rng,
+                total_timesteps,
+            )
         )
     else:
         bc_term = jnp.zeros(())
@@ -602,7 +573,7 @@ def update_policy(
         policy_action_transform=policy_action_transform,
         carries=carries,
         extension_stack=extension_stack,
-        ext_state=agent_state.ext_state,
+        agent_state=agent_state,
         total_timesteps=total_timesteps,
     )
 
@@ -760,17 +731,14 @@ def update_agent(
     # Avoids computing expert_policy twice (once here, once inside policy_loss_function)
     expert_q = None
     a_expert_precomputed = None
-    # ``has_online_bc`` mirrors the legacy ``bc_loss_fn is not None``
-    # gate now that the BC term lives on
-    # :meth:`OnlineBC.actor_loss`. Triggering the precomputed-a_expert
-    # path whenever the extension is present preserves the original
-    # numerical path even when MC pretrain hasn't (yet) populated
-    # ``expert_critic_params``.
-    has_online_bc = extension_stack is not None and any(
-        ext.name == "online_bc" for ext in extension_stack.extensions
+    # The actor-loss extensions (OnlineBC) take the expert action from
+    # here, phi* or not.
+    has_actor_loss = (
+        extension_stack is not None
+        and "actor_loss" in extension_stack.implemented_phases()
     )
     needs_expert = expert_policy is not None and (
-        use_expert_guidance or policy_action_transform is not None or has_online_bc
+        use_expert_guidance or policy_action_transform is not None or has_actor_loss
     )
     if needs_expert:
         # Prefer the a_expert stored in the buffer at collection time
@@ -1138,9 +1106,6 @@ def make_train(
     jsrl_curriculum: bool = False,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
-    # Pre-collected MC data: (obs, action, mc_return) JAX arrays.
-    # When provided, the in-run expert rollout + MC-return computation is skipped.
-    mc_preloaded_data: Optional[Tuple] = None,
     # PID actor: actor network predicts PID gains instead of raw actions.
     pid_actor_config=None,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
@@ -1195,22 +1160,18 @@ def make_train(
         if action_dim_override is not None
         else get_action_dim(env_args.env, env_args.env_params)
     )
-    _use_phi_refresh = any(isinstance(e, _PhiRefresh) for e in extensions)
     stack = ExtensionStack(extensions).bind_to_agent(
         env_args=env_args,
         network_args=network_args,
         critic_optimizer_args=critic_optimizer_args,
         num_critics=num_critics,
         buffer=buffer,
-        mode=mode,
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
-        total_timesteps=total_timesteps,
         use_train_frac=use_train_frac,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
-        use_phi_refresh=_use_phi_refresh,
-        mc_preloaded_data=mc_preloaded_data,
         action_dim=_resolved_action_dim,
+        extensions=tuple(extensions),
     )
 
     _recurrent = network_args.memory is not None
@@ -1358,10 +1319,14 @@ def make_train(
             total_timesteps=total_timesteps,
         )
 
-        # ResidualPolicy builds the actor-loss / TD-target residual
-        # transform ``(actions, raw_obs, a_expert) -> actions`` and the
-        # eval-time one; ``None`` ⇒ pure SAC actor loss.
-        _rp = first_of_type(stack.extensions, ResidualPolicy)
+        # An extension with ``build_policy_transform`` (ResidualPolicy)
+        # supplies the actor-loss / TD-target action transform
+        # ``(actions, raw_obs, a_expert) -> actions`` and the eval-time
+        # one; ``None`` ⇒ pure SAC actor loss.
+        _rp = next(
+            (e for e in stack.extensions if hasattr(e, "build_policy_transform")),
+            None,
+        )
         _policy_action_transform = (
             _rp.build_policy_transform(expert_policy) if _rp is not None else None
         )

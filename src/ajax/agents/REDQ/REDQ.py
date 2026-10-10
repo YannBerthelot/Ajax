@@ -48,7 +48,6 @@ class REDQ(ActorCritic):
         num_critic_updates: int = 20,
         num_critics: int = 10,
         subset_size: int = 2,
-        repulsion_coef: float = 0.0,
         # Pluggable memory block (see ajax.networks.memory); trains on
         # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
         memory: Optional[Union[MemoryConfig, dict]] = None,
@@ -131,7 +130,6 @@ class REDQ(ActorCritic):
             num_critic_updates=num_critic_updates,
             num_critics=num_critics,
             subset_size=subset_size,
-            repulsion_coef=repulsion_coef,
             burn_in=burn_in,
             sequence_length=sequence_length,
             stored_state=stored_state,

@@ -4,8 +4,8 @@ SAC with an ensemble of ``num_critics`` critics updated
 ``num_critic_updates`` times per environment step, each on a fresh replay
 minibatch with a target the min over a random subset of ``subset_size``
 target critics, and an actor that
-maximises the ensemble's mean Q. ``repulsion_coef`` adds a function-space
-kernel repulsion between the critics (off by default).
+maximises the ensemble's mean Q. The SVGD variant's kernel repulsion
+between the critics is the KernelRepulsion extension.
 """
 
 from collections.abc import Sequence
@@ -55,11 +55,8 @@ class ValueAuxiliaries:
     critic_loss: jax.Array
     target_q: jax.Array
     log_probs: jax.Array
-    repulsion_loss: jax.Array
-    # Scale-free ensemble divergence diagnostics (stop_gradient'd). Unlike
-    # repulsion_loss (self-normalised by the median-heuristic bandwidth, so
-    # ~O(1) regardless of actual spread), these reveal whether the ensemble
-    # genuinely diversified in function space.
+    # Scale-free ensemble divergence diagnostics (stop_gradient'd): whether
+    # the ensemble diversified in function space.
     ensemble_q_std: jax.Array
     mean_pairwise_q_dist: jax.Array
 
@@ -93,35 +90,6 @@ def q_ensemble_divergence(q_preds: jax.Array) -> Tuple[jax.Array, jax.Array]:
     off_diag_sum = dists.sum() - jnp.trace(dists)
     mean_pairwise = off_diag_sum / (n * (n - 1))
     return q_std, mean_pairwise
-
-
-def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
-    """Function-space SVGD-style RBF kernel repulsion penalty.
-
-    q_preds has shape ``(num_critics, batch, ...)``. Each ensemble member's
-    output is flattened to a feature vector; pairwise squared distances feed
-    an RBF kernel with the median-heuristic bandwidth (Liu & Wang 2017).
-    The returned scalar is the mean kernel value over all pairs — minimising
-    it pushes members apart in function space.
-
-    The bandwidth `h` is stop_gradient'd so the kernel adapts to the current
-    spread of predictions without contributing a confounding gradient term.
-    """
-    n = q_preds.shape[0]
-    feats = q_preds.reshape(n, -1)
-    diffs = feats[:, None, :] - feats[None, :, :]
-    sq_dists = jnp.sum(diffs**2, axis=-1)
-    # Median heuristic over off-diagonal pairs. n*(n-1) off-diagonal entries;
-    # `jnp.median` over the full matrix is fine because diagonal zeros are
-    # only n out of n^2 and the median is dominated by the off-diagonal mass
-    # for n >= 4. The +1e-8 floor avoids divide-by-zero at init when all
-    # critics happen to predict identical values.
-    h = jax.lax.stop_gradient(
-        jnp.median(sq_dists) / (jnp.log(jnp.asarray(n, dtype=feats.dtype)) + 1e-8)
-        + 1e-8
-    )
-    kernel = jnp.exp(-sq_dists / h)
-    return kernel.mean()
 
 
 def init_REDQ(
@@ -209,23 +177,19 @@ def value_loss_function(
     actions: jax.Array,
     target_q: jax.Array,
     next_log_probs: jax.Array,
-    repulsion_coef: float = 0.0,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """Every critic regresses on the one target, plus the kernel repulsion."""
+    """Every critic regresses on the one target."""
     q_preds = q_values(critic_states, critic_params, observations, actions, carries)
-    bellman_loss = jnp.sum(
+    loss = jnp.sum(
         jnp.mean((q_preds - target_q) ** 2, axis=tuple(range(1, q_preds.ndim)))
         / q_preds.ndim
     )
-    repulsion = q_kernel_repulsion(q_preds)
-    total_loss = bellman_loss + repulsion_coef * repulsion
     q_std, mean_pairwise_q_dist = q_ensemble_divergence(q_preds)
-    return total_loss, ValueAuxiliaries(
-        critic_loss=total_loss,
+    return loss, ValueAuxiliaries(
+        critic_loss=loss,
         target_q=target_q.mean().flatten(),
         log_probs=next_log_probs.mean().flatten(),
-        repulsion_loss=repulsion.flatten(),
         ensemble_q_std=q_std.flatten(),
         mean_pairwise_q_dist=mean_pairwise_q_dist.flatten(),
     )
@@ -265,7 +229,6 @@ def update_value_functions(
             batch.action,
             target_q,
             next_log_probs,
-            agent_config.repulsion_coef,
             carries,
         )
 

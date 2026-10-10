@@ -1,4 +1,5 @@
-"""Tests for ajax.modules.expert — composable expert-guidance modifiers."""
+"""The expert-guidance maths: the expert extensions' and target modifiers'
+helpers and SAC's expert plumbing."""
 
 from types import SimpleNamespace
 
@@ -6,15 +7,13 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.modules.expert import (
-    augment_obs_if_needed,
-    blend_modify_target,
-    compute_expert_diagnostics,
+from ajax.agents.SAC.expert import augment_obs_if_needed, compute_expert_diagnostics
+from ajax.extensions.expert import (
     compute_online_bc_loss,
     detach_obs_expert_dims,
-    mc_correction_modify_target,
     residual_action_transform,
 )
+from ajax.extensions.target_mods import blend_modify_target, mc_correction_modify_target
 
 
 def _fake_critic_state(fn):

@@ -13,28 +13,105 @@ objects. The expert-dependent group lives here:
 * :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
 
 Each extension carries only frozen config on ``self`` (a frozen expert
-callable, scalar hyper-parameters). The behaviour of every feature is
-identical to the corresponding flag-gated path of the pre-refactor
-``train_SAC.py`` — the heavy lifting is delegated to the unchanged pure
-functions in :mod:`ajax.modules.expert`. The SAC training factory reads
-the extension stack and builds the composable hook callables the proven
-training functions consume; see :func:`ajax.agents.SAC.train_SAC.make_train`.
+callable, scalar hyper-parameters); the maths are the functions below.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.modules.expert import (
-    compute_online_bc_loss,
-    detach_obs_expert_dims,
-    residual_action_transform,
-)
+from ajax.networks.networks import predict_value
+
+
+def detach_obs_expert_dims(
+    observations: jax.Array,
+    action_dim: int,
+) -> jax.Array:
+    """Stop-gradient through expert-action dims in augmented obs.
+
+    Layout: [env_obs | a_expert | train_frac].
+    The actor can read the expert hint but gradients don't flow through it.
+    """
+    return jnp.concatenate(
+        [
+            observations[..., : -(action_dim + 1)],
+            jax.lax.stop_gradient(observations[..., -(action_dim + 1) : -1]),
+            observations[..., -1:],
+        ],
+        axis=-1,
+    )
+
+
+def residual_action_transform(
+    actions: jax.Array,
+    a_expert: jax.Array,
+    scale: float = 1.0,
+) -> jax.Array:
+    """Residual RL: executed action is clip(a_expert + scale * a_pi, -1, 1).
+
+    The critic was trained on (s, executed_action) tuples, so the policy
+    gradient must flow through Q(s, executed_action), not Q(s, a_pi).
+    ``scale`` follows Johannink et al. 2019; values < 1 keep the initial
+    behaviour close to the expert when the policy is randomly initialised.
+    """
+    return jnp.clip(a_expert + scale * actions, -1.0, 1.0)
+
+
+def compute_online_bc_loss(
+    pi_loc: jax.Array,
+    a_expert: jax.Array,
+    critic_state,
+    expert_critic_params,
+    observations: jax.Array,
+    train_frac: jax.Array,
+    critic_warmup_frac: float,
+    expert_v_min: jax.Array,
+    expert_v_max: jax.Array,
+    bc_coef: float,
+) -> jax.Array:
+    """Online decaying BC term — value-weighted, warmup-decaying.
+
+    Decays to zero after train_frac exceeds critic_warmup_frac.
+    Value-weighting ensures BC is strongest in high-value states.
+    """
+    bc_weight = jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
+    v_star = jax.lax.stop_gradient(
+        jnp.min(
+            predict_value(
+                critic_state=critic_state,
+                critic_params=expert_critic_params,
+                x=jnp.concatenate([observations, a_expert], axis=-1),
+            ),
+            axis=0,
+        )
+    )
+    v_weight = (
+        jnp.clip(
+            (v_star - expert_v_min) / (expert_v_max - expert_v_min + 1e-6),
+            0.0,
+            1.0,
+        )
+        ** 2
+    )
+    mu = jnp.tanh(pi_loc)
+    return (
+        bc_coef
+        * bc_weight
+        * (
+            v_weight
+            * jnp.sum(
+                (mu - jax.lax.stop_gradient(a_expert)) ** 2,
+                axis=-1,
+                keepdims=True,
+            )
+        ).mean()
+    )
 
 
 @dataclass(frozen=True)
@@ -101,8 +178,6 @@ class ExpertObsAugmentation(Extension):
         method copies it onto a new frozen instance when the
         construction-time value is still the default ``0``.
         """
-        import dataclasses
-
         action_dim = agent_context.get("action_dim", None)
         if self.action_dim != 0 or action_dim is None:
             return self
@@ -344,6 +419,7 @@ class JSRLCurriculum(Extension):
     episode_length: int = 1000
     decay_frac: float = 0.5
     name: str = "jsrl_curriculum"
+    action_slot: ClassVar[str] = "pre_warmup"
 
     def action(
         self,
@@ -371,14 +447,6 @@ class JSRLCurriculum(Extension):
         return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
 
 
-def first_of_type(stack, cls) -> Optional[Extension]:
-    """Return the first extension that is an instance of ``cls``, else None."""
-    for ext in stack:
-        if isinstance(ext, cls):
-            return ext
-    return None
-
-
 __all__ = [
     "ExpertGuidance",
     "ExpertObsAugmentation",
@@ -386,5 +454,4 @@ __all__ = [
     "ImitationLoss",
     "ResidualPolicy",
     "JSRLCurriculum",
-    "first_of_type",
 ]

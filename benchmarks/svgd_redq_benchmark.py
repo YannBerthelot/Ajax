@@ -1,12 +1,12 @@
 """SVGD-style kernel repulsion vs vanilla REDQ on Hopper.
 
 Two runs on Hopper at 1M timesteps with 25 seeds each:
-  1. vanilla REDQ  (repulsion_coef = 0.0)
-  2. SVGD-REDQ     (repulsion_coef = <coef>)
+  1. vanilla REDQ  (repulsion_coef = 0.0: no extension)
+  2. SVGD-REDQ     (KernelRepulsion(coef=<coef>))
 
 The repulsion term is a function-space RBF kernel on the per-critic Q-value
 outputs, with bandwidth set by the median heuristic (see
-`ajax.agents.REDQ.train_REDQ.q_kernel_repulsion`). Minimising the mean
+`ajax.extensions.ensemble.q_kernel_repulsion`). Minimising the mean
 kernel value pushes ensemble members apart in prediction space; this is a
 simple add-on to the Bellman loss (SVPG-style).
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 
 from ajax.agents.REDQ.REDQ import REDQ
+from ajax.extensions.ensemble import KernelRepulsion
 from ajax.logging.wandb_logging import LoggingConfig
 
 
@@ -52,7 +53,7 @@ def run_variant(
         env_id=env_id,
         learning_starts=int(1e4),
         n_envs=1,
-        repulsion_coef=repulsion_coef,
+        extensions=(KernelRepulsion(coef=repulsion_coef),) if repulsion_coef else (),
     )
     agent.train(
         seed=list(range(n_seeds)),

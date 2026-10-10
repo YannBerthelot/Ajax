@@ -1,4 +1,4 @@
-"""Tests for ajax.modules.exploration — EDGE gates and value-box override."""
+"""The EDGE gates' and the value box's maths."""
 
 from types import SimpleNamespace
 
@@ -6,15 +6,17 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.modules.exploration import (
-    box_action_override,
-    box_compute_state,
-    box_compute_threshold,
+from ajax.extensions.exploration import (
     edge_argmax_gate,
     edge_boltzmann_gate,
     edge_compute_decay,
     edge_compute_value_gap,
     edge_fixed_gate,
+)
+from ajax.extensions.target_mods import (
+    box_action_override,
+    box_compute_state,
+    box_compute_threshold,
 )
 
 

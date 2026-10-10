@@ -277,6 +277,10 @@ class ExtensionStack:
         names = ", ".join(e.name for e in self.extensions)
         return f"ExtensionStack({names})"
 
+    def implemented_phases(self) -> frozenset[str]:
+        """The phases at least one extension of the stack implements."""
+        return frozenset().union(*(e.implemented_phases() for e in self.extensions))
+
     def _keys(self, rng: jax.Array) -> tuple[jax.Array, ...]:
         """One sub-key per extension (≥1 split so an empty stack is safe)."""
         return tuple(jax.random.split(rng, max(1, len(self.extensions))))

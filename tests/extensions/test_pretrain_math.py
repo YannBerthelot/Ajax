@@ -1,4 +1,4 @@
-"""Tests for ajax.modules.pretrain — composable pretraining helpers.
+"""The MC pretraining helpers of :mod:`ajax.extensions.pretrain`.
 
 These are integration-style tests: they build real (tiny) flax TrainStates
 and drive the pretrain helpers end-to-end. Heavy helpers
@@ -16,7 +16,7 @@ import optax
 import pytest
 from flax import struct
 
-from ajax.modules.pretrain import MCPretrainAux, pretrain_critic_online_light
+from ajax.extensions.pretrain import MCPretrainAux, pretrain_critic_online_light
 from ajax.state import LoadedTrainState
 
 OBS_DIM = 4

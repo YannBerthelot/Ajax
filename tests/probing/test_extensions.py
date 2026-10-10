@@ -317,24 +317,19 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
     return Query("train return", 1.0, ret), gap
 
 
-SAC_TARGET = "SAC folds on_target only for extensions named in _TARGET_MOD_NAMES (train_SAC.py:90-97, 370-372, 391-413)"
 NO_FOLD = "no fold_{} call anywhere in src/ajax, yet every agent but the world models declares the phase (base.py:56, all phases by default)"
 SAC_ORDER = "SAC folds post_update before the update (train_SAC.py:1337 vs 1384); right the last call sees the final optimizer steps (852, 1852), today one update earlier (850, 1850)"
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
-    "E1-SAC": f"{SAC_TARGET}; right V(1) 1.5, V(0) 1.43; today 1.00, 0.62",
-    "E9-SAC": f"{SAC_TARGET}; right V(0) 1.24; today 0.62",
     "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
     "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
-    "E3-gated-SAC": "SAC runs actor_loss with ExtensionContext(step=0) and agent_state=None (train_SAC.py:642-653): the gate never opens; right a(0) -0.5, today -0.03 to 0.03",
     "on_batch-*": NO_FOLD.format("on_batch") + "; right V(0) 2.0, today 1.00",
     "E6-SAC": "(contract pending) SAC folds on_obs in the actor loss only (train_SAC.py:516-524), so the policy learns pi(.|-s) against Q(s, .); right train return > 0 and a_net(+1) < 0, today -0.39 to -0.75 and -0.70 to -0.75",
     "E6-*": "(contract pending) on_obs is folded only in SAC's actor loss (train_SAC.py:524), so the flip is ignored here; right the network acts on the flipped input (a_net(+1) < 0; discrete Q_net(1,0) > Q_net(1,1)), today the raw mapping (PPO a_net(+1) 1.3-2.0; DQN and PQN gap -1.0)",
     "E4-*": NO_FOLD.format("action")
-    + " (SAC dispatches action extensions by name, only with an expert_policy: _sac_hooks.py:70-71, 339-347); right train return 0.3 (discrete 0), today the policy's own (SAC 0.02-0.08 at 2000 steps, PPO 1.0, DQN 0.9-1.0, PQN 0.975)",
+    + " (SAC dispatches only extensions declaring an action_slot, and only with an expert_policy: agents/SAC/action_pipeline.py); right train return 0.3 (discrete 0), today the policy's own (SAC 0.02-0.08 at 2000 steps, PPO 1.0, DQN 0.9-1.0, PQN 0.975)",
     "E5-*": NO_FOLD.format("eval_action")
     + " (evaluate_and_log runs the actor, log.py:317-347); right eval return -0.2 (discrete 0), today the policy's own (SAC 0.05-0.07, PPO, DQN, PQN 1.0)",
     "metric-UDRL": "UDRL declares eval_metrics (base.py:56 by default) but never evaluates or logs: train_UDRL.py has no evaluate_and_log or compose_eval_metrics call; right 7.0 in the log, today no record (NaN)",
-    "E7-unbound-*": "MCPretrain returns the state unchanged when unbound (pretrain.py:146-157) and only SAC binds it (train_SAC.py:1676-1692); right a ValueError, today a run without phi*",
     "E8-order-SAC": SAC_ORDER,
     "E8-order-SafeSAC": SAC_ORDER,
 }

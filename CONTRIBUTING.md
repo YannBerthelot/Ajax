@@ -62,6 +62,7 @@ src/ajax/
 │   │                        #   MCVarianceCorrection / ValueBox
 │   ├── exploration.py       # EDGEExploration (6 gates)
 │   ├── pretrain.py          # MCPretrain / BellmanPretrain / PhiRefresh
+│   ├── ensemble.py          # KernelRepulsion
 │   └── instrumentation.py   # EVarEst-style measurement: ConditioningMetrics
 │                            #   / BiasVoreDecomposition / CliffEta /
 │                            #   DiagnosticSnapshots / BiasVorePenalty
@@ -182,6 +183,7 @@ expert network).
 | `extensions/target_mods.py` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox` |
 | `extensions/exploration.py` | `EDGEExploration` (6 gates) |
 | `extensions/pretrain.py` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` |
+| `extensions/ensemble.py` | `KernelRepulsion` |
 | `extensions/instrumentation.py` | `ConditioningMetrics`, `BiasVoreDecomposition`, `BiasVorePenalty`, `CliffEta`, `DiagnosticSnapshots` |
 
 See [tests/extensions/](tests/extensions/) for behaviour-pinning

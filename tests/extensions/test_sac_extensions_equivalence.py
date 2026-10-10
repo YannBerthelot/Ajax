@@ -457,19 +457,13 @@ def test_bellman_pretrain_matches_legacy_flag():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        # ``use_bellman_critic_pretrain`` and ``mc_pretrain_n_steps`` are
-        # kept on the SAC class because the inline Bellman-pretrain block
-        # in :func:`make_train` reads them. The BellmanPretrain extension
-        # mirrors them.
-        use_bellman_critic_pretrain=True,
-        mc_pretrain_n_steps=20,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            BellmanPretrain(expert_policy=expert, n_steps=20),
+            BellmanPretrain(n_steps=20),
         ),
     )
     s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)

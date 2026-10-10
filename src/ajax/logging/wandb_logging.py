@@ -1,13 +1,12 @@
 """Helpers for Weights & Biases and TensorBoard logging"""
 
-import functools
 import json
 import multiprocessing as mp
 import os
 import struct as pystruct
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -304,28 +303,6 @@ def vmap_log(
 
     _log_queue.put(("log", run_id, metrics_np, step))
     return None
-
-
-def safe_get_env_var(var_name: str, default: str = "") -> str:
-    """Safely retrieve an environment variable"""
-    return os.environ.get(var_name, default)
-
-
-def with_wandb_silent(func: Callable) -> Callable:
-    """Temporarily set WANDB_SILENT during function execution"""
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs) -> Any:
-        initial_wandb_silent = safe_get_env_var("WANDB_SILENT")
-        try:
-            os.environ["WANDB_SILENT"] = "true"
-            return func(*args, **kwargs)
-        finally:
-            os.environ["WANDB_SILENT"] = (
-                initial_wandb_silent if initial_wandb_silent != "" else "false"
-            )
-
-    return wrapper
 
 
 def iter_tfrecord(path):

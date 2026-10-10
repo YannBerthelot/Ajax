@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from dataclasses import fields
 from math import floor
 from typing import Any, Callable, Optional, Tuple
 
@@ -15,6 +14,7 @@ from ajax.agents.cloning import CloningConfig, get_pre_trained_agent
 from ajax.agents.recurrent import (
     RecurrentCarries,
     sample_and_burnin_sequences,
+    stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
@@ -59,7 +59,6 @@ from ajax.modules.pretrain import (
     collect_and_store_expert_transitions,
     pretrain_critic_bellman,
 )
-from ajax.networks.memory import flat_carry_dim
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -75,6 +74,7 @@ from ajax.state import (
     Transition,
 )
 from ajax.types import BufferType
+from ajax.utils import fill_with_nan
 
 # Extension `name` attributes for the four target-mod extensions
 # implemented in :mod:`ajax.extensions.target_mods`. Used by
@@ -234,16 +234,13 @@ def init_SAC(
     )
 
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    _actor_carry_dim = 0
-    if stored_state and network_args.memory is not None:
-        _actor_carry_dim = flat_carry_dim(network_args.memory)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
         mode=mode,
         buffer=buffer,
         window_size=window_size,
-        actor_carry_dim=_actor_carry_dim,
+        actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
         max_timesteps=max_timesteps,
         action_dim_override=action_dim_override,
         expert_state_aug_dim=(
@@ -1345,17 +1342,6 @@ def training_iteration(
             ),
         )
         return agent_state, aux
-
-    def fill_with_nan(dataclass):
-        nan = jnp.ones(1) * jnp.nan
-        result = {}
-        for field in fields(dataclass):
-            sub = field.type
-            if hasattr(sub, "__dataclass_fields__"):
-                result[field.name] = fill_with_nan(sub)
-            else:
-                result[field.name] = nan
-        return dataclass(**result)
 
     def skip_update(agent_state):
         return agent_state, fill_with_nan(AuxiliaryLogs)

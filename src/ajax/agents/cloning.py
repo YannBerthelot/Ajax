@@ -12,6 +12,7 @@ from jax.tree_util import Partial as partial
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
+from ajax.environments.utils import check_env_is_gymnax
 
 
 @struct.dataclass
@@ -416,6 +417,34 @@ def pre_train(
         else:
             critic_state = critic_state.replace(params=new_critic_params)
     return actor_state, critic_state, metrics, obs_mean, obs_std
+
+
+def pretrain_on_expert(
+    agent_state,
+    key,
+    cloning_args,
+    expert_policy,
+    env_args,
+    agent_config,
+    actor_optimizer_args,
+    critic_optimizer_args,
+):
+    """Behaviour-clone ``expert_policy`` when ``cloning_args`` asks for
+    pre-training steps (:func:`get_pre_trained_agent`); else the state as is."""
+    if cloning_args is None or cloning_args.pre_train_n_steps <= 0:
+        return agent_state
+    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    return get_pre_trained_agent(
+        agent_state,
+        expert_policy,
+        key,
+        env_args,
+        cloning_args,
+        mode,
+        agent_config,
+        actor_optimizer_args,
+        critic_optimizer_args,
+    )
 
 
 def get_pre_trained_agent(

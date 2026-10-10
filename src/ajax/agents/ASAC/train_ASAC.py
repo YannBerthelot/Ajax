@@ -1,49 +1,51 @@
+"""ASAC (Adamczyk et al., 2025): Average-Reward Soft Actor-Critic.
+
+SAC for the average-reward criterion: the critics learn the differential
+soft Q, bootstrapped without discount on ``r - theta``, where ``theta``
+tracks the entropy-regularised reward rate. Every target is shifted by the
+target critics' value at the origin ``Q(0, 0)`` (their reference point), and
+terminations are charged a penalty learned from the non-terminal rewards
+(``p_0`` scales it) so episodic tasks fit the continuing criterion.
+"""
+
 from collections.abc import Sequence
-from dataclasses import fields
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from flax.training.train_state import TrainState
-from jax.tree_util import Partial as partial
 
 from ajax.agents.ASAC.state import ASACConfig, ASACState
 from ajax.agents.ASAC.utils import (
     compute_episode_termination_penalty,
     get_episode_termination_penalized_rewards,
 )
+from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
-    sample_and_burnin_sequences,
+    actor_dist,
+    q_values,
+    sample_replay,
+    stored_actor_carry_dim,
 )
-from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import (
-    collect_experience,
-    get_pi,
-    get_pi_sequence,
-    init_collector_state,
-    should_use_uniform_sampling,
+from ajax.agents.SAC.train_SAC import (
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
 )
+from ajax.agents.SAC.train_SAC import update_temperature as sac_temperature_step
+from ajax.environments.interaction import init_collector_state
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.memory import flat_carry_dim, zeros_carry_like
+from ajax.networks.memory import zeros_carry_like
 from ajax.networks.networks import (
-    get_adam_tx,
     get_initialized_actor_critic,
     predict_value,
     predict_value_sequence,
 )
-from ajax.perf_utils import train_jit
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -53,17 +55,6 @@ from ajax.state import (
     Transition,
 )
 from ajax.types import BufferType
-
-
-def get_alpha_from_params(params: FrozenDict) -> float:
-    return jnp.exp(params["log_alpha"])
-
-
-@struct.dataclass
-class TemperatureAuxiliaries:
-    alpha_loss: jax.Array
-    alpha: jax.Array
-    log_alpha: jax.Array
 
 
 @struct.dataclass
@@ -96,33 +87,6 @@ class AuxiliaryLogs:
     theta: ThetaAuxiliaries
 
 
-def create_alpha_train_state(
-    learning_rate: float = 3e-4,
-    alpha_init: float = 1.0,
-) -> TrainState:
-    """
-    Initialize the train state for the temperature parameter (alpha).
-
-    Args:
-        learning_rate (float): Learning rate for alpha optimizer.
-        alpha_init (float): Initial value for alpha.
-
-    Returns:
-        TrainState: Initialized train state for alpha.
-    """
-    log_alpha = jnp.log(alpha_init)
-    params = FrozenDict({"log_alpha": log_alpha})
-    # Unclipped, as in SAC core: clipping the scalar dual gradient
-    # erases the entropy-target term from the update (see
-    # ajax.agents.SAC.core.create_alpha_train_state).
-    tx = get_adam_tx(learning_rate)
-    return TrainState.create(
-        apply_fn=get_alpha_from_params,  # Optional
-        params=params,
-        tx=tx,
-    )
-
-
 def init_ASAC(
     key: jax.Array,
     env_args: EnvironmentConfig,
@@ -135,26 +99,7 @@ def init_ASAC(
     stored_state: bool = False,
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> ASACState:
-    """
-    Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
-
-    Args:
-        key (jax.Array): Random number generator key.
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        buffer (BufferType): Replay buffer.
-
-    Returns:
-        ASACState: Initialized SAC agent state.
-    """
-    (
-        rng,
-        init_key,
-        collector_key,
-    ) = jax.random.split(key, num=3)
-
+    rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -167,27 +112,20 @@ def init_ASAC(
         num_critics=2,
         pid_actor_config=pid_actor_config,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    _actor_carry_dim = 0
-    if stored_state and network_args.memory is not None:
-        _actor_carry_dim = flat_carry_dim(network_args.memory)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode=mode,
+        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
         buffer=buffer,
         window_size=window_size,
-        actor_carry_dim=_actor_carry_dim,
+        actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
     )
-
-    alpha = create_alpha_train_state(**to_state_dict(alpha_args))
-
     return ASACState(
         rng=rng,
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=alpha,
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
         episode_termination_penalty=jnp.zeros(()),
         theta=0.0,
@@ -203,70 +141,43 @@ def compute_asac_td_target(
     rewards: jax.Array,
     theta: float,
     alpha: jax.Array,
-    recurrent: bool,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, jax.Array]:
-    """ASAC bellman target with origin-shift; returns (target, log_probs)."""
+    """``r - theta + min_i Q_target_i(s', a') - Q_target(0, 0) - alpha log pi(a'|s')``.
+
+    Returns the stop_gradient'd target and the next actions' log-probs.
+    ``dones`` is unused: the differential target bootstraps through every
+    end, terminations being charged their penalty in the rewards instead.
+    """
     rewards = rewards * reward_scale
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        next_pi, _ = get_pi_sequence(
-            actor_state=actor_state,
-            actor_params=actor_state.params,
-            obs=next_observations,
-            resets=carries.next_resets,
-            initial_hidden=carries.actor_next_hidden,
-        )
-    else:
-        next_pi, _ = get_pi(
-            actor_state=actor_state,
-            actor_params=actor_state.params,
-            obs=next_observations,
-            done=dones,
-            recurrent=recurrent,
-        )
+    next_pi = actor_dist(
+        actor_state, actor_state.params, next_observations, carries, bootstrap=True
+    )
     sample_key, _ = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
-
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        q_targets, _ = predict_value_sequence(
-            critic_state=critic_states,
-            critic_params=critic_states.target_params,
-            x=jnp.concatenate((next_observations, next_actions), axis=-1),
-            resets=carries.next_resets,
-            initial_hidden=carries.target_critic_hidden,
-        )
-        # Origin shift Q(0, 0): a single zero input with a fresh zero
-        # carry (batch of 1) — the recurrent analogue of the feedforward
-        # zero-state evaluation below.
-        zero_x = jnp.zeros((1, 1, next_observations.shape[-1] + next_actions.shape[-1]))
+    q_targets = q_values(
+        critic_states,
+        critic_states.target_params,
+        next_observations,
+        next_actions,
+        carries,
+        bootstrap=True,
+    )
+    # The origin shift Q(0, 0): one zero input; in sequence mode with a
+    # fresh zero carry (a batch of 1).
+    zero_x = jnp.zeros((1, next_observations.shape[-1] + next_actions.shape[-1]))
+    if carries is None:
+        shift_value = predict_value(critic_states, critic_states.target_params, zero_x)
+    else:
         shift_value, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_states.target_params,
-            x=zero_x,
+            x=zero_x[None],
             resets=jnp.zeros((1, 1), dtype=bool),
             initial_hidden=zeros_carry_like(
                 carries.target_critic_hidden, 1, batch_axis=1
-            ),
-        )
-    else:
-        q_targets = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_states.target_params,
-            x=jnp.concatenate((next_observations, next_actions), axis=-1),
-        )
-        shift_value = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_states.target_params,
-            x=jnp.concatenate(
-                (
-                    jnp.zeros_like(next_observations[0, :][None, :]),
-                    jnp.zeros_like(next_actions[0, :][None, :]),
-                ),
-                axis=-1,
             ),
         )
     shifted_q_targets = q_targets - jnp.mean(shift_value)
@@ -279,88 +190,16 @@ def compute_asac_td_target(
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
-    actor_state: LoadedTrainState,
-    actions: jax.Array,
     observations: jax.Array,
-    next_observations: jax.Array,
-    dones: jax.Array,
-    rewards: jax.Array,
-    theta: float,
-    alpha: jax.Array,
-    recurrent: bool,
-    reward_scale: float = 5.0,  # Add reward scaling factor here
-    target_q_override: Optional[jax.Array] = None,
-    log_probs_override: Optional[jax.Array] = None,
+    actions: jax.Array,
+    target_q: jax.Array,
+    next_log_probs: jax.Array,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """
-    Compute the value loss for the critic networks.
-
-    Args:
-        critic_params (FrozenDict): Parameters of the critic networks.
-        critic_states (LoadedTrainState): Critic train states.
-        rng (jax.Array): Random number generator key.
-        actor_state (LoadedTrainState): Actor train state.
-        actions (jax.Array): Actions taken.
-        observations (jax.Array): Current observations.
-        next_observations (jax.Array): Next observations.
-        dones (jax.Array): Done flags.
-        rewards (jax.Array): Rewards received.
-        gamma (float): Discount factor.
-        alpha (jax.Array): Temperature parameter.
-        recurrent (bool): Whether the model is recurrent.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
-    """
-    # Predict Q-values from critics
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        q_preds, _ = predict_value_sequence(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-            resets=carries.resets,
-            initial_hidden=carries.critic_hidden,
-        )
-    else:
-        q_preds = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-        )
-    assert (
-        critic_states.target_params is not None
-    ), "Target parameters are not set in critic states."
-
-    if target_q_override is not None:
-        target_q = target_q_override
-        log_probs = (
-            log_probs_override
-            if log_probs_override is not None
-            else jnp.zeros_like(target_q)
-        )
-    else:
-        target_q, log_probs = compute_asac_td_target(
-            actor_state,
-            critic_states,
-            rng,
-            next_observations,
-            dones,
-            rewards,
-            theta,
-            alpha,
-            recurrent,
-            reward_scale,
-            carries=carries,
-        )
-
-    q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
-
+    """Both critics regress on the one differential target."""
+    q_preds = q_values(critic_states, critic_params, observations, actions, carries)
     assert target_q.shape == q_preds.shape[1:], f"{target_q.shape} != {q_preds.shape}"
-
+    q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
     loss_q1 = 0.5 * jnp.mean((q1_pred.squeeze(0) - target_q) ** 2)
     loss_q2 = 0.5 * jnp.mean((q2_pred.squeeze(0) - target_q) ** 2)
     total_loss = loss_q1 + loss_q2
@@ -369,7 +208,7 @@ def value_loss_function(
         q1_pred=q1_pred.mean().flatten(),
         q2_pred=q2_pred.mean().flatten(),
         target_q=target_q.mean().flatten(),
-        log_probs=log_probs.mean().flatten(),
+        log_probs=next_log_probs.mean().flatten(),
     )
 
 
@@ -378,381 +217,160 @@ def policy_loss_function(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
     observations: jax.Array,
-    dones: Optional[jax.Array],
-    recurrent: bool,
     alpha: jax.Array,
-    rng: jax.random.PRNGKey,
+    rng: jax.Array,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array]]:
-    """
-    Compute the policy loss for the actor network.
+    """``alpha log pi(a|s) - min_i Q_i(s, a)``, ``a ~ pi(.|s)``; also returns
+    the policy mean for the actor-loss extensions.
 
-    Args:
-        actor_params (FrozenDict): Parameters of the actor network.
-        actor_state (LoadedTrainState): Actor train state.
-        critic_states (LoadedTrainState): Critic train states.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-        alpha (jax.Array): Temperature parameter.
-        rng (jax.random.PRNGKey): Random number generator key.
-
-    Returns:
-        The loss and ``(auxiliaries, pi_mean)``; the policy mean feeds the
-        actor-loss extensions.
+    In sequence mode the critic carry was burned in on the BUFFER actions;
+    evaluating fresh policy actions from it is the standard stored /
+    burned-state approximation.
     """
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        pi, _ = get_pi_sequence(
-            actor_state=actor_state,
-            actor_params=actor_params,
-            obs=observations,
-            resets=carries.resets,
-            initial_hidden=carries.actor_hidden,
-        )
-    else:
-        pi, _ = get_pi(
-            actor_state=actor_state,
-            actor_params=actor_params,
-            obs=observations,
-            done=dones,
-            recurrent=recurrent,
-        )
+    pi = actor_dist(actor_state, actor_params, observations, carries)
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
-
-    # Predict Q-values from critics
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        # The critic carry was burned in on the BUFFER actions; evaluating
-        # fresh policy actions from it is the standard stored/burned-state
-        # approximation. Gradients flow to the actor through the actions.
-        q_preds, _ = predict_value_sequence(
-            critic_state=critic_states,
-            critic_params=critic_states.params,
-            x=jnp.concatenate((observations, actions), axis=-1),
-            resets=carries.resets,
-            initial_hidden=carries.critic_hidden,
-        )
-    else:
-        q_preds = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_states.params,
-            x=jnp.hstack((observations, actions)),
-        )
-
-    # Unpack and unsqueeze if needed
+    q_preds = q_values(
+        critic_states, critic_states.params, observations, actions, carries
+    )
     q1_pred, q2_pred = jnp.split(q_preds, 2, axis=0)
     q_min = jnp.minimum(q1_pred, q2_pred).squeeze(0)
-
     log_probs = log_probs.sum(-1, keepdims=True)
-
     assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
     total_loss = (alpha * log_probs - q_min).mean()
-
     aux = PolicyAuxiliaries(
         policy_loss=total_loss, log_pi=log_probs.mean(), q_min=q_min.mean()
     )
     return total_loss, (aux, pi.mean())
 
 
-def temperature_loss_function(
-    log_alpha_params: FrozenDict,
-    corrected_log_probs: jax.Array,
-    target_entropy: float,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
-    """
-    Compute the loss for the temperature parameter (alpha).
-
-    Args:
-        log_alpha_params (FrozenDict): Logarithm of alpha parameters.
-        corrected_log_probs (jax.Array): Log probabilities of actions.
-        target_entropy (float): Target entropy value.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, Any]]: Loss and auxiliary metrics.
-    """
-    log_alpha = log_alpha_params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-
-    loss = (
-        -1.0
-        * (
-            log_alpha * jax.lax.stop_gradient(corrected_log_probs + target_entropy)
-        ).mean()
-    )
-
-    return loss, TemperatureAuxiliaries(
-        alpha_loss=loss, alpha=alpha, log_alpha=log_alpha
-    )
-
-
 def update_value_functions(
     agent_state: ASACState,
-    observations: jax.Array,
-    actions: jax.Array,
-    next_observations: jax.Array,
-    dones: Optional[jax.Array],
-    recurrent: bool,
+    batch: Transition,
     rewards: jax.Array,
-    reward_scale: float = 1.0,  # Add reward scaling factor here
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    reward_scale: float,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[ASACState, Dict[str, Any]]:
-    """
-    Update the critic networks using the value loss.
-
-    Args:
-        agent_state (ASACState): Current SAC agent state.
-        observations (jax.Array): Current observations.
-        actions (jax.Array): Actions taken.
-        next_observations (jax.Array): Next observations.
-        dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-        rewards (jax.Array): Rewards received.
-        gamma (float): Discount factor.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[ASACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    value_loss_key, rng = jax.random.split(agent_state.rng)
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-
-    target_q_override = None
-    log_probs_override = None
-    if has_stack:
-        assert extension_stack is not None
-        target_q, log_probs = compute_asac_td_target(
-            agent_state.actor_state,
-            agent_state.critic_state,
-            value_loss_key,
-            next_observations,
-            dones,
-            rewards,
-            agent_state.theta,
-            alpha,
-            recurrent,
-            reward_scale,
-            carries=carries,
+) -> Tuple[ASACState, ValueAuxiliaries]:
+    """The critic step on the differential target of the penalised ``rewards``."""
+    key, rng = jax.random.split(agent_state.rng)
+    step = agent_state.collector_state.timestep
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    dones = jnp.logical_or(batch.terminated, batch.truncated)
+    target_q, next_log_probs = compute_asac_td_target(
+        agent_state.actor_state,
+        agent_state.critic_state,
+        key,
+        batch.next_obs,
+        dones,
+        rewards,
+        agent_state.theta,
+        alpha,
+        reward_scale,
+        carries,
+    )
+    # ASAC is average-reward: no gamma, None tells the extensions so.
+    target_batch = {
+        "observations": batch.obs,
+        "actions": batch.action,
+        "next_observations": batch.next_obs,
+        "rewards": rewards,
+        "dones": dones,
+        "gamma": None,
+        "reward_scale": reward_scale,
+    }
+    target_q = jax.lax.stop_gradient(
+        extension_stack.fold_on_target(
+            agent_state, target_batch, target_q, step, key, total_timesteps
         )
-        # ASAC is average-reward — no gamma. Pass None to make this
-        # explicit to extensions (they should respect the agent's
-        # discounting semantics).
-        _tgt_batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "rewards": rewards,
-            "dones": dones,
-            "gamma": None,
-            "reward_scale": reward_scale,
-        }
-        target_q = extension_stack.fold_on_target(
-            agent_state,
-            _tgt_batch,
-            target_q,
-            agent_state.collector_state.timestep,
-            value_loss_key,
-            total_timesteps,
-        )
-        target_q_override = jax.lax.stop_gradient(target_q)
-        log_probs_override = log_probs
+    )
+    critic_state = agent_state.critic_state
 
-    def _critic_loss(params):
-        loss, core_aux = value_loss_function(
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
+        loss, aux = value_loss_function(
             params,
-            agent_state.critic_state,
-            value_loss_key,
-            agent_state.actor_state,
-            actions,
-            observations,
-            next_observations,
-            dones,
-            rewards,
-            agent_state.theta,
-            alpha,
-            recurrent,
-            reward_scale,
-            target_q_override,
-            log_probs_override,
-            carries=carries,
+            critic_state,
+            batch.obs,
+            batch.action,
+            target_q,
+            next_log_probs,
+            carries,
         )
-        if has_stack:
-            assert extension_stack is not None
-            _cl_batch = {
-                "observations": observations,
-                "actions": actions,
-                "critic_params": params,
-                "critic_state": agent_state.critic_state,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                _cl_batch,
-                agent_state.collector_state.timestep,
-                value_loss_key,
-                total_timesteps,
-            )
-        return loss, core_aux
+        loss_batch = {
+            "observations": batch.obs,
+            "actions": batch.action,
+            "critic_params": params,
+            "critic_state": critic_state,
+        }
+        extra = extension_stack.fold_critic_loss(
+            agent_state, loss_batch, step, key, total_timesteps
+        )
+        return loss + extra, aux
 
-    (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
-        agent_state.critic_state.params,
-    )
-
-    updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        critic_state=updated_critic_state,
-    )
-    return agent_state, aux
+    critic_state, aux = gradient_step(critic_state, loss_fn)
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 
 def update_policy(
     agent_state: ASACState,
     observations: jax.Array,
-    done: Optional[jax.Array],
-    recurrent: bool,
-    raw_observations: Optional[jax.Array] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    raw_observations: Optional[jax.Array],
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[ASACState, Dict[str, Any]]:
-    """
-    Update the actor network using the policy loss.
-
-    Args:
-        agent_state (ASACState): Current SAC agent state.
-        observations (jax.Array): Current observations.
-        done (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-
-    Returns:
-        Tuple[ASACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
+) -> Tuple[ASACState, PolicyAuxiliaries]:
+    """The actor step."""
     rng, policy_key = jax.random.split(agent_state.rng)
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    actor_state = agent_state.actor_state
 
-    def _actor_loss(params):
-        loss, (core_aux, pi_mean) = policy_loss_function(
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
+        loss, (aux, pi_mean) = policy_loss_function(
             params,
-            agent_state.actor_state,
+            actor_state,
             agent_state.critic_state,
             observations,
-            done,
-            recurrent,
             alpha,
             policy_key,
-            carries=carries,
+            carries,
         )
-        if has_stack:
-            assert extension_stack is not None
-            _al_batch = {
-                "observations": observations,
-                "raw_observations": raw_observations,
-                "pi_mean": pi_mean,
-                "actor_params": params,
-                "actor_state": agent_state.actor_state,
-            }
-            loss = loss + extension_stack.fold_actor_loss(
-                agent_state,
-                _al_batch,
-                agent_state.collector_state.timestep,
-                policy_key,
-                total_timesteps,
-            )
-        return loss, core_aux
+        actor_batch = {
+            "observations": observations,
+            "raw_observations": raw_observations,
+            "pi_mean": pi_mean,
+            "actor_params": params,
+            "actor_state": actor_state,
+        }
+        extra = extension_stack.fold_actor_loss(
+            agent_state,
+            actor_batch,
+            agent_state.collector_state.timestep,
+            policy_key,
+            total_timesteps,
+        )
+        return loss + extra, aux
 
-    (loss, aux), grads = jax.value_and_grad(_actor_loss, has_aux=True)(
-        agent_state.actor_state.params,
-    )
-
-    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        actor_state=updated_actor_state,
-    )
-    return agent_state, aux
+    actor_state, aux = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(rng=rng, actor_state=actor_state), aux
 
 
 def update_temperature(
     agent_state: ASACState,
     observations: jax.Array,
-    dones: Optional[jax.Array],
     target_entropy: float,
-    recurrent: bool,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[ASACState, Dict[str, Any]]:
-    """
-    Update the temperature parameter (alpha) using the alpha loss.
-
-    Args:
-        agent_state (ASACState): Current SAC agent state.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        target_entropy (float): Target entropy value.
-        recurrent (bool): Whether the model is recurrent.
-
-    Returns:
-        Tuple[ASACState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
-
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        pi, _ = get_pi_sequence(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=observations,
-            resets=carries.resets,
-            initial_hidden=carries.actor_hidden,
-        )
-    else:
-        pi, _ = get_pi(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=observations,
-            done=dones,
-            recurrent=recurrent,
-        )
+) -> Tuple[ASACState, TemperatureAuxiliaries]:
+    """SAC's temperature step, on fresh samples of the updated policy."""
     rng, sample_key = jax.random.split(agent_state.rng)
+    actor_state = agent_state.actor_state
+    pi = actor_dist(actor_state, actor_state.params, observations, carries)
     _, log_probs = pi.sample_and_log_prob(seed=sample_key)
-
-    (loss, aux), grads = loss_fn(
-        agent_state.alpha.params,
-        log_probs.sum(-1),
-        target_entropy,
-    )
-
-    new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        alpha=new_alpha_state,
-    )
-    return agent_state, jax.lax.stop_gradient(aux)
-
-
-def update_target_networks(
-    agent_state: ASACState,
-    tau: float,
-) -> ASACState:
-    """
-    Perform a soft update of the target networks.
-
-    Args:
-        agent_state (ASACState): Current SAC agent state.
-        tau (float): Soft update coefficient.
-
-    Returns:
-        ASACState: Updated agent state.
-    """
-    new_critic_state = agent_state.critic_state.soft_update(tau=tau)
-    return agent_state.replace(
-        critic_state=new_critic_state,
+    return sac_temperature_step(  # type: ignore[return-value]
+        agent_state.replace(rng=rng),  # type: ignore[arg-type]
+        log_probs,
+        jnp.asarray(target_entropy),
     )
 
 
@@ -761,33 +379,16 @@ def update_theta(
     tau: float,
     rewards: jax.Array,
     observations: jax.Array,
-    rng: jax.Array,
-    dones: jax.Array,
-    recurrent: bool,
     carries: Optional[RecurrentCarries] = None,
 ) -> ASACState:
-    action_key, rng = jax.random.split(rng)
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        pi, _ = get_pi_sequence(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=observations,
-            resets=carries.resets,
-            initial_hidden=carries.actor_hidden,
-        )
-    else:
-        pi, _ = get_pi(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=observations,
-            done=dones,
-            recurrent=recurrent,
-        )
+    """Track the entropy-regularised reward rate: an EMA of
+    ``mean(r - alpha log pi(a|s))`` over the batch, ``a ~ pi(.|s)``."""
+    action_key, rng = jax.random.split(agent_state.rng)
+    pi = actor_dist(
+        agent_state.actor_state, agent_state.actor_state.params, observations, carries
+    )
     _, log_probs = pi.sample_and_log_prob(seed=action_key)
-
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     new_theta = jnp.mean(rewards - alpha * log_probs.sum(-1, keepdims=True))
     theta = agent_state.theta * (1 - tau) + tau * new_theta
     return agent_state.replace(theta=theta, rng=rng)
@@ -797,118 +398,64 @@ def update_agent(
     agent_state: ASACState,
     buffer: BufferType,
     recurrent: bool,
-    target_entropy: float,
-    tau: float,
-    p_0: float,
-    reward_scale: float = 5.0,
-    burn_in: int = 8,
-    stored_state: bool = False,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    agent_config: ASACConfig,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
 ) -> Tuple[ASACState, AuxiliaryLogs]:
-    """
-    Update the ASAC agent: critic, actor, temperature, theta and targets.
-
-    Args:
-        agent_state (ASACState): Current ASAC agent state.
-        buffer (BufferType): Replay buffer.
-        recurrent (bool): Whether the model is recurrent.
-        target_entropy (float): Target entropy of the temperature update.
-        tau (float): Soft update coefficient.
-        p_0 (float): Initial episode-termination penalty.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[ASACState, AuxiliaryLogs]: Updated agent state and metrics.
-    """
+    """One update on a replay batch: the termination penalty, then the
+    critic, actor, temperature, ``theta`` and target steps."""
+    tau = agent_config.tau
     sample_key, rng = jax.random.split(agent_state.rng)
-    carries = None
-    if recurrent:
-        transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
-        )
-        raw_observations = None
-    else:
-        (
-            observations,
-            terminated,
-            truncated,
-            next_observations,
-            rewards,
-            actions,
-            raw_observations,
-            _,
-        ) = get_batch_from_buffer(
-            buffer,
-            agent_state.collector_state.buffer_state,
-            sample_key,
-        )
-        transition = Transition(
-            observations, actions, rewards, terminated, truncated, next_observations
-        )
-
-    dones = jnp.logical_or(transition.terminated, transition.truncated)
-
+    transition, carries = sample_replay(
+        agent_state,
+        buffer,
+        sample_key,
+        recurrent,
+        agent_config.burn_in,
+        agent_config.stored_state,
+    )
     episode_termination_penalty = compute_episode_termination_penalty(
         agent_state.episode_termination_penalty,
         transition.reward,
         transition.terminated,
-        p_0,
+        agent_config.p_0,
         tau,
     )
-
     rewards = get_episode_termination_penalized_rewards(
         episode_termination_penalty, transition.reward, transition.terminated
     )
-
     agent_state = agent_state.replace(
         rng=rng, episode_termination_penalty=episode_termination_penalty
     )
-
-    # Update Q functions
     agent_state, aux_value = update_value_functions(
-        observations=transition.obs,
-        actions=transition.action,
-        next_observations=transition.next_obs,
-        rewards=rewards,
-        dones=dones,
-        agent_state=agent_state,
-        recurrent=recurrent,
-        reward_scale=reward_scale,
-        extension_stack=extension_stack,
-        total_timesteps=total_timesteps,
-        carries=carries,
+        agent_state,
+        transition,
+        rewards,
+        agent_config.reward_scale,
+        extension_stack,
+        total_timesteps,
+        carries,
     )
-
-    # Update policy
     agent_state, aux_policy = update_policy(
-        observations=transition.obs,
-        done=dones,
-        agent_state=agent_state,
-        recurrent=recurrent,
-        raw_observations=raw_observations,
-        extension_stack=extension_stack,
-        total_timesteps=total_timesteps,
-        carries=carries,
+        agent_state,
+        transition.obs,
+        transition.raw_obs,
+        extension_stack,
+        total_timesteps,
+        carries,
     )
-
-    # Adjust temperature (standard SAC dual-gradient step towards
-    # ``agent_config.target_entropy`` = target_entropy_per_dim * action_dim).
+    # The dual-gradient step towards ``target_entropy`` (target entropy
+    # per dimension times the action dimension).
     agent_state, aux_temperature = update_temperature(
         agent_state,
         observations=transition.obs,
-        target_entropy=target_entropy,
-        recurrent=recurrent,
-        dones=dones,
+        target_entropy=agent_config.target_entropy,
         carries=carries,
     )
-
-    agent_state = update_theta(
-        agent_state, tau, rewards, transition.obs, rng, dones, recurrent, carries
+    agent_state = update_theta(agent_state, tau, rewards, transition.obs, carries)
+    agent_state = agent_state.replace(
+        critic_state=agent_state.critic_state.soft_update(tau=tau)
     )
-
-    # Update target networks
-    agent_state = update_target_networks(agent_state, tau=tau)
     aux = AuxiliaryLogs(
         temperature=aux_temperature,
         policy=aux_policy,
@@ -919,131 +466,6 @@ def update_agent(
         ),
     )
     return agent_state, aux
-
-
-def training_iteration(
-    agent_state: ASACState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
-    recurrent: bool,
-    buffer: BufferType,
-    agent_config: ASACConfig,
-    total_timesteps: int,
-    log_frequency: int = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> tuple[ASACState, None]:
-    """
-    Perform one training iteration, including experience collection and agent updates.
-
-    Args:
-        agent_state (ASACState): Current ASAC agent state.
-        _ (Any): Placeholder for scan compatibility.
-        env_args (EnvironmentConfig): Environment configuration.
-        mode (str): Environment mode ("gymnax" or "brax").
-        recurrent (bool): Whether the model is recurrent.
-        buffer (BufferType): Replay buffer.
-        agent_config (ASACConfig): ASAC agent configuration.
-        log_frequency (int): Frequency of logging and evaluation.
-        num_episode_test (int): Number of episodes for evaluation.
-
-    Returns:
-        Tuple[ASACState, None]: Updated agent state.
-    """
-
-    timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
-
-    collect_scan_fn = partial(
-        collect_experience,
-        store_hidden=recurrent and agent_config.stored_state,
-        recurrent=recurrent,
-        mode=mode,
-        env_args=env_args,
-        buffer=buffer,
-        uniform=uniform,
-    )
-    agent_state, _transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=1
-    )
-    timestep = agent_state.collector_state.timestep
-
-    def do_update(agent_state):
-        agent_state, aux = update_agent(
-            agent_state,
-            buffer=buffer,
-            recurrent=recurrent,
-            target_entropy=agent_config.target_entropy,
-            tau=agent_config.tau,
-            reward_scale=agent_config.reward_scale,
-            p_0=agent_config.p_0,
-            burn_in=agent_config.burn_in,
-            stored_state=agent_config.stored_state,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-        )
-        # One (1,)-shaped leaf per metric: the metric-flattening contract.
-        aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
-
-        # Extension post_update — folded once per training_iteration after
-        # the update. Empty stack ⇒ identity.
-        if extension_stack is not None:
-            _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
-            agent_state = agent_state.replace(rng=_pu_rng2)
-            agent_state = extension_stack.fold_post_update(
-                agent_state,
-                agent_state.collector_state.timestep,
-                _pu_rng,
-                total_timesteps,
-            )
-        return agent_state, aux
-
-    def fill_with_nan(dataclass):
-        """
-        Recursively fills all fields of a dataclass with jnp.nan.
-        """
-        nan = jnp.ones(1) * jnp.nan
-        dict = {}
-        for field in fields(dataclass):
-            sub_dataclass = field.type
-            if hasattr(
-                sub_dataclass, "__dataclass_fields__"
-            ):  # Check if the field is another dataclass
-                dict[field.name] = fill_with_nan(sub_dataclass)
-            else:
-                dict[field.name] = nan
-        return dataclass(**dict)
-
-    def skip_update(agent_state):
-        return agent_state, fill_with_nan(AuxiliaryLogs)
-
-    agent_state, aux = jax.lax.cond(
-        timestep >= agent_config.learning_starts,
-        do_update,
-        skip_update,
-        operand=agent_state,
-    )
-
-    _extra_eval = compose_eval_metrics(None, extension_stack, total_timesteps)
-    agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        recurrent,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        extra_eval_metrics=_extra_eval,
-    )
-    return agent_state, metrics_to_log
 
 
 def make_train(
@@ -1061,86 +483,42 @@ def make_train(
     pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
-    """
-    Create the training function for the ASAC agent.
-
-    Args:
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        buffer (BufferType): Replay buffer.
-        agent_config (ASACConfig): ASAC agent configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        total_timesteps (int): Total timesteps for training.
-        num_episode_test (int): Number of episodes for evaluation during training.
-
-    Returns:
-        Callable: JIT-compiled training function.
-    """
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
-
+    """ASAC's train function: one step per env, then (from
+    ``learning_starts``) one update, per iteration."""
     recurrent = network_args.memory is not None
     if recurrent and extensions:
         raise NotImplementedError("Recurrent ASAC does not support extensions yet.")
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
 
-    # Start async logging if logging is enabled
-    if logging_config is not None:
-        start_async_logging()
-
-    extension_stack = ExtensionStack(extensions) if extensions else None
-
-    @train_jit
-    def train(key, index: Optional[int] = None):
-        """Train the ASAC agent."""
-        init_key, ext_key = jax.random.split(key)
-        agent_state = init_ASAC(
-            key=init_key,
-            env_args=env_args,
-            actor_optimizer_args=actor_optimizer_args,
-            critic_optimizer_args=critic_optimizer_args,
-            network_args=network_args,
+    def init(key: jax.Array, _pretrain_key: jax.Array) -> ASACState:
+        return init_ASAC(
+            key,
+            env_args,
+            actor_optimizer_args,
+            critic_optimizer_args,
+            network_args,
+            alpha_args,
+            buffer,
             stored_state=agent_config.stored_state,
-            alpha_args=alpha_args,
-            buffer=buffer,
             pid_actor_config=pid_actor_config,
         )
 
-        if extension_stack is not None:
-            _ext_key, _pre_key = jax.random.split(ext_key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
-
-        num_updates = total_timesteps // env_args.n_envs
-
-        training_iteration_scan_fn = partial(
-            training_iteration,
-            buffer=buffer,
-            recurrent=recurrent,
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
-            ),
-            extension_stack=extension_stack,
+    def update(agent_state: ASACState, _transition: Transition) -> Any:
+        # The step just collected is in the buffer: ASAC samples it from there.
+        return update_agent(
+            agent_state, buffer, recurrent, agent_config, loop.stack, total_timesteps
         )
 
-        agent_state, out = jax.lax.scan(
-            f=training_iteration_scan_fn,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
-        )
-
-        return agent_state, out
-
-    return train
+    return loop.off_policy(
+        init,
+        update,
+        AuxiliaryLogs,
+        agent_config.learning_starts,
+        recurrent=recurrent,
+        collect_kwargs={
+            "buffer": buffer,
+            "store_hidden": recurrent and agent_config.stored_state,
+        },
+    )

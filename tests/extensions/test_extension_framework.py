@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from ajax.extensions.base import (
     PHASES,
@@ -181,7 +182,7 @@ def test_extension_context_is_pytree():
 
 
 # --------------------------------------------------------------------------
-# fold_<phase> sugar helpers — None-guarded, ctx-built, ext_state-replaced.
+# fold_<phase> helpers — ctx-built, ext_state-replaced.
 # Critical invariant: empty stack returns the input unchanged WITHOUT
 # constructing an ExtensionContext (zero JIT-trace cost).
 # --------------------------------------------------------------------------
@@ -201,23 +202,19 @@ def test_fold_helpers_empty_stack_zero_cost():
 
     stack = ExtensionStack()
     agent = _FakeAgentState()
-    obs = jnp.ones((3,))
     target = jnp.ones((2,))
     batch = {"x": 1}
     rng = jax.random.PRNGKey(0)
     step = jnp.asarray(0)
 
     # All fold helpers must short-circuit before any ctx construction:
+    assert stack.fold_init(agent, rng, 100) is agent
     assert stack.fold_init_states(agent, rng) is agent
     assert stack.fold_pretrain(agent, step, rng, 100) is agent
     assert stack.fold_post_update(agent, step, rng, 100) is agent
     assert stack.fold_on_target(agent, batch, target, step, rng, 100) is target
-    assert stack.fold_on_obs(obs, agent, step, rng, 100) is obs
-    assert stack.fold_on_batch(batch, agent, step, rng, 100) is batch
     assert stack.fold_critic_loss(agent, batch, step, rng, 100) == 0.0
     assert stack.fold_actor_loss(agent, batch, step, rng, 100) == 0.0
-    assert stack.fold_action(agent, obs, step, rng, 100) is None
-    assert stack.fold_eval_action(agent, obs, step, rng, 100) is None
     assert stack.fold_eval_metrics(agent, step, rng, 100) == {}
 
 
@@ -265,6 +262,29 @@ def test_fold_helpers_route_through_phase():
     agent3 = _FakeAgentState(ext_state=((),))
     val = stack3.fold_actor_loss(agent3, batch=None, step=step, rng=rng, total_steps=10)
     assert float(val) == 0.25
+
+
+def test_fold_init_builds_the_states_then_pretrains_at_step_zero():
+    """``fold_init`` = ``fold_init_states`` then ``fold_pretrain`` at step 0,
+    on the two halves of its key; the pretrain sees the fresh state."""
+
+    @dataclass(frozen=True)
+    class Seeded(Extension):
+        def init_state(self, agent_state, rng):
+            return {"key": rng, "seen": jnp.asarray(-1)}
+
+        def pretrain(self, agent_state, ext_state, ctx):
+            return agent_state, {**ext_state, "seen": ctx.step, "pre": ctx.rng}
+
+    stack, rng = ExtensionStack([Seeded()]), jax.random.PRNGKey(3)
+    out = stack.fold_init(_FakeAgentState(), rng, 100)
+    init_key, pretrain_key = jax.random.split(rng)
+    want = stack.fold_pretrain(
+        stack.fold_init_states(_FakeAgentState(), init_key), 0, pretrain_key, 100
+    )
+    assert int(out.ext_state[0]["seen"]) == 0
+    np.testing.assert_array_equal(out.ext_state[0]["key"], want.ext_state[0]["key"])
+    np.testing.assert_array_equal(out.ext_state[0]["pre"], pretrain_key)
 
 
 def test_fold_init_states_writes_ext_state():

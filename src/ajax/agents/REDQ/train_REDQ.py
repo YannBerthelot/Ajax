@@ -1,51 +1,44 @@
+"""REDQ (Chen et al., 2021): Randomized Ensembled Double Q-learning.
+
+SAC with an ensemble of ``num_critics`` critics updated
+``num_critic_updates`` times per environment step, each target the min over
+a random subset of ``subset_size`` target critics, and an actor that
+maximises the ensemble's mean Q. ``repulsion_coef`` adds a function-space
+kernel repulsion between the critics (off by default).
+"""
+
 from collections.abc import Sequence
-from dataclasses import fields
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from jax.tree_util import Partial as partial
 
-from ajax.agents.cloning import CloningConfig, get_pre_trained_agent
+from ajax.agents.cloning import CloningConfig, pretrain_on_expert
+from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
-    sample_and_burnin_sequences,
+    actor_dist,
+    q_values,
+    sample_replay,
+    stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC.train_SAC import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
-    update_target_networks,
     update_temperature,
 )
-from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import (
-    collect_experience,
-    get_pi,
-    get_pi_sequence,
-    init_collector_state,
-    should_use_uniform_sampling,
-)
-from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
+from ajax.environments.interaction import init_collector_state
+from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.memory import flat_carry_dim
-from ajax.networks.networks import (
-    get_initialized_actor_critic,
-    predict_value,
-    predict_value_sequence,
-)
-from ajax.perf_utils import final_aux_scan, train_jit
+from ajax.networks.networks import get_initialized_actor_critic
+from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -76,6 +69,13 @@ class ValueAuxiliaries:
     # genuinely diversified in function space.
     ensemble_q_std: jax.Array
     mean_pairwise_q_dist: jax.Array
+
+
+@struct.dataclass
+class AuxiliaryLogs:
+    temperature: TemperatureAuxiliaries
+    policy: PolicyAuxiliaries
+    value: ValueAuxiliaries
 
 
 def q_ensemble_divergence(q_preds: jax.Array) -> Tuple[jax.Array, jax.Array]:
@@ -131,13 +131,6 @@ def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
     return kernel.mean()
 
 
-@struct.dataclass
-class AuxiliaryLogs:
-    temperature: TemperatureAuxiliaries
-    policy: PolicyAuxiliaries
-    value: ValueAuxiliaries
-
-
 def init_REDQ(
     key: jax.Array,
     env_args: EnvironmentConfig,
@@ -151,26 +144,7 @@ def init_REDQ(
     stored_state: bool = False,
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> REDQState:
-    """
-    Initialize the REDQ agent's state, including actor, critic, alpha, and collector states.
-
-    Args:
-        key (jax.Array): Random number generator key.
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        buffer (BufferType): Replay buffer.
-
-    Returns:
-        REDQState: Initialized REDQ agent state.
-    """
-    (
-        rng,
-        init_key,
-        collector_key,
-    ) = jax.random.split(key, num=3)
-
+    rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -183,27 +157,20 @@ def init_REDQ(
         num_critics=number_of_critics,
         pid_actor_config=pid_actor_config,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    _actor_carry_dim = 0
-    if stored_state and network_args.memory is not None:
-        _actor_carry_dim = flat_carry_dim(network_args.memory)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode=mode,
+        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
         buffer=buffer,
         window_size=window_size,
-        actor_carry_dim=_actor_carry_dim,
+        actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
     )
-
-    alpha = create_alpha_train_state(**to_state_dict(alpha_args))
-
     return REDQState(
         rng=rng,
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=alpha,
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
     )
 
@@ -217,55 +184,31 @@ def compute_redq_td_target(
     rewards: jax.Array,
     gamma: float,
     alpha: jax.Array,
-    recurrent: bool,
     subset_size: int,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """REDQ bellman target: min over a random subset of target critics.
 
-    Returns (stop_gradient'd target, log_probs) for optional reuse.
+    Returns the stop_gradient'd target and the next actions' log-probs.
     """
     rewards = rewards * reward_scale
-
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        next_pi, _ = get_pi_sequence(
-            actor_state=actor_state,
-            actor_params=actor_state.params,
-            obs=next_observations,
-            resets=carries.next_resets,
-            initial_hidden=carries.actor_next_hidden,
-        )
-    else:
-        next_pi, _ = get_pi(
-            actor_state=actor_state,
-            actor_params=actor_state.params,
-            obs=next_observations,
-            done=dones,
-            recurrent=recurrent,
-        )
+    next_pi = actor_dist(
+        actor_state, actor_state.params, next_observations, carries, bootstrap=True
+    )
     sample_key, idx_sample_key = jax.random.split(rng)
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
-
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        # The ensemble axis stays leading, so the subset sampling below is
-        # identical in sequence mode.
-        q_targets, _ = predict_value_sequence(
-            critic_state=critic_states,
-            critic_params=critic_states.target_params,
-            x=jnp.concatenate((next_observations, next_actions), axis=-1),
-            resets=carries.next_resets,
-            initial_hidden=carries.target_critic_hidden,
-        )
-    else:
-        q_targets = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_states.target_params,
-            x=jnp.concatenate((next_observations, next_actions), axis=-1),
-        )
+    # The ensemble axis stays leading in sequence mode too, so the subset
+    # sampling is the same.
+    q_targets = q_values(
+        critic_states,
+        critic_states.target_params,
+        next_observations,
+        next_actions,
+        carries,
+        bootstrap=True,
+    )
     sampled_indexes = jax.random.choice(
         idx_sample_key, q_targets.shape[0], shape=(subset_size,), replace=False
     )
@@ -278,99 +221,26 @@ def compute_redq_td_target(
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
-    actor_state: LoadedTrainState,
-    actions: jax.Array,
     observations: jax.Array,
-    next_observations: jax.Array,
-    dones: jax.Array,
-    rewards: jax.Array,
-    gamma: float,
-    alpha: jax.Array,
-    recurrent: bool,
-    subset_size: int = 2,  # Number of critics to sample for target Q estimation
-    reward_scale: float = 5.0,  # Add reward scaling factor here
-    target_q_override: Optional[jax.Array] = None,
-    log_probs_override: Optional[jax.Array] = None,
+    actions: jax.Array,
+    target_q: jax.Array,
+    next_log_probs: jax.Array,
     repulsion_coef: float = 0.0,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """
-    Compute the value loss for the critic networks.
-
-    Args:
-        critic_params (FrozenDict): Parameters of the critic networks.
-        critic_states (LoadedTrainState): Critic train states.
-        rng (jax.Array): Random number generator key.
-        actor_state (LoadedTrainState): Actor train state.
-        actions (jax.Array): Actions taken.
-        observations (jax.Array): Current observations.
-        next_observations (jax.Array): Next observations.
-        dones (jax.Array): Done flags.
-        rewards (jax.Array): Rewards received.
-        gamma (float): Discount factor.
-        alpha (jax.Array): Temperature parameter.
-        recurrent (bool): Whether the model is recurrent.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
-    """
-    # Predict Q-values from critics
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        q_preds, _ = predict_value_sequence(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-            resets=carries.resets,
-            initial_hidden=carries.critic_hidden,
-        )
-    else:
-        q_preds = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
-        )
-
-    # Target — use the precomputed override (extension on_target path) or compute inline
-    if target_q_override is not None:
-        target_q = target_q_override
-        log_probs = (
-            log_probs_override
-            if log_probs_override is not None
-            else jnp.zeros_like(target_q)
-        )
-    else:
-        target_q, log_probs = compute_redq_td_target(
-            actor_state,
-            critic_states,
-            rng,
-            next_observations,
-            dones,
-            rewards,
-            gamma,
-            alpha,
-            recurrent,
-            subset_size,
-            reward_scale,
-            carries=carries,
-        )
-
+    """Every critic regresses on the one target, plus the kernel repulsion."""
+    q_preds = q_values(critic_states, critic_params, observations, actions, carries)
     bellman_loss = jnp.sum(
         jnp.mean((q_preds - target_q) ** 2, axis=tuple(range(1, q_preds.ndim)))
         / q_preds.ndim
     )
-
     repulsion = q_kernel_repulsion(q_preds)
     total_loss = bellman_loss + repulsion_coef * repulsion
-
     q_std, mean_pairwise_q_dist = q_ensemble_divergence(q_preds)
-
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
         target_q=target_q.mean().flatten(),
-        log_probs=log_probs.mean().flatten(),
+        log_probs=next_log_probs.mean().flatten(),
         repulsion_loss=repulsion.flatten(),
         ensemble_q_std=q_std.flatten(),
         mean_pairwise_q_dist=mean_pairwise_q_dist.flatten(),
@@ -382,535 +252,190 @@ def policy_loss_function(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
     observations: jax.Array,
-    dones: Optional[jax.Array],
-    recurrent: bool,
     alpha: jax.Array,
-    rng: jax.random.PRNGKey,
+    rng: jax.Array,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array, jax.Array]]:
-    """
-    Compute the policy loss for the actor network.
+    """``alpha log pi(a|s) - mean_i Q_i(s, a)``, ``a ~ pi(.|s)``.
 
-    Args:
-        actor_params (FrozenDict): Parameters of the actor network.
-        actor_state (LoadedTrainState): Actor train state.
-        critic_states (LoadedTrainState): Critic train states.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-        alpha (jax.Array): Temperature parameter.
-        rng (jax.random.PRNGKey): Random number generator key.
-
-    Returns:
-        The loss and ``(auxiliaries, log_probs, pi_mean)``: the per-sample
-        log-probs feed the temperature update, the policy mean the
-        actor-loss extensions.
+    Returns the loss and ``(auxiliaries, log_probs, pi_mean)``: the
+    per-sample log-probs feed the temperature update, the policy mean the
+    actor-loss extensions.
     """
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        pi, _ = get_pi_sequence(
-            actor_state=actor_state,
-            actor_params=actor_params,
-            obs=observations,
-            resets=carries.resets,
-            initial_hidden=carries.actor_hidden,
-        )
-    else:
-        pi, _ = get_pi(
-            actor_state=actor_state,
-            actor_params=actor_params,
-            obs=observations,
-            done=dones,
-            recurrent=recurrent,
-        )
+    pi = actor_dist(actor_state, actor_params, observations, carries)
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
-
-    # Predict Q-values from critics
-    if recurrent:
-        assert carries is not None  # narrowed: set by the recurrent path
-        q_preds, _ = predict_value_sequence(
-            critic_state=critic_states,
-            critic_params=critic_states.params,
-            x=jnp.concatenate((observations, actions), axis=-1),
-            resets=carries.resets,
-            initial_hidden=carries.critic_hidden,
-        )
-    else:
-        q_preds = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_states.params,
-            x=jnp.hstack((observations, actions)),
-        )
-
-    # Unpack and unsqueeze if needed
-    q_min = jnp.mean(q_preds, axis=0)
-
-    log_probs = log_probs.sum(-1, keepdims=True)
-
-    assert log_probs.shape == q_min.shape, f"{log_probs.shape} != {q_min.shape}"
-    total_loss = (alpha * log_probs - q_min).mean()
-
-    return total_loss, (
-        PolicyAuxiliaries(
-            policy_loss=total_loss,
-            log_pi=log_probs.mean(),
-            q_mean=q_min.mean(),
-        ),
-        log_probs,
-        pi.mean(),
+    q_mean = jnp.mean(
+        q_values(critic_states, critic_states.params, observations, actions, carries),
+        axis=0,
     )
+    log_probs = log_probs.sum(-1, keepdims=True)
+    assert log_probs.shape == q_mean.shape, f"{log_probs.shape} != {q_mean.shape}"
+    total_loss = (alpha * log_probs - q_mean).mean()
+    aux = PolicyAuxiliaries(
+        policy_loss=total_loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
+    )
+    return total_loss, (aux, log_probs, pi.mean())
 
 
 def update_value_functions(
     agent_state: REDQState,
-    observations: jax.Array,
-    actions: jax.Array,
-    next_observations: jax.Array,
-    dones: Optional[jax.Array],
-    recurrent: bool,
-    rewards: jax.Array,
-    gamma: float,
-    subset_size: int,
-    reward_scale: float = 1.0,  # Add reward scaling factor here
-    repulsion_coef: float = 0.0,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    batch: Transition,
+    agent_config: REDQConfig,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[REDQState, Dict[str, Any]]:
-    """
-    Update the critic networks using the value loss.
-
-    Args:
-        agent_state (REDQState): Current REDQ agent state.
-        observations (jax.Array): Current observations.
-        actions (jax.Array): Actions taken.
-        next_observations (jax.Array): Next observations.
-        dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-        rewards (jax.Array): Rewards received.
-        gamma (float): Discount factor.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[REDQState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    value_loss_key, rng = jax.random.split(agent_state.rng)
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-
-    # Compute the base REDQ target (with subset sampling) for the extensions
-    target_q_override = None
-    log_probs_override = None
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-    if has_stack:
-        assert extension_stack is not None
-        target_q, log_probs = compute_redq_td_target(
-            agent_state.actor_state,
-            agent_state.critic_state,
-            value_loss_key,
-            next_observations,
-            dones,
-            rewards * reward_scale,
-            gamma,
-            alpha,
-            recurrent,
-            subset_size,
-            1.0,  # reward_scale already applied above
+) -> Tuple[REDQState, ValueAuxiliaries]:
+    """One critic step of the ensemble on the random-subset target."""
+    key, rng = jax.random.split(agent_state.rng)
+    step = agent_state.collector_state.timestep
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    dones = jnp.logical_or(batch.terminated, batch.truncated)
+    target_q, next_log_probs = compute_redq_td_target(
+        agent_state.actor_state,
+        agent_state.critic_state,
+        key,
+        batch.next_obs,
+        dones,
+        batch.reward,
+        agent_config.gamma,
+        alpha,
+        agent_config.subset_size,
+        agent_config.reward_scale,
+        carries,
+    )
+    target_batch = {
+        "observations": batch.obs,
+        "actions": batch.action,
+        "next_observations": batch.next_obs,
+        "rewards": batch.reward,
+        "dones": dones,
+        "gamma": agent_config.gamma,
+        "reward_scale": agent_config.reward_scale,
+    }
+    target_q = jax.lax.stop_gradient(
+        extension_stack.fold_on_target(
+            agent_state, target_batch, target_q, step, key, total_timesteps
         )
-        _tgt_batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "rewards": rewards,
-            "dones": dones,
-            "gamma": gamma,
-            "reward_scale": reward_scale,
-        }
-        target_q = extension_stack.fold_on_target(
-            agent_state,
-            _tgt_batch,
-            target_q,
-            agent_state.collector_state.timestep,
-            value_loss_key,
-            total_timesteps,
-        )
-        target_q_override = jax.lax.stop_gradient(target_q)
-        log_probs_override = log_probs
+    )
+    critic_state = agent_state.critic_state
 
-    def _critic_loss(params):
-        loss, core_aux = value_loss_function(
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
+        loss, aux = value_loss_function(
             params,
-            agent_state.critic_state,
-            value_loss_key,
-            agent_state.actor_state,
-            actions,
-            observations,
-            next_observations,
-            dones,
-            rewards,
-            gamma,
-            alpha,
-            recurrent,
-            subset_size,
-            reward_scale,
-            target_q_override,
-            log_probs_override,
-            repulsion_coef,
-            carries=carries,
+            critic_state,
+            batch.obs,
+            batch.action,
+            target_q,
+            next_log_probs,
+            agent_config.repulsion_coef,
+            carries,
         )
-        if has_stack:
-            assert extension_stack is not None
-            _cl_batch = {
-                "observations": observations,
-                "actions": actions,
-                "critic_params": params,
-                "critic_state": agent_state.critic_state,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                _cl_batch,
-                agent_state.collector_state.timestep,
-                value_loss_key,
-                total_timesteps,
-            )
-        return loss, core_aux
+        loss_batch = {
+            "observations": batch.obs,
+            "actions": batch.action,
+            "critic_params": params,
+            "critic_state": critic_state,
+        }
+        extra = extension_stack.fold_critic_loss(
+            agent_state, loss_batch, step, key, total_timesteps
+        )
+        return loss + extra, aux
 
-    (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
-        agent_state.critic_state.params,
-    )
-
-    updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        critic_state=updated_critic_state,
-    )
-    return agent_state, aux
+    critic_state, aux = gradient_step(critic_state, loss_fn)
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 
 def update_policy(
     agent_state: REDQState,
     observations: jax.Array,
-    done: Optional[jax.Array],
-    recurrent: bool,
-    raw_observations: Optional[jax.Array] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    raw_observations: Optional[jax.Array],
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[REDQState, Any, jax.Array]:
-    """
-    Update the actor network using the policy loss.
-
-    Args:
-        agent_state (REDQState): Current REDQ agent state.
-        observations (jax.Array): Current observations.
-        done (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-
-    Returns:
-        Tuple[REDQState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
+) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array]:
+    """The actor step; also returns its samples' log-probs (temperature)."""
     rng, policy_key = jax.random.split(agent_state.rng)
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    actor_state = agent_state.actor_state
 
-    def _actor_loss(params):
-        loss, (core_aux, log_probs, pi_mean) = policy_loss_function(
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
+        loss, (aux, log_probs, pi_mean) = policy_loss_function(
             params,
-            agent_state.actor_state,
+            actor_state,
             agent_state.critic_state,
             observations,
-            done,
-            recurrent,
             alpha,
             policy_key,
-            carries=carries,
+            carries,
         )
-        if has_stack:
-            assert extension_stack is not None
-            _al_batch = {
-                "observations": observations,
-                "raw_observations": raw_observations,
-                "pi_mean": pi_mean,
-                "actor_params": params,
-                "actor_state": agent_state.actor_state,
-            }
-            loss = loss + extension_stack.fold_actor_loss(
-                agent_state,
-                _al_batch,
-                agent_state.collector_state.timestep,
-                policy_key,
-                total_timesteps,
-            )
-        return loss, (core_aux, log_probs)
+        actor_batch = {
+            "observations": observations,
+            "raw_observations": raw_observations,
+            "pi_mean": pi_mean,
+            "actor_params": params,
+            "actor_state": actor_state,
+        }
+        extra = extension_stack.fold_actor_loss(
+            agent_state,
+            actor_batch,
+            agent_state.collector_state.timestep,
+            policy_key,
+            total_timesteps,
+        )
+        return loss + extra, (aux, log_probs)
 
-    (loss, (aux, log_probs)), grads = jax.value_and_grad(_actor_loss, has_aux=True)(
-        agent_state.actor_state.params,
-    )
-
-    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        actor_state=updated_actor_state,
-    )
-    return agent_state, aux, log_probs
+    actor_state, (aux, log_probs) = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(rng=rng, actor_state=actor_state), aux, log_probs
 
 
 def update_agent(
     agent_state: REDQState,
     buffer: BufferType,
     recurrent: bool,
-    gamma: float,
-    action_dim: int,
-    tau: float,
-    num_critic_updates: int = 20,
-    subset_size: int = 2,
-    reward_scale: float = 5.0,
-    repulsion_coef: float = 0.0,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
-    burn_in: int = 8,
-    stored_state: bool = False,
+    agent_config: REDQConfig,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
 ) -> Tuple[REDQState, AuxiliaryLogs]:
-    """
-    Update the REDQ agent, including critic, actor, and temperature updates.
-
-    Args:
-        agent_state (REDQState): Current REDQ agent state.
-        buffer (BufferType): Replay buffer.
-        recurrent (bool): Whether the model is recurrent.
-        gamma (float): Discount factor.
-        action_dim (int): Action dimensionality.
-        tau (float): Soft update coefficient.
-        num_critic_updates (int): Number of critic updates per step.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[REDQState, AuxiliaryLogs]: Updated agent state and metrics.
-    """
+    """One update: ``num_critic_updates`` critic and target steps on a replay
+    batch, then one actor step and one temperature step."""
     sample_key, rng = jax.random.split(agent_state.rng)
-    carries = None
-    if recurrent:
-        # Sequence replay with burned-in carries (R2D2-style); expert
-        # features are rejected upstream in make_train.
-        transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
-        )
-        raw_observations = None
-    else:
-        (
-            observations,
-            terminated,
-            truncated,
-            next_observations,
-            rewards,
-            actions,
-            raw_observations,
-            _,
-        ) = get_batch_from_buffer(
-            buffer,
-            agent_state.collector_state.buffer_state,
-            sample_key,
-        )
-        transition = Transition(
-            observations, actions, rewards, terminated, truncated, next_observations
-        )
-
-    agent_state = agent_state.replace(rng=rng)
-    dones = jnp.logical_or(transition.terminated, transition.truncated)
-
-    # Update Q functions
-    def critic_update_step(carry, _):
-        agent_state = carry
-        agent_state, aux_value = update_value_functions(
-            observations=transition.obs,
-            actions=transition.action,
-            next_observations=transition.next_obs,
-            rewards=transition.reward,
-            dones=dones,
-            agent_state=agent_state,
-            recurrent=recurrent,
-            gamma=gamma,
-            reward_scale=reward_scale,
-            subset_size=subset_size,
-            repulsion_coef=repulsion_coef,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-            carries=carries,
-        )
-        agent_state = update_target_networks(agent_state, tau=tau)
-
-        return agent_state, aux_value
-
-    # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
-    # last-step aux without materialising the leading scan axis on
-    # device. Same pattern as SAC's critic-update scan.
-    agent_state, aux_value = final_aux_scan(
-        critic_update_step,
+    batch, carries = sample_replay(
         agent_state,
-        length=num_critic_updates,
+        buffer,
+        sample_key,
+        recurrent,
+        agent_config.burn_in,
+        agent_config.stored_state,
     )
+    agent_state = agent_state.replace(rng=rng)
 
-    # Update policy
+    def critic_update_step(agent_state: REDQState, _: Any) -> Tuple[REDQState, Any]:
+        agent_state, aux_value = update_value_functions(
+            agent_state, batch, agent_config, extension_stack, total_timesteps, carries
+        )
+        critic_state = agent_state.critic_state.soft_update(tau=agent_config.tau)
+        return agent_state.replace(critic_state=critic_state), aux_value
+
+    # Carry-only scan: only the last critic step's metrics are kept.
+    agent_state, aux_value = final_aux_scan(
+        critic_update_step, agent_state, length=agent_config.num_critic_updates
+    )
     agent_state, aux_policy, log_probs = update_policy(
-        observations=transition.obs,
-        done=dones,
-        agent_state=agent_state,
-        recurrent=recurrent,
-        raw_observations=raw_observations,
-        extension_stack=extension_stack,
-        total_timesteps=total_timesteps,
-        carries=carries,
+        agent_state,
+        batch.obs,
+        batch.raw_obs,
+        extension_stack,
+        total_timesteps,
+        carries,
     )
-
-    # Adjust temperature
-    effective_target_entropy = jnp.array(-float(action_dim))
     agent_state, aux_temperature = update_temperature(  # type: ignore[assignment]
         agent_state,  # type: ignore[arg-type]
         log_probs=log_probs,
-        effective_target_entropy=effective_target_entropy,
+        effective_target_entropy=jnp.asarray(agent_config.target_entropy),
     )
-
-    aux = AuxiliaryLogs(
-        temperature=aux_temperature,
-        policy=aux_policy,
-        value=aux_value,
-    )
+    aux = AuxiliaryLogs(temperature=aux_temperature, policy=aux_policy, value=aux_value)
     return agent_state, aux
-
-
-def training_iteration(
-    agent_state: REDQState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
-    recurrent: bool,
-    buffer: BufferType,
-    agent_config: REDQConfig,
-    action_dim: int,
-    total_timesteps: int,
-    log_frequency: int = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    expert_policy: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> tuple[REDQState, None]:
-    """
-    Perform one training iteration, including experience collection and agent updates.
-
-    Args:
-        agent_state (REDQState): Current REDQ agent state.
-        _ (Any): Placeholder for scan compatibility.
-        env_args (EnvironmentConfig): Environment configuration.
-        mode (str): Environment mode ("gymnax" or "brax").
-        recurrent (bool): Whether the model is recurrent.
-        buffer (BufferType): Replay buffer.
-        agent_config (REDQConfig): REDQ agent configuration.
-        action_dim (int): Action dimensionality.
-        log_frequency (int): Frequency of logging and evaluation.
-        num_episode_test (int): Number of episodes for evaluation.
-
-    Returns:
-        Tuple[REDQState, None]: Updated agent state.
-    """
-    timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
-
-    collect_scan_fn = partial(
-        collect_experience,
-        store_hidden=recurrent and agent_config.stored_state,
-        recurrent=recurrent,
-        mode=mode,
-        env_args=env_args,
-        buffer=buffer,
-        uniform=uniform,
-    )
-
-    agent_state, _transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=1
-    )
-    timestep = agent_state.collector_state.timestep
-
-    def do_update(agent_state):
-        agent_state, aux = update_agent(
-            agent_state,
-            buffer=buffer,
-            recurrent=recurrent,
-            gamma=agent_config.gamma,
-            action_dim=action_dim,
-            tau=agent_config.tau,
-            reward_scale=agent_config.reward_scale,
-            num_critic_updates=agent_config.num_critic_updates,
-            subset_size=agent_config.subset_size,
-            repulsion_coef=agent_config.repulsion_coef,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-            burn_in=agent_config.burn_in,
-            stored_state=agent_config.stored_state,
-        )
-        # One (1,)-shaped leaf per metric: the metric-flattening contract.
-        aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
-
-        # Extension post_update — folded once per training_iteration,
-        # after the update. Empty stack ⇒ identity.
-        if extension_stack is not None:
-            _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
-            agent_state = agent_state.replace(rng=_pu_rng2)
-            agent_state = extension_stack.fold_post_update(
-                agent_state,
-                agent_state.collector_state.timestep,
-                _pu_rng,
-                total_timesteps,
-            )
-        return agent_state, aux
-
-    def fill_with_nan(dataclass):
-        """
-        Recursively fills all fields of a dataclass with jnp.nan.
-        """
-        nan = jnp.ones(1) * jnp.nan
-        dict = {}
-        for field in fields(dataclass):
-            sub_dataclass = field.type
-            if hasattr(
-                sub_dataclass, "__dataclass_fields__"
-            ):  # Check if the field is another dataclass
-                dict[field.name] = fill_with_nan(sub_dataclass)
-            else:
-                dict[field.name] = nan
-        return dataclass(**dict)
-
-    def skip_update(agent_state):
-        return agent_state, fill_with_nan(AuxiliaryLogs)
-
-    agent_state, aux = jax.lax.cond(
-        timestep >= agent_config.learning_starts,
-        do_update,
-        skip_update,
-        operand=agent_state,
-    )
-
-    _extra_eval = compose_eval_metrics(None, extension_stack, total_timesteps)
-    agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        recurrent,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        expert_policy=expert_policy,
-        extra_eval_metrics=_extra_eval,
-    )
-
-    return agent_state, metrics_to_log
 
 
 def make_train(
@@ -930,113 +455,66 @@ def make_train(
     pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
-    """
-    Create the training function for the REDQ agent.
-
-    Args:
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        buffer (BufferType): Replay buffer.
-        agent_config (REDQConfig): REDQ agent configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        total_timesteps (int): Total timesteps for training.
-        num_episode_test (int): Number of episodes for evaluation during training.
-
-    Returns:
-        Callable: JIT-compiled training function.
-    """
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
-
-    pre_train_n_steps = cloning_args.pre_train_n_steps if cloning_args else 0
-    _recurrent = network_args.memory is not None
-    if _recurrent:
+    """REDQ's train function: one step per env, then (from
+    ``learning_starts``) one update, per iteration."""
+    recurrent = network_args.memory is not None
+    if recurrent:
         unsupported_recurrent_options(
             "REDQ",
             expert_policy=expert_policy,
             extensions=(tuple(extensions) or None),
             # REDQ always builds a default CloningConfig; only actual
             # pre-training (pre_train_n_steps > 0) conflicts with memory.
-            cloning_pretrain=(cloning_args if pre_train_n_steps > 0 else None),
-            pid_actor_config=pid_actor_config,
-        )
-
-    # Start async logging if logging is enabled
-    if logging_config is not None:
-        start_async_logging()
-
-    extension_stack = ExtensionStack(extensions) if extensions else None
-
-    @train_jit
-    def train(key, index: Optional[int] = None):
-        """Train the REDQ agent."""
-        init_key, expert_key = jax.random.split(key)
-        agent_state = init_REDQ(
-            key=init_key,
-            env_args=env_args,
-            actor_optimizer_args=actor_optimizer_args,
-            critic_optimizer_args=critic_optimizer_args,
-            network_args=network_args,
-            stored_state=agent_config.stored_state,
-            alpha_args=alpha_args,
-            buffer=buffer,
-            number_of_critics=agent_config.num_critics,
-            pid_actor_config=pid_actor_config,
-        )
-
-        # pre-train agent
-        if pre_train_n_steps > 0:
-            agent_state = get_pre_trained_agent(
-                agent_state,
-                expert_policy,
-                expert_key,
-                env_args,
-                cloning_args,
-                mode,
-                agent_config,
-                actor_optimizer_args,
-                critic_optimizer_args,
-            )
-
-        if extension_stack is not None:
-            _ext_key, _pre_key = jax.random.split(expert_key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
-
-        num_updates = total_timesteps // env_args.n_envs
-        _, action_shape = get_state_action_shapes(env_args.env)
-
-        training_iteration_scan_fn = partial(
-            training_iteration,
-            buffer=buffer,
-            recurrent=_recurrent,
-            action_dim=action_shape[0],
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
+            cloning_pretrain=(
+                cloning_args
+                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
+                else None
             ),
-            expert_policy=expert_policy,
-            extension_stack=extension_stack,
+            pid_actor_config=pid_actor_config,
+        )
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
+
+    def init(key: jax.Array, pretrain_key: jax.Array) -> REDQState:
+        agent_state = init_REDQ(
+            key,
+            env_args,
+            actor_optimizer_args,
+            critic_optimizer_args,
+            network_args,
+            alpha_args,
+            buffer,
+            number_of_critics=agent_config.num_critics,
+            stored_state=agent_config.stored_state,
+            pid_actor_config=pid_actor_config,
+        )
+        return pretrain_on_expert(
+            agent_state,
+            pretrain_key,
+            cloning_args,
+            expert_policy,
+            env_args,
+            agent_config,
+            actor_optimizer_args,
+            critic_optimizer_args,
         )
 
-        agent_state, out = jax.lax.scan(
-            f=training_iteration_scan_fn,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
+    def update(agent_state: REDQState, _transition: Transition) -> Any:
+        # The step just collected is in the buffer: REDQ samples it from there.
+        return update_agent(
+            agent_state, buffer, recurrent, agent_config, loop.stack, total_timesteps
         )
 
-        return agent_state, out
-
-    return train
+    return loop.off_policy(
+        init,
+        update,
+        AuxiliaryLogs,
+        agent_config.learning_starts,
+        recurrent=recurrent,
+        collect_kwargs={
+            "buffer": buffer,
+            "store_hidden": recurrent and agent_config.stored_state,
+        },
+        eval_kwargs={"expert_policy": expert_policy},
+    )

@@ -21,8 +21,7 @@ Differences from the SAC/TD3 template in this codebase:
 """
 
 from collections.abc import Sequence
-from dataclasses import fields
-from typing import Any, Callable, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -34,6 +33,7 @@ from ajax.agents.DQN.networks import get_initialized_q_network, predict_q
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
+    ActionPipelineResult,
     collect_experience,
     init_collector_state,
     should_use_uniform_sampling,
@@ -54,6 +54,7 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
+from ajax.utils import fill_with_nan
 
 # ---------------------------------------------------------------------------
 # Auxiliary dataclass (for logging)
@@ -75,36 +76,9 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
 
 
-def _fill_with_nan(dataclass):
-    """Build an all-NaN instance of a (possibly nested) aux dataclass."""
-    nan = jnp.ones(1) * jnp.nan
-    d = {}
-    for field in fields(dataclass):
-        sub = field.type
-        if hasattr(sub, "__dataclass_fields__"):
-            d[field.name] = _fill_with_nan(sub)
-        else:
-            d[field.name] = nan
-    return dataclass(**d)
-
-
 # ---------------------------------------------------------------------------
 # Epsilon-greedy action pipeline
 # ---------------------------------------------------------------------------
-
-
-class DQNActionPipelineResult(NamedTuple):
-    """Matches the structure ``collect_experience`` expects from a pipeline."""
-
-    env_action: jax.Array
-    policy_action: jax.Array
-    log_probs: jax.Array
-    is_expert_flag: jax.Array
-    in_value_box: jax.Array
-    entry_bonus: jax.Array
-    rng: jax.Array
-    buffer_action: Optional[jax.Array] = None
-    new_expert_state: Optional[Any] = None
 
 
 def make_epsilon_greedy_pipeline(
@@ -152,7 +126,7 @@ def make_epsilon_greedy_pipeline(
         # stores discrete actions as (n_envs, 1).
         buffer_action = env_action[:, None]
         n_envs = env_args.n_envs
-        return DQNActionPipelineResult(
+        return ActionPipelineResult(
             env_action=env_action,
             policy_action=buffer_action,
             log_probs=jnp.zeros((n_envs, 1), dtype=jnp.float32),
@@ -368,7 +342,7 @@ def update_agent(
     # Extension fold: TD-target shaping (analogous to SAC's
     # ``stack.on_target``). Empty stack ⇒ identity. Each extension reads
     # the standard DQN target operands off the batch dict.
-    if extension_stack is not None:
+    if extension_stack:
         _tgt_rng, rng2 = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng2)
         _tgt_batch = {
@@ -392,7 +366,7 @@ def update_agent(
     def _q_loss(params, q_state, obs, act, tgt):
         loss, core_aux = q_loss_fn(params, q_state, obs, act, tgt, td_loss_fn)
         # Additive extension critic-loss term (summed over stack).
-        if extension_stack is not None:
+        if extension_stack:
             _cl_batch = {
                 "observations": obs,
                 "actions": act,
@@ -495,7 +469,7 @@ def training_iteration(
         # Extension post_update — folded once per training_iteration, after
         # the gradient-step scan, so phi-refresh-style hooks see the
         # updated agent_state. Empty stack ⇒ identity.
-        if extension_stack is not None:
+        if extension_stack:
             _pu_rng, rng2 = jax.random.split(agent_state.rng)
             agent_state = agent_state.replace(rng=rng2)
             agent_state = extension_stack.fold_post_update(
@@ -507,7 +481,7 @@ def training_iteration(
         return agent_state, aux
 
     def skip_update(agent_state):
-        return agent_state, _fill_with_nan(AuxiliaryLogs)
+        return agent_state, fill_with_nan(AuxiliaryLogs)
 
     agent_state, aux = jax.lax.cond(
         timestep >= agent_config.learning_starts,
@@ -581,7 +555,7 @@ def make_train(
 
     num_updates = total_timesteps // env_args.n_envs
 
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
 
     def init_fn(key, index):
         agent_state = init_DQN(
@@ -593,13 +567,7 @@ def make_train(
             n_actions=n_actions,
             q_network_cls=q_network_cls,
         )
-        if extension_stack is not None:
-            _ext_key, _pre_key = jax.random.split(key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
-        return agent_state
+        return extension_stack.fold_init(agent_state, key, total_timesteps)
 
     def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         return partial(

@@ -254,8 +254,8 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)
 
 
-TARGET = "the recurrent target critic sees the action taken only at the window's first training position and policy samples after it (recurrent.py:140-146 with SAC/core.py:146-154, train_TD3.py:279-284, train_REDQ.py:267-272, train_ASAC.py:250-255); right 2*gamma = 1.24 (ASAC 2.0, TD3 curvature 0.558), today 1/L of it (L = 16: 0.078, ASAC 0.125, TD3 0.035; L = 2: 0.62, 1.0, 0.279). Calibrate with the fix: at the controls' spread, fixed TD3 and ASAC cells would pass 0.1 only about 73% and 54% of the time"
-ACTOR = "the actor loss runs the critic over its own fresh actions as one sequence, so each first action is credited again by the next step's Q through the critic's memory (SAC/train_SAC.py:563-575, REDQ/train_REDQ.py:471-477), on top of the target defect; right tanh(mu(o0)) = 0.515, today 0.670 (L = 16; 0.609 at L = 2). Calibrate with the fix"
+TARGET = "the recurrent target critic sees the action taken only at the window's first training position and policy samples after it (recurrent.py:140-146 with SAC/core.py:146-154, recurrent.q_values with train_TD3.py:182-189, train_REDQ.py:204-211, train_ASAC.py:160-167); right 2*gamma = 1.24 (ASAC 2.0, TD3 curvature 0.558), today 1/L of it (L = 16: 0.078, ASAC 0.125, TD3 0.035; L = 2: 0.62, 1.0, 0.279). Calibrate with the fix: at the controls' spread, fixed TD3 and ASAC cells would pass 0.1 only about 73% and 54% of the time"
+ACTOR = "the actor loss runs the critic over its own fresh actions as one sequence, so each first action is credited again by the next step's Q through the critic's memory (SAC/train_SAC.py:563-575, REDQ/train_REDQ.py:268-271), on top of the target defect; right tanh(mu(o0)) = 0.515, today 0.670 (L = 16; 0.609 at L = 2). Calibrate with the fix"
 CONTROL = {  # tolerances (critic, actor); certification on seeds 3000-3031
     ("SAC", "gru"): ((0.183, 0.124), "cert 32/32, worst 0.089 / 0.062"),
     ("SAC", "lstm"): ((0.224, 0.13), "cert 32/32, worst 0.076 / 0.057"),

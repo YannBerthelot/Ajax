@@ -6,57 +6,21 @@ them from any agent's ``train_*.py`` so a fix lands in one place
 instead of being duplicated per-agent.
 
 Public API:
-    train_jit            Decorator for top-level per-seed train functions.
     build_resumable_train
                          Builds the canonical init-or-resume + lax.scan
-                         inner train function shared by every agent.
+                         inner train function shared by every agent
+                         (directly, or through ``ajax.agents.loop``).
     final_aux_scan       lax.scan that exposes only the last-step aux,
                          without materializing the full ys axis.
     final_aux_fori       fori_loop with a traced trip count that exposes
                          only the last iteration's aux.
 """
 
-import inspect
+from functools import partial
 from typing import Any, Callable, Tuple
 
 import jax
 import jax.numpy as jnp
-
-
-# ---------------------------------------------------------------------------
-# train_jit
-# ---------------------------------------------------------------------------
-def train_jit(fn: Callable) -> Callable:
-    """Decorate a per-seed train function with sane default jit options.
-
-    For agents that follow the full convention
-
-        def train(key, index=None, initial_state=None, resume_from_state=False):
-            ...
-
-    this applies:
-      * ``static_argnames=("resume_from_state",)`` so the bool selects
-        the init-fresh vs load-from-checkpoint branch at trace time
-        (dead-code elimination on the unused side).
-      * ``donate_argnames=("initial_state",)`` so XLA reuses the
-        incoming agent-state buffers on the resume path; saves ~one
-        ``agent_state`` worth of peak memory at the jit boundary.
-        Donating ``None`` (the init path) is a safe no-op.
-
-    Agents that don't yet take ``initial_state`` / ``resume_from_state``
-    just get a plain ``jax.jit`` (decorator introspects the signature).
-    Adding those parameters in future is a purely-additive change that
-    automatically picks up the donation/static treatment.
-    """
-    params = inspect.signature(fn).parameters
-    static = tuple(n for n in ("resume_from_state",) if n in params)
-    donate = tuple(n for n in ("initial_state",) if n in params)
-    kwargs = {}
-    if static:
-        kwargs["static_argnames"] = static
-    if donate:
-        kwargs["donate_argnames"] = donate
-    return jax.jit(fn, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -97,10 +61,11 @@ def build_resumable_train(
         train(key, index=None, initial_state=None, resume_from_state=False,
               iteration_offset=0, shared=None)
 
-    and is decorated with :func:`train_jit`, so ``resume_from_state``
-    becomes a trace-time static (init-fresh vs load-from-checkpoint
-    branch is dead-code-eliminated) and ``initial_state`` buffers are
-    donated on the resume path.
+    and is jitted with ``resume_from_state`` static (the init-fresh vs
+    load-from-checkpoint branch is dead-code-eliminated) and
+    ``initial_state`` donated: XLA reuses the incoming agent-state buffers
+    on the resume path, saving one agent state of peak memory (donating
+    ``None``, the init path, is a no-op).
 
     The scan input is the iteration index ``iteration_offset +
     arange(num_updates)``: a resumed run passes the number of iterations
@@ -157,7 +122,11 @@ def build_resumable_train(
             "build_resumable_train: pass exactly one of `scan_fn` or " "`make_scan_fn`."
         )
 
-    @train_jit
+    @partial(
+        jax.jit,
+        static_argnames=("resume_from_state",),
+        donate_argnames=("initial_state",),
+    )
     def train(
         key: Any,
         index: Any = None,
@@ -304,4 +273,4 @@ def final_aux_fori(
     )
 
 
-__all__ = ["build_resumable_train", "final_aux_fori", "final_aux_scan", "train_jit"]
+__all__ = ["build_resumable_train", "final_aux_fori", "final_aux_scan"]

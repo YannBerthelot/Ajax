@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Sequence, Tuple
+from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 
 import chex
 import distrax
@@ -19,6 +19,7 @@ from ajax.state import (
     LoadedTrainState,
     RollinEpisodicMeanRewardState,
     Transition,
+    zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
 
@@ -677,6 +678,35 @@ def get_buffer_action_and_env_action(
     return env_action, env_action  # buffer_action = env_action always
 
 
+class ActionPipelineResult(NamedTuple):
+    """What an ``action_pipeline`` hands :func:`collect_experience`.
+
+    The first seven fields are required. The optional ones default to
+    ``None``, and ``collect_experience`` then falls back: it stores the env
+    action, threads no expert state or action, and leaves the actor's carry
+    as the pipeline found it.
+    """
+
+    env_action: jax.Array  # executed in the environment
+    policy_action: jax.Array  # the actor's action, stored in the transition
+    log_probs: jax.Array
+    is_expert_flag: jax.Array  # 1 where an expert acted (buffer bookkeeping)
+    in_value_box: jax.Array  # value-box membership (zeros without a box)
+    entry_bonus: jax.Array  # value-box entry bonus (zeros without a box)
+    rng: jax.Array  # the collector's key after the pipeline's own draws
+    # A stateful expert's state after this step (PID integrator, CPG phase).
+    new_expert_state: Optional[Any] = None
+    # Written to the replay buffer instead of env_action: a gain policy's
+    # raw output, a discrete action's (n_envs, 1) column.
+    buffer_action: Optional[jax.Array] = None
+    # The expert's action this step, computed with its true internal state,
+    # so the residual-RL losses need not recompute it from a zero state.
+    a_expert: Optional[jax.Array] = None
+    # A recurrent actor's advanced carry: a pipeline that runs the policy
+    # hands it back, or the actor's memory would stay frozen.
+    new_actor_hidden: Optional[Any] = None
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -708,8 +738,7 @@ def collect_experience(
             selection (obs augmentation, expert exploration, residual RL, etc.).
             When None, uses vanilla behavior: uniform during warmup, policy after.
             Signature: (agent_state, raw_obs, rng, uniform, mix_key, action_key)
-                -> ActionPipelineResult(env_action, policy_action, log_probs,
-                   is_expert_flag, in_value_box, entry_bonus, rng)
+                -> :class:`ActionPipelineResult`.
     """
     rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
 
@@ -1153,6 +1182,25 @@ def collect_experience_from_expert_policy(
     )
 
     return transitions
+
+
+def preallocate_last_rollout(
+    agent_state: BaseAgentState, length: int, **collect_kwargs: Any
+) -> BaseAgentState:
+    """``agent_state`` with a zero ``last_rollout`` shaped like one rollout.
+
+    An agent exposing its latest rollout (``expose_recent_rollout``) writes
+    it on ``agent_state.last_rollout`` every iteration. Allocating it before
+    the first one keeps the scan carry's structure fixed (``None`` would
+    become a :class:`Transition`). ``collect_kwargs`` are the agent's
+    :func:`collect_experience` arguments; ``length`` its steps per rollout.
+    """
+    collect = partial(collect_experience, **collect_kwargs)
+    _, rollout = jax.eval_shape(
+        lambda state: jax.lax.scan(collect, state, xs=None, length=length),
+        agent_state,
+    )
+    return agent_state.replace(last_rollout=zeros_like_abstract_pytree(rollout))
 
 
 def init_collector_state(

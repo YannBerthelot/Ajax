@@ -391,7 +391,7 @@ def update_step(
         agent_state.replace(rng=rng), batch, noise, config=config, gamma=gamma
     )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
-    if extension_stack is not None:
+    if extension_stack:
         agent_state = extension_stack.fold_post_update(
             agent_state,
             agent_state.collector_state.timestep,
@@ -542,7 +542,7 @@ def make_train(
     # buffer (committed rounds only grow with the tick).
     buffer.check_sampleable_from(schedule.seed_tick)
 
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
     if logging_config is not None:
         start_async_logging()
     log_kwargs: Optional[dict] = None
@@ -578,15 +578,6 @@ def make_train(
         )
         return agent_state.replace(index=index)
 
-    def init_transform(agent_state, key):
-        if extension_stack is None:
-            return agent_state
-        ext_key, pre_key = jax.random.split(key)
-        agent_state = extension_stack.fold_init_states(agent_state, ext_key)
-        return extension_stack.fold_pretrain(
-            agent_state, jnp.asarray(0), pre_key, total_timesteps
-        )
-
     def make_scan_fn(_agent_state, _resume, _key, index):
         return partial(
             training_iteration,
@@ -605,7 +596,7 @@ def make_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=schedule.num_ticks(total_timesteps, start_tick),
-        init_transform=init_transform,
+        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
     )
 
 

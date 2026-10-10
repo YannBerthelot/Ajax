@@ -1,47 +1,42 @@
+"""APO (Ma et al., 2021): Average-reward Policy Optimization.
+
+PPO for the average-reward criterion: each rollout updates an EMA of the
+reward rate ``rho`` (``alpha`` its rate) and of the mean value ``b``; the
+advantages are GAE on the differential TD error ``r - rho + V(s') - V(s)``
+(no discount), and the critic fits the differential value with the
+value-bias penalty ``nu b``.
+"""
+
 from collections.abc import Sequence
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import distrax
 import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
-from flax.serialization import to_state_dict
-from jax.tree_util import Partial as partial
 
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
-from ajax.agents.cloning import CloningConfig, get_pre_trained_agent
+from ajax.agents.cloning import CloningConfig, pretrain_on_expert
+from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.environments.interaction import (
-    collect_experience,
-    get_pi,
-    init_collector_state,
-)
+from ajax.environments.interaction import get_pi, init_collector_state
 from ajax.environments.utils import (
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.networks import (
-    get_initialized_actor_critic,
-    predict_value,
-)
-from ajax.perf_utils import train_jit
+from ajax.networks.networks import get_initialized_actor_critic, predict_value
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
-    zeros_like_abstract_pytree,
+    Transition,
 )
 
 
@@ -100,7 +95,6 @@ def policy_loss_function(
     gae: jax.Array,
     clip_coef: float,
     ent_coef: float,
-    advantage_normalization: bool,
     # Pre-tanh raw action for SquashedNormal log_prob recompute (m4).
     # See SquashedNormal.log_prob_from_raw and PPO's policy_loss_function
     # for the rationale. None ⇒ fall back to the standard
@@ -109,43 +103,25 @@ def policy_loss_function(
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
     """Clipped surrogate loss; also returns the policy mean for extensions
     (``None`` for a discrete policy, which has no mean action)."""
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=observations,
-        done=None,
-        recurrent=False,
-    )
-
+    pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs, entropy = compute_entropy_and_log_probs(
-        pi,
-        actions,
-        raw_actions=raw_actions,
+        pi, actions, raw_actions=raw_actions
     )
-
     ratio = jnp.exp(new_log_probs - log_probs)
-
-    if advantage_normalization:
-        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-
     assert (
         ratio.shape[0] == gae.shape[0]
     ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     loss_actor1 = ratio * gae
     loss_actor2 = jnp.clip(ratio, 1.0 - clip_coef, 1.0 + clip_coef) * gae
-
     loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
-
     clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
-
     total_loss = (loss_actor - ent_coef * entropy.mean()).mean()
-
     aux = PolicyAuxiliaries(
         policy_loss=total_loss,
         log_probs=new_log_probs.mean(),
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
-        entropy=entropy,
+        entropy=entropy.mean(),
     )
     pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
     return total_loss, (aux, pi_mean)
@@ -159,54 +135,44 @@ def update_policy(
     log_probs: jax.Array,
     clip_coef: float,
     ent_coef: float,
-    advantage_normalization: bool,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
     raw_actions: Optional[jax.Array] = None,
-) -> Tuple[APOState, Dict[str, Any]]:
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
+) -> Tuple[APOState, PolicyAuxiliaries]:
+    """The clipped-surrogate actor step on one minibatch."""
+    actor_state = agent_state.actor_state
 
-    def _actor_loss(params):
-        loss, (core_aux, pi_mean) = policy_loss_function(
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
+        loss, (aux, pi_mean) = policy_loss_function(
             params,
-            agent_state.actor_state,
+            actor_state,
             observations=observations,
             actions=actions,
             log_probs=log_probs,
             gae=gae,
             clip_coef=clip_coef,
             ent_coef=ent_coef,
-            advantage_normalization=advantage_normalization,
             raw_actions=raw_actions,  # m4: pre-tanh for SquashedNormal recompute
         )
-        if has_stack:
-            assert extension_stack is not None
-            _al_batch = {
-                "observations": observations,
-                "raw_observations": raw_observations,
-                "pi_mean": pi_mean,
-                "actor_params": params,
-                "actor_state": agent_state.actor_state,
-            }
-            loss = loss + extension_stack.fold_actor_loss(
-                agent_state,
-                _al_batch,
-                agent_state.collector_state.timestep,
-                agent_state.rng,
-                total_timesteps,
-            )
-        return loss, core_aux
+        actor_batch = {
+            "observations": observations,
+            "raw_observations": raw_observations,
+            "pi_mean": pi_mean,
+            "actor_params": params,
+            "actor_state": actor_state,
+        }
+        extra = extension_stack.fold_actor_loss(
+            agent_state,
+            actor_batch,
+            agent_state.collector_state.timestep,
+            agent_state.rng,
+            total_timesteps,
+        )
+        return loss + extra, aux
 
-    (loss, aux), grads = jax.value_and_grad(_actor_loss, has_aux=True)(
-        agent_state.actor_state.params,
-    )
-
-    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        actor_state=updated_actor_state,
-    )
-    return agent_state, aux
+    actor_state, aux = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(actor_state=actor_state), aux
 
 
 def init_APO(
@@ -218,36 +184,16 @@ def init_APO(
     window_size: int = 10,
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> APOState:
-    """
-    Initialize the APO agent's state, including actor, critic, alpha, and collector states.
-
-    Args:
-        key (jax.Array): Random number generator key.
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        buffer (BufferType): Replay buffer.
-
-    Returns:
-        APOState: Initialized APO agent state.
-    """
-    (
-        rng,
-        init_key,
-        collector_key,
-    ) = jax.random.split(key, num=3)
-
-    continuous = check_if_environment_has_continuous_actions(
-        env_args.env, env_params=env_args.env_params
-    )
+    rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
         actor_optimizer_config=actor_optimizer_args,
         critic_optimizer_config=critic_optimizer_args,
         network_config=network_args,
-        continuous=continuous,
+        continuous=check_if_environment_has_continuous_actions(
+            env_args.env, env_params=env_args.env_params
+        ),
         action_value=False,
         # Average-reward PPO (Ma et al. 2021). Continuous-action APO on
         # bounded control envs (brax / mujoco_playground) suffers the
@@ -273,14 +219,12 @@ def init_APO(
         num_critics=1,
         pid_actor_config=pid_actor_config,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode=mode,
+        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
         window_size=window_size,
     )
-
     return APOState(
         rng=rng,
         eval_rng=rng,
@@ -301,32 +245,10 @@ def value_loss_function(
     nu: float,
     b: float,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """
-    Compute the differential value loss ``0.5 (V(s) - nu b - target)^2``.
-
-    Args:
-        critic_params (FrozenDict): Parameters of the critic networks.
-        critic_states (LoadedTrainState): Critic train states.
-        observations (jax.Array): Current observations.
-        value_targets (jax.Array): GAE value targets.
-        nu (float): Weight of the value-bias penalty.
-        b (float): Running estimate of the mean value.
-
-    Returns:
-        Tuple[jax.Array, ValueAuxiliaries]: Loss and auxiliary metrics.
-    """
-
-    # Predict V-values from critics
-    v_preds = predict_value(
-        critic_state=critic_states,
-        critic_params=critic_params,
-        x=observations,
-    ).squeeze(
-        0
-    )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
-
+    """The differential value loss ``0.5 (V(s) - nu b - target)^2``."""
+    # The single critic still has the ensemble's leading axis.
+    v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
     loss = 0.5 * jnp.mean(((v_preds - nu * b) - value_targets) ** 2)  # classic MSE
-
     return loss, ValueAuxiliaries(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
@@ -340,220 +262,104 @@ def update_value_functions(
     value_targets: jax.Array,
     nu: float,
     b: float,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
-) -> Tuple[APOState, Dict[str, Any]]:
-    """
-    Update the critic networks using the value loss.
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
+) -> Tuple[APOState, ValueAuxiliaries]:
+    """The critic step on one minibatch."""
+    critic_state = agent_state.critic_state
 
-    Args:
-        agent_state (APOState): Current APO agent state.
-        observations (jax.Array): Current observations.
-        value_targets (jax.Array): GAE value targets.
-        nu (float): Weight of the value-bias penalty.
-        b (float): Running estimate of the mean value.
-
-    Returns:
-        Tuple[APOState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-
-    def _critic_loss(params):
-        loss, core_aux = value_loss_function(
-            params,
-            agent_state.critic_state,
-            observations,
-            value_targets,
-            nu,
-            b,
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
+        loss, aux = value_loss_function(
+            params, critic_state, observations, value_targets, nu, b
         )
-        if has_stack:
-            assert extension_stack is not None
-            _cl_batch = {
-                "observations": observations,
-                "targets": value_targets,
-                "critic_params": params,
-                "critic_state": agent_state.critic_state,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                _cl_batch,
-                agent_state.collector_state.timestep,
-                agent_state.rng,
-                total_timesteps,
-            )
-        return loss, core_aux
+        loss_batch = {
+            "observations": observations,
+            "targets": value_targets,
+            "critic_params": params,
+            "critic_state": critic_state,
+        }
+        extra = extension_stack.fold_critic_loss(
+            agent_state,
+            loss_batch,
+            agent_state.collector_state.timestep,
+            agent_state.rng,
+            total_timesteps,
+        )
+        return loss + extra, aux
 
-    (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
-        agent_state.critic_state.params,
-    )
-    updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        critic_state=updated_critic_state,
-    )
-    return agent_state, aux
+    critic_state, aux = gradient_step(critic_state, loss_fn)
+    return agent_state.replace(critic_state=critic_state), aux
 
 
-def update_agent(
+def update_epoch(
     agent_state: APOState,
-    _: Any,
-    shuffled_batch: tuple[jax.Array],
+    minibatches: tuple,
     agent_config: APOConfig,
     b: float,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
 ) -> Tuple[APOState, AuxiliaryLogs]:
-    """
-    One APO epoch: a critic and an actor step on every minibatch.
+    """One epoch: a critic and an actor step on every minibatch (minibatch
+    axis leading); the metrics stacked per minibatch."""
 
-    Args:
-        agent_state (APOState): Current APO agent state.
-        _ (Any): Placeholder for scan compatibility.
-        shuffled_batch (tuple): Minibatched rollout, leading minibatch axis.
-        agent_config (APOConfig): APO agent configuration.
-        b (float): Running estimate of the mean value.
-
-    Returns:
-        Tuple[APOState, AuxiliaryLogs]: Updated agent state and metrics.
-    """
-
-    # Inner scan over the minibatch axis of shuffled_batch (m4-era
-    # fix mirroring PPO's). Pre-fix history: this function unpacked
-    # ``shuffled_batch`` directly (shape ``(num_minibatches, mb_size,
-    # feat)``) and passed the whole 3D tensor to
-    # ``update_value_functions`` / ``update_policy`` as one big batch.
-    # The leading num_minibatches axis was carried through to the
-    # loss and ``mean()`` collapsed both axes into one full-batch
-    # update -- so ``num_minibatches=32`` silently became 1, and
-    # ``num_epochs * num_minibatches`` SGD updates degraded to just
-    # ``num_epochs``. The active path (``do_update``) wraps THIS
-    # function in a scan over ``num_epochs`` so once we add the inner
-    # minibatch scan here, the total SGD step count is
-    # ``num_epochs * num_minibatches`` as intended.
-    def _mb_step(agent_state, mb):
+    def minibatch_step(agent_state: APOState, mb: tuple) -> Tuple[APOState, Any]:
         (
             observations,
             actions,
-            terminated,
-            truncated,
+            _terminated,
+            _truncated,
             value_targets,
             gae,
             log_probs,
             raw_observations,
             raw_action,
         ) = mb
-
-        # Critic
         agent_state, aux_value = update_value_functions(
-            agent_state=agent_state,
-            observations=observations,
-            value_targets=value_targets,
-            nu=agent_config.nu,
-            b=b,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
+            agent_state,
+            observations,
+            value_targets,
+            agent_config.nu,
+            b,
+            extension_stack,
+            total_timesteps,
         )
-
-        # Actor
-        if callable(agent_config.clip_range):
-            clip_coef = agent_config.clip_range(
-                agent_state.collector_state.timestep,
-            )
-        else:
-            clip_coef = agent_config.clip_range
-
+        clip_coef = (
+            agent_config.clip_range(agent_state.collector_state.timestep)
+            if callable(agent_config.clip_range)
+            else agent_config.clip_range
+        )
         agent_state, aux_policy = update_policy(
-            agent_state=agent_state,
-            observations=observations,
-            actions=actions,
-            gae=gae,
-            log_probs=log_probs,
-            ent_coef=agent_config.ent_coef,
-            clip_coef=clip_coef,
-            advantage_normalization=False,
+            agent_state,
+            observations,
+            actions,
+            gae,
+            log_probs,
+            clip_coef,
+            agent_config.ent_coef,
+            extension_stack,
+            total_timesteps,
             raw_observations=raw_observations,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
             raw_actions=raw_action,  # m4: SquashedNormal log_prob recompute
         )
+        return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
 
-        aux = AuxiliaryLogs(
-            policy=aux_policy,
-            value=ValueAuxiliaries(
-                **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
-            ),
-        )
-        return agent_state, aux
-
-    agent_state, mb_aux = jax.lax.scan(
-        f=_mb_step,
-        init=agent_state,
-        xs=shuffled_batch,
-    )
-    # Aggregate per-minibatch aux into one aux for this epoch by
-    # averaging across the minibatch axis.
-    aux = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), mb_aux)
-    return agent_state, aux
+    return jax.lax.scan(minibatch_step, agent_state, minibatches)
 
 
-def training_iteration(
+def update_agent(
     agent_state: APOState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
+    transition: Transition,
     agent_config: APOConfig,
+    extension_stack: ExtensionStack,
     total_timesteps: int,
-    log_frequency: int = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    expert_policy: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> tuple[APOState, None]:
-    """
-    Perform one training iteration, including experience collection and agent updates.
-
-    Args:
-        agent_state (APOState): Current APO agent state.
-        _ (Any): Placeholder for scan compatibility.
-        env_args (EnvironmentConfig): Environment configuration.
-        mode (str): Environment mode ("gymnax" or "brax").
-        agent_config (APOConfig): APO agent configuration.
-        log_frequency (int): Frequency of logging and evaluation.
-        num_episode_test (int): Number of episodes for evaluation.
-
-    Returns:
-        Tuple[APOState, None]: Updated agent state.
-    """
-
-    collect_scan_fn = partial(
-        collect_experience,
-        recurrent=False,
-        mode=mode,
-        env_args=env_args,
-    )
-    agent_state, transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=agent_config.n_steps
-    )
-
-    # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout
-    # on ``agent_state.last_rollout`` for downstream measurement
-    # extensions. Off by default — see :attr:`BaseAgentState.last_rollout`.
-    if getattr(agent_config, "expose_recent_rollout", False):
-        agent_state = agent_state.replace(last_rollout=transition)
-
-    values = predict_value(
-        critic_state=agent_state.critic_state,
-        critic_params=agent_state.critic_state.params,
-        x=transition.obs,
-    ).squeeze(0)
+) -> Tuple[APOState, AuxiliaryLogs]:
+    """One APO update on an ``(n_steps, n_envs)`` rollout: the reward-rate
+    and value-bias EMAs, differential GAE, then ``n_epochs`` epochs of
+    minibatch steps."""
+    critic_state = agent_state.critic_state
+    values = predict_value(critic_state, critic_state.params, transition.obs).squeeze(0)
     last_value = (
-        predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.params,
-            x=transition.next_obs[-1:],
-        )
+        predict_value(critic_state, critic_state.params, transition.next_obs[-1:])
         .squeeze(0)
         .squeeze(0)  # don't need the first dimension for a single transition
     )
@@ -575,13 +381,13 @@ def training_iteration(
         average_reward=average_reward,
     )
 
-    # Extension on_target: reshape the value targets after GAE
-    # computation. APO is average-reward — no gamma, so the batch dict
-    # passes ``gamma=None`` to signal that explicitly to extensions.
-    if extension_stack is not None:
-        _tgt_rng, _post_rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=_post_rng)
-        _tgt_batch = {
+    # Extension on_target: reshape the value targets after GAE. APO is
+    # average-reward: gamma None says so. A key is drawn only with
+    # extensions.
+    if extension_stack:
+        target_key, rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng)
+        target_batch = {
             "observations": transition.obs,
             "next_observations": transition.next_obs,
             "rewards": transition.reward,
@@ -594,22 +400,20 @@ def training_iteration(
         }
         value_targets = extension_stack.fold_on_target(
             agent_state,
-            _tgt_batch,
+            target_batch,
             value_targets,
             agent_state.collector_state.timestep,
-            _tgt_rng,
+            target_key,
             total_timesteps,
         )
 
     # Normalise advantages ONCE over the full rollout (brax PPO's
-    # convention). The per-minibatch renormalisation that used to live
-    # in ``policy_loss_function`` was applied on tiny minibatches with
-    # high-variance mean/std estimates -- noise compounded across
-    # minibatches. ``update_policy`` is called below with
-    # ``advantage_normalization=False`` so the loss doesn't redo it.
+    # convention): per-minibatch normalisation uses noisy mean/std
+    # estimates on tiny minibatches.
     if agent_config.normalize_advantage:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
 
+    assert transition.log_prob is not None  # an on-policy rollout carries it
     batch = (
         transition.obs,
         (
@@ -638,16 +442,11 @@ def training_iteration(
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
-    # Pick num_minibatches:
-    #  * brax-style: use the explicit ``agent_config.num_minibatches``
-    #    when positive (independent of batch_size and n_steps); this
-    #    matches what mujoco_playground's brax_ppo_config assumes.
-    #  * legacy Ajax: derive it from the batch_size/n_steps ratio
-    #    (couples the two; requires ``n_steps % num_minibatches == 0``).
+    # num_minibatches: brax-style when set explicitly (positive),
+    # independent of batch_size and n_steps; otherwise legacy Ajax,
+    # derived from the batch_size / n_steps ratio.
     if agent_config.num_minibatches > 0:
         num_minibatches = agent_config.num_minibatches
-        # Fall through to ``get_minibatches_from_batch`` directly --
-        # the legacy assertion is meaningless under the explicit path.
     else:
         assert (
             max(agent_config.batch_size, agent_config.n_steps)
@@ -660,71 +459,21 @@ def training_iteration(
         num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
             agent_config.batch_size, agent_config.n_steps
         )
-    shuffled_batch = get_minibatches_from_batch(
+    minibatches = get_minibatches_from_batch(
         batch, rng=shuffle_key, num_minibatches=num_minibatches
     )
 
-    def do_update(
-        agent_state: APOState, num_epochs: int
-    ) -> tuple[APOState, AuxiliaryLogs]:
-        update_scan_fn = partial(
-            update_agent,
-            shuffled_batch=shuffled_batch,
-            agent_config=agent_config,
-            b=b,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-        )
-        agent_state, aux = jax.lax.scan(
-            update_scan_fn, agent_state, xs=None, length=num_epochs
-        )
-        aux = aux.replace(
-            value=ValueAuxiliaries(
-                **{key: val.flatten() for key, val in to_state_dict(aux.value).items()}
-            )
-        )
-        aux = jax.tree_util.tree_map(
-            lambda x: x.mean(), aux
-        )  # need to aggregate over the n-epochs
-        return (
-            agent_state.replace(n_updates=agent_state.n_updates + 1),
-            aux,
-        )  # aux should be the one from the last epoch
-
-    agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
-
-    # Extension post_update — folded after the per-iteration update loop.
-    # Empty stack ⇒ identity.
-    if extension_stack is not None:
-        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=_pu_rng2)
-        agent_state = extension_stack.fold_post_update(
-            agent_state,
-            agent_state.collector_state.timestep,
-            _pu_rng,
-            total_timesteps,
+    def epoch(agent_state: APOState, _: Any) -> Tuple[APOState, AuxiliaryLogs]:
+        return update_epoch(
+            agent_state, minibatches, agent_config, b, extension_stack, total_timesteps
         )
 
-    _extra_eval = compose_eval_metrics(None, extension_stack, total_timesteps)
-    agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        False,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        avg_reward_mode=True,
-        expert_policy=expert_policy,
-        extra_eval_metrics=_extra_eval,
+    agent_state, aux = jax.lax.scan(
+        epoch, agent_state, xs=None, length=agent_config.n_epochs
     )
-
-    jax.clear_caches()
-    return agent_state, metrics_to_log
+    # The metrics, averaged over every epoch and minibatch.
+    aux = jax.tree.map(jnp.mean, aux)
+    return agent_state.replace(n_updates=agent_state.n_updates + 1), aux
 
 
 def make_train(
@@ -742,106 +491,41 @@ def make_train(
     pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
-    """
-    Create the training function for the APO agent.
+    """APO's train function: an ``n_steps`` rollout per env, then one
+    update, per iteration."""
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
 
-    Args:
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        buffer (BufferType): Replay buffer.
-        agent_config (APOConfig): APO agent configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        total_timesteps (int): Total timesteps for training.
-        num_episode_test (int): Number of episodes for evaluation during training.
-
-    Returns:
-        Callable: JIT-compiled training function.
-    """
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
-
-    # Start async logging if logging is enabled
-    if logging_config is not None:
-        start_async_logging()
-
-    extension_stack = ExtensionStack(extensions) if extensions else None
-
-    @train_jit
-    def train(key, index: Optional[int] = None):
-        """Train the APO agent."""
-        init_key, expert_key = jax.random.split(key)
+    def init(key: jax.Array, pretrain_key: jax.Array) -> APOState:
         agent_state = init_APO(
-            key=init_key,
-            env_args=env_args,
-            actor_optimizer_args=actor_optimizer_args,
-            critic_optimizer_args=critic_optimizer_args,
-            network_args=network_args,
+            key,
+            env_args,
+            actor_optimizer_args,
+            critic_optimizer_args,
+            network_args,
             pid_actor_config=pid_actor_config,
         )
-
-        # pre-train agent
-        if cloning_args is not None and cloning_args.pre_train_n_steps > 0:
-            agent_state = get_pre_trained_agent(
-                agent_state,
-                expert_policy,
-                expert_key,
-                env_args,
-                cloning_args,
-                mode,
-                agent_config,
-                actor_optimizer_args,
-                critic_optimizer_args,
-            )
-
-        if extension_stack is not None:
-            _ext_key, _pre_key = jax.random.split(expert_key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
-        # Gap A: pre-allocate the ``last_rollout`` placeholder so the
-        # scan-carry pytree structure is stable from iteration zero.
-        if getattr(agent_config, "expose_recent_rollout", False):
-            _trace_scan = partial(
-                collect_experience, recurrent=False, mode=mode, env_args=env_args
-            )
-            _, _trans_abs = jax.eval_shape(
-                lambda st: jax.lax.scan(
-                    _trace_scan, st, xs=None, length=agent_config.n_steps
-                ),
-                agent_state,
-            )
-            agent_state = agent_state.replace(
-                last_rollout=zeros_like_abstract_pytree(_trans_abs)
-            )
-        num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
-
-        training_iteration_scan_fn = partial(
-            training_iteration,
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
-            ),
-            expert_policy=expert_policy,
-            extension_stack=extension_stack,
+        return pretrain_on_expert(
+            agent_state,
+            pretrain_key,
+            cloning_args,
+            expert_policy,
+            env_args,
+            agent_config,
+            actor_optimizer_args,
+            critic_optimizer_args,
         )
 
-        agent_state, out = jax.lax.scan(
-            f=training_iteration_scan_fn,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
+    def update(agent_state: APOState, rollout: Transition) -> Any:
+        return update_agent(
+            agent_state, rollout, agent_config, loop.stack, total_timesteps
         )
 
-        return agent_state, out
-
-    return train
+    return loop.on_policy(
+        init,
+        update,
+        agent_config.n_steps,
+        expose_rollout=agent_config.expose_recent_rollout,
+        eval_kwargs={"avg_reward_mode": True, "expert_policy": expert_policy},
+    )

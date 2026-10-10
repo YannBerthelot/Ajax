@@ -20,48 +20,20 @@ pipeline the proven training functions consume. The thin
 module is their shared private machinery.
 """
 
-from typing import Any, NamedTuple, Optional
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
 
-from ajax.environments.interaction import get_action_and_log_probs
+from ajax.environments.interaction import (
+    ActionPipelineResult,
+    get_action_and_log_probs,
+)
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 
 # ---------------------------------------------------------------------------
 # Action pipeline — composable exploration for collect_experience
 # ---------------------------------------------------------------------------
-
-
-class ActionPipelineResult(NamedTuple):
-    """Result from the SAC action pipeline used by collect_experience.
-
-    The diagnostic LCB telemetry fields (``q_advantage``,
-    ``critic_sigma_actor``, ``critic_sigma_expert``, ``p_expert_max``)
-    that the pre-refactor pipeline returned have been dropped: they
-    were pure observability (not exercised by any parity / equivalence
-    test) and will be re-added cleanly via the ``eval_metrics`` phase.
-    """
-
-    env_action: jax.Array  # action sent to env
-    policy_action: jax.Array  # actor's original action (stored in transition)
-    log_probs: jax.Array  # actor's log probs
-    is_expert_flag: jax.Array  # expert tracking for buffer
-    in_value_box: jax.Array  # box membership (zeros when no box)
-    entry_bonus: jax.Array  # box entry bonus (zeros when no box)
-    rng: jax.Array  # updated rng (EDGE may consume it)
-    new_expert_state: Optional[Any] = None  # updated PID/expert state after this step
-    # Action to write into the replay buffer. None => fall back to env_action.
-    # In gain-policy mode this is the raw actor output (gains) since Q operates
-    # in gain-space while env_action is the PID-derived control.
-    buffer_action: Optional[jax.Array] = None
-    # Expert action computed at this step with the correct (stateful) expert
-    # internal state. Stored in the Transition so the residual-RL actor
-    # loss can read it back instead of recomputing the expert with a fresh
-    # zero state on a buffer-sampled obs (which silently drops the
-    # integrator state for stateful PIDs).
-    a_expert: Optional[jax.Array] = None
-
 
 # Names of the three collection-time action-substitution extensions
 # whose math has been migrated onto :meth:`Extension.action`. The

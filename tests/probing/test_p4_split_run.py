@@ -29,7 +29,7 @@ from ajax.extensions.pretrain import MCPretrain
 
 from . import agents, envs, runs
 from . import readouts as R
-from .verdict import Case, xfail, xparam
+from .verdict import Case, xfail
 
 CASES: dict[str, Case] = {}
 ANSWER_DIGEST = "44136fa355b3"  # verdict.digest(CASES): no judged case
@@ -99,10 +99,9 @@ EQUIVALENT = {
     # APG restarts its optimizer on resume by design (train_APG.py:467-471).
     "APG": Split(_apg, 256, 128, 128, {"reset_optimizer_on_resume": False}),
 }
-NOT_RESUMABLE = {"TD3": "train_TD3.py:1012-1013", "REDQ": "train_REDQ.py:1261-1262"}
-NOT_RESUMABLE |= {"ASAC": "train_ASAC.py:1379-1380", "APO": "train_APO.py:1000-1001"}
-NOT_RESUMABLE |= {"AVG": "AVG.py:175-180"}  # where train takes no initial state
-CANNOT = "{}'s train takes no initial state ({}) while agents/base.py:285-306 passes initial_state and resume_from_state; right answer: the resumed call trains on to the uninterrupted run's step, today TypeError"
+# Resumed on the bookkeeping preset, their counters checked: these agents'
+# whole states are not compared with an uninterrupted run yet.
+COUNTED = ("TD3", "REDQ", "ASAC", "APO", "AVG")
 ELSEWHERE = {  # world models whose own tests assert a resume equals one call
     "DreamerV3": "DreamerV3/test_dreamerv3_agent.py::test_resume_continues_the_schedule_and_matches_an_uninterrupted_run",
     "TDMPC2": "TDMPC2/test_TDMPC2.py::test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run",
@@ -125,10 +124,7 @@ def test_a_resumed_run_equals_the_uninterrupted_run(name: str, tmp_path: Path) -
     assert not differing, (f"first leg ended at {ended}", steps, differing[:20])
 
 
-@pytest.mark.parametrize(
-    "name",
-    [xparam(n, CANNOT.format(n, w), TypeError) for n, w in NOT_RESUMABLE.items()],
-)
+@pytest.mark.parametrize("name", COUNTED)
 def test_the_agent_resumes_from_a_checkpoint(name: str, tmp_path: Path) -> None:
     """On the bookkeeping preset (D2), resumed after 64 of 128 steps, the call
     ends where one call ends (APO runs an extra iteration per call: 32 more)."""
@@ -144,7 +140,7 @@ def test_every_agent_is_checked_for_resume() -> None:
     """Every agent (export or directory) is above or resume-tested by name elsewhere."""
     root = Path(ajax.__file__).parent / "agents"
     dirs = {p.name for p in root.iterdir() if (p / f"{p.name}.py").is_file()}
-    listed = sorted([*EQUIVALENT, *NOT_RESUMABLE, *ELSEWHERE])
+    listed = sorted([*EQUIVALENT, *COUNTED, *ELSEWHERE])
     assert listed == sorted(set(ajax.__all__) | dirs)
     for where in ELSEWHERE.values():
         path, test = where.split("::")

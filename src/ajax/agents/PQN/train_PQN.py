@@ -33,7 +33,11 @@ from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
-from ajax.environments.interaction import collect_experience, init_collector_state
+from ajax.environments.interaction import (
+    collect_experience,
+    init_collector_state,
+    preallocate_last_rollout,
+)
 from ajax.environments.utils import check_env_is_gymnax, get_action_dim
 from ajax.extensions.base import ExtensionStack
 from ajax.log import compose_eval_metrics, evaluate_and_log
@@ -47,7 +51,6 @@ from ajax.state import (
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
-    zeros_like_abstract_pytree,
 )
 
 # ---------------------------------------------------------------------------
@@ -128,7 +131,7 @@ def training_iteration(
     # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout
     # on ``agent_state.last_rollout`` for downstream measurement
     # extensions. Off by default — see :attr:`BaseAgentState.last_rollout`.
-    if getattr(agent_config, "expose_recent_rollout", False):
+    if agent_config.expose_recent_rollout:
         agent_state = agent_state.replace(last_rollout=transition)
 
     # 2. Q(lambda) targets. No target network -- bootstrap on the current
@@ -150,7 +153,7 @@ def training_iteration(
     # Extension fold: allow on_target to reshape the Q(lambda) regression
     # target before stop_gradient (e.g. a residual-of-residual reweighting,
     # bias correction, or auxiliary penalty operand).
-    if extension_stack is not None:
+    if extension_stack:
         _tgt_rng, _tgt_seed = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_tgt_rng)
         _tgt_batch = {
@@ -192,7 +195,7 @@ def training_iteration(
                 loss, core_aux = q_loss_fn(params, q_state, obs, act, tgt, td_loss_fn)
                 # Additive extension critic-loss term, summed over the
                 # stack. Empty stack ⇒ 0.0 ⇒ identical to the core loss.
-                if extension_stack is not None:
+                if extension_stack:
                     _cl_batch = {
                         "observations": obs,
                         "actions": act,
@@ -228,7 +231,7 @@ def training_iteration(
 
     # Extension post_update hook (state-threading + φ-refresh-style state
     # mutation). Empty stack ⇒ identity.
-    if extension_stack is not None:
+    if extension_stack:
         _pu_rng, _pu_seed = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_pu_rng)
         agent_state = extension_stack.fold_post_update(
@@ -299,7 +302,7 @@ def make_train(
     # One iteration consumes n_envs * n_steps environment steps.
     num_updates = total_timesteps // (env_args.n_envs * agent_config.n_steps) + 1
 
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
 
     def init_fn(key, index):
         agent_state = init_PQN(
@@ -309,35 +312,17 @@ def make_train(
             network_args=network_args,
             n_actions=n_actions,
         )
-        # Initialise per-extension state tuple (one entry per Extension;
-        # stateless extensions hold ``()``). Skipped on resume — the
-        # resumed state already carries ``ext_state``.
-        if extension_stack is not None:
-            _ext_key, _pre_key = jax.random.split(key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            # One-shot pretrain phase (fresh-init only). Empty stack /
-            # extensions that don't override pretrain ⇒ identity.
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
-        # Gap A: pre-allocate the ``last_rollout`` placeholder so the
-        # scan-carry pytree structure is stable from iteration zero.
-        if getattr(agent_config, "expose_recent_rollout", False):
-            _trace_scan = partial(
-                collect_experience,
+        # The extensions' state and pretraining: fresh runs only (a resumed
+        # state already carries ``ext_state``).
+        agent_state = extension_stack.fold_init(agent_state, key, total_timesteps)
+        if agent_config.expose_recent_rollout:
+            agent_state = preallocate_last_rollout(
+                agent_state,
+                agent_config.n_steps,
                 recurrent=False,
                 mode=mode,
                 env_args=env_args,
                 action_pipeline=action_pipeline,
-            )
-            _, _trans_abs = jax.eval_shape(
-                lambda st: jax.lax.scan(
-                    _trace_scan, st, xs=None, length=agent_config.n_steps
-                ),
-                agent_state,
-            )
-            agent_state = agent_state.replace(
-                last_rollout=zeros_like_abstract_pytree(_trans_abs)
             )
         return agent_state
 

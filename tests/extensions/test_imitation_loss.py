@@ -68,9 +68,9 @@ def test_agent_without_policy_mean_raises() -> None:
         ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX)
 
 
-def _ext_state(state: Any, stack: ExtensionStack | None) -> Any:
+def _ext_state(state: Any, stack: ExtensionStack) -> Any:
     """What make_train does before training: one ext_state per extension."""
-    return state if stack is None else stack.fold_init_states(state, KEY)
+    return stack.fold_init_states(state, KEY)
 
 
 def _obs(agent: Any) -> jax.Array:
@@ -78,7 +78,7 @@ def _obs(agent: Any) -> jax.Array:
     return jax.random.normal(jax.random.PRNGKey(1), (BATCH, *obs_shape))
 
 
-def _td3_update(stack: ExtensionStack | None) -> Any:
+def _td3_update(stack: ExtensionStack) -> Any:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
     state = train_TD3.init_TD3(
         KEY,
@@ -90,24 +90,18 @@ def _td3_update(stack: ExtensionStack | None) -> Any:
     )
     state = _ext_state(state, stack)
     obs = _obs(agent)
-    dones = jnp.zeros((BATCH, 1))
-    state, _ = train_TD3.update_policy(
-        state, obs, dones, False, raw_observations=obs, extension_stack=stack
-    )
+    state, _ = train_TD3.update_policy(state, obs, obs, stack, total_timesteps=1)
     return state.actor_state.params
 
 
 def _sac_family_update(agent_cls: type, module: Any, init: Callable) -> Callable:
-    def update(stack: ExtensionStack | None) -> Any:
+    def update(stack: ExtensionStack) -> Any:
         agent = agent_cls(
             "Pendulum-v1", actor_architecture=NET, critic_architecture=NET
         )
         state = _ext_state(init(agent), stack)
         obs = _obs(agent)
-        dones = jnp.zeros((BATCH, 1))
-        out = module.update_policy(
-            state, obs, dones, False, raw_observations=obs, extension_stack=stack
-        )
+        out = module.update_policy(state, obs, obs, stack, total_timesteps=1)
         return out[0].actor_state.params
 
     return update
@@ -138,7 +132,7 @@ def _init_asac(agent: ASAC) -> Any:
     )
 
 
-def _apo_update(stack: ExtensionStack | None) -> Any:
+def _apo_update(stack: ExtensionStack) -> Any:
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
@@ -159,14 +153,14 @@ def _apo_update(stack: ExtensionStack | None) -> Any:
         log_probs=jnp.zeros((BATCH, 1)),
         clip_coef=0.2,
         ent_coef=0.0,
-        advantage_normalization=False,
-        raw_observations=obs,
         extension_stack=stack,
+        total_timesteps=1,
+        raw_observations=obs,
     )
     return state.actor_state.params
 
 
-UPDATES: dict[str, Callable[[ExtensionStack | None], Any]] = {
+UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "TD3": _td3_update,
     "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
     "ASAC": _sac_family_update(ASAC, train_ASAC, _init_asac),
@@ -186,6 +180,6 @@ def _same(a: Any, b: Any) -> bool:
 @pytest.mark.parametrize("agent", sorted(UPDATES))
 def test_imitation_term_steers_the_actor_update(agent: str) -> None:
     update = UPDATES[agent]
-    absent = update(None)
+    absent = update(ExtensionStack())
     assert _same(update(_stack(0.0)), absent), "zero weight must change nothing"
     assert not _same(update(_stack(100.0)), absent), "the term must reach the actor"

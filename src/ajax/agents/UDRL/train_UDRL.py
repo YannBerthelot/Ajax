@@ -400,7 +400,7 @@ def training_iteration(
             loss = actor_loss_fn(
                 params, a_state.actor_state, obs_b, act_b, agent_config.bc_loss_type
             )
-            if extension_stack is not None:
+            if extension_stack:
                 _al_batch = {
                     "observations": obs_b,
                     "actions": act_b,
@@ -425,7 +425,7 @@ def training_iteration(
 
     # Extension post_update — folded after the per-iteration update loop.
     # Empty stack ⇒ identity.
-    if extension_stack is not None:
+    if extension_stack:
         _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_pu_rng2)
         agent_state = extension_stack.fold_post_update(
@@ -479,7 +479,7 @@ def make_train(
 ):
     del num_episode_test, run_ids, logging_config  # UDRL logs no evaluation
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
 
     def init_fn(key: jax.Array, index: Optional[int]) -> UDRLState:
         del index
@@ -493,13 +493,7 @@ def make_train(
             agent_config=agent_config,
             cnn_image_shape=cnn_image_shape,
         )
-        if extension_stack is not None:
-            _ext_key, _pre_key = jax.random.split(ext_key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
-        return agent_state
+        return extension_stack.fold_init(agent_state, ext_key, total_timesteps)
 
     per_iter = env_args.n_envs * agent_config.n_steps
     return build_resumable_train(

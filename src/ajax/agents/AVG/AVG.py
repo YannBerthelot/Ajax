@@ -1,43 +1,36 @@
-import uuid
 from collections.abc import Sequence
+from functools import partial
 from typing import Callable, Optional
 
-import jax
-import jax.numpy as jnp
 from gymnax import EnvParams
-
-# Defensive: see ajax/agents/base.py for rationale (broken wandb install
-# must not crash Ajax imports — TensorBoard-only runs should still work).
-try:
-    import wandb  # type: ignore[import-untyped]
-except ImportError:
-    wandb = None  # type: ignore[assignment]
 
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
-from ajax.environments.create import prepare_env
+from ajax.agents.base import ActorCritic
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
-from ajax.extensions.base import Extension, ExtensionStack
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    init_logging,
-    stop_async_logging,
-    with_wandb_silent,
-)
+from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
+from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
 
-class AVG:
-    """Action Value Gradient (AVG) from Vasan et al. 2024. See https://arxiv.org/abs/2411.15370"""
+class AVG(ActorCritic):
+    """Action Value Gradient (AVG) from Vasan et al. 2024. See https://arxiv.org/abs/2411.15370
+
+    AVG has no memory option (``supports_memory`` stays False): its
+    fully-incremental single-transition updates give length-1 BPTT, so
+    memory weights could not learn temporal structure without eligibility
+    traces / RTRL.
+    """
+
+    name: str = "AVG"
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 1,
         actor_learning_rate: float = 6.3e-3,
         critic_learning_rate: float = 8.7e-3,
@@ -70,142 +63,67 @@ class AVG:
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
             n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
+            actor_learning_rate, critic_learning_rate (float): Adam step sizes.
+            actor_architecture, critic_architecture (tuple): Network layers.
             gamma (float): Discount factor for rewards.
             env_params (Optional[EnvParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             learning_starts (int): Timesteps before training starts.
             reward_scale (float): Scaling factor for rewards.
-            alpha_init (float): Initial value for the temperature parameter.
+            alpha_init (float): The (fixed) entropy coefficient.
             target_entropy_per_dim (float): Target entropy per action dimension.
-
-        AVG has no memory option: its fully-incremental single-transition
-        updates give length-1 BPTT, so memory weights could not learn
-        temporal structure without eligibility traces / RTRL.
+            beta_1, beta_2 (float): Adam's moment decays (AVG uses beta_1 = 0).
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "AVG"})
 
-        env, env_params, env_id, continuous = prepare_env(
-            env_id,
-            env_params=env_params,
-            normalize_obs=True,
-            normalize_reward=False,
+        # AVG normalises its observations (never its rewards) and squashes
+        # its actions.
+        super().__init__(
+            env_id=env_id,
             n_envs=n_envs,
-            gamma=gamma,
+            actor_learning_rate=actor_learning_rate,
+            critic_learning_rate=critic_learning_rate,
+            actor_architecture=actor_architecture,
+            critic_architecture=critic_architecture,
+            env_params=env_params,
+            max_grad_norm=max_grad_norm,
+            normalize_observations=True,
+            squash=True,
+            extensions=extensions,
         )
-
-        if not check_if_environment_has_continuous_actions(env):
+        if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("AVG only supports continuous action spaces.")
 
-        self.env_args = EnvironmentConfig(
-            env=env,
-            env_params=env_params,
-            n_envs=n_envs,
-            continuous=continuous,
+        # AVG's penultimate normalisation and Adam betas.
+        self.network_args = self.network_args.replace(penultimate_normalization=True)
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(
+            beta_1=beta_1, beta_2=beta_2
         )
-
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(
+            beta_1=beta_1, beta_2=beta_2
+        )
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,
             alpha_init=alpha_init,
         )
-
-        self.network_args = NetworkConfig(
-            actor_architecture=actor_architecture,
-            critic_architecture=critic_architecture,
-            squash=True,
-            penultimate_normalization=True,
-        )
-
-        self.actor_optimizer_args = OptimizerConfig(
-            learning_rate=actor_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-            beta_1=beta_1,
-            beta_2=beta_2,
-        )
-        self.critic_optimizer_args = OptimizerConfig(
-            learning_rate=critic_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-            beta_1=beta_1,
-            beta_2=beta_2,
-        )
-        action_dim = get_action_dim(env, env_params)
-        target_entropy = target_entropy_per_dim * action_dim
+        action_dim = get_action_dim(self.env_args.env, self.env_args.env_params)
         self.agent_config = AVGConfig(
             gamma=gamma,
             learning_starts=learning_starts,
-            target_entropy=target_entropy,
+            target_entropy=target_entropy_per_dim * action_dim,
             reward_scale=reward_scale,
             num_critics=num_critics,
             expose_recent_rollout=expose_recent_rollout,
         )
-
         self.expert_policy = expert_policy
         self.pid_actor_config = pid_actor_config
-        # Composable research features (mirrors ActorCritic base). AVG
-        # defines its own __init__ rather than inheriting from
-        # ActorCritic, so the stack is built here.
-        self.extension_stack = ExtensionStack(extensions)
 
-    @with_wandb_silent
-    def train(
-        self,
-        seed: int | Sequence[int] = 42,
-        n_timesteps: int = int(1e6),
-        num_episode_test: int = 10,
-        logging_config: Optional[LoggingConfig] = None,
-    ) -> None:
-        """
-        Train the SAC agent.
-
-        Args:
-            seed (int | Sequence[int]): Random seed(s) for training.
-            n_timesteps (int): Total number of timesteps for training.
-            num_episode_test (int): Number of episodes for evaluation during training.
-        """
-        if isinstance(seed, int):
-            seed = [seed]
-
-        if logging_config is not None:
-            logging_config.config.update(self.config)
-            _gen_id = (
-                wandb.util.generate_id
-                if wandb is not None
-                else lambda: uuid.uuid4().hex
-            )
-            run_ids = [_gen_id() for _ in range(len(seed))]
-            for run_id in run_ids:
-                init_logging(run_id, logging_config)
-        else:
-            run_ids = None
-
-        def set_key_and_train(seed, index):
-            key = jax.random.PRNGKey(seed)
-
-            train_jit = make_train(
-                env_args=self.env_args,
-                actor_optimizer_args=self.actor_optimizer_args,
-                critic_optimizer_args=self.critic_optimizer_args,
-                network_args=self.network_args,
-                agent_config=self.agent_config,
-                total_timesteps=n_timesteps,
-                alpha_args=self.alpha_args,
-                num_episode_test=num_episode_test,
-                run_ids=run_ids,
-                logging_config=logging_config,
-                expert_policy=self.expert_policy,
-                pid_actor_config=self.pid_actor_config,
-                extensions=tuple(self.extension_stack.extensions),
-            )
-
-            agent_state = train_jit(key, index)
-            stop_async_logging()
-            return agent_state
-
-        index = jnp.arange(len(seed))
-        seed = jnp.array(seed)
-        return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+    def get_make_train(self) -> Callable:
+        return partial(
+            make_train,
+            alpha_args=self.alpha_args,
+            expert_policy=self.expert_policy,
+            pid_actor_config=self.pid_actor_config,
+            extensions=tuple(self.extension_stack.extensions),
+        )

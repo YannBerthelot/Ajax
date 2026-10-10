@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator, Mapping, Sequence
 import jax
 import numpy as np
 
+from ajax.agents import loop as shared_loop
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.logging.wandb_logging import LoggingConfig, load_scalars_from_tfevents
 
@@ -94,8 +95,9 @@ def train_module(agent: Any) -> Any:
 @contextlib.contextmanager
 def captured_logs(agent: Any) -> Iterator[list]:
     """Replace ``vmap_log`` and the worker start in the agent's train module
-    (where present: UDRL never logs); yield the (seed index, metrics) events."""
-    module, events = train_module(agent), []
+    and the shared loop (where present: UDRL never logs); yield the (seed
+    index, metrics) events."""
+    modules, events = (train_module(agent), shared_loop), []
 
     def capture(metrics: Mapping[str, Any], index: Any, **_: Any) -> None:
         events.append(
@@ -103,14 +105,14 @@ def captured_logs(agent: Any) -> Iterator[list]:
         )
 
     stubs = {"vmap_log": capture, "start_async_logging": lambda: None}
-    saved = {k: getattr(module, k) for k in stubs if hasattr(module, k)}
-    for k in saved:
-        setattr(module, k, stubs[k])
+    saved = {(m, k): getattr(m, k) for m in modules for k in stubs if hasattr(m, k)}
+    for m, k in saved:
+        setattr(m, k, stubs[k])
     try:
         yield events
     finally:
-        for k, v in saved.items():
-            setattr(module, k, v)
+        for (m, k), v in saved.items():
+            setattr(m, k, v)
 
 
 def train(

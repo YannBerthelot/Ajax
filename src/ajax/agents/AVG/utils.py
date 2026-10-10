@@ -5,24 +5,16 @@ from ajax.agents.AVG.state import NormalizationInfo
 from ajax.utils import online_normalize
 
 
-def no_op(x, *args):
-    return x
-
-
 def _normalize_and_update(
     info: NormalizationInfo, square_value: bool
 ) -> tuple[NormalizationInfo, jnp.array]:
-    value = jax.lax.cond(
-        square_value,
-        jnp.square,
-        no_op,
-        operand=info.value,
-    )
+    """Fold ``info.value`` (squared when ``square_value``) into its running
+    statistics; returns them and the running variance."""
+    value = jnp.square(info.value) if square_value else info.value
     _, count, mean, mean_2, var = online_normalize(
         value, info.count, info.mean, info.mean_2
     )
-    updated_info = info.replace(count=count, mean=mean, mean_2=mean_2)
-    return updated_info, var
+    return info.replace(count=count, mean=mean, mean_2=mean_2), var
 
 
 def compute_td_error_scaling(
@@ -30,29 +22,17 @@ def compute_td_error_scaling(
     gamma: NormalizationInfo,
     G_return: NormalizationInfo,
 ) -> tuple[jnp.array, NormalizationInfo, NormalizationInfo, NormalizationInfo]:
-    new_reward, variance_reward = _normalize_and_update(reward, square_value=False)
-    reward = new_reward
-    new_gamma, variance_gamma = _normalize_and_update(gamma, square_value=False)
-
-    if_nan = jnp.all(jnp.isnan(G_return.value))
-
-    def conditional_replace(new_info, old_info, mask):
-        return NormalizationInfo(
-            value=jnp.where(mask, old_info.value, new_info.value),
-            count=jnp.where(mask, old_info.count, new_info.count),
-            mean=jnp.where(mask, old_info.mean, new_info.mean),
-            mean_2=jnp.where(mask, old_info.mean_2, new_info.mean_2),
-        )
-
-    # Always compute updated G_return
-    G_return_norm, _ = _normalize_and_update(G_return, square_value=True)
-
-    # Conditionally replace using where
-    new_G_return = conditional_replace(G_return_norm, G_return, if_nan)
-
-    G_return = new_G_return
-
+    """AVG's TD-error scale ``sqrt(var(r) + E[G^2] var(gamma))`` (1 until two
+    returns were seen), with the reward, discount and squared-return
+    statistics updated; ``G_return.value`` is NaN unless an episode just
+    ended, and then leaves its statistics as they were."""
+    reward, variance_reward = _normalize_and_update(reward, square_value=False)
+    gamma, variance_gamma = _normalize_and_update(gamma, square_value=False)
+    updated_G_return, _ = _normalize_and_update(G_return, square_value=True)
+    no_return = jnp.all(jnp.isnan(G_return.value))
+    G_return = jax.tree.map(
+        lambda old, new: jnp.where(no_return, old, new), G_return, updated_G_return
+    )
     scaling = jnp.sqrt(variance_reward + G_return.mean * variance_gamma)
-
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
-    return td_error_scaling, reward, new_gamma, G_return
+    return td_error_scaling, reward, gamma, G_return

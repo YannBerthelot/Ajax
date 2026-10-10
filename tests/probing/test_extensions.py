@@ -336,10 +336,8 @@ P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     + " (evaluate_and_log runs the actor, log.py:317-347); right eval return -0.2 (discrete 0), today the policy's own (SAC 0.05-0.07, PPO, DQN, PQN 1.0)",
     "metric-UDRL": "UDRL declares eval_metrics (base.py:56 by default) but never evaluates or logs: train_UDRL.py has no evaluate_and_log or compose_eval_metrics call; right 7.0 in the log, today no record (NaN)",
     "E7-unbound-*": "MCPretrain returns the state unchanged when unbound (pretrain.py:146-157) and only SAC binds it (train_SAC.py:1676-1692); right a ValueError, today a run without phi*",
-    "E8-count-AVG": "AVG runs num_updates = total_timesteps iterations whatever n_envs (train_AVG.py:1224); right count 1500 at 2 envs for 1000 steps, today 2000",
     "E8-order-SAC": SAC_ORDER,
     "E8-order-SafeSAC": SAC_ORDER,
-    "E10-AVG": "AVG is no ActorCritic and never runs check_extension_phases (AVG.py:35, 172); right ValueError naming the phase, today none",
 }
 # "test-agent": cell, budget, tolerances calibrated on seeds 1000-1031 and
 # 2000-2031, certified 32/32 on 3000-3031 unless noted (none: a defect).
@@ -429,7 +427,6 @@ BOOKKEEPING = agents.PRESETS["bookkeeping"]
 TRAINED = tuple(a for a in BOOKKEEPING if a not in ("DreamerV3", "TDMPC2"))
 VALUE_C, VALUE_D = ENV["value"]
 SMALL_ENV = {"DQN": VALUE_D, "PQN": VALUE_D, "UDRL": VALUE_D, "APG": GradientValueEnv}
-RESUMABLE = ("SAC", "SafeSAC", "DQN", "PPO", "PQN", "UDRL", "APG")  # see P4
 
 
 def small(agent: str, n_envs: int, exts: tuple, cls: type | None = None) -> Any:
@@ -463,11 +460,11 @@ def test_p3_e7_unbound_mc_pretrain_raises(agent: str) -> None:
 
 @functools.cache
 def p3_counter(agent: str) -> list[tuple[np.ndarray, ...]]:
-    """Per leg (1000 steps at 2 envs, then 1000 more if resumable): the
-    count, the steps the last post_update saw, the final steps."""
+    """Per leg (1000 steps at 2 envs, then 1000 more resumed): the count,
+    the steps the last post_update saw, the final steps."""
     run = runs.train(small(agent, 2, (MarkThenCount(),)), (0, 1), 1000)
     out = []
-    for leg in range(1 + (agent in RESUMABLE)):
+    for leg in range(2):
         run = runs.resume(run, 1000) if leg else run  # read before: it donates
         ext = run.state.ext_state[0]
         steps = (ext["count"], ext["steps_seen"], _steps(run.state))
@@ -708,7 +705,7 @@ CASES["q7-online_bc-SAC"] = Case(
 
 def cloning(agent: str, shift: float) -> Any:
     """1000 expert steps, 10 epochs, budget 0: APO still takes one update
-    (train_APO.py:1055), kept to one step; SAC's expert prefill off (E11)."""
+    (TrainLoop.on_policy), kept to one step; SAC's expert prefill off (E11)."""
     kw = {"SAC": {"expert_buffer_n_steps": 0}, "APO": {"n_epochs": 1}}.get(agent, {})
     kw |= {"pre_train_n_steps": 1000, "actor_cloning_epochs": 10}
     env_cls = ShiftedSignedEnv if shift else envs.SignedActionEnv

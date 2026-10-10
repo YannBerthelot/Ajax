@@ -12,13 +12,18 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     env_action_repeat,
     get_env_type,
+    wrapper_chain,
 )
 from ajax.types import EnvNormalizationInfo
 from ajax.wrappers import (
     AutoResetWrapper,
+    ClipAction,
+    ClipActionBrax,
     FinalObsWrapper,
     FlattenObservationWrapper,
     NoiseWrapper,
+    NormalizeVecObservationBrax,
+    NormalizeVecObservationGymnax,
     get_wrappers,
 )
 
@@ -359,6 +364,32 @@ def add_ajax_wrappers(
     if clip:
         env = ClipAction(env)
     return env
+
+
+_CLIPS = (ClipAction, ClipActionBrax)
+_NORMALISERS = (NormalizeVecObservationGymnax, NormalizeVecObservationBrax)
+
+
+def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
+    """The task env under Ajax's own layers, and the keywords that rebuild
+    those layers with :func:`add_ajax_wrappers` (the observation noise of
+    :func:`prepare_env` is not rebuilt). Everything under them is the task:
+    the user's wrappers, the flattening of :func:`build_env_from_id`, a brax
+    stack's time limit."""
+    layers: dict = {}
+    for layer in wrapper_chain(env):
+        if isinstance(layer, _CLIPS):
+            layers["clip"] = True
+        elif isinstance(layer, _NORMALISERS):
+            layers |= {
+                "normalize_obs": layer.normalize_obs,
+                "normalize_reward": layer.normalize_reward,
+                "gamma": layer.gamma,
+                "apply_obs_normalization": layer.apply_normalization,
+            }
+        elif not isinstance(layer, NoiseWrapper):
+            return layer, layers
+    raise ValueError(f"No task env under the Ajax wrappers of {env!r}")
 
 
 def prepare_env(

@@ -20,14 +20,7 @@ from ajax.environments.utils import (
     get_raw_env,
 )
 from ajax.state import EnvironmentConfig
-from ajax.wrappers import (
-    ClipAction,
-    ClipActionBrax,
-    FlattenObservationWrapper,
-    NormalizationInfo,
-    NormalizeVecObservationBrax,
-    NormalizeVecObservationGymnax,
-)
+from ajax.wrappers import NormalizationInfo
 
 T = TypeVar("T")  # generic type for pytrees
 
@@ -44,37 +37,42 @@ def setup_environment(
     env_params,
     num_episodes,
     norm_info,
-    gamma,
+    gamma,  # noqa: ARG001 -- positional in downstream calls; eval never normalises rewards
     action_repeat: int = 1,
     episode_length: Optional[int] = None,
     clip_actions: bool = True,
 ):
-    """Prepare and wrap the environment (gymnax or brax) for evaluation.
+    """The training env's stack, rebuilt for evaluation (gymnax or brax).
 
-    brax / playground envs are rebuilt with ``num_episodes`` parallel envs.
-    ``episode_length`` (simulator steps) and ``action_repeat`` are the
-    training env's; the defaults (``None`` -> the env's native episode
-    length, falling back to 1000; repeat 1) are the historical behaviour.
-    ``clip_actions=False`` drops the ``[-1, 1]`` action clip for callers
-    that map actions to the env's bounds themselves
-    (:func:`ajax.environments.utils.agent_action_to_env`). gymnax envs do
-    not support ``action_repeat > 1``.
+    Ajax's own layers come off (:func:`~ajax.environments.create.strip_ajax_wrappers`)
+    and go back on as training composed them
+    (:func:`~ajax.environments.create.add_ajax_wrappers`): the action clip
+    where training clipped (``clip_actions=False`` drops it, for callers
+    that map actions to the env's bounds themselves, see
+    :func:`ajax.environments.utils.agent_action_to_env`), the observation
+    normaliser frozen at ``norm_info`` (``None``: no normaliser) and applied
+    to the observations only where training applied it, rewards never
+    normalised. The task under them -- the user's wrappers, the
+    flattening -- is kept as trained on (gymnax).
+
+    brax / playground tasks are rebuilt from their id with ``num_episodes``
+    parallel envs. ``episode_length`` (simulator steps) and
+    ``action_repeat`` are the training env's; the defaults (``None`` -> the
+    env's native episode length, falling back to 1000; repeat 1) are the
+    historical behaviour. gymnax envs do not support ``action_repeat > 1``.
     """
-    mode = "gymnax" if check_env_is_gymnax(env) else "brax"
-    clip_wrapper = ClipAction if mode == "gymnax" else ClipActionBrax
-    norm_wrapper = (
-        NormalizeVecObservationGymnax
-        if mode == "gymnax"
-        else NormalizeVecObservationBrax
+    from ajax.environments.create import (
+        _build_brax_env,
+        _build_playground_env,
+        add_ajax_wrappers,
+        strip_ajax_wrappers,
     )
+
+    env, layers = strip_ajax_wrappers(env)
+    mode = "gymnax" if check_env_is_gymnax(env) else "brax"
     continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     if mode == "brax":
-        from ajax.environments.create import (
-            _build_brax_env,
-            _build_playground_env,
-        )
-
         ajax_env_id = getattr(env, "_ajax_env_id", None)
         if ajax_env_id is None:
             raw = get_raw_env(env)
@@ -119,46 +117,22 @@ def setup_environment(
                 episode_length=eval_ep_len,
                 action_repeat=action_repeat,
             )
-        if clip_actions:
-            env = clip_wrapper(env)
-    else:
-        if action_repeat > 1:
-            raise NotImplementedError(
-                "action_repeat > 1 is not supported on gymnax envs (see"
-                " ajax.environments.create.build_env_from_id)."
-            )
-        env = env.unwrapped if hasattr(env, "unwrapped") else env
-        # `.unwrapped` peels the whole training stack, which is intended for
-        # the bookkeeping wrappers but also drops the observation flattening.
-        # The actor was built for the FLAT observation, so eval must present
-        # the same space or the first eval batch hits a shape error (grid
-        # envs) or, worse, a silent train/eval mismatch. Re-apply it here
-        # using the same rule as `build_env_from_id`.
-        # A prebuilt env arrives with env_params=None (see prepare_env);
-        # gymnax spaces need concrete params, so fall back to the env's own.
-        space_params = env_params if env_params is not None else env.default_params
-        if len(env.observation_space(space_params).shape) > 1:
-            env = FlattenObservationWrapper(env)
-        # ClipAction clamps actions to [-1, 1] -- correct for continuous
-        # control, but wrong for discrete action spaces (it would clip a
-        # discrete index like action=3 down to 1.0). Only wrap continuous
-        # gymnax envs. Brax envs are always continuous, so that branch is
-        # left untouched above.
-        if continuous and clip_actions:
-            env = clip_wrapper(env)
-
-    if norm_info is not None:
-        norm_info = repeat_first_entry(norm_info, num_repeats=num_episodes)
-        env = norm_wrapper(
-            env,
-            train=False,
-            norm_info=norm_info,
-            gamma=gamma,
-            normalize_obs=norm_info.obs is not None,
-            normalize_reward=False,
+    elif action_repeat > 1:
+        raise NotImplementedError(
+            "action_repeat > 1 is not supported on gymnax envs (see"
+            " ajax.environments.create.build_env_from_id)."
         )
 
-    return env, mode, continuous
+    normaliser: dict = {}
+    if norm_info is not None:
+        normaliser = {
+            "normalize_obs": norm_info.obs is not None,
+            "apply_obs_normalization": layers.get("apply_obs_normalization", True),
+            "train": False,
+            "norm_info": repeat_first_entry(norm_info, num_repeats=num_episodes),
+        }
+    clip = layers.get("clip", False) and clip_actions
+    return add_ajax_wrappers(env, clip=clip, **normaliser), mode, continuous
 
 
 def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):

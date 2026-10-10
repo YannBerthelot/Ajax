@@ -466,7 +466,6 @@ def test_q14_actor_sees_the_same_command_when_acting_and_training(
 # rollout) whatever the policy; 7 is the bare env. Two seeds, exact.
 
 BYPASS = "InitialStateWrapper overrides reset only (wrappers.py:253-272) and gymnax's step auto-resets with the inner reset_env (gymnax environment.py:82), so only each env's first episode is wrapped; right 14 per episode (APG 32 per rollout), today 7 (UDRL's segments 10.5 then 7, APG 23)"
-STRIP = "setup_environment peels the stack with env.unwrapped (evaluate.py:130) and re-adds only flatten/clip/normaliser, so evaluation runs the bare env; right 14 per episode, today 7"
 
 
 def _raise_flag(key: Any, state: envs.State, params: Any) -> envs.State:
@@ -528,7 +527,6 @@ def test_q3_auto_reset_starts_the_next_episode_from_the_wrapper() -> None:
     assert returns == [2.0 * L] * 3, f"episode returns {returns}"
 
 
-@xfail(STRIP)
 def test_q3_the_evaluation_env_is_the_task() -> None:
     """The evaluation env built from the task as every evaluation builds it:
     one episode in each of 4 envs returns 14 and terminates on step 7."""
@@ -561,7 +559,7 @@ def test_q3_training_episodes_run_the_wrapped_task(agent: str) -> None:
 
 @pytest.mark.parametrize(
     "agent",
-    [xparam(a, BYPASS if a == "APG" else STRIP) for a in Q3_AGENTS if a != "UDRL"],
+    [xparam(a, BYPASS if a == "APG" else "") for a in Q3_AGENTS if a != "UDRL"],
 )
 def test_q3_evaluation_runs_the_wrapped_task(agent: str) -> None:
     """Every logged evaluation returns 14 in 7 steps (APG evaluates its own
@@ -736,9 +734,6 @@ for _a in ("PPO", "SAC", "TD3"):
     CASES[f"q5-{_a}"] = Case(f"q5-{_a}", (UNIT, BOX), _q5_flag(_a), 64, _tol, _why)
 
 
-@xfail(
-    "evaluate() always wraps a continuous gymnax env in ClipAction(-1, 1) (evaluate.py:147-148, from log.py:324) while PPO's training env is clipped only under a normalisation flag (environments/create.py:375-388); right the same action in training and evaluation, today 1.5 and 1.0"
-)
 def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:
     """A constant PPO policy sending 1.5 (in the box, outside [-1, 1]) has
     the same action executed in training and in evaluate() (the env pays it)."""

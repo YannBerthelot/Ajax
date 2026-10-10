@@ -66,7 +66,8 @@ class TerminalSafeShift(Extension):
 @dataclasses.dataclass(frozen=True)
 class CriticPull(Extension):
     """+ 100 mean(Q^2): a critic at w (Q - y)^2 settles at w y / (w + 100).
-    DQN and PQN pass ``q_state``, not the differentiated params."""
+    DQN and PQN pass their Q-network's ``q_state`` at the differentiated
+    params."""
 
     name: str = "p3_critic_pull"
 
@@ -261,10 +262,6 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
     return (single[test],)
 
 
-P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
-    "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
-    "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
-}
 # "test-agent": cell, budget, tolerances calibrated on seeds 1000-1031 and
 # 2000-2031, certified 32/32 on 3000-3031 unless noted (none: a defect).
 P3_CAL = {
@@ -288,18 +285,14 @@ P3_CAL = {
 }
 
 
-def _defect(test: str, agent: str) -> str:
-    return P3_DEFECTS.get(f"{test}-{agent}", P3_DEFECTS.get(f"{test}-*", ""))
-
-
 for i, (cell, budget, tol) in P3_CAL.items():
     test, agent = i.rsplit("-", 1)
     query, reads = p3_queries(test, agent), p3_readings(cell, agent)
-    CASES[f"p3-{i}"] = Case(f"p3-{i}", query, reads, budget, tol, _defect(test, agent))
+    CASES[f"p3-{i}"] = Case(f"p3-{i}", query, reads, budget, tol)
 
 
-def _exact(test: str, names: Any, raises: Any = AssertionError) -> list:
-    return [xparam(a, _defect(test, a), raises) for a in names]
+def _exact(names: Any) -> list:
+    return [xparam(a) for a in names]
 
 
 PHASE_EXTENSIONS = {
@@ -357,7 +350,7 @@ def small(agent: str, n_envs: int, exts: tuple, cls: type | None = None) -> Any:
     )
 
 
-@pytest.mark.parametrize("agent", _exact("metric", TRAINED))
+@pytest.mark.parametrize("agent", _exact(TRAINED))
 def test_p3_eval_metrics_reach_the_log(agent: str) -> None:
     """A constant metric, 7.0, reaches every seed's evaluation log."""
     run = runs.train(small(agent, 1, (KnownMetric(),)), (0, 1), 1000, 250)
@@ -365,12 +358,7 @@ def test_p3_eval_metrics_reach_the_log(agent: str) -> None:
     assert np.all(np.abs(r - 7.0) <= 1e-4), r
 
 
-DID_NOT_RAISE = pytest.fail.Exception
-
-
-@pytest.mark.parametrize(
-    "agent", _exact("E7-unbound", ("PPO", "DQN", "PQN"), DID_NOT_RAISE)
-)
+@pytest.mark.parametrize("agent", _exact(("PPO", "DQN", "PQN")))
 def test_p3_e7_unbound_mc_pretrain_raises(agent: str) -> None:
     """MCPretrain needs the agent's networks and env to build phi*: an agent
     that does not bind it must raise rather than run without phi*."""
@@ -393,7 +381,7 @@ def p3_counter(agent: str) -> list[tuple[np.ndarray, ...]]:
     return out
 
 
-@pytest.mark.parametrize("agent", _exact("E8-count", TRAINED))
+@pytest.mark.parametrize("agent", _exact(TRAINED))
 def test_p3_e8_post_update_counts_update_iterations(agent: str) -> None:
     """``pretrain`` marks 1000, each ``post_update`` adds 1: 1000 plus the
     update iterations (after learning starts), continued on resume."""
@@ -405,7 +393,7 @@ def test_p3_e8_post_update_counts_update_iterations(agent: str) -> None:
         np.testing.assert_array_equal(count, want)
 
 
-@pytest.mark.parametrize("agent", _exact("E8-order", TRAINED))
+@pytest.mark.parametrize("agent", _exact(TRAINED))
 def test_p3_e8_post_update_runs_after_the_update(agent: str) -> None:
     """As the hook after the update (extensions/base.py:204-209), the last
     ``post_update`` sees the final optimiser steps, on each leg."""
@@ -413,7 +401,7 @@ def test_p3_e8_post_update_runs_after_the_update(agent: str) -> None:
         np.testing.assert_array_equal(seen, final)
 
 
-@pytest.mark.parametrize("agent", _exact("E10", BOOKKEEPING, DID_NOT_RAISE))
+@pytest.mark.parametrize("agent", _exact(BOOKKEEPING))
 def test_p3_e10_undeclared_phase_raises_at_construction(agent: str) -> None:
     """An agent declaring every phase but ``action`` rejects an extension
     implementing it at construction, naming the phase."""

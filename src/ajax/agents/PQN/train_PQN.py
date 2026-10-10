@@ -86,6 +86,7 @@ def update_agent(
             "terminated": rollout.terminated,
             "truncated": rollout.truncated,
             "gamma": agent_config.gamma,
+            "reward_scale": agent_config.reward_scale,
         }
         targets = extension_stack.fold_on_target(
             agent_state,

@@ -30,7 +30,7 @@ from ajax.networks.networks import predict_value
 from . import agents, envs, oracles, runs
 from . import readouts as R
 from .oracles import RIGHT, Rule
-from .verdict import STAGE_1, Case, Query, check, params, xparam
+from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
 ANSWER_DIGEST = "7d3835420718"  # verdict.digest(CASES): every answer, pinned
@@ -386,13 +386,7 @@ class RecordTargetBatch(Extension):
 
 @pytest.mark.parametrize(
     "cell",
-    [
-        *("DQN", "TD3", "REDQ", "AVG", "ASAC"),
-        xparam(
-            "PQN",
-            "PQN's on_target batch carries raw rewards and no reward_scale (train_PQN.py:182-190) while its target scales them (:169); right reward_scale 2 in the batch, today absent (an extension rebuilding the target from batch['rewards'] reads 1, not 2)",
-        ),
-    ],
+    ["DQN", "PQN", "TD3", "REDQ", "AVG", "ASAC"],
 )
 def test_p5_on_target_batch_states_its_reward_scale(cell: str) -> None:
     """Rewards reach every on_target batch unscaled, so the batch states the

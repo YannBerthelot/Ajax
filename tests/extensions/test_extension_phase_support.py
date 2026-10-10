@@ -45,9 +45,6 @@ class EveryPhase(Extension):
     def pretrain(self, agent_state, ext_state, ctx):
         return agent_state, ext_state
 
-    def on_obs(self, obs, ext_state, ctx):
-        return obs
-
     def on_target(self, agent_state, ext_state, batch, target, ctx):
         return target
 

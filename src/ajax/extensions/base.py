@@ -30,7 +30,6 @@ Phases
 ------
 ``init_state``   build the extension's pytree state (once, on fresh init)
 ``pretrain``     one-shot, before the training loop (MC/BC pre-training)
-``on_obs``       transform an observation before the network sees it
 ``on_target``    transform the TD / value target
 ``critic_loss``  extra additive critic-loss term (summed over extensions)
 ``actor_loss``   extra additive actor-loss term (summed over extensions)
@@ -69,7 +68,6 @@ class ExtensionContext:
 # folds is almost certainly a user error).
 PHASES: tuple[str, ...] = (
     "pretrain",
-    "on_obs",
     "on_target",
     "critic_loss",
     "actor_loss",
@@ -136,13 +134,6 @@ class Extension:
         return agent_state, ext_state
 
     # -- per-iteration transforms (state-read-only) ----------------------
-    def on_obs(
-        self, obs: jax.Array, ext_state: Any, ctx: ExtensionContext
-    ) -> jax.Array:
-        """Transform an observation before the network consumes it."""
-        del ext_state, ctx
-        return obs
-
     def on_target(
         self,
         agent_state: Any,
@@ -226,7 +217,7 @@ class Extension:
         factory context (env_args, network_args, buffer, …) ignore every
         kwarg and stay as-is. Extensions that DO close over factory-
         resolved values (:class:`MCPretrain`, :class:`PhiRefresh`,
-        :class:`ExpertObsAugmentation`, :class:`ResidualPolicy`) override
+        :class:`ResidualPolicy`) override
         this to return a new (frozen) instance with the relevant fields
         filled in.
 
@@ -296,13 +287,6 @@ class ExtensionStack:
         return agent_state, tuple(new)
 
     # -- transforms ------------------------------------------------------
-    def on_obs(
-        self, obs: jax.Array, ext_states: tuple, ctx: ExtensionContext
-    ) -> jax.Array:
-        for i, ext in enumerate(self.extensions):
-            obs = ext.on_obs(obs, ext_states[i], ctx)
-        return obs
-
     def on_target(
         self,
         agent_state: Any,
@@ -512,7 +496,7 @@ class ExtensionStack:
         identity. This is what lets the SAC factory (and any other
         agent factory) populate closed-over context on extensions like
         :class:`MCPretrain` / :class:`PhiRefresh` /
-        :class:`ExpertObsAugmentation` / :class:`ResidualPolicy` without
+        :class:`ResidualPolicy` without
         per-extension type checks.
 
         Empty stack: returns ``self`` unchanged.

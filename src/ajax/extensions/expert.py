@@ -6,7 +6,6 @@ objects. The expert-dependent group lives here:
 
 * :class:`ExpertGuidance`        — frozen expert policy + warmup/buffer/
   pre-training seeding; the shared base the others build on.
-* :class:`ExpertObsAugmentation` — append ``a_expert`` to the observation.
 * :class:`OnlineBC`              — value-weighted decaying BC loss term.
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
@@ -18,7 +17,6 @@ callable, scalar hyper-parameters); the maths are the functions below.
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional
 
@@ -27,25 +25,6 @@ import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import predict_value
-
-
-def detach_obs_expert_dims(
-    observations: jax.Array,
-    action_dim: int,
-) -> jax.Array:
-    """Stop-gradient through expert-action dims in augmented obs.
-
-    Layout: [env_obs | a_expert | train_frac].
-    The actor can read the expert hint but gradients don't flow through it.
-    """
-    return jnp.concatenate(
-        [
-            observations[..., : -(action_dim + 1)],
-            jax.lax.stop_gradient(observations[..., -(action_dim + 1) : -1]),
-            observations[..., -1:],
-        ],
-        axis=-1,
-    )
 
 
 def residual_action_transform(
@@ -133,67 +112,6 @@ class ExpertGuidance(Extension):
     expert_mix_fraction: float = 0.1
     use_expert_guidance: bool = True
     name: str = "expert_guidance"
-
-
-@dataclass(frozen=True)
-class ExpertObsAugmentation(Extension):
-    """Append the expert action to the observation seen by the networks.
-
-    Equivalent to ``augment_obs_with_expert_action`` in ``train_SAC.py``:
-    layout ``[env_obs | a_expert | train_frac]``. ``detach`` matches the
-    old ``detach_obs_aug_action`` — when set, the actor reads the expert
-    hint but no gradient flows through those dims.
-
-    The construction-time obs-augmentation (appending ``a_expert`` to the
-    observation, which changes the network input dim) is still wired
-    through the legacy ``augment_obs_with_expert_action`` flag — the SAC
-    factory's auto-append shim echoes it so ``init_SAC`` /
-    ``collect_experience`` / the augmented training batch all see the
-    correct dim. Only the runtime ``detach`` stop-gradient lives on
-    :meth:`on_obs` — that part used to be the
-    ``make_policy_obs_preprocessor`` builder, which is gone now.
-
-    ``action_dim`` is required to know where the ``a_expert`` slice
-    starts inside the augmented obs layout ``[env_obs | a_expert |
-    train_frac]``. User-constructed ``ExpertObsAugmentation()`` instances
-    leave it 0; the SAC factory's auto-append shim resolves it from
-    ``get_action_dim(env)`` and copies the resolved value onto the
-    instance with ``dataclasses.replace`` so :meth:`on_obs` has
-    everything it needs without threading per-step kwargs through the
-    phase API. The stop-gradient is a no-op when ``detach`` is False or
-    ``action_dim`` is 0.
-    """
-
-    expert_policy: Callable
-    detach: bool = False
-    action_dim: int = 0
-    name: str = "expert_obs_augmentation"
-
-    def bind_to_agent(self, **agent_context: Any) -> "ExpertObsAugmentation":
-        """Populate ``action_dim`` from the agent factory.
-
-        Self-contained replacement for the legacy SAC-side
-        ``_inject_obs_extensions_context`` helper. The factory passes
-        ``action_dim=`` (resolved via :func:`get_action_dim`) and this
-        method copies it onto a new frozen instance when the
-        construction-time value is still the default ``0``.
-        """
-        action_dim = agent_context.get("action_dim", None)
-        if self.action_dim != 0 or action_dim is None:
-            return self
-        return dataclasses.replace(self, action_dim=action_dim)
-
-    def on_obs(
-        self,
-        obs: jax.Array,
-        ext_state: Any,
-        ctx: ExtensionContext,
-    ) -> jax.Array:
-        """Stop-gradient through the ``a_expert`` dims of the augmented obs."""
-        del ext_state, ctx
-        if not self.detach or self.action_dim <= 0:
-            return obs
-        return detach_obs_expert_dims(obs, self.action_dim)
 
 
 @dataclass(frozen=True)
@@ -449,7 +367,6 @@ class JSRLCurriculum(Extension):
 
 __all__ = [
     "ExpertGuidance",
-    "ExpertObsAugmentation",
     "OnlineBC",
     "ImitationLoss",
     "ResidualPolicy",

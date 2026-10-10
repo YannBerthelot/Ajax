@@ -125,8 +125,7 @@ class SAC(ActorCritic):
         # own the equivalent for the MC path via ``n_steps``.
         mc_pretrain_n_steps: int = 5_000,
         # Obs augmentation: changes init_SAC / collect_experience
-        # network input dim. The runtime stop-gradient on the augmented
-        # dims lives on :meth:`ExpertObsAugmentation.on_obs`.
+        # network input dim.
         augment_obs_with_expert_action: bool = False,
         use_bellman_critic_pretrain: bool = False,
         # Train-fraction conditioning: append timestep/total_timesteps

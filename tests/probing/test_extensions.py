@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xfail, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "8aef57bbefbb"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "eaa2f8d2a22b"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -134,15 +134,6 @@ class EvalActionOverride(Extension):
         return _fixed(obs, self.value, self.shape)
 
 
-@dataclasses.dataclass(frozen=True)
-class ObsFlip(Extension):
-    offset: float = 0.0  # the network sees offset - s: s in {-1, 1} or {0, 1}
-    name: str = "p3_obs_flip"
-
-    def on_obs(self, obs, ext_state, ctx):
-        return self.offset - obs
-
-
 def _steps(state: Any) -> Any:
     """Actor plus critic optimiser steps (traced inside the hooks)."""
     steps = {k: v for k, v in R.optimizer_steps(state).items() if k != "alpha"}
@@ -190,7 +181,7 @@ class GradientValueEnv(continuous.ValueLossOrOptimizerEnv):
 
 # (continuous, discrete) package probes: the 1-step value probe (reward 1);
 # the chain (0 then 1: V(1) = 1, V(0) = gamma); the bandit (reward a, or
-# 1 - a); the contextual bandit (clip(a) s, or [a == s]).
+# 1 - a).
 ENV = {
     "value": (continuous.ValueLossOrOptimizerEnv, discrete.ValueLossOrOptimizerEnv),
     "chain": (continuous.RewardDiscountingEnv, discrete.RewardDiscountingEnv),
@@ -198,7 +189,6 @@ ENV = {
         envs.symmetric(continuous.AdvantagePolicyLossPolicyUpdateEnv),
         discrete.AdvantagePolicyLossPolicyUpdateEnv,
     ),
-    "contextual": (envs.SignedActionEnv, discrete.PolicyAndValueEnv),
 }
 _OVERRIDE = (ActionOverride(), EvalActionOverride())
 _DISCRETE_OVERRIDE = (ActionOverride(1, ()), EvalActionOverride(1, ()))
@@ -206,7 +196,6 @@ CELLS = {  # cell: probe, extensions (continuous, discrete), log frequency
     "A": ("chain", ((TargetShift(), ActorPull()), (TargetShift(),)), None),
     "B": ("value", ((CriticPull(),), (CriticPull(),)), None),
     "C": ("bandit", (_OVERRIDE, _DISCRETE_OVERRIDE), 500),
-    "D": ("contextual", ((ObsFlip(0.0),), (ObsFlip(1.0),)), None),
     "E7": ("value", ((MC,), ()), None),
     "F": ("chain", ((TerminalSafeShift(),), (TerminalSafeShift(),)), None),
     "G": ("value", ((ActorPull(gated=True),), ()), None),
@@ -215,17 +204,16 @@ CELLS = {  # cell: probe, extensions (continuous, discrete), log frequency
 
 def _p3_read(agent: str, cell: str) -> Callable:
     """V(0), V(1) by the agent's own readout (SAC's chain V(0) without the
-    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the action and
-    the network's own reading of +1, phi*, the train and eval returns."""
+    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the action,
+    phi*, the train and eval returns."""
 
     def one(n: R.Nets) -> dict:
         v = {"V(0)": R.value(agent, n, 0.0), "V(1)": R.value(agent, n, 1.0)}
         if agent == "SAC" and cell in "AF":
             v["V(0)"] -= GAMMA * R.alpha(n) * R.entropy(R.pi(n, 1.0), R.KEY)
         if agent in ("DQN", "PQN"):
-            q = R.q_values(n, 1.0)
-            return v | {"Q_net(1,0) - Q_net(1,1)": q[0] - q[1]}
-        v |= {"a(0)": R.action(n, 0.0), "a_net(+1)": R.action(n, 1.0, clip=False)}
+            return v
+        v["a(0)"] = R.action(n, 0.0)
         if cell == "E7":
             v["phi*(0, a_E)"] = R.critic(n, 0.0, 0.3, params=n.extra)
         return v
@@ -289,28 +277,13 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
         "E3-gated": Query("a(0)", -0.5, {"gate never opens (ctx.step 0)": 0.0}),
         "E7": Query("phi*(0, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
     }
-    if test in single:
-        return (single[test],)
-    # E6: the pair separates the flip ignored (+, +), in the actor loss only
-    # (-, -) and at collection only (-, +); discrete agents read Q gaps.
-    if agent in ("SAC", "PPO"):
-        ret = {"flip in the actor loss only": -1.0, "flip at collection only": -1.0}
-        net = {"flip ignored": 1.0, "flip at collection only": 1.0}
-        return Query("train return", 1.0, ret, True), Query(
-            "a_net(+1)", -1.0, net, True
-        )
-    ret = {"observation ignored": 0.5, "flip in losses only": 0.0}
-    flip = {"flip ignored": -1.0, "flip at collection only": -1.0}
-    gap = Query("Q_net(1,0) - Q_net(1,1)", 1.0, flip, True)
-    return Query("train return", 1.0, ret), gap
+    return (single[test],)
 
 
 NO_FOLD = "no fold_{} call anywhere in src/ajax, yet every agent but the world models declares the phase (base.py:56, all phases by default)"
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
     "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
-    "E6-SAC": "(contract pending) SAC folds on_obs in the actor loss only (train_SAC.py:516-524), so the policy learns pi(.|-s) against Q(s, .); right train return > 0 and a_net(+1) < 0, today -0.39 to -0.75 and -0.70 to -0.75",
-    "E6-*": "(contract pending) on_obs is folded only in SAC's actor loss (train_SAC.py:524), so the flip is ignored here; right the network acts on the flipped input (a_net(+1) < 0; discrete Q_net(1,0) > Q_net(1,1)), today the raw mapping (PPO a_net(+1) 1.3-2.0; DQN and PQN gap -1.0)",
     "E4-*": NO_FOLD.format("action")
     + " (SAC dispatches only extensions declaring an action_slot, and only with an expert_policy: agents/SAC/action_pipeline.py); right train return 0.3 (discrete 0), today the policy's own (SAC 0.02-0.08 at 2000 steps, PPO 1.0, DQN 0.9-1.0, PQN 0.975)",
     "E5-*": NO_FOLD.format("eval_action")
@@ -335,10 +308,6 @@ P3_CAL = {
     "E3-PPO": ("A", 5000, (0.045,)),
     "E3-gated-SAC": ("G", 5000, ()),
     "E3-gated-PPO": ("G", 1250, (0.02,)),
-    "E6-SAC": ("D", 5000, ()),
-    "E6-PPO": ("D", 1250, ()),
-    "E6-DQN": ("D", 1250, ()),
-    "E6-PQN": ("D", 5000, ()),
     "E7-SAC": ("E7", 200, (0.02,)),
 }
 
@@ -358,7 +327,6 @@ def _exact(test: str, names: Any, raises: Any = AssertionError) -> list:
 
 
 PHASE_EXTENSIONS = {
-    "on_obs": ObsFlip,
     "on_target": TargetShift,
     "critic_loss": CriticPull,
     "actor_loss": ActorPull,

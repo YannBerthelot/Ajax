@@ -315,9 +315,6 @@ def episodes(done: np.ndarray) -> list[tuple[int, int]]:
     return [(int(e) - EP + 1, int(e)) for e in np.flatnonzero(done > 0) if e >= EP - 1]
 
 
-@xfail(
-    "UDRL's top-K command statistics restart their running sums at every segment (UDRL/buffer.py:194), so each 8-step episode counts as its last 4-step fragment; right command_target_horizon 8.0, today 4.0"
-)
 def test_p7_command_target_describes_whole_episodes() -> None:
     """32 segments into 16 slots, top 4 of 8 episodes: target horizon 8, target
     return the top-4 whole-episode mean, every start commanded horizon 8."""

@@ -194,7 +194,6 @@ def test_expert_guidance_matches_legacy_expert_policy():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        use_expert_guidance=False,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,

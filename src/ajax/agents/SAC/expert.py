@@ -1,9 +1,9 @@
 """SAC's expert plumbing outside the Extension phases: observation
-augmentation, expert diagnostics, the expert replay prefill and the
+augmentation, the expert replay prefill and the
 Bellman critic pretraining (``use_bellman_critic_pretrain``)."""
 
 from functools import partial
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -11,7 +11,6 @@ import jax.numpy as jnp
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import collect_experience_from_expert_policy
 from ajax.environments.utils import check_env_is_gymnax, maybe_append_train_frac
-from ajax.networks.networks import predict_value
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType
 
@@ -29,30 +28,6 @@ def augment_obs_if_needed(
     return jnp.concatenate(
         [observations[..., :-1], a_expert, observations[..., -1:]], axis=-1
     )
-
-
-def compute_expert_diagnostics(
-    critic_state,
-    observations: jax.Array,
-    q_min: jax.Array,
-    a_expert: jax.Array,
-    pi_loc: jax.Array,
-) -> Tuple[jax.Array, jax.Array, jax.Array]:
-    """Expert policy diagnostics: Q(s, a_expert), ||pi - a_expert||^2, above-expert fraction.
-
-    Returns (q_expert_mean, l2_expert_mean, above_expert_frac).
-    """
-    q_expert = jnp.min(
-        predict_value(
-            critic_state=critic_state,
-            critic_params=critic_state.params,
-            x=jnp.concatenate([observations, a_expert], axis=-1),
-        ),
-        axis=0,
-    )
-    above_expert_frac = jnp.mean((q_min >= q_expert).astype(jnp.float32))
-    l2_expert = jnp.sum((jnp.tanh(pi_loc) - a_expert) ** 2, axis=-1, keepdims=True)
-    return q_expert.mean(), l2_expert.mean(), above_expert_frac
 
 
 def collect_and_store_expert_transitions(

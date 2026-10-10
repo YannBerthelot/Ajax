@@ -27,7 +27,6 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import (
     augment_obs_if_needed,
     collect_and_store_expert_transitions,
-    compute_expert_diagnostics,
     pretrain_critic_bellman,
 )
 from ajax.agents.SAC.state import SACConfig, SACState
@@ -65,11 +64,6 @@ class PolicyAuxiliaries:
 
     # Q-value diagnostics
     q_min: jax.Array  # Q(s, π(s)): what policy optimises
-    q_expert: jax.Array  # Q(s, a_expert): expert value estimate
-
-    # Expert diagnostics
-    l2_expert: jax.Array  # ||π(s) - a_expert||^2: L2 distance to expert action
-    above_expert_frac: jax.Array  # fraction of batch where policy beats expert
 
     # Online decaying BC term
     bc_term: jax.Array  # decaying online BC loss magnitude (0 after warmup_frac)
@@ -373,7 +367,6 @@ def policy_loss_function(
     rng: jax.random.PRNGKey,
     raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
-    use_expert_guidance: bool = True,
     a_expert_precomputed: Optional[jax.Array] = None,
     train_frac: Optional[jax.Array] = None,
     expert_critic_params: Optional[Any] = None,
@@ -391,7 +384,6 @@ def policy_loss_function(
     1. Core: forward pass → sample → Q eval → α·log π - Q
     2. Modifier: policy_action_transform (residual RL before Q eval)
     3. Modifier: extension_stack.actor_loss (e.g. OnlineBC term)
-    4. Diagnostics: expert Q gap, L2 distance
     """
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
@@ -426,17 +418,15 @@ def policy_loss_function(
     q_min = jnp.min(q_preds, axis=0)
     loss_actor = alpha * log_probs - q_min
 
-    # 3. Expert diagnostics and the actor-loss extensions' terms, which
-    # get the expert action (OnlineBC's BC target) once phi* exists.
-    needs_expert = expert_policy is not None and use_expert_guidance
+    # 3. The actor-loss extensions' terms, which get the expert action
+    # (OnlineBC's BC target) once phi* exists.
     needs_bc = (
         extension_stack is not None
         and "actor_loss" in extension_stack.implemented_phases()
         and expert_policy is not None
         and expert_critic_params is not None
     )
-
-    if needs_expert or needs_bc:
+    if needs_bc:
         a_expert = (
             a_expert_precomputed
             if a_expert_precomputed is not None
@@ -444,22 +434,6 @@ def policy_loss_function(
         )
     else:
         a_expert = None
-
-    # Expert diagnostics (no gradient effect)
-    if needs_expert:
-        q_expert_logged, l2_expert_logged, above_expert_frac = (
-            compute_expert_diagnostics(
-                critic_states,
-                observations,
-                q_min,
-                a_expert,
-                pi.distribution.loc,
-            )
-        )
-    else:
-        l2_expert_logged = jnp.zeros(())
-        q_expert_logged = jnp.zeros(())
-        above_expert_frac = jnp.zeros(())
 
     # Additive actor-loss terms. Each extension reads what it needs out of
     # the ``batch`` dict (OnlineBC: pi_loc, a_expert, train_frac,
@@ -495,9 +469,6 @@ def policy_loss_function(
         log_pi=log_probs.mean(),
         policy_std=policy_std,
         q_min=q_min.mean(),
-        q_expert=q_expert_logged,
-        l2_expert=l2_expert_logged,
-        above_expert_frac=above_expert_frac,
         raw_loss=loss_actor.mean(),
         bc_term=bc_term,
     )
@@ -508,7 +479,6 @@ def update_policy(
     observations: jax.Array,
     raw_observations: jax.Array,
     expert_policy: Optional[Callable] = None,
-    use_expert_guidance: bool = True,
     a_expert_precomputed: Optional[jax.Array] = None,
     train_frac: Optional[jax.Array] = None,
     policy_action_transform: Optional[Callable] = None,
@@ -532,7 +502,6 @@ def update_policy(
         policy_key,
         raw_observations=raw_observations,
         expert_policy=expert_policy,
-        use_expert_guidance=use_expert_guidance,
         a_expert_precomputed=a_expert_precomputed,
         train_frac=train_frac,
         expert_critic_params=agent_state.expert_critic_params,
@@ -575,7 +544,6 @@ def update_agent(
     num_critic_updates: int = 1,
     reward_scale: float = 1.0,
     expert_policy: Optional[Callable] = None,
-    use_expert_guidance: bool = True,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     fixed_alpha: bool = False,
@@ -668,7 +636,7 @@ def update_agent(
         and "actor_loss" in extension_stack.implemented_phases()
     )
     needs_expert = expert_policy is not None and (
-        use_expert_guidance or policy_action_transform is not None or has_actor_loss
+        policy_action_transform is not None or has_actor_loss
     )
     if needs_expert:
         # Prefer the a_expert stored in the buffer at collection time
@@ -760,7 +728,6 @@ def update_agent(
         agent_state=agent_state,
         raw_observations=transition.raw_obs,
         expert_policy=expert_policy,
-        use_expert_guidance=use_expert_guidance,
         a_expert_precomputed=a_expert_precomputed,
         train_frac=train_frac,
         policy_action_transform=policy_action_transform,
@@ -844,7 +811,6 @@ def make_train(
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
-    use_expert_guidance: bool = True,
     fixed_alpha: bool = False,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
@@ -1028,7 +994,6 @@ def make_train(
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
             expert_policy=expert_policy,
-            use_expert_guidance=use_expert_guidance,
             policy_update_start=policy_update_start,
             alpha_update_start=alpha_update_start,
             fixed_alpha=fixed_alpha,

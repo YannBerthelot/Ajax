@@ -120,14 +120,9 @@ class SAC(ActorCritic):
         use_pid_policy: bool = False,
         fixed_alpha: bool = False,
         num_critics: int = 2,
-        # ExpertGuidance secondary plumbing. ``use_expert_guidance``
-        # gates the expert-action telemetry / loss term inside
-        # ``update_agent`` (deeper than extension surface). The
-        # ExpertGuidance extension owns the user-facing config; these
-        # mirror its fields so ``init_SAC`` / ``update_agent``
-        # can read them as plain Python values.
-        use_expert_guidance: bool = False,
         num_critic_updates: int = 1,
+        # Expert prefill: steps of expert_policy per env written to the
+        # replay buffer before training.
         expert_buffer_n_steps: int = 20_000,
         # MC sizing kwarg threaded into the inline Bellman-pretrain
         # block (``use_bellman_critic_pretrain``). MCPretrain extensions
@@ -261,7 +256,6 @@ class SAC(ActorCritic):
         self.jsrl_curriculum = jsrl_curriculum
         self.use_pid_policy = use_pid_policy
         self.fixed_alpha = fixed_alpha
-        self.use_expert_guidance = use_expert_guidance
         self.num_critic_updates = num_critic_updates
         self.expert_buffer_n_steps = expert_buffer_n_steps
         self.mc_pretrain_n_steps = mc_pretrain_n_steps
@@ -301,7 +295,6 @@ class SAC(ActorCritic):
             use_pid_policy=self.use_pid_policy,
             fixed_alpha=self.fixed_alpha,
             num_critics=self.num_critics,
-            use_expert_guidance=self.use_expert_guidance,
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,
             mc_pretrain_n_steps=self.mc_pretrain_n_steps,

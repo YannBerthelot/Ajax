@@ -196,9 +196,6 @@ def test_a_resumed_run_logs_where_the_uninterrupted_run_logs(name: str) -> None:
     assert sorted(calls["first"][0] + calls["second"][0]) == calls["full"][0], counts
 
 
-@xfail(
-    "a resumed call vmaps the restored state over seeds (agents/base.py:301), so the timestep and the log flag are batched and the lax.cond at log.py:409 lowers to a select that evaluates on every iteration. Right answer: evaluations only at log events; today every iteration of the resumed leg"
-)
 @pytest.mark.parametrize("name", list(LOGGED))
 def test_a_resumed_run_evaluates_only_when_it_logs(name: str) -> None:
     """The resumed call evaluates (logged or not) only at its log events."""

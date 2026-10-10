@@ -5,6 +5,7 @@ from typing import Any, Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from gymnax import EnvParams
 
 # Defensive: a broken wandb install must not crash Ajax imports —
@@ -38,6 +39,45 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import EnvType, InitializationFunction
+
+
+def shared_counters(state: Any) -> dict[str, jax.Array]:
+    """The counters of a resumed ``state`` (leading seed axis) its seeds
+    share, as unbatched scalars: the collector's timestep and the number of
+    evaluations logged (``{}`` for a state without them).
+
+    They gate the evaluations (:func:`ajax.log.evaluate_and_log`). A fresh
+    run computes them from constants, unbatched under the seed vmap; left
+    batched, a resumed run's gate would turn ``lax.cond`` into a select that
+    evaluates on every iteration.
+    """
+    collector = getattr(state, "collector_state", None)
+    found = {
+        "timestep": getattr(collector, "timestep", None),
+        "n_logs": getattr(state, "n_logs", None),
+    }
+    out = {}
+    for name, value in found.items():
+        if value is None:
+            continue
+        seeds = np.asarray(jax.device_get(value)).reshape(-1)
+        if seeds.size == 0 or np.any(seeds != seeds[0]):
+            raise ValueError(
+                f"cannot resume: the seeds' {name} differ ({seeds.tolist()});"
+                " every seed of a resumed run must stand at the same point"
+            )
+        out[name] = jnp.asarray(seeds[0])
+    return out
+
+
+def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
+    """``state`` with the counters of :func:`shared_counters`."""
+    if "n_logs" in counters:
+        state = state.replace(n_logs=counters["n_logs"])
+    if "timestep" in counters:
+        collector = state.collector_state.replace(timestep=counters["timestep"])
+        state = state.replace(collector_state=collector)
+    return state
 
 
 class ActorCritic:
@@ -283,12 +323,12 @@ class ActorCritic:
                 {} if iteration_offset == 0 else {"iteration_offset": iteration_offset}
             )
 
-            def set_key_and_train_resume(seed, index, state, offset_kwargs):
+            def set_key_and_train_resume(seed, index, state, counters, offset_kwargs):
                 key = jax.random.PRNGKey(seed)
                 return train_jit(
                     key,
                     index,
-                    initial_state=state,
+                    initial_state=with_shared_counters(state, counters),
                     resume_from_state=True,
                     **offset_kwargs,
                 )
@@ -296,12 +336,14 @@ class ActorCritic:
             index = jnp.arange(len(seed))
             seed = jnp.array(seed)
             _t0 = time.time()
-            # The offset is unbatched (in_axes None): every schedule derived
-            # from the iteration index must stay unbatched under the vmap.
-            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None))(
+            # The offset and the shared counters are unbatched (in_axes
+            # None): every schedule and gate derived from them must stay
+            # unbatched under the vmap.
+            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None, None))(
                 seed,
                 index,
                 initial_state,
+                shared_counters(initial_state),
                 jax.tree.map(lambda o: jnp.asarray(o, jnp.int32), offset_kwargs),
             )
         # Block until all XLA computation and debug.callbacks complete, then

@@ -49,14 +49,14 @@ def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -
     """``jax.debug.callback`` that forwards to ``log_fn`` only when ``flag`` is set.
 
     The logging branch runs inside ``jax.lax.cond(flag, ...)``. Under ``vmap``
-    with a *batched* predicate (the resume path batches the whole agent state
-    across seeds, so anything derived from it is batched) JAX lowers the cond
-    to a ``select``: both branches execute on every iteration and an
-    unconditional ``debug.callback`` in the log branch fires every time. A
-    fresh run keeps its step counters unbatched, which is why the bug only
-    showed on resumed / curriculum training. Gating inside the callback makes
-    the side effect correct in both lowerings (the callback batching rule
-    invokes the Python function once per batch element with its own flag).
+    with a *batched* predicate (anything derived from a state batched across
+    seeds) JAX lowers the cond to a ``select``: both branches execute on
+    every iteration and an unconditional ``debug.callback`` in the log branch
+    fires every time. Fresh and resumed runs keep the counters the gate reads
+    unbatched (:func:`ajax.agents.base.shared_counters`); gating inside the
+    callback keeps the side effect correct in both lowerings (the callback
+    batching rule invokes the Python function once per batch element with
+    its own flag).
     """
 
     def _gated(flag, metrics, index):

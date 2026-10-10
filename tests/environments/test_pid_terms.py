@@ -7,6 +7,7 @@ import pytest
 from flax import struct
 from gymnax.environments import environment, spaces
 
+from ajax.environments.create import add_ajax_wrappers
 from ajax.environments.interaction import reset, step
 from ajax.environments.pid_terms import PIDTermsWrapper, split_pid_terms
 from ajax.evaluate import setup_environment
@@ -136,3 +137,18 @@ def test_ajax_steps_the_wrapper_in_training_and_evaluation():
         obs, state = reset(keys, built, "gymnax", params)
         obs, *_ = step(keys, state, jnp.full((3, 1), 0.5), built, "gymnax", params)
         np.testing.assert_allclose(obs[0], [0.5, 1.5, -0.5, 0.5, 1.0])
+
+
+def test_the_normaliser_steps_the_wrapper_state():
+    """The gymnax normaliser rebuilds its state from the wrapper's fields:
+    the inner env state stays a state (not a dict) and the terms stay true."""
+    env = add_ajax_wrappers(
+        PIDTermsWrapper(_Integrator(), (0,), (1,)), normalize_obs=True
+    )
+    params = env.default_params
+    keys = jax.random.split(jax.random.PRNGKey(0), 3)
+    _, state = reset(keys, env, "gymnax", params)
+    for _ in range(2):
+        _, state, *_ = step(keys, state, jnp.full((3, 1), 0.5), env, "gymnax", params)
+    assert isinstance(state.env_state, _State)
+    np.testing.assert_allclose(state.integral[:, 0], 1.5)

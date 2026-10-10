@@ -1,6 +1,7 @@
 """Wrappers for environment"""
 
 # ruff: noqa: C901
+import dataclasses
 from functools import cached_property, partial
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -366,6 +367,13 @@ def get_obs_and_reward_and_done_from_state(
         return state.obs, state.reward, state.done
 
 
+def _fields(state: Any) -> dict:
+    """A state's fields one level deep. A wrapper's nested env state stays
+    a state; ``to_state_dict`` would turn it into a dict the inner env
+    cannot step."""
+    return {f.name: getattr(state, f.name) for f in dataclasses.fields(state)}
+
+
 def normalize_wrapper_factory(
     mode,
 ):
@@ -448,8 +456,7 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state = state
-                state_dict = to_state_dict(env_state)
-                state_dict["normalization_info"] = norm_info
+                state_dict = _fields(env_state) | {"normalization_info": norm_info}
                 env_state = self.state_class(**state_dict)
                 return obs, env_state
 
@@ -476,8 +483,7 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state, _, terminated, truncated, info = state
-                state_dict = to_state_dict(env_state)
-                state_dict["normalization_info"] = norm_info
+                state_dict = _fields(env_state) | {"normalization_info": norm_info}
                 env_state = self.state_class(**state_dict)
                 info = {**info, **extra_info}
                 return obs, env_state, reward, terminated, truncated, info
@@ -585,10 +591,10 @@ def normalize_wrapper_factory(
                 else state.normalization_info.reward
             )
             if mode == "gymnax":
-                raw_state_dict = to_state_dict(state)
-                if "normalization_info" in raw_state_dict:
-                    del raw_state_dict["normalization_info"]
-                raw_state = self._raw_state(**raw_state_dict)
+                raw_fields = dataclasses.fields(self._raw_state)
+                raw_state = self._raw_state(
+                    **{f.name: getattr(state, f.name) for f in raw_fields}
+                )
             else:
                 raw_state = state
 

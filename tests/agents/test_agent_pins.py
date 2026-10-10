@@ -377,8 +377,12 @@ _GOLDEN |= {
         "drift": 0.2877737283706665,
     },
     "UDRL-nudge": {"actor": 23.97211456298828, "nudge": 0.3160724639892578},
-    "APG-nudge": {"actor": 35.93582534790039, "nudge": -0.5658732652664185},
-    "APG-pid-nudge": {"actor": 36.93951416015625, "nudge": -0.5658732652664185},
+}
+# Recorded on macOS ARM CPU once APG took TrainLoop's init and post_update
+# keys, before step 17 moved it onto the shared evaluation.
+_GOLDEN |= {
+    "APG-nudge": {"actor": 35.82789611816406, "nudge": 0.27262088656425476},
+    "APG-pid-nudge": {"actor": 36.82305145263672, "nudge": 0.27262088656425476},
 }
 
 

@@ -313,7 +313,7 @@ def training_iteration(
     index: Any,
     log_kwargs: dict,
 ) -> Tuple[APGState, APGAuxiliaries]:
-    rng, roll_key, ext_key, post_key = jax.random.split(agent_state.rng, 4)
+    rng, roll_key, ext_key = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
     horizon = agent_config.horizon
     timestep = agent_state.collector_state.timestep
@@ -351,8 +351,9 @@ def training_iteration(
         n_updates=agent_state.n_updates + 1,
     )
     if extension_stack:
+        post_key, rng = jax.random.split(agent_state.rng)
         agent_state = extension_stack.fold_post_update(
-            agent_state, new_timestep, post_key, total_timesteps
+            agent_state.replace(rng=rng), new_timestep, post_key, total_timesteps
         )
     aux = APGAuxiliaries(
         loss=loss,
@@ -436,8 +437,10 @@ def make_train(
     }
 
     def init_fn(key, index):
+        del index
+        init_key, pretrain_key = jax.random.split(key)
         agent_state = init_APG(
-            key=key,
+            key=init_key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             network_args=network_args,
@@ -445,7 +448,7 @@ def make_train(
             squash=squash,
             controller_factory=controller_factory,
         )
-        return agent_state.replace(index=index)
+        return extension_stack.fold_init(agent_state, pretrain_key, total_timesteps)
 
     def resume_transform(agent_state, key):
         del key
@@ -469,6 +472,5 @@ def make_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=num_updates,
-        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
         resume_transform=resume_transform,
     )

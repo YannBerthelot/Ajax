@@ -17,7 +17,7 @@ optimizer -- is the same at all sizes (2411f7d ``configs.yaml``:
 of :class:`DreamerV3Config` with that value as its default. The parity tests
 pin these defaults against the reference's own configuration.
 
-The agent (milestone M7) adds the hyperparameters of its training loop --
+The agent adds the hyperparameters of its training loop --
 the train ratio, the batch geometry and the replay capacity --
 (:class:`DreamerV3AgentConfig`) and its state (:class:`DreamerV3State`).
 """
@@ -32,6 +32,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
@@ -168,8 +169,8 @@ class DreamerV3Config:
     warmup: int = 1000
 
     def __post_init__(self) -> None:
-        widths = ("units", "hidden", "deter", "stoch", "classes", "blocks", "bins")
-        for name in widths:
+        sizes = ("units", "hidden", "deter", "stoch", "classes", "blocks", "bins")
+        for name in (*sizes, "actor_layers", "critic_layers", "imag_horizon"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
         if self.deter % self.blocks:
@@ -181,9 +182,6 @@ class DreamerV3Config:
             raise ValueError(f"unimix must be in [0, 1), got {self.unimix}")
         if self.return_horizon <= 1.0:
             raise ValueError(f"return_horizon must be > 1, got {self.return_horizon}")
-        for name in ("actor_layers", "critic_layers", "imag_horizon"):
-            if getattr(self, name) < 1:
-                raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
         if not 0.0 <= self.actor_unimix < 1.0:
             raise ValueError(f"actor_unimix must be in [0, 1), got {self.actor_unimix}")
         if not 0.0 < self.minstd < self.maxstd:
@@ -248,6 +246,26 @@ class DreamerV3Config:
         """
         return 1.0 - 1.0 / self.return_horizon
 
+    @property
+    def loss_scales(self) -> dict[str, float]:
+        """The scale of each loss term (``loss_scales``, ``configs.yaml:98``)."""
+        return {
+            "rec": self.rec_scale,
+            "rew": self.rew_scale,
+            "con": self.con_scale,
+            "dyn": self.dyn_scale,
+            "rep": self.rep_scale,
+            "actor": self.actor_scale,
+            "critic": self.critic_scale,
+            "repval": self.repval_scale,
+        }
+
+    @property
+    def two_hot(self) -> TwoHot:
+        """The reward and critic two-hot codec, ``symexp_twohot`` over
+        ``bins`` bins (:meth:`~ajax.distributional.TwoHot.dreamerv3`)."""
+        return TwoHot.dreamerv3(self.bins)
+
 
 @partial(struct.dataclass, kw_only=True)
 class DreamerV3AgentConfig(BaseAgentConfig):
@@ -263,10 +281,9 @@ class DreamerV3AgentConfig(BaseAgentConfig):
         batch_length: trained rows per window ``T``; a window has ``T + 1``
             rows, the first being the replay context (2411f7d
             ``batch_length: 65`` with ``replay_context: 1``).
-        replay_capacity: rows kept, summed over envs (Table 4: 5e6); the
-            ring keeps ``min(ceil(replay_capacity / n_envs), rows per env of
-            the run)`` rows per env (``docs/world_models/DESIGN.md`` sections
-            5.6, 6.3).
+        replay_capacity: rows kept, summed over envs (Table 4: 5e6; the
+            ring per env: :meth:`~ajax.agents.DreamerV3.DreamerV3.DreamerV3.
+            _resolve_replay`, deviation D27).
     """
 
     train_ratio: float = struct.field(pytree_node=False, default=512.0)
@@ -311,9 +328,6 @@ class MetricsAccumulator:
     def reset_where(self, flag: jax.Array) -> MetricsAccumulator:
         """Zeroed where ``flag`` (a log was written), unchanged otherwise."""
         return jax.tree.map(lambda x: jnp.where(flag, jnp.zeros_like(x), x), self)
-
-    def replace(self, **kwargs) -> MetricsAccumulator:  # To make mypy happy
-        return struct.replace(self, **kwargs)
 
 
 @partial(struct.dataclass, kw_only=True)

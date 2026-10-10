@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import jax
 from flax import struct
 
-from ajax.agents.TDMPC2.networks import resolve_model_size
+from ajax.agents.TDMPC2.networks import MODEL_SIZE
 from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import RunningScale
@@ -146,31 +146,30 @@ class TDMPC2Config(BaseAgentConfig):
             raise ValueError(f"buffer_size must be >= 1, got {self.buffer_size}")
 
     @classmethod
-    def from_model_size(
-        cls,
-        model_size: int = 5,
-        *,
-        enc_dim: Optional[int] = None,
-        mlp_dim: Optional[int] = None,
-        latent_dim: Optional[int] = None,
-        num_enc_layers: Optional[int] = None,
-        num_q: Optional[int] = None,
-        **kwargs: Any,
-    ) -> TDMPC2Config:
-        """Config of a ``model_size`` preset; explicit widths override it.
-
-        See :func:`ajax.agents.TDMPC2.networks.resolve_model_size`;
-        ``kwargs`` are the other fields.
+    def from_model_size(cls, model_size: int = 5, **kwargs: Any) -> TDMPC2Config:
+        """Config of a ``model_size`` preset (:data:`~ajax.agents.TDMPC2.
+        networks.MODEL_SIZE`): its widths, each overridden by the field of
+        the same name in ``kwargs`` that is not ``None`` (``DESIGN.md``
+        §4.1); ``kwargs`` are the fields. The reference lets the preset
+        overwrite the config instead (``common/parser.py:43-49``); its
+        ``mt30`` / 19M latent of 512 only serves the released checkpoints
+        and is not reproduced.
         """
-        sizes = resolve_model_size(
-            model_size,
-            enc_dim=enc_dim,
-            mlp_dim=mlp_dim,
-            latent_dim=latent_dim,
-            num_enc_layers=num_enc_layers,
-            num_q=num_q,
-        )
-        return cls(**sizes, **kwargs)
+        if model_size not in MODEL_SIZE:
+            raise ValueError(
+                f"model_size must be one of {sorted(MODEL_SIZE)}, got {model_size!r}"
+            )
+        preset = MODEL_SIZE[model_size]
+        widths = {k: v for k, v in preset.items() if kwargs.get(k) is None}
+        return cls(**{**kwargs, **widths})
+
+    def resolved(self, action_dim: int) -> dict[str, int]:
+        """What the preset and the planner's heuristic resolve, for the
+        loggers' run config: ``resolved_iterations`` and every width."""
+        return {
+            "resolved_iterations": self.planning_iterations(action_dim),
+            **{f"resolved_{k}": getattr(self, k) for k in MODEL_SIZE[5]},
+        }
 
     def planning_iterations(self, action_dim: int) -> int:
         """MPPI iterations for ``action_dim``: ``iterations + 2`` when it is >= 20.

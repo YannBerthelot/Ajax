@@ -308,7 +308,7 @@ def test_default_hyperparameters_are_the_references(run):
     assert ours.retnorm_rate == meta["retnorm"]["rate"] == 0.01
     assert ours.retnorm_limit == meta["retnorm"]["limit"] == 1.0
     assert (meta["retnorm"]["perclo"], meta["retnorm"]["perchi"]) == (5.0, 95.0)
-    scales = learner.loss_scales(ours)
+    scales = ours.loss_scales
     assert scales == {k: meta["scales"][v] for k, v in REFERENCE_TERMS.items()}
     assert ours.learning_rate == opt["lr"] == 4e-5
     assert (ours.agc, ours.agc_pmin) == (opt["agc"], opt["pmin"]) == (0.3, 1e-3)
@@ -388,7 +388,7 @@ def test_loss_terms_match(run):
     """Every per-element loss term, scaled as the reference returns them,
     and the total, call by call."""
     fixture, config, _, results = ajax_run(run)
-    scales = learner.loss_scales(config)
+    scales = config.loss_scales
     errors = {}
     for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
         for term, name in REFERENCE_TERMS.items():

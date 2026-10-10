@@ -28,6 +28,7 @@ from ajax.agents.DreamerV3.state import (
     LearningRate,
 )
 from ajax.agents.DreamerV3.train_DreamerV3 import TrainRatio, env_spec, make_train
+from ajax.environments.row_collector import resume_tick
 from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import BaseAgentState
@@ -121,13 +122,9 @@ class DreamerV3(ActorCritic):
 
     **Replay memory.** The replay is a ring of ``C = min(ceil(
     replay_capacity / n_envs), rows per env of the run)`` rows per env
-    (capacity in rows: deviation D27), resolved by every :meth:`train` call:
-    a fresh run from its own length; a resumed run from its total length
-    (rows so far plus this call's), growing the state's ring when an earlier,
-    shorter call sized it, so that a run split into resumed calls keeps the
-    replay of the uninterrupted run; a run of 0 ticks (a checkpoint
-    skeleton) reuses the ring of the agent's latest run
-    (:attr:`replay_rows_per_env`). Each row stores the observation, action,
+    (capacity in rows: deviation D27), resolved by every :meth:`train` call
+    (:meth:`_resolve_replay`: a run split into resumed calls keeps the
+    replay of the uninterrupted run). Each row stores the observation, action,
     reward, flags and the posterior latent (``deter`` float32 and ``stoch``
     as uint8 class indices), about ``4 (obs_dim + action_dim + deter + 1) +
     stoch + 3`` bytes: 8.3 KB at 12m on a 24-dim observation, so the 250K
@@ -208,8 +205,6 @@ class DreamerV3(ActorCritic):
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
-            actor_learning_rate=learning_rate,
-            critic_learning_rate=learning_rate,
             env_params=env_params,
             episode_length=episode_length,
             action_repeat=action_repeat,
@@ -373,20 +368,11 @@ class DreamerV3(ActorCritic):
     # ------------------------------------------------------------------ train
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
-        """The absolute tick of a resumed run: rows per env so far.
-
-        The collector counts rows summed over envs, ``n_envs`` per tick; the
-        offset is equal across seeds (asserted), so every schedule (the
-        training-start gate, the ratio, the online queue, the logging
-        cadence) continues instead of restarting.
-        """
-        rows = np.unique(np.asarray(initial_state.collector_state.rows))
-        if rows.size != 1:
-            raise ValueError(
-                f"The seeds of the resumed state are at different rows {rows};"
-                " a resumed DreamerV3 run needs one tick for all seeds."
-            )
-        return int(rows[0]) // self.env_args.n_envs
+        """The absolute tick of a resumed run, equal across seeds
+        (:func:`~ajax.environments.row_collector.resume_tick`), so every
+        schedule (the training-start gate, the ratio, the online queue, the
+        logging cadence) continues instead of restarting."""
+        return resume_tick(initial_state.collector_state, self.env_args.n_envs)
 
     def train(
         self,

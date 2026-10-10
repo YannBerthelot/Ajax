@@ -63,6 +63,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from ajax.agents.DreamerV3.networks import encode_action
 from ajax.agents.DreamerV3.world_model import PosteriorEntries, ReplayContextBatch
 from ajax.environments.row_collector import Row
 
@@ -114,35 +115,14 @@ class BatchIndex(NamedTuple):
     online: jax.Array
 
 
-class Window(NamedTuple):
-    """``B`` annotated windows of ``L`` rows and the latents of their row 0.
-
-    The row fields are ``[B, L, ...]`` (``action`` raw, as stored);
-    ``context_deter [B, D]`` and ``context_stoch [B, S]`` (int32) are the
-    latents stored with row 0, the replay context. The other rows' stored
-    latents are not read: the training step recomputes them
-    (``29eb964:dreamerv3/agent.py:175-176`` keeps ``[:, :K]`` only).
-    """
-
-    obs: jax.Array
-    action: jax.Array
-    reward: jax.Array
-    is_first: jax.Array
-    is_last: jax.Array
-    is_terminal: jax.Array
-    context_deter: jax.Array
-    context_stoch: jax.Array
-
-
 @dataclass(frozen=True)
 class StreamReplay:
     """The replay's static geometry (hashable).
 
     Attributes:
         n_envs: number of env streams.
-        capacity: ``C``, rows kept per env (resolved by the agent:
-            ``min(ceil(replay_capacity / n_envs), rows per env of the run)``,
-            ``DESIGN.md`` section 5.6).
+        capacity: ``C``, rows kept per env (resolved by
+            :meth:`~ajax.agents.DreamerV3.DreamerV3.DreamerV3._resolve_replay`).
         batch_size: ``B``, windows per batch.
         batch_length: ``T``, trained rows per window; a window has ``L = T +
             1`` rows, the first being context (2411f7d ``batch_length: 65``
@@ -302,13 +282,20 @@ class StreamReplay:
         """Ring slots ``(start + offsets) mod C``, broadcast ``[B, len(offsets)]``."""
         return (start[:, None] + offsets[None, :]) % self.capacity
 
-    def gather(self, state: ReplayState, index: BatchIndex) -> Window:
-        """The annotated windows of ``index`` (``replay.py:280-317``).
+    def gather(
+        self, state: ReplayState, index: BatchIndex, num_actions: Optional[int]
+    ) -> ReplayContextBatch:
+        """The learner's batch (Algorithm J) of the annotated windows of
+        ``index`` (``replay.py:280-317``).
 
         Rows are read with ``take`` on the ``[n_envs * C, ...]`` flattened
         rings at ``env * C + (start + k) mod C``; the stored latents only at
-        ``k = 0``. Then ``is_first[:, 0] = True`` and ``is_last |=`` the next
-        row's ``is_first`` (last column excluded).
+        ``k = 0``, the replay context (the other rows' are recomputed by the
+        training step: ``29eb964:dreamerv3/agent.py:175-176`` keeps ``[:,
+        :K]`` only). Then ``is_first[:, 0] = True`` and ``is_last |=`` the
+        next row's ``is_first`` (last column excluded). Discrete actions
+        (``num_actions`` given) are one-hot encoded, continuous ones pass
+        through raw (:func:`~ajax.agents.DreamerV3.networks.encode_action`).
         """
         c = self.capacity
         slots = self.physical(index.start, jnp.arange(self.length, dtype=jnp.int32))
@@ -322,9 +309,9 @@ class StreamReplay:
             [is_first[:, 1:], jnp.zeros_like(is_first[:, :1])], 1
         )
         context = index.env * c + index.start % c
-        return Window(
+        return ReplayContextBatch(
             obs=take(state.obs, flat),
-            action=take(state.action, flat),
+            action=encode_action(take(state.action, flat), num_actions),
             reward=take(state.reward, flat),
             is_first=is_first,
             is_last=take(state.is_last, flat) | next_is_first,
@@ -367,41 +354,8 @@ class StreamReplay:
         return state.replace(deter=ring_deter, stoch=ring_stoch)
 
 
-def context_batch(window: Window, num_actions: Optional[int]) -> ReplayContextBatch:
-    """The learner's batch (Algorithm J) from annotated windows.
-
-    Discrete actions (``num_actions`` given) are one-hot encoded
-    (``jaxutils.onehot_dict``, ``29eb964:dreamerv3/agent.py:233``);
-    continuous ones pass through raw (the dynamics bound them).
-    """
-    action = (
-        jax.nn.one_hot(window.action, num_actions, dtype=jnp.float32)
-        if num_actions is not None
-        else jnp.asarray(window.action, jnp.float32)
-    )
-    return ReplayContextBatch(
-        obs=window.obs,
-        action=action,
-        reward=window.reward,
-        is_first=window.is_first,
-        is_last=window.is_last,
-        is_terminal=window.is_terminal,
-        context_deter=window.context_deter,
-        context_stoch=window.context_stoch,
-    )
-
-
 #: The per-row fields of :class:`ReplayState`, ``[..., n_envs, C, ...]``.
-RING_FIELDS = (
-    "obs",
-    "action",
-    "reward",
-    "is_first",
-    "is_last",
-    "is_terminal",
-    "deter",
-    "stoch",
-)
+RING_FIELDS = tuple(f for f in ReplayState.__dataclass_fields__ if f != "popped")
 
 
 def grow_rings(state: ReplayState, rows: int, capacity: int) -> ReplayState:
@@ -449,9 +403,7 @@ __all__ = [
     "BatchIndex",
     "ReplayState",
     "StreamReplay",
-    "Window",
     "bytes_per_row",
-    "context_batch",
     "grow_rings",
     "stoch_dtype",
 ]

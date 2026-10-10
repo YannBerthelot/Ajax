@@ -18,7 +18,6 @@ from ajax.agents.TDMPC2.networks import (
     MODEL_SIZE,
     make_policy_prior,
     make_world_model,
-    resolve_model_size,
     simnorm,
     simnorm_head,
 )
@@ -81,16 +80,21 @@ def test_parameter_counts_match_the_paper_at_5m(
     assert _count(state.world_model_state.target_params) == expected["q"]
 
 
+def _widths(model_size, **kwargs):
+    config = TDMPC2Config.from_model_size(model_size, **kwargs)
+    return {k: getattr(config, k) for k in MODEL_SIZE[model_size]}
+
+
 def test_model_size_presets_and_explicit_overrides():
-    assert resolve_model_size(5) == {
+    assert _widths(5) == {
         "enc_dim": 256,
         "mlp_dim": 512,
         "latent_dim": 512,
         "num_enc_layers": 2,
         "num_q": 5,
     }
-    assert resolve_model_size(1)["num_q"] == 2
-    assert resolve_model_size(317) == {
+    assert _widths(1)["num_q"] == 2
+    assert _widths(317) == {
         "enc_dim": 4096,
         "mlp_dim": 4096,
         "latent_dim": 1376,
@@ -104,8 +108,7 @@ def test_model_size_presets_and_explicit_overrides():
         4,
         5,
     ]
-    override = resolve_model_size(19, mlp_dim=64, num_q=3)
-    assert override == {
+    assert _widths(19, mlp_dim=64, num_q=3, latent_dim=None) == {
         "enc_dim": 1024,
         "mlp_dim": 64,
         "latent_dim": 768,
@@ -115,7 +118,7 @@ def test_model_size_presets_and_explicit_overrides():
     config = TDMPC2Config.from_model_size(48, latent_dim=64, horizon=5)
     assert (config.enc_dim, config.latent_dim, config.horizon) == (1792, 64, 5)
     with pytest.raises(ValueError, match="model_size"):
-        resolve_model_size(7)
+        TDMPC2Config.from_model_size(7)
 
 
 def test_config_is_hashable_and_validated():

@@ -155,7 +155,10 @@ class Schedule:
 
     @property
     def seed_step(self) -> int:
-        """``k_S``: the per-env env step of the seed tick."""
+        """``k_S``: the per-env env step of the seed tick. At least ``T``, so
+        the seed tick follows the first committed round: the sampler never
+        draws from an empty buffer (committed rounds only grow with the
+        tick)."""
         return max(self.seed_steps // self.n_envs, self.episode_length)
 
     @property
@@ -271,7 +274,6 @@ def init_TDMPC2(
     learning_rate: FloatOrCallable,
     enc_lr_scale: float,
     pi_eps: float,
-    window_size: int = 10,
 ) -> TDMPC2State:
     """Fresh networks and optimizers (:func:`core.create_update_state`), a zero
     planner carry, reset envs (every env's first row is ``is_first``) and an
@@ -289,7 +291,7 @@ def init_TDMPC2(
     )
     prev_mean = jnp.zeros((env_args.n_envs, config.horizon, action_dim))
     collector_state = init_row_collector_state(
-        collector_key, env_args, policy_carry=prev_mean, window_size=window_size
+        collector_key, env_args, policy_carry=prev_mean
     )
     return TDMPC2State(
         rng=rng,
@@ -491,9 +493,7 @@ def make_train(
     pi_eps: float = 1e-5,
     capacity: Optional[int] = None,
     start_tick: int = 0,
-    extra_eval_metrics: Optional[Callable] = None,
     extensions: Sequence = (),
-    **_unused: Any,
 ) -> Callable:
     """Build the per-seed train function (``build_resumable_train``).
 
@@ -538,9 +538,6 @@ def make_train(
     schedule = Schedule(
         n_envs=n_envs, episode_length=episode_length, seed_steps=seed_steps
     )
-    # Updates only start on the seed tick: the sampler never sees an empty
-    # buffer (committed rounds only grow with the tick).
-    buffer.check_sampleable_from(schedule.seed_tick)
 
     extension_stack = ExtensionStack(extensions)
     if logging_config is not None:
@@ -557,7 +554,7 @@ def make_train(
                 num_episodes=num_episode_test,
             ),
             "extra_eval_metrics": compose_eval_metrics(
-                extra_eval_metrics, extension_stack, total_timesteps
+                None, extension_stack, total_timesteps
             ),
             "log": True,
             "log_fn": partial(vmap_log, run_ids=run_ids),

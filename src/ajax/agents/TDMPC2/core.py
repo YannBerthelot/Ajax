@@ -101,6 +101,7 @@ from ajax.state import LoadedTrainState
 from ajax.types import FloatOrCallable
 
 Params = Any
+IntLike = Union[int, jax.Array]
 ApplyFn = Callable[..., Any]
 
 # torch.nn.utils.clip_grad_norm_ adds this to the norm before dividing.

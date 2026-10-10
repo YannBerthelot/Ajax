@@ -60,7 +60,7 @@ from ajax.agents.DreamerV3.networks import (
     features,
     initial_state,
 )
-from ajax.agents.DreamerV3.replay import StreamReplay, context_batch
+from ajax.agents.DreamerV3.replay import StreamReplay
 from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
     DreamerV3Config,
@@ -424,8 +424,8 @@ def update(
     """
     rng, sample_key, noise_key, post_key = jax.random.split(agent_state.rng, 4)
     replay_state, index = replay.sample(agent_state.replay_state, rows, sample_key)
-    batch = context_batch(
-        replay.gather(replay_state, index), spec.action_dim if spec.discrete else None
+    batch = replay.gather(
+        replay_state, index, spec.action_dim if spec.discrete else None
     )
     noise = draw_train_noise(
         noise_key,
@@ -629,12 +629,6 @@ def make_train(
         batch_length=agent_config.batch_length,
         train_ratio=agent_config.train_ratio,
     )
-    if replay.capacity < schedule.min_ring_rows():
-        raise ValueError(
-            f"A ring of {replay.capacity} rows per env cannot hold the"
-            f" {agent_config.batch_size} items the first update needs"
-            f" (at least {schedule.min_ring_rows()} rows per env)."
-        )
     metric_keys = train_metric_keys(
         config, spec, agent_config.batch_size, agent_config.batch_length
     )

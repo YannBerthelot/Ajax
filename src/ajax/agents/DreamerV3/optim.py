@@ -57,7 +57,7 @@ are not implemented.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -76,23 +76,15 @@ def scale_by_agc(clip: float = 0.3, pmin: float = 1e-3) -> optax.GradientTransfo
     ``params``. Stateless.
     """
 
-    def init_fn(params: optax.Params) -> optax.EmptyState:
-        del params
-        return optax.EmptyState()
-
-    def update_fn(updates, state, params=None):
-        if params is None:
+    def clip_tensor(update: jax.Array, param: Optional[jax.Array]) -> jax.Array:
+        if param is None:
             raise ValueError("scale_by_agc needs the parameters")
+        unorm = jnp.linalg.norm(update.flatten(), 2)
+        pnorm = jnp.linalg.norm(param.flatten(), 2)
+        upper = clip * jnp.maximum(pmin, pnorm)
+        return update * (1 / jnp.maximum(1.0, unorm / upper))
 
-        def clip_tensor(param: jax.Array, update: jax.Array) -> jax.Array:
-            unorm = jnp.linalg.norm(update.flatten(), 2)
-            pnorm = jnp.linalg.norm(param.flatten(), 2)
-            upper = clip * jnp.maximum(pmin, pnorm)
-            return update * (1 / jnp.maximum(1.0, unorm / upper))
-
-        return jax.tree.map(clip_tensor, params, updates), state
-
-    return optax.GradientTransformation(init_fn, update_fn)
+    return optax.stateless_with_tree_map(clip_tensor)
 
 
 def warmup_schedule(

@@ -62,7 +62,7 @@ Pinned sources:
 | # | Agent | Reference behaviour | Ajax behaviour | Why / impact |
 |---|---|---|---|---|
 | D1 | DreamerV3 | Asynchronous: acting parameters ≈ 2 driver iterations stale; one-batch prefetch; write-back and metrics one train call late; first batch prefetched before the gate | Synchronous | Infrastructure, not algorithmic |
-| D2 | DreamerV3 | Replay sampler RNG fixed to seed 0; the report stream pops the online queue every 180 s of wall-clock | Seeded from the run seed; no report stream | Infrastructure |
+| D2 | DreamerV3 | Replay sampler RNG fixed to seed 0; the report stream pops the online queue every 180 s of wall-clock, and its loss pass reads the return normaliser without updating it (`agent.py:410`) | Seeded from the run seed; no report stream, so no non-updating loss pass | Infrastructure |
 | D3 | DreamerV3 | Updates interleaved between the per-env adds of one vector step | Updates after the tick's adds | Same rate; intra-tick order only |
 | D4 | DreamerV3 | bf16 compute (2411f7d: bf16 RMS statistics, f32 slow critic) | f32 | Numerics only; bf16 revisited at the GPU milestone |
 | D5 | DreamerV3 | One decoder head per observation key (dict observations) | One head for the flat observation vector | Loss identical (sum of means); the per-tensor AGC partition differs (≤ 8 % clipped-gradient difference, probed) |

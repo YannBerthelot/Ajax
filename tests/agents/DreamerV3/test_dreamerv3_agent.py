@@ -515,7 +515,7 @@ def test_construction_resolves_the_configuration():
 def test_resume_offset_needs_one_tick_for_all_seeds():
     agent = cartpole_agent()
     state = SimpleNamespace(collector_state=SimpleNamespace(rows=np.array([8, 12])))
-    with pytest.raises(ValueError, match="different rows"):
+    with pytest.raises(ValueError, match="cannot resume"):
         agent.resume_iteration_offset(state)
     state = SimpleNamespace(collector_state=SimpleNamespace(rows=np.array([8, 8])))
     assert agent.resume_iteration_offset(state) == 2

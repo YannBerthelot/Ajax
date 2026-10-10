@@ -21,7 +21,7 @@ docstring explains the design and how to regenerate them):
 
 The reference's parameters (embedding table included) are mapped onto Ajax's
 trees and Ajax's jitted :func:`ajax.agents.TDMPC2.multitask.update` and
-:func:`ajax.agents.TDMPC2.multitask.plan` are chained over the same inputs
+the planner with each task's context and discount are chained over the same inputs
 with the recorded draws. Every logged loss term, both gradient norms, the
 RunningScale, the TD targets, the policy samples and log-probabilities, the
 policy loss' Q values and the embedding table after every update are
@@ -58,6 +58,7 @@ from .reference_params import (
     reference_config,
     torch_to_ajax,
 )
+from .test_tdmpc2_multitask import task_plan
 from .test_tdmpc2_parity import LOGGED, PARAM_TOL, POST_STEP_Q_TOL, SCALAR_TOL
 from .test_tdmpc2_planner_parity import (
     ACTION_TOL,
@@ -328,9 +329,7 @@ def recorded_noise(fx: Fixture, d: int) -> planner.PlanNoise:
 @functools.lru_cache(maxsize=None)
 def jitted_plan(config: TDMPC2Config, tasks: TaskSet, eval_mode: bool) -> Any:
     return jax.jit(
-        functools.partial(
-            multitask.plan, config=config, tasks=tasks, eval_mode=eval_mode
-        )
+        functools.partial(task_plan, config=config, tasks=tasks, eval_mode=eval_mode)
     )
 
 

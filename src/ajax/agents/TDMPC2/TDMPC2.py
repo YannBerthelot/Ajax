@@ -25,6 +25,7 @@ from ajax.agents.TDMPC2.buffer import EpisodeBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
 from ajax.agents.TDMPC2.state import TDMPC2Config
 from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, make_train
+from ajax.environments.row_collector import resume_tick
 from ajax.environments.utils import (
     agent_episode_length,
     get_action_dim,
@@ -265,8 +266,6 @@ class TDMPC2(ActorCritic):
             if seed_steps is None
             else int(seed_steps)
         )
-        if self.seed_steps < 0:
-            raise ValueError(f"seed_steps must be >= 0, got {self.seed_steps}")
         self.schedule = Schedule(
             n_envs=n_envs,
             episode_length=self.agent_episode_length,
@@ -280,23 +279,12 @@ class TDMPC2(ActorCritic):
         self.replay_bytes_per_seed: Optional[int] = None
         # The values actually used, next to the constructor arguments (whose
         # None defaults are resolved above), for the loggers' run config.
-        config = self.agent_config
         self.config.update(
             {
                 "agent_episode_length": self.agent_episode_length,
                 "resolved_gamma": self.gamma,
                 "resolved_seed_steps": self.seed_steps,
-                "resolved_iterations": config.planning_iterations(self.action_dim),
-                **{
-                    f"resolved_{name}": getattr(config, name)
-                    for name in (
-                        "enc_dim",
-                        "mlp_dim",
-                        "latent_dim",
-                        "num_enc_layers",
-                        "num_q",
-                    )
-                },
+                **self.agent_config.resolved(self.action_dim),
             }
         )
 
@@ -312,17 +300,9 @@ class TDMPC2(ActorCritic):
         )
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
-        """The absolute tick a resumed run starts at: the rows the collector
-        emitted per env (one per tick), equal across seeds."""
-        rows = np.asarray(jax.device_get(initial_state.collector_state.rows))
-        rows = rows.reshape(-1)
-        n_envs = self.env_args.n_envs
-        if rows.size == 0 or np.any(rows != rows[0]) or rows[0] % n_envs:
-            raise ValueError(
-                "cannot resume: the collector row counts differ across seeds or"
-                f" are not a multiple of n_envs={n_envs} ({rows.tolist()})"
-            )
-        return int(rows[0]) // n_envs
+        """The absolute tick a resumed run starts at, equal across seeds
+        (:func:`~ajax.environments.row_collector.resume_tick`)."""
+        return resume_tick(initial_state.collector_state, self.env_args.n_envs)
 
     def _replay_buffer(self, total_timesteps: int) -> EpisodeBuffer:
         """The ring of a call that ends after ``total_timesteps`` env steps of

@@ -22,7 +22,6 @@ from ajax.agents.DreamerV3.replay import (
     ReplayState,
     StreamReplay,
     bytes_per_row,
-    context_batch,
     grow_rings,
     stoch_dtype,
 )
@@ -96,7 +95,7 @@ def test_windows_are_read_across_the_wrap():
     state = filled(14, replay)
     start = jnp.array([9, 7, 3, 4], jnp.int32)  # 9 and 7 wrap (slots 9, 10, 0, ...)
     env = jnp.array([0, 2, 1, 2], jnp.int32)
-    window = replay.gather(state, BatchIndex(env, start, jnp.zeros(4, bool)))
+    window = replay.gather(state, BatchIndex(env, start, jnp.zeros(4, bool)), None)
     expected = tag(np.asarray(env)[:, None], np.asarray(start)[:, None] + np.arange(5))
     np.testing.assert_array_equal(window.reward, expected)
     np.testing.assert_array_equal(window.obs[..., 0], expected)
@@ -123,7 +122,7 @@ def test_sampled_windows_never_cross_the_write_head(rows):
     assert start.min() >= oldest and start.max() <= rows - (LENGTH + 1)
     items = {(e, s) for e in range(N_ENVS) for s in range(oldest, rows - LENGTH)}
     assert set(zip(env.tolist(), start.tolist())) == items
-    window = jax.vmap(replay.gather, in_axes=(None, 0))(state, index)
+    window = jax.vmap(lambda i: replay.gather(state, i, None))(index)
     expected = tag(
         np.asarray(index.env)[..., None],
         np.asarray(index.start)[..., None] + np.arange(LENGTH + 1),
@@ -191,7 +190,9 @@ def test_batch_annotation_marks_the_first_row_and_abandoned_episodes():
     replay = StreamReplay(N_ENVS, CAPACITY, BATCH, LENGTH)
     state = filled(12, replay, flags=flags)
     start = jnp.array([0, 2, 4, 6], jnp.int32)
-    window = replay.gather(state, BatchIndex(jnp.zeros(4, jnp.int32), start, start > 9))
+    window = replay.gather(
+        state, BatchIndex(jnp.zeros(4, jnp.int32), start, start > 9), None
+    )
     rows = np.asarray(start)[:, None] + np.arange(5)
     stored_first = np.isin(rows, [3, 8])
     is_first = stored_first.copy()
@@ -235,7 +236,7 @@ def test_replay_context_batch_follows_algorithm_j():
         start=jnp.array([5, 2, 12], jnp.int32),
         online=jnp.zeros(3, bool),
     )
-    batch = context_batch(replay.gather(state, index), NUM_ACTIONS)
+    batch = replay.gather(state, index, NUM_ACTIONS)
     noise = draw_posterior_noise(jax.random.PRNGKey(3), config, (3, 6))
     entries = world_model_loss(model, params, batch, noise).entries
 
@@ -318,6 +319,7 @@ def test_stochastic_latents_round_trip_as_class_indices(classes):
         BatchIndex(
             jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32), jnp.zeros(1, bool)
         ),
+        None,
     )
     np.testing.assert_array_equal(window.context_stoch, indices)
     entries = PosteriorEntries(jnp.zeros((1, 2, 1)), jnp.full((1, 2, 3), classes - 1))
@@ -348,7 +350,7 @@ def test_continuous_actions_are_stored_raw_and_passed_through():
     index = BatchIndex(
         jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32), jnp.zeros(1, bool)
     )
-    batch = context_batch(replay.gather(state, index), None)
+    batch = replay.gather(state, index, None)
     np.testing.assert_array_equal(batch.action[0, 0], action[0])
 
 

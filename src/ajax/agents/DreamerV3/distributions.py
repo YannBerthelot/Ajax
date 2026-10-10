@@ -160,11 +160,6 @@ def symlog_mse(prediction: jax.Array, target: jax.Array) -> jax.Array:
 # ------------------------------------------------------------------ the actor
 
 
-def draw_normal_noise(key: jax.Array, shape: tuple[int, ...]) -> jax.Array:
-    """Standard normal noise of ``shape = (..., A)`` for :meth:`BoundedNormal.sample`."""
-    return jax.random.normal(key, shape, jnp.float32)
-
-
 class BoundedNormal(NamedTuple):
     """The continuous actor's distribution: ``Normal(mean, std)`` per dimension.
 
@@ -300,4 +295,4 @@ def draw_action_noise(
     one (:class:`BoundedNormal`)."""
     if discrete:
         return draw_onehot_noise(key, shape)
-    return draw_normal_noise(key, shape)
+    return jax.random.normal(key, shape, jnp.float32)

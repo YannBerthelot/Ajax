@@ -217,14 +217,10 @@ def test_sampling_is_uniform_over_committed_episodes_and_offsets():
     np.testing.assert_allclose(offsets / draws, 1 / (T - H + 1), atol=0.01)
 
 
-def test_zero_committed_episodes_cannot_be_sampled_from():
+def test_a_horizon_longer_than_the_episodes_cannot_be_sampled():
     buffer = EpisodeBuffer.create(
         capacity=100, n_envs=2, episode_length=T, obs_dim=OBS, action_dim=ACT
     )
-    for tick in range(T):  # before the first held tick
-        with pytest.raises(ValueError, match="before any episode is committed"):
-            buffer.check_sampleable_from(tick)
-    buffer.check_sampleable_from(T)  # round 0's held tick
     with pytest.raises(ValueError, match="horizon"):
         buffer.sample(buffer.init(), jax.random.PRNGKey(0), T, 4, T + 1)
 

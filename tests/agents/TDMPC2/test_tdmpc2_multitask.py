@@ -35,6 +35,24 @@ TASKS = TaskSet.create((3, 5, 2), (2, 1, 4), (100, 200, 500))
 TASK_DIM = 6
 
 
+def task_plan(wm, pi, obs, prev, t0, noise, task, *, config, tasks, eval_mode):
+    """One decision for task ``task``, ``act(obs, t0, eval_mode, task)``
+    (``tdmpc2.py:70-171``): the planner with the task's context and
+    discount, in the padded spaces."""
+    return planner.plan(
+        wm,
+        pi,
+        obs,
+        prev,
+        t0,
+        noise,
+        config=config,
+        gamma=tasks.discount(task),
+        eval_mode=eval_mode,
+        task=tasks.context(task),
+    )
+
+
 def _state(key=0, learning_rate=3e-4):
     return multitask.create_update_state(
         jax.random.PRNGKey(key),
@@ -278,7 +296,7 @@ def test_plan_renorms_the_row_without_persisting_it():
 
     @jax.jit
     def plan(w):
-        return multitask.plan(
+        return task_plan(
             w, pi, obs, prev, True, noise, 2, config=TINY, tasks=TASKS, eval_mode=True
         )
 
@@ -369,7 +387,7 @@ def test_planner_masks_candidates_means_stds_and_actions(eval_mode):
     wm, pi = state.world_model_state.params, state.actor_state.params
     noise = planner.draw_plan_noise(jax.random.PRNGKey(6), TINY, TASKS.action_dim)
     plan = jax.jit(
-        lambda nz, prev, t0: multitask.plan(
+        lambda nz, prev, t0: task_plan(
             wm,
             pi,
             jnp.array([0.4, -0.1, 0.7, 0.0, 0.0]),
@@ -424,7 +442,7 @@ def test_iterations_follow_the_padded_action_dim():
     def decide(key):
         state = multitask.create_update_state(key, TINY, tasks, task_dim=TASK_DIM)
         noise = planner.draw_plan_noise(key, TINY, tasks.action_dim)
-        return multitask.plan(
+        return task_plan(
             state.world_model_state.params,
             state.actor_state.params,
             jnp.zeros(3),

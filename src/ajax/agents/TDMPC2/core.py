@@ -417,6 +417,7 @@ def _rho_weights(rho: float, n: int) -> jax.Array:
 
 
 def td_target(
+    *,
     wm_apply: ApplyFn,
     pi_apply: ApplyFn,
     wm_params: Params,
@@ -464,6 +465,7 @@ def td_target(
 
 def world_model_loss(
     wm_params: Params,
+    *,
     wm_apply: ApplyFn,
     batch: TDMPC2Batch,
     next_z: jax.Array,
@@ -537,6 +539,7 @@ def world_model_loss(
 
 def policy_loss(
     pi_params: Params,
+    *,
     pi_apply: ApplyFn,
     wm_apply: ApplyFn,
     wm_params: Params,
@@ -773,30 +776,30 @@ def update(
         )
 
     td, next_z = td_target(
-        wm_apply,
-        pi_apply,
-        wm_state.params,
-        wm_state.target_params,
-        pi_state.params,
-        batch.obs[1:],
-        batch.reward,
-        gamma,
-        noise.td_eps,
-        noise.td_pair,
-        noise.td_dropout,
-        config,
-        task,
+        wm_apply=wm_apply,
+        pi_apply=pi_apply,
+        wm_params=wm_state.params,
+        target_q_params=wm_state.target_params,
+        pi_params=pi_state.params,
+        next_obs=batch.obs[1:],
+        reward=batch.reward,
+        gamma=gamma,
+        eps=noise.td_eps,
+        pair=noise.td_pair,
+        dropout_key=noise.td_dropout,
+        config=config,
+        task=task,
     )
 
     (_, (wm_terms, zs)), wm_grads = jax.value_and_grad(world_model_loss, has_aux=True)(
         wm_state.params,
-        wm_apply,
-        batch,
-        next_z,
-        td,
-        noise.value_dropout,
-        config,
-        task,
+        wm_apply=wm_apply,
+        batch=batch,
+        next_z=next_z,
+        td_targets=td,
+        dropout_key=noise.value_dropout,
+        config=config,
+        task=task,
     )
     wm_grads, grad_norm = clip_grad_norm(
         wm_grads, config.grad_clip_norm, extra_sq_norm=state.pi_gradnorm_sq
@@ -809,16 +812,16 @@ def update(
 
     (_, (q_scale, pi_aux)), pi_grads = jax.value_and_grad(policy_loss, has_aux=True)(
         pi_state.params,
-        pi_apply,
-        wm_apply,
-        wm_state.params,
-        zs,
-        state.q_scale,
-        noise.pi_eps,
-        noise.pi_pair,
-        noise.pi_dropout,
-        config,
-        task,
+        pi_apply=pi_apply,
+        wm_apply=wm_apply,
+        wm_params=wm_state.params,
+        zs=zs,
+        q_scale=state.q_scale,
+        eps=noise.pi_eps,
+        pair=noise.pi_pair,
+        dropout_key=noise.pi_dropout,
+        config=config,
+        task=task,
     )
     pi_grads, pi_grad_norm = clip_grad_norm(pi_grads, config.grad_clip_norm)
     # Post-clip, carried to the next update's world-model clip.

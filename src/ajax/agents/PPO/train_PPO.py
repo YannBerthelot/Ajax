@@ -43,6 +43,7 @@ from ajax.agents.PPO.utils import (
     get_minibatches_preserving_time,
     split_fragments,
 )
+from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
@@ -77,10 +78,8 @@ def init_PPO(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     pid_actor_config: Optional[PIDActorConfig] = None,
-    normalize_obs_running: bool = False,
 ) -> PPOState:
-    """The initial actor, critic and collector; with
-    ``normalize_obs_running``, the agent-side observation statistics."""
+    """The initial actor, critic and collector."""
     (
         rng,
         init_key,
@@ -112,24 +111,7 @@ def init_PPO(
         encoder_bias_init=network_args.encoder_bias_init,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    collector_state = init_collector_state(
-        collector_key,
-        env_args=env_args,
-        mode=mode,
-        normalize_obs_running=normalize_obs_running,
-    )
-
-    # Pre-allocate obs_norm_info on actor/critic state so the scan
-    # carry's pytree stays stable from iteration zero. The first
-    # collect step will sync the running stats from
-    # ``collector_state.obs_norm_info`` here (a fresh zero-init from
-    # ``init_agent_obs_norm``); without this preallocation, the scan
-    # input carry has ``None`` while the output carry (after the
-    # collect sync) has a ``NormalizationInfo`` -> pytree-structure
-    # mismatch and the scan rejects the body.
-    if normalize_obs_running and collector_state.obs_norm_info is not None:
-        actor_state = actor_state.replace(obs_norm_info=collector_state.obs_norm_info)
-        critic_state = critic_state.replace(obs_norm_info=collector_state.obs_norm_info)
+    collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)
 
     return PPOState(
         rng=rng,
@@ -470,45 +452,58 @@ def _joint_clip(actor_grads: Any, critic_grads: Any) -> tuple[Any, Any]:
     return jax.tree.map(lambda g: g * scale, (actor_grads, critic_grads))
 
 
+def _normalisation_info(env_state: Any, mode: str) -> Any:
+    """The running statistics an env normaliser keeps in ``env_state``
+    (``None`` without one)."""
+    if mode == "brax":
+        return (env_state.info or {}).get("normalization_info")
+    return getattr(env_state, "normalization_info", None)
+
+
+def _renormalised(obs: jax.Array, fresh: Any, saved: Any) -> jax.Array:
+    """``obs``, normalised with the statistics ``fresh``, normalised with
+    ``saved`` instead; each read as ``online_normalize`` reads them (the
+    clipped std and the mean averaged over their leading axis)."""
+
+    def moments(info: Any) -> tuple[jax.Array, jax.Array]:
+        std = jnp.clip(jnp.sqrt(info.var + 1e-8), 1e-6, 1e6)
+        return info.mean.mean(axis=0), std.mean(axis=0)
+
+    (fresh_mean, fresh_std), (saved_mean, saved_std) = moments(fresh), moments(saved)
+    return (obs * fresh_std + fresh_mean - saved_mean) / saved_std
+
+
 def _force_reset(
     agent_state: PPOState, env_args: EnvironmentConfig, mode: str
 ) -> PPOState:
     """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
 
-    The env wrapper's reset re-initialises its observation normaliser: the
-    running statistics are kept, the fresh observation re-normalised with
-    them.
+    An observation or reward normaliser in the env stack keeps its running
+    statistics: its reset restarts them from the reset observation, so the
+    saved ones are put back and the reset observation, when the normaliser
+    normalises it, is normalised with them instead. Gymnax keeps one
+    normaliser per env (each restarts from its own observation), brax one
+    for the batch.
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
-    saved_norm = None
-    if mode == "brax" and "normalization_info" in (
-        agent_state.collector_state.env_state.info or {}
-    ):
-        saved_norm = agent_state.collector_state.env_state.info["normalization_info"]
+    saved = _normalisation_info(agent_state.collector_state.env_state, mode)
     reset_keys = (
         jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
     )
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
-    if saved_norm is not None:
-        fresh_obs_info = new_env_state.info["normalization_info"].obs
-        saved_obs_info = saved_norm.obs
-        # Undo fresh normalisation, re-apply saved-stats normalisation.
-        # Match online_normalize: it uses ``mean(clipped_std, axis=0)``
-        # to broadcast across envs (all rows of the batched stat are
-        # identical post-Welford). Apply the same clip + mean here so
-        # the recovered raw_obs is bit-for-bit what the env produced.
-        fresh_std = jnp.clip(jnp.sqrt(fresh_obs_info.var + 1e-8), 1e-6, 1e6).mean(
-            axis=0
-        )
-        fresh_mean = fresh_obs_info.mean.mean(axis=0)
-        raw_obs = new_obs * fresh_std + fresh_mean
-        saved_std = jnp.clip(jnp.sqrt(saved_obs_info.var + 1e-8), 1e-6, 1e6).mean(
-            axis=0
-        )
-        saved_mean = saved_obs_info.mean.mean(axis=0)
-        new_obs = (raw_obs - saved_mean) / saved_std
-        new_env_state.info["normalization_info"] = saved_norm
-        new_env_state = new_env_state.replace(obs=new_obs)
+    if saved is not None:
+        layers = strip_ajax_wrappers(env_args.env)[1]
+        if layers["normalize_obs"] and layers["apply_obs_normalization"]:
+            fresh = _normalisation_info(new_env_state, mode).obs
+            per_normaliser = (
+                _renormalised if mode == "brax" else jax.vmap(_renormalised)
+            )
+            new_obs = per_normaliser(new_obs, fresh, saved.obs)
+        if mode == "brax":
+            info = {**new_env_state.info, "normalization_info": saved}
+            new_env_state = new_env_state.replace(obs=new_obs, info=info)
+        else:
+            new_env_state = new_env_state.replace(normalization_info=saved)
     new_collector = agent_state.collector_state.replace(
         _env_state=new_env_state, last_obs=new_obs
     )
@@ -753,10 +748,10 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     pid_actor_config: Optional[PIDActorConfig] = None,
     reward_shaping_fn: Optional[Callable] = None,
     extensions: Sequence = (),
-    normalize_obs_running: bool = False,
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
@@ -764,7 +759,13 @@ def make_train(
     if recurrent and extensions:
         raise NotImplementedError("Recurrent PPO does not support extensions yet.")
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, _pretrain_key: jax.Array) -> PPOState:
@@ -775,7 +776,6 @@ def make_train(
             critic_optimizer_args,
             network_args,
             pid_actor_config=pid_actor_config,
-            normalize_obs_running=normalize_obs_running,
         )
 
     def update(

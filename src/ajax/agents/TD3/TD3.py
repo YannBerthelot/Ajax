@@ -65,6 +65,7 @@ class TD3(ActorCritic):
         stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         # --- Cloning pretraining (mirrors REDQ); online BC is the
         # ImitationLoss extension ---
         actor_cloning_epochs: int = 10,
@@ -95,6 +96,7 @@ class TD3(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
             extensions=extensions,
         )

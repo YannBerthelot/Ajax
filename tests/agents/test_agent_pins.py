@@ -299,11 +299,14 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "APG-pid-nudge": (APG, {**_APG, "pid": PIDHeadConfig()}, 80),
 }
 _TOL = 1e-3
+# AVG (final observation normalised) and PPO-env-split (PPO trains on
+# observations as normalised at collection, on the plain-MLP default)
+# re-recorded once batch/env-eval-logging met main: -0.6%/+0.7%, +0.3%/+0.5%.
 # Recorded on macOS ARM CPU at the parent of the step-16 lineage commit.
 _GOLDEN: dict[str, dict[str, float]] = {
     "AVG": {
-        "actor": 5.874258518218994,
-        "critic": 18.981433868408203,
+        "actor": 5.839523792266846,
+        "critic": 19.103961944580078,
         "alpha": 0.07000000029802322,
     },
 }
@@ -363,7 +366,7 @@ _GOLDEN |= {
         "alpha": 0.9514929056167603,
     },
     "PPO-flat": {"actor": 4.138375282287598, "critic": 4.506361961364746},
-    "PPO-env-split": {"actor": 3.0261974334716797, "critic": 4.079187870025635},
+    "PPO-env-split": {"actor": 3.0352354049682617, "critic": 4.100451469421387},
     "PPO-unroll": {"actor": 4.224678993225098, "critic": 4.548887729644775},
     "PPO-gru": {"actor": 53.321449279785156, "critic": 52.78514099121094},
     "PPO-discrete-nudge": {

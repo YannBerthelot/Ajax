@@ -21,7 +21,6 @@ from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, critic_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
-    bootstrap_cuts,
     q_values,
     sample_replay,
     unsupported_recurrent_options,
@@ -207,7 +206,8 @@ def update_value_functions(
     """One critic step of the ensemble on the random-subset target."""
     key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    dones = bootstrap_cuts(batch, carries)
+    # A truncated row bootstraps on its final observation (bootstrap_obs).
+    dones = batch.terminated
     target_q, next_log_probs = compute_redq_td_target(
         agent_state.actor_state,
         agent_state.critic_state,

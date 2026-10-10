@@ -13,7 +13,6 @@ from ajax.agents.loop import TrainLoop
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
-    bootstrap_cuts,
     q_values,
     sample_and_burnin_sequences,
     unsupported_recurrent_options,
@@ -431,10 +430,9 @@ def policy_loss_function(
         else actions
     )
 
-    # Core Q evaluation and SAC loss. In recurrent mode the critic carry
-    # was burned in on buffer actions and evaluates fresh policy actions
-    # (standard burned-state approximation); gradients flow to the actor
-    # through the actions.
+    # Core Q evaluation and SAC loss. In recurrent mode the fresh actions
+    # are queried at the critic's head, its memory reading the actions
+    # taken; gradients flow to the actor through the actions.
     q_preds = q_values(
         critic_states, critic_states.params, observations, q_input_actions, carries
     )
@@ -690,7 +688,8 @@ def update_agent(
             next_a_expert=_cat(transition.next_a_expert, exp_next_a_expert),
         )
 
-    dones = bootstrap_cuts(transition, carries)
+    # A truncated row bootstraps on its final observation (bootstrap_obs).
+    dones = transition.terminated
     # The env observations without train_frac, which is what expert_policy
     # expects.
     _raw = (

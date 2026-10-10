@@ -763,6 +763,45 @@ only to float32 rounding, because whether two equivalent programs compile
 to the same bits is up to XLA and differs across backends (CI is Linux
 x86).
 
+## Recurrent off-policy replay: head queries and exact time limits (2026-10-10)
+
+Two changes to the recurrent SAC/ASAC/REDQ/TD3 replay
+([recurrent.py](src/ajax/agents/recurrent.py)) move its cost. First, a
+recurrent Q-critic's memory reads the observation and the previous action
+and the critic's MLP runs after it, as the head over the memory's output
+and the queried action (`Critic.query_dim`): every loss is one parallel
+pass, and the memory reads a 4-wide input instead of the 64-wide encoder
+output. Second, a window's bootstrap runs over a stream holding each time
+limit's final observation after its row (`_bootstrap_stream`), exact for
+any number of time limits in a window, so twice the rows long: the target
+critic's and the bootstrap actor's forward passes grow from the 16 next
+rows to 32 steps. The stream is built and read with one-hot selects;
+building it with scatters, which XLA runs one index at a time on CPU,
+cost about 15% more on the transformer.
+
+SAC on Pendulum, 4 envs, 2,048 steps, actor and critic `("64", "relu")`,
+memory width 32 (window 16), CPU, the second of two identical calls,
+base and branch interleaved while unrelated jobs kept the load at 5-10 on
+14 cores (single runs swing by about 15%); medians, seconds:
+
+| memory | base | both changes | delta |
+|---|---|---|---|
+| gru | 13.05 | 11.53 | -12% |
+| transformer | 12.94 | 15.08 | +17% |
+| mamba | 75.0 | 94.0 | +25% |
+
+The head queries alone, against their own interleaved base (three rounds),
+measured -13% on the GRU (its input projection shrinks) and par on the
+transformer. The remaining slowdown is the exact stream: attention cost grows
+with the square of the stream's length and the state-space scan with its
+length, on two forward passes per update. A stream holding only a window's
+first time limit (two rows longer than the window) measured +1% on the
+transformer and par on mamba, but cut the later time limits' targets in
+windows holding several (episodes shorter than the window); exactness was
+kept by the owner's decision. Holding the final observations elsewhere
+(per-step carries, or extra query tokens) needs per-memory-kind changes and
+costs as many tokens.
+
 ## Where to look for more
 
 The [audit-pending section](PERFORMANCE_LOG.md#audit-items-still-pending)

@@ -1,4 +1,5 @@
-"""maybe_eval_and_log: the scan-index-gated eval + log step (lifted from APG)."""
+"""maybe_eval_and_log: the scan-index-gated eval + log step of the agents
+with their own evaluation (TrainLoop.evaluate_every)."""
 
 import jax
 import jax.numpy as jnp
@@ -27,7 +28,10 @@ def extra_eval_metrics(state, key):
     return {"Eval/extra": jnp.float32(7.0)}
 
 
-def run(iterations, log=True, log_frequency=30, per_update=10, seeds=2):
+PER_ITERATION = 10  # env steps
+
+
+def run(iterations, log=True, every=3, seeds=2):
     calls = []
 
     def log_fn(metrics, index):
@@ -44,7 +48,7 @@ def run(iterations, log=True, log_frequency=30, per_update=10, seeds=2):
     def step(state, index, iteration):
         return maybe_eval_and_log(
             state,
-            (iteration + 1) * per_update,
+            (iteration + 1) * PER_ITERATION,
             index,
             iteration,
             metrics_fn=metrics_fn,
@@ -52,8 +56,7 @@ def run(iterations, log=True, log_frequency=30, per_update=10, seeds=2):
             extra_eval_metrics=extra_eval_metrics,
             log=log,
             log_fn=log_fn,
-            log_frequency=log_frequency,
-            per_update=per_update,
+            every=every,
         )
 
     outputs = []
@@ -67,8 +70,8 @@ def run(iterations, log=True, log_frequency=30, per_update=10, seeds=2):
     return state, outputs, calls
 
 
-def test_logs_every_log_frequency_env_steps_from_the_scan_index():
-    state, outputs, calls = run(range(7))  # every 30 // 10 = 3 iterations
+def test_logs_every_few_iterations_from_the_scan_index():
+    state, outputs, calls = run(range(7))  # every 3 iterations
     assert sorted(calls) == [(0, 30, 7.0), (0, 60, 7.0), (1, 30, 7.0), (1, 60, 7.0)]
     np.testing.assert_array_equal(state.n_logs, [2, 2])
     logged = outputs[2]
@@ -112,8 +115,7 @@ def test_eval_and_extra_metrics_get_the_two_halves_of_the_eval_key():
         extra_eval_metrics=lambda state, key: {"Eval/extra": jax.random.uniform(key)},
         log=True,
         log_fn=lambda metrics, index: None,
-        log_frequency=1,
-        per_update=1,
+        every=1,
     )
     jax.effects_barrier()
     eval_key, extra_key = jax.random.split(state.eval_rng)
@@ -143,8 +145,7 @@ def test_the_evaluation_stays_a_real_cond_under_the_seed_vmap():
             extra_eval_metrics=extra_eval_metrics,
             log=True,
             log_fn=lambda metrics, index: None,
-            log_frequency=30,
-            per_update=10,
+            every=3,
         )
 
     jaxpr = jax.make_jaxpr(jax.vmap(step, in_axes=(0, 0, None)))(

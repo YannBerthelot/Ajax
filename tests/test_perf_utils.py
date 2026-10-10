@@ -34,7 +34,9 @@ def make_toy_train(num_updates, on_index=None):
             )
         return {"ticks": state["ticks"] + 1}, i
 
-    return build_resumable_train(init_fn=init_fn, scan_fn=body, num_updates=num_updates)
+    return build_resumable_train(
+        init_fn=init_fn, make_scan_fn=lambda *_: body, num_updates=num_updates
+    )
 
 
 def test_resumed_scan_sees_absolute_iteration_indices():

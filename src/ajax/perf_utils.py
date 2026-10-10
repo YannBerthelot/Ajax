@@ -27,10 +27,8 @@ import jax.numpy as jnp
 def build_resumable_train(
     *,
     init_fn: Callable[[Any, Any], Any],
-    scan_fn: Callable[..., Tuple[Any, Any]] | None = None,
-    make_scan_fn: Callable[..., Callable[..., Tuple[Any, Any]]] | None = None,
+    make_scan_fn: Callable[..., Callable[..., Tuple[Any, Any]]],
     num_updates: int,
-    init_transform: Callable[[Any, Any], Any] | None = None,
     resume_transform: Callable[[Any, Any], Any] | None = None,
     carry_out: Callable[[Any, Any], Any] | None = None,
 ) -> Callable:
@@ -39,14 +37,13 @@ def build_resumable_train(
     Every Ajax agent shares the exact same training-loop skeleton:
 
       1. either build a fresh ``agent_state`` from the agent's ``init_*``
-         function, or — when ``resume_from_state=True`` — reuse the
-         ``initial_state`` handed in from a checkpoint;
-      2. on a fresh run only, optionally apply a one-shot
-         ``init_transform`` (skipped on resume so expensive one-time
-         initialization is not re-run when continuing a previous run);
-      3. ``jax.lax.scan`` the per-iteration scan body for
+         function (its one-shot initialisation included, so it is not
+         re-run when continuing a previous run), or — when
+         ``resume_from_state=True`` — reuse the ``initial_state`` handed
+         in from a checkpoint;
+      2. ``jax.lax.scan`` the per-iteration scan body for
          ``num_updates`` steps, feeding it the iteration index as ``x``;
-      4. return ``(agent_state, out)``.
+      3. return ``(agent_state, out)``.
 
     This helper owns that skeleton so it is written exactly once instead
     of being duplicated (and drifting) across every agent's
@@ -91,26 +88,19 @@ def build_resumable_train(
             state. Called only on the fresh-init path. ``index`` is the
             per-seed index (or ``None``); agents that don't need it
             simply ignore it.
-        scan_fn: the per-iteration body ``(carry, x) -> (carry, aux)``.
-            Use this when the body needs neither the resolved
-            ``agent_state`` nor the per-call ``key`` / ``index``.
-            Mutually exclusive with ``make_scan_fn``.
         make_scan_fn: a *builder*
-            ``(agent_state, resume_from_state, key, index) -> body``
-            invoked once at trace time, after init/resume is resolved.
-            Use this when the body must be finished from values produced
-            during ``init_fn``, must branch on whether this is a resume,
-            or needs the per-call ``key`` / per-seed ``index`` or the
-            ``shared`` input (passed as ``shared=`` when given). Mutually
-            exclusive with ``scan_fn``.
+            ``(agent_state, resume_from_state, key, index) -> body`` of
+            the per-iteration body ``(carry, x) -> (carry, aux)``, invoked
+            once at trace time, after init/resume is resolved, so the body
+            can be finished from the resolved state, branch on whether
+            this is a resume, or use the per-call ``key`` / per-seed
+            ``index`` or the ``shared`` input (passed as ``shared=`` when
+            given).
         num_updates: number of scan iterations (static int).
-        init_transform: optional one-shot ``(agent_state, key) ->
-            agent_state`` applied on the fresh-init path only. Pass
-            ``None`` for agents that have no such transform.
         resume_transform: optional one-shot ``(agent_state, key) ->
-            agent_state`` applied on the resume path only, the mirror of
-            ``init_transform`` (e.g. re-initialising the optimizer for a
-            new curriculum stage while keeping the learned parameters).
+            agent_state`` applied on the resume path only (e.g.
+            re-initialising the optimizer for a new curriculum stage while
+            keeping the learned parameters).
         carry_out: optional ``(agent_state, index) -> out``, the initial
             value of an output the body writes into as it goes (in place)
             instead of stacking one per iteration. The body then maps
@@ -120,10 +110,6 @@ def build_resumable_train(
     Returns:
         The jit-decorated inner ``train`` function.
     """
-    if (scan_fn is None) == (make_scan_fn is None):
-        raise ValueError(
-            "build_resumable_train: pass exactly one of `scan_fn` or `make_scan_fn`."
-        )
 
     @partial(
         jax.jit,
@@ -144,23 +130,18 @@ def build_resumable_train(
                 agent_state = resume_transform(agent_state, key)
         else:
             agent_state = init_fn(key, index)
-            if init_transform is not None:
-                agent_state = init_transform(agent_state, key)
 
-        if make_scan_fn is None:
-            body = scan_fn
-        elif shared is None:
+        if shared is None:
             body = make_scan_fn(agent_state, resume_from_state, key, index)
         else:
             body = make_scan_fn(
                 agent_state, resume_from_state, key, index, shared=shared
             )
 
-        # The body receives the (unbatched) iteration index as its scan input.
-        # Every existing body ignores it (``_``); bodies that gate periodic
-        # work on it get a trace-time-shaped predicate that stays a real
-        # ``lax.cond`` under vmap, unlike anything derived from the (possibly
-        # batched, on resume) agent state.
+        # The body receives the (unbatched) iteration index as its scan input:
+        # a body that gates periodic work on it gets a predicate that stays a
+        # real ``lax.cond`` under vmap, unlike anything derived from the
+        # (possibly batched, on resume) agent state.
         iterations = jnp.arange(num_updates)
         if not (isinstance(iteration_offset, int) and iteration_offset == 0):
             iterations = jnp.asarray(iteration_offset, iterations.dtype) + iterations

@@ -325,7 +325,7 @@ not `total_timesteps // n_envs`, `num_ticks`.
 Key points:
 - `extensions=` is the **only** research-feature surface. No per-feature kwargs on `make_train`.
 - `stack.fold_<phase>(agent_state, …, step, rng, total_steps)` builds the context and threads `ext_state` in one call, and is a no-op on an empty stack — never inline that boilerplate, and a fold needs no guard. Guard (`if stack:`) a key split drawn only for the extensions, so an agent without extensions keeps its random stream.
-- `compose_eval_metrics(user_fn, stack, total_steps)` collapses to `None` when both inputs are no-ops, preserving `evaluate_and_log`'s zero-overhead path.
+- `compose_eval_metrics(stack, total_steps)` collapses to `None` without extensions, preserving `evaluate_and_log`'s zero-overhead path.
 
 ### 4. Write `FOO.py`
 

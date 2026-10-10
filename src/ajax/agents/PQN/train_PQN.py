@@ -22,12 +22,13 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
-from ajax.agents.DQN.networks import get_initialized_q_network, predict_q
+from ajax.agents.DQN.networks import predict_q
 from ajax.agents.DQN.train_DQN import (
     AuxiliaryLogs,
+    init_DQN,
     make_epsilon_greedy_pipeline,
     mse_td_loss,
-    q_loss_fn,
+    q_gradient_step,
 )
 from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
@@ -35,7 +36,6 @@ from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.interaction import (
     collect_experience,
-    init_collector_state,
     preallocate_last_rollout,
 )
 from ajax.environments.utils import check_env_is_gymnax, get_action_dim
@@ -52,48 +52,6 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
-
-# ---------------------------------------------------------------------------
-# Initialization
-# ---------------------------------------------------------------------------
-
-
-def init_PQN(
-    key: jax.Array,
-    env_args: EnvironmentConfig,
-    optimizer_args: OptimizerConfig,
-    network_args: NetworkConfig,
-    n_actions: int,
-    window_size: int = 10,
-) -> PQNState:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
-
-    q_state = get_initialized_q_network(
-        key=init_key,
-        env_config=env_args,
-        optimizer_config=optimizer_args,
-        network_config=network_args,
-        n_actions=n_actions,
-        q_network_cls=PQNNetwork,
-    )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    # No buffer: PQN is on-policy and learns directly from each rollout.
-    collector_state = init_collector_state(
-        collector_key,
-        env_args=env_args,
-        mode=mode,
-        window_size=window_size,
-    )
-    # The single Q-network lives in actor_state (so the shared eval loop
-    # works); critic_state mirrors it at init and is never updated.
-    return PQNState(
-        rng=rng,
-        eval_rng=rng,
-        actor_state=q_state,
-        critic_state=q_state,
-        collector_state=collector_state,
-    )
-
 
 # ---------------------------------------------------------------------------
 # Training iteration (collect rollout + Q(lambda) targets + epoch updates)
@@ -189,36 +147,9 @@ def training_iteration(
         )
 
         def mb_body(agent_state, minibatch):
-            obs_mb, action_mb, target_mb = minibatch
-
-            def _q_loss(params, q_state, obs, act, tgt):
-                loss, core_aux = q_loss_fn(params, q_state, obs, act, tgt, td_loss_fn)
-                # Additive extension critic-loss term, summed over the
-                # stack. Empty stack ⇒ 0.0 ⇒ identical to the core loss.
-                if extension_stack:
-                    _cl_batch = {
-                        "observations": obs,
-                        "actions": act,
-                        "targets": tgt,
-                        "q_state": q_state,
-                    }
-                    loss = loss + extension_stack.fold_critic_loss(
-                        agent_state,
-                        _cl_batch,
-                        agent_state.collector_state.timestep,
-                        agent_state.rng,
-                        total_timesteps,
-                    )
-                return loss, core_aux
-
-            (_, value_aux), grads = jax.value_and_grad(_q_loss, has_aux=True)(
-                agent_state.actor_state.params,
-                agent_state.actor_state,
-                obs_mb,
-                action_mb,
-                target_mb,
+            q_state, value_aux = q_gradient_step(
+                agent_state, *minibatch, td_loss_fn, extension_stack, total_timesteps
             )
-            q_state = agent_state.actor_state.apply_gradients(grads=grads)
             return agent_state.replace(actor_state=q_state), value_aux
 
         return jax.lax.scan(mb_body, agent_state, minibatches)
@@ -292,7 +223,6 @@ def make_train(
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 
     action_pipeline = make_epsilon_greedy_pipeline(
-        env_args=env_args,
         n_actions=n_actions,
         epsilon_start=epsilon_start,
         epsilon_end=epsilon_end,
@@ -307,12 +237,14 @@ def make_train(
 
     def init_fn(key, _index):
         init_key, pretrain_key = jax.random.split(key)
-        agent_state = init_PQN(
-            key=init_key,
-            env_args=env_args,
-            optimizer_args=critic_optimizer_args,
-            network_args=network_args,
-            n_actions=n_actions,
+        agent_state = init_DQN(
+            init_key,
+            env_args,
+            critic_optimizer_args,
+            network_args,
+            n_actions,
+            q_network_cls=PQNNetwork,
+            state_cls=PQNState,
         )
         # The extensions' state and pretraining: fresh runs only (a resumed
         # state already carries ``ext_state``).

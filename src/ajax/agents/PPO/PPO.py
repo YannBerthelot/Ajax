@@ -10,7 +10,6 @@ from ajax.agents.PPO.train_PPO import make_train
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
-from ajax.state import OptimizerConfig
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -184,19 +183,9 @@ class PPO(ActorCritic):
                     f"bptt_length ({bptt_length}) must divide n_steps ({n_steps})."
                 )
 
-        # Override base ActorCritic's eps=1e-5 with PPO's brax-default eps=1e-8.
-        self.actor_optimizer_args = OptimizerConfig(
-            learning_rate=actor_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-            eps=adam_eps,
-        )
-        self.critic_optimizer_args = OptimizerConfig(
-            learning_rate=critic_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-            eps=adam_eps,
-        )
+        # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
         self.pid_actor_config = pid_actor_config
         self.reward_shaping_fn = reward_shaping_fn
         # Brax-faithful normalise-at-forward: when the user opted into

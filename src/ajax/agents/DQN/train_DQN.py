@@ -31,7 +31,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.DQN.networks import get_initialized_q_network, predict_q
 from ajax.agents.DQN.state import DQNConfig, DQNState
-from ajax.agents.loop import TrainLoop
+from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import ActionPipelineResult, init_collector_state
 from ajax.environments.utils import check_env_is_gymnax, get_action_dim
@@ -72,7 +72,6 @@ class AuxiliaryLogs:
 
 
 def make_epsilon_greedy_pipeline(
-    env_args: EnvironmentConfig,
     n_actions: int,
     epsilon_start: float,
     epsilon_end: float,
@@ -115,7 +114,7 @@ def make_epsilon_greedy_pipeline(
         # The env expects (n_envs,) integer actions; the buffer schema
         # stores discrete actions as (n_envs, 1).
         buffer_action = env_action[:, None]
-        n_envs = env_args.n_envs
+        n_envs = greedy_action.shape[0]
         return ActionPipelineResult(
             env_action=env_action,
             policy_action=buffer_action,
@@ -140,11 +139,13 @@ def init_DQN(
     env_args: EnvironmentConfig,
     optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    buffer: BufferType,
     n_actions: int,
-    window_size: int = 10,
+    buffer: Optional[BufferType] = None,
     q_network_cls: Optional[type] = None,
-) -> DQNState:
+    state_cls: type = DQNState,
+) -> Any:
+    """The Q-network and the collector (writing to ``buffer``, if any) in a
+    ``state_cls``: DQN's, or a descendant's (PQN: no buffer)."""
     rng, init_key, collector_key = jax.random.split(key, num=3)
 
     q_state = get_initialized_q_network(
@@ -161,11 +162,10 @@ def init_DQN(
         env_args=env_args,
         mode=mode,
         buffer=buffer,
-        window_size=window_size,
     )
     # The single Q-network lives in actor_state (so the shared eval loop
     # works); critic_state mirrors it at init and is never updated.
-    return DQNState(
+    return state_cls(
         rng=rng,
         eval_rng=rng,
         actor_state=q_state,
@@ -269,6 +269,43 @@ def q_loss_fn(
     return loss, aux
 
 
+def q_gradient_step(
+    agent_state: Any,
+    observations: jax.Array,
+    actions: jax.Array,
+    targets: jax.Array,
+    td_loss_fn: Callable,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
+) -> Tuple[LoadedTrainState, ValueAuxiliaries]:
+    """One step of the Q-network (``agent_state.actor_state``) down the TD
+    loss plus the extensions' critic-loss terms. Returns the stepped
+    Q-network and the loss's metrics."""
+    q_state = agent_state.actor_state
+
+    def loss_fn(params: Any) -> Tuple[jax.Array, ValueAuxiliaries]:
+        loss, aux = q_loss_fn(
+            params, q_state, observations, actions, targets, td_loss_fn
+        )
+        if extension_stack:
+            batch = {
+                "observations": observations,
+                "actions": actions,
+                "targets": targets,
+                "q_state": q_state,
+            }
+            loss = loss + extension_stack.fold_critic_loss(
+                agent_state,
+                batch,
+                agent_state.collector_state.timestep,
+                agent_state.rng,
+                total_timesteps,
+            )
+        return loss, aux
+
+    return gradient_step(q_state, loss_fn)
+
+
 # ---------------------------------------------------------------------------
 # Per-iteration agent update (one Q step + periodic target refresh)
 # ---------------------------------------------------------------------------
@@ -298,8 +335,8 @@ def update_agent(
     reward_scale: float,
     td_target_fn: Callable,
     td_loss_fn: Callable,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
 ) -> Tuple[DQNState, AuxiliaryLogs]:
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
@@ -353,33 +390,15 @@ def update_agent(
             total_timesteps,
         )
 
-    def _q_loss(params, q_state, obs, act, tgt):
-        loss, core_aux = q_loss_fn(params, q_state, obs, act, tgt, td_loss_fn)
-        # Additive extension critic-loss term (summed over stack).
-        if extension_stack:
-            _cl_batch = {
-                "observations": obs,
-                "actions": act,
-                "targets": tgt,
-                "q_state": q_state,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                _cl_batch,
-                agent_state.collector_state.timestep,
-                agent_state.rng,
-                total_timesteps,
-            )
-        return loss, core_aux
-
-    (_, value_aux), grads = jax.value_and_grad(_q_loss, has_aux=True)(
-        agent_state.actor_state.params,
-        agent_state.actor_state,
+    q_state, value_aux = q_gradient_step(
+        agent_state,
         observations,
         actions,
         target_q,
+        td_loss_fn,
+        extension_stack,
+        total_timesteps,
     )
-    q_state = agent_state.actor_state.apply_gradients(grads=grads)
 
     # Periodic target refresh: hard update is tau=1.0, Polyak is tau<1.
     do_target_update = (agent_state.n_updates % target_update_interval) == 0
@@ -434,18 +453,18 @@ def make_train(
 
     def init(key: jax.Array, _pretrain_key: jax.Array) -> DQNState:
         return init_DQN(
-            key=key,
-            env_args=env_args,
-            optimizer_args=critic_optimizer_args,
-            network_args=network_args,
+            key,
+            env_args,
+            critic_optimizer_args,
+            network_args,
+            n_actions,
             buffer=buffer,
-            n_actions=n_actions,
             q_network_cls=q_network_cls,
         )
 
     def update(agent_state: DQNState, _transition: Any) -> Any:
         # The step just collected is in the buffer: DQN samples it from there.
-        gradient_step = partial(
+        one_update = partial(
             update_agent,
             buffer=buffer,
             gamma=agent_config.gamma,
@@ -459,11 +478,10 @@ def make_train(
         )
         # Carry-only scan: only the final-step aux is materialised.
         return final_aux_scan(
-            gradient_step, agent_state, length=agent_config.n_gradient_steps
+            one_update, agent_state, length=agent_config.n_gradient_steps
         )
 
     action_pipeline = make_epsilon_greedy_pipeline(
-        env_args=env_args,
         n_actions=n_actions,
         epsilon_start=epsilon_start,
         epsilon_end=epsilon_end,

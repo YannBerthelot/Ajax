@@ -24,14 +24,14 @@ from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_state_action_shapes
 from ajax.networks.networks import Encoder, build_cnn_encoder, init_network_state
-from ajax.networks.utils import get_adam_tx, parse_initialization
+from ajax.networks.utils import get_adam_tx
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import ActivationFunction, InitializationFunction
+from ajax.types import ActivationFunction
 
 
 class GreedyQPolicy:
@@ -103,8 +103,6 @@ class QNetwork(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     n_actions: int
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
-    bias_init: Optional[Union[str, InitializationFunction]] = None
     # Optional CNN encoder for image obs -- see `NetworkConfig.cnn_image_shape`.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
@@ -112,18 +110,8 @@ class QNetwork(nn.Module):
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
-        kernel_init = (
-            orthogonal(1.0)
-            if self.kernel_init is None
-            else parse_initialization(self.kernel_init)
-        )
-        bias_init = (
-            constant(0.0)
-            if self.bias_init is None
-            else parse_initialization(self.bias_init)
-        )
         self.head = nn.Dense(
-            self.n_actions, kernel_init=kernel_init, bias_init=bias_init
+            self.n_actions, kernel_init=orthogonal(1.0), bias_init=constant(0.0)
         )
 
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
@@ -135,7 +123,7 @@ class QNetwork(nn.Module):
         return GreedyQPolicy(self.head(features))
 
 
-class DuelingQNetwork(nn.Module):
+class DuelingQNetwork(QNetwork):
     """Dueling DQN architecture (Wang et al., 2016).
 
     A shared encoder feeds two heads -- a scalar state-value ``V(s)`` and a
@@ -144,37 +132,14 @@ class DuelingQNetwork(nn.Module):
         Q(s, a) = V(s) + A(s, a) - mean_a' A(s, a')
 
     The mean-subtraction fixes the unidentifiability of the V/A split.
-    Drop-in compatible with :class:`QNetwork`: same constructor kwargs,
-    same ``GreedyQPolicy`` return type. Select it via ``DQN(...,
-    q_network_cls=DuelingQNetwork)``.
+    Select it via ``DQN(..., q_network_cls=DuelingQNetwork)``.
     """
-
-    input_architecture: Sequence[Union[str, ActivationFunction]]
-    n_actions: int
-    penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
-    bias_init: Optional[Union[str, InitializationFunction]] = None
-    # Optional CNN encoder for image obs -- see `NetworkConfig.cnn_image_shape`.
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None
-    cnn_extra_obs_dim: int = 0
-    cnn_spec: Optional[tuple] = None
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
-        kernel_init = (
-            orthogonal(1.0)
-            if self.kernel_init is None
-            else parse_initialization(self.kernel_init)
-        )
-        bias_init = (
-            constant(0.0)
-            if self.bias_init is None
-            else parse_initialization(self.bias_init)
-        )
-        self.value_head = nn.Dense(1, kernel_init=kernel_init, bias_init=bias_init)
-        self.advantage_head = nn.Dense(
-            self.n_actions, kernel_init=kernel_init, bias_init=bias_init
-        )
+        init = {"kernel_init": orthogonal(1.0), "bias_init": constant(0.0)}
+        self.value_head = nn.Dense(1, **init)
+        self.advantage_head = nn.Dense(self.n_actions, **init)
 
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         features = self.encoder(obs)
@@ -206,8 +171,8 @@ def get_initialized_q_network(
     """Build the DQN Q-network train state (online params == target params).
 
     ``q_network_cls`` selects the network module (defaults to
-    :class:`QNetwork`); pass :class:`DuelingQNetwork` for the dueling
-    architecture. Both share the same constructor signature.
+    :class:`QNetwork`; :class:`DuelingQNetwork`, PQN's network), built with
+    QNetwork's constructor arguments.
     """
     cls = q_network_cls if q_network_cls is not None else QNetwork
     network = cls(
@@ -220,12 +185,6 @@ def get_initialized_q_network(
     )
     tx = get_adam_tx(**to_state_dict(optimizer_config))
     observation_shape, _ = get_state_action_shapes(env_config.env)
-    init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
-
-    return init_network_state(
-        init_x=init_obs,
-        network=network,
-        key=key,
-        tx=tx,
-        n_envs=env_config.n_envs,
-    )
+    # One observation: the parameters do not depend on the batch.
+    init_obs = jnp.zeros((1, *observation_shape))
+    return init_network_state(init_x=init_obs, network=network, key=key, tx=tx)

@@ -766,8 +766,8 @@ def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:
 
 @dataclasses.dataclass(frozen=True)
 class ZeroActorLoss(Extension):
-    """Adds 0 to the actor loss: PPO's actor gradient then goes through
-    _policy_value_and_grad_with_extra (train_PPO.py:395-432)."""
+    """Adds 0 to the actor loss: PPO's actor loss then folds the stack's
+    term (train_PPO.py, _stack_actor_loss)."""
 
     name: str = "zero_actor_loss"
 

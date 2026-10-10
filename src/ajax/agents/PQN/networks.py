@@ -17,24 +17,8 @@ from flax.linen.initializers import constant, orthogonal
 
 from ajax.agents.DQN.networks import GreedyQPolicy
 from ajax.networks.networks import build_cnn_encoder
-from ajax.networks.utils import parse_activation, parse_initialization
-from ajax.types import ActivationFunction, InitializationFunction
-
-
-def _resolve_init(
-    spec: Optional[Union[str, InitializationFunction]],
-    default: InitializationFunction,
-) -> InitializationFunction:
-    """Resolve an init spec to a callable.
-
-    ``None`` -> ``default``; a string -> looked up via ``parse_initialization``;
-    an already-callable initializer is returned unchanged.
-    """
-    if spec is None:
-        return default
-    if isinstance(spec, str):
-        return parse_initialization(spec)
-    return spec
+from ajax.networks.utils import parse_activation
+from ajax.types import ActivationFunction
 
 
 class PQNNetwork(nn.Module):
@@ -54,8 +38,6 @@ class PQNNetwork(nn.Module):
     # Accepted for constructor parity with QNetwork (get_initialized_q_network
     # passes it); PQN always applies LayerNorm, so this flag is unused.
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
-    bias_init: Optional[Union[str, InitializationFunction]] = None
     # Optional CNN front-end for image obs (see `NetworkConfig.cnn_image_shape`).
     # When set, a `CNNEncoder` maps the flat image obs to features, and the
     # LayerNorm-MLP stack below runs on those features.
@@ -65,8 +47,6 @@ class PQNNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
-        kernel_init = _resolve_init(self.kernel_init, orthogonal(2.0**0.5))
-        bias_init = _resolve_init(self.bias_init, constant(0.0))
         if self.cnn_image_shape is not None:
             x = build_cnn_encoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
@@ -75,9 +55,11 @@ class PQNNetwork(nn.Module):
             x = obs
         for layer in self.input_architecture:
             if str(layer).isnumeric():
-                x = nn.Dense(int(layer), kernel_init=kernel_init, bias_init=bias_init)(
-                    x
-                )
+                x = nn.Dense(
+                    int(layer),
+                    kernel_init=orthogonal(2.0**0.5),
+                    bias_init=constant(0.0),
+                )(x)
                 x = nn.LayerNorm()(x)
             else:
                 x = parse_activation(layer)(x)

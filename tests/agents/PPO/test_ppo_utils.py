@@ -1,8 +1,13 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
+from ajax.agents.PPO.utils import (
+    _compute_gae,
+    get_minibatches_from_batch,
+    get_minibatches_preserving_time,
+)
 
 
 @pytest.mark.parametrize(
@@ -164,3 +169,22 @@ def test_get_minibatches_from_batch(batch_size, n_envs, num_minibatches, feature
         assert jnp.all(
             jnp.sort(flattened_original) == jnp.sort(flattened_shuffled)
         ), "Minibatches do not contain all elements from the original batch."
+
+
+@pytest.mark.parametrize("unroll_length", [4, None])
+def test_time_minibatches_hold_whole_fragments_in_time_order(unroll_length):
+    """(T=8, 4 envs) into 2 minibatches: each holds whole fragments of
+    ``unroll_length`` steps (the rollout by default), time-major, and every
+    fragment lands once."""
+    T, n_envs, length = 8, 4, unroll_length or 8
+    step, env = jnp.meshgrid(jnp.arange(T), jnp.arange(n_envs), indexing="ij")
+    mbs = get_minibatches_preserving_time(
+        {"step": step, "env": env}, jax.random.PRNGKey(0), 2, unroll_length
+    )
+    per_mb = T // length * n_envs // 2
+    assert mbs["step"].shape == mbs["env"].shape == (2, length, per_mb)
+    np.testing.assert_array_equal(np.diff(mbs["step"], axis=1), 1)
+    assert (mbs["env"] == mbs["env"][:, :1]).all()
+    starts = zip(np.ravel(mbs["step"][:, 0]), np.ravel(mbs["env"][:, 0]))
+    expected = [(c * length, e) for c in range(T // length) for e in range(n_envs)]
+    assert sorted(starts) == expected

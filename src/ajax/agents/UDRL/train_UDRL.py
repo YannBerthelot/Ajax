@@ -77,7 +77,6 @@ def init_UDRL(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     agent_config: UDRLConfig,
-    window_size: int = 10,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
 ) -> UDRLState:
     rng, init_key, collector_key = jax.random.split(key, 3)
@@ -103,7 +102,6 @@ def init_UDRL(
         collector_key,
         env_args=env_args,
         mode=mode,
-        window_size=window_size,
         expert_state_aug_dim=2,  # reserves 2 trailing slots in last_obs for command
     )
 

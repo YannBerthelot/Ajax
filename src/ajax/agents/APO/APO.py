@@ -10,7 +10,6 @@ from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.state import OptimizerConfig
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -106,6 +105,21 @@ class APO(ActorCritic):
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
+            # Continuous APO on bounded control envs (brax, playground)
+            # saturates an unbounded Gaussian at the action clip, as PPO
+            # does: the squashed policy stays in [-1, 1] with a correct
+            # log-prob Jacobian (discrete APO ignores it). Brax's actor head:
+            # one learnable log-std per action dimension, at std 1 (about
+            # 3.5 times the exploration of Ajax's state-dependent log-std
+            # at std 0.37); a lecun_uniform mean head, whose moderate
+            # initial actions keep evaluation close to training (orthogonal
+            # 0.01 makes the deterministic action essentially zero); no
+            # LayerNorm at the encoder's output, which brax's MLP lacks.
+            squash=True,
+            log_std_state_independent=True,
+            log_std_init=0.0,
+            mean_kernel_init="lecun_uniform",
+            disable_encoder_output_norm=True,
             extensions=extensions,
         )
 
@@ -123,19 +137,9 @@ class APO(ActorCritic):
             expose_recent_rollout=expose_recent_rollout,
         )
 
-        # Override base ActorCritic's eps=1e-5 with brax-default eps=1e-8.
-        self.actor_optimizer_args = OptimizerConfig(
-            learning_rate=actor_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-            eps=adam_eps,
-        )
-        self.critic_optimizer_args = OptimizerConfig(
-            learning_rate=critic_learning_rate,
-            max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
-            eps=adam_eps,
-        )
+        # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
             actor_lr=actor_cloning_lr,

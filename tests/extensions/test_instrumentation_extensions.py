@@ -18,7 +18,6 @@ docstring); these tests only pin the *integration contract*.
 from __future__ import annotations
 
 import os
-import tempfile
 
 import pytest
 
@@ -32,6 +31,10 @@ from ajax.extensions.instrumentation import (
     DiagnosticSnapshots,
     evarest_coeff,
 )
+from ajax.logging.wandb_logging import LoggingConfig
+
+# Evaluate (and return the evaluations) without a logging backend.
+EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
 
 # --------------------------------------------------------------------------
 # BiasVorePenalty: standalone unit checks (no agent in the loop)
@@ -76,19 +79,12 @@ def _train_ppo_with_extension(ext, n_steps=32):
         expose_recent_rollout=True,
         extensions=[ext],
     )
-    return agent.train(seed=42, n_timesteps=128)
+    return agent.train(seed=42, n_timesteps=128, logging_config=EVALUATE)
 
 
 def test_conditioning_metrics_on_ppo_completes():
-    """ConditioningMetrics folds into PPO's eval_metrics phase end-to-end.
-
-    Without a :class:`LoggingConfig`, ``evaluate_and_log`` returns a
-    NaN-filled no-op dict (its ``flag`` short-circuits on ``log=False``);
-    the meaningful contract this test pins is that the extension's keys
-    end up in the merged eval-metrics dict at all -- i.e. the fold ran
-    and the no-op shape matched the live shape. Numerical validation is
-    deferred to the EVAREST runner which always sets logging.
-    """
+    """ConditioningMetrics folds into PPO's eval_metrics phase end-to-end:
+    its keys are among the evaluations ``train`` returns."""
     ext = ConditioningMetrics(on_policy_batch=16)
     out = _train_ppo_with_extension(ext)
     # ``train`` returns ``(state, metrics)``.
@@ -173,19 +169,7 @@ def test_conditioning_and_decomposition_compose_on_ppo():
             BiasVoreDecomposition(on_policy_batch=16),
         ],
     )
-    out = agent.train(seed=42, n_timesteps=128)
+    out = agent.train(seed=42, n_timesteps=128, logging_config=EVALUATE)
     _, metrics = out
     for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
         assert key in metrics, f"missing {key!r}; got {list(metrics)}"
-
-
-# --------------------------------------------------------------------------
-# Tiny tmp-dir cleanup helper (not used directly; pytest's tmp_path handles it).
-# --------------------------------------------------------------------------
-
-
-def _noop_use_tempfile():
-    # Forward-compat: kept so the import is "live" if a later test wants
-    # the platform-default tempdir instead of pytest's tmp_path fixture.
-    with tempfile.TemporaryDirectory() as _td:
-        return _td

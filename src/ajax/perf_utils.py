@@ -34,6 +34,7 @@ def build_resumable_train(
     num_updates: int,
     init_transform: Callable[[Any, Any], Any] | None = None,
     resume_transform: Callable[[Any, Any], Any] | None = None,
+    carry_out: Callable[[Any, Any], Any] | None = None,
 ) -> Callable:
     """Build the canonical init-or-resume + ``lax.scan`` inner train fn.
 
@@ -112,6 +113,11 @@ def build_resumable_train(
             agent_state`` applied on the resume path only, the mirror of
             ``init_transform`` (e.g. re-initialising the optimizer for a
             new curriculum stage while keeping the learned parameters).
+        carry_out: optional ``(agent_state, index) -> out``, the initial
+            value of an output the body writes into as it goes (in place)
+            instead of stacking one per iteration. The body then maps
+            ``((agent_state, out), x)`` to ``((agent_state, out), None)``
+            and ``train`` returns the final ``(agent_state, out)``.
 
     Returns:
         The jit-decorated inner ``train`` function.
@@ -160,13 +166,11 @@ def build_resumable_train(
         iterations = jnp.arange(num_updates)
         if not (isinstance(iteration_offset, int) and iteration_offset == 0):
             iterations = jnp.asarray(iteration_offset, iterations.dtype) + iterations
-        agent_state, out = jax.lax.scan(
-            f=body,
-            init=agent_state,
-            xs=iterations,
-            length=num_updates,
-        )
-        return agent_state, out
+        if carry_out is None:
+            return jax.lax.scan(body, agent_state, iterations, length=num_updates)
+        carry = (agent_state, carry_out(agent_state, index))
+        carry, _ = jax.lax.scan(body, carry, iterations, length=num_updates)
+        return carry
 
     return train
 

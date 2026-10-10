@@ -45,6 +45,13 @@ class LoggingConfig:
     use_wandb: bool = True
     sweep: bool = False
 
+    @property
+    def backend(self) -> bool:
+        """Whether a run writes anywhere (W&B or TensorBoard), so needs the
+        logging worker; without one it still evaluates (``train`` returns
+        the evaluations)."""
+        return self.use_wandb or self.use_tensorboard
+
 
 # ---------------------------------------------------------------------------
 # Single-process sequential logging worker

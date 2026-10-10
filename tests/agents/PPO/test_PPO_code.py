@@ -17,8 +17,11 @@ These tests catch bugs of the form:
 from __future__ import annotations
 
 import jax
+import pytest
 
 from ajax import PPO
+from ajax.agents.PPO.state import PPOConfig
+from ajax.agents.PPO.train_PPO import Geometry, minibatch_geometry
 
 # Small CartPole config sized so one training iteration's rollout
 # exactly equals n_envs * n_steps, with num_minibatches > 1 so the
@@ -141,3 +144,23 @@ def test_legacy_path_still_works_without_num_minibatches():
     expected = _CFG["n_epochs"] * 1 * n_upd  # implied 1 minibatch
     assert actor_step == expected
     assert critic_step == expected
+
+
+@pytest.mark.parametrize(
+    "config, n_envs, recurrent, geometry",
+    [
+        # brax's fragments; without unroll_length, whole rollouts per env
+        ({"num_minibatches": 4, "unroll_length": 8}, 2, False, ("time", 4, 8)),
+        ({"num_minibatches": 2}, 4, False, ("time", 2, 32)),
+        # the fragments do not split evenly, or one minibatch: flat
+        ({"num_minibatches": 4}, 2, False, ("flat", 4, 32)),
+        ({"num_minibatches": 0, "batch_size": 32}, 4, False, ("flat", 1, 32)),
+        # recurrent: sequences of bptt_length steps; one minibatch for one env
+        ({"num_minibatches": 2, "bptt_length": 8}, 2, True, ("recurrent", 2, 8)),
+        ({"num_minibatches": 2}, 1, True, ("recurrent", 1, 32)),
+    ],
+)
+def test_the_rollout_geometry(config, n_envs, recurrent, geometry):
+    agent_config = PPOConfig(n_steps=32, **config)
+    got = minibatch_geometry(agent_config, 32, n_envs, recurrent)
+    assert got == Geometry(*geometry)

@@ -56,6 +56,20 @@ def compose_eval_metrics(
     return merged
 
 
+def unevaluated(shapes: Any, rows: tuple[int, ...] = ()) -> Any:
+    """Metrics of the structure ``shapes`` (a :func:`jax.eval_shape` result)
+    for no evaluation: -1 in the integer leaves (the timestep sentinel), NaN
+    in the others; ``rows`` axes in front."""
+    return jax.tree.map(
+        lambda s: jnp.full(
+            (*rows, *s.shape),
+            -1 if jnp.issubdtype(s.dtype, jnp.integer) else jnp.nan,
+            s.dtype,
+        ),
+        shapes,
+    )
+
+
 def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -> None:
     """``jax.debug.callback`` that forwards to ``log_fn`` only when ``flag`` is set.
 
@@ -136,15 +150,7 @@ def maybe_eval_and_log(
         return metrics
 
     def skip(agent_state, aux, index):
-        shapes = jax.eval_shape(run, agent_state, aux, index)
-        return jax.tree.map(
-            lambda s: (
-                jnp.asarray(-1, s.dtype)
-                if jnp.issubdtype(s.dtype, jnp.integer)
-                else jnp.full(s.shape, jnp.nan, s.dtype)
-            ),
-            shapes,
-        )
+        return unevaluated(jax.eval_shape(run, agent_state, aux, index))
 
     if not enabled:
         return agent_state, skip(agent_state, aux, index)

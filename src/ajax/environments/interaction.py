@@ -699,6 +699,9 @@ class ActionPipelineResult(NamedTuple):
     # A recurrent actor's advanced carry: a pipeline that runs the policy
     # hands it back, or the actor's memory would stay frozen.
     new_actor_hidden: Optional[Any] = None
+    # A stateful expert's state at an episode start (its init_state): the
+    # state the next row's observation carries where this step ended one.
+    initial_expert_state: Optional[Any] = None
 
 
 @partial(
@@ -791,6 +794,7 @@ def collect_experience(
         entry_bonus = result.entry_bonus
         rng = result.rng
         new_expert_state = getattr(result, "new_expert_state", None)
+        _initial_expert_state = getattr(result, "initial_expert_state", None)
         _buffer_action_override = getattr(result, "buffer_action", None)
         _a_expert = getattr(result, "a_expert", None)
         # Recurrent actors: pipelines that run the policy themselves must
@@ -817,6 +821,7 @@ def collect_experience(
         raw_action = action
     else:
         new_expert_state = None
+        _initial_expert_state = None
         _buffer_action_override = None
         _a_expert = None
         # Vanilla: uniform during warmup, policy action after
@@ -905,7 +910,11 @@ def collect_experience(
     # If the env runs with augment_obs_with_expert_state, the
     # collector's last_obs is already augmented with the (BEFORE-expert)
     # expert_state. Augment next_obs symmetrically with the AFTER-expert
-    # new_expert_state so the buffer stores consistent shapes.
+    # new_expert_state so the buffer stores consistent shapes. The next
+    # row's obs is the env's (the reset one where the episode ended) with
+    # the state the expert's next call starts from: its initial state where
+    # the episode ended (the pipeline resets it on this step's done flag),
+    # else the post-step one.
     _next_state_aug = flatten_expert_state(new_expert_state)
     if (
         _next_state_aug is not None
@@ -913,8 +922,16 @@ def collect_experience(
         == raw_next_obs.shape[-1] + _next_state_aug.shape[-1]
     ):
         next_obs_for_buffer = jnp.concatenate([raw_next_obs, _next_state_aug], axis=-1)
+        _start_state_aug = _next_state_aug
+        if _initial_expert_state is not None:
+            _ended = jnp.logical_or(terminated, truncated).reshape(-1, 1)
+            _start_state_aug = jnp.where(
+                _ended, flatten_expert_state(_initial_expert_state), _next_state_aug
+            )
+        new_last_obs = jnp.concatenate([obsv, _start_state_aug], axis=-1)
     else:
         next_obs_for_buffer = raw_next_obs
+        new_last_obs = obsv
 
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
@@ -936,14 +953,6 @@ def collect_experience(
         done=jnp.logical_or(terminated, truncated),
         env=env_args.env,
         mode=mode,
-    )
-
-    # If running with augment_obs_with_expert_state, the next iteration's
-    # last_obs must carry the post-step (after-expert) expert_state so the
-    # actor and critic see the right Markov state. Detect by shape parity
-    # with the buffer-stored next_obs above.
-    new_last_obs = (
-        next_obs_for_buffer if next_obs_for_buffer.shape[-1] != obsv.shape[-1] else obsv
     )
 
     # Per-env step_in_episode counter for JSRL curriculum: increment

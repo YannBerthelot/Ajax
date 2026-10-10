@@ -102,6 +102,7 @@ def _gain_policy_step(
         rng=rng,
         new_expert_state=new_expert_state,
         buffer_action=gain_action,
+        initial_expert_state=expert_policy.init_state(env_args.n_envs),
     )
 
 
@@ -360,6 +361,11 @@ def make_action_pipeline(
             new_expert_state=new_expert_state,
             buffer_action=_buffer_action_field,
             a_expert=expert_action,
+            initial_expert_state=(
+                expert_policy.init_state(env_args.n_envs)
+                if expert_is_stateful
+                else None
+            ),
         )
 
     return pipeline

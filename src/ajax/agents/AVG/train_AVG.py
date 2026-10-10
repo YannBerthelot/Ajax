@@ -230,7 +230,11 @@ def update_value_functions(
     key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     critic_state = agent_state.critic_state
-    dones = jnp.logical_or(transition.terminated, transition.truncated)
+    # Only a termination cuts the bootstrap: the official code passes
+    # `terminated` alone as the update's done (gauthamvasan/avg, avg.py),
+    # so a time limit still bootstraps on the final observation, which
+    # next_obs holds (get_final_obs).
+    dones = transition.terminated
     target_q, next_log_probs = compute_avg_td_target(
         agent_state.actor_state,
         critic_state,

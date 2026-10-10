@@ -338,6 +338,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     system_class: Optional[SystemClass] = None,
     pid: Optional[PIDHeadConfig] = None,
     squash: bool = True,
@@ -355,7 +356,10 @@ def make_train(
     for one). ``train`` returns every update's :class:`APGAuxiliaries`."""
     del critic_optimizer_args  # no critic
     per_update = env_args.n_envs * agent_config.horizon
-    num_updates = max(total_timesteps // per_update, 1)
+    # The call's budget (TrainLoop.budget). A call is a curriculum stage: its
+    # learning-rate schedule spans its own updates (the optimizer restarts
+    # on resume by default).
+    num_updates = max((total_timesteps - start_timestep) // per_update, 1)
     if lr_schedule == "warmup_cosine":
         peak = actor_optimizer_args.learning_rate
         if not isinstance(peak, (int, float)):
@@ -373,7 +377,13 @@ def make_train(
         raise ValueError(f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'")
 
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
     evaluation = Evaluation(
         metrics=_train_metrics,

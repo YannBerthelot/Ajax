@@ -57,6 +57,11 @@ class GymnaxWrapper:
 
 
 _FINAL_OBS_KEYS = ("final_obs", "final_observation", "obs_st")
+# Where an observation normaliser keeps the pre-reset observation in the
+# env's own units once it has normalised the final-observation keys.
+RAW_FINAL_OBS_KEY = "raw_final_obs"
+# Where a reward normaliser keeps the step's reward in the env's own units.
+RAW_REWARD_KEY = "raw_reward"
 
 
 class FlattenObservationWrapper(GymnaxWrapper):
@@ -183,23 +188,29 @@ class LogWrapper(GymnaxWrapper):
 
 
 class ClipAction(GymnaxWrapper):
-    """Continus action clipping wrapper"""
+    """Clip a continuous action to the env's action space, or to ``[low,
+    high]`` when given: gym's ``ClipAction``. PureJaxRL's, which this one
+    descends from, clips to ``[-1, 1]`` and leaves reading the space as a
+    TODO; ``[-1, 1]`` would make the top of a ``Box(0, 2)`` unreachable."""
 
-    def __init__(self, env, low=-1.0, high=1.0):
-        """Set the high and low bounds"""
+    def __init__(self, env, low=None, high=None):
         super().__init__(env)
-        self.low = jnp.array(low)
-        self.high = jnp.array(high)
+        self.low = None if low is None else jnp.array(low)
+        self.high = None if high is None else jnp.array(high)
 
     def step(self, key, state, action, params=None):
         """Step the environment while clipping the action first"""
-        # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
-        action = jnp.clip(action, self.low, self.high)
+        space = self._env.action_space(
+            self.default_params if params is None else params
+        )
+        low = space.low if self.low is None else self.low
+        high = space.high if self.high is None else self.high
+        action = jnp.clip(action, low, high)
         return self._env.step(key=key, state=state, action=action, params=params)
 
 
 class ClipActionBrax(BraxWrapper):
-    """Continus action clipping wrapper"""
+    """Clip an action to brax's action space, ``[-1, 1]`` (or ``[low, high]``)."""
 
     def __init__(self, env, low=-1.0, high=1.0):
         """Set the high and low bounds"""
@@ -418,7 +429,12 @@ def normalize_wrapper_factory(
 
         @partial(jax.jit, static_argnames=("self", "mode"))
         def update_state_reset(
-            self, state: State | Tuple, obs: jax.Array, norm_info, mode: str
+            self,
+            state: State | Tuple,
+            obs: jax.Array,
+            norm_info,
+            mode: str,
+            extra_info: dict,
         ):
             """Helper function to update state immutably"""
             if mode == "brax" and isinstance(state, _StateClasses):
@@ -426,6 +442,7 @@ def normalize_wrapper_factory(
                     obs=obs,
                     info={
                         **state.info,
+                        **extra_info,
                         "normalization_info": norm_info,
                     },
                 )
@@ -444,6 +461,7 @@ def normalize_wrapper_factory(
             reward: jax.Array,
             norm_info,
             mode: str,
+            extra_info: dict,
         ):
             """Helper function to update state immutably"""
             if mode == "brax" and isinstance(state, _StateClasses):
@@ -452,6 +470,7 @@ def normalize_wrapper_factory(
                     reward=reward,
                     info={
                         **state.info,
+                        **extra_info,
                         "normalization_info": norm_info,
                     },
                 )
@@ -460,7 +479,27 @@ def normalize_wrapper_factory(
                 state_dict = to_state_dict(env_state)
                 state_dict["normalization_info"] = norm_info
                 env_state = self.state_class(**state_dict)
+                info = {**info, **extra_info}
                 return obs, env_state, reward, terminated, truncated, info
+
+        def normalized_final_obs(self, state, stats: NormalizationInfo) -> dict:
+            """The pre-reset observations an auto-reset stack leaves in its
+            info, normalised as the step's observation was (they are the
+            transition's next observation), and the raw one under
+            ``RAW_FINAL_OBS_KEY`` for readers of the env's own units (a
+            stateful expert). A gymnax reset has no info: nothing."""
+            if self.mode == "brax":
+                info = state.info
+            else:
+                info = state[5] if len(state) == 6 else {}
+            keys = [k for k in _FINAL_OBS_KEYS if k in info]
+            out = {
+                k: online_normalize(
+                    info[k], stats.count, stats.mean, stats.mean_2, train=False
+                )[0]
+                for k in keys
+            }
+            return out | ({RAW_FINAL_OBS_KEY: info[keys[0]]} if keys else {})
 
         def reset(self, key, params=None):
             state = (
@@ -497,7 +536,7 @@ def normalize_wrapper_factory(
                     )
             raw_obs = get_obs_from_state(state, self.mode)
 
-            obs = raw_obs
+            obs, extra_info = raw_obs, {}
             if self.normalize_obs:
                 norm_obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
                     raw_obs,
@@ -513,9 +552,16 @@ def normalize_wrapper_factory(
                     var=obs_var,
                 )
                 obs = norm_obs if self.apply_normalization else raw_obs
+                if self.apply_normalization:
+                    extra_info = self.normalized_final_obs(state, obs_norm_info)
 
+            if self.normalize_reward and self.mode == "brax":
+                # A brax state carries its info: the key exists from the reset.
+                extra_info |= {RAW_REWARD_KEY: state.reward}
             norm_info = EnvNormalizationInfo(reward=rew_norm_info, obs=obs_norm_info)
-            state = self.update_state_reset(state, obs, norm_info, self.mode)
+            state = self.update_state_reset(
+                state, obs, norm_info, self.mode, extra_info
+            )
 
             return state
 
@@ -557,7 +603,7 @@ def normalize_wrapper_factory(
             raw_obs, reward, done = get_obs_and_reward_and_done_from_state(
                 raw_state, mode=self.mode
             )
-            obs = raw_obs
+            obs, extra_info = raw_obs, {}
             if self.normalize_obs:
                 norm_obs, obs_count, obs_mean, obs_mean_2, obs_var = online_normalize(
                     raw_obs,
@@ -573,16 +619,19 @@ def normalize_wrapper_factory(
                     var=obs_var,
                 )
                 obs = norm_obs if self.apply_normalization else raw_obs
+                if self.apply_normalization:
+                    extra_info = self.normalized_final_obs(raw_state, obs_norm_info)
 
             if self.normalize_reward:
-                if self.gamma is None:
-                    returns = reward.reshape(-1, 1)
-                else:
-                    returns = reward.reshape(
-                        -1, 1
-                    ) + reward_norm_info.returns * self.gamma * (
-                        1 - done.reshape(-1, 1)
-                    )
+                extra_info |= {RAW_REWARD_KEY: reward}
+                # The statistics the reward is divided by: the single-step
+                # reward's (gamma None), or SB3 VecNormalize's discounted
+                # return of the episode so far, R = r + gamma R, restarted
+                # after the episode's end (gymnasium's NormalizeReward
+                # restarts it at the end step instead).
+                returns = reward.reshape(-1, 1)
+                if self.gamma is not None:
+                    returns = returns + self.gamma * reward_norm_info.returns
 
                 normed_reward, rew_count, rew_mean, rew_mean_2, rew_var = (
                     online_normalize(
@@ -609,13 +658,15 @@ def normalize_wrapper_factory(
                     mean=rew_mean,
                     mean_2=rew_mean_2,
                     var=rew_var,
-                    returns=returns if self.normalize_reward else None,
+                    returns=returns * (1 - done.reshape(-1, 1)),
                 )
                 reward = normed_reward
 
             norm_info = EnvNormalizationInfo(reward=reward_norm_info, obs=obs_norm_info)
 
-            state = self.update_state_step(raw_state, obs, reward, norm_info, self.mode)
+            state = self.update_state_step(
+                raw_state, obs, reward, norm_info, self.mode, extra_info
+            )
 
             return state
 

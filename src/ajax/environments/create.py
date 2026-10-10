@@ -12,12 +12,18 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     env_action_repeat,
     get_env_type,
+    wrapper_chain,
 )
+from ajax.types import EnvNormalizationInfo
 from ajax.wrappers import (
     AutoResetWrapper,
+    ClipAction,
+    ClipActionBrax,
     FinalObsWrapper,
     FlattenObservationWrapper,
     NoiseWrapper,
+    NormalizeVecObservationBrax,
+    NormalizeVecObservationGymnax,
     get_wrappers,
 )
 
@@ -330,6 +336,60 @@ def build_env_from_id(
     raise ValueError(f"Environment {env_id} not found in gymnax or brax")
 
 
+def add_ajax_wrappers(
+    env: EnvType,
+    *,
+    normalize_obs: bool = False,
+    normalize_reward: bool = False,
+    gamma: Optional[float] = None,
+    apply_obs_normalization: bool = True,
+    train: bool = True,
+    norm_info: Optional[EnvNormalizationInfo] = None,
+) -> EnvType:
+    """Ajax's own layers over a task env: the observation / reward
+    normaliser (``train=False`` with ``norm_info`` freezes its statistics),
+    then, on a continuous action space only, the clip to its bounds. The
+    one place they are composed."""
+    ClipAction, NormalizeVecObservation = get_wrappers(get_env_type(env))
+    if normalize_obs or normalize_reward:
+        env = NormalizeVecObservation(
+            env,
+            train=train,
+            norm_info=norm_info,
+            normalize_obs=normalize_obs,
+            normalize_reward=normalize_reward,
+            gamma=gamma if normalize_reward else None,
+            apply_normalization=apply_obs_normalization,
+        )
+    if check_if_environment_has_continuous_actions(env):
+        env = ClipAction(env)
+    return env
+
+
+_CLIPS = (ClipAction, ClipActionBrax)
+_NORMALISERS = (NormalizeVecObservationGymnax, NormalizeVecObservationBrax)
+
+
+def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
+    """The task env under Ajax's own layers, and the keywords that rebuild
+    those layers with :func:`add_ajax_wrappers` (the observation noise of
+    :func:`prepare_env` is not rebuilt). Everything under them is the task:
+    the user's wrappers, the flattening of :func:`build_env_from_id`, a brax
+    stack's time limit."""
+    layers: dict = {}
+    for layer in wrapper_chain(env):
+        if isinstance(layer, _NORMALISERS):
+            layers |= {
+                "normalize_obs": layer.normalize_obs,
+                "normalize_reward": layer.normalize_reward,
+                "gamma": layer.gamma,
+                "apply_obs_normalization": layer.apply_normalization,
+            }
+        elif not isinstance(layer, (*_CLIPS, NoiseWrapper)):
+            return layer, layers
+    raise ValueError(f"No task env under the Ajax wrappers of {env!r}")
+
+
 def prepare_env(
     env_id: Union[str, EnvType],
     episode_length: Optional[int] = None,
@@ -370,22 +430,13 @@ def prepare_env(
                 " its id."
             )
     continuous = check_if_environment_has_continuous_actions(env)
-
-    mode = get_env_type(env)
-    if normalize_obs or normalize_reward:
-        ClipAction, NormalizeVecObservation = get_wrappers(mode)
-
-    # Apply wrappers based on flags
-    if normalize_obs or normalize_reward:
-        env = ClipAction(
-            NormalizeVecObservation(
-                env,
-                normalize_reward=normalize_reward,
-                normalize_obs=normalize_obs,
-                gamma=gamma if normalize_reward else None,
-                apply_normalization=apply_obs_normalization,
-            )
-        )
+    env = add_ajax_wrappers(
+        env,
+        normalize_obs=normalize_obs,
+        normalize_reward=normalize_reward,
+        gamma=gamma,
+        apply_obs_normalization=apply_obs_normalization,
+    )
     if noise_scale is not None:
         print("noise wrapper")
         env = NoiseWrapper(env, scale=noise_scale)

@@ -5,6 +5,7 @@ from typing import Any, Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from gymnax import EnvParams
 
 # Defensive: a broken wandb install must not crash Ajax imports —
@@ -39,6 +40,45 @@ from ajax.state import (
 from ajax.types import EnvType, InitializationFunction
 
 
+def shared_counters(state: Any) -> dict[str, jax.Array]:
+    """The counters of a resumed ``state`` (leading seed axis) its seeds
+    share, as unbatched scalars: the collector's timestep and the number of
+    evaluations logged (``{}`` for a state without them).
+
+    They gate the evaluations (:func:`ajax.log.evaluate_and_log`). A fresh
+    run computes them from constants, unbatched under the seed vmap; left
+    batched, a resumed run's gate would turn ``lax.cond`` into a select that
+    evaluates on every iteration.
+    """
+    collector = getattr(state, "collector_state", None)
+    found = {
+        "timestep": getattr(collector, "timestep", None),
+        "n_logs": getattr(state, "n_logs", None),
+    }
+    out = {}
+    for name, value in found.items():
+        if value is None:
+            continue
+        seeds = np.asarray(jax.device_get(value)).reshape(-1)
+        if seeds.size == 0 or np.any(seeds != seeds[0]):
+            raise ValueError(
+                f"cannot resume: the seeds' {name} differ ({seeds.tolist()});"
+                " every seed of a resumed run must stand at the same point"
+            )
+        out[name] = jnp.asarray(seeds[0])
+    return out
+
+
+def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
+    """``state`` with the counters of :func:`shared_counters`."""
+    if "n_logs" in counters:
+        state = state.replace(n_logs=counters["n_logs"])
+    if "timestep" in counters:
+        collector = state.collector_state.replace(timestep=counters["timestep"])
+        state = state.replace(collector_state=collector)
+    return state
+
+
 class ActorCritic:
     # Agents that implement recurrent (memory-augmented) training set this
     # to True; every other agent gets a loud error instead of a silent
@@ -64,6 +104,7 @@ class ActorCritic:
         memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -105,12 +146,25 @@ class ActorCritic:
             target_entropy_per_dim (float): Target entropy per action dimension.
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
+            normalize_rewards (bool): divide the rewards the agent learns
+                from by a running standard deviation (logged returns stay
+                in the env's units). By default the single-step reward's.
+            reward_normalization_gamma (Optional[float]): with
+                ``normalize_rewards``, divide by the running standard
+                deviation of the discounted return with this discount
+                instead, as SB3's ``VecNormalize`` (``gamma``) and
+                gymnasium's ``NormalizeReward`` do.
             action_repeat (int): simulator steps per agent step on brax /
                 playground envs (``episode_length`` then counts simulator
                 steps); stored on ``env_args``. gymnax envs and prebuilt
                 envs support only 1.
         """
 
+        if reward_normalization_gamma is not None and not normalize_rewards:
+            raise ValueError(
+                "reward_normalization_gamma sets how normalize_rewards normalises"
+                " the rewards: pass normalize_rewards=True with it."
+            )
         memory = parse_memory_config(memory)
         if memory is not None and not self.supports_memory:
             raise NotImplementedError(
@@ -123,6 +177,7 @@ class ActorCritic:
             env_params=env_params,
             normalize_obs=normalize_observations,
             normalize_reward=normalize_rewards,
+            gamma=reward_normalization_gamma,
             n_envs=n_envs,
             episode_length=episode_length,
             apply_obs_normalization=apply_obs_normalization,
@@ -215,8 +270,13 @@ class ActorCritic:
 
         Args:
             seed (int | Sequence[int]): Random seed(s) for training.
-            n_timesteps (int): Total number of timesteps for training.
+            n_timesteps (int): Timesteps this call trains for.
             num_episode_test (int): Number of episodes for evaluation during training.
+            initial_state: a state (or ``(state, out)``) ``train`` returned,
+                to resume from: the run continues from its timestep, and its
+                schedules (training fraction, extensions, exploration, the
+                logging's end) run over the whole run, that timestep plus
+                ``n_timesteps``.
 
         Returns ``(state, out)``, each leaf with a leading seed axis. On the
         shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
@@ -242,16 +302,24 @@ class ActorCritic:
         if on_ids_ready is not None:
             on_ids_ready(self.run_ids)
 
+        # ``agent.train()`` returns ``(state, out)``: accept either form.
+        if isinstance(initial_state, tuple) and len(initial_state) == 2:
+            initial_state = initial_state[0]
+        counters = {} if initial_state is None else shared_counters(initial_state)
+        # The call trains from the run's timestep to its horizon; the start
+        # is passed only when non-zero, so fresh calls are unchanged.
+        start = int(counters.get("timestep", 0))
         train_jit = self.get_make_train()(
             env_args=self.env_args,
             actor_optimizer_args=self.actor_optimizer_args,
             critic_optimizer_args=self.critic_optimizer_args,
             network_args=self.network_args,
             agent_config=self.agent_config,
-            total_timesteps=n_timesteps,
+            total_timesteps=start + n_timesteps,
             num_episode_test=num_episode_test,
             run_ids=self.run_ids,
             logging_config=logging_config,
+            **({"start_timestep": start} if start else {}),
             **kwargs,
         )
 
@@ -266,12 +334,6 @@ class ActorCritic:
             _t0 = time.time()
             result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
         else:
-            # Resume path. ``agent.train()`` returns a 2-tuple ``(state, metrics)``;
-            # accept either form of ``initial_state`` and strip the metrics if
-            # provided so the inner train_jit receives only the agent state.
-            if isinstance(initial_state, tuple) and len(initial_state) == 2:
-                initial_state = initial_state[0]
-
             # Only passed when non-zero: the default (0) keeps the call --
             # and the train functions that predate the offset -- unchanged.
             iteration_offset = int(self.resume_iteration_offset(initial_state))
@@ -279,12 +341,12 @@ class ActorCritic:
                 {} if iteration_offset == 0 else {"iteration_offset": iteration_offset}
             )
 
-            def set_key_and_train_resume(seed, index, state, offset_kwargs):
+            def set_key_and_train_resume(seed, index, state, counters, offset_kwargs):
                 key = jax.random.PRNGKey(seed)
                 return train_jit(
                     key,
                     index,
-                    initial_state=state,
+                    initial_state=with_shared_counters(state, counters),
                     resume_from_state=True,
                     **offset_kwargs,
                 )
@@ -292,12 +354,14 @@ class ActorCritic:
             index = jnp.arange(len(seed))
             seed = jnp.array(seed)
             _t0 = time.time()
-            # The offset is unbatched (in_axes None): every schedule derived
-            # from the iteration index must stay unbatched under the vmap.
-            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None))(
+            # The offset and the shared counters are unbatched (in_axes
+            # None): every schedule and gate derived from them must stay
+            # unbatched under the vmap.
+            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None, None))(
                 seed,
                 index,
                 initial_state,
+                counters,
                 jax.tree.map(lambda o: jnp.asarray(o, jnp.int32), offset_kwargs),
             )
         # Block until all XLA computation and debug.callbacks complete, then

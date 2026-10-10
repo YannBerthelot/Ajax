@@ -90,6 +90,7 @@ class SAC(ActorCritic):
         stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         # Cloning / pre-train kwargs (kept: route through CloningConfig)
         actor_cloning_epochs: int = 10,
         actor_cloning_lr: float = 1e-3,
@@ -193,6 +194,7 @@ class SAC(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
             extensions=extensions,
         )

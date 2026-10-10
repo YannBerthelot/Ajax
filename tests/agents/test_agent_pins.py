@@ -316,8 +316,11 @@ _GOLDEN: dict[str, dict[str, float]] = {
         "critic": 173.4002227783203,
         "alpha": 0.951093316078186,
     },
-    "TD3": {"actor": 4.087213039398193, "critic": 79.58155059814453},
 }
+# Recorded on macOS ARM CPU once TD3's critic dropped its encoder LayerNorm:
+# the critic tree lost the norm's scales (64 of the old 79.6) and the actor
+# moved 3.6%.
+_GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
 # Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {

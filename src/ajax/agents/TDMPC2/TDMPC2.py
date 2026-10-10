@@ -201,37 +201,7 @@ class TDMPC2(ActorCritic):
         if not self.env_args.continuous:
             raise ValueError("TD-MPC2 only supports continuous action spaces.")
 
-        self.agent_config = TDMPC2Config.from_model_size(
-            model_size,
-            enc_dim=enc_dim,
-            mlp_dim=mlp_dim,
-            latent_dim=latent_dim,
-            num_enc_layers=num_enc_layers,
-            num_q=num_q,
-            simnorm_dim=simnorm_dim,
-            num_bins=num_bins,
-            vmax=vmax,
-            dropout=dropout,
-            log_std_min=log_std_min,
-            log_std_max=log_std_max,
-            horizon=horizon,
-            rho=rho,
-            consistency_coef=consistency_coef,
-            reward_coef=reward_coef,
-            value_coef=value_coef,
-            entropy_coef=entropy_coef,
-            grad_clip_norm=grad_clip_norm,
-            tau=tau,
-            iterations=iterations,
-            num_samples=num_samples,
-            num_elites=num_elites,
-            num_pi_trajs=num_pi_trajs,
-            min_std=min_std,
-            max_std=max_std,
-            temperature=temperature,
-            batch_size=batch_size,
-            buffer_size=buffer_size,
-        )
+        self.agent_config = TDMPC2Config.from_arguments(self.config)
         env, params = self.env_args.env, self.env_args.env_params
         obs_shape, _ = get_state_action_shapes(env)
         if len(obs_shape) != 1:

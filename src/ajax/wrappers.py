@@ -26,7 +26,7 @@ from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
-from ajax.environments.utils import get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
@@ -396,6 +396,7 @@ def normalize_wrapper_factory(
             super().__init__(env)
 
             self.obs_shape, _ = get_state_action_shapes(env)
+            self.raw_columns = raw_obs_columns(env)
 
             self.train = train
             self.normalize_obs = normalize_obs
@@ -501,7 +502,12 @@ def normalize_wrapper_factory(
             keys = [k for k in _FINAL_OBS_KEYS if k in info]
             out = {
                 k: online_normalize(
-                    info[k], stats.count, stats.mean, stats.mean_2, train=False
+                    info[k],
+                    stats.count,
+                    stats.mean,
+                    stats.mean_2,
+                    train=False,
+                    raw_columns=self.raw_columns,
                 )[0]
                 for k in keys
             }
@@ -550,6 +556,7 @@ def normalize_wrapper_factory(
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,
                     train=self.train,
+                    raw_columns=self.raw_columns,
                 )
                 obs_norm_info = NormalizationInfo(
                     count=obs_count,
@@ -617,6 +624,7 @@ def normalize_wrapper_factory(
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,
                     train=self.train,
+                    raw_columns=self.raw_columns,
                 )
                 obs_norm_info = NormalizationInfo(
                     count=obs_count,

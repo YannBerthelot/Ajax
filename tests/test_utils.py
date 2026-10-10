@@ -105,3 +105,17 @@ def test_axis0_normalization():
     x_normed = _l2_normalize(x, axis=0)
     norms = jnp.linalg.norm(x_normed, ord=2, axis=0)
     assert jnp.allclose(norms, 1.0, atol=1e-6).all(), f"Norms were {norms}"
+
+
+def test_online_normalize_keeps_raw_columns():
+    """The leading raw columns come out unchanged, their statistics pinned
+    at mean 0, variance 1; the others normalise as without them."""
+    x = random.normal(random.PRNGKey(0), (8, 4)) * 5.0 + 3.0
+    zeros = jnp.zeros((1, 4))
+    plain = online_normalize(x, 0, zeros, zeros)
+    kept = online_normalize(x, 0, zeros, zeros, raw_columns=2)
+    assert jnp.array_equal(kept[0][:, :2], x[:, :2])
+    assert jnp.array_equal(kept[0][:, 2:], plain[0][:, 2:])
+    assert jnp.all(kept[2][:, :2] == 0.0) and jnp.all(kept[4][:, :2] == 1.0)
+    frozen = online_normalize(x, *kept[1:4], train=False, raw_columns=2)
+    assert jnp.array_equal(frozen[0][:, :2], x[:, :2])

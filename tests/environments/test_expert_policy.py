@@ -177,6 +177,24 @@ def test_pre_train_actor_converges():
         assert jnp.allclose(pred_action, dataset.action[i], atol=0.3)
 
 
+def test_pre_train_leaves_raw_columns_unstandardised():
+    """The env's declared raw columns keep mean 0 / std 1: the clone and
+    the statistics it seeds read them raw, the rest standardised."""
+    dataset = expand_dataset(create_dummy_dataset(), repeat=1)
+    _, _, obs_mean, obs_std = pre_train(
+        jax.random.PRNGKey(0),
+        create_dummy_actor_state(),
+        dataset,
+        actor_epochs=1,
+        actor_batch_size=2,
+        skip_actor=True,
+        raw_columns=1,
+    )
+    flat = dataset.obs.reshape(-1, dataset.obs.shape[-1])
+    assert obs_mean[0] == 0.0 and obs_std[0] == 1.0
+    assert jnp.allclose(obs_mean[1:], flat[:, 1:].mean(0))
+
+
 def test_pre_train_vmap_compatible():
     n = 3
     rngs = jax.random.split(jax.random.PRNGKey(0), n)

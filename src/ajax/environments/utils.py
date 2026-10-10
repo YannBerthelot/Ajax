@@ -125,6 +125,13 @@ def check_env_is_brax(env) -> bool:
     return check_env_is_playground(raw)
 
 
+def raw_obs_columns(env: EnvType) -> int:
+    """How many leading observation columns ``env`` declares raw (its
+    ``raw_obs_columns``, 0 when undeclared): every observation normaliser
+    leaves them in the env's own units."""
+    return int(getattr(env, "raw_obs_columns", 0))
+
+
 def check_env_is_gymnax(env) -> bool:
     env = get_raw_env(env)
     return isinstance(env, GymnaxEnv) or "gymnax" in str(type(env)).lower()

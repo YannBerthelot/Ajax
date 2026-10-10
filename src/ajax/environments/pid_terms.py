@@ -20,6 +20,10 @@ The clip is clamping anti-windup (``integral_limit=None``: no clip).
 Every episode starts afresh, the auto-reset ones included: the integral
 restarts from ``dt * e_0`` and the difference from 0, so no term carries
 over from the previous episode.
+
+The wrapper declares the terms raw (``raw_obs_columns``): Ajax's
+observation normalisers leave them in the env's units, so gains acting on
+them are a PID's, and normalise the rest of the observation as usual.
 """
 
 from __future__ import annotations
@@ -95,6 +99,13 @@ class PIDTermsWrapper(GymnaxWrapper):
     @property
     def n_errors(self) -> int:
         return len(self.current_idx)
+
+    @property
+    def raw_obs_columns(self) -> int:
+        """The terms stay raw under every observation normaliser
+        (:func:`ajax.environments.utils.raw_obs_columns`): a PID's gains act
+        on them in the env's units."""
+        return 3 * self.n_errors
 
     def observation_space(self, params) -> spaces.Box:
         raw_dim = prod(self._env.observation_space(params).shape)

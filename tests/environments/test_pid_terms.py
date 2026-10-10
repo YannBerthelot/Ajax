@@ -7,9 +7,11 @@ import pytest
 from flax import struct
 from gymnax.environments import environment, spaces
 
+from ajax.agents.obs_norm import apply_obs_norm, init_agent_obs_norm, update_obs_norm
 from ajax.environments.create import add_ajax_wrappers
 from ajax.environments.interaction import reset, step
 from ajax.environments.pid_terms import PIDTermsWrapper, split_pid_terms
+from ajax.environments.utils import raw_obs_columns
 from ajax.evaluate import setup_environment
 
 
@@ -152,3 +154,48 @@ def test_the_normaliser_steps_the_wrapper_state():
         _, state, *_ = step(keys, state, jnp.full((3, 1), 0.5), env, "gymnax", params)
     assert isinstance(state.env_state, _State)
     np.testing.assert_allclose(state.integral[:, 0], 1.5)
+
+
+def _normalised_run(env, steps=4):
+    """Observations of 3 envs (a different action each), the terms and the
+    plant's x their states hold, the last state and info."""
+    params = env.default_params
+    keys = jax.random.split(jax.random.PRNGKey(0), 3)
+    obs, state = reset(keys, env, "gymnax", params)
+    seen, terms, xs = [], [], []
+    for t in range(steps):
+        action = 0.3 * (t + 1) * jnp.array([[1.0], [-1.0], [0.5]])
+        obs, state, *_, info = step(keys, state, action, env, "gymnax", params)
+        seen.append(obs)
+        terms.append(
+            jnp.concatenate([state.error, state.integral, state.difference], -1)
+        )
+        xs.append(state.env_state.x)
+    return np.asarray(seen), np.asarray(terms), np.asarray(xs), state, info
+
+
+def test_normalisers_keep_the_terms_raw_and_normalise_the_rest():
+    """Training's normaliser and evaluation's frozen copy pass e, I, D as
+    the wrapper's state holds them and normalise the plant's x."""
+    task = PIDTermsWrapper(_Integrator(), (0,), (1,), integral_limit=2.0)
+    assert raw_obs_columns(task) == 3
+    obs, terms, xs, state, info = _normalised_run(
+        add_ajax_wrappers(task, normalize_obs=True)
+    )
+    np.testing.assert_array_equal(obs[..., :3], terms)
+    np.testing.assert_array_equal(info["final_observation"][:, :3], terms[-1])
+    assert not np.allclose(obs[..., 3], xs)
+    built, *_ = setup_environment(
+        task, task.default_params, 3, state.normalization_info, 0.99
+    )
+    obs, terms, xs, *_ = _normalised_run(built)
+    np.testing.assert_array_equal(obs[..., :3], terms)
+    assert not np.allclose(obs[..., 3], xs)
+
+
+def test_the_agent_side_normaliser_keeps_the_terms_raw():
+    obs = jax.random.normal(jax.random.PRNGKey(0), (16, 5)) * 4.0 + 1.0
+    _, info = update_obs_norm(obs, init_agent_obs_norm(5), raw_columns=3)
+    applied = apply_obs_norm(obs, info)
+    np.testing.assert_allclose(applied[:, :3], obs[:, :3], rtol=1e-6)
+    assert float(jnp.abs(applied[:, 3:].mean(0)).max()) < 1e-5

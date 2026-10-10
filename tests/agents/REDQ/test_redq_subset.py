@@ -43,7 +43,6 @@ def REDQ_state(env_config):
         actor_architecture=["32", "relu"],
         critic_architecture=["32", "relu"],
         squash=True,
-        lstm_hidden_size=None,
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     buffer = get_buffer(

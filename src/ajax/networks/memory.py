@@ -114,24 +114,6 @@ def parse_memory_config(
     )
 
 
-def resolve_memory_config(
-    memory: Optional[Union[MemoryConfig, dict]],
-    lstm_hidden_size: Optional[int] = None,
-) -> Optional[MemoryConfig]:
-    """Resolve the memory config, honouring the legacy ``lstm_hidden_size``.
-
-    The historical ``lstm_hidden_size`` hyperparameter actually built a GRU
-    (see the original ``ScannedRNN``); the mapping preserves that behaviour.
-    ``memory`` wins when both are provided.
-    """
-    memory = parse_memory_config(memory)
-    if memory is not None:
-        return memory
-    if lstm_hidden_size is not None:
-        return MemoryConfig(kind="gru", hidden_size=lstm_hidden_size)
-    return None
-
-
 def init_carry(config: MemoryConfig, rng: jax.Array, batch_size: int) -> Carry:
     """Fresh (all-zero) carry for ``config``: a tuple with one entry per
     layer. Shapes are derived from the config alone — no params needed."""

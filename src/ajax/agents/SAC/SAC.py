@@ -67,7 +67,6 @@ class SAC(ActorCritic):
         reward_scale: float = 1.0,
         alpha_init: float = 1.0,
         target_entropy_per_dim: float = -1.0,
-        lstm_hidden_size: Optional[int] = None,
         # Pluggable memory block (see ajax.networks.memory). When set, the
         # replay buffer stores per-env trajectories and updates train on
         # `sequence_length`-step segments after a `burn_in` warm-up whose
@@ -98,16 +97,14 @@ class SAC(ActorCritic):
         # "experts everywhere" path used by AjaxExperiments.
         expert_policy: Optional[Callable] = None,
         eval_expert_policy: Optional[Callable] = None,  # for eval logging only
-        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
-        distance_to_stable: Optional[Callable] = None,
-        imitation_coef_offset: float = 0.0,
+        # Ignored, never had an effect (evaluation does not read it); still
+        # accepted because AjaxExperiments passes ``action_scale=1.0``.
         action_scale: float = 1.0,
         early_termination_condition: Optional[Callable] = None,
-        # Residual RL: kept because the residual transform threads
-        # through ``make_action_pipeline`` AND because ``residual``
-        # toggles the network init's residual-aware head. The
-        # ResidualPolicy extension still owns the actor-loss / TD-target
-        # transform math via :meth:`transform_action`.
+        # Residual RL: kept because ``residual`` turns on the collection-
+        # time residual substitution in ``make_action_pipeline``
+        # (``use_residual_rl``). The ResidualPolicy extension owns the
+        # actor-loss / TD-target transform math via :meth:`transform_action`.
         residual: bool = False,
         residual_scale: float = 1.0,
         # JSRL: kept because ``jsrl_curriculum=True`` gates the
@@ -214,7 +211,6 @@ class SAC(ActorCritic):
             critic_architecture=critic_architecture,
             env_params=env_params,
             max_grad_norm=max_grad_norm,
-            lstm_hidden_size=lstm_hidden_size,
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
@@ -226,7 +222,7 @@ class SAC(ActorCritic):
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            # base resolved memory / legacy lstm_hidden_size already
+            # base parsed the memory config already
             memory=self.network_args.memory,
             squash=True,
             penultimate_normalization=False,
@@ -284,7 +280,7 @@ class SAC(ActorCritic):
         self.num_critics = num_critics
         self.extra_critic_head_names = tuple(extra_critic_head_names)
         self.extra_critic_head_dims = tuple(extra_critic_head_dims)
-        self.cloning_confing = CloningConfig(
+        self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
             critic_epochs=critic_cloning_epochs,
             actor_lr=actor_cloning_lr,
@@ -292,10 +288,6 @@ class SAC(ActorCritic):
             actor_batch_size=actor_cloning_batch_size,
             critic_batch_size=critic_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
-            action_scale=action_scale,
             skip_actor_pretrain=skip_actor_pretrain,
             skip_critic_pretrain=skip_critic_pretrain,
             reset_log_std_after_bc=reset_log_std_after_bc,
@@ -360,11 +352,10 @@ class SAC(ActorCritic):
             make_train,
             buffer=self.buffer,
             alpha_args=self.alpha_args,
-            cloning_args=self.cloning_confing,
+            cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
             eval_expert_policy=self.eval_expert_policy,
             early_termination_condition=self.early_termination_condition,
-            residual=self.residual,
             use_pid_policy=self.use_pid_policy,
             fixed_alpha=self.fixed_alpha,
             num_critics=self.num_critics,

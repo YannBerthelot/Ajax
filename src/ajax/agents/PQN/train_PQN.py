@@ -97,52 +97,26 @@ def init_PQN(
 # ---------------------------------------------------------------------------
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "env_args",
-        "mode",
-        "recurrent",
-        "agent_config",
-        "total_timesteps",
-        "lstm_hidden_size",
-        "log_frequency",
-        "num_episode_test",
-        "log_fn",
-        "log",
-        "verbose",
-        "action_pipeline",
-        "eval_action_transform",
-        "td_loss_fn",
-        "extra_eval_metrics",
-        "extension_stack",
-    ],
-)
 def training_iteration(
     agent_state: PQNState,
     _: Any,
     env_args: EnvironmentConfig,
     mode: str,
-    recurrent: bool,
     agent_config: PQNConfig,
     total_timesteps: int,
-    lstm_hidden_size: Optional[int] = None,
     log_frequency: Optional[int] = 1000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = False,
-    verbose: bool = False,
     action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
     td_loss_fn: Callable = mse_td_loss,
-    extra_eval_metrics: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
 ) -> Tuple[PQNState, Any]:
     # 1. Collect an on-policy rollout of n_steps across the parallel envs.
     collect_scan_fn = partial(
         collect_experience,
-        recurrent=recurrent,
+        recurrent=False,
         mode=mode,
         env_args=env_args,
         action_pipeline=action_pipeline,
@@ -264,12 +238,7 @@ def training_iteration(
             total_timesteps,
         )
 
-    # 4. Evaluate + log. Merge stack.eval_metrics into the user's
-    # extra_eval_metrics callable (both run; both contribute to the log
-    # dict).
-    _merged_extra_eval = compose_eval_metrics(
-        extra_eval_metrics, extension_stack, total_timesteps
-    )
+    # 4. Evaluate + log, with the stack's eval_metrics in the log dict.
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -277,15 +246,12 @@ def training_iteration(
         mode,
         env_args,
         num_episode_test,
-        recurrent,
-        lstm_hidden_size,
+        False,
         log,
-        verbose,
         log_fn,
         log_frequency,
         total_timesteps,
-        eval_action_transform=eval_action_transform,
-        extra_eval_metrics=_merged_extra_eval,
+        extra_eval_metrics=compose_eval_metrics(None, extension_stack, total_timesteps),
     )
     return agent_state, metrics_to_log
 
@@ -308,10 +274,7 @@ def make_train(
     epsilon_start: float = 1.0,
     epsilon_end: float = 0.05,
     epsilon_decay_frac: float = 0.5,
-    action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
     td_loss_fn: Optional[Callable] = None,
-    extra_eval_metrics: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
@@ -321,19 +284,17 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    recurrent = network_args.lstm_hidden_size is not None
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 
-    if action_pipeline is None:
-        action_pipeline = make_epsilon_greedy_pipeline(
-            env_args=env_args,
-            n_actions=n_actions,
-            epsilon_start=epsilon_start,
-            epsilon_end=epsilon_end,
-            epsilon_decay_frac=epsilon_decay_frac,
-            total_timesteps=total_timesteps,
-        )
+    action_pipeline = make_epsilon_greedy_pipeline(
+        env_args=env_args,
+        n_actions=n_actions,
+        epsilon_start=epsilon_start,
+        epsilon_end=epsilon_end,
+        epsilon_decay_frac=epsilon_decay_frac,
+        total_timesteps=total_timesteps,
+    )
 
     # One iteration consumes n_envs * n_steps environment steps.
     num_updates = total_timesteps // (env_args.n_envs * agent_config.n_steps) + 1
@@ -364,7 +325,7 @@ def make_train(
         if getattr(agent_config, "expose_recent_rollout", False):
             _trace_scan = partial(
                 collect_experience,
-                recurrent=recurrent,
+                recurrent=False,
                 mode=mode,
                 env_args=env_args,
                 action_pipeline=action_pipeline,
@@ -383,7 +344,6 @@ def make_train(
     def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         return partial(
             training_iteration,
-            recurrent=recurrent,
             agent_config=agent_config,
             mode=mode,
             env_args=env_args,
@@ -392,14 +352,11 @@ def make_train(
             index=index,
             log=log,
             total_timesteps=total_timesteps,
-            lstm_hidden_size=network_args.lstm_hidden_size,
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             action_pipeline=action_pipeline,
-            eval_action_transform=eval_action_transform,
             td_loss_fn=td_loss_fn,
-            extra_eval_metrics=extra_eval_metrics,
             extension_stack=extension_stack,
         )
 

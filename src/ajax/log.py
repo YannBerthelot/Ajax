@@ -214,15 +214,12 @@ def _make_no_op(extra_eval_metrics=None):
         "env_args",
         "num_episode_test",
         "recurrent",
-        "lstm_hidden_size",
         "log",
-        "verbose",
         "log_fn",
         "log_frequency",
         "total_timesteps",
         "avg_reward_mode",
         "expert_policy",
-        "action_scale",
         "sweep",
         "early_termination_condition",
         "eval_action_transform",
@@ -240,15 +237,12 @@ def evaluate_and_log(
     env_args: int,
     num_episode_test: int,
     recurrent: bool,
-    lstm_hidden_size: int,
     log: bool,
-    verbose: bool,
     log_fn: Callable,
     log_frequency: int,
     total_timesteps: int,
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
-    action_scale: float = 1.0,
     sweep: bool = False,
     early_termination_condition: Optional[Callable] = None,
     train_frac: Optional[float] = None,
@@ -314,7 +308,6 @@ def evaluate_and_log(
             rng=eval_key,
             env_params=env_args.env_params,
             recurrent=recurrent,
-            lstm_hidden_size=lstm_hidden_size,
             norm_info=(
                 (
                     agent_state.collector_state.env_state.info["normalization_info"]
@@ -326,7 +319,6 @@ def evaluate_and_log(
             ),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
-            action_scale=action_scale,
             early_termination_condition=early_termination_condition,
             train_frac=train_frac,
             eval_action_transform=eval_action_transform,
@@ -374,17 +366,6 @@ def evaluate_and_log(
             extra_key, _ = jax.random.split(eval_key)
             extras = extra_eval_metrics(agent_state, extra_key)
             metrics_to_log.update(extras)
-
-        if verbose:
-            jax.debug.print(
-                (
-                    "[Eval] Step={timestep_val}, Reward={rewards_val},"
-                    " Entropy={entropy_val}"
-                ),
-                timestep_val=timestep,
-                rewards_val=eval_rewards,
-                entropy_val=eval_entropy,
-            )
 
         if log:
             gated_log_callback(log_fn, flag, metrics_to_log, index)

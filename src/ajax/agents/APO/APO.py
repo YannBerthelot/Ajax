@@ -43,7 +43,6 @@ class APO(ActorCritic):
         alpha: float = 0.1,
         nu: float = 0.1,
         normalize_advantage: bool = True,
-        lstm_hidden_size: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -59,14 +58,10 @@ class APO(ActorCritic):
         actor_cloning_batch_size: int = 64,
         critic_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
+        # Expert for the cloning pre-training and the eval expert-bias
+        # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
-        distance_to_stable: Optional[Callable] = None,
-        imitation_coef_offset: float = 0.0,
         pid_actor_config: Optional[PIDActorConfig] = None,
-        action_pipeline: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
-        obs_preprocessor: Optional[Callable] = None,
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
@@ -93,7 +88,6 @@ class APO(ActorCritic):
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
-            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "APO"})
@@ -107,7 +101,6 @@ class APO(ActorCritic):
             critic_architecture=critic_architecture,
             env_params=env_params,
             max_grad_norm=max_grad_norm,
-            lstm_hidden_size=lstm_hidden_size,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             actor_kernel_init=actor_kernel_init,
@@ -146,7 +139,7 @@ class APO(ActorCritic):
             clipped=max_grad_norm is not None,
             eps=adam_eps,
         )
-        self.cloning_confing = CloningConfig(
+        self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
             critic_epochs=critic_cloning_epochs,
             actor_lr=actor_cloning_lr,
@@ -154,15 +147,9 @@ class APO(ActorCritic):
             actor_batch_size=actor_cloning_batch_size,
             critic_batch_size=critic_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
         )
         self.expert_policy = expert_policy
         self.pid_actor_config = pid_actor_config
-        self.action_pipeline = action_pipeline
-        self.eval_action_transform = eval_action_transform
-        self.obs_preprocessor = obs_preprocessor
 
     def get_make_train(self) -> Callable:
         """
@@ -173,11 +160,8 @@ class APO(ActorCritic):
         """
         return partial(
             make_train,
-            cloning_args=self.cloning_confing,
+            cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
             pid_actor_config=self.pid_actor_config,
-            action_pipeline=self.action_pipeline,
-            eval_action_transform=self.eval_action_transform,
-            obs_preprocessor=self.obs_preprocessor,
             extensions=tuple(self.extension_stack.extensions),
         )

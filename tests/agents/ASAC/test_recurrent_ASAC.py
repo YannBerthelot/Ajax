@@ -10,6 +10,7 @@ import pytest
 
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.buffers.utils import get_buffer, get_sequence_batch_from_buffer
+from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 
 
@@ -79,14 +80,14 @@ def test_recurrent_asac_trains_without_nans(kind):
         assert leaf.shape[1] == 2
 
 
-def test_recurrent_asac_rejects_expert_options():
-    # expert guidance is rejected at make_train time
+def test_recurrent_asac_rejects_extensions():
+    # extensions are rejected at make_train time
     agent = ASAC(
         env_id="Pendulum-v1",
         n_envs=1,
         learning_starts=200,
         memory=MemoryConfig(kind="gru", hidden_size=8),
-        target_modifier=lambda *a: a,
+        extensions=(Extension(),),
     )
     with pytest.raises(NotImplementedError, match="Recurrent ASAC"):
         agent.train(seed=0, n_timesteps=10)
@@ -105,7 +106,7 @@ def test_recurrent_asac_learning_starts_guard():
 
 
 def test_unsupported_agents_raise():
-    from ajax.agents.AVG.AVG import AVG
-
+    # An agent that does not declare memory support rejects a memory config.
+    no_memory = type("NoMemoryASAC", (ASAC,), {"supports_memory": False})
     with pytest.raises(NotImplementedError, match="does not support recurrent"):
-        AVG(env_id="Pendulum-v1", lstm_hidden_size=8)
+        no_memory(env_id="Pendulum-v1", memory=MemoryConfig(kind="gru"))

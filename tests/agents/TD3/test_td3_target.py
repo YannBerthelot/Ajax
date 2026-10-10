@@ -45,7 +45,6 @@ def td3_state(env_config):
         actor_architecture=["32", "relu"],
         critic_architecture=["32", "relu"],
         squash=True,
-        lstm_hidden_size=None,
     )
     buffer = get_buffer(
         **{

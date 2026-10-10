@@ -29,7 +29,7 @@ from ajax.logging.wandb_logging import (
     init_logging,
     stop_async_logging,
 )
-from ajax.networks.memory import MemoryConfig, resolve_memory_config
+from ajax.networks.memory import MemoryConfig, parse_memory_config
 from ajax.state import (
     BaseAgentConfig,
     BaseAgentState,
@@ -43,7 +43,7 @@ from ajax.types import EnvType, InitializationFunction
 class ActorCritic:
     # Agents that implement recurrent (memory-augmented) training set this
     # to True; every other agent gets a loud error instead of a silent
-    # misconfiguration when `memory` / `lstm_hidden_size` is provided.
+    # misconfiguration when `memory` is provided.
     supports_memory: bool = False
     # Extension phases this agent's training loop folds; an extension that
     # implements any other phase is rejected at construction instead of
@@ -65,7 +65,6 @@ class ActorCritic:
         critic_architecture=("128", "tanh", "128", "tanh"),
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = None,
-        lstm_hidden_size: Optional[int] = None,
         memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
@@ -108,21 +107,19 @@ class ActorCritic:
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
-            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
+            memory: Pluggable memory block (MemoryConfig or its dict form);
+                None keeps the networks feedforward.
             action_repeat (int): simulator steps per agent step on brax /
                 playground envs (``episode_length`` then counts simulator
                 steps); stored on ``env_args``. gymnax envs and prebuilt
                 envs support only 1.
         """
 
-        # Resolve the memory config once: explicit `memory` wins; the legacy
-        # `lstm_hidden_size` maps to a GRU (its historical behaviour).
-        memory = resolve_memory_config(memory, lstm_hidden_size)
+        memory = parse_memory_config(memory)
         if memory is not None and not self.supports_memory:
             raise NotImplementedError(
                 f"{type(self).__name__} does not support recurrent networks"
-                " (memory / lstm_hidden_size) yet; supported agents:"
-                " PPO, SAC, ASAC, REDQ, TD3."
+                " (memory) yet; supported agents: PPO, SAC, ASAC, REDQ, TD3."
             )
 
         env, env_params, env_id, continuous = prepare_env(

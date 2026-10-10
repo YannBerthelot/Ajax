@@ -5,6 +5,7 @@ import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import optax
 from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
 from flax.linen.normalization import _l2_normalize
@@ -17,7 +18,7 @@ from ajax.networks.memory import (
     MemoryCell,
     MemoryConfig,
     init_carry,
-    resolve_memory_config,
+    parse_memory_config,
 )
 from ajax.networks.utils import (
     get_adam_tx,
@@ -719,9 +720,7 @@ def get_initialized_actor_critic(
         else get_action_dim(env_config.env, env_config.env_params)
     )
 
-    memory = resolve_memory_config(
-        network_config.memory, network_config.lstm_hidden_size
-    )
+    memory = parse_memory_config(network_config.memory)
     if memory is not None:
         if pid_actor_config is not None:
             raise NotImplementedError("PIDActorNetwork does not support memory yet.")
@@ -837,7 +836,6 @@ def get_initialized_actor_critic(
         tx=actor_tx,
         memory=memory,
         n_envs=env_config.n_envs,
-        lr_schedule=actor_optimizer_config.learning_rate,
     )
     critic_state = init_network_state(
         init_x=jnp.hstack([init_obs, init_action]) if action_value else init_obs,
@@ -846,7 +844,6 @@ def get_initialized_actor_critic(
         tx=critic_tx,
         memory=memory,
         n_envs=env_config.n_envs,
-        lr_schedule=critic_optimizer_config.learning_rate,
     )
     return actor_state, critic_state
 
@@ -886,11 +883,8 @@ def get_initialized_critic(
         network=critic,
         key=key,
         tx=critic_tx,
-        memory=resolve_memory_config(
-            network_config.memory, network_config.lstm_hidden_size
-        ),
+        memory=parse_memory_config(network_config.memory),
         n_envs=env_config.n_envs,
-        lr_schedule=critic_optimizer_config.learning_rate,
     )
 
 
@@ -905,19 +899,19 @@ def init_network_carry(network, memory: MemoryConfig, key: jax.Array, batch_size
 
 
 def init_network_state(
-    init_x,
-    network,
-    key,
-    tx,
-    recurrent: bool = False,
-    lstm_hidden_size: Optional[int] = None,
+    init_x: jax.Array,
+    network: nn.Module,
+    key: jax.Array,
+    tx: optax.GradientTransformation,
     n_envs: int = 1,
-    lr_schedule=None,
     memory: Optional[MemoryConfig] = None,
-):
-    # Legacy path: recurrent=True + lstm_hidden_size built a GRU. The
-    # explicit `memory` argument supersedes both.
-    memory = resolve_memory_config(memory, lstm_hidden_size if recurrent else None)
+) -> LoadedTrainState:
+    """Initialise ``network`` on ``init_x`` into a :class:`LoadedTrainState`.
+
+    With a ``memory`` config the network is recurrent: it is initialised on
+    a single-step time-major sequence and the state carries a fresh carry
+    batch-sized to ``n_envs``.
+    """
     if memory is None:
         params = FrozenDict(network.init(key, init_x))
         hidden_state = None

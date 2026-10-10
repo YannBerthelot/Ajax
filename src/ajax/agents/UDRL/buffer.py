@@ -79,7 +79,7 @@ def add_segment(
       dones:   (T, n_envs, 1)  in {0., 1.}
     """
     capacity = buffer.obs.shape[0]
-    slot = buffer.write_idx % capacity
+    slot = buffer.write_idx  # stored modulo capacity
     actions = _ensure_action_trailing_dim(actions)
     cum = jnp.concatenate(
         [jnp.zeros_like(rewards[:1]), jnp.cumsum(rewards, axis=0)],
@@ -139,12 +139,9 @@ def sample_training_batch(
     def _end(slot_i, env_i, t1_i):
         return _first_done_at_or_after(buffer.dones[slot_i, :, env_i, 0], t1_i)
 
-    end_idx = jax.vmap(_end)(slot, env_idx, t1)
-    span = (
-        jnp.maximum(end_idx + 1 - (t1 + 1), 0) + 1
-    )  # at least 1: t2 ∈ [t1+1, end_idx+1]
+    end_idx = jax.vmap(_end)(slot, env_idx, t1)  # >= t1, so span >= 1
+    span = end_idx - t1 + 1  # t2 ∈ [t1+1, end_idx+1] ⊆ [t1+1, T]
     t2 = t1 + 1 + jax.random.randint(k_t2, (batch_size,), 0, span)
-    t2 = jnp.minimum(t2, T)  # clamp for safety
 
     cum = buffer.cum_rewards  # (B, T+1, n_envs, 1)
     dr = cum[slot, t2, env_idx, 0] - cum[slot, t1, env_idx, 0]
@@ -161,8 +158,8 @@ def sample_training_batch(
 
 def topk_command_stats(
     buffer: SegmentBuffer, k: int
-) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Compute (mean_R, std_R, mean_H, n_completed) over the top-K episodes
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Compute (mean_R, std_R, mean_H) over the top-K episodes
     in the buffer (by realised return). Used to set rollout commands per
     UDRL Algorithm 5.
 
@@ -213,5 +210,4 @@ def topk_command_stats(
     var_r = jnp.maximum(sum_r2 / safe_count - mean_r * mean_r, 0.0)
     std_r = jnp.where(valid_count > 1, jnp.sqrt(var_r), 0.0)
     mean_h = jnp.where(valid_count > 0, sum_h / safe_count, jnp.nan)
-    n_completed = flat_d.sum()
-    return mean_r, std_r, mean_h, n_completed
+    return mean_r, std_r, mean_h

@@ -1,28 +1,15 @@
-"""Tests for the composable hook API shared across agents.
+"""Tests for the callable hooks agents still accept.
 
-Every agent accepts some subset of these ``Optional[Callable]`` hooks at
-``__init__`` and stores them on the instance for ``get_make_train`` to
-forward into the compiled training function:
+The Extension framework (``extensions=``) is the surface for research
+features. A few ``Optional[Callable]`` hooks remain, each with a live user:
+SAC's escape hatches (see CONTRIBUTING.md), TD3's ``action_pipeline``
+(AjaxExperiments' TD3 variants), PPO's ``reward_shaping_fn``, and the
+DQN / PQN variants (Double DQN, Huber). ``pid_actor_config`` (a network
+option, not a callable) is checked alongside.
 
-    - ``pid_actor_config``
-    - ``action_pipeline``
-    - ``eval_action_transform``
-    - ``target_modifier``            (SAC-family only: SAC, REDQ, ASAC, AVG)
-    - ``obs_preprocessor``
-    - ``policy_action_transform``    (SAC-family only)
-
-These tests are API-contract tests: construct each agent with each
-applicable hook (and ``None``) and confirm construction succeeds and the
-attribute is stored. They do not run training — the probing suite covers
-end-to-end behaviour with ``None`` hooks.
-
-Phase 2 of the agent-architecture rework introduced an additional
-``extensions=`` surface for SAC (Phase 1 added the framework; Phase 2
-migrated SAC). Behaviour-equivalence between the legacy SAC hook flags
-and the new extension surface is verified in
-``tests/extensions/test_sac_extensions_equivalence.py``. The hook
-attributes themselves remain accepted for backward compatibility, so
-the API-contract tests below keep passing across the migration.
+These are API-contract tests: construct each agent with each hook (and
+``None``) and confirm construction succeeds and the attribute is stored and
+forwarded to ``make_train``. They do not run training.
 """
 
 import pytest
@@ -36,24 +23,8 @@ from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.SafeSAC.SafeSAC import SafeSAC
+from ajax.agents.TD3.TD3 import TD3
 
-SAC_FAMILY_HOOKS = (
-    "pid_actor_config",
-    "action_pipeline",
-    "eval_action_transform",
-    "target_modifier",
-    "obs_preprocessor",
-    "policy_action_transform",
-)
-
-# SAC-specific hook list. Phase 2b migrated several SAC hooks to Extension
-# phase methods and removed the matching kwargs from ``SAC.__init__``:
-#   - ``target_modifier``       → ``Extension.on_target`` (commit 1408a95)
-#   - ``runtime_maintenance``   → ``PhiRefresh.post_update`` (commit af86ca0)
-# The other SAC-family agents (REDQ / ASAC / AVG) still accept these as
-# callable hooks (their own ``__init__`` signatures are independent), so
-# ``SAC_FAMILY_HOOKS`` above is unchanged. The SAC-specific list below
-# excludes the migrated hooks.
 SAC_HOOKS = (
     "pid_actor_config",
     "action_pipeline",
@@ -66,53 +37,18 @@ SAC_HOOKS = (
     "auxiliary_update",
 )
 
-PPO_FAMILY_HOOKS = (
-    "pid_actor_config",
-    "action_pipeline",
-    "eval_action_transform",
-    "obs_preprocessor",
-)
-
-# PPO additionally exposes init_transform / auxiliary_update / extra_eval_metrics.
-PPO_HOOKS = (
-    *PPO_FAMILY_HOOKS,
-    "init_transform",
-    "auxiliary_update",
-    "extra_eval_metrics",
-    "extra_actor_loss_fn",
-    "extra_critic_loss_fn",
-)
-
-# DQN is value-based and discrete: no actor-side or SAC-family hooks.
-# Its variants (Double DQN, Huber) are exposed as Optional[Callable] hooks.
-DQN_HOOKS = (
-    "action_pipeline",
-    "eval_action_transform",
-    "td_target_fn",
-    "td_loss_fn",
-    "extra_eval_metrics",
-)
-
-# PQN is value-based and discrete too; on-policy, so no Double-DQN-style
-# target hook -- just exploration, eval transform, the TD loss and the
-# extra-eval-metrics hook.
-PQN_HOOKS = (
-    "action_pipeline",
-    "eval_action_transform",
-    "td_loss_fn",
-    "extra_eval_metrics",
-)
-
 AGENT_HOOKS = {
     SAC: SAC_HOOKS,
     SafeSAC: SAC_HOOKS,
-    REDQ: SAC_FAMILY_HOOKS,
-    ASAC: SAC_FAMILY_HOOKS,
-    AVG: SAC_FAMILY_HOOKS,
-    PPO: PPO_HOOKS,
-    APO: PPO_FAMILY_HOOKS,
-    DQN: DQN_HOOKS,
-    PQN: PQN_HOOKS,
+    TD3: ("pid_actor_config", "action_pipeline"),
+    REDQ: ("pid_actor_config",),
+    ASAC: ("pid_actor_config",),
+    AVG: ("pid_actor_config",),
+    PPO: ("pid_actor_config", "reward_shaping_fn"),
+    APO: ("pid_actor_config",),
+    # Variants (Double DQN, Huber) are exposed as Optional[Callable] hooks.
+    DQN: ("td_target_fn", "td_loss_fn"),
+    PQN: ("td_loss_fn",),
 }
 
 
@@ -154,7 +90,7 @@ def _instantiate(agent_cls, **kwargs):
         "critic_architecture": ("32", "relu"),
     }
     # Off-policy agents take a buffer_size; on-policy don't accept it.
-    if agent_cls in (SAC, SafeSAC, REDQ, ASAC):
+    if agent_cls in (SAC, SafeSAC, TD3, REDQ, ASAC):
         common["buffer_size"] = 1024
         common["batch_size"] = 32
     if agent_cls in (PPO, APO):
@@ -170,13 +106,9 @@ def test_default_hooks_are_none(agent_cls):
     """By default every hook attribute is None (feature inactive)."""
     agent = _instantiate(agent_cls)
     for hook in AGENT_HOOKS[agent_cls]:
-        if hook == "pid_actor_config":
-            # PIDActorConfig is a dataclass, not a callable; None by default.
-            assert getattr(agent, hook) is None
-        else:
-            assert (
-                getattr(agent, hook) is None
-            ), f"{agent_cls.__name__}.{hook} should default to None"
+        assert (
+            getattr(agent, hook) is None
+        ), f"{agent_cls.__name__}.{hook} should default to None"
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)

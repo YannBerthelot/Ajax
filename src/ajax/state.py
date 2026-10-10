@@ -321,9 +321,6 @@ class BaseAgentConfig:
 class NetworkConfig:
     actor_architecture: Tuple[str]
     critic_architecture: Tuple[str]
-    # Deprecated: legacy recurrent knob, kept for backward compatibility.
-    # It always built a GRU despite the name; prefer `memory`.
-    lstm_hidden_size: Optional[int] = None
     # Pluggable memory block (encoder -> memory -> heads); None keeps the
     # network feedforward. Static (hashable) so trace-time branching on it
     # never leaks into the compiled graph. See ajax.networks.memory.

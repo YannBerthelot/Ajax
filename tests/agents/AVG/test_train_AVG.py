@@ -59,7 +59,6 @@ def avg_state(env_config):
         actor_architecture=["64", "relu", "64"],
         critic_architecture=["64", "relu", "64"],
         squash=True,
-        lstm_hidden_size=None,
         penultimate_normalization=True,
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)

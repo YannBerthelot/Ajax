@@ -1,5 +1,5 @@
 from dataclasses import fields
-from typing import Any, Optional
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
@@ -112,7 +112,3 @@ def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
         elif not jnp.allclose(value1, value2):
             return False
     return True
-
-
-def get_one(_: Any) -> float:
-    return jnp.ones(1)

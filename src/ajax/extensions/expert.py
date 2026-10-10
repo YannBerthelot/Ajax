@@ -8,6 +8,7 @@ objects. The expert-dependent group lives here:
   pre-training seeding; the shared base the others build on.
 * :class:`ExpertObsAugmentation` — append ``a_expert`` to the observation.
 * :class:`OnlineBC`              — value-weighted decaying BC loss term.
+* :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
 * :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
 
@@ -187,6 +188,49 @@ class OnlineBC(Extension):
 
 
 @dataclass(frozen=True)
+class ImitationLoss(Extension):
+    """Behavioural-cloning regulariser: ``coef · mean((μ(s) - a_E(s))²) / 4``.
+
+    Same form as the actor-side BC term of TD3+BC (Fujimoto & Gu, 2021),
+    with a frozen expert's action as the target: ``μ(s)`` is the actor's mean action
+    (``pi.mean()``, which is TD3's deterministic action), ``a_E(s)`` the
+    expert's action on the raw observation, held constant. The mean runs
+    over batch and action dims; ``/ 4`` maps the squared distance of two
+    actions in ``[-1, 1]`` to ``[0, 1]``. Unlike :class:`OnlineBC` the term
+    is unweighted and needs no pre-trained expert critic.
+
+    It replaces the ``imitation_coef`` keyword TD3, REDQ, ASAC and APO used
+    to carry. Those agents put ``pi_mean`` and ``raw_observations`` in their
+    actor-loss batch; an agent whose batch has no ``pi_mean`` (SAC, or a
+    discrete-action policy) raises at trace time.
+    """
+
+    expert_policy: Callable
+    coef: float = 1.0
+    name: str = "imitation_loss"
+
+    def actor_loss(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: Any,
+        ctx: ExtensionContext,
+    ) -> Any:
+        del agent_state, ext_state, ctx
+        pi_mean = batch.get("pi_mean")
+        if pi_mean is None:
+            raise ValueError(
+                "ImitationLoss needs the actor's mean action ('pi_mean') in the"
+                " actor-loss batch; this agent does not provide it."
+            )
+        obs = batch.get("raw_observations")
+        if obs is None:
+            obs = batch["observations"]
+        a_expert = jax.lax.stop_gradient(self.expert_policy(obs))
+        return self.coef * jnp.mean(jnp.square(pi_mean - a_expert)) / 4.0
+
+
+@dataclass(frozen=True)
 class ResidualPolicy(Extension):
     """Residual RL (Johannink et al. 2019).
 
@@ -339,6 +383,7 @@ __all__ = [
     "ExpertGuidance",
     "ExpertObsAugmentation",
     "OnlineBC",
+    "ImitationLoss",
     "ResidualPolicy",
     "JSRLCurriculum",
     "first_of_type",

@@ -17,7 +17,7 @@ from flax.linen.initializers import constant
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.networks.memory import MemoryCell, MemoryConfig, resolve_memory_config
+from ajax.networks.memory import MemoryCell, MemoryConfig
 from ajax.networks.networks import MultiCritic, init_network_state
 from ajax.networks.utils import (
     get_adam_tx,
@@ -36,8 +36,8 @@ from ajax.types import ActivationFunction
 class Deterministic:
     """Tiny distrax-compatible wrapper for deterministic policies.
 
-    Exposes `.mean()` so existing code (compute_imitation_score, the policy
-    loss, the target action computation) keeps working without branches.
+    Exposes `.mean()` so existing code (the policy loss, the target action
+    computation, the ImitationLoss extension) keeps working without branches.
     """
 
     def __init__(self, action: jax.Array):
@@ -117,22 +117,14 @@ def get_initialized_td3_actor_critic(
     network_config: NetworkConfig,
     num_critics: int = 2,
     pid_actor_config: Optional[object] = None,
-    action_dim_override: Optional[int] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """TD3-specific init: deterministic actor + standard MultiCritic ensemble.
 
     Falls back to PIDActor when pid_actor_config is provided (the PID actor
     already returns a deterministic action via its `.mean()`).
     """
-    action_dim = (
-        action_dim_override
-        if action_dim_override is not None
-        else get_action_dim(env_config.env, env_config.env_params)
-    )
-
-    memory = resolve_memory_config(
-        network_config.memory, network_config.lstm_hidden_size
-    )
+    action_dim = get_action_dim(env_config.env, env_config.env_params)
+    memory = network_config.memory
     if memory is not None and pid_actor_config is not None:
         raise NotImplementedError("PIDActorNetwork does not support memory yet.")
 
@@ -169,8 +161,6 @@ def get_initialized_td3_actor_critic(
     actor_key, critic_key = jax.random.split(key)
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
-    if action_dim_override is not None:
-        action_shape = (action_dim_override,)
     init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
     init_action = jnp.zeros((env_config.n_envs, *action_shape))
 
@@ -181,7 +171,6 @@ def get_initialized_td3_actor_critic(
         tx=actor_tx,
         memory=memory,
         n_envs=env_config.n_envs,
-        lr_schedule=actor_optimizer_config.learning_rate,
     )
     critic_state = init_network_state(
         init_x=jnp.hstack([init_obs, init_action]),
@@ -190,6 +179,5 @@ def get_initialized_td3_actor_critic(
         tx=critic_tx,
         memory=memory,
         n_envs=env_config.n_envs,
-        lr_schedule=critic_optimizer_config.learning_rate,
     )
     return actor_state, critic_state

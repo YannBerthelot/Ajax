@@ -46,9 +46,7 @@ class DQN(ActorCritic):
         epsilon_decay_frac: float = 0.5,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
-        # --- Composable hook overrides ---
-        action_pipeline: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
+        # --- DQN variants ---
         # TD target: None -> vanilla DQN. Pass compute_double_dqn_td_target
         # (from train_DQN) for Double DQN.
         td_target_fn: Optional[Callable] = None,
@@ -57,8 +55,6 @@ class DQN(ActorCritic):
         # Q-network module: None -> QNetwork. Pass DuelingQNetwork
         # (from DQN.networks) for the dueling architecture.
         q_network_cls: Optional[type] = None,
-        # Extra eval metrics: (agent_state, key) -> dict, logged each eval.
-        extra_eval_metrics: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
@@ -106,12 +102,9 @@ class DQN(ActorCritic):
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_frac = epsilon_decay_frac
-        self.action_pipeline = action_pipeline
-        self.eval_action_transform = eval_action_transform
         self.td_target_fn = td_target_fn
         self.td_loss_fn = td_loss_fn
         self.q_network_cls = q_network_cls
-        self.extra_eval_metrics = extra_eval_metrics
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -120,11 +113,8 @@ class DQN(ActorCritic):
             epsilon_start=self.epsilon_start,
             epsilon_end=self.epsilon_end,
             epsilon_decay_frac=self.epsilon_decay_frac,
-            action_pipeline=self.action_pipeline,
-            eval_action_transform=self.eval_action_transform,
             td_target_fn=self.td_target_fn,
             td_loss_fn=self.td_loss_fn,
             q_network_cls=self.q_network_cls,
-            extra_eval_metrics=self.extra_eval_metrics,
             extensions=tuple(self.extension_stack.extensions),
         )

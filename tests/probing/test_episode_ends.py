@@ -928,10 +928,9 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     critic = init_APO(R.KEY, *args, agent.network_args).critic_state
     obs, nu = jnp.linspace(-1.0, 1.0, 9)[:, None], agent.agent_config.nu
     values = predict_value(critic, critic.params, obs).squeeze(0)
-    done = jnp.zeros_like(values)
 
     def loss(p: Any) -> jax.Array:
-        return value_loss_function(p, critic, obs, values, done, False, nu, 1.0)[0]
+        return value_loss_function(p, critic, obs, values, nu, 1.0)[0]
 
     grads = jax.grad(loss)(critic.params)
     new = jax.tree.map(lambda p, g: p - 1e-3 * g, critic.params, grads)

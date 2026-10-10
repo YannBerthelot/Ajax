@@ -44,7 +44,6 @@ class ASAC(ActorCritic):
         alpha_init: float = 1.0,
         p_0=20,
         target_entropy_per_dim: float = -1.0,
-        lstm_hidden_size: Optional[int] = None,
         # Pluggable memory block, e.g. MemoryConfig("lstm", 64) or
         # {"kind": "gru", "hidden_size": 64}. When set, the replay buffer
         # stores per-env trajectories and updates train on sequences of
@@ -61,11 +60,6 @@ class ASAC(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         pid_actor_config: Optional[PIDActorConfig] = None,
-        action_pipeline: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
-        target_modifier: Optional[Callable] = None,
-        obs_preprocessor: Optional[Callable] = None,
-        policy_action_transform: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -88,7 +82,6 @@ class ASAC(ActorCritic):
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
-            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "ASAC"})
@@ -102,7 +95,6 @@ class ASAC(ActorCritic):
             critic_architecture=critic_architecture,
             env_params=env_params,
             max_grad_norm=max_grad_norm,
-            lstm_hidden_size=lstm_hidden_size,
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
@@ -151,28 +143,18 @@ class ASAC(ActorCritic):
         )
 
         self.pid_actor_config = pid_actor_config
-        self.action_pipeline = action_pipeline
-        self.eval_action_transform = eval_action_transform
-        self.target_modifier = target_modifier
-        self.obs_preprocessor = obs_preprocessor
-        self.policy_action_transform = policy_action_transform
 
     def get_make_train(self) -> Callable:
         """
-        Create a training function for the APO agent.
+        Create a training function for the ASAC agent.
 
         Returns:
-            Callable: A function that trains the APO agent.
+            Callable: A function that trains the ASAC agent.
         """
         return partial(
             make_train,
             buffer=self.buffer,
             alpha_args=self.alpha_args,
             pid_actor_config=self.pid_actor_config,
-            action_pipeline=self.action_pipeline,
-            eval_action_transform=self.eval_action_transform,
-            target_modifier=self.target_modifier,
-            obs_preprocessor=self.obs_preprocessor,
-            policy_action_transform=self.policy_action_transform,
             extensions=tuple(self.extension_stack.extensions),
         )

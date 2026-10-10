@@ -29,14 +29,13 @@ from ajax.extensions.pretrain import MCPretrain
 
 from . import agents, envs, runs
 from . import readouts as R
-from .verdict import Case, xfail
+from .verdict import Case
 
 CASES: dict[str, Case] = {}
 ANSWER_DIGEST = "44136fa355b3"  # verdict.digest(CASES): no judged case
 SEEDS, N32, TEST = (0, 1), ("32", "relu", "32", "relu"), {"num_episode_test": 1}
 RD, VL = continuous.RewardDiscountingEnv, continuous.ValueLossOrOptimizerEnv
-# Not built: whole-budget schedules after resuming (each call keys on its own total:
-# the owner's call), learned values (a resume that lost every state passes 99.5%).
+# Not built: learned values (a resume that lost every state passes 99.5%).
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,7 +78,8 @@ def _apg() -> Any:
 
 # Every SAC part updates from step 50, in both legs. The discrete agents run the
 # coupling env (the discrete discounting env has one action), epsilon constant
-# (its default decays over each call's own total, train_DQN.py:135-138); PQN's
+# (its default decays to the horizon a call knows, the first leg's half the
+# run's, train_DQN.py:99); PQN's
 # two minibatches make its shuffle matter. PPO and PQN run one iteration more per
 # call (TrainLoop.n_rollouts): their second leg is one shorter.
 NETS = {"actor_architecture": N32, "critic_architecture": N32}
@@ -185,9 +185,6 @@ def test_a_fresh_run_logs_and_evaluates_at_every_log_point(name: str) -> None:
         assert calls[leg] == (want, want), (leg, calls[leg])
 
 
-@xfail(
-    "evaluate_and_log logs only while timestep <= the call's own total_timesteps (log.py:281); a resumed call starts past it, so it logs nothing. Right answer: the uninterrupted run's 10 events per seed; today 5 (the first leg's)"
-)
 @pytest.mark.parametrize("name", list(LOGGED))
 def test_a_resumed_run_logs_where_the_uninterrupted_run_logs(name: str) -> None:
     """The two legs together log where the uninterrupted run logs."""
@@ -212,9 +209,6 @@ def test_sac_trains_with_the_training_fraction_in_its_observation() -> None:
     np.testing.assert_allclose(np.asarray(frac), 1.0, rtol=0, atol=1e-6)
 
 
-@xfail(
-    "max_timesteps is the first call's total (train_SAC.py:1018) and is restored with the state (state.py:189-193), so after resuming train_frac = timestep / (budget/2). Right answer 1.0 at the end, as in the uninterrupted run; today 2.0"
-)
 def test_the_training_fraction_ends_where_the_uninterrupted_run_ends(
     tmp_path: Path,
 ) -> None:
@@ -311,9 +305,6 @@ def test_the_value_box_keeps_its_bounds_after_resuming() -> None:
     assert np.array_equal(second[:, :2], second[:, 2:4]), (handed, stored.tolist())
 
 
-@xfail(
-    "ValueBox ramps on timestep / the call's own total (target_mods.py:379, fed from agents/SAC/action_pipeline.py:322), and a resumed call starts at the restored timestep. Right answer: the threshold stays within the box (position at most 1) at every step; today up to 1.99 after resuming"
-)
 def test_the_value_box_threshold_stays_within_the_box_after_resuming() -> None:
     """The threshold stays in the box (position <= 1) in either leg, any schedule."""
     first, second, _ = value_box()

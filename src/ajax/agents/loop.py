@@ -208,8 +208,15 @@ def critic_step(
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class TrainLoop:
-    """One run's environment, budget, extensions and logging (compared and
-    hashed by identity: the environment's parameters are arrays)."""
+    """One call's environment, budget, extensions and logging (compared and
+    hashed by identity: the environment's parameters are arrays).
+
+    A call trains from ``start_timestep`` (a resumed run's timestep, else 0)
+    to ``total_timesteps``, the run's horizon: every schedule (the
+    extensions' ``total_steps``, the training fraction, the logging's end)
+    runs over the whole run, so a resumed run's schedules continue where
+    they stopped; the call's own iterations come from its :attr:`budget`.
+    """
 
     env_args: EnvironmentConfig
     total_timesteps: int
@@ -218,6 +225,7 @@ class TrainLoop:
     log: bool
     log_fn: Callable
     log_frequency: Optional[int]
+    start_timestep: int = 0
 
     @classmethod
     def create(
@@ -228,6 +236,7 @@ class TrainLoop:
         run_ids: Optional[Sequence[str]] = None,
         logging_config: Optional[LoggingConfig] = None,
         extensions: Sequence[Extension] = (),
+        start_timestep: int = 0,
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
@@ -244,25 +253,32 @@ class TrainLoop:
             log=logging_config is not None,
             log_fn=partial(vmap_log, run_ids=run_ids),
             log_frequency=log_frequency,
+            start_timestep=start_timestep,
         )
 
     @property
     def mode(self) -> str:
         return "gymnax" if check_env_is_gymnax(self.env_args.env) else "brax"
 
+    @property
+    def budget(self) -> int:
+        """The timesteps this call trains for."""
+        return self.total_timesteps - self.start_timestep
+
     def n_rollouts(self, n_steps: int) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts: the
         budget in whole rollouts, plus one (as PPO always ran)."""
-        return self.total_timesteps // (self.env_args.n_envs * n_steps) + 1
+        return self.budget // (self.env_args.n_envs * n_steps) + 1
 
     @property
     def n_evaluations(self) -> int:
         """The most evaluations one call makes: ``ajax.log``'s gate counts
-        each one as a log point, so the k-th comes at timestep ``k *
-        log_frequency`` or later, and none comes past the budget."""
+        each one as a log point, so the k-th of the run comes at timestep
+        ``k * log_frequency`` or later, and none comes past the horizon."""
         if not self.log or not self.log_frequency:
             return 0
-        return self.total_timesteps // self.log_frequency
+        f = self.log_frequency
+        return self.total_timesteps // f - self.start_timestep // f
 
     # -- the steps of an iteration -----------------------------------------
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
@@ -368,6 +384,16 @@ class TrainLoop:
         return agent_state, metrics
 
     # -- the train function ------------------------------------------------
+    def continued(self, agent_state: Any) -> Any:
+        """A resumed state, its training fraction measured against the
+        run's horizon (a fresh state is built with it)."""
+        collector = agent_state.collector_state
+        if collector.max_timesteps is None:
+            return agent_state
+        horizon = jnp.asarray(self.total_timesteps, jnp.int32)
+        collector = collector.replace(max_timesteps=horizon)
+        return agent_state.replace(collector_state=collector)
+
     def train(
         self,
         init: Init,
@@ -420,6 +446,7 @@ class TrainLoop:
             init_fn=init_fn,
             make_scan_fn=make_scan_fn,
             num_updates=num_updates,
+            resume_transform=lambda agent_state, _key: self.continued(agent_state),
             carry_out=empty_rows if self.log else None,
         )
         if not self.log:
@@ -456,7 +483,7 @@ class TrainLoop:
         ``update(agent_state, transition)``, then evaluates the actor
         (:meth:`evaluate_and_log`). ``expose_rollout`` keeps the step on
         ``agent_state.last_rollout`` as a ``T = 1`` rollout. The budget is
-        ``total_timesteps // n_envs`` ticks.
+        :attr:`budget` ``// n_envs`` ticks.
 
         An agent acting, training and evaluating its own way (the module
         docstring) supplies those steps: ``collect`` replaces the collection
@@ -504,7 +531,7 @@ class TrainLoop:
             )
 
         if num_ticks is None:
-            num_ticks = self.total_timesteps // self.env_args.n_envs
+            num_ticks = self.budget // self.env_args.n_envs
         return self.train(
             init,
             iteration,

@@ -893,6 +893,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
@@ -1002,6 +1003,7 @@ def make_train(
         run_ids,
         logging_config,
         stack.extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, pretrain_key: jax.Array) -> SACState:

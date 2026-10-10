@@ -104,6 +104,32 @@ def test_post_update_draws_a_key_only_with_extensions() -> None:
     np.testing.assert_array_equal(counted.rng, rng)
 
 
+def test_a_resumed_call_trains_its_budget_toward_the_run_horizon() -> None:
+    """A call from timestep 80 to the run's horizon 144 trains 64 steps,
+    folds its extensions over the whole run, and has a row for each log
+    point of the run past 80 (90 to 140)."""
+    seen = []
+
+    @dataclass(frozen=True)
+    class Total(Extension):
+        name: str = "total"
+
+        def post_update(self, agent_state, ext_state, ctx):
+            seen.append(ctx.total_steps)
+            return agent_state, ext_state
+
+    resumed = dataclasses.replace(
+        _loop(Total()),
+        total_timesteps=144,
+        start_timestep=80,
+        log=True,
+        log_frequency=10,
+    )
+    assert (resumed.budget, resumed.n_evaluations) == (64, 6)
+    resumed.post_update(_state(100, (jnp.asarray(0),)))
+    assert seen == [144]
+
+
 def test_the_post_update_runs_after_the_update() -> None:
     """Inside the gate, the extensions see the updated state."""
 
@@ -232,10 +258,11 @@ def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
         initial_state=restore_into(skeleton, path),
     )
     save_checkpoint((resumed, resumed_rows), path)
-    # The second call evaluates nothing: ajax.log's gate stops at its own
-    # budget, which the restored timestep is past.
+    # The run continues from 80 (the first call's extra rollout) to its
+    # horizon 80 + 64: it evaluates there, in rows 144 // 10 - 80 // 10.
     np.testing.assert_array_equal(resumed.collector_state.timestep, 2 * 80)
-    assert resumed_rows["timestep"].shape == (len(SEEDS), ROWS)
+    logged = [96, 112, 128, 144, -1, -1]
+    np.testing.assert_array_equal(resumed_rows["timestep"], [logged] * len(SEEDS))
 
 
 # --- Agents acting, training and evaluating their own way --------------------

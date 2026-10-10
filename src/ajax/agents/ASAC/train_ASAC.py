@@ -386,6 +386,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
@@ -395,7 +396,13 @@ def make_train(
     if recurrent and extensions:
         raise NotImplementedError("Recurrent ASAC does not support extensions yet.")
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, _pretrain_key: jax.Array) -> ASACState:

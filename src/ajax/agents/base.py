@@ -259,8 +259,13 @@ class ActorCritic:
 
         Args:
             seed (int | Sequence[int]): Random seed(s) for training.
-            n_timesteps (int): Total number of timesteps for training.
+            n_timesteps (int): Timesteps this call trains for.
             num_episode_test (int): Number of episodes for evaluation during training.
+            initial_state: a state (or ``(state, out)``) ``train`` returned,
+                to resume from: the run continues from its timestep, and its
+                schedules (training fraction, extensions, exploration, the
+                logging's end) run over the whole run, that timestep plus
+                ``n_timesteps``.
 
         Returns ``(state, out)``, each leaf with a leading seed axis. On the
         shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
@@ -286,16 +291,24 @@ class ActorCritic:
         if on_ids_ready is not None:
             on_ids_ready(self.run_ids)
 
+        # ``agent.train()`` returns ``(state, out)``: accept either form.
+        if isinstance(initial_state, tuple) and len(initial_state) == 2:
+            initial_state = initial_state[0]
+        counters = {} if initial_state is None else shared_counters(initial_state)
+        # The call trains from the run's timestep to its horizon; the start
+        # is passed only when non-zero, so fresh calls are unchanged.
+        start = int(counters.get("timestep", 0))
         train_jit = self.get_make_train()(
             env_args=self.env_args,
             actor_optimizer_args=self.actor_optimizer_args,
             critic_optimizer_args=self.critic_optimizer_args,
             network_args=self.network_args,
             agent_config=self.agent_config,
-            total_timesteps=n_timesteps,
+            total_timesteps=start + n_timesteps,
             num_episode_test=num_episode_test,
             run_ids=self.run_ids,
             logging_config=logging_config,
+            **({"start_timestep": start} if start else {}),
             **kwargs,
         )
 
@@ -310,12 +323,6 @@ class ActorCritic:
             _t0 = time.time()
             result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
         else:
-            # Resume path. ``agent.train()`` returns a 2-tuple ``(state, metrics)``;
-            # accept either form of ``initial_state`` and strip the metrics if
-            # provided so the inner train_jit receives only the agent state.
-            if isinstance(initial_state, tuple) and len(initial_state) == 2:
-                initial_state = initial_state[0]
-
             # Only passed when non-zero: the default (0) keeps the call --
             # and the train functions that predate the offset -- unchanged.
             iteration_offset = int(self.resume_iteration_offset(initial_state))
@@ -343,7 +350,7 @@ class ActorCritic:
                 seed,
                 index,
                 initial_state,
-                shared_counters(initial_state),
+                counters,
                 jax.tree.map(lambda o: jnp.asarray(o, jnp.int32), offset_kwargs),
             )
         # Block until all XLA computation and debug.callbacks complete, then

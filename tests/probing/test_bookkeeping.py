@@ -229,9 +229,6 @@ def test_p2_train_return_in_raw_units_with_normalized_rewards(agent: str) -> Non
     assert not wrong, wrong
 
 
-@xfail(
-    "PPO's _force_reset replaces the env state, last_obs and rng but not episodic_return_state.cumulative_reward (train_PPO.py:1282-1323): the cut episode's 32 mod 7 = 4 steps carry over; right every return 7, today 16 of 80 are 11 (mean 7.8)"
-)
 def test_p2_ppo_forced_reset_starts_each_return_at_zero() -> None:
     """A reset after every 32-step rollout (num_evals 45: reset_every 1)."""
     r = p2_run("PPO", 1, num_resets_per_eval=1, num_evals=45)

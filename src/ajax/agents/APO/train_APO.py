@@ -291,9 +291,11 @@ def update_agent(
     }
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-    minibatches = get_minibatches_from_batch(
-        batch, shuffle_key, resolve_num_minibatches(agent_config)
-    )
+    num_minibatches = resolve_num_minibatches(agent_config)
+
+    def minibatches(key: jax.Array) -> dict:
+        """One epoch's partition of the rollout."""
+        return get_minibatches_from_batch(batch, key, num_minibatches)
 
     def step(agent_state: APOState, mb: dict) -> Tuple[APOState, AuxiliaryLogs]:
         """A critic, then an actor step on one minibatch."""
@@ -321,7 +323,9 @@ def update_agent(
         )
         return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
 
-    agent_state, aux = run_epochs(agent_state, minibatches, step, agent_config.n_epochs)
+    agent_state, aux = run_epochs(
+        agent_state, shuffle_key, minibatches, step, agent_config.n_epochs
+    )
     return agent_state.replace(n_updates=agent_state.n_updates + 1), aux
 
 

@@ -344,12 +344,23 @@ def prepare_env(
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
     check_action_repeat(action_repeat)
     if isinstance(env_id, str):
-        env, env_params = build_env_from_id(
+        env, default_params = build_env_from_id(
             env_id,
             episode_length=episode_length or 1000,
             n_envs=n_envs,
             action_repeat=action_repeat,
         )
+        # Params given with a gymnax id are the env's: the defaults only
+        # fill in for none. brax / playground ids are configured by their
+        # builders and take no params, so given ones would be ignored.
+        if env_params is None:
+            env_params = default_params
+        elif default_params is None:
+            raise ValueError(
+                f"env_params are gymnax params, but {env_id!r} is a brax /"
+                " mujoco_playground env, configured by its builder: pass"
+                " env_params=None"
+            )
     else:
         env = env_id  # Assume prebuilt env
         # Action repeat lives in the EpisodeWrapper Ajax composes when it

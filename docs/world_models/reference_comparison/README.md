@@ -119,7 +119,7 @@ versions the runs used (`uv pip list` of that venv):
         typing-extensions==4.16.0 wrapt==2.5.0
 
 **Ajax** (`--ajax-root`, default this repository; `--ajax-python`, default
-`<ajax-root>/.venv/bin/python`, the project's Poetry venv: jax 0.7.2 in the
+`<ajax-root>/.venv/bin/python`, the project's venv: jax 0.7.2 in the
 runs). The committed results ran commit `5cb0738` with no uncommitted changes
 under `src/` (`results/round*/launch_info.txt`); rounds 2 and 3 ran from a
 worktree frozen at that commit, so that edits elsewhere could not reach a

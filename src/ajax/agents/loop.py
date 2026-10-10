@@ -162,6 +162,7 @@ def critic_step(
     total_timesteps: int,
     *,
     rewards: jax.Array,
+    dones: jax.Array,
     gamma: Optional[float],
     reward_scale: float,
 ) -> tuple[Any, Any]:
@@ -169,9 +170,10 @@ def critic_step(
 
     Folds the extensions' ``on_target`` into ``target_q`` (held constant),
     then steps the critic down ``value_loss(params, target_q) -> (loss,
-    aux)`` plus their ``critic_loss`` terms. ``rewards``, ``gamma`` (None
-    for an average-reward agent) and ``reward_scale`` are what the target
-    used. Returns the stepped critic state and ``aux``.
+    aux)`` plus their ``critic_loss`` terms. ``rewards``, ``dones`` (where
+    the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
+    ``reward_scale`` are what the target used. Returns the stepped critic
+    state and ``aux``.
     """
     step = agent_state.collector_state.timestep
     target_batch = {
@@ -179,7 +181,7 @@ def critic_step(
         "actions": batch.action,
         "next_observations": batch.next_obs,
         "rewards": rewards,
-        "dones": jnp.logical_or(batch.terminated, batch.truncated),
+        "dones": dones,
         "gamma": gamma,
         "reward_scale": reward_scale,
     }

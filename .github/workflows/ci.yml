@@ -32,7 +32,7 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
-      - run: poetry run pre-commit run --all-files
+      - run: uv run pre-commit run --all-files
 
   # The tests not marked slow, under coverage, split across three runners.
   # Shards 1 and 2 name directories; shard 3 runs everything else under
@@ -61,7 +61,7 @@ jobs:
             2) paths="$SHARD_2" ;;
             3) paths="tests $(printf -- '--ignore=%s ' $SHARD_1 $SHARD_2)" ;;
           esac
-          poetry run coverage run -m pytest $paths -m "not slow" \
+          uv run coverage run -m pytest $paths -m "not slow" \
             --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
       - uses: actions/upload-artifact@v7
         with:
@@ -83,8 +83,8 @@ jobs:
           pattern: coverage-*
           merge-multiple: true
       - run: |
-          poetry run coverage combine
-          poetry run coverage report --fail-under=70
+          uv run coverage combine
+          uv run coverage report --fail-under=70
 
   # Long trainings, run without coverage so its tracing overhead does not
   # lengthen them.
@@ -95,7 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - run: poetry run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
+      - run: uv run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
 
   # The agent-level learning checks, in their own job so adding probes does
   # not lengthen the other jobs, split across runners by the per-node times
@@ -121,7 +121,7 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Run the shard
         run: |
-          run() { poetry run pytest "$@" -v --durations=30; }
+          run() { uv run pytest "$@" -v --durations=30; }
           case "${{ matrix.shard }}" in
             1) run $MEMORY -k gru ;;
             2) run $MEMORY -k mamba && run $SHARD_2 ;;

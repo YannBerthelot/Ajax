@@ -479,19 +479,19 @@ def test_td_targets_use_each_samples_task_discount():
     @jax.jit
     def target(gamma):
         return core.td_target(
-            wm.apply_fn,
-            pi.apply_fn,
-            wm.params,
-            wm.target_params,
-            pi.params,
-            batch.obs[1:],
-            batch.reward,
-            gamma,
-            noise.td_eps,
-            noise.td_pair,
-            None,
-            TINY,
-            ctx,
+            wm_apply=wm.apply_fn,
+            pi_apply=pi.apply_fn,
+            wm_params=wm.params,
+            target_q_params=wm.target_params,
+            pi_params=pi.params,
+            next_obs=batch.obs[1:],
+            reward=batch.reward,
+            gamma=gamma,
+            eps=noise.td_eps,
+            pair=noise.td_pair,
+            dropout_key=None,
+            config=TINY,
+            task=ctx,
         )[0]
 
     gamma = TASKS.discount(task)
@@ -584,37 +584,44 @@ def test_gradients_reach_the_looked_up_rows_from_the_world_model_only():
     @jax.jit
     def gradients(wm_params):
         td, next_z = core.td_target(
-            wm.apply_fn,
-            pi.apply_fn,
-            wm_params,
-            wm.target_params,
-            pi.params,
-            batch.obs[1:],
-            batch.reward,
-            TASKS.discount(task),
-            noise.td_eps,
-            noise.td_pair,
-            None,
-            TINY,
-            ctx,
+            wm_apply=wm.apply_fn,
+            pi_apply=pi.apply_fn,
+            wm_params=wm_params,
+            target_q_params=wm.target_params,
+            pi_params=pi.params,
+            next_obs=batch.obs[1:],
+            reward=batch.reward,
+            gamma=TASKS.discount(task),
+            eps=noise.td_eps,
+            pair=noise.td_pair,
+            dropout_key=None,
+            config=TINY,
+            task=ctx,
         )
         wm_grads, (_, zs) = jax.grad(core.world_model_loss, has_aux=True)(
-            wm_params, wm.apply_fn, batch, next_z, td, None, TINY, ctx
+            wm_params,
+            wm_apply=wm.apply_fn,
+            batch=batch,
+            next_z=next_z,
+            td_targets=td,
+            dropout_key=None,
+            config=TINY,
+            task=ctx,
         )
 
         def pi_loss_wrt_wm(params):
             return core.policy_loss(
                 pi.params,
-                pi.apply_fn,
-                wm.apply_fn,
-                params,
-                zs,
-                state.q_scale,
-                noise.pi_eps,
-                noise.pi_pair,
-                None,
-                TINY,
-                ctx,
+                pi_apply=pi.apply_fn,
+                wm_apply=wm.apply_fn,
+                wm_params=params,
+                zs=zs,
+                q_scale=state.q_scale,
+                eps=noise.pi_eps,
+                pair=noise.pi_pair,
+                dropout_key=None,
+                config=TINY,
+                task=ctx,
             )[0]
 
         return wm_grads, jax.grad(pi_loss_wrt_wm)(wm_params)

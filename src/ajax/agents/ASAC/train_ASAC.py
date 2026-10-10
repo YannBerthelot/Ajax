@@ -26,7 +26,6 @@ from ajax.agents.loop import TrainLoop, critic_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
-    bootstrap_cuts,
     q_values,
     sample_replay,
 )
@@ -214,7 +213,7 @@ def update_value_functions(
     """The critic step on the differential target of the penalised ``rewards``."""
     key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    dones = bootstrap_cuts(batch, carries)
+    dones = batch.terminated
     target_q, next_log_probs = compute_asac_td_target(
         agent_state.actor_state,
         agent_state.critic_state,

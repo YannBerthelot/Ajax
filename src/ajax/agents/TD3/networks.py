@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Union
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax import struct
 from flax.linen.initializers import constant
 from flax.serialization import to_state_dict
 
@@ -37,15 +38,17 @@ from ajax.state import (
 from ajax.types import ActivationFunction
 
 
+@struct.dataclass
 class Deterministic:
     """Tiny distrax-compatible wrapper for deterministic policies.
 
     Exposes `.mean()` so existing code (the policy loss, the target action
     computation, the ImitationLoss extension) keeps working without branches.
+    A pytree of its action, as distrax distributions are of their
+    parameters (a replayed bootstrap gathers its steps, recurrent.actor_dist).
     """
 
-    def __init__(self, action: jax.Array):
-        self._action = action
+    _action: jax.Array
 
     def mean(self) -> jax.Array:
         return self._action

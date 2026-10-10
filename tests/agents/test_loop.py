@@ -21,10 +21,12 @@ from flax.training.train_state import TrainState
 
 from ajax.agents import loop as loop_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.recurrent import RecurrentCarries, bootstrap_cuts
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.state import Transition
 
 
 @struct.dataclass
@@ -160,6 +162,63 @@ def test_gradient_step_applies_the_loss_gradient() -> None:
     stepped, aux = gradient_step(train_state, loss_fn)
     assert float(stepped.params["w"]) == 3.0 - 0.5 * 6.0
     assert float(aux["w"]) == 3.0 and int(stepped.step) == 1
+
+
+# --- Where a replayed target stops bootstrapping ------------------------------
+# Rows: running, truncated, terminated, both.
+_ENDS = Transition(
+    obs=jnp.zeros((4, 1)),
+    action=jnp.zeros((4, 1)),
+    reward=jnp.zeros((4, 1)),
+    terminated=jnp.array([[0.0], [0.0], [1.0], [1.0]]),
+    truncated=jnp.array([[0.0], [1.0], [0.0], [1.0]]),
+    next_obs=jnp.zeros((4, 1)),
+)
+
+
+def test_a_replayed_target_cuts_at_terminations_and_sequences_at_any_end() -> None:
+    """A row stores its final observation at a time limit; a sequence's
+    next observations are the next rows, so it still cuts there."""
+    resets = jnp.zeros((1, 4), dtype=bool)
+    carries = RecurrentCarries(resets, resets, None, None, None, None)
+    np.testing.assert_array_equal(bootstrap_cuts(_ENDS, None)[:, 0], [0, 0, 1, 1])
+    np.testing.assert_array_equal(bootstrap_cuts(_ENDS, carries)[:, 0], [0, 1, 1, 1])
+
+
+@dataclass(frozen=True)
+class AddDones(Extension):
+    name: str = "add_dones"
+
+    def on_target(self, agent_state, ext_state, batch, target, ctx):
+        return target + batch["dones"]
+
+
+def test_the_extensions_see_the_cuts_the_target_used() -> None:
+    """critic_step hands the extensions the agent's own cuts (here the
+    terminations alone), not terminated OR truncated."""
+    params = {"w": jnp.zeros(())}
+    critic = TrainState.create(apply_fn=None, params=params, tx=optax.sgd(1.0))
+    state = SimpleNamespace(
+        collector_state=Collector(jnp.asarray(0)), critic_state=critic, ext_state=((),)
+    )
+
+    def value_loss(params, target_q):
+        return jnp.mean((params["w"] - target_q) ** 2), target_q
+
+    _, seen = critic_step(
+        state,
+        _ENDS,
+        jnp.zeros((4, 1)),
+        value_loss,
+        ExtensionStack((AddDones(),)),
+        jax.random.PRNGKey(0),
+        100,
+        rewards=_ENDS.reward,
+        dones=_ENDS.terminated,
+        gamma=0.9,
+        reward_scale=1.0,
+    )
+    np.testing.assert_array_equal(seen[:, 0], [0, 0, 1, 1])
 
 
 # --- Evaluations without a logging backend -----------------------------------

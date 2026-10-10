@@ -1,9 +1,12 @@
-name: Set up Python and Poetry
-description: Python 3.12, Poetry, and the project installed with its dependencies.
+name: Set up Python and uv
+description: Python 3.12, uv, and the project installed with its locked dependencies.
 
 # No virtualenv cache: on Linux the environment holds the CUDA wheels
 # (about 2.5 GB compressed), so restoring it would save little over the
-# ~80 s install while filling the repository's cache quota.
+# install while filling the repository's cache quota. The uv cache is kept
+# but pruned before saving (prune-cache), which drops every wheel downloaded
+# pre-built, the CUDA ones included: only what uv built itself (the two git
+# dependencies) is stored.
 runs:
   using: composite
   steps:
@@ -11,10 +14,13 @@ runs:
       with:
         python-version: "3.12"
 
-    - name: Install Poetry
-      shell: bash
-      run: pipx install poetry
+    # setup-uv publishes no major tags since v8: pin the release.
+    - uses: astral-sh/setup-uv@v10.3.0
+      with:
+        version: "0.11.28"
+        enable-cache: true
+        prune-cache: true
 
     - name: Install dependencies and the project
       shell: bash
-      run: poetry install --no-interaction
+      run: uv sync --locked

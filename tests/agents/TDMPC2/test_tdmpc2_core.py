@@ -275,18 +275,18 @@ def test_td_target_carries_no_gradient(state, batch, noise):
 
     def target_sum(wm_params, target_q, pi_params):
         y, next_z = core.td_target(
-            wm.apply_fn,
-            pi.apply_fn,
-            wm_params,
-            target_q,
-            pi_params,
-            batch.obs[1:],
-            batch.reward,
-            0.99,
-            noise.td_eps,
-            noise.td_pair,
-            noise.td_dropout,
-            TINY,
+            wm_apply=wm.apply_fn,
+            pi_apply=pi.apply_fn,
+            wm_params=wm_params,
+            target_q_params=target_q,
+            pi_params=pi_params,
+            next_obs=batch.obs[1:],
+            reward=batch.reward,
+            gamma=0.99,
+            eps=noise.td_eps,
+            pair=noise.td_pair,
+            dropout_key=noise.td_dropout,
+            config=TINY,
         )
         return jnp.sum(y) + jnp.sum(next_z)
 
@@ -303,21 +303,27 @@ def test_world_model_loss_reaches_every_world_model_part_and_not_the_policy(
 
     def loss(wm_params, pi_params):
         td, next_z = core.td_target(
-            wm.apply_fn,
-            pi.apply_fn,
-            wm_params,
-            wm.target_params,
-            pi_params,
-            batch.obs[1:],
-            batch.reward,
-            0.99,
-            noise.td_eps,
-            noise.td_pair,
-            noise.td_dropout,
-            TINY,
+            wm_apply=wm.apply_fn,
+            pi_apply=pi.apply_fn,
+            wm_params=wm_params,
+            target_q_params=wm.target_params,
+            pi_params=pi_params,
+            next_obs=batch.obs[1:],
+            reward=batch.reward,
+            gamma=0.99,
+            eps=noise.td_eps,
+            pair=noise.td_pair,
+            dropout_key=noise.td_dropout,
+            config=TINY,
         )
         total, _ = core.world_model_loss(
-            wm_params, wm.apply_fn, batch, next_z, td, noise.value_dropout, TINY
+            wm_params,
+            wm_apply=wm.apply_fn,
+            batch=batch,
+            next_z=next_z,
+            td_targets=td,
+            dropout_key=noise.value_dropout,
+            config=TINY,
         )
         return total
 
@@ -340,15 +346,15 @@ def test_policy_loss_reaches_only_the_policy_through_the_action(
     def loss(pi_params, wm_params, latents):
         value, _ = core.policy_loss(
             pi_params,
-            pi.apply_fn,
-            wm.apply_fn,
-            wm_params,
-            latents,
-            state.q_scale,
-            noise.pi_eps,
-            noise.pi_pair,
-            noise.pi_dropout,
-            config,
+            pi_apply=pi.apply_fn,
+            wm_apply=wm.apply_fn,
+            wm_params=wm_params,
+            zs=latents,
+            q_scale=state.q_scale,
+            eps=noise.pi_eps,
+            pair=noise.pi_pair,
+            dropout_key=noise.pi_dropout,
+            config=config,
         )
         return value
 
@@ -365,15 +371,15 @@ def test_policy_loss_updates_the_scale_before_dividing(state, noise):
     scale = RunningScale.create(rate=TINY.tau)
     _, (new_scale, aux) = core.policy_loss(
         pi.params,
-        pi.apply_fn,
-        wm.apply_fn,
-        wm.params,
-        zs,
-        scale,
-        noise.pi_eps,
-        noise.pi_pair,
-        None,
-        TINY,
+        pi_apply=pi.apply_fn,
+        wm_apply=wm.apply_fn,
+        wm_params=wm.params,
+        zs=zs,
+        q_scale=scale,
+        eps=noise.pi_eps,
+        pair=noise.pi_pair,
+        dropout_key=None,
+        config=TINY,
     )
     action = core.policy_sample(pi.apply_fn, pi.params, zs, noise.pi_eps, TINY).action
     logits = core.q_logits(wm.apply_fn, wm.params, zs, action)
@@ -394,18 +400,18 @@ def test_paper_era_td_target_has_q_dropout(state, batch, noise):
 
     def target(key):
         y, _ = core.td_target(
-            wm.apply_fn,
-            pi.apply_fn,
-            wm.params,
-            wm.target_params,
-            pi.params,
-            batch.obs[1:],
-            batch.reward,
-            0.99,
-            noise.td_eps,
-            noise.td_pair,
-            key,
-            config,
+            wm_apply=wm.apply_fn,
+            pi_apply=pi.apply_fn,
+            wm_params=wm.params,
+            target_q_params=wm.target_params,
+            pi_params=pi.params,
+            next_obs=batch.obs[1:],
+            reward=batch.reward,
+            gamma=0.99,
+            eps=noise.td_eps,
+            pair=noise.td_pair,
+            dropout_key=key,
+            config=config,
         )
         return y
 
@@ -525,21 +531,27 @@ def test_aux_reports_the_policy_loss_sample(state, batch, noise):
     the policy loss' sample at the pre-step latents."""
     wm, pi = state.world_model_state, state.actor_state
     td, next_z = core.td_target(
-        wm.apply_fn,
-        pi.apply_fn,
-        wm.params,
-        wm.target_params,
-        pi.params,
-        batch.obs[1:],
-        batch.reward,
-        0.99,
-        noise.td_eps,
-        noise.td_pair,
-        noise.td_dropout,
-        TINY,
+        wm_apply=wm.apply_fn,
+        pi_apply=pi.apply_fn,
+        wm_params=wm.params,
+        target_q_params=wm.target_params,
+        pi_params=pi.params,
+        next_obs=batch.obs[1:],
+        reward=batch.reward,
+        gamma=0.99,
+        eps=noise.td_eps,
+        pair=noise.td_pair,
+        dropout_key=noise.td_dropout,
+        config=TINY,
     )
     _, (_, zs) = core.world_model_loss(
-        wm.params, wm.apply_fn, batch, next_z, td, noise.value_dropout, TINY
+        wm.params,
+        wm_apply=wm.apply_fn,
+        batch=batch,
+        next_z=next_z,
+        td_targets=td,
+        dropout_key=noise.value_dropout,
+        config=TINY,
     )
     sample = core.policy_sample(pi.apply_fn, pi.params, zs, noise.pi_eps, TINY)
     _, aux = core.update(state, batch, noise, config=TINY, gamma=0.99)

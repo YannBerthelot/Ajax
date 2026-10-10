@@ -230,7 +230,11 @@ def update_value_functions(
     key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     critic_state = agent_state.critic_state
-    dones = jnp.logical_or(transition.terminated, transition.truncated)
+    # Only a termination cuts the bootstrap: the official code passes
+    # `terminated` alone as the update's done (gauthamvasan/avg, avg.py),
+    # so a time limit still bootstraps on the final observation, which
+    # next_obs holds (get_final_obs).
+    dones = transition.terminated
     target_q, next_log_probs = compute_avg_td_target(
         agent_state.actor_state,
         critic_state,
@@ -264,6 +268,7 @@ def update_value_functions(
         key,
         total_timesteps,
         rewards=transition.reward,
+        dones=dones,
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
     )
@@ -317,7 +322,15 @@ def update_agent(
 ) -> Tuple[AVGState, AuxiliaryLogs]:
     """One update on the step just taken: a critic and an actor step, both
     from the current parameters (the actor's loss sees the critic before
-    its step). ``alpha`` is not updated."""
+    its step, the critic's TD target the actor before its step). ``alpha``
+    is not updated.
+
+    The official code's order (``gauthamvasan/avg``, ``AVG.update`` in
+    ``incremental_rl/avg_ablation.py`` and in ``avg.py``): both losses are
+    built before ``popt.step()``, then ``qopt.step()``. Vasan et al. (2024),
+    Algorithm 1, writes the critic's update line before the actor's; the
+    paper's runs come from that code.
+    """
     critic_updated, aux_value = update_value_functions(
         agent_state, transition, agent_config, extension_stack, total_timesteps
     )

@@ -3,7 +3,7 @@
 PPO for the average-reward criterion: each rollout updates an EMA of the
 reward rate ``rho`` (``alpha`` its rate) and of the mean value ``b``; the
 advantages are GAE on the differential TD error ``r - rho + V(s') - V(s)``
-(no discount), and the critic fits the differential value with the
+(no discount, cut at episode ends), and the critic fits the differential value with the
 value-bias penalty ``nu b``.
 """
 
@@ -16,7 +16,6 @@ import jax.numpy as jnp
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
-from ajax.agents.APO.utils import _compute_gae
 from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.PPO.core import (
@@ -32,7 +31,7 @@ from ajax.agents.PPO.core import (
     run_epochs,
 )
 from ajax.agents.PPO.train_PPO import init_PPO
-from ajax.agents.PPO.utils import get_minibatches_from_batch
+from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
@@ -158,10 +157,16 @@ def value_loss_function(
     nu: float,
     b: float,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """The differential value loss ``0.5 (V(s) - nu b - target)^2``."""
+    """The differential value loss ``0.5 (V(s) - (target - nu b))^2``.
+
+    APO's official code (``xtma/apo``, ``apo/algos/apg/``) subtracts
+    ``nu b`` from the critic's target, so with ``b`` the mean value each fit
+    pulls the values back towards zero mean (Ma et al., 2021, the value
+    bias penalty); adding it would push them away and let ``|b|`` grow.
+    """
     # The single critic still has the ensemble's leading axis.
     v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
-    loss = 0.5 * jnp.mean(((v_preds - nu * b) - value_targets) ** 2)  # classic MSE
+    loss = 0.5 * jnp.mean((v_preds - (value_targets - nu * b)) ** 2)
     return loss, ValueAuxiliaries(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
@@ -212,16 +217,24 @@ def update_agent(
     total_timesteps: int,
 ) -> Tuple[APOState, AuxiliaryLogs]:
     """One APO update on an ``(n_steps, n_envs)`` rollout: the reward-rate
-    and value-bias EMAs, differential GAE, then ``n_epochs`` epochs of
-    minibatch steps."""
+    and value-bias EMAs over every step, differential GAE, then
+    ``n_epochs`` epochs of minibatch steps.
+
+    The GAE is PPO's with ``gamma = 1`` on ``r - rho``, as in APO's official
+    code (``xtma/apo``, ``apo/algos/utils.py``,
+    ``generalized_advantage_estimation`` with ``discount = 1``, and
+    ``apo/algos/apg/base.py``, ``process_returns``): ``V(s')`` is dropped
+    on a termination and the lambda-carry is cut at every episode end. The
+    reference's ``done`` includes time limits and it drops time-limited
+    samples from the loss (``bootstrap_timelimit``), having only the reset
+    observation; Ajax keeps the final observation, so a truncated step
+    bootstraps on it and is trained on (PPO's convention here).
+    """
     critic_state = agent_state.critic_state
     values = predict_value(critic_state, critic_state.params, transition.obs).squeeze(0)
-    last_value = (
-        predict_value(critic_state, critic_state.params, transition.next_obs[-1:])
-        .squeeze(0)
-        .squeeze(0)  # don't need the first dimension for a single transition
-    )
-    dones = transition.terminated
+    next_values = predict_value(
+        critic_state, critic_state.params, transition.next_obs
+    ).squeeze(0)
 
     average_reward = (
         1 - agent_config.alpha
@@ -231,12 +244,13 @@ def update_agent(
     agent_state = agent_state.replace(average_reward=average_reward, b=b)
 
     gae, value_targets = _compute_gae(
+        rewards=transition.reward - average_reward,
         values=values,
-        last_value=last_value,
-        rewards=transition.reward,
-        dones=dones,
+        next_values=next_values,
+        terminateds=transition.terminated,
+        truncateds=transition.truncated,
+        gamma=1.0,
         gae_lambda=agent_config.gae_lambda,
-        average_reward=average_reward,
     )
 
     # Extension on_target: reshape the value targets after GAE. APO is

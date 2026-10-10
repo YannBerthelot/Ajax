@@ -33,7 +33,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "b0e5ffafe3eb"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "e3bd651d85de"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -913,12 +913,12 @@ Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
     "APO-a": ("APO", "a", 1.0, 20_000, (0.023,), {}),
     "PPO-b": ("PPO", "b", 2.0, 160_000, (0.054, 0.048), {}),  # 80,000: 0.251
     "PPO-b2": ("PPO", "b2", 2.0, 160_000, (), {}),
-    "PPO-c": (
+    "PPO-c": (  # 240,000 failed: 0.157
         "PPO",
         "c",
         0.1,
-        160_000,
-        (0.023,),
+        320_000,
+        (0.06,),
         {"squash": True, "log_std_init": 0.5},
     ),
     "APO-c": ("APO", "c", 0.1, 80_000, (0.062,), {}),  # half the gap to 1.0

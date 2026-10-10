@@ -232,12 +232,12 @@ def training_iteration(
     # Extension post_update hook (state-threading + φ-refresh-style state
     # mutation). Empty stack ⇒ identity.
     if extension_stack:
-        _pu_rng, _pu_seed = jax.random.split(agent_state.rng)
+        _pu_key, _pu_rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_pu_rng)
         agent_state = extension_stack.fold_post_update(
             agent_state,
             agent_state.collector_state.timestep,
-            _pu_seed,
+            _pu_key,
             total_timesteps,
         )
 
@@ -306,8 +306,9 @@ def make_train(
     extension_stack = ExtensionStack(extensions)
 
     def init_fn(key, _index):
+        init_key, pretrain_key = jax.random.split(key)
         agent_state = init_PQN(
-            key=key,
+            key=init_key,
             env_args=env_args,
             optimizer_args=critic_optimizer_args,
             network_args=network_args,
@@ -315,7 +316,9 @@ def make_train(
         )
         # The extensions' state and pretraining: fresh runs only (a resumed
         # state already carries ``ext_state``).
-        agent_state = extension_stack.fold_init(agent_state, key, total_timesteps)
+        agent_state = extension_stack.fold_init(
+            agent_state, pretrain_key, total_timesteps
+        )
         if agent_config.expose_recent_rollout:
             agent_state = preallocate_last_rollout(
                 agent_state,

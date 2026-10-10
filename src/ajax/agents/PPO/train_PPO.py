@@ -1257,8 +1257,7 @@ def make_train(
     extension_stack = ExtensionStack(extensions)
 
     def init_fn(key, _index):
-        # Preserve the original RNG layout: key -> (_, init_key, _).
-        _, init_key, _transform_key = jax.random.split(key, 3)
+        init_key, pretrain_key = jax.random.split(key)
         agent_state = init_PPO(
             key=init_key,
             env_args=env_args,
@@ -1268,10 +1267,8 @@ def make_train(
             pid_actor_config=pid_actor_config,
             normalize_obs_running=normalize_obs_running,
         )
-        # The extensions draw on the unused 3rd split, leaving the first two
-        # as they were.
         agent_state = extension_stack.fold_init(
-            agent_state, _transform_key, total_timesteps
+            agent_state, pretrain_key, total_timesteps
         )
         if agent_config.expose_recent_rollout:
             agent_state = preallocate_last_rollout(

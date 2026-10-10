@@ -218,6 +218,12 @@ def init_APO(
         disable_encoder_output_norm=True,
         num_critics=1,
         pid_actor_config=pid_actor_config,
+        actor_kernel_init=network_args.actor_kernel_init,
+        actor_bias_init=network_args.actor_bias_init,
+        critic_kernel_init=network_args.critic_kernel_init,
+        critic_bias_init=network_args.critic_bias_init,
+        encoder_kernel_init=network_args.encoder_kernel_init,
+        encoder_bias_init=network_args.encoder_bias_init,
     )
     collector_state = init_collector_state(
         collector_key,

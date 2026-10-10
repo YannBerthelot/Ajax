@@ -50,7 +50,6 @@ class REDQ(ActorCritic):
         num_critics: int = 10,
         subset_size: int = 2,
         repulsion_coef: float = 0.0,
-        lstm_hidden_size: Optional[int] = None,
         # Pluggable memory block (see ajax.networks.memory); trains on
         # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
         memory: Optional[Union[MemoryConfig, dict]] = None,
@@ -70,16 +69,10 @@ class REDQ(ActorCritic):
         actor_cloning_batch_size: int = 64,
         critic_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
+        # Expert for the cloning pre-training and the eval expert-bias
+        # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
-        distance_to_stable: Optional[Callable] = None,
-        imitation_coef_offset: float = 0.0,
         pid_actor_config: Optional[PIDActorConfig] = None,
-        action_pipeline: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
-        target_modifier: Optional[Callable] = None,
-        obs_preprocessor: Optional[Callable] = None,
-        policy_action_transform: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -102,7 +95,6 @@ class REDQ(ActorCritic):
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
-            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "REDQ"})
@@ -116,7 +108,6 @@ class REDQ(ActorCritic):
             critic_architecture=critic_architecture,
             env_params=env_params,
             max_grad_norm=max_grad_norm,
-            lstm_hidden_size=lstm_hidden_size,
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
@@ -131,7 +122,7 @@ class REDQ(ActorCritic):
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            # base resolved memory / legacy lstm_hidden_size already
+            # base parsed the memory config already
             memory=self.network_args.memory,
             squash=True,
             penultimate_normalization=False,
@@ -172,7 +163,7 @@ class REDQ(ActorCritic):
             sequence_length=(burn_in + sequence_length + 1 if recurrent else None),
         )
 
-        self.cloning_confing = CloningConfig(
+        self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
             critic_epochs=critic_cloning_epochs,
             actor_lr=actor_cloning_lr,
@@ -180,17 +171,9 @@ class REDQ(ActorCritic):
             actor_batch_size=actor_cloning_batch_size,
             critic_batch_size=critic_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
         )
         self.expert_policy = expert_policy
         self.pid_actor_config = pid_actor_config
-        self.action_pipeline = action_pipeline
-        self.eval_action_transform = eval_action_transform
-        self.target_modifier = target_modifier
-        self.obs_preprocessor = obs_preprocessor
-        self.policy_action_transform = policy_action_transform
 
     def get_make_train(self) -> Callable:
         """
@@ -203,13 +186,8 @@ class REDQ(ActorCritic):
             make_train,
             buffer=self.buffer,
             alpha_args=self.alpha_args,
-            cloning_args=self.cloning_confing,
+            cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
             pid_actor_config=self.pid_actor_config,
-            action_pipeline=self.action_pipeline,
-            eval_action_transform=self.eval_action_transform,
-            target_modifier=self.target_modifier,
-            obs_preprocessor=self.obs_preprocessor,
-            policy_action_transform=self.policy_action_transform,
             extensions=tuple(self.extension_stack.extensions),
         )

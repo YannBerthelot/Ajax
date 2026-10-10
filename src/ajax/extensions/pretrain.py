@@ -192,7 +192,6 @@ class MCPretrain(Extension):
             expert_policy=self.expert_policy,
             mode=self.mode,
             env_args=self.env_args,
-            recurrent=self.network_args.lstm_hidden_size is not None,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             n_mc_steps=self.n_mc_steps,

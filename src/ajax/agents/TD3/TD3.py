@@ -55,7 +55,6 @@ class TD3(ActorCritic):
         target_policy_noise: float = 0.2,
         target_noise_clip: float = 0.5,
         exploration_noise: float = 0.1,
-        lstm_hidden_size: Optional[int] = None,
         # Pluggable memory block (see ajax.networks.memory); trains on
         # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
         memory: Optional[Union[MemoryConfig, dict]] = None,
@@ -68,7 +67,8 @@ class TD3(ActorCritic):
         stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
-        # --- Cloning / pretraining (mirrors REDQ) ---
+        # --- Cloning pretraining (mirrors REDQ); online BC is the
+        # ImitationLoss extension ---
         actor_cloning_epochs: int = 10,
         critic_cloning_epochs: int = 10,
         actor_cloning_lr: float = 1e-3,
@@ -79,17 +79,10 @@ class TD3(ActorCritic):
         critic_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         expert_policy: Optional[Callable] = None,
-        imitation_coef: Union[float, Callable[[int], float]] = 0.0,
-        distance_to_stable: Optional[Callable] = None,
-        imitation_coef_offset: float = 0.0,
         # PID actor: actor predicts PID gains instead of raw actions.
         pid_actor_config: Optional[PIDActorConfig] = None,
-        # --- Composable hook overrides ---
+        # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,
-        target_modifier: Optional[Callable] = None,
-        obs_preprocessor: Optional[Callable] = None,
-        policy_action_transform: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -105,7 +98,6 @@ class TD3(ActorCritic):
             critic_architecture=critic_architecture,
             env_params=env_params,
             max_grad_norm=max_grad_norm,
-            lstm_hidden_size=lstm_hidden_size,
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
@@ -115,7 +107,7 @@ class TD3(ActorCritic):
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            # base resolved memory / legacy lstm_hidden_size already
+            # base parsed the memory config already
             memory=self.network_args.memory,
             squash=True,
             penultimate_normalization=False,
@@ -162,19 +154,12 @@ class TD3(ActorCritic):
             actor_batch_size=actor_cloning_batch_size,
             critic_batch_size=critic_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
-            imitation_coef=imitation_coef,
-            distance_to_stable=distance_to_stable,
-            imitation_coef_offset=imitation_coef_offset,
             skip_actor_pretrain=skip_actor_pretrain,
             skip_critic_pretrain=skip_critic_pretrain,
         )
         self.expert_policy = expert_policy
         self.pid_actor_config = pid_actor_config
         self.action_pipeline = action_pipeline
-        self.target_modifier = target_modifier
-        self.obs_preprocessor = obs_preprocessor
-        self.policy_action_transform = policy_action_transform
-        self.eval_action_transform = eval_action_transform
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -184,9 +169,5 @@ class TD3(ActorCritic):
             expert_policy=self.expert_policy,
             pid_actor_config=self.pid_actor_config,
             action_pipeline=self.action_pipeline,
-            target_modifier=self.target_modifier,
-            obs_preprocessor=self.obs_preprocessor,
-            policy_action_transform=self.policy_action_transform,
-            eval_action_transform=self.eval_action_transform,
             extensions=tuple(self.extension_stack.extensions),
         )

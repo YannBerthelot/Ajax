@@ -66,7 +66,6 @@ class PhiRefreshAuxiliaries:
 @partial(
     jax.jit,
     static_argnames=[
-        "recurrent",
         "gamma",
         "reward_scale",
         "n_steps",
@@ -86,7 +85,6 @@ def pretrain_critic_mc(
     expert_policy: Callable,
     mode: str,
     env_args: EnvironmentConfig,
-    recurrent: bool,
     gamma: float,
     reward_scale: float,
     n_mc_steps: int = 10_000,
@@ -513,7 +511,6 @@ def collect_and_store_expert_transitions(
     buffer_state: Any,
     rng: jax.Array,
     n_steps: int,
-    max_timesteps: Optional[int] = None,
 ) -> Any:
     """Collect expert transitions and store them in the replay buffer."""
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"

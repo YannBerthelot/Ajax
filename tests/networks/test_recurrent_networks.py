@@ -129,23 +129,6 @@ def test_init_network_state_builds_carry_and_flags(kind):
     )
     assert state.recurrent
     assert state.hidden_state is not None
-    # legacy GRU path (recurrent + lstm_hidden_size) must still work
-    legacy_actor = Actor(
-        input_architecture=ARCH,
-        action_dim=ACTION_DIM,
-        continuous=True,
-        memory=MemoryConfig(kind="gru", hidden_size=8),
-    )
-    legacy = init_network_state(
-        init_x=jnp.zeros((B, OBS_DIM)),
-        network=legacy_actor,
-        key=jax.random.PRNGKey(0),
-        tx=get_adam_tx(),
-        recurrent=True,
-        lstm_hidden_size=8,
-        n_envs=B,
-    )
-    assert legacy.recurrent
 
 
 def test_init_network_state_feedforward_unchanged():

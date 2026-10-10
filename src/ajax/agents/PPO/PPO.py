@@ -46,7 +46,6 @@ class PPO(ActorCritic):
         num_evals: int = 1,
         gae_lambda: float = 0.95,
         normalize_advantage: bool = True,
-        lstm_hidden_size: Optional[int] = None,
         # Pluggable memory block, e.g. MemoryConfig("gru", 64) or
         # {"kind": "lstm", "hidden_size": 64}. When set, PPO trains with
         # BPTT over sequences minibatched from the rollout (see
@@ -74,14 +73,7 @@ class PPO(ActorCritic):
         squash: bool = False,
         episode_length: Optional[int] = None,
         pid_actor_config: Optional[PIDActorConfig] = None,
-        action_pipeline: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
-        obs_preprocessor: Optional[Callable] = None,
-        init_transform: Optional[Callable] = None,
-        auxiliary_update: Optional[Callable] = None,
-        extra_eval_metrics: Optional[Callable] = None,
-        extra_actor_loss_fn: Optional[Callable] = None,
-        extra_critic_loss_fn: Optional[Callable] = None,
+        # (agent_state, rollout) -> reward bonus added before GAE.
         reward_shaping_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[tuple] = None,
@@ -115,7 +107,6 @@ class PPO(ActorCritic):
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
-            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "PPO"})
@@ -129,7 +120,6 @@ class PPO(ActorCritic):
             critic_architecture=critic_architecture,
             env_params=env_params,
             max_grad_norm=max_grad_norm,
-            lstm_hidden_size=lstm_hidden_size,
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
@@ -208,14 +198,6 @@ class PPO(ActorCritic):
             eps=adam_eps,
         )
         self.pid_actor_config = pid_actor_config
-        self.action_pipeline = action_pipeline
-        self.eval_action_transform = eval_action_transform
-        self.obs_preprocessor = obs_preprocessor
-        self.init_transform = init_transform
-        self.auxiliary_update = auxiliary_update
-        self.extra_eval_metrics = extra_eval_metrics
-        self.extra_actor_loss_fn = extra_actor_loss_fn
-        self.extra_critic_loss_fn = extra_critic_loss_fn
         self.reward_shaping_fn = reward_shaping_fn
         # Brax-faithful normalise-at-forward: when the user opted into
         # ``normalize_observations``, route it through the AGENT-side
@@ -237,14 +219,6 @@ class PPO(ActorCritic):
         return partial(
             make_train,
             pid_actor_config=self.pid_actor_config,
-            action_pipeline=self.action_pipeline,
-            eval_action_transform=self.eval_action_transform,
-            obs_preprocessor=self.obs_preprocessor,
-            init_transform=self.init_transform,
-            auxiliary_update=self.auxiliary_update,
-            extra_eval_metrics=self.extra_eval_metrics,
-            extra_actor_loss_fn=self.extra_actor_loss_fn,
-            extra_critic_loss_fn=self.extra_critic_loss_fn,
             normalize_obs_running=self._normalize_obs_running,
             reward_shaping_fn=self.reward_shaping_fn,
             extensions=tuple(self.extension_stack.extensions),

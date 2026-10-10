@@ -34,9 +34,7 @@ from ajax.agents.UDRL.buffer import (
     topk_command_stats,
 )
 from ajax.agents.UDRL.state import UDRLConfig, UDRLState
-from ajax.agents.UDRL.utils import (
-    compute_returns_to_go_horizons,
-)
+from ajax.agents.UDRL.utils import compute_returns_to_go_horizons, update_command
 from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
@@ -48,7 +46,7 @@ from ajax.environments.utils import (
 )
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import get_initialized_actor_critic
-from ajax.perf_utils import train_jit
+from ajax.perf_utils import build_resumable_train
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -169,7 +167,6 @@ def _udrl_collect_step(
     env_args: EnvironmentConfig,
     mode: str,
     agent_config: UDRLConfig,
-    recurrent: bool,
 ):
     """One env step. Reads (d_r, d_h) from the trailing 2 dims of last_obs,
     forwards the actor on the augmented obs, steps the env, then writes the
@@ -192,7 +189,6 @@ def _udrl_collect_step(
         actor_state=agent_state.actor_state,
         actor_params=agent_state.actor_state.params,
         obs=last_obs_for_actor,
-        recurrent=recurrent,
     )
     action, log_probs = pi.sample_and_log_prob(seed=action_key)
 
@@ -212,8 +208,6 @@ def _udrl_collect_step(
         jnp.float32
     )
 
-    prev_d_r = last_obs[:, -2]
-    prev_d_h = last_obs[:, -1]
     # Sample fresh exploratory commands per env at episode reset (Algorithm 5):
     # dr ~ Uniform(target_R, target_R + target_R_std), dh = target_H.
     rng, k_explore = jax.random.split(rng)
@@ -230,12 +224,11 @@ def _udrl_collect_step(
     sampled_init_H = jnp.broadcast_to(
         agent_state.command_target_horizon, (env_args.n_envs,)
     )
-    # update_command uses sampled_init_R/H for envs that just hit done; envs
-    # mid-episode get the decayed (prev - reward, prev - 1).
-    decayed_r = prev_d_r - reward
-    decayed_h = jnp.maximum(prev_d_h - 1.0, 1.0)
-    new_d_r = jnp.where(done > 0.0, sampled_init_R, decayed_r)
-    new_d_h = jnp.where(done > 0.0, sampled_init_H, decayed_h)
+    # Envs that just hit done restart from the sampled command; envs
+    # mid-episode get the decayed (prev - reward, max(prev - 1, 1)).
+    new_d_r, new_d_h = update_command(
+        last_obs[:, -2], last_obs[:, -1], reward, done, sampled_init_R, sampled_init_H
+    )
     new_command = jnp.stack([new_d_r, new_d_h], axis=-1)
     new_last_obs = jnp.concatenate([new_env_obs, new_command], axis=-1)
 
@@ -311,9 +304,6 @@ def actor_loss_fn(
     return -pi.log_prob(actions).sum(-1).mean()
 
 
-_actor_value_and_grad = jax.value_and_grad(actor_loss_fn)
-
-
 def _completed_episode_returns(
     rewards: jax.Array, dones: jax.Array
 ) -> Tuple[jax.Array, jax.Array]:
@@ -341,67 +331,18 @@ def _completed_episode_returns(
     return sum_done.sum(), count.sum()
 
 
-def _topk_episode_stats(
-    rewards: jax.Array, dones: jax.Array, k: int
-) -> Tuple[jax.Array, jax.Array, jax.Array]:
-    """Return (mean_topk_return, mean_topk_horizon, n_completed) for the
-    top-``k`` completed episodes in the rollout, by return.
-
-    Episodes that did not complete in this segment contribute -inf to the
-    return ranking (so they're dropped) and their horizon is masked. If
-    fewer than k episodes completed, only the valid ones contribute to the
-    means; mean is NaN if zero completed.
-    """
-
-    def body(carry, x):
-        running_r, running_h = carry
-        r, d = x
-        running_r = running_r + r
-        running_h = running_h + 1.0
-        ep_r = running_r
-        ep_h = running_h
-        running_r = running_r * (1.0 - d)
-        running_h = running_h * (1.0 - d)
-        return (running_r, running_h), (ep_r, ep_h, d)
-
-    init = (jnp.zeros_like(rewards[0]), jnp.zeros_like(rewards[0]))
-    _, (ep_r, ep_h, d) = jax.lax.scan(body, init, (rewards, dones))
-    flat_r = ep_r.reshape(-1)
-    flat_h = ep_h.reshape(-1)
-    flat_d = d.reshape(-1)
-    # Mask non-done positions out of the top-k ranking.
-    masked_r = jnp.where(flat_d > 0, flat_r, -jnp.inf)
-    k_eff = min(k, flat_r.shape[0])
-    topk_vals, topk_idx = jax.lax.top_k(masked_r, k_eff)
-    topk_h = flat_h[topk_idx]
-    valid = topk_vals > -jnp.inf
-    valid_count = valid.sum()
-    safe_count = jnp.maximum(valid_count, 1)
-    sum_r = jnp.where(valid, topk_vals, 0.0).sum()
-    sum_h = jnp.where(valid, topk_h, 0.0).sum()
-    mean_r = jnp.where(valid_count > 0, sum_r / safe_count, jnp.nan)
-    mean_h = jnp.where(valid_count > 0, sum_h / safe_count, jnp.nan)
-    n_completed = flat_d.sum()
-    return mean_r, mean_h, n_completed
-
-
 def training_iteration(
     agent_state: UDRLState,
     _: Any,
     env_args: EnvironmentConfig,
     mode: str,
     agent_config: UDRLConfig,
-    recurrent: bool,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
 ) -> Tuple[UDRLState, UDRLAuxiliaries]:
     # 1. Collect one rollout segment (Algorithm 4).
     collect_fn = partial(
-        _udrl_collect_step,
-        env_args=env_args,
-        mode=mode,
-        agent_config=agent_config,
-        recurrent=recurrent,
+        _udrl_collect_step, env_args=env_args, mode=mode, agent_config=agent_config
     )
     agent_state, rollout = jax.lax.scan(
         collect_fn, agent_state, xs=None, length=agent_config.n_steps
@@ -422,32 +363,25 @@ def training_iteration(
     )
     agent_state = agent_state.replace(buffer=new_buffer)
 
-    # 3. Refresh the rollout command target from buffer top-K (Algorithm 5).
-    topk_r, topk_std, topk_h, _ = topk_command_stats(
+    # 3. Refresh the rollout command target from buffer top-K (Algorithm 5):
+    #    an EMA towards the top-K statistics, keeping the old target while
+    #    the buffer holds no completed episode (NaN statistics).
+    topk_r, topk_std, topk_h = topk_command_stats(
         new_buffer, k=agent_config.command_topk
     )
-    proposal_r = topk_r * agent_config.command_return_boost
-    proposal_h = topk_h
-    proposal_r = jnp.where(
-        jnp.isnan(proposal_r), agent_state.command_target_return, proposal_r
-    )
-    proposal_std = jnp.where(
-        jnp.isnan(topk_std), agent_state.command_target_return_std, topk_std
-    )
-    proposal_h = jnp.where(
-        jnp.isnan(proposal_h), agent_state.command_target_horizon, proposal_h
-    )
     tau = agent_config.command_target_tau
-    new_target_r = (1.0 - tau) * agent_state.command_target_return + tau * proposal_r
-    new_target_std = (
-        1.0 - tau
-    ) * agent_state.command_target_return_std + tau * proposal_std
-    new_target_h = (1.0 - tau) * agent_state.command_target_horizon + tau * proposal_h
 
-    # 4. Train: sample (s, a, dr, dh) from the buffer and fit the actor
-    #    (Algorithm 3). The paper does a fixed number of gradient updates
-    #    per iteration; we replace the previous "n_epochs over current
-    #    rollout" loop with that.
+    def _refresh(old: jax.Array, proposal: jax.Array) -> jax.Array:
+        return (1.0 - tau) * old + tau * jnp.where(jnp.isnan(proposal), old, proposal)
+
+    new_target_r = _refresh(
+        agent_state.command_target_return, topk_r * agent_config.command_return_boost
+    )
+    new_target_std = _refresh(agent_state.command_target_return_std, topk_std)
+    new_target_h = _refresh(agent_state.command_target_horizon, topk_h)
+
+    # 4. Train: sample (s, a, dr, dh) from the buffer and fit the actor with
+    #    a fixed number of gradient updates per iteration (Algorithm 3).
     rng, train_rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
@@ -542,54 +476,41 @@ def make_train(
     logging_config: Optional[Any] = None,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     extensions: Sequence = (),
-    **_unused: Any,
 ):
+    del num_episode_test, run_ids, logging_config  # UDRL logs no evaluation
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    recurrent = network_args.lstm_hidden_size is not None
     extension_stack = ExtensionStack(extensions) if extensions else None
 
-    @train_jit
-    def train(
-        key: jax.Array,
-        index: Optional[int] = None,
-        initial_state: Optional[UDRLState] = None,
-        resume_from_state: bool = False,
-    ):
+    def init_fn(key: jax.Array, index: Optional[int]) -> UDRLState:
+        del index
         init_key, ext_key = jax.random.split(key, 2)
-        if resume_from_state and initial_state is not None:
-            agent_state = initial_state
-        else:
-            agent_state = init_UDRL(
-                key=init_key,
-                env_args=env_args,
-                actor_optimizer_args=actor_optimizer_args,
-                critic_optimizer_args=critic_optimizer_args,
-                network_args=network_args,
-                agent_config=agent_config,
-                cnn_image_shape=cnn_image_shape,
+        agent_state = init_UDRL(
+            key=init_key,
+            env_args=env_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            agent_config=agent_config,
+            cnn_image_shape=cnn_image_shape,
+        )
+        if extension_stack is not None:
+            _ext_key, _pre_key = jax.random.split(ext_key)
+            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
+            agent_state = extension_stack.fold_pretrain(
+                agent_state, jnp.asarray(0), _pre_key, total_timesteps
             )
-            if extension_stack is not None:
-                _ext_key, _pre_key = jax.random.split(ext_key)
-                agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-                agent_state = extension_stack.fold_pretrain(
-                    agent_state, jnp.asarray(0), _pre_key, total_timesteps
-                )
+        return agent_state
 
-        per_iter = env_args.n_envs * agent_config.n_steps
-        num_updates = max(total_timesteps // per_iter, 1)
-
-        scan_fn = partial(
+    per_iter = env_args.n_envs * agent_config.n_steps
+    return build_resumable_train(
+        init_fn=init_fn,
+        scan_fn=partial(
             training_iteration,
             env_args=env_args,
             mode=mode,
             agent_config=agent_config,
-            recurrent=recurrent,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
-        )
-        agent_state, aux = jax.lax.scan(
-            scan_fn, agent_state, xs=None, length=num_updates
-        )
-        return agent_state, aux
-
-    return train
+        ),
+        num_updates=max(total_timesteps // per_iter, 1),
+    )

@@ -44,13 +44,8 @@ class PQN(ActorCritic):
         epsilon_decay_frac: float = 0.5,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
-        # --- Composable hook overrides ---
-        action_pipeline: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
         # TD loss: None -> MSE. Pass make_huber_td_loss(delta) for Huber.
         td_loss_fn: Optional[Callable] = None,
-        # Extra eval metrics: (agent_state, key) -> dict, logged each eval.
-        extra_eval_metrics: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
@@ -104,10 +99,7 @@ class PQN(ActorCritic):
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_frac = epsilon_decay_frac
-        self.action_pipeline = action_pipeline
-        self.eval_action_transform = eval_action_transform
         self.td_loss_fn = td_loss_fn
-        self.extra_eval_metrics = extra_eval_metrics
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -115,9 +107,6 @@ class PQN(ActorCritic):
             epsilon_start=self.epsilon_start,
             epsilon_end=self.epsilon_end,
             epsilon_decay_frac=self.epsilon_decay_frac,
-            action_pipeline=self.action_pipeline,
-            eval_action_transform=self.eval_action_transform,
             td_loss_fn=self.td_loss_fn,
-            extra_eval_metrics=self.extra_eval_metrics,
             extensions=tuple(self.extension_stack.extensions),
         )

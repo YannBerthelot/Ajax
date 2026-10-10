@@ -20,7 +20,6 @@ from ajax.networks.memory import (
     flatten_carry,
     init_carry,
     parse_memory_config,
-    resolve_memory_config,
     unflatten_carry,
     zeros_carry_like,
 )
@@ -64,14 +63,6 @@ def test_parse_memory_config_accepts_dict_and_none():
     assert parse_memory_config(None) is None
     cfg = parse_memory_config({"kind": "lstm", "hidden_size": 16})
     assert cfg == MemoryConfig(kind="lstm", hidden_size=16)
-
-
-def test_resolve_memory_config_legacy_lstm_hidden_size_maps_to_gru():
-    cfg = resolve_memory_config(None, lstm_hidden_size=32)
-    assert cfg == MemoryConfig(kind="gru", hidden_size=32)
-    # explicit memory wins over the legacy field
-    explicit = MemoryConfig(kind="lstm", hidden_size=8)
-    assert resolve_memory_config(explicit, lstm_hidden_size=32) is explicit
 
 
 def test_config_is_hashable():

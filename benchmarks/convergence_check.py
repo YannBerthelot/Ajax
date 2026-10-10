@@ -62,7 +62,6 @@ def _eval_returns(agent, final_state, eval_seed: int, num_episodes: int) -> List
             rng=key,
             env_params=agent.env_args.env_params,
             recurrent=False,
-            lstm_hidden_size=None,
             gamma=getattr(agent, "gamma", 0.99),
         )
 

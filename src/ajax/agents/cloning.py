@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional, Sequence, Tuple, Union
+from typing import Dict, Sequence, Tuple
 
 import distrax
 import jax
@@ -12,7 +12,6 @@ from jax.tree_util import Partial as partial
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
-from ajax.utils import get_one
 
 
 @struct.dataclass
@@ -24,10 +23,6 @@ class CloningConfig:
     actor_batch_size: int = 64
     critic_batch_size: int = 64
     pre_train_n_steps: int = int(1e5)
-    imitation_coef: float = 1e-3
-    distance_to_stable: Optional[Callable] = None
-    imitation_coef_offset: float = 1e-3
-    action_scale: float = 0.1
     # Per-component pretrain switches. Default keeps backwards-compat:
     # actor BC enabled, critic MC disabled (matches the legacy behaviour).
     skip_actor_pretrain: bool = False
@@ -48,34 +43,6 @@ class CloningConfig:
     bc_loss_type: str = "nll"
     bc_min_log_std: float = -1.0
     bc_action_clip_eps: float = 1e-3
-
-
-def get_imitation_coef(
-    cloning_args: CloningConfig, total_timesteps: int
-) -> Union[float, Callable]:
-    imitation_coef = cloning_args.imitation_coef
-
-    def imitation_coef_schedule(init_val):
-        def imitation_coef(t, total_timesteps):
-            return (1 - (t / total_timesteps)) * init_val
-
-        return imitation_coef
-
-    # if "auto" not in str(imitation_coef):
-    if "lin" in str(imitation_coef):
-        imitation_coef = (
-            imitation_coef_schedule(float(imitation_coef.split("_")[1]))
-            if isinstance(imitation_coef, str)
-            else imitation_coef
-        )
-        imitation_coef = (
-            partial(imitation_coef, total_timesteps=total_timesteps)
-            if callable(imitation_coef)
-            else imitation_coef
-        )
-    if "auto" in str(imitation_coef):
-        imitation_coef = float("".join(imitation_coef.split("_")[1:]))
-    return imitation_coef
 
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
@@ -524,56 +491,3 @@ def get_pre_trained_agent(
             critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
         )
     return new_state
-
-
-def get_cloning_args(
-    cloning_args: Optional[CloningConfig], total_timesteps: int
-) -> Tuple:
-    imitation_coef = 0.0
-    distance_to_stable = get_one
-    imitation_coef_offset = 0.0
-    pre_train_n_steps = 0
-    action_scale = 1.0
-
-    if cloning_args is not None:
-        imitation_coef = get_imitation_coef(  # type: ignore[assignment]
-            cloning_args=cloning_args, total_timesteps=total_timesteps
-        )
-        distance_to_stable = cloning_args.distance_to_stable or get_one
-        imitation_coef_offset = cloning_args.imitation_coef_offset
-        pre_train_n_steps = cloning_args.pre_train_n_steps
-        action_scale = cloning_args.action_scale
-
-    return {
-        "imitation_coef": imitation_coef,
-        "imitation_coef_offset": imitation_coef_offset,
-        "distance_to_stable": distance_to_stable,
-        "action_scale": action_scale,
-    }, pre_train_n_steps
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        "expert_policy",
-        "distance_to_stable",
-        "imitation_coef_offset",
-    ],
-)
-def compute_imitation_score(
-    pi: distrax.Distribution,
-    expert_policy: Optional[Callable],
-    raw_observations: jax.Array,
-    distance_to_stable: Callable,
-    imitation_coef_offset: float,
-    q_preds: Optional[jax.Array] = None,
-    q_expert: Optional[jax.Array] = None,
-) -> jax.Array:
-    if isinstance(pi, distrax.Categorical) or expert_policy is None:
-        return jnp.zeros(1)
-
-    expert_action = jax.lax.stop_gradient(expert_policy(raw_observations))
-    mse = jnp.mean(
-        jnp.square(pi.mean() - expert_action) / 4.0, axis=-1, keepdims=True
-    )  # pure distance, no Q-weighting
-    return mse

@@ -11,11 +11,7 @@ from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
-from ajax.agents.cloning import (
-    CloningConfig,
-    get_cloning_args,
-    get_pre_trained_agent,
-)
+from ajax.agents.cloning import CloningConfig, get_pre_trained_agent
 from ajax.agents.recurrent import (
     RecurrentCarries,
     sample_and_burnin_sequences,
@@ -63,7 +59,7 @@ from ajax.modules.pretrain import (
     collect_and_store_expert_transitions,
     pretrain_critic_bellman,
 )
-from ajax.networks.memory import flat_carry_dim, resolve_memory_config
+from ajax.networks.memory import flat_carry_dim
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -191,7 +187,6 @@ def init_SAC(
     window_size: int = 10,
     stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
-    residual: bool = False,
     max_timesteps: Optional[int] = None,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
@@ -240,10 +235,8 @@ def init_SAC(
 
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     _actor_carry_dim = 0
-    if stored_state:
-        _mem = resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
-        if _mem is not None:
-            _actor_carry_dim = flat_carry_dim(_mem)
+    if stored_state and network_args.memory is not None:
+        _actor_carry_dim = flat_carry_dim(network_args.memory)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
@@ -280,7 +273,6 @@ def init_SAC(
                 buffer_state=collector_state.buffer_state,
                 rng=expert_key,
                 n_steps=expert_buffer_n_steps,
-                max_timesteps=max_timesteps,
             )
         )
 
@@ -819,17 +811,13 @@ def update_target_networks(agent_state: SACState, tau: float) -> SACState:
 
 def update_agent(
     agent_state: SACState,
-    _: Any,
     buffer: BufferType,
     recurrent: bool,
     gamma: float,
-    action_dim: int,
     target_entropy: float,
     tau: float,
     num_critic_updates: int = 1,
     reward_scale: float = 1.0,
-    additional_transition: Optional[Any] = None,
-    transition_mix_fraction: float = 1.0,
     expert_policy: Optional[Callable] = None,
     use_expert_guidance: bool = True,
     policy_update_start: int = 2_000,
@@ -840,7 +828,6 @@ def update_agent(
     altitude_obs_idx: int = 1,
     target_obs_idx: int = 6,
     augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
     total_timesteps: int = 1,
     target_entropy_far: Optional[float] = None,
     target_entropy_initial: Optional[float] = None,
@@ -853,7 +840,6 @@ def update_agent(
     extra_actor_loss_fn: Optional[Callable] = None,
     extra_critic_loss_fn: Optional[Callable] = None,
     burn_in: int = 8,
-    sequence_length: int = 16,
     stored_state: bool = False,
     # Optional Hindsight-Experience-Replay relabel. Signature
     # (rng, transition) -> transition. Applied to the finalised sampled
@@ -874,7 +860,7 @@ def update_agent(
             agent_state, buffer, sample_key, burn_in, stored_state=stored_state
         )
         expert_frac_in_buffer = jnp.zeros(())
-    elif buffer is not None and agent_state.collector_state.buffer_state is not None:
+    else:
         (
             observations,
             terminated,
@@ -898,7 +884,7 @@ def update_agent(
         else:
             a_expert_buf, next_a_expert_buf = None, None
         expert_frac_in_buffer = is_expert.mean()
-        original_transition = Transition(
+        transition = Transition(
             observations,
             actions,
             rewards,
@@ -909,38 +895,6 @@ def update_agent(
             a_expert=a_expert_buf,
             next_a_expert=next_a_expert_buf,
         )
-
-        if additional_transition is not None and transition_mix_fraction < 1.0:
-            len_original = len(observations)
-            n_from_buffer = floor(transition_mix_fraction * len_original)
-            n_from_online = len_original - n_from_buffer
-            # Generate sample indices once and reuse across leaves: the
-            # previous form called jax.random.choice once per leaf with
-            # the same sample_key, which produces identical indices per
-            # leaf but pays the index-generation cost N_leaves times.
-            mix_idx = jax.random.randint(sample_key, (n_from_online,), 0, len_original)
-            additional_transition = jax.tree.map(
-                lambda x: x[mix_idx],
-                additional_transition,
-            )
-            transition = jax.tree.map(
-                lambda x, y: (
-                    None
-                    if (x is None or y is None)
-                    else jnp.concatenate([x[:n_from_buffer], y], axis=0)
-                ),
-                original_transition,
-                additional_transition,
-                is_leaf=lambda x: x is None,
-            )
-        else:
-            transition = original_transition
-
-    elif additional_transition is not None:
-        transition = additional_transition
-        expert_frac_in_buffer = jnp.zeros(())
-    else:
-        raise ValueError("Either buffer or additional_transition must be provided.")
 
     # --- Hindsight Experience Replay relabel ---
     # Opt-in. The caller-supplied fn rewrites the goal portion of
@@ -1247,22 +1201,15 @@ def training_iteration(
     recurrent: bool,
     buffer: BufferType,
     agent_config: SACConfig,
-    action_dim: int,
     total_timesteps: int,
-    lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
-    horizon: int = 10000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = False,
-    verbose: bool = False,
-    n_epochs: int = 1,
-    transition_mix_fraction: float = 1.0,
     expert_policy: Optional[Callable] = None,  # used for training
     eval_expert_policy: Optional[Callable] = None,  # used for eval logging only
     use_expert_guidance: bool = True,
-    action_scale: float = 1.0,
     early_termination_condition: Optional[Callable] = None,
     num_critic_updates: int = 1,
     expert_mix_fraction: float = 0.1,
@@ -1271,7 +1218,6 @@ def training_iteration(
     target_obs_idx: int = 6,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
-    detach_obs_aug_action: bool = False,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     fixed_alpha: bool = False,
@@ -1292,10 +1238,6 @@ def training_iteration(
     extra_eval_metrics: Optional[Callable] = None,
     pid_gain_policy: bool = False,
     next_expert_fn: Optional[Callable] = None,
-    # API compat
-    imitation_coef: float = 0.0,
-    distance_to_stable: Callable = lambda x: 1.0,
-    imitation_coef_offset: float = 0.0,
     # Eval-suppression mode: when True, evaluate_and_log only fires evals
     # in the last 20% of training. Use for HPO phases where the only
     # number that matters is the final-window IQM.
@@ -1316,7 +1258,7 @@ def training_iteration(
         next_expert_fn=next_expert_fn,
     )
 
-    agent_state, transition = collect_scan_fn(agent_state, None)
+    agent_state, _transition = collect_scan_fn(agent_state, None)
     timestep = agent_state.collector_state.timestep
 
     def do_update(agent_state):
@@ -1339,19 +1281,14 @@ def training_iteration(
                 total_timesteps,
             )
 
-        update_scan_fn = partial(
-            update_agent,
+        agent_state, aux = update_agent(
+            agent_state,
             buffer=buffer,
             recurrent=recurrent,
             gamma=agent_config.gamma,
-            action_dim=action_dim,
             target_entropy=agent_config.target_entropy,
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
-            additional_transition=(
-                transition if transition_mix_fraction < 1.0 else None
-            ),
-            transition_mix_fraction=transition_mix_fraction,
             expert_policy=expert_policy,
             use_expert_guidance=use_expert_guidance,
             policy_update_start=policy_update_start,
@@ -1363,7 +1300,6 @@ def training_iteration(
             altitude_obs_idx=altitude_obs_idx,
             target_obs_idx=target_obs_idx,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
-            augment_obs_with_expert_state=augment_obs_with_expert_state,
             total_timesteps=total_timesteps,
             target_entropy_far=target_entropy_far,
             target_entropy_initial=target_entropy_initial,
@@ -1375,32 +1311,13 @@ def training_iteration(
             extra_actor_loss_fn=extra_actor_loss_fn,
             extra_critic_loss_fn=extra_critic_loss_fn,
             burn_in=agent_config.burn_in,
-            sequence_length=agent_config.sequence_length,
             stored_state=agent_config.stored_state,
             her_relabel_fn=her_relabel_fn,
         )
-        agent_state, aux = jax.lax.scan(
-            update_scan_fn, agent_state, xs=None, length=n_epochs
-        )
-        aux = jax.tree.map(lambda x: x[-1].reshape((1,)), aux)
+        # One (1,)-shaped leaf per metric: the metric-flattening contract.
+        aux = jax.tree.map(lambda x: x.reshape((1,)), aux)
         aux = aux.replace(
-            value=ValueAuxiliaries(
-                critic_loss=aux.value.critic_loss.flatten(),
-                q_pred_min=aux.value.q_pred_min.flatten(),
-                q_expert_mean=aux.value.q_expert_mean.flatten(),
-                q_gap=aux.value.q_gap.flatten(),
-                var_preds=aux.value.var_preds.flatten(),
-                alpha_blend=aux.value.alpha_blend.flatten(),
-                effective_threshold=aux.value.effective_threshold.flatten(),
-                box_entry_rate=aux.value.box_entry_rate.flatten(),
-                expert_frac_in_buffer=aux.value.expert_frac_in_buffer.flatten(),
-                mc_correction_frac=aux.value.mc_correction_frac.flatten(),
-                phi_star_q_gap_ood=aux.value.phi_star_q_gap_ood.flatten(),
-            ),
-            edge=EDGEAuxiliaries(
-                value_gap=aux.edge.value_gap.flatten(),
-                p_expert_mean=aux.edge.p_expert_mean.flatten(),
-                expert_action_fraction=aux.edge.expert_action_fraction.flatten(),
+            edge=aux.edge.replace(
                 # Pull the live gating diag from the collector state — these
                 # were stashed by collect_experience after the latest action
                 # pipeline call. flatten/atleast_1d for tb-flatten parity.
@@ -1468,15 +1385,12 @@ def training_iteration(
         env_args,
         num_episode_test,
         recurrent,
-        lstm_hidden_size,
         log,
-        verbose,
         log_fn,
         log_frequency,
         total_timesteps,
         sweep=sweep,
         expert_policy=eval_expert_policy,
-        action_scale=action_scale,
         early_termination_condition=early_termination_condition,
         train_frac=agent_state.collector_state.train_time_fraction,
         eval_action_transform=eval_action_transform,
@@ -1531,7 +1445,6 @@ def make_train(
     eval_expert_policy: Optional[Callable] = None,
     use_expert_guidance: bool = True,
     early_termination_condition: Optional[Callable] = None,
-    residual: bool = False,
     fixed_alpha: bool = False,
     num_critics: int = 2,
     extra_critic_head_names: Tuple[str, ...] = (),
@@ -1691,10 +1604,7 @@ def make_train(
         for ext in extensions
     )
 
-    _recurrent = (
-        resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
-        is not None
-    )
+    _recurrent = network_args.memory is not None
     if _recurrent:
         # Expert-guidance features (and their Extension replacements) are
         # orthogonal to memory and untested with sequence replay; fail
@@ -1720,12 +1630,7 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    # Cloning parameters are a pure function of the (closure-constant)
-    # cloning_args + total_timesteps, so resolve them once here: they are
-    # needed both by the fresh-init pretraining and by the scan partial.
-    cloning_parameters, pre_train_n_steps = get_cloning_args(
-        cloning_args, total_timesteps
-    )
+    pre_train_n_steps = cloning_args.pre_train_n_steps if cloning_args else 0
     num_updates = total_timesteps // env_args.n_envs
 
     # ------------------------------------------------------------------
@@ -1843,21 +1748,6 @@ def make_train(
     # (the original ``train`` defaulted ``_box_v_min/_box_v_max`` to 0.0
     # and only overwrote them inside the fresh-init MC-pretrain branch).
     # ------------------------------------------------------------------
-    _, action_shape = get_state_action_shapes(env_args.env)
-
-    _valid_cloning_params = {
-        k: v
-        for k, v in cloning_parameters.items()
-        if k
-        in (
-            "n_epochs",
-            "transition_mix_fraction",
-            "imitation_coef",
-            "distance_to_stable",
-            "imitation_coef_offset",
-        )
-    }
-
     def make_scan_fn(agent_state, resume_from_state, key, index):
         # Value-box bounds: on a fresh ``use_box`` run they equal the
         # MC-pretrain v_min/v_max persisted on the agent state; on resume
@@ -1965,11 +1855,6 @@ def make_train(
             training_iteration,
             buffer=buffer,
             recurrent=_recurrent,
-            action_dim=(
-                action_dim_override
-                if action_dim_override is not None
-                else action_shape[0]
-            ),
             agent_config=agent_config,
             mode=mode,
             env_args=env_args,
@@ -1982,7 +1867,6 @@ def make_train(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             sweep=(logging_config.sweep if logging_config is not None else False),
-            horizon=(logging_config.horizon if logging_config is not None else None),
             expert_policy=expert_policy,
             eval_expert_policy=_eval_expert_policy,
             use_expert_guidance=use_expert_guidance,
@@ -2015,7 +1899,6 @@ def make_train(
             extra_eval_metrics=compose_eval_metrics(
                 extra_eval_metrics, _extension_stack, total_timesteps
             ),
-            **_valid_cloning_params,
         )
 
         # Do not accumulate per-step metrics in the scan ys: with vmap over N

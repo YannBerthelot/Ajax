@@ -32,7 +32,6 @@ class UDRLConfig(BaseAgentConfig):
     gamma: float = 1.0
     n_steps: int = 64
     batch_size: int = 64
-    n_epochs: int = 4
     command_return_init: float = 1.0
     command_horizon_init: float = 100.0
     bc_loss_type: str = "nll"  # "nll" or "mse"
@@ -49,8 +48,7 @@ class UDRLConfig(BaseAgentConfig):
     # ``buffer_capacity * n_steps * n_envs / mean_episode_length`` episodes.
     buffer_capacity: int = 64
     # Number of gradient batches per iteration drawn from the buffer
-    # (Algorithm 3). The paper updates a fixed number of gradient steps
-    # rather than the on-policy "n_epochs over current rollout".
+    # (Algorithm 3): a fixed number of gradient steps per iteration.
     n_updates_per_iter: int = 64
     # Linear scaling applied to (dr, dh) BEFORE the actor sees them. Paper
     # uses 0.02 / 0.01 for LunarLander; the network learns more cleanly when

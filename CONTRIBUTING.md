@@ -20,8 +20,10 @@ Thanks for your interest in contributing. This document covers:
 > compatibility (`action_pipeline`, `obs_preprocessor`,
 > `policy_action_transform`, `eval_action_transform`,
 > `extra_actor_loss_fn`, `extra_critic_loss_fn`, `her_relabel_fn`,
-> `init_transform`, `auxiliary_update`, `extra_eval_metrics`). **All
-> new features should be Extensions, not new hooks.**
+> `init_transform`, `auxiliary_update`, `extra_eval_metrics`); outside
+> SAC only hooks with a live user remain (see
+> [Legacy hook API](#legacy-hook-api-back-compat-only)). **All new
+> features should be Extensions, not new hooks.**
 
 ---
 
@@ -179,7 +181,7 @@ expert network).
 
 | File | Extensions |
 | --- | --- |
-| `extensions/expert.py` | `ExpertGuidance`, `OnlineBC`, `ResidualPolicy`, `ExpertObsAugmentation`, `JSRLCurriculum` |
+| `extensions/expert.py` | `ExpertGuidance`, `OnlineBC`, `ImitationLoss`, `ResidualPolicy`, `ExpertObsAugmentation`, `JSRLCurriculum` |
 | `extensions/target_mods.py` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox` |
 | `extensions/exploration.py` | `EDGEExploration` (6 gates) |
 | `extensions/pretrain.py` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` |
@@ -194,12 +196,19 @@ The pre-rework hook API (`Optional[Callable]` kwargs like `action_pipeline`,
 `obs_preprocessor`, `policy_action_transform`, `eval_action_transform`,
 `extra_actor_loss_fn`, `extra_critic_loss_fn`, `her_relabel_fn`,
 `init_transform`, `auxiliary_update`, `extra_eval_metrics`) is still
-accepted by SAC for backward compatibility with external callers. The
-`target_modifier`, `runtime_maintenance` callable surfaces — and all
-the `use_X` boolean flags they composed with (`ibrl_bootstrap`,
-`use_critic_blend`, `use_expert_guided_exploration`, …) — were removed
-in Phase 5 of the architecture rework; use the matching Extensions
-instead. Tests for the surviving callable hooks live in
+accepted by SAC for backward compatibility with external callers.
+Outside SAC the surviving hooks are those with a live user: TD3's
+`action_pipeline`, PPO's `reward_shaping_fn` and the DQN / PQN variants
+(`td_target_fn`, `td_loss_fn`, `q_network_cls`). The other agents'
+copies (`target_modifier`, `obs_preprocessor`, `policy_action_transform`,
+`eval_action_transform`, PPO's `extra_*_loss_fn` / `init_transform` /
+`auxiliary_update` / `extra_eval_metrics`, …) were removed, as was the
+online-imitation keyword `imitation_coef` (now the `ImitationLoss`
+extension); the `runtime_maintenance` surface and the `use_X` boolean
+flags (`ibrl_bootstrap`, `use_critic_blend`,
+`use_expert_guided_exploration`, …) went in Phase 5 of the architecture
+rework. Use the matching Extensions instead. Tests for the surviving
+callable hooks live in
 [tests/modules/test_hook_composition.py](tests/modules/test_hook_composition.py).
 
 ---
@@ -254,7 +263,7 @@ class FOOState(BaseAgentState):
 ### 3. Write `train_FOO.py`
 
 ```python
-from typing import Optional, Sequence, Callable
+from typing import Sequence
 import jax
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.log import compose_eval_metrics, evaluate_and_log
@@ -263,9 +272,6 @@ def make_train(
     env_args, network_args, optimizer_args,
     # … FOO algorithm hyperparameters only …
     extensions: Sequence[Extension] = (),
-    # Optional legacy callable escape hatches (only if you genuinely need
-    # them; default is None and Extensions are the preferred surface):
-    extra_eval_metrics: Optional[Callable] = None,
 ):
     stack = ExtensionStack(extensions)
 
@@ -298,9 +304,7 @@ def make_train(
         )
 
         # Eval + log
-        merged_eval = compose_eval_metrics(
-            extra_eval_metrics, bound_stack, total_timesteps
-        )
+        merged_eval = compose_eval_metrics(None, bound_stack, total_timesteps)
         agent_state, metrics_to_log = evaluate_and_log(
             agent_state, …, extra_eval_metrics=merged_eval
         )

@@ -51,17 +51,12 @@ class AVG:
         reward_scale: float = 1.0,
         alpha_init: float = 0.07,
         target_entropy_per_dim: float = -1.0,
-        lstm_hidden_size: Optional[int] = None,
         beta_1: float = 0,
         beta_2: float = 0.999,
         num_critics: int = 1,
+        # Expert for the eval expert-bias metric only.
         expert_policy: Optional[Callable] = None,
         pid_actor_config: Optional[PIDActorConfig] = None,
-        action_pipeline: Optional[Callable] = None,
-        eval_action_transform: Optional[Callable] = None,
-        target_modifier: Optional[Callable] = None,
-        obs_preprocessor: Optional[Callable] = None,
-        policy_action_transform: Optional[Callable] = None,
         # Gap A (Phase 4a): expose the most recent ``(T=1, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
@@ -85,22 +80,13 @@ class AVG:
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
-            lstm_hidden_size (Optional[int]): Hidden size for LSTM (if used).
+
+        AVG has no memory option: its fully-incremental single-transition
+        updates give length-1 BPTT, so memory weights could not learn
+        temporal structure without eligibility traces / RTRL.
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "AVG"})
-
-        # AVG builds its own configs without going through ActorCritic's
-        # __init__, so it must enforce the memory guard itself. Recurrent
-        # AVG is deliberately unsupported: its fully-incremental
-        # single-transition updates give length-1 BPTT, so memory weights
-        # cannot learn temporal structure without eligibility traces/RTRL.
-        if lstm_hidden_size is not None:
-            raise NotImplementedError(
-                "AVG does not support recurrent networks (memory /"
-                " lstm_hidden_size); supported agents: PPO, SAC, ASAC,"
-                " REDQ, TD3."
-            )
 
         env, env_params, env_id, continuous = prepare_env(
             env_id,
@@ -129,7 +115,6 @@ class AVG:
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            lstm_hidden_size=lstm_hidden_size,
             squash=True,
             penultimate_normalization=True,
         )
@@ -161,11 +146,6 @@ class AVG:
 
         self.expert_policy = expert_policy
         self.pid_actor_config = pid_actor_config
-        self.action_pipeline = action_pipeline
-        self.eval_action_transform = eval_action_transform
-        self.target_modifier = target_modifier
-        self.obs_preprocessor = obs_preprocessor
-        self.policy_action_transform = policy_action_transform
         # Composable research features (mirrors ActorCritic base). AVG
         # defines its own __init__ rather than inheriting from
         # ActorCritic, so the stack is built here.
@@ -219,11 +199,6 @@ class AVG:
                 logging_config=logging_config,
                 expert_policy=self.expert_policy,
                 pid_actor_config=self.pid_actor_config,
-                action_pipeline=self.action_pipeline,
-                eval_action_transform=self.eval_action_transform,
-                target_modifier=self.target_modifier,
-                obs_preprocessor=self.obs_preprocessor,
-                policy_action_transform=self.policy_action_transform,
                 extensions=tuple(self.extension_stack.extensions),
             )
 

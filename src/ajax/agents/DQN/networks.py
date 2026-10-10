@@ -227,8 +227,5 @@ def get_initialized_q_network(
         network=network,
         key=key,
         tx=tx,
-        recurrent=False,
-        lstm_hidden_size=None,
         n_envs=env_config.n_envs,
-        lr_schedule=optimizer_config.learning_rate,
     )

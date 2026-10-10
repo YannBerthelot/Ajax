@@ -35,7 +35,6 @@ from ajax.logging.wandb_logging import (
     vmap_log,
 )
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.memory import resolve_memory_config
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -167,7 +166,6 @@ def value_loss_function(
     dones: jax.Array,
     recurrent: bool,
     vf_coef: float = 1.0,
-    agent_state: Optional[Any] = None,
     extra_loss_fn: Optional[Callable] = None,
     initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
@@ -217,7 +215,7 @@ def value_loss_function(
     loss = vf_coef * 0.5 * jnp.mean((v_preds - value_targets) ** 2)
     if extra_loss_fn is not None:
         loss = loss + extra_loss_fn(
-            critic_params, critic_states, observations, value_targets, agent_state
+            critic_params, critic_states, observations, value_targets
         )
 
     return loss, ValueAuxiliaries(
@@ -239,7 +237,6 @@ def policy_loss_function(
     clip_coef: float,
     ent_coef: float,
     advantage_normalization: bool,
-    obs_preprocessor: Optional[Callable] = None,
     extra_loss_fn: Optional[Callable] = None,
     raw_actions: Optional[jax.Array] = None,
     entropy_rng: Optional[jax.Array] = None,
@@ -261,9 +258,6 @@ def policy_loss_function(
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
-    obs_for_actor = (
-        obs_preprocessor(observations) if obs_preprocessor is not None else observations
-    )
     if recurrent:
         # Sequence-mode BPTT: observations are time-major (T, B, obs),
         # `dones` carries obs-aligned reset flags and `initial_hidden` the
@@ -272,7 +266,7 @@ def policy_loss_function(
         pi, _ = get_pi_sequence(
             actor_state=actor_state,
             actor_params=actor_params,
-            obs=obs_for_actor,
+            obs=observations,
             resets=dones,
             initial_hidden=initial_hidden,
         )
@@ -280,7 +274,7 @@ def policy_loss_function(
         pi, _ = get_pi(
             actor_state=actor_state,
             actor_params=actor_params,
-            obs=obs_for_actor,
+            obs=observations,
             done=dones,
             recurrent=recurrent,
         )
@@ -356,7 +350,6 @@ def _value_and_grad_with_extra(extra_loss_fn):
         value_targets,
         dones,
         recurrent,
-        agent_state,
         vf_coef=1.0,
         initial_hidden=None,
     ):
@@ -368,7 +361,6 @@ def _value_and_grad_with_extra(extra_loss_fn):
             dones,
             recurrent,
             vf_coef=vf_coef,
-            agent_state=agent_state,
             extra_loss_fn=extra_loss_fn,
             initial_hidden=initial_hidden,
         )
@@ -389,7 +381,6 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
         clip_coef,
         ent_coef,
         advantage_normalization,
-        obs_preprocessor,
         raw_actions=None,
         entropy_rng=None,
         initial_hidden=None,
@@ -406,7 +397,6 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
             clip_coef,
             ent_coef,
             advantage_normalization,
-            obs_preprocessor,
             extra_loss_fn=extra_loss_fn,
             raw_actions=raw_actions,
             entropy_rng=entropy_rng,
@@ -417,120 +407,68 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
 
 
 # ---------------------------------------------------------------------------
-# Extension-stack composition helpers
+# Extension-stack loss terms
 # ---------------------------------------------------------------------------
-def _compose_extra_critic_loss(
-    user_fn: Optional[Callable],
+def _stack_critic_loss(
     extension_stack: Optional[ExtensionStack],
     agent_state: PPOState,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """Combine the user ``extra_critic_loss_fn`` with stack.critic_loss.
+    """The stack's additive critic-loss term as a ``value_loss_function``
+    ``extra_loss_fn``: ``(critic_params, critic_states, observations,
+    value_targets) -> scalar``; ``None`` for an empty stack.
 
-    Returns ``None`` (so the agent skips the extra-loss code path) when
-    no contribution exists. The returned callable matches the signature
-    expected by :func:`value_loss_function`:
-    ``(critic_params, critic_states, observations, value_targets,
-    agent_state) -> scalar``. ``agent_state`` is the iteration-time
-    state captured by closure; the per-minibatch ``agent_state`` is also
-    passed through but the stack reads ``ext_state`` off the closure
-    instance for determinism.
+    ``agent_state`` (the iteration-time state, captured by closure) is
+    what the extensions read ``ext_state`` from.
     """
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-    if user_fn is None and not has_stack:
+    if extension_stack is None or not extension_stack.extensions:
         return None
 
-    def combined(critic_params, critic_states, observations, value_targets, _astate):
-        loss: jax.Array | float = 0.0
-        if user_fn is not None:
-            loss = loss + user_fn(
-                critic_params, critic_states, observations, value_targets, _astate
-            )
-        if has_stack:
-            assert extension_stack is not None
-            _batch = {
-                "observations": observations,
-                "targets": value_targets,
-                "critic_params": critic_params,
-                "critic_state": critic_states,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                _batch,
-                agent_state.collector_state.timestep,
-                agent_state.rng,
-                total_timesteps,
-            )
-        return loss
+    def critic_loss(critic_params, critic_states, observations, value_targets):
+        _batch = {
+            "observations": observations,
+            "targets": value_targets,
+            "critic_params": critic_params,
+            "critic_state": critic_states,
+        }
+        return extension_stack.fold_critic_loss(
+            agent_state,
+            _batch,
+            agent_state.collector_state.timestep,
+            agent_state.rng,
+            total_timesteps,
+        )
 
-    return combined
+    return critic_loss
 
 
-def _compose_extra_actor_loss(
-    user_fn: Optional[Callable],
+def _stack_actor_loss(
     extension_stack: Optional[ExtensionStack],
     agent_state: PPOState,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """Combine the user ``extra_actor_loss_fn`` with stack.actor_loss.
-
-    Returns ``None`` when nothing contributes. The returned callable
-    matches the signature expected by :func:`policy_loss_function`:
-    ``(actor_params, actor_state) -> scalar``.
-    """
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-    if user_fn is None and not has_stack:
+    """The stack's additive actor-loss term as a ``policy_loss_function``
+    ``extra_loss_fn``: ``(actor_params, actor_state) -> scalar``; ``None``
+    for an empty stack."""
+    if extension_stack is None or not extension_stack.extensions:
         return None
 
-    def combined(actor_params, actor_state):
-        loss: jax.Array | float = 0.0
-        if user_fn is not None:
-            loss = loss + user_fn(actor_params, actor_state)
-        if has_stack:
-            assert extension_stack is not None
-            _batch = {
-                "actor_params": actor_params,
-                "actor_state": actor_state,
-            }
-            loss = loss + extension_stack.fold_actor_loss(
-                agent_state,
-                _batch,
-                agent_state.collector_state.timestep,
-                agent_state.rng,
-                total_timesteps,
-            )
-        return loss
+    def actor_loss(actor_params, actor_state):
+        _batch = {
+            "actor_params": actor_params,
+            "actor_state": actor_state,
+        }
+        return extension_stack.fold_actor_loss(
+            agent_state,
+            _batch,
+            agent_state.collector_state.timestep,
+            agent_state.rng,
+            total_timesteps,
+        )
 
-    return combined
+    return actor_loss
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "env_args",
-        "mode",
-        "recurrent",
-        "log_frequency",
-        "num_episode_test",
-        "log_fn",
-        "log",
-        "verbose",
-        "lstm_hidden_size",
-        "agent_config",
-        "horizon",
-        "total_timesteps",
-        "n_steps",
-        "action_pipeline",
-        "eval_action_transform",
-        "obs_preprocessor",
-        "auxiliary_update",
-        "extra_eval_metrics",
-        "extra_actor_loss_fn",
-        "extra_critic_loss_fn",
-        "reward_shaping_fn",
-        "extension_stack",
-    ],
-)
 def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branches)
     agent_state: PPOState,
     _: Any,
@@ -539,23 +477,12 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     recurrent: bool,
     agent_config: PPOConfig,
     total_timesteps: int,
-    n_steps: int,
     total_n_updates: int,
-    lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
-    horizon: int = 10000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = False,
-    verbose: bool = False,
-    action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
-    obs_preprocessor: Optional[Callable] = None,
-    auxiliary_update: Optional[Callable] = None,
-    extra_eval_metrics: Optional[Callable] = None,
-    extra_actor_loss_fn: Optional[Callable] = None,
-    extra_critic_loss_fn: Optional[Callable] = None,
     reward_shaping_fn: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
 ) -> tuple[PPOState, None]:
@@ -568,10 +495,8 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         env_args (EnvironmentConfig): Environment configuration.
         mode (str): Environment mode ("gymnax" or "brax").
         recurrent (bool): Whether the model is recurrent.
-        buffer (BufferType): Replay buffer.
         agent_config (PPOConfig): PPO agent configuration.
-        action_dim (int): Action dimensionality.
-        lstm_hidden_size (Optional[int]): LSTM hidden size for recurrent models.
+        total_n_updates (int): Number of training iterations.
         log_frequency (int): Frequency of logging and evaluation.
         num_episode_test (int): Number of episodes for evaluation.
 
@@ -597,14 +522,10 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         initial_critic_hidden = None
 
     collect_scan_fn = partial(
-        collect_experience,
-        recurrent=recurrent,
-        mode=mode,
-        env_args=env_args,
-        action_pipeline=action_pipeline,
+        collect_experience, recurrent=recurrent, mode=mode, env_args=env_args
     )
     agent_state, transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=n_steps
+        collect_scan_fn, agent_state, xs=None, length=agent_config.n_steps
     )  # transition = s_t, a_t, r_{s_t -> s_{t+1}}, s_{t+1}, d_{s_t -> s_{t+1}}
 
     # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout on
@@ -950,17 +871,11 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         agent_state: PPOState, num_epochs: int
     ) -> tuple[PPOState, AuxiliaryLogs]:
         # Closures rebuilt each ``do_update`` so the scan body sees no mutable state.
-        _composed_critic_extra = _compose_extra_critic_loss(
-            extra_critic_loss_fn,
-            extension_stack,
-            agent_state,
-            total_timesteps,
+        _composed_critic_extra = _stack_critic_loss(
+            extension_stack, agent_state, total_timesteps
         )
-        _composed_actor_extra = _compose_extra_actor_loss(
-            extra_actor_loss_fn,
-            extension_stack,
-            agent_state,
-            total_timesteps,
+        _composed_actor_extra = _stack_actor_loss(
+            extension_stack, agent_state, total_timesteps
         )
 
         # Capture extra_loss_fns in closure (jax rejects function args inside scan).
@@ -1094,36 +1009,23 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                         total_timesteps,
                     )
 
-            if _composed_critic_extra is None:
-                (_v_loss, v_aux), v_grads = critic_grad_fn(
-                    agent_state.critic_state.params,
-                    agent_state.critic_state,
-                    observations,
-                    value_targets_mb,
-                    dones,
-                    recurrent,
-                    agent_config.vf_coef,
-                    initial_hidden=critic_hidden_mb,
-                )
-            else:
-                (_v_loss, v_aux), v_grads = critic_grad_fn(
-                    agent_state.critic_state.params,
-                    agent_state.critic_state,
-                    observations,
-                    value_targets_mb,
-                    dones,
-                    recurrent,
-                    agent_state,
-                    agent_config.vf_coef,
-                    initial_hidden=critic_hidden_mb,
-                )
+            (_v_loss, v_aux), v_grads = critic_grad_fn(
+                agent_state.critic_state.params,
+                agent_state.critic_state,
+                observations,
+                value_targets_mb,
+                dones,
+                recurrent,
+                agent_config.vf_coef,
+                initial_hidden=critic_hidden_mb,
+            )
 
             clip_coef = (
                 agent_config.clip_range(agent_state.collector_state.timestep)
                 if callable(agent_config.clip_range)
                 else agent_config.clip_range
             )
-            # raw_actions as kwarg: hits slot 14, not extra_loss_fn at slot 13.
+            # raw_actions as kwarg, not positionally into extra_loss_fn's slot.
             (_p_loss, p_aux), p_grads = actor_grad_fn(
                 agent_state.actor_state.params,
                 agent_state.actor_state,
@@ -1136,7 +1038,6 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                 clip_coef,
                 agent_config.ent_coef,
                 agent_config.normalize_advantage,
-                obs_preprocessor,
                 raw_actions=raw_actions_mb,
                 entropy_rng=ent_rng,
                 initial_hidden=actor_hidden_mb,
@@ -1289,31 +1190,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
             total_timesteps,
         )
 
-    if auxiliary_update is not None:
-        aux_rng, rng = jax.random.split(agent_state.rng)
-        # Stash the full stacked rollout (T, n_envs, *) into
-        # collector_state.rollout so the auxiliary_update hook gets the
-        # whole iteration's experience, not just the last single
-        # transition. collect_experience's leading-iteration check
-        # only reads ``rollout is not None`` and ``rollout.raw_obs is
-        # not None``, both of which are unaffected by adding a time
-        # axis. Restored to the latest single transition after the
-        # aux step so we don't leak the stacked shape downstream.
-        latest = agent_state.collector_state.rollout
-        agent_state = agent_state.replace(
-            rng=rng,
-            collector_state=agent_state.collector_state.replace(rollout=transition),
-        )
-        agent_state, auxiliary_metrics = auxiliary_update(agent_state, aux_rng)
-        agent_state = agent_state.replace(
-            collector_state=agent_state.collector_state.replace(rollout=latest),
-        )
-    else:
-        auxiliary_metrics = {}
-
-    _merged_extra_eval = compose_eval_metrics(
-        extra_eval_metrics, extension_stack, total_timesteps
-    )
+    _extra_eval = compose_eval_metrics(None, extension_stack, total_timesteps)
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -1322,18 +1199,12 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
         env_args,
         num_episode_test,
         recurrent,
-        lstm_hidden_size,
         log,
-        verbose,
         log_fn,
         log_frequency,
         total_timesteps,
-        eval_action_transform=eval_action_transform,
-        extra_eval_metrics=_merged_extra_eval,
+        extra_eval_metrics=_extra_eval,
     )
-
-    metrics_to_log = {**metrics_to_log, **auxiliary_metrics}
-
     return agent_state, metrics_to_log
 
 
@@ -1348,14 +1219,6 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     pid_actor_config: Optional[PIDActorConfig] = None,
-    action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
-    obs_preprocessor: Optional[Callable] = None,
-    init_transform: Optional[Callable] = None,
-    auxiliary_update: Optional[Callable] = None,
-    extra_eval_metrics: Optional[Callable] = None,
-    extra_actor_loss_fn: Optional[Callable] = None,
-    extra_critic_loss_fn: Optional[Callable] = None,
     reward_shaping_fn: Optional[Callable] = None,
     extensions: Sequence = (),
     normalize_obs_running: bool = False,
@@ -1380,10 +1243,7 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
 
-    _recurrent = (
-        resolve_memory_config(network_args.memory, network_args.lstm_hidden_size)
-        is not None
-    )
+    _recurrent = network_args.memory is not None
     if _recurrent and extensions:
         raise NotImplementedError("Recurrent PPO does not support extensions yet.")
 
@@ -1424,11 +1284,7 @@ def make_train(
         # carry structure on the first iteration and crash the scan.
         if getattr(agent_config, "expose_recent_rollout", False):
             _trace_scan = partial(
-                collect_experience,
-                recurrent=_recurrent,
-                mode=mode,
-                env_args=env_args,
-                action_pipeline=action_pipeline,
+                collect_experience, recurrent=_recurrent, mode=mode, env_args=env_args
             )
             _, _trans_abs = jax.eval_shape(
                 lambda st: jax.lax.scan(
@@ -1441,18 +1297,11 @@ def make_train(
             )
         return agent_state
 
-    def _init_transform(agent_state, key):
-        # One-shot transform consumes ``transform_key`` (the 3rd split of
-        # the original key) so RNG matches the pre-refactor layout.
-        _, _init_key, transform_key = jax.random.split(key, 3)
-        return init_transform(agent_state, transform_key)
-
     def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         return partial(
             training_iteration,
             recurrent=_recurrent,
             agent_config=agent_config,
-            n_steps=agent_config.n_steps,
             mode=mode,
             env_args=env_args,
             num_episode_test=num_episode_test,
@@ -1463,15 +1312,7 @@ def make_train(
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),
-            horizon=(logging_config.horizon if logging_config is not None else None),
             total_n_updates=num_updates,
-            action_pipeline=action_pipeline,
-            eval_action_transform=eval_action_transform,
-            obs_preprocessor=obs_preprocessor,
-            auxiliary_update=auxiliary_update,
-            extra_eval_metrics=extra_eval_metrics,
-            extra_actor_loss_fn=extra_actor_loss_fn,
-            extra_critic_loss_fn=extra_critic_loss_fn,
             reward_shaping_fn=reward_shaping_fn,
             extension_stack=extension_stack,
         )
@@ -1480,5 +1321,4 @@ def make_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=num_updates,
-        init_transform=_init_transform if init_transform is not None else None,
     )

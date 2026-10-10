@@ -438,50 +438,22 @@ def update_agent(
 # ---------------------------------------------------------------------------
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "env_args",
-        "mode",
-        "recurrent",
-        "buffer",
-        "agent_config",
-        "total_timesteps",
-        "lstm_hidden_size",
-        "log_frequency",
-        "num_episode_test",
-        "log_fn",
-        "log",
-        "verbose",
-        "action_pipeline",
-        "eval_action_transform",
-        "td_target_fn",
-        "td_loss_fn",
-        "extra_eval_metrics",
-        "extension_stack",
-    ],
-)
 def training_iteration(
     agent_state: DQNState,
     _: Any,
     env_args: EnvironmentConfig,
     mode: str,
-    recurrent: bool,
     buffer: BufferType,
     agent_config: DQNConfig,
     total_timesteps: int,
-    lstm_hidden_size: Optional[int] = None,
     log_frequency: Optional[int] = 1000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = False,
-    verbose: bool = False,
     action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
     td_target_fn: Callable = compute_dqn_td_target,
     td_loss_fn: Callable = mse_td_loss,
-    extra_eval_metrics: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
 ) -> Tuple[DQNState, Any]:
     timestep = agent_state.collector_state.timestep
@@ -489,7 +461,7 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
-        recurrent=recurrent,
+        recurrent=False,
         mode=mode,
         env_args=env_args,
         buffer=buffer,
@@ -544,9 +516,6 @@ def training_iteration(
         operand=agent_state,
     )
 
-    _merged_extra_eval = compose_eval_metrics(
-        extra_eval_metrics, extension_stack, total_timesteps
-    )
     agent_state, metrics_to_log = evaluate_and_log(
         agent_state,
         aux,
@@ -554,15 +523,12 @@ def training_iteration(
         mode,
         env_args,
         num_episode_test,
-        recurrent,
-        lstm_hidden_size,
+        False,
         log,
-        verbose,
         log_fn,
         log_frequency,
         total_timesteps,
-        eval_action_transform=eval_action_transform,
-        extra_eval_metrics=_merged_extra_eval,
+        extra_eval_metrics=compose_eval_metrics(None, extension_stack, total_timesteps),
     )
     return agent_state, metrics_to_log
 
@@ -586,12 +552,9 @@ def make_train(
     epsilon_start: float = 1.0,
     epsilon_end: float = 0.05,
     epsilon_decay_frac: float = 0.5,
-    action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
     td_target_fn: Optional[Callable] = None,
     td_loss_fn: Optional[Callable] = None,
     q_network_cls: Optional[type] = None,
-    extra_eval_metrics: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
@@ -601,22 +564,20 @@ def make_train(
     if logging_config is not None:
         start_async_logging()
 
-    recurrent = network_args.lstm_hidden_size is not None
     n_actions = get_action_dim(env_args.env, env_args.env_params)
 
     # Resolve composable hooks to their vanilla-DQN defaults when unset.
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 
-    if action_pipeline is None:
-        action_pipeline = make_epsilon_greedy_pipeline(
-            env_args=env_args,
-            n_actions=n_actions,
-            epsilon_start=epsilon_start,
-            epsilon_end=epsilon_end,
-            epsilon_decay_frac=epsilon_decay_frac,
-            total_timesteps=total_timesteps,
-        )
+    action_pipeline = make_epsilon_greedy_pipeline(
+        env_args=env_args,
+        n_actions=n_actions,
+        epsilon_start=epsilon_start,
+        epsilon_end=epsilon_end,
+        epsilon_decay_frac=epsilon_decay_frac,
+        total_timesteps=total_timesteps,
+    )
 
     num_updates = total_timesteps // env_args.n_envs
 
@@ -644,7 +605,6 @@ def make_train(
         return partial(
             training_iteration,
             buffer=buffer,
-            recurrent=recurrent,
             agent_config=agent_config,
             mode=mode,
             env_args=env_args,
@@ -653,15 +613,12 @@ def make_train(
             index=index,
             log=log,
             total_timesteps=total_timesteps,
-            lstm_hidden_size=network_args.lstm_hidden_size,
             log_frequency=(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             action_pipeline=action_pipeline,
-            eval_action_transform=eval_action_transform,
             td_target_fn=td_target_fn,
             td_loss_fn=td_loss_fn,
-            extra_eval_metrics=extra_eval_metrics,
             extension_stack=extension_stack,
         )
 

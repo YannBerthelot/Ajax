@@ -51,7 +51,6 @@ def SAC_state(env_config):
         actor_architecture=["64", "relu", "64"],
         critic_architecture=["64", "relu", "64"],
         squash=True,
-        lstm_hidden_size=None,
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     buffer = get_buffer(
@@ -81,7 +80,6 @@ def test_evaluate_with_fast_env(env_config, SAC_state):
         rng=rng,
         env_params=env_config.env_params,
         recurrent=False,
-        lstm_hidden_size=None,
     )
 
     # Assertions
@@ -100,7 +98,6 @@ def test_evaluate_with_gymnax_env(env_config, SAC_state):
         rng=rng,
         env_params=env_config.env_params,
         recurrent=False,
-        lstm_hidden_size=128,
     )
 
     # Assertions
@@ -118,7 +115,6 @@ def _eval_pendulum():
         actor_architecture=["64", "relu", "64"],
         critic_architecture=["64", "relu", "64"],
         squash=True,
-        lstm_hidden_size=None,
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     buffer = get_buffer(
@@ -150,7 +146,6 @@ def test_evaluate_regression_pendulum():
         rng=jax.random.PRNGKey(42),
         env_params=env_params,
         recurrent=False,
-        lstm_hidden_size=None,
     )
     # Pendulum truncates at max_steps=200 for every episode with this policy.
     assert float(length) == 200.0
@@ -172,7 +167,6 @@ def test_evaluate_done_masking_no_accumulation_past_done():
         "rng": jax.random.PRNGKey(7),
         "env_params": env_params,
         "recurrent": False,
-        "lstm_hidden_size": None,
     }
     # Baseline (natural length — 200 for Pendulum).
     r_base, *_ = evaluate(**kwargs)

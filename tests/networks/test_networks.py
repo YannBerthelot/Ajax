@@ -147,7 +147,6 @@ def test_get_initialized_actor_critic(
         **{
             "actor_architecture": actor_architecture,
             "critic_architecture": critic_architecture,
-            "lstm_hidden_size": None,  # Example non-recurrent configuration
         }
     )
     num_critics = 2
@@ -199,7 +198,6 @@ def test_get_initialized_actor_critic_continuous(
         **{
             "actor_architecture": actor_architecture,
             "critic_architecture": critic_architecture,
-            "lstm_hidden_size": None,  # Example non-recurrent configuration
         }
     )
     num_critics = 2
@@ -249,7 +247,6 @@ def test_predict_value(real_env_config, actor_architecture, critic_architecture)
     network_config = NetworkConfig(
         actor_architecture=actor_architecture,
         critic_architecture=critic_architecture,
-        lstm_hidden_size=None,
     )
     num_critics = 2
     actor_state, critic_state = get_initialized_actor_critic(

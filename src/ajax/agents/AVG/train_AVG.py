@@ -19,7 +19,7 @@ from ajax.environments.interaction import (
     init_collector_state,
     should_use_uniform_sampling,
 )
-from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
+from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
 from ajax.log import compose_eval_metrics, evaluate_and_log
 from ajax.logging.wandb_logging import (
@@ -190,7 +190,6 @@ def compute_avg_td_target(
     rewards: jax.Array,
     gamma: float,
     alpha: jax.Array,
-    recurrent: bool,
     reward_scale: float,
 ) -> Tuple[jax.Array, jax.Array]:
     """AVG bellman target (no target network, uses current critic_params)."""
@@ -200,7 +199,7 @@ def compute_avg_td_target(
         actor_params=actor_state.params,
         obs=next_observations,
         done=dones,
-        recurrent=recurrent,
+        recurrent=False,
     )
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = next_pi.sample_and_log_prob(seed=sample_key)
@@ -219,7 +218,6 @@ def compute_avg_td_target(
     return target, next_log_probs
 
 
-@partial(jax.jit, static_argnames=["recurrent", "gamma", "reward_scale"])
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
@@ -232,7 +230,6 @@ def value_loss_function(
     rewards: jax.Array,
     gamma: float,
     alpha: jax.Array,
-    recurrent: bool,
     scaling_coef: jax.Array,
     reward_scale: float = 5.0,  # Add reward scaling factor here
     target_q_override: Optional[jax.Array] = None,
@@ -253,7 +250,6 @@ def value_loss_function(
         rewards (jax.Array): Rewards received.
         gamma (float): Discount factor.
         alpha (jax.Array): Temperature parameter.
-        recurrent (bool): Whether the model is recurrent.
         reward_scale (float): Reward scaling factor.
 
     Returns:
@@ -286,7 +282,6 @@ def value_loss_function(
             rewards,
             gamma,
             alpha,
-            recurrent,
             reward_scale,
         )
 
@@ -305,23 +300,14 @@ def value_loss_function(
     )
 
 
-@partial(
-    jax.jit,
-    static_argnames=["recurrent", "obs_preprocessor", "policy_action_transform"],
-)
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
     observations: jax.Array,
     dones: Optional[jax.Array],
-    recurrent: bool,
     alpha: jax.Array,
     rng: jax.random.PRNGKey,
-    raw_observations: Optional[jax.Array] = None,
-    a_expert_precomputed: Optional[jax.Array] = None,
-    obs_preprocessor: Optional[Callable] = None,
-    policy_action_transform: Optional[Callable] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
     """
     Compute the policy loss for the actor network.
@@ -332,37 +318,27 @@ def policy_loss_function(
         critic_states (LoadedTrainState): Critic train states.
         observations (jax.Array): Current observations.
         dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
         alpha (jax.Array): Temperature parameter.
         rng (jax.random.PRNGKey): Random number generator key.
 
     Returns:
         Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
     """
-    obs_for_actor = (
-        obs_preprocessor(observations) if obs_preprocessor is not None else observations
-    )
     pi, _ = get_pi(
         actor_state=actor_state,
         actor_params=actor_params,
-        obs=obs_for_actor,
+        obs=observations,
         done=dones,
-        recurrent=recurrent,
+        recurrent=False,
     )
     actions, log_probs = pi.sample_and_log_prob(seed=rng)
 
-    _raw_obs = raw_observations if raw_observations is not None else observations
-    q_input_actions = (
-        policy_action_transform(actions, _raw_obs, a_expert_precomputed)
-        if policy_action_transform is not None
-        else actions
-    )
     # Predict Q-values from critics
     q_pred = jnp.min(
         predict_value(
             critic_state=critic_states,
             critic_params=critic_states.params,
-            x=jnp.hstack((observations, q_input_actions)),
+            x=jnp.hstack((observations, actions)),
         ),
         axis=0,
     )
@@ -387,11 +363,9 @@ def update_value_functions(
     actions: jax.Array,
     next_observations: jax.Array,
     dones: Optional[jax.Array],
-    recurrent: bool,
     rewards: jax.Array,
     gamma: float,
     reward_scale: float = 1.0,  # Add reward scaling factor here
-    target_modifier: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
 ) -> Tuple[AVGState, Dict[str, Any]]:
@@ -404,7 +378,6 @@ def update_value_functions(
         actions (jax.Array): Actions taken.
         next_observations (jax.Array): Next observations.
         dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
         rewards (jax.Array): Rewards received.
         gamma (float): Discount factor.
         reward_scale (float): Reward scaling factor.
@@ -419,7 +392,8 @@ def update_value_functions(
 
     target_q_override = None
     log_probs_override = None
-    if target_modifier is not None or has_stack:
+    if has_stack:
+        assert extension_stack is not None
         target_q, log_probs = compute_avg_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
@@ -430,45 +404,25 @@ def update_value_functions(
             rewards,
             gamma,
             alpha,
-            recurrent,
             reward_scale,
         )
-        if target_modifier is not None:
-            q_preds_for_modifier = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.params,
-                x=jnp.concatenate((observations, actions), axis=-1),
-            )
-            target_q, _, _ = target_modifier(
-                target_q,
-                agent_state,
-                observations,
-                actions,
-                next_observations,
-                dones,
-                gamma,
-                value_loss_key,
-                q_preds_for_modifier,
-            )
-        if has_stack:
-            assert extension_stack is not None
-            _tgt_batch = {
-                "observations": observations,
-                "actions": actions,
-                "next_observations": next_observations,
-                "rewards": rewards,
-                "dones": dones,
-                "gamma": gamma,
-                "reward_scale": reward_scale,
-            }
-            target_q = extension_stack.fold_on_target(
-                agent_state,
-                _tgt_batch,
-                target_q,
-                agent_state.collector_state.timestep,
-                value_loss_key,
-                total_timesteps,
-            )
+        _tgt_batch = {
+            "observations": observations,
+            "actions": actions,
+            "next_observations": next_observations,
+            "rewards": rewards,
+            "dones": dones,
+            "gamma": gamma,
+            "reward_scale": reward_scale,
+        }
+        target_q = extension_stack.fold_on_target(
+            agent_state,
+            _tgt_batch,
+            target_q,
+            agent_state.collector_state.timestep,
+            value_loss_key,
+            total_timesteps,
+        )
         target_q_override = jax.lax.stop_gradient(target_q)
         log_probs_override = log_probs
 
@@ -485,7 +439,6 @@ def update_value_functions(
             rewards,
             gamma,
             alpha,
-            recurrent,
             agent_state.scaling_coef,
             reward_scale,
             target_q_override,
@@ -521,27 +474,10 @@ def update_value_functions(
     return agent_state, aux
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "recurrent",
-        "obs_preprocessor",
-        "policy_action_transform",
-        "extension_stack",
-        "total_timesteps",
-    ],
-)
 def update_policy(
     agent_state: AVGState,
-    actions: jax.Array,
-    log_probs: jax.Array,
     observations: jax.Array,
     done: Optional[jax.Array],
-    recurrent: bool,
-    raw_observations: Optional[jax.Array] = None,
-    a_expert_precomputed: Optional[jax.Array] = None,
-    obs_preprocessor: Optional[Callable] = None,
-    policy_action_transform: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
 ) -> Tuple[AVGState, Dict[str, Any]]:
@@ -552,7 +488,6 @@ def update_policy(
         agent_state (AVGState): Current SAC agent state.
         observations (jax.Array): Current observations.
         done (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
 
     Returns:
         Tuple[AVGState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
@@ -570,13 +505,8 @@ def update_policy(
             agent_state.critic_state,
             observations,
             done,
-            recurrent,
             alpha,
             policy_key,
-            raw_observations=raw_observations,
-            a_expert_precomputed=a_expert_precomputed,
-            obs_preprocessor=obs_preprocessor,
-            policy_action_transform=policy_action_transform,
         )
         if has_stack:
             assert extension_stack is not None
@@ -608,102 +538,47 @@ def update_policy(
 
 # AVG never updates alpha (it stays at its init value); whether it should be
 # tuned is pending the AVG defect decision.
-@partial(
-    jax.jit,
-    static_argnames=[
-        "recurrent",
-        "gamma",
-        "action_dim",
-        "reward_scale",
-        "num_critic_updates",
-        "expert_policy",
-        "target_modifier",
-        "obs_preprocessor",
-        "policy_action_transform",
-        "extension_stack",
-        "total_timesteps",
-    ],
-)
 def update_agent(
     agent_state: AVGState,
-    _: Any,
-    recurrent: bool,
     gamma: float,
-    action_dim: int,
-    num_critic_updates: int = 1,
     reward_scale: float = 5.0,
-    expert_policy: Optional[Callable] = None,
-    target_modifier: Optional[Callable] = None,
-    obs_preprocessor: Optional[Callable] = None,
-    policy_action_transform: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
 ) -> Tuple[AVGState, AuxiliaryLogs]:
     """
-    Update the SAC agent, including critic, actor, and temperature updates.
+    One incremental AVG update on the latest transition: critic and actor.
+
+    Both steps start from the same ``agent_state``, so the actor loss sees
+    the pre-update critic.
 
     Args:
-        agent_state (AVGState): Current SAC agent state.
-        _ (Any): Placeholder for scan compatibility.
-        recurrent (bool): Whether the model is recurrent.
+        agent_state (AVGState): Current AVG agent state.
         gamma (float): Discount factor.
-        action_dim (int): Action dimensionality.
-        tau (float): Soft update coefficient.
-        num_critic_updates (int): Number of critic updates per step.
         reward_scale (float): Reward scaling factor.
 
     Returns:
-        Tuple[AVGState, None]: Updated agent state.
+        Tuple[AVGState, AuxiliaryLogs]: Updated agent state and metrics.
     """
     transition = agent_state.collector_state.rollout
     done = jnp.logical_or(transition.terminated, transition.truncated)  # type: ignore[union-attr]
 
-    raw_observations = getattr(transition, "raw_obs", None)
-    a_expert_precomputed = None
-    if expert_policy is not None and policy_action_transform is not None:
-        _raw = raw_observations if raw_observations is not None else transition.obs  # type: ignore[union-attr]
-        a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
-
-    # Update Q functions
-    def critic_update_step(carry, _):
-        agent_state = carry
-
-        agent_state, aux_value = update_value_functions(
-            observations=transition.obs,
-            actions=transition.action,
-            next_observations=transition.next_obs,
-            dones=done,
-            agent_state=agent_state,
-            recurrent=recurrent,
-            rewards=transition.reward,
-            gamma=gamma,
-            reward_scale=reward_scale,
-            target_modifier=target_modifier,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-        )
-
-        return agent_state, aux_value
-
-    agent_state_critic, aux_value = jax.lax.scan(
-        critic_update_step,
-        agent_state,
-        None,
-        length=num_critic_updates,
+    agent_state_critic, aux_value = update_value_functions(
+        observations=transition.obs,  # type: ignore[union-attr]
+        actions=transition.action,  # type: ignore[union-attr]
+        next_observations=transition.next_obs,  # type: ignore[union-attr]
+        dones=done,
+        agent_state=agent_state,
+        rewards=transition.reward,  # type: ignore[union-attr]
+        gamma=gamma,
+        reward_scale=reward_scale,
+        extension_stack=extension_stack,
+        total_timesteps=total_timesteps,
     )
 
-    # Update policy
     agent_state_policy, aux_policy = update_policy(
         agent_state=agent_state,
-        actions=transition.action,  # type: ignore[union-attr]
-        log_probs=transition.log_prob,  # type: ignore[union-attr]
         observations=transition.obs,  # type: ignore[union-attr]
         done=done,
-        recurrent=recurrent,
-        raw_observations=raw_observations,
-        a_expert_precomputed=a_expert_precomputed,
-        obs_preprocessor=obs_preprocessor,
-        policy_action_transform=policy_action_transform,
         extension_stack=extension_stack,
         total_timesteps=total_timesteps,
     )
@@ -724,9 +599,7 @@ def update_agent(
             agent_state.alpha.params["log_alpha"],
         ),
         policy=aux_policy,
-        value=ValueAuxiliaries(
-            **{key: val.flatten() for key, val in to_state_dict(aux_value).items()}
-        ),
+        value=aux_value,
     )
     return agent_state, aux
 
@@ -780,66 +653,30 @@ def update_AVG_values(
     return agent_state
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "env_args",
-        "mode",
-        "recurrent",
-        "log_frequency",
-        "num_episode_test",
-        "log_fn",
-        "log",
-        "verbose",
-        "action_dim",
-        "lstm_hidden_size",
-        "agent_config",
-        "total_timesteps",
-        "expert_policy",
-        "action_pipeline",
-        "eval_action_transform",
-        "target_modifier",
-        "obs_preprocessor",
-        "policy_action_transform",
-        "extension_stack",
-    ],
-)
 def training_iteration(
     agent_state: AVGState,
     _: Any,
     env_args: EnvironmentConfig,
     mode: str,
-    recurrent: bool,
     agent_config: AVGConfig,
-    action_dim: int,
     total_timesteps: int,
-    lstm_hidden_size: Optional[int] = None,
     log_frequency: int = 1000,
     num_episode_test: int = 10,
     log_fn: Optional[Callable] = None,
     index: Optional[int] = None,
     log: bool = False,
-    verbose: bool = False,
     expert_policy: Optional[Callable] = None,
-    action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
-    target_modifier: Optional[Callable] = None,
-    obs_preprocessor: Optional[Callable] = None,
-    policy_action_transform: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
 ) -> tuple[AVGState, None]:
     """
     Perform one training iteration, including experience collection and agent updates.
 
     Args:
-        agent_state (AVGState): Current SAC agent state.
+        agent_state (AVGState): Current AVG agent state.
         _ (Any): Placeholder for scan compatibility.
         env_args (EnvironmentConfig): Environment configuration.
         mode (str): Environment mode ("gymnax" or "brax").
-        recurrent (bool): Whether the model is recurrent.
-        agent_config (SACConfig): SAC agent configuration.
-        action_dim (int): Action dimensionality.
-        lstm_hidden_size (Optional[int]): LSTM hidden size for recurrent models.
+        agent_config (AVGConfig): AVG agent configuration.
         log_frequency (int): Frequency of logging and evaluation.
         num_episode_test (int): Number of episodes for evaluation.
 
@@ -852,11 +689,10 @@ def training_iteration(
 
     collect_scan_fn = partial(
         collect_experience,
-        recurrent=recurrent,
+        recurrent=False,
         mode=mode,
         env_args=env_args,
         uniform=uniform,
-        action_pipeline=action_pipeline,
     )
     rng = agent_state.rng
     agent_state, rollout = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
@@ -879,25 +715,15 @@ def training_iteration(
     agent_state = agent_state.replace(rng=rng)
 
     def do_update(agent_state):
-        update_scan_fn = partial(
-            update_agent,
-            recurrent=recurrent,
+        agent_state, aux = update_agent(
+            agent_state,
             gamma=agent_config.gamma,
-            action_dim=action_dim,
             reward_scale=agent_config.reward_scale,
-            expert_policy=expert_policy,
-            target_modifier=target_modifier,
-            obs_preprocessor=obs_preprocessor,
-            policy_action_transform=policy_action_transform,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
         )
-        agent_state, aux = jax.lax.scan(update_scan_fn, agent_state, xs=None, length=1)
-        aux = aux.replace(
-            value=ValueAuxiliaries(
-                **{key: val.flatten() for key, val in to_state_dict(aux.value).items()}
-            )
-        )
+        # One (1,)-shaped leaf per metric: the metric-flattening contract.
+        aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
 
         # Extension post_update — folded once per training_iteration.
         # Empty stack ⇒ identity.
@@ -946,15 +772,12 @@ def training_iteration(
         mode,
         env_args,
         num_episode_test,
-        recurrent,
-        lstm_hidden_size,
+        False,
         log,
-        verbose,
         log_fn,
         log_frequency,
         total_timesteps,
         expert_policy=expert_policy,
-        eval_action_transform=eval_action_transform,
         extra_eval_metrics=_extra_eval,
     )
 
@@ -975,21 +798,16 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     expert_policy: Optional[Callable] = None,
     pid_actor_config: Optional[PIDActorConfig] = None,
-    action_pipeline: Optional[Callable] = None,
-    eval_action_transform: Optional[Callable] = None,
-    target_modifier: Optional[Callable] = None,
-    obs_preprocessor: Optional[Callable] = None,
-    policy_action_transform: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """
-    Create the training function for the SAC agent.
+    Create the training function for the AVG agent.
 
     Args:
         env_args (EnvironmentConfig): Environment configuration.
         optimizer_args (OptimizerConfig): Optimizer configuration.
         network_args (NetworkConfig): Network configuration.
-        agent_config (SACConfig): SAC agent configuration.
+        agent_config (AVGConfig): AVG agent configuration.
         alpha_args (AlphaConfig): Alpha configuration.
         total_timesteps (int): Total timesteps for training.
         num_episode_test (int): Number of episodes for evaluation during training.
@@ -1009,7 +827,7 @@ def make_train(
 
     @train_jit
     def train(key, index: Optional[int] = None):
-        """Train the SAC agent."""
+        """Train the AVG agent."""
 
         agent_state = init_AVG(
             key=key,
@@ -1030,7 +848,6 @@ def make_train(
             )
 
         num_updates = total_timesteps  # // env_args.n_envs
-        _, action_shape = get_state_action_shapes(env_args.env)
 
         # Gap A: pre-allocate the ``last_rollout`` placeholder so the
         # scan-carry pytree structure is stable from iteration zero.
@@ -1039,11 +856,7 @@ def make_train(
         # rollout the training_iteration stashes).
         if getattr(agent_config, "expose_recent_rollout", False):
             _trace_scan = partial(
-                collect_experience,
-                recurrent=network_args.lstm_hidden_size is not None,
-                mode=mode,
-                env_args=env_args,
-                action_pipeline=action_pipeline,
+                collect_experience, recurrent=False, mode=mode, env_args=env_args
             )
             _, _trans_abs = jax.eval_shape(
                 lambda st: jax.lax.scan(_trace_scan, st, xs=None, length=1),
@@ -1055,8 +868,6 @@ def make_train(
 
         training_iteration_scan_fn = partial(
             training_iteration,
-            recurrent=network_args.lstm_hidden_size is not None,
-            action_dim=action_shape[0],
             agent_config=agent_config,
             mode=mode,
             env_args=env_args,
@@ -1069,11 +880,6 @@ def make_train(
                 logging_config.log_frequency if logging_config is not None else None
             ),
             expert_policy=expert_policy,
-            action_pipeline=action_pipeline,
-            eval_action_transform=eval_action_transform,
-            target_modifier=target_modifier,
-            obs_preprocessor=obs_preprocessor,
-            policy_action_transform=policy_action_transform,
             extension_stack=extension_stack,
         )
 

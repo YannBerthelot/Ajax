@@ -49,13 +49,10 @@ def test_recurrent_ppo_continuous_env():
         assert jnp.all(jnp.isfinite(leaf))
 
 
-def test_recurrent_ppo_memory_dict_and_legacy_alias():
+def test_recurrent_ppo_memory_dict():
     # dict config sugar
     agent = PPO(env_id="CartPole-v1", memory={"kind": "lstm", "hidden_size": 8})
     assert agent.network_args.memory == MemoryConfig(kind="lstm", hidden_size=8)
-    # legacy lstm_hidden_size maps to a GRU (historical behaviour)
-    agent = PPO(env_id="CartPole-v1", lstm_hidden_size=8)
-    assert agent.network_args.memory == MemoryConfig(kind="gru", hidden_size=8)
 
 
 def test_recurrent_ppo_env_split_minibatching():

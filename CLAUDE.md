@@ -7,23 +7,23 @@ Guidance for Claude Code (and any agent) working in the Ajax repository.
 **Nothing merges into main unless every check below is green.** The full
 test suite is expensive (about an hour of CPU), so it runs in GitHub CI on
 the pull request, not locally before each commit. Before committing, run
-the cheap checks locally: pre-commit (step 1), `poetry run pytest
+the cheap checks locally: pre-commit (step 1), `uv run pytest
 --collect-only -q`, and the test files that exercise what you changed.
 Then push and let CI run the rest; fix anything it reports on the same
 branch. The checks:
 
-1. **pre-commit** — `poetry run pre-commit run --all-files`
+1. **pre-commit** — `uv run pre-commit run --all-files`
    (ruff lint, ruff-format, mypy).
-2. **Tests not marked slow + coverage** — `poetry run coverage erase`
-   (parallel mode never removes old data files), then `poetry run
+2. **Tests not marked slow + coverage** — `uv run coverage erase`
+   (parallel mode never removes old data files), then `uv run
    coverage run -m pytest -m "not slow" --deselect
-   tests/agents/test_probing.py --ignore=tests/probing`, then `poetry run
+   tests/agents/test_probing.py --ignore=tests/probing`, then `uv run
    coverage combine`
-   (coverage measures subprocesses, one data file each), then `poetry
+   (coverage measures subprocesses, one data file each), then `uv
    run coverage report --fail-under=70`.
-3. **Slow tests** — `poetry run pytest -m slow --deselect
+3. **Slow tests** — `uv run pytest -m slow --deselect
    tests/agents/test_probing.py --ignore=tests/probing`.
-4. **Probing tests** — `poetry run pytest tests/agents/test_probing.py
+4. **Probing tests** — `uv run pytest tests/agents/test_probing.py
    tests/probing`.
 
 `make ci` runs all four locally when you do want them. These are the

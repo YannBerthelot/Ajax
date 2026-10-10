@@ -1,298 +1,199 @@
-# Contributing to AJAX
+# Contributing to Ajax
 
-Thanks for your interest in contributing. This document covers:
-
-1. [Development setup](#development-setup)
-2. [Repository layout](#repository-layout)
-3. [The Extension framework](#the-extension-framework)
-4. [Adding a new agent](#adding-a-new-agent)
-5. [Adding a new Extension](#adding-a-new-extension)
-6. [Testing](#testing)
-7. [Style and CI](#style-and-ci)
-
-> **Heads-up:** Ajax went through an agent-architecture rework
-> (Phases 0–5, branch `agent-architecture-rework`). The pre-rework
-> "composable hook" API — `target_modifier`, `runtime_maintenance`,
-> `action_pipeline` etc. as `Optional[Callable]` kwargs on each agent
-> — has been superseded by the [Extension framework](#the-extension-framework)
-> for every research feature; only hooks with a live user remain (see
-> [Legacy hook API](#legacy-hook-api-back-compat-only)). **All new
-> features should be Extensions, not new hooks.**
-
----
+This guide is for changing Ajax: where the code lives, how an agent trains,
+how to add an agent or an extension, and how the tests check them. To use
+Ajax, read the [README](README.md). [CLAUDE.md](CLAUDE.md) holds the checks a
+change must pass and the refactoring rules; this guide does not repeat them.
 
 ## Development setup
 
-```bash
-git clone https://github.com/YannBerthelot/Ajax.git
-cd Ajax
-poetry install
-poetry run pre-commit install
-```
+Install as the [README](README.md#install) says, then run
+`uv run pre-commit install` once, so ruff and mypy check every commit. Prefix
+commands with `uv run`, or activate `.venv`.
 
-All commands below assume `poetry run` or an activated `poetry shell`.
+## Where things live
 
----
-
-## Repository layout
+The README's [project layout](README.md#project-layout) gives the overview.
+These are the pieces every agent shares:
 
 ```
 src/ajax/
-├── agents/
-│   ├── base.py              # ActorCritic base class (env prep, network args,
-│   │                        #   .train(), extensions= plumbing)
-│   ├── loop.py              # TrainLoop: the shared training loop (collect,
-│   │                        #   update gate, post_update, eval + log, resume)
-│   ├── recurrent.py         # Replay sampling + R2D2-style sequence burn-in,
-│   │                        #   actor_dist / q_values over batch or sequence
-│   ├── cloning.py           # BC utilities (pre-train actor/critic from expert)
-│   └── <AGENT>/
-│       ├── <AGENT>.py       # Public class — __init__, get_make_train
-│       ├── train_<AGENT>.py # make_train, update_<step>, loss functions
-│       ├── core.py          # (SAC, PPO) The maths that descendants
-│       │                    #   (ASAC, REDQ, AVG; APO) import
-│       ├── state.py         # flax.struct.dataclass state types
-│       └── utils.py         # Agent-specific utilities
-├── extensions/
-│   ├── base.py              # Extension + ExtensionStack + ExtensionContext
-│   │                        #   + fold_<phase> / fold_init helpers
-│   ├── expert.py            # ExpertGuidance / OnlineBC / ResidualPolicy /
-│   │                        #   ExpertObsAugmentation / JSRLCurriculum
-│   ├── target_mods.py       # IBRL / LCBGatedBootstrap / CriticBlend /
-│   │                        #   MCVarianceCorrection / ValueBox
-│   ├── exploration.py       # EDGEExploration (6 gates)
-│   ├── pretrain.py          # MCPretrain / BellmanPretrain / PhiRefresh
-│   ├── ensemble.py          # KernelRepulsion
-│   └── instrumentation.py   # EVarEst-style measurement: ConditioningMetrics
-│                            #   / BiasVoreDecomposition /
-│                            #   DiagnosticSnapshots / BiasVorePenalty
-├── buffers/, environments/, logging/, modules/, networks/
-│   environments/system_class.py   # SystemClass: distributions over EnvParams
-│   environments/differentiable.py # closed_loop_rollout: BPTT through gymnax envs
-│   environments/model_reference.py# ModelReferenceWrapper: tracking tasks
-│   environments/row_collector.py  # obs-aligned row collector (static /
-│                                  #   dynamic resets) for agents that own
-│                                  #   their collection (world models)
-│   modules/pid_head.py            # learnable PID layer on a network output
-├── state.py                 # BaseAgentState (carries ext_state: tuple),
-│                            #   BaseAgentConfig, shared config dataclasses
-├── evaluate.py, log.py      # Eval loops (evaluate, evaluate_policy) + metric
-│                            #   logging (evaluate_and_log, maybe_eval_and_log)
-├── perf_utils.py            # build_resumable_train (init-or-resume + scan
-│                            #   skeleton, resume offset), final_aux_scan/_fori
-├── schedule.py              # Optimizer step schedules (warmup_cosine_schedule)
-└── wrappers.py              # Env wrappers
+├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
+├── agents/loop.py       TrainLoop, the shared loop; critic_step and gradient_step
+├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
+├── agents/cloning.py    behaviour-cloning pre-training from an expert
+├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
+├── environments/interaction.py  collect_experience: act, step and store
+├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan
+├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
+├── state.py             BaseAgentState, BaseAgentConfig, the configuration dataclasses
+└── checkpoint.py        save_checkpoint, restore_into
 ```
 
-### Agent anatomy
+**Agent anatomy.** Each folder `src/ajax/agents/<AGENT>/` holds `<AGENT>.py`,
+the public class (the paper's hyperparameters and `extensions=`;
+`get_make_train()` returns `make_train` with them bound); `train_<AGENT>.py`,
+the algorithm and a `make_train` that hands its initialisation and update to
+`TrainLoop`; and `state.py`, `<AGENT>State` and `<AGENT>Config`. SAC, PPO and
+TDMPC2 also have a `core.py`: the maths their descendants import instead of
+copying (ASAC, REDQ and AVG from SAC; APO from PPO; TDMPC2MultiTask from it).
 
-Every agent follows the same split:
+## The shared training loop
 
-- **`<AGENT>.py`** — the public class. Inherits `ActorCritic` (see [src/ajax/agents/base.py](src/ajax/agents/base.py)), stores algorithm-specific hyperparameters, accepts `extensions: Sequence[Extension] = ()`, and exposes `get_make_train()` returning a `functools.partial` over `make_train`.
-- **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents whose iteration is their own keep it and take the loop's pieces: UDRL runs it on `TrainLoop.train`, APG (which returns every update's aux) and the offline multi-task TD-MPC2 trainer on `build_resumable_train` with `fresh_state`, `fold_post_update` and `TrainLoop.evaluate_every`.
-- **`core.py`** (SAC and PPO only) — SAC's soft actor-critic maths (init, bootstrap sampling, TD target, critic and actor losses, actor step, temperature, target update); PPO's clipped surrogate (log-prob recompute, entropy bonus, minibatch epochs). Lineage descendants (ASAC, REDQ, AVG; APO, which also builds its state with `init_PPO`) import from here rather than duplicating.
-- **`state.py`** — `<AGENT>State` and `<AGENT>Config` extending `BaseAgentState` / `BaseAgentConfig`.
+The agents share one loop, `TrainLoop`, so collecting experience, waiting for
+`learning_starts`, applying the extensions, evaluating, logging and resuming
+work the same way everywhere and are fixed in one place. An agent supplies
+only its algorithm:
 
----
+- `init(key, pretrain_key) -> agent_state`: a fresh state; one-shot
+  pre-training (behaviour cloning) draws on `pretrain_key`.
+- `update(...) -> (agent_state, aux)`: one update. `aux` holds the metrics as
+  flax dataclasses nested exactly one level, as TD3's
+  `AuxiliaryLogs(policy=..., value=...)`, logged as `value/critic_loss`; the
+  logger expects that shape.
 
-## The Extension framework
+and picks one of two iterations:
 
-An **`Extension`** is a composable research feature attachable to any
-agent. Each Extension is a `@dataclass(frozen=True)` that holds its own
-hyperparameters and overrides only the lifecycle *phases* it touches.
-The agent's training loop folds the static `ExtensionStack` through each
-phase via `stack.fold_<phase>(...)`. An empty stack is a true no-op
-(zero JIT trace cost).
+- **`loop.off_policy(init, update, aux_cls, learning_starts, ...)`** (SAC,
+  TD3, REDQ, ASAC, AVG, DQN): each iteration collects one step per
+  environment, then, from `learning_starts`, runs `update(agent_state,
+  transition)` and folds the extensions' `post_update`. Before
+  `learning_starts` the actions are uniform and the metrics are `aux_cls`
+  filled with NaN, which the logger drops.
+- **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, PQN): each
+  iteration collects an `n_steps` rollout per environment from the state
+  `start`, then runs `update(agent_state, rollout, start)` and folds
+  `post_update`. A recurrent agent replays the rollout from `start`'s memory.
 
-```python
-from ajax import SAC
-from ajax.extensions.target_mods import IBRL
-from ajax.extensions.expert import ExpertGuidance, JSRLCurriculum
-from ajax.extensions.instrumentation import (
-    ConditioningMetrics, BiasVoreDecomposition, BiasVorePenalty,
-)
+The loop does the rest: `init` and the extensions' initial state and
+pre-training (`ExtensionStack.fold_init`) on a fresh run, the given state on a
+resumed one, then the iterations in `build_resumable_train`'s jitted scan,
+evaluating and logging every `log_frequency` steps (with `eval_metrics`).
 
-agent = SAC(
-    env_id="Pendulum-v1",
-    expert_policy=my_expert,                # SAC keeps a small set of
-                                            # deeply-threaded kwargs.
-    extensions=[
-        ExpertGuidance(expert_policy=my_expert, expert_buffer_n_steps=20_000),
-        IBRL(expert_policy=my_expert),
-        JSRLCurriculum(expert_policy=my_expert, episode_length=200, decay_frac=0.5),
-        BiasVorePenalty(alpha=0.2),
-        ConditioningMetrics(),
-        BiasVoreDecomposition(),
-    ],
-)
-state, metrics = agent.train(seed=0, n_timesteps=1_000_000)
-```
+The world models (DreamerV3, TDMPC2) also give `off_policy` their own
+`collect(agent_state, tick)`, `n_updates(tick)` (such as a train ratio) and
+`Evaluation`. UDRL runs its own iteration on `TrainLoop.train`; APG and the
+offline `TDMPC2MultiTask` call `build_resumable_train` themselves, with
+`fresh_state` and the `post_update` fold.
 
-### Phase contract
+`ActorCritic.train` runs the seeds at once (`jax.vmap`). With a
+`LoggingConfig` it returns `(state, evaluations)`, each logged key's values
+per seed and evaluation, kept whether or not a backend (`use_wandb`,
+`use_tensorboard`, the only case that starts the logging worker) records them.
+Without one it does not evaluate and returns `(state, None)`; APG returns
+every update's metrics instead. `initial_state=state` continues a run.
 
-Each Extension may override any of the following methods (defaults are
-all no-op / identity / `0.0` / `{}` / unchanged-state, so an Extension
-is exactly as invasive as the phases it overrides):
+## Extensions
 
-| Phase | When it fires | Used by (examples) |
+An extension is a research feature (an expert to learn from, an exploration
+rule, an extra loss term, a measurement) that plugs into any agent without
+changing it, so an agent's surface stays its algorithm's hyperparameters plus
+`extensions=()` (see CLAUDE.md, "Extensions are self-contained"). The README
+[lists the extensions](README.md#extensions) Ajax ships.
+
+An extension is a frozen dataclass subclassing `Extension`. It holds its own
+settings and overrides only the *phases* it touches; the other phases keep
+their defaults, which change nothing. An agent folds its `ExtensionStack`
+through a phase in list order, mostly with a `stack.fold_<phase>(...)` helper
+(`fold_init`, `fold_on_target`, `fold_critic_loss`, `fold_actor_loss`,
+`fold_post_update`, `fold_eval_metrics`) that builds the `ExtensionContext`
+(`step`, `rng`, `total_steps`) and threads the extensions' state. On an empty
+stack a helper changes nothing (a loss term is `0.0`), so an agent without
+extensions traces nothing extra and never guards a fold.
+
+| Phase | What it does | Folded today by |
 | --- | --- | --- |
-| `init_state(agent_state, rng) -> pytree` | once, on fresh init | stateful Extensions; `()` default = stateless |
-| `pretrain(agent_state, ext_state, ctx)` | once, before training loop | MC pre-train, BC pre-train |
-| `on_obs(obs, ext_state, ctx) -> obs` | before network consumes obs | obs augmentation, stop-grad |
-| `on_batch(batch, ext_state, ctx) -> batch` | after replay sample | HER relabel, expert mixing |
-| `on_target(agent_state, ext_state, batch, target, ctx) -> target` | TD target | IBRL, CriticBlend, LCBGatedBootstrap, MCVarianceCorrection |
-| `critic_loss(agent_state, ext_state, batch, ctx) -> scalar` | extra critic-loss term | BiasVorePenalty |
-| `actor_loss(agent_state, ext_state, batch, ctx) -> scalar` | extra actor-loss term | OnlineBC |
-| `action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | collection-time action | EDGEExploration, ValueBox, JSRLCurriculum |
-| `eval_action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | eval-time action | ResidualPolicy |
-| `post_update(agent_state, ext_state, ctx) -> (agent_state, ext_state)` | after each update step | PhiRefresh, target-entropy schedules |
-| `eval_metrics(agent_state, ext_state, rng, ctx) -> dict` | each eval | ConditioningMetrics, BiasVoreDecomposition, DiagnosticSnapshots |
+| `init_state(agent_state, rng)` | returns the extension's state (`()`: none) | every agent, fresh runs only |
+| `pretrain(agent_state, ext_state, ctx)` | one-shot step before training | every agent, fresh runs only |
+| `on_obs(obs, ext_state, ctx)` | transforms an observation | SAC, in its actor loss only |
+| `on_batch(batch, ext_state, ctx)` | transforms a sampled batch | no agent yet |
+| `on_target(agent_state, ext_state, batch, target, ctx)` | transforms the TD or value target | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
+| `critic_loss(agent_state, ext_state, batch, ctx)` | adds a term to the critic loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO; DQN (without gradient) |
+| `actor_loss(agent_state, ext_state, batch, ctx)` | adds a term to the actor loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO, APG, UDRL |
+| `action(agent_state, ext_state, obs, rng, ctx)` | overrides the collection action (`None` defers) | SAC with an `expert_policy`, for extensions with an `action_slot` |
+| `eval_action(agent_state, ext_state, obs, rng, ctx)` | overrides the evaluation action | no agent generically (SAC wires `ResidualPolicy` itself) |
+| `post_update(agent_state, ext_state, ctx)` | runs after each update | every agent |
+| `eval_metrics(agent_state, ext_state, rng, ctx)` | adds metrics to each evaluation | every agent |
 
-An agent can declare the phases its training loop folds in
-`supported_extension_phases` (a class attribute of `ActorCritic`); an
-extension implementing any other phase is then rejected when the agent is
-constructed instead of being silently ignored. The check is opt-in: the
-default (every phase) checks nothing, and the existing agents have not
-opted in yet, so on them an extension implementing a phase they do not
-fold (e.g. `critic_loss` on APG) is still silently ignored. New agents
-that own their training loop declare their phases.
+`tests/probing/test_extensions.py` checks the phases on the agents with
+test-only extensions of known effect, and keeps each gap above visible as a
+strict xfail naming it.
 
-### Self-binding
+An agent may list the phases it folds in `supported_extension_phases`, so an
+extension implementing another phase is rejected when the agent is built
+instead of being silently ignored. DreamerV3, TDMPC2 and TDMPC2MultiTask do;
+the others keep the default (every phase), so they still ignore such phases.
 
-When an Extension needs runtime context the agent owns (env / network
-config / buffer / `expert_policy`), it implements
-`bind_to_agent(env_args, network_args, buffer, agent_config, expert_policy)`
-and returns a new (frozen) instance with the context attached. The agent
-calls `stack = stack.bind_to_agent(...)` once at init; from that point
-on the Extension is fully self-contained. **The base agent must never
-hardcode an Extension's hyperparameters or know about a specific
-Extension** — see [CLAUDE.md](CLAUDE.md) §"Extensions are self-contained".
+What changes during training lives in `agent_state.ext_state` (one entry per
+extension), never on `self`: extensions are static arguments of the compiled
+program, so they stay hashable and unchanged. An extension that needs what
+the agent builds (environment, network config, buffer, discount) overrides
+`bind_to_agent(**agent_context)` to return a new instance holding it, as
+`ExpertObsAugmentation` does; only SAC and DreamerV3 call it. The batch a
+phase receives is a dictionary whose keys differ by agent: read the agent's
+fold call before relying on one.
 
-### State threading
+## Adding an agent
 
-Stateful Extensions keep their state in `BaseAgentState.ext_state`
-(a tuple, one entry per Extension; `()` = stateless). Extensions never
-hold mutable state on `self` — only frozen config (e.g. a frozen
-expert network).
+**Boilerplate goes in the shared code; the algorithm goes in one file**, so a
+reader can follow `train_<AGENT>.py` like the paper's pseudocode. **Lineage
+rule:** an agent descending from another (REDQ from SAC) imports the parent's
+maths from its `core.py`. Use `critic_step` (a replay critic step) and `gradient_step` (an
+optimiser step) from `agents/loop.py` rather than writing your own.
 
-### Reference: extensions shipped today
+These templates for an agent `FOO` follow the replay agents TD3 and REDQ; an
+on-policy agent follows APO instead (no buffer, `loop.on_policy`).
 
-| File | Extensions |
-| --- | --- |
-| `extensions/expert.py` | `ExpertGuidance`, `OnlineBC`, `ImitationLoss`, `ResidualPolicy`, `ExpertObsAugmentation`, `JSRLCurriculum` |
-| `extensions/target_mods.py` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox` |
-| `extensions/exploration.py` | `EDGEExploration` (6 gates) |
-| `extensions/pretrain.py` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` |
-| `extensions/ensemble.py` | `KernelRepulsion` |
-| `extensions/instrumentation.py` | `ConditioningMetrics`, `BiasVoreDecomposition`, `BiasVorePenalty`, `DiagnosticSnapshots` |
-
-See [tests/extensions/](tests/extensions/) for behaviour-pinning
-tests on each.
-
-### Legacy hook API (back-compat only)
-
-The surviving pre-rework hooks (`Optional[Callable]` kwargs) are those
-with a live user: TD3's `action_pipeline`, PPO's `reward_shaping_fn` and
-the DQN / PQN variants (`td_target_fn`, `td_loss_fn`, `q_network_cls`).
-The rest (`target_modifier`, `obs_preprocessor`, `policy_action_transform`,
-`eval_action_transform`, `extra_actor_loss_fn`, `extra_critic_loss_fn`,
-`her_relabel_fn`, `init_transform`, `auxiliary_update`,
-`extra_eval_metrics`, SAC's `early_termination_condition`, …) were
-removed, as was the
-online-imitation keyword `imitation_coef` (now the `ImitationLoss`
-extension); the `runtime_maintenance` surface and the `use_X` boolean
-flags (`ibrl_bootstrap`, `use_critic_blend`,
-`use_expert_guided_exploration`, …) went in Phase 5 of the architecture
-rework. Use the matching Extensions instead. Tests for the surviving
-callable hooks live in
-[tests/modules/test_hook_composition.py](tests/modules/test_hook_composition.py).
-
----
-
-## Adding a new agent
-
-The split-line: **boilerplate goes in shared backbone, RL essence
-goes in one file per agent.** A practitioner should be able to read
-`train_<AGENT>.py` top-to-bottom like the paper's pseudocode. The
-shared backbone (`agents/base.py`, `agents/loop.py`, `perf_utils.py`,
-`log.py`, `environments/interaction.py`, `extensions/base.py`) carries
-everything that isn't algorithm-specific.
-
-**Lineage rule:** if your agent descends from an existing one (e.g.
-REDQ from SAC), **import** the parent's reusable mechanisms from its
-`core.py`; do not copy-paste. SAC's `core.py` exports
-`init_soft_actor_critic`, `create_alpha_train_state`,
-`sample_next_actions`, `compute_td_target`, `critic_loss_fn`,
-`soft_policy_loss`, `soft_actor_step`, `update_temperature` and
-`update_target_networks` for descendants; PPO's exports
-`recompute_log_prob`, `policy_entropy`, `clipped_surrogate`,
-`rollout_actions`, `resolve_num_minibatches`, `resolve_clip_coef` and
-`run_epochs`; `agents/loop.py` has the replay agents' `critic_step`.
-
-Let's say you want to add an agent called `FOO`.
-
-### 1. Create the directory
-
-```
-src/ajax/agents/FOO/
-├── __init__.py
-├── FOO.py
-├── train_FOO.py
-└── state.py
-```
-
-### 2. Define the state
-
-In `state.py`, use `flax.struct.dataclass`:
+**1. `state.py`.** `BaseAgentState` already holds the random key, the actor,
+critic and collector states, the update count and the extensions' state. A
+replay agent's config extends `RecurrentReplayConfig`, a `BaseAgentConfig`
+for sequence replay; `kw_only` lets fields without defaults follow others.
 
 ```python
-from flax import struct
-import jax.numpy as jnp
-from ajax.state import BaseAgentState, BaseAgentConfig
-
-@struct.dataclass
+@partial(struct.dataclass, kw_only=True)  # Partial from jax.tree_util
 class FOOState(BaseAgentState):
-    # actor_state, critic_state, collector_state, ext_state, last_rollout, …
-    # come from BaseAgentState. Add agent-specific fields here:
-    my_field: jnp.ndarray
+    """FOO carries only actor + critic + collector."""
 
-# BaseAgentConfig already carries gamma, tau, learning_starts, target_entropy,
-# reward_scale, expose_recent_rollout. Subclass to add your own.
+
+@partial(struct.dataclass, kw_only=True)
+class FOOConfig(RecurrentReplayConfig):
+    gamma: float
+    learning_starts: int = 100
+    reward_scale: float = 1.0
 ```
 
-### 3. Write `train_FOO.py`
-
-The algorithm's maths, then a `make_train` that hands it to the shared
-loop. An off-policy agent collecting one step per env (TD3, REDQ, ASAC,
-AVG):
+**2. `train_FOO.py`.** The paper's maths, then `make_train`. The critic step
+goes through `critic_step`, which folds `on_target` and `critic_loss`:
 
 ```python
-from collections.abc import Sequence
-from ajax.agents.loop import TrainLoop, gradient_step
-from ajax.agents.recurrent import sample_replay
-from ajax.extensions.base import Extension, ExtensionStack
+def update_value_functions(agent_state, batch, agent_config, extension_stack, total_timesteps):
+    key, rng = jax.random.split(agent_state.rng)
+    target_q = compute_foo_td_target(agent_state, key, batch, agent_config)  # the paper's target
 
-def update_agent(agent_state, buffer, agent_config, extension_stack, total_timesteps):
-    """FOO's update, as in the paper: sample, critic step, actor step, ..."""
-    sample_key, rng = jax.random.split(agent_state.rng)
-    batch, carries = sample_replay(agent_state, buffer, sample_key)
-    ...  # fold extension_stack.fold_on_target / fold_critic_loss / fold_actor_loss
-    return agent_state, AuxiliaryLogs(...)
+    def value_loss(params, target_q):  # -> (loss, aux)
+        return value_loss_function(params, agent_state.critic_state, batch.obs, batch.action, target_q)
+
+    critic_state, aux = critic_step(
+        agent_state, batch, target_q, value_loss, extension_stack, key, total_timesteps,
+        rewards=batch.reward, gamma=agent_config.gamma, reward_scale=agent_config.reward_scale,
+    )
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux
+
 
 def make_train(
-    env_args, network_args, actor_optimizer_args, critic_optimizer_args,
-    buffer, agent_config, total_timesteps, num_episode_test,
-    run_ids=None, logging_config=None,
-    extensions: Sequence[Extension] = (),
+    env_args, actor_optimizer_args, critic_optimizer_args, network_args, buffer,
+    agent_config, total_timesteps, num_episode_test,
+    run_ids=None, logging_config=None, extensions=(),
 ):
     loop = TrainLoop.create(
         env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
     )
 
-    def init(key, pretrain_key):  # pretrain_key: one-shot pretraining (cloning)
-        return init_FOO(key, ...)
+    def init(key, pretrain_key):
+        return init_FOO(key, env_args, actor_optimizer_args, critic_optimizer_args, network_args, buffer)
 
-    def update(agent_state, _transition):  # a replay agent samples its buffer
+    def update(agent_state, _transition):
+        # The step just collected is in the buffer: FOO samples it from there.
         return update_agent(agent_state, buffer, agent_config, loop.stack, total_timesteps)
 
     return loop.off_policy(
@@ -301,261 +202,179 @@ def make_train(
     )
 ```
 
-An on-policy agent uses `loop.on_policy(init, update, n_steps)`, its
-`update(agent_state, rollout, start)` receiving the `(n_steps, n_envs)`
-rollout and the state it was collected from, whose carries a recurrent
-agent replays it from (PPO, APO, PQN). The loop owns the rest: the extensions' initial state and
-pretraining on a fresh run (`ExtensionStack.fold_init`), resuming from a
-checkpoint, the warm-up gate before `learning_starts` (the update's metrics
-then NaN), `post_update`, evaluation and logging with the extensions'
-`eval_metrics`. With a `LoggingConfig` the run evaluates every
-`log_frequency` steps and `train` returns `(state, evaluations)`, each
-logged key's values per seed and evaluation, whether or not a backend
-(`use_wandb`, `use_tensorboard`) records them; the logging worker starts
-only for a backend. Without one, `train` returns `(state, None)`.
+`update_agent` samples a batch (`sample_replay`), takes the critic step, then
+the actor step, whose loss adds `extension_stack.fold_actor_loss(...)`, and
+returns the state with an `AuxiliaryLogs` of both steps' metrics.
+`ActorCritic.train` calls `make_train` with the keyword names above, so keep
+them. Split a random key for the extensions only under `if stack:`, so an
+agent without extensions keeps its random stream.
 
-An off-policy agent that acts, trains and evaluates its own way (DreamerV3,
-TD-MPC2) supplies those steps to `loop.off_policy`: `collect(agent_state,
-tick)` (its acting and storing, through the row collector), `n_updates(tick)`
-(a static schedule of the absolute tick, such as a train ratio, run by
-`TrainLoop.repeat_update`), an `Evaluation` (its metrics and policy
-evaluation every k ticks, `TrainLoop.evaluate_every`) and, when its ticks are
-not `total_timesteps // n_envs`, `num_ticks`.
-
-Key points:
-- `extensions=` is the **only** research-feature surface. No per-feature kwargs on `make_train`.
-- `stack.fold_<phase>(agent_state, …, step, rng, total_steps)` builds the context and threads `ext_state` in one call, and is a no-op on an empty stack — never inline that boilerplate, and a fold needs no guard. Guard (`if stack:`) a key split drawn only for the extensions, so an agent without extensions keeps its random stream.
-- `compose_eval_metrics(stack, total_steps)` collapses to `None` without extensions, preserving `evaluate_and_log`'s zero-overhead path.
-
-### 4. Write `FOO.py`
+**3. `FOO.py`.**
 
 ```python
-from collections.abc import Sequence
-from functools import partial
-from typing import Optional
-from ajax.agents.base import ActorCritic
-from ajax.agents.FOO.train_FOO import make_train
-from ajax.extensions.base import Extension
-
 class FOO(ActorCritic):
-    name = "FOO"
+    """FOO (Author et al., year) for continuous action spaces; defaults as in the paper."""
+
+    name: str = "FOO"
+    # The phases the loop folds, plus those FOO's update folds.
+    supported_extension_phases: frozenset = frozenset(
+        {"pretrain", "post_update", "eval_metrics", "on_target", "critic_loss", "actor_loss"}
+    )
 
     def __init__(
-        self,
-        env_id,
-        n_envs: int = 1,
-        # … the SAME args ``ActorCritic`` accepts (forwarded to super) …
-        # … FOO-specific algorithm hyperparameters (gamma, tau, …) …
+        self, env_id: str | EnvType, n_envs: int = 1, gamma: float = 0.99,
+        buffer_size: int = int(1e6), batch_size: int = 100, learning_starts: int = int(1e4),
         extensions: Sequence[Extension] = (),
-    ):
-        super().__init__(env_id=env_id, n_envs=n_envs, …, extensions=extensions)
-        # store FOO-specific hyperparameters on self
-
-    def get_make_train(self):
-        return partial(
-            make_train,
-            env_args=self.env_args,
-            …,
-            extensions=tuple(self.extension_stack.extensions),
+    ) -> None:
+        self.config = {**locals()}  # what train() logs with the run
+        self.config.update({"algo_name": "FOO"})
+        super().__init__(env_id=env_id, n_envs=n_envs, extensions=extensions)
+        self.agent_config = FOOConfig(gamma=gamma, learning_starts=learning_starts)
+        self.buffer = make_replay_buffer(
+            self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
+
+    def get_make_train(self) -> Callable:
+        return partial(make_train, buffer=self.buffer, extensions=tuple(self.extension_stack.extensions))
 ```
 
-**Anti-pattern:** do NOT add a per-Extension kwarg (`ibrl_bootstrap=True`,
-`use_critic_blend=...`, …) to `FOO.__init__`. That is the SAC
-back-compat shim Phase 5 deleted. If your feature needs a new
-hyperparameter, it belongs as a field on an Extension, not on the agent.
+Do **not** add a keyword for a feature (`use_critic_blend=True`, ...): it
+belongs on an extension. Set `supports_memory = True` only once the agent
+trains with `memory=`; until then `ActorCritic` rejects it.
 
-### 5. Export
+**4. Export and document.** Import it in `src/ajax/__init__.py`, add it to
+`__all__`, and add a row to the README's agent table.
 
-In `src/ajax/__init__.py`:
+**5. Tests and benchmark.** `tests/agents/FOO/`: the maths on hand-computed
+values and a tiny run. `tests/probing/`: presets in `agents.py`, then the
+cases that fit (`test_framework.py` fails while an exported agent has none).
+`tests/agents/test_agent_pins.py`: a tiny run's fingerprint, so a later
+restructuring can show it changed nothing. `benchmarks/agent_bench.py`: an
+entry in `AGENTS` and a baseline (see [Performance](#performance)).
 
-```python
-from ajax.agents.FOO.FOO import FOO
-__all__ = [..., "FOO"]
-```
+## Adding an extension
 
-### 6. Tests
+Add an extension, never a flag or a keyword on an agent.
 
-- Add to `tests/agents/test_probing.py` — exercises value-net, discounting (if applicable), policy learning on the 3 probing environments.
-- Add a per-agent test dir `tests/agents/FOO/test_FOO.py` with a tiny-config smoke run.
-- Add a smoke test in `tests/extensions/test_phase3b_extension_smoke.py` (or its successor) exercising `FOO(..., extensions=[CounterExt()])` end-to-end. Mirror the pattern of the other agents there.
-- Capture a perf baseline: `JAX_PLATFORMS=cpu poetry run python benchmarks/agent_bench.py --only FOO --out benchmarks/agent_<phase>.jsonl` and check within ±10% of the relevant baseline (see `agent_baseline.jsonl`).
-
----
-
-## Adding a new Extension
-
-If the feature you want doesn't already exist, add an `Extension` —
-**never a new boolean flag or kwarg on an agent**.
-
-### 1. Pick the phase(s)
-
-Map the feature to the [phase contract](#phase-contract). Most
-research features touch one or two phases; very rarely three or more.
-
-| Phase | Example feature |
-| --- | --- |
-| `on_target` | TD-target reshaping (IBRL, CriticBlend) |
-| `critic_loss` | Extra additive term (EVarEst penalty) |
-| `actor_loss` | BC term, KL regulariser |
-| `action` | Exploration override (EDGE, ValueBox) |
-| `eval_action` | Eval-time policy modification (residual) |
-| `pretrain` | One-shot offline pre-train |
-| `post_update` | Periodic state maintenance (φ\* refresh) |
-| `eval_metrics` | Pure observability / instrumentation |
-| `on_obs` | Pre-network obs transform (stop-grad, encoder adapter) |
-
-### 2. Define the dataclass
+1. **Pick the phases** from the [table](#extensions) and check that the agents
+   you target fold them. If one does not, adding the fold to that agent is a
+   change of its own, and the agent still must not know about your extension.
+2. **Write the dataclass** in `src/ajax/extensions/<topic>.py`, its settings
+   as fields. This one counts updates and logs the count; it runs as is:
 
 ```python
-# src/ajax/extensions/<topic>.py
 from dataclasses import dataclass
-from typing import Callable
+
+import jax.numpy as jnp
+
+from ajax import PPO
 from ajax.extensions.base import Extension
+from ajax.logging.wandb_logging import LoggingConfig
+
 
 @dataclass(frozen=True)
-class MyFeature(Extension):
-    """One-sentence summary of what this Extension does (paper, eq. N).
+class UpdateCounter(Extension):
+    """Counts the updates and logs the count at each evaluation."""
 
-    Owns its own hyperparameters — never expose them on the agent's
-    __init__. The agent only needs to know it has an extensions= list
-    to fold.
-    """
+    name: str = "update-counter"
 
-    # Frozen config fields — extensions are JIT static-arg-friendly only
-    # if hashable. @dataclass(frozen=True) makes them hashable for free.
-    coefficient: float = 1.0
-    schedule_frac: float = 0.5
-    expert_policy: Callable | None = None
-
-    # Override only the phases you touch:
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
-        # Return a scalar (added on top of the agent's vanilla critic loss).
-        train_frac = ctx.step / max(ctx.total_steps, 1)
-        coeff = self.coefficient * jnp.maximum(1.0 - train_frac / self.schedule_frac, 0.0)
-        residual = predict_q(...) - batch.target
-        return coeff * jnp.mean(residual ** 2)
-```
-
-### 3. (Optional) Bind agent context
-
-If your Extension needs runtime context the agent owns (env config,
-network config, buffer, expert_policy), implement `bind_to_agent` —
-the agent calls it once at init and from that point the Extension is
-fully self-contained.
-
-```python
-import dataclasses
-
-@dataclass(frozen=True)
-class MyFeatureNeedingBuffer(Extension):
-    coefficient: float = 1.0
-    _buffer: object = None  # filled by bind_to_agent
-
-    def bind_to_agent(self, *, buffer, **_):
-        return dataclasses.replace(self, _buffer=buffer)
-```
-
-### 4. (Optional) Stateful Extensions
-
-If your Extension carries mutable state across updates, override
-`init_state(agent_state, rng)` to return its initial pytree, and
-mutate it via `post_update(agent_state, ext_state, ctx)`. The state
-lives in `agent_state.ext_state[i]`, never on `self`.
-
-```python
-@dataclass(frozen=True)
-class Counter(Extension):
     def init_state(self, agent_state, rng):
         return jnp.asarray(0)
 
     def post_update(self, agent_state, ext_state, ctx):
         return agent_state, ext_state + 1
+
+    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+        return {"Counter/updates": ext_state}
+
+
+agent = PPO("CartPole-v1", n_steps=128, extensions=(UpdateCounter(),))
+logging = LoggingConfig(config={}, log_frequency=1024, use_wandb=False)
+state, evaluations = agent.train(seed=[0, 1], n_timesteps=4096, logging_config=logging)
+print(state.ext_state[0])  # the updates each seed made: [9 9]
+print(evaluations["Counter/updates"])  # per seed, at each evaluation: [2 4 6 8]
 ```
 
-### 5. Test the contract
+3. **Test it** in `tests/extensions/`: the feature fires and does what its
+   paper says (a metric appears, a term moves the loss the right way).
 
-Add a behaviour-pinning test in `tests/extensions/`:
-
-```python
-def test_my_feature_changes_critic_target():
-    agent = SAC(..., extensions=[MyFeature(coefficient=0.2)])
-    state, _ = agent.train(seed=0, n_timesteps=80)
-    # Assert the feature actually fired (e.g. metric appears, weights
-    # changed in the expected direction, fingerprint matches a golden).
-```
-
-For features that shadow a previous flag-driven path, capture a
-golden checksum and pin numerics at `1e-4` (matches the
-`tests/extensions/test_sac_extensions_equivalence.py` contract).
-
-### 6. (No agent code changes needed)
-
-You should **never** need to edit an agent file to make a new
-Extension work. If you do, you're either:
-- Using the wrong phase (re-read the phase contract), or
-- Adding agent-knowledge of your Extension (anti-pattern — re-read
-  [CLAUDE.md](CLAUDE.md) §"Extensions are self-contained").
-
----
+**Callable hooks.** A few `Optional[Callable]` keywords predate extensions and
+stay because downstream projects use them: TD3's `action_pipeline`, PPO's
+`reward_shaping_fn`, DQN's `td_target_fn` and `td_loss_fn`, PQN's
+`td_loss_fn`. `tests/modules/test_hook_composition.py` pins them. Add none.
 
 ## Testing
 
-```bash
-poetry run pytest                                         # full suite
-poetry run pytest tests/modules/test_hook_composition.py  # hook API contract
-poetry run pytest tests/agents/test_probing.py -v         # cross-agent probing (slow)
-```
-
-Structure:
-
-- **`tests/extensions/`** — Extension framework + per-Extension behaviour pinning. Includes:
-  - `test_extension_framework.py` — base class / `ExtensionStack` / `fold_<phase>` semantics.
-  - `test_sac_extensions_equivalence.py` — 20 byte-identical goldens for the migrated SAC features (pinned at `1e-4` against `_sac_equivalence_goldens.json`).
-  - `test_instrumentation_extensions.py` — EVarEst measurement extensions on a tiny config.
-  - `test_ppo_dqn_pqn_extension_smoke.py`, `test_phase3b_extension_smoke.py` — end-to-end smoke per agent.
-- **`tests/modules/test_hook_composition.py`** — API contract for the surviving legacy callable hooks (the small set documented in §"Legacy hook API").
-- **`tests/agents/test_probing.py`** — cross-agent behavioral tests on 3 probing environments (from the `ProbingEnvironments` repo). The main regression catcher.
-- **`tests/agents/<AGENT>/`** — agent-specific unit tests (loss functions, update steps, agent-specific mechanics).
-- **`tests/agents/test_recent_rollout.py`** — Gap A contract for on-policy agents (`expose_recent_rollout` → `agent_state.last_rollout`).
-- **`tests/environments/`, `tests/buffers/`, `tests/logging/`, `tests/networks/`** — shared-utility tests.
-
-Coverage gate: `--fail-under=70` in CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
-
-### Performance benchmarks
-
-CPU-only standardized harness per agent at
-[`benchmarks/agent_bench.py`](benchmarks/agent_bench.py). Baseline at
-`benchmarks/agent_baseline.jsonl`; per-phase records at
-`benchmarks/agent_phase*.jsonl`. Any agent that regresses beyond ~10%
-on the standardized run is investigated to root cause **before** the
-change lands.
+*Unit tests* (`tests/<area>/`, `tests/agents/<AGENT>/`) check pieces in
+isolation and that every agent and extension runs. *Pins* record behaviour so
+a restructuring can show it changed nothing: `tests/agents/test_agent_pins.py`
+(tiny runs' fingerprints), `tests/extensions/test_sac_extensions_equivalence.py`
+and `tests/test_downstream_api.py` (the names downstream projects import).
+*Probing tests* check that agents learn the right thing: `tests/probing` and,
+older, `tests/agents/test_probing.py`. *Slow tests* (`@pytest.mark.slow`) are
+the long trainings.
 
 ```bash
-JAX_PLATFORMS=cpu poetry run python benchmarks/agent_bench.py \
-    --only SAC --out benchmarks/my_change.jsonl --warmup 0 --trials 3
+uv run pytest --collect-only -q   # everything imports and collects
+uv run pytest tests/agents/TD3    # the tests of what you changed
+uv run pytest -m "not slow"       # skip the long trainings
+make ci   # what CI runs (ci-precommit, ci-test, ci-slow, ci-probe), GPU hidden
 ```
 
-**Never share GPUs with running experiments.** Default to
-`JAX_PLATFORMS=cpu` for all test + bench runs; use GPU only when the
-experiment specifically needs it and the device is idle.
+The `make` targets hide the GPU (`CPU_ENV`) so tests never compete with a
+running experiment; elsewhere set `JAX_PLATFORMS=cpu` while a GPU is busy.
 
----
+**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on CPU for
+every pull request and push to `main`: *Pre-commit*; *Tests* (three shards:
+the tests not marked slow, probing excluded, under coverage; the last shard
+runs whatever the first two do not name, so a new test file always runs);
+*Coverage* (the shards combined, at least 70%); *Slow tests* (without
+coverage, which would lengthen them); *Probing* (five shards; the last takes
+any new probe file). *Lint and Test*, the one check branch protection
+requires, passes only when all of them passed.
 
-## Style and CI
+### The probing tests
 
-- **Formatter**: `ruff-format` (configured in [pyproject.toml](pyproject.toml)).
-- **Linter**: `ruff check` with rule set `I F E W B C RUF`.
-- **Types**: `mypy` (optional but encouraged — run `make mypy`).
-- **Pre-commit**: `poetry run pre-commit run --all-files` — runs ruff + mypy.
+A unit test shows that code runs, not that an agent learns what it should. A
+probe trains an agent on a tiny problem whose answer is known exactly (a
+value, a best action, a count) and compares what it learned with the right
+answer and named wrong ones (a discount applied twice), so a failure names the
+mistake.
 
-CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) enforces pre-commit and runs the test suite with coverage on every PR.
+`envs.py` builds the tiny problems, `agents.py` holds each agent's presets
+(pinned by `DIGEST`), `runs.py` trains every seed in one compiled program,
+`readouts.py` reads values and actions off a trained agent and `oracles.py`
+computes the right and wrong answers. In `verdict.py`, a `Query` is a
+reading's right and named wrong answers and a `Case` adds the budget and
+tolerances; a check trains seeds 0-7: 7 or more within tolerance pass, 4 or
+fewer fail, otherwise seeds 8-15 run and 13 of 16 must pass. `faults.py` and
+`faults/<module>.jsonl` plant known bugs in a scratch copy of the source, each
+naming the tests that must catch it. The `test_*.py` modules group the cases
+by subject (value chains, episode ends, bookkeeping, extensions, memory, world
+models, resuming a split run); `test_framework.py` tests the harness.
 
-### Conventions
+A new case's budget and tolerances come from calibration on seeds no check
+uses (`uv run python -m tests.probing.verdict ladder|choose|certify ...`;
+`verdict.py` describes the procedure); then its module's `ANSWER_DIGEST` is
+re-pinned. A known bug stays visible as a strict xfail naming the defect,
+never as a looser tolerance. The directory is capped at 7,000 lines.
 
-- **No new boolean flags. No new agent-level kwargs for features.** If you feel the urge, build an Extension.
-- **Extensions are self-contained.** The base agent must never hardcode any Extension's hyperparameters or know about a specific Extension. See [CLAUDE.md](CLAUDE.md) §"Extensions are self-contained" for the full rule + history.
-- **Every scalar hyperparameter must be schedulable** — accept either a `float` or `Callable[[int], float]`. See `FloatOrCallable` in [src/ajax/types.py](src/ajax/types.py) and existing agents for the pattern.
-- **Probing first.** When adding a feature, run `tests/agents/test_probing.py` to verify no agent regressed before opening a PR.
-- **Composable modules, not inheritance.** Prefer adding an Extension over subclassing an agent. The lineage exception is for genuine algorithmic descent (e.g. REDQ extends SAC's actor/temperature machinery) — and even then, import the shared pieces from `core.py` rather than copy-pasting.
-- **Heavy changes go on a dedicated branch** with per-commit CI green; see [CLAUDE.md](CLAUDE.md) §"Refactoring & code-quality standards".
+## Performance
+
+CLAUDE.md ("Performance no-regression guardrail") sets the rule; here is the
+check. `benchmarks/agent_bench.py` times a fixed run per agent; `--compare`
+fails when one is slower than `--tol` (10% by default) against a baseline.
+Always pass `--out`: it defaults to the baseline file.
+
+```bash
+export JAX_PLATFORMS=cpu
+uv run python benchmarks/agent_bench.py --only TD3 --out benchmarks/my_change.jsonl
+uv run python benchmarks/agent_bench.py --compare benchmarks/agent_baseline.jsonl benchmarks/my_change.jsonl
+```
+
+## Style
+
+Pre-commit ([.pre-commit-config.yaml](.pre-commit-config.yaml)) runs on every
+commit and in CI: ruff lint with rules `I F E W B C RUF ARG` (`ARG`, unused
+arguments, is off under `tests/`), ruff-format (settings in
+[pyproject.toml](pyproject.toml)), and mypy on everything but `benchmarks/`.

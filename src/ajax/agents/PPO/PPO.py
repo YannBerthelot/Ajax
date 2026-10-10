@@ -14,7 +14,8 @@ from ajax.types import EnvType, InitializationFunction
 
 
 class PPO(ActorCritic):
-    """Soft Actor-Critic (PPO) agent for training and testing in continuous action spaces."""
+    """Proximal Policy Optimization (Schulman et al., 2017) for discrete and
+    continuous action spaces."""
 
     name: str = "PPO"
     supports_memory: bool = True

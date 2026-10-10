@@ -355,7 +355,8 @@ def update_agent(
         agent_state.collector_state.buffer_state,
         sample_key,
     )
-    dones = jnp.logical_or(terminated, truncated).astype(jnp.float32)
+    # A truncated row bootstraps on its final observation (bootstrap_obs).
+    dones = terminated.astype(jnp.float32)
 
     target_q = td_target_fn(
         q_state=agent_state.actor_state,

@@ -30,10 +30,10 @@ from ajax.networks.networks import predict_value
 from . import agents, envs, oracles, runs
 from . import readouts as R
 from .oracles import RIGHT, Rule
-from .verdict import STAGE_1, Case, Query, check, params, xfail, xparam
+from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "9ea33f625825"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "67a787ddb67b"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -206,21 +206,6 @@ def _twin_run(name: str, backend: str) -> Any:
 
 
 ONE_STEP = {"SAC": 5000, "REDQ": 1000, "TD3": 5000, "DQN": 5000}
-OR_MASK = {
-    "SAC": "train_SAC.py:998",
-    "REDQ": "train_REDQ.py:293",
-    "TD3": "train_TD3.py:239",
-    "DQN": "train_DQN.py:357",
-}
-TODAY_OR = {  # mean (V(0), V(A), V(B)) on seeds 0-7; OR flags predicts (0.8, 1.6, 1.6)
-    ("gymnax", "SAC"): "(0.789, 1.587, 1.605)",
-    ("gymnax", "REDQ"): "(0.831, 1.518, 1.561); medians (0.825, 1.583, 1.571)",
-    ("gymnax", "TD3"): "(0.821, 1.613, 1.617)",
-    ("gymnax", "DQN"): "(0.822, 1.622, 1.645)",
-    ("brax", "SAC"): "(0.790, 1.600, 1.598)",
-    ("brax", "REDQ"): "(0.837, 1.596, 1.589)",
-    ("brax", "TD3"): "(0.815, 1.617, 1.601)",
-}
 # Calibrated on seeds 1000-1031 and 2000-2031 (5000 fails for each: worst
 # 0.057 to 0.075); certified on 3000-3031, 32/32 for each.
 TWIN_CAL = {
@@ -231,10 +216,8 @@ TWIN_CAL = {
 P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN")]
 P6_CELLS += [("brax", n) for n in ("SAC", "PPO", "REDQ", "TD3")]
 P6: dict[str, Case] = {}
-OR_DEFECT = "the bootstrap is masked on terminated OR truncated ({}), so the time limit of type-A episodes reads as a natural end; fixing the mask alone leaves the next obs the next buffer row's, the reset obs after an end (buffers/utils.py:139); right (V(0), V(A), V(B)) = (0.9, 2.0, 1.6), today {}"
 for backend, name in P6_CELLS:
     budget, tol = TWIN_CAL.get((backend, name), (ONE_STEP.get(name, 0), ()))
-    defect = "" if tol else OR_DEFECT.format(OR_MASK[name], TODAY_OR[backend, name])
     slow = name == "REDQ" or (backend == "brax" and name not in ("SAC", "PPO"))
     queries = twin_queries(name if name in ("PPO", "PQN") else "1-step", backend)
     case = Case(
@@ -243,7 +226,6 @@ for backend, name in P6_CELLS:
         _twin_run(name, backend),
         budget,
         tol,
-        defect,
         slow=slow,
     )
     P6[case.id] = case
@@ -311,12 +293,7 @@ def test_p6_time_limit_fires_and_flags_every_end(case: Case) -> None:
     np.testing.assert_array_equal(rows["truncated"], want)
 
 
-EVAL_HORIZON = "evaluate() rebuilds the brax env without the training episode_length (evaluate.py:510-517) and setup_environment falls back to 1000 (evaluate.py:82-106), so type-A eval episodes run 1000 steps; right return 4 and length 5 on every seed, today 4 + 995 f_A and 5 + 995 f_A (f_A the share of type-A eval lanes): 302.5 to 601 (SAC), 302.5 to 800 (PPO) on seeds 0-7"
-
-
-@pytest.mark.parametrize(
-    "case", params(P6, lambda c: EVAL_HORIZON if c.id.endswith("brax") else "")
-)
+@pytest.mark.parametrize("case", params(P6, lambda c: ""))
 def test_p6_evaluation_runs_the_training_time_limit(case: Case) -> None:
     """The agent's own evaluation (training env rebuilt, its eval key, 10
     episodes) reads return 4 and length 5 on every seed."""
@@ -637,7 +614,8 @@ for kind, n in (("box", 0), ("discrete", 2)):
 # run out of step, so an input taken from env e - 1's column moves the odd
 # parts (V(s, +1) - V(s, -1)) / 2, where entropy, ensemble or offset biases
 # cancel. Not built: TD3, REDQ, ASAC share SAC's env-axis path (and
-# TD3, ASAC are too noisy for the ceiling); APO waits on Q1's centring fix.
+# TD3, ASAC are too noisy for the ceiling); APO, whose Q1 centring is fixed,
+# is not built yet.
 
 G9, N9 = 0.8, 4
 TRUTH9 = (G9 / 0.6, 1.0 / 0.6)
@@ -905,10 +883,7 @@ CASES["q1-ASAC-truncation"] = Case(
     _q1_asac(ASAC_TRUNC, {"Q(B) - Q(A)": 1.0}),
     1250,
     (0.1,),
-    "ASAC bootstraps a truncated step on the reset observation, the next buffer row (buffers/utils.py:140; the collector stores last_obs only, interaction.py:900-907); right Q(B) - Q(A) = (r_B - r_A) / 2 = 1.5, today (r_B - r_A) / (2 - 1/2) = 2.0",
 )
-
-APO_SIGN = "APO's value loss is 0.5 mean(((V - nu b) - target)^2) (train_APO.py:251) and b an EMA of mean V (:372), so each fit pulls V towards target + nu b and |b| grows without bound"
 
 
 def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
@@ -922,7 +897,6 @@ def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
     return runs.readings(build, read)
 
 
-@xfail(f"{APO_SIGN}; right: mean V goes down, today it goes up")
 def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     """With targets equal to the predictions and b = 1 > 0 only the
     centring force is left: a small gradient step must lower mean V."""
@@ -941,9 +915,14 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     assert after < before, f"mean V went from {before:.6f} to {after:.6f}"
 
 
-# With the sign fixed on a scratch copy and a reset bootstrap at the rollout
-# end, seeds 1000-1031 read |b| < 1e-4, V(A) -0.250, V(B) 0.250 on the
-# termination cycle, and |b|, |V(1)| <= 0.005 on the constant one.
+# With the sign fixed on a scratch copy, seeds 1000-1031 read |b|, |V(1)|
+# <= 0.005 on the constant cycle; on the termination cycle, with a reset
+# bootstrap at the rollout end, |b| < 1e-4, V(A) -0.250, V(B) 0.250. APO's
+# GAE now drops V(s') at a termination and cuts the lambda-carry at every
+# end (xtma/apo's generalized_advantage_estimation): rho 1/2, V(B) = 1/2 -
+# nu b, V(A) = -(2 - lambda) nu b, b = 1/2 / (2 + nu (3 - lambda)) (nu 0.1,
+# lambda 0.95). Seeds 0-7 read medians b 0.2268, V(A) -0.0238, V(B) 0.4773;
+# the constant cycle |b|, |V(1)| <= 0.0062.
 GROWS = {"centring sign reversed: grows without bound": math.inf}
 CASES["q1-APO-constant"] = Case(
     "q1-APO-constant",
@@ -951,28 +930,28 @@ CASES["q1-APO-constant"] = Case(
     _q1_apo(APO_CONST, {"V(1)": 1.0}),
     10_000,
     (0.1, 0.1),
-    f"{APO_SIGN}; right b = 0 (average reward 1, every advantage 0), today b >> 10",
 )
-FIXED, MASK = "mixed boundaries of today, sign fixed", "PPO-style done mask"
-B_WRONG = {FIXED: 2.553, MASK: 0.2268, "final obs everywhere": 35.78}
+FIXED = "reset obs inside a rollout, final obs at its end (the old GAE), sign fixed"
+RESET_OBS = "the reset observation bootstrapped at every end, sign fixed"
+B_MASK = 0.5 / (2 + 0.1 * (3 - 0.95))  # b at the done mask's fixed point
+B_WRONG = {FIXED: 2.553, RESET_OBS: 0.0, "final obs everywhere": 35.78}
 B_WRONG["final obs everywhere, lambda carry cut"] = 5.0
 CASES["q1-APO-termination"] = Case(
     "q1-APO-termination",
     (
-        Query("b", 0.0, B_WRONG),
-        Query("V(A)", -0.25, {FIXED: 2.296, MASK: -0.024}),
-        Query("V(B)", 0.25, {FIXED: 2.809, MASK: 0.477}),
+        Query("b", B_MASK, B_WRONG),
+        Query("V(A)", -(2 - 0.95) * 0.1 * B_MASK, {FIXED: 2.296, RESET_OBS: -0.25}),
+        Query("V(B)", 0.5 - 0.1 * B_MASK, {FIXED: 2.809, RESET_OBS: 0.25}),
     ),
     _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}),
     10_000,
     (0.1, 0.1, 0.1),
-    f"{APO_SIGN}; and its GAE bootstraps the reset obs inside a rollout but the final one at its end (APO/utils.py:48-51, train_APO.py:360-382); right b = 0, V(A) = -0.25, V(B) = 0.25 (a consistent reset bootstrap; the convention is the owner's call), today b >> 10",
 )
 
 
-@xfail(f"{APO_SIGN}; right |b| <= 35.8 under any convention, today 1373 to 2225")
 def test_q1_apo_termination_cycle_keeps_b_bounded() -> None:
-    """Past |b| = 100 b feeds itself, and no convention can be read yet."""
+    """Past |b| = 100 b feeds itself (1373 to 2225 with the value bias's
+    sign reversed, before the done mask); under any convention |b| <= 35.8."""
     case = CASES["q1-APO-termination"]
     b = case.readings(STAGE_1, case.budget)["b"]
     assert (np.abs(b) < 100.0).all(), f"b reads {b}"

@@ -104,6 +104,7 @@ def init_buffer(
         "reward": reward,
         "terminated": done,
         "truncated": done,
+        "next_obs": obsv,
         "raw_obs": raw_obsv,
         "is_expert": jnp.zeros((1,), dtype=jnp.float32),
     }
@@ -137,7 +138,9 @@ def get_batch_from_buffer(
     obs = batch.first["obs"]
     act = batch.first["action"]
     rew = batch.first["reward"]
-    next_obs = batch.second["obs"]
+    # Not the next row's obs: after a time limit that is the reset one,
+    # and the target bootstraps on the final one (interaction.bootstrap_obs).
+    next_obs = batch.first["next_obs"]
     terminated = batch.first["terminated"]
     truncated = batch.first["truncated"]
     raw_observations = batch.first["raw_obs"]

@@ -1,6 +1,9 @@
+import jax
+import numpy as np
 import pytest
 
 from ajax.agents.PPO.PPO import PPO
+from ajax.agents.PPO.train_PPO import _force_reset, _normalisation_info
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 
@@ -65,3 +68,21 @@ def test_PPO_train_playground_smoke():
     code path end-to-end including seed vmap and eval)."""
     agent = PPO(env_id="PendulumSwingup", n_envs=2)
     agent.train(seed=42, n_timesteps=50)
+
+
+@pytest.mark.parametrize("env_id, mode", [("Pendulum-v1", "gymnax"), ("fast", "brax")])
+def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
+    """num_resets_per_eval resets the envs, not the normaliser's running
+    statistics (each gymnax env restarted its own from the reset)."""
+    agent = PPO(
+        env_id=env_id,
+        n_envs=2,
+        n_steps=8,
+        normalize_observations=True,
+        normalize_rewards=True,
+    )
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=32)[0])
+    saved = _normalisation_info(state.collector_state.env_state, mode)
+    after = _force_reset(state, agent.env_args, mode).collector_state
+    kept = _normalisation_info(after.env_state, mode)
+    jax.tree.map(np.testing.assert_array_equal, kept, saved)

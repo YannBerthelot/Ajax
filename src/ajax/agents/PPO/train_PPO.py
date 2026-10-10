@@ -43,6 +43,7 @@ from ajax.agents.PPO.utils import (
     get_minibatches_preserving_time,
     split_fragments,
 )
+from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
@@ -471,45 +472,58 @@ def _joint_clip(actor_grads: Any, critic_grads: Any) -> tuple[Any, Any]:
     return jax.tree.map(lambda g: g * scale, (actor_grads, critic_grads))
 
 
+def _normalisation_info(env_state: Any, mode: str) -> Any:
+    """The running statistics an env normaliser keeps in ``env_state``
+    (``None`` without one)."""
+    if mode == "brax":
+        return (env_state.info or {}).get("normalization_info")
+    return getattr(env_state, "normalization_info", None)
+
+
+def _renormalised(obs: jax.Array, fresh: Any, saved: Any) -> jax.Array:
+    """``obs``, normalised with the statistics ``fresh``, normalised with
+    ``saved`` instead; each read as ``online_normalize`` reads them (the
+    clipped std and the mean averaged over their leading axis)."""
+
+    def moments(info: Any) -> tuple[jax.Array, jax.Array]:
+        std = jnp.clip(jnp.sqrt(info.var + 1e-8), 1e-6, 1e6)
+        return info.mean.mean(axis=0), std.mean(axis=0)
+
+    (fresh_mean, fresh_std), (saved_mean, saved_std) = moments(fresh), moments(saved)
+    return (obs * fresh_std + fresh_mean - saved_mean) / saved_std
+
+
 def _force_reset(
     agent_state: PPOState, env_args: EnvironmentConfig, mode: str
 ) -> PPOState:
     """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
 
-    The env wrapper's reset re-initialises its observation normaliser: the
-    running statistics are kept, the fresh observation re-normalised with
-    them.
+    An observation or reward normaliser in the env stack keeps its running
+    statistics: its reset restarts them from the reset observation, so the
+    saved ones are put back and the reset observation, when the normaliser
+    normalises it, is normalised with them instead. Gymnax keeps one
+    normaliser per env (each restarts from its own observation), brax one
+    for the batch.
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
-    saved_norm = None
-    if mode == "brax" and "normalization_info" in (
-        agent_state.collector_state.env_state.info or {}
-    ):
-        saved_norm = agent_state.collector_state.env_state.info["normalization_info"]
+    saved = _normalisation_info(agent_state.collector_state.env_state, mode)
     reset_keys = (
         jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
     )
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
-    if saved_norm is not None:
-        fresh_obs_info = new_env_state.info["normalization_info"].obs
-        saved_obs_info = saved_norm.obs
-        # Undo fresh normalisation, re-apply saved-stats normalisation.
-        # Match online_normalize: it uses ``mean(clipped_std, axis=0)``
-        # to broadcast across envs (all rows of the batched stat are
-        # identical post-Welford). Apply the same clip + mean here so
-        # the recovered raw_obs is bit-for-bit what the env produced.
-        fresh_std = jnp.clip(jnp.sqrt(fresh_obs_info.var + 1e-8), 1e-6, 1e6).mean(
-            axis=0
-        )
-        fresh_mean = fresh_obs_info.mean.mean(axis=0)
-        raw_obs = new_obs * fresh_std + fresh_mean
-        saved_std = jnp.clip(jnp.sqrt(saved_obs_info.var + 1e-8), 1e-6, 1e6).mean(
-            axis=0
-        )
-        saved_mean = saved_obs_info.mean.mean(axis=0)
-        new_obs = (raw_obs - saved_mean) / saved_std
-        new_env_state.info["normalization_info"] = saved_norm
-        new_env_state = new_env_state.replace(obs=new_obs)
+    if saved is not None:
+        layers = strip_ajax_wrappers(env_args.env)[1]
+        if layers["normalize_obs"] and layers["apply_obs_normalization"]:
+            fresh = _normalisation_info(new_env_state, mode).obs
+            per_normaliser = (
+                _renormalised if mode == "brax" else jax.vmap(_renormalised)
+            )
+            new_obs = per_normaliser(new_obs, fresh, saved.obs)
+        if mode == "brax":
+            info = {**new_env_state.info, "normalization_info": saved}
+            new_env_state = new_env_state.replace(obs=new_obs, info=info)
+        else:
+            new_env_state = new_env_state.replace(normalization_info=saved)
     new_collector = agent_state.collector_state.replace(
         _env_state=new_env_state, last_obs=new_obs
     )

@@ -859,15 +859,16 @@ def collect_experience(
     # Read before the train_frac column below, which info's final obs lacks.
     final_obs = get_final_obs(info, obsv).astype(obsv.dtype)
 
-    # Append train_time_fraction to observation
+    # An agent conditioned on the training fraction sees it as a last
+    # column of every observation, the next one (the final observation off
+    # an episode end) included.
     train_frac = (
         agent_state.collector_state.train_time_fraction
         if agent_state.collector_state.max_timesteps is not None
         else None
     )
-    obsv = maybe_append_train_frac(obsv, train_frac=train_frac)
-
-    raw_next_obs = get_final_obs(info, obsv)
+    raw_next_obs = maybe_append_train_frac(get_final_obs(info, obsv), train_frac)
+    obsv = maybe_append_train_frac(obsv, train_frac)
 
     # Box reward/termination modification (no-op when entry_bonus is zeros)
     reward = reward + entry_bonus[..., 0]

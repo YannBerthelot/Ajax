@@ -26,11 +26,11 @@ Thanks for your interest in contributing. This document covers:
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
 cd Ajax
-poetry install
-poetry run pre-commit install
+uv sync
+uv run pre-commit install
 ```
 
-All commands below assume `poetry run` or an activated `poetry shell`.
+All commands below assume `uv run` or an activated `.venv`.
 
 ---
 
@@ -379,7 +379,7 @@ __all__ = [..., "FOO"]
 - Add to `tests/agents/test_probing.py` — exercises value-net, discounting (if applicable), policy learning on the 3 probing environments.
 - Add a per-agent test dir `tests/agents/FOO/test_FOO.py` with a tiny-config smoke run.
 - Add a smoke test in `tests/extensions/test_phase3b_extension_smoke.py` (or its successor) exercising `FOO(..., extensions=[CounterExt()])` end-to-end. Mirror the pattern of the other agents there.
-- Capture a perf baseline: `JAX_PLATFORMS=cpu poetry run python benchmarks/agent_bench.py --only FOO --out benchmarks/agent_<phase>.jsonl` and check within ±10% of the relevant baseline (see `agent_baseline.jsonl`).
+- Capture a perf baseline: `JAX_PLATFORMS=cpu uv run python benchmarks/agent_bench.py --only FOO --out benchmarks/agent_<phase>.jsonl` and check within ±10% of the relevant baseline (see `agent_baseline.jsonl`).
 
 ---
 
@@ -502,9 +502,9 @@ Extension work. If you do, you're either:
 ## Testing
 
 ```bash
-poetry run pytest                                         # full suite
-poetry run pytest tests/modules/test_hook_composition.py  # hook API contract
-poetry run pytest tests/agents/test_probing.py -v         # cross-agent probing (slow)
+uv run pytest                                         # full suite
+uv run pytest tests/modules/test_hook_composition.py  # hook API contract
+uv run pytest tests/agents/test_probing.py -v         # cross-agent probing (slow)
 ```
 
 Structure:
@@ -532,7 +532,7 @@ on the standardized run is investigated to root cause **before** the
 change lands.
 
 ```bash
-JAX_PLATFORMS=cpu poetry run python benchmarks/agent_bench.py \
+JAX_PLATFORMS=cpu uv run python benchmarks/agent_bench.py \
     --only SAC --out benchmarks/my_change.jsonl --warmup 0 --trials 3
 ```
 
@@ -547,7 +547,7 @@ experiment specifically needs it and the device is idle.
 - **Formatter**: `ruff-format` (configured in [pyproject.toml](pyproject.toml)).
 - **Linter**: `ruff check` with rule set `I F E W B C RUF`.
 - **Types**: `mypy` (optional but encouraged — run `make mypy`).
-- **Pre-commit**: `poetry run pre-commit run --all-files` — runs ruff + mypy.
+- **Pre-commit**: `uv run pre-commit run --all-files` — runs ruff + mypy.
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) enforces pre-commit and runs the test suite with coverage on every PR.
 

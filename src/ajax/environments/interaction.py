@@ -247,10 +247,14 @@ def step(
                 lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
                 env_state.normalization_info.obs,
             )
-            reward_norm_info = jax.tree.map(
-                lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
-                env_state.normalization_info.reward,
-            )
+            reward_norm_info = env_state.normalization_info.reward
+            if reward_norm_info is not None:
+                # One normaliser per env: the statistics are pooled, each
+                # env's discounted-return accumulator stays its own.
+                reward_norm_info = jax.tree.map(
+                    lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
+                    reward_norm_info.replace(returns=None),
+                ).replace(returns=reward_norm_info.returns)
             env_state = env_state.replace(
                 normalization_info=env_state.normalization_info.replace(
                     obs=obs_norm_info, reward=reward_norm_info

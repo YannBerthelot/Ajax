@@ -49,6 +49,7 @@ class UDRL(ActorCritic):
         bc_loss_type: str = "nll",
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         # If set, use a CNN encoder. Image is assumed to be packed as
         # ``(*batch, H*W*C + 2)`` flat — the last 2 dims are the UDRL
         # command, which is concatenated to the CNN embedding after the
@@ -71,6 +72,7 @@ class UDRL(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             extensions=extensions,
         )
 

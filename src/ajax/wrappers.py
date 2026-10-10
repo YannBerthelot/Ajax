@@ -607,14 +607,14 @@ def normalize_wrapper_factory(
 
             if self.normalize_reward:
                 extra_info |= {RAW_REWARD_KEY: reward}
-                if self.gamma is None:
-                    returns = reward.reshape(-1, 1)
-                else:
-                    returns = reward.reshape(
-                        -1, 1
-                    ) + reward_norm_info.returns * self.gamma * (
-                        1 - done.reshape(-1, 1)
-                    )
+                # The statistics the reward is divided by: the single-step
+                # reward's (gamma None), or SB3 VecNormalize's discounted
+                # return of the episode so far, R = r + gamma R, restarted
+                # after the episode's end (gymnasium's NormalizeReward
+                # restarts it at the end step instead).
+                returns = reward.reshape(-1, 1)
+                if self.gamma is not None:
+                    returns = returns + self.gamma * reward_norm_info.returns
 
                 normed_reward, rew_count, rew_mean, rew_mean_2, rew_var = (
                     online_normalize(
@@ -641,7 +641,7 @@ def normalize_wrapper_factory(
                     mean=rew_mean,
                     mean_2=rew_mean_2,
                     var=rew_var,
-                    returns=returns if self.normalize_reward else None,
+                    returns=returns * (1 - done.reshape(-1, 1)),
                 )
                 reward = normed_reward
 

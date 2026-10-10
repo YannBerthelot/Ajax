@@ -989,3 +989,42 @@ def test_reward_normaliser_keeps_the_raw_reward(env_id):
     std = np.sqrt(np.asarray(norm.reward.var).mean() + 1e-8)
     np.testing.assert_allclose(normed[-1], raw[-1] / std, rtol=1e-5)
     assert not np.allclose(normed, raw)
+
+
+@pytest.mark.parametrize("gamma", [None, 0.9])
+def test_reward_normaliser_divides_by_the_chosen_statistics(gamma):
+    """By default the running std of the single-step reward; with ``gamma``,
+    of SB3's discounted return of the episode so far, restarted after the
+    episode's end. Replayed in numpy on CartPole under random actions."""
+    import numpy as np
+
+    from ajax.environments.create import prepare_env
+    from ajax.environments.interaction import reset, step
+    from ajax.wrappers import RAW_REWARD_KEY
+
+    env, params, *_ = prepare_env("CartPole-v1", normalize_reward=True, gamma=gamma)
+    key = jax.random.PRNGKey(0)
+    _, state = reset(jax.random.split(key, 1), env, "gymnax", params)
+
+    def one(state, key):
+        action = jax.random.randint(key, (1,), 0, 2)
+        out = step(jax.random.split(key, 1), state, action, env, "gymnax", params)
+        _, state, normed, terminated, truncated, info = out
+        done = jnp.logical_or(terminated, truncated)
+        kept = state.normalization_info.reward.returns.reshape(-1)
+        return state, (normed, info[RAW_REWARD_KEY], done, kept)
+
+    keys = jax.random.split(key, 100)
+    _, (normed, raw, done, kept) = jax.lax.scan(one, state, keys)
+    ret, count, mean, m2 = 0.0, 0, 0.0, 0.0
+    for t in range(100):
+        ret = float(raw[t, 0]) + (gamma or 0.0) * ret
+        count, delta = count + 1, ret - mean
+        mean += delta / count
+        m2 += delta * (ret - mean)
+        std = np.clip(np.sqrt(m2 / count + 1e-8), 1e-6, 1e6)
+        np.testing.assert_allclose(normed[t, 0], raw[t, 0] / std, rtol=1e-4)
+        ret *= 1.0 - float(done[t, 0])
+        if gamma is not None:
+            np.testing.assert_allclose(kept[t, 0], ret, rtol=1e-5)
+    assert done.sum() >= 2

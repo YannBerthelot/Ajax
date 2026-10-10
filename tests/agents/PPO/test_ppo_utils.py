@@ -1,13 +1,16 @@
+import distrax
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.PPO.core import policy_entropy
 from ajax.agents.PPO.utils import (
     _compute_gae,
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
 )
+from ajax.agents.SAC.utils import SquashedNormal
 
 
 @pytest.mark.parametrize(
@@ -188,3 +191,19 @@ def test_time_minibatches_hold_whole_fragments_in_time_order(unroll_length):
     starts = zip(np.ravel(mbs["step"][:, 0]), np.ravel(mbs["env"][:, 0]))
     expected = [(c * length, e) for c in range(T // length) for e in range(n_envs)]
     assert sorted(starts) == expected
+
+
+def test_policy_entropy_is_the_joint_actions():
+    """Summed over the action dimensions (CleanRL, baselines); a squashed
+    policy's is the executed action's, sampled with a key it requires."""
+    loc, scale = jnp.zeros((3, 2)), jnp.full((3, 2), 2.0)
+    normal = distrax.Normal(loc, scale)
+    joint = normal.entropy().sum(-1)
+    np.testing.assert_allclose(policy_entropy(normal), joint, rtol=1e-6)
+    uniform = distrax.Categorical(logits=jnp.zeros((3, 4)))
+    np.testing.assert_allclose(policy_entropy(uniform), jnp.full(3, jnp.log(4.0)))
+    squashed = SquashedNormal(loc, scale)
+    with pytest.raises(ValueError):
+        policy_entropy(squashed)
+    executed = policy_entropy(squashed, jax.random.PRNGKey(0))
+    assert executed.shape == (3,) and bool(jnp.all(executed < joint))  # tanh shrinks

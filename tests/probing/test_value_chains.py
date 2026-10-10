@@ -33,7 +33,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "3093646a89a6"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "a2c870979eb9"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -873,9 +873,9 @@ def _q6_read(n: R.Nets) -> dict:
 
 
 def apo_latent_sigma(budget: int) -> float:
-    """APO's sigma_u today: on the flat bandit its advantage is exactly 0, so
-    Adam raises the log-std by the learning rate at each of 4 steps per 8 x 32
-    rollout until the clip at 2."""
+    """APO's sigma_u under the latent Gaussian's entropy bonus: on the flat
+    bandit its advantage is exactly 0, so Adam raises the log-std by the
+    learning rate at each of 4 steps per 8 x 32 rollout until the clip at 2."""
     return math.exp(min(2.0, 3e-4 * 4 * (budget // (8 * 32) + 1)))
 
 
@@ -885,9 +885,9 @@ PI_BEST, SIGMA_C = oracles.softmax_optimum(1.0), oracles.max_entropy_sigma()
 _PI_A = {"untrained": 0.5, DROPPED: 0.976, f"{P07}, better arm": 1.0}
 _PI_A[f"{P07}, worse arm"] = 0.0  # a flipped bonus collapses each seed on an arm
 _APO_A = {"untrained": 0.5, DROPPED: 0.990, "bonus sign flipped": 0.997}
-_AVERAGED = {"entropy averaged over the dimensions (today)": math.sqrt(0.5)}
-_CLIP = "sign flipped (P07) or latent-Gaussian entropy (train_PPO.py:343-344): the log-std clip"
-_APO_C = {DROPPED: 1.0, "latent-Gaussian entropy (today)": apo_latent_sigma(80_000)}
+_AVERAGED = {"entropy averaged over the dimensions": math.sqrt(0.5)}
+_CLIP = "sign flipped (P07) or latent-Gaussian entropy (PPO/core.py): the log-std clip"
+_APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": apo_latent_sigma(80_000)}
 _APO_C["latent-Gaussian entropy, sign flipped"] = 1 / apo_latent_sigma(80_000)
 Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "PPO-a": (Query("pi(best)", PI_BEST, _PI_A),),
@@ -922,15 +922,12 @@ Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
     ),
     "APO-c": ("APO", "c", 0.1, 80_000, (0.062,), {}),  # half the gap to 1.0
 }
-Q6_LIVE = {
-    "PPO-b2": "(convention, pending the owner's choice) PPO's unsquashed bonus averages the entropy over the action dimensions (pi.entropy().mean(), train_PPO.py:346), so ent_coef acts as c / d, while its squashed path sums them (SAC/utils.py:62, 68); right answer sigma_i 1.0 (joint entropy), today 0.707",
-    "APO-c": "APO's squashed bonus maximises the latent Gaussian's entropy (pi.unsquashed_entropy(), train_APO.py:80-84), which grows without bound in sigma, not the executed action's entropy as PPO does (train_PPO.py:341-342); right answer sigma_u 0.874, today exp(min(2, lr x Adam steps)) = 1.456 at 80,000 steps",
-}
 for cell, (agent, bandit, c, steps, q6_tols, kw) in Q6_CELLS.items():
     build = functools.partial(_q6_agent, agent, bandit, c, **kw)
     reads = runs.readings(build, lambda run: R.per_seed(_q6_read, R.nets(run.state)))
-    why, slow = Q6_LIVE.get(cell, ""), cell != "PPO-a"
-    case = Case(f"q6-{cell}", Q6_QUERIES[cell], reads, steps, q6_tols, why, slow=slow)
+    case = Case(
+        f"q6-{cell}", Q6_QUERIES[cell], reads, steps, q6_tols, slow=cell != "PPO-a"
+    )
     CASES[case.id] = case
 
 

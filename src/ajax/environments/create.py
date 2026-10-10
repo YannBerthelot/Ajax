@@ -339,7 +339,6 @@ def build_env_from_id(
 def add_ajax_wrappers(
     env: EnvType,
     *,
-    clip: bool = False,
     normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,
@@ -349,7 +348,8 @@ def add_ajax_wrappers(
 ) -> EnvType:
     """Ajax's own layers over a task env: the observation / reward
     normaliser (``train=False`` with ``norm_info`` freezes its statistics),
-    then the ``[-1, 1]`` action clip. The one place they are composed."""
+    then, on a continuous action space only, the clip to its bounds. The
+    one place they are composed."""
     ClipAction, NormalizeVecObservation = get_wrappers(get_env_type(env))
     if normalize_obs or normalize_reward:
         env = NormalizeVecObservation(
@@ -361,7 +361,7 @@ def add_ajax_wrappers(
             gamma=gamma if normalize_reward else None,
             apply_normalization=apply_obs_normalization,
         )
-    if clip:
+    if check_if_environment_has_continuous_actions(env):
         env = ClipAction(env)
     return env
 
@@ -378,16 +378,14 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
     stack's time limit."""
     layers: dict = {}
     for layer in wrapper_chain(env):
-        if isinstance(layer, _CLIPS):
-            layers["clip"] = True
-        elif isinstance(layer, _NORMALISERS):
+        if isinstance(layer, _NORMALISERS):
             layers |= {
                 "normalize_obs": layer.normalize_obs,
                 "normalize_reward": layer.normalize_reward,
                 "gamma": layer.gamma,
                 "apply_obs_normalization": layer.apply_normalization,
             }
-        elif not isinstance(layer, NoiseWrapper):
+        elif not isinstance(layer, (*_CLIPS, NoiseWrapper)):
             return layer, layers
     raise ValueError(f"No task env under the Ajax wrappers of {env!r}")
 
@@ -434,7 +432,6 @@ def prepare_env(
     continuous = check_if_environment_has_continuous_actions(env)
     env = add_ajax_wrappers(
         env,
-        clip=normalize_obs or normalize_reward,
         normalize_obs=normalize_obs,
         normalize_reward=normalize_reward,
         gamma=gamma,

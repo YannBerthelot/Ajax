@@ -174,8 +174,7 @@ def check_unnormalized_env(env: Any, consumer: str) -> None:
     (and sums those rewards into the house ``Train/episodic mean reward``),
     and :func:`ajax.evaluate.evaluate_policy` rebuilds and evaluates the raw
     env: with a normalising wrapper the rows and the training metric would
-    be normalised while evaluation is not (``prepare_env``'s normalisation
-    stack also clips actions to ``[-1, 1]``, defeating the bound mapping).
+    be normalised while evaluation is not.
     """
     normalizing = (NormalizeVecObservationBrax, NormalizeVecObservationGymnax)
     for layer in wrapper_chain(env):

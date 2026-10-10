@@ -491,19 +491,6 @@ def assert_shape(x, expected_shape, name="tensor"):
     ), f"{name} has shape {x.shape}, expected {expected_shape}"
 
 
-def compute_episodic_reward_mean(
-    agent_state: BaseAgentState,
-    reward: jnp.ndarray,
-    done: jnp.ndarray,
-    env: Environment,
-    mode: str,
-) -> tuple[RollinEpisodicMeanRewardState, jnp.ndarray]:
-    reward = get_raw_reward(reward, env, agent_state, mode)
-    return update_episodic_return(
-        agent_state.collector_state.episodic_return_state, reward, done
-    )
-
-
 def update_episodic_return(
     episodic_return_state: RollinEpisodicMeanRewardState,
     reward: jnp.ndarray,
@@ -564,21 +551,6 @@ def update_episodic_return(
     )
 
     return new_episodic_return_state, jnp.mean(episodic_mean_return)
-
-
-def get_raw_reward(reward, env, agent_state, mode):
-    if "unnormalize_reward" in dir(env):
-        raw_reward = env.unnormalize_reward(
-            reward,
-            (
-                agent_state.collector_state.env_state.norm_info.reward
-                if mode == "gymnax"
-                else agent_state.collector_state.env_state.info["norm_info"]
-            ),
-        )
-    else:
-        raw_reward = reward
-    return raw_reward
 
 
 def get_action_and_log_probs(
@@ -979,12 +951,10 @@ def collect_experience(
         next_a_expert=_next_a_expert_for_buf,
     )
 
-    new_episodic_return_state, episodic_mean_return = compute_episodic_reward_mean(
-        agent_state=agent_state,
-        reward=reward,
+    new_episodic_return_state, episodic_mean_return = update_episodic_return(
+        agent_state.collector_state.episodic_return_state,
+        reward,
         done=jnp.logical_or(terminated, truncated),
-        env=env_args.env,
-        mode=mode,
     )
 
     # Per-env step_in_episode counter for JSRL curriculum: increment

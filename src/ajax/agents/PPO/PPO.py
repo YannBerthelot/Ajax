@@ -146,9 +146,8 @@ class PPO(ActorCritic):
             # ``critic_state.obs_norm_info`` at every collect step) so
             # ``get_pi`` / ``predict_value`` apply ``apply_obs_norm``
             # consistently at both COLLECT and LOSS forward calls. The
-            # env wrapper is left in place when normalize_observations
-            # is True only so that ClipAction wraps the env -- the
-            # actual normalisation is fully agent-side.
+            # env wrapper stays in place without applying -- the actual
+            # normalisation is fully agent-side.
             apply_obs_normalization=not normalize_observations,
             extensions=extensions,
         )

@@ -8,6 +8,7 @@ from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.types import EnvType, InitializationFunction
@@ -20,6 +21,11 @@ class APO(ActorCritic):
     """
 
     name: str = "APO"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
 
     def __init__(  # pylint: disable=W0102, R0913
         self,

@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import make_train
 from ajax.extensions.base import Extension
@@ -21,6 +22,7 @@ class UDRL(ActorCritic):
     policy learning. No critic, no replay buffer."""
 
     name: str = "UDRL"
+    supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
 
     def __init__(
         self,

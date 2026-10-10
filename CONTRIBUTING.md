@@ -141,19 +141,20 @@ is exactly as invasive as the phases it overrides):
 | `on_target(agent_state, ext_state, batch, target, ctx) -> target` | TD target | IBRL, CriticBlend, LCBGatedBootstrap, MCVarianceCorrection |
 | `critic_loss(agent_state, ext_state, batch, ctx) -> scalar` | extra critic-loss term | BiasVorePenalty |
 | `actor_loss(agent_state, ext_state, batch, ctx) -> scalar` | extra actor-loss term | OnlineBC |
-| `action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | collection-time action | EDGEExploration, ValueBox, JSRLCurriculum |
-| `eval_action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | eval-time action | ResidualPolicy |
+| `action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | collection-time action (SAC's action pipeline, by `action_slot`) | EDGEExploration, ValueBox, JSRLCurriculum |
+| `eval_action(agent_state, ext_state, obs, rng, ctx) -> action \| None` | eval-time action | none yet: no agent folds it |
 | `post_update(agent_state, ext_state, ctx) -> (agent_state, ext_state)` | after each update step | PhiRefresh, target-entropy schedules |
 | `eval_metrics(agent_state, ext_state, rng, ctx) -> dict` | each eval | ConditioningMetrics, BiasVoreDecomposition, DiagnosticSnapshots |
 
-An agent can declare the phases its training loop folds in
-`supported_extension_phases` (a class attribute of `ActorCritic`); an
-extension implementing any other phase is then rejected when the agent is
-constructed instead of being silently ignored. The check is opt-in: the
-default (every phase) checks nothing, and the existing agents have not
-opted in yet, so on them an extension implementing a phase they do not
-fold (e.g. `critic_loss` on APG) is still silently ignored. New agents
-that own their training loop declare their phases.
+Every agent declares the phases its training loop folds in
+`supported_extension_phases` (a class attribute of `ActorCritic`, empty by
+default): the shared loop's `LOOP_PHASES` (`pretrain`, `post_update`,
+`eval_metrics`, in `ajax.agents.loop`) plus those its update folds. An
+extension implementing any other phase is rejected when the agent is
+constructed instead of being silently ignored (e.g. `critic_loss` on APG).
+No agent folds `eval_action` yet; SAC folds `action` only into its action
+pipeline's slots (an extension's `action_slot`) and only with an
+`expert_policy`.
 
 ### Self-binding
 
@@ -397,7 +398,7 @@ research features touch one or two phases; very rarely three or more.
 | `critic_loss` | Extra additive term (EVarEst penalty) |
 | `actor_loss` | BC term, KL regulariser |
 | `action` | Exploration override (EDGE, ValueBox) |
-| `eval_action` | Eval-time policy modification (residual) |
+| `eval_action` | Eval-time policy modification (no agent folds it yet) |
 | `pretrain` | One-shot offline pre-train |
 | `post_update` | Periodic state maintenance (φ\* refresh) |
 | `eval_metrics` | Pure observability / instrumentation |

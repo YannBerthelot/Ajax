@@ -291,29 +291,6 @@ class ResidualPolicy(Extension):
 
         return transform
 
-    def eval_action(
-        self,
-        agent_state: Any,
-        ext_state: Any,
-        obs: Any,
-        rng: jax.Array,
-        ctx: ExtensionContext,
-    ) -> jax.Array | None:
-        """Eval-time residual mix: same clip math as :meth:`transform_action`.
-
-        The SAC eval loop (:func:`ajax.evaluate.step_environment`) folds
-        any non-None eval_action through a thin callable; the SAC factory
-        builds that callable off this extension's
-        :meth:`transform_action` when no explicit
-        ``eval_action_transform`` is passed. See
-        :func:`_build_residual_policy_eval_transform` in
-        ``ajax.agents.SAC.train_SAC``.
-        """
-        del agent_state, ext_state, rng, ctx
-        raw_actions = obs["raw_actions"]
-        expert_actions = obs["expert_actions"]
-        return self.transform_action(raw_actions, expert_actions)
-
 
 @dataclass(frozen=True)
 class JSRLCurriculum(Extension):

@@ -22,6 +22,31 @@ from ajax.environments.interaction import (
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 
+#: The pipeline's slots for an ``action`` extension: before the warmup
+#: choice (EDGEExploration, JSRLCurriculum) and after it (ValueBox).
+ACTION_SLOTS = ("pre_warmup", "post_warmup")
+
+
+def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -> None:
+    """Reject the ``action`` extensions the pipeline never dispatches: one
+    without an ``action_slot`` of :data:`ACTION_SLOTS`, or any when the
+    pipeline does not dispatch (``dispatched`` False: no expert policy, or
+    the gain-policy short-circuit). SAC calls it at construction."""
+    acting = [e for e in extension_stack if "action" in e.implemented_phases()]
+    unslotted = [
+        e.name for e in acting if getattr(e, "action_slot", None) not in ACTION_SLOTS
+    ]
+    if unslotted:
+        raise ValueError(
+            f"SAC dispatches the action phase only to extensions declaring an"
+            f" action_slot in {ACTION_SLOTS}; {unslotted} declare none."
+        )
+    if acting and not dispatched:
+        raise ValueError(
+            "SAC dispatches the action phase only with an expert_policy and"
+            f" without use_pid_policy; {[e.name for e in acting]} would be ignored."
+        )
+
 
 def _resolve_expert_state(expert_policy, collector_state, n_envs):
     """Return the stateful expert's per-step input state.
@@ -184,7 +209,7 @@ def make_action_pipeline(
             if getattr(e, "action_slot", None) == name
         )
 
-    _pre_warmup_exts, _post_warmup_exts = _slot("pre_warmup"), _slot("post_warmup")
+    _pre_warmup_exts, _post_warmup_exts = map(_slot, ACTION_SLOTS)
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
         collector_state = agent_state.collector_state

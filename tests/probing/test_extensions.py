@@ -1,8 +1,8 @@
 """Extensions: every extension phase an agent claims to support, made an
 executable spec by test-only extensions of known effect (P3), and the numbers
 the real expert extensions produce (Q7). Learning cells are judged by the last
-test of the module (``verdict``); exact cells (overrides, metrics, counters,
-construction checks) assert on 2 seeds.
+test of the module (``verdict``); exact cells (metrics, counters) assert on 2
+seeds; construction checks (a phase no agent folds rejected) train nothing.
 """
 
 from __future__ import annotations
@@ -109,29 +109,20 @@ class ActorPull(Extension):
         return term
 
 
-def _fixed(obs: jax.Array, value: float, shape: tuple[int, ...]) -> jax.Array:
-    """``value`` for every env; ``shape`` () is a discrete action."""
-    return jnp.full(obs.shape[:-1] + shape, value, jnp.float32 if shape else jnp.int32)
-
-
 @dataclasses.dataclass(frozen=True)
 class ActionOverride(Extension):
-    value: float = 0.3
-    shape: tuple[int, ...] = (1,)
     name: str = "p3_action_override"
 
     def action(self, agent_state, ext_state, obs, rng, ctx):
-        return _fixed(obs, self.value, self.shape)
+        return jnp.zeros(obs.shape[:-1] + (1,))
 
 
 @dataclasses.dataclass(frozen=True)
 class EvalActionOverride(Extension):
-    value: float = -0.2
-    shape: tuple[int, ...] = (1,)
     name: str = "p3_eval_action_override"
 
     def eval_action(self, agent_state, ext_state, obs, rng, ctx):
-        return _fixed(obs, self.value, self.shape)
+        return jnp.zeros(obs.shape[:-1] + (1,))
 
 
 def _steps(state: Any) -> Any:
@@ -180,32 +171,24 @@ class GradientValueEnv(continuous.ValueLossOrOptimizerEnv):
 
 
 # (continuous, discrete) package probes: the 1-step value probe (reward 1);
-# the chain (0 then 1: V(1) = 1, V(0) = gamma); the bandit (reward a, or
-# 1 - a).
+# the chain (0 then 1: V(1) = 1, V(0) = gamma).
 ENV = {
     "value": (continuous.ValueLossOrOptimizerEnv, discrete.ValueLossOrOptimizerEnv),
     "chain": (continuous.RewardDiscountingEnv, discrete.RewardDiscountingEnv),
-    "bandit": (
-        envs.symmetric(continuous.AdvantagePolicyLossPolicyUpdateEnv),
-        discrete.AdvantagePolicyLossPolicyUpdateEnv,
-    ),
 }
-_OVERRIDE = (ActionOverride(), EvalActionOverride())
-_DISCRETE_OVERRIDE = (ActionOverride(1, ()), EvalActionOverride(1, ()))
-CELLS = {  # cell: probe, extensions (continuous, discrete), log frequency
-    "A": ("chain", ((TargetShift(), ActorPull()), (TargetShift(),)), None),
-    "B": ("value", ((CriticPull(),), (CriticPull(),)), None),
-    "C": ("bandit", (_OVERRIDE, _DISCRETE_OVERRIDE), 500),
-    "E7": ("value", ((MC,), ()), None),
-    "F": ("chain", ((TerminalSafeShift(),), (TerminalSafeShift(),)), None),
-    "G": ("value", ((ActorPull(gated=True),), ()), None),
+CELLS = {  # cell: probe, extensions (continuous, discrete)
+    "A": ("chain", ((TargetShift(), ActorPull()), (TargetShift(),))),
+    "B": ("value", ((CriticPull(),), (CriticPull(),))),
+    "E7": ("value", ((MC,), ())),
+    "F": ("chain", ((TerminalSafeShift(),), (TerminalSafeShift(),))),
+    "G": ("value", ((ActorPull(gated=True),), ())),
 }
 
 
 def _p3_read(agent: str, cell: str) -> Callable:
     """V(0), V(1) by the agent's own readout (SAC's chain V(0) without the
-    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the action,
-    phi*, the train and eval returns."""
+    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the action and
+    phi*."""
 
     def one(n: R.Nets) -> dict:
         v = {"V(0)": R.value(agent, n, 0.0), "V(1)": R.value(agent, n, 1.0)}
@@ -220,16 +203,14 @@ def _p3_read(agent: str, cell: str) -> Callable:
 
     def read(run: runs.Run) -> dict:
         extra = run.state.expert_critic_params if cell == "E7" else None
-        out = R.per_seed(one, R.nets(run.state, extra))
-        out["train return"] = run.state.collector_state.episodic_mean_return.reshape(-1)
-        return out | {"eval return": run.logged("Eval/episodic mean reward")}
+        return R.per_seed(one, R.nets(run.state, extra))
 
     return read
 
 
 @functools.cache
 def p3_readings(cell: str, agent: str) -> Callable:
-    probe, exts, every = CELLS[cell]
+    probe, exts = CELLS[cell]
     kind = int(agent in ("DQN", "PQN"))
 
     def build() -> Any:
@@ -237,7 +218,7 @@ def p3_readings(cell: str, agent: str) -> Callable:
             agent, *envs.package(ENV[probe][kind]), extensions=exts[kind]
         )
 
-    return runs.readings(build, _p3_read(agent, cell), log_every=every)
+    return runs.readings(build, _p3_read(agent, cell))
 
 
 def _default(cls: type, name: str) -> float:
@@ -280,14 +261,9 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
     return (single[test],)
 
 
-NO_FOLD = "no fold_{} call anywhere in src/ajax, yet every agent but the world models declares the phase (base.py:56, all phases by default)"
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
     "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
-    "E4-*": NO_FOLD.format("action")
-    + " (SAC dispatches only extensions declaring an action_slot, and only with an expert_policy: agents/SAC/action_pipeline.py); right train return 0.3 (discrete 0), today the policy's own (SAC 0.02-0.08 at 2000 steps, PPO 1.0, DQN 0.9-1.0, PQN 0.975)",
-    "E5-*": NO_FOLD.format("eval_action")
-    + " (evaluate_and_log runs the actor, log.py:317-347); right eval return -0.2 (discrete 0), today the policy's own (SAC 0.05-0.07, PPO, DQN, PQN 1.0)",
 }
 # "test-agent": cell, budget, tolerances calibrated on seeds 1000-1031 and
 # 2000-2031, certified 32/32 on 3000-3031 unless noted (none: a defect).
@@ -346,18 +322,23 @@ def test_p3_extension_implements_its_phase(phase: str) -> None:
     assert ext.implemented_phases() == {phase} | extra and ext.name.startswith("p3_")
 
 
-@pytest.mark.parametrize("agent", _exact("E4", ("SAC", "PPO", "DQN", "PQN")))
-def test_p3_e4_action_override_drives_collection(agent: str) -> None:
-    """Action 0.3 (discrete 1) collects a train return of exactly 0.3 (0)."""
-    r = p3_readings("C", agent)((0, 1), 2000)["train return"]
-    assert np.all(np.abs(r - (0.0 if agent in ("DQN", "PQN") else 0.3)) <= 1e-4), r
+def _rejected(agent: str, ext: Extension) -> None:
+    env, p = envs.package(ENV["value"][int(agent in ("DQN", "PQN"))])
+    with pytest.raises(ValueError, match=ext.name):
+        agents.make(agent, env, p, extensions=(ext,))
 
 
-@pytest.mark.parametrize("agent", _exact("E5", ("SAC", "PPO", "DQN", "PQN")))
-def test_p3_e5_eval_action_override_drives_evaluation(agent: str) -> None:
-    """Eval action -0.2 (discrete 1) logs an eval return of exactly -0.2 (0)."""
-    r = p3_readings("C", agent)((0, 1), 2000)["eval return"]
-    assert np.all(np.abs(r - (0.0 if agent in ("DQN", "PQN") else -0.2)) <= 1e-4), r
+@pytest.mark.parametrize("agent", ("SAC", "PPO", "DQN", "PQN"))
+def test_p3_e4_action_override_raises_at_construction(agent: str) -> None:
+    """No agent folds ``action`` into its own policy (SAC only into its action
+    pipeline's slots): an override is rejected, not silently ignored."""
+    _rejected(agent, ActionOverride())
+
+
+@pytest.mark.parametrize("agent", ("SAC", "PPO", "DQN", "PQN"))
+def test_p3_e5_eval_action_override_raises_at_construction(agent: str) -> None:
+    """No agent folds ``eval_action``: an override is rejected at construction."""
+    _rejected(agent, EvalActionOverride())
 
 
 # The counter, metric and E10 cells: every agent that trains on an env, on

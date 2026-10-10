@@ -21,7 +21,8 @@ from ajax.types import EnvType
 
 
 class REDQ(ActorCritic):
-    """Soft Actor-Critic (REDQ) agent for training and testing in continuous action spaces."""
+    """Randomized Ensembled Double Q-learning (Chen et al., 2021) for continuous
+    action spaces."""
 
     name: str = "REDQ"
     supports_memory: bool = True

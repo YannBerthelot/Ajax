@@ -268,6 +268,11 @@ class InitialStateWrapper(GymnaxWrapper):
     recomputed with ``env.get_obs``. Use it to narrow (or fix) the initial
     conditions of a benchmark, e.g. the ``p(O)`` of a control meta-dataset
     (Busetto et al. 2024 keep it fixed at the nominal steady state).
+
+    Every episode starts this way, the auto-reset ones included: gymnax's
+    ``step`` auto-resets with the inner env's ``reset_env``, so ``step``
+    applies ``init_state_fn`` to that reset state too (fields the inner step
+    carries across its auto-reset stay as it left them).
     """
 
     def __init__(self, env, init_state_fn):
@@ -280,6 +285,18 @@ class InitialStateWrapper(GymnaxWrapper):
         _, state = self._env.reset(key_env, params)
         state = self.init_state_fn(key_init, state, params)
         return self._env.get_obs(state, params), state
+
+    def step(self, key, state, action, params=None):
+        """Step the inner env; where it auto-reset, replace the reset state."""
+        key_step, key_init = jax.random.split(key)
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key_step, state, action, params
+        )
+        done = jnp.logical_or(terminated, truncated)
+        start = self.init_state_fn(key_init, state, params)
+        state = jax.tree.map(lambda s, x: jnp.where(done, s, x), start, state)
+        obs = jnp.where(done, self._env.get_obs(start, params), obs)
+        return obs, state, reward, terminated, truncated, info
 
 
 class VecEnv(GymnaxWrapper):

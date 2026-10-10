@@ -115,7 +115,7 @@ class ActorCritic:
         if memory is not None and not self.supports_memory:
             raise NotImplementedError(
                 f"{type(self).__name__} does not support recurrent networks"
-                " (memory) yet; supported agents: PPO, SAC, ASAC, REDQ, TD3."
+                " (memory) yet; supported agents: PPO, SAC, ASAC, REDQ, TD3, APG."
             )
 
         env, env_params, env_id, continuous = prepare_env(

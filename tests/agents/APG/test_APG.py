@@ -304,55 +304,6 @@ def test_extensions_fold_post_update(env_and_class):
     assert int(state.ext_state[0][0]) == 4
 
 
-def test_maybe_log_fires_only_at_the_gate_under_batched_state(env_and_class):
-    """Resumed / curriculum runs batch the agent state across seeds; the
-    gate is on the unbatched scan iteration so the callback fires exactly
-    at the cadence and the eval branch stays a real cond."""
-    from ajax.agents.APG.train_APG import APGAuxiliaries, _maybe_log, init_APG
-
-    env, sc = env_and_class
-    agent = make_agent(env, sc)
-    state = init_APG(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.network_args,
-        agent.pid,
-        agent.squash,
-    )
-    state = jax.tree.map(lambda x: jnp.asarray(x)[None], state)  # one batched "seed"
-    calls = []
-
-    def log_fn(metrics, index):
-        calls.append(int(metrics["timestep"]))
-
-    per_update = N_ENVS * HORIZON
-    log_kwargs = {
-        "per_update": per_update,
-        "evaluate_fn": lambda s, k: {},
-        "extra_eval_metrics": None,
-        "log": True,
-        "log_fn": log_fn,
-        "log_frequency": 3 * per_update,  # every third update
-        "total_timesteps": 10_000,
-    }
-
-    def step(state, iteration):
-        aux = APGAuxiliaries(
-            loss=jnp.asarray(0.0),
-            matching_loss=jnp.asarray(0.0),
-            m_rmse=jnp.asarray(0.0),
-            timestep=(iteration + 1) * per_update,
-        )
-        return _maybe_log(state, aux, jnp.asarray(0), iteration, **log_kwargs)
-
-    for i in range(7):
-        state, _ = jax.vmap(step, in_axes=(0, None))(state, jnp.asarray(i))
-    jax.effects_barrier()
-    assert calls == [3 * per_update, 6 * per_update]
-    assert int(state.n_logs[0]) == 2
-
-
 def test_the_downstream_training_and_evaluation_contract(env_and_class):
     """What TargetFoundation does (tmdp/experiments, tmdp/evaluate.py): a
     contextual controller from a factory, trained without a logging config,

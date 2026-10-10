@@ -1,270 +1,213 @@
-# Agents in JAX (AJAX): A JAX-Based Library for Modular and Efficient RL Agents
+# Ajax: reinforcement-learning agents in JAX
 
-AJAX is a high-performance reinforcement learning library built entirely on **JAX**. It provides a modular, composable framework for implementing and training RL agents, enabling **massive speedups** for parallel experiments on **GPUs / TPUs**.
+Ajax is a library of reinforcement-learning agents written in [JAX](https://github.com/jax-ml/jax),
+each following a published paper. A whole training run, environment included, compiles into one
+program, so several seeds train side by side on one CPU or GPU. Research features (learning from an
+expert, exploration rules, diagnostics) plug into any agent as *extensions*, not agent options.
 
----
+## Agents
 
-## Features
+| Agent | Paper | Actions | Memory |
+| --- | --- | --- | --- |
+| `SAC` | Haarnoja et al., *Soft Actor-Critic*, 2018 ([arXiv:1801.01290](https://arxiv.org/abs/1801.01290)) | continuous | yes |
+| `TD3` | Fujimoto et al., *Addressing Function Approximation Error in Actor-Critic Methods*, 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)) | continuous | yes |
+| `REDQ` | Chen et al., *Randomized Ensembled Double Q-Learning*, 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes |
+| `ASAC` | Adamczyk et al., *Average-Reward Soft Actor-Critic*, 2025 ([arXiv:2501.09080v2](https://arxiv.org/abs/2501.09080v2)) | continuous | yes |
+| `AVG` | Vasan et al., *Deep Policy Gradient Methods Without Batch Updates, Target Networks, or Replay Buffers*, 2024 ([arXiv:2411.15370](https://arxiv.org/abs/2411.15370)) | continuous | no |
+| `PPO` | Schulman et al., *Proximal Policy Optimization Algorithms*, 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes |
+| `APO` | Ma et al., *Average-Reward Reinforcement Learning with Trust Region Methods*, 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no |
+| `DQN` | Mnih et al., *Human-level control through deep reinforcement learning*, Nature 2015 | discrete | no |
+| `PQN` | Gallici et al., *Simplifying Deep Temporal Difference Learning*, 2024 | discrete | no |
+| `UDRL` | Schmidhuber, *Reinforcement Learning Upside Down*, 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no |
+| `APG` | Analytic policy gradient through a differentiable simulator; `APG.contextual_controller` is Busetto et al., *One controller to rule them all*, 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) | continuous | yes |
+| `DreamerV3` | Hafner et al., *Mastering Diverse Domains through World Models*, 2023, Nature 2025 ([arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2)) | both | built in |
+| `TDMPC2` | Hansen, Su & Wang, *TD-MPC2: Scalable, Robust World Models for Continuous Control*, ICLR 2024 ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828)) | continuous | no |
+| `TDMPC2MultiTask` | The same paper's multi-task agent: one model trained offline on the data of several tasks | continuous | no |
 
-| Feature                               | AJAX               |
-| ------------------------------------- | ------------------ |
-| End-to-end JAX implementation         | :heavy_check_mark: |
-| Composable hook API (no flag soup)    | :heavy_check_mark: |
-| GPU / TPU acceleration                | :heavy_check_mark: |
-| TensorBoard + Weights & Biases        | :heavy_check_mark: |
-| Truncation / termination handling     | :heavy_check_mark: |
-| Recurrent networks (PPO, SAC, ASAC, REDQ, TD3) | :heavy_check_mark: |
+*Memory*: whether the agent accepts `memory=` (see [Memory](#memory)); DreamerV3's world model is
+recurrent by design. `TD3` and `UDRL` are not exported from `ajax`: import them from
+`ajax.agents.TD3.TD3` and `ajax.agents.UDRL.UDRL`. DreamerV3 and TD-MPC2 follow the paper-era
+official code; versions, specifications and deviations are in [docs/world_models](docs/world_models/README.md).
 
-### Available Agents
+## Environments
 
-| Agent | Paper |
-| ----- | ----- |
-| **SAC**   | Haarnoja et al., *Soft Actor-Critic*, 2018 — [arXiv:1801.01290](https://arxiv.org/abs/1801.01290) |
-| **ASAC**  | Adamczyk et al., *Average-Reward Soft Actor-Critic*, 2025 — [arXiv:2501.09080](https://arxiv.org/pdf/2501.09080v2) |
-| **REDQ**  | Chen et al., *Randomized Ensembled Double Q-Learning*, 2021 — [arXiv:2101.05982](https://arxiv.org/abs/2101.05982) |
-| **AVG**   | Vasan et al., *Deep Policy Gradient Methods Without Batch Updates, Target Networks, or Replay Buffers*, 2024 — [arXiv:2411.15370](https://arxiv.org/abs/2411.15370) |
-| **PPO**   | Schulman et al., *Proximal Policy Optimization*, 2017 — [arXiv:1707.06347](https://arxiv.org/abs/1707.06347) |
-| **APO**   | Ma et al., *Average-Reward Reinforcement Learning with Trust Region Methods*, 2021 — [arXiv:2106.03442](https://arxiv.org/abs/2106.03442) |
-| **TD3**   | Fujimoto et al., *Addressing Function Approximation Error in Actor-Critic Methods*, 2018 — [arXiv:1802.09477](https://arxiv.org/abs/1802.09477) |
-| **UDRL**  | Schmidhuber, *Reinforcement Learning Upside Down: Don't Predict Rewards, Just Map Them to Actions*, 2019 — [arXiv:1912.02875](https://arxiv.org/abs/1912.02875) |
-| **DreamerV3** | Hafner et al., *Mastering Diverse Domains through World Models*, 2023/2025 — [arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2); the paper-era code (`danijar/dreamerv3@2411f7d` + fix `29eb964`), vector observations ([docs/world_models](docs/world_models/README.md)) |
-| **APG**   | Analytic policy gradient through a differentiable simulator. `APG.contextual_controller` is the in-context controller of Busetto, Breschi, Forgione, Piga & Formentin, *One controller to rule them all*, 2024 — [arXiv:2411.06482](https://arxiv.org/abs/2411.06482) |
-| **TDMPC2** | Hansen, Su & Wang, *TD-MPC2: Scalable, Robust World Models for Continuous Control*, ICLR 2024 — [arXiv:2310.16828](https://arxiv.org/abs/2310.16828). Paper-era `nicklashansen/tdmpc2@b67b21c` / `5f6fade`; single-task online, continuous actions, fixed-length non-terminating tasks (see `docs/world_models/`) |
-| **TDMPC2MultiTask** | The same paper's multi-task agent: one task-conditioned model trained offline on the pooled data of several tasks of different observation and action dims (`TDMPC2MultiTask(dataset, eval_envs)`; datasets from single-task runs with `ajax.agents.TDMPC2.dataset`; see `docs/world_models/DESIGN.md` §7) |
+An agent takes an environment id or a prebuilt environment. Ids are looked up in [gymnax](https://github.com/RobertTLange/gymnax)
+(`"Pendulum-v1"`), then [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)
+(`"CheetahRun"`), then [Brax](https://github.com/google/brax) (`"ant"`); `n_envs` copies run in
+parallel. To build one differently, pass the agent the result of
+`ajax.environments.create.build_env_from_id`: `fresh_reset=False` (Playground) restarts each copy
+from the same first state, as older Ajax runs did; `differentiable_reset=True` (Brax, Playground)
+lets `jax.grad` flow through the reset itself (say, to physics parameters), at one reset per step.
 
-### Environment Compatibility
-- **Gymnax**, **Brax**, and **MuJoCo Playground** (with full termination vs truncation handling).
-- Parallel environments via `n_envs`.
-- Env lookup is by id: a gymnax id (e.g. `"Pendulum-v1"`) routes to gymnax, a playground id (e.g. `"HopperHop"`, `"CheetahRun"`, `"Go1JoystickFlatTerrain"`) routes to playground, and a brax id (e.g. `"ant"`, `"halfcheetah"`, `"humanoid"`) routes to brax. Brax and playground have disjoint env sets — both backends are kept side-by-side rather than one superseding the other.
-- Terminal observations on truncation are preserved in `state.info["final_obs"]` via an Ajax-supplied `FinalObsWrapper`, so PPO/SAC value bootstrap is correct at time-limit truncations.
-- Playground envs draw a new initial state every episode, as dm_control does (Ajax's `FreshAutoResetWrapper`; the reset is computed only on steps where some env is done). Before this became the default, Ajax used playground's `BraxAutoResetWrapper`, which restarts every episode of env `i` from the same cached first state, so a run saw only `n_envs` initial conditions. To reproduce results produced that way, build the env with `build_env_from_id(env_id, n_envs=..., fresh_reset=False)` and pass it to the agent.
-- **Differentiating through brax / playground envs.** The brax auto-reset and playground's fresh auto-reset (the default) evaluate the reset only on steps where some env is done, inside a `lax.while_loop`, rather than on every step and then discarding it. This does not affect gradients with respect to actions, policy parameters or the env state, since the reset depends on none of them. Forward mode (`jax.jvp`) works with respect to anything. The one thing it rules out is reverse mode (`jax.grad`) *through the reset itself*, i.e. with respect to something the reset depends on, such as physics parameters of the env. That case fails at trace time, never silently, with `ValueError: Reverse-mode differentiation does not work for lax.while_loop ...`. If you hit that error, build the env with `build_env_from_id(env_id, n_envs=..., differentiable_reset=True)`: the reset is then evaluated on every step and kept only for done envs, which reverse mode can cross, at the cost of one reset per step (~10% of a brax `ant` step on CPU, more for envs with expensive resets; see `PERFORMANCE_REPORT.md`). Transitions are the same either way, up to float rounding.
+## Install
 
-### Replay Buffer
-- Trajectory storage and sampling via **flashbax**.
-
-### Optimizations
-- Memory-efficient updates using `donate_argnums`.
-- JIT compilation with static hook callables — one compilation per unique feature configuration.
-
----
-
-## Installation
+Ajax uses [uv](https://docs.astral.sh/uv/) and Python 3.11 to 3.13. On Apple-silicon Macs it
+installs JAX for CPU; elsewhere `jax[cuda]`, which falls back to the CPU when there is no GPU.
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
 cd Ajax
-uv sync
-source .venv/bin/activate
+uv sync   # creates .venv with the locked dependencies; activate it or prefix commands with `uv run`
 ```
-
-uv is required. Install it via `curl -LsSf https://astral.sh/uv/install.sh | sh` if needed.
-
----
 
 ## Quickstart
 
 ```python
 from ajax import SAC
+from ajax.logging.wandb_logging import LoggingConfig
 
-agent = SAC(env_id="Pendulum-v1", n_envs=1)
-agent.train(seed=[1, 2, 3], n_timesteps=int(1e6))
+agent = SAC("Pendulum-v1")
+# Evaluate every 5,000 steps; use_wandb=False keeps the results in memory only.
+logging = LoggingConfig(config={}, log_frequency=5_000, use_wandb=False)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=50_000, logging_config=logging)
+
+print(evaluations["timestep"][0])                # when each evaluation ran
+print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
 ```
 
-Every agent accepts the same base arguments (`env_id`, `n_envs`, `gamma`, architectures, …) plus agent-specific hyperparameters.
+`evaluations` maps each logged name to an array of shape `(seeds, evaluations)`;
+`"Eval/episodic mean reward"` is the mean return of `num_episode_test` (default 10) test episodes.
+Without `logging_config`, `train` does not evaluate and returns `(state, None)` (APG returns every
+update's metrics instead). With `use_wandb=True` (the default) or `use_tensorboard=True`, the
+records also go to Weights & Biases or TensorBoard.
 
-### Recurrent networks (memory)
+## Extensions
 
-PPO, SAC, ASAC, REDQ and TD3 support memory-augmented actors and critics
-through a single hyperparameter — the network becomes
-`encoder → memory → heads` and all hidden-state plumbing (collection,
-training, evaluation, episode-boundary resets) is handled internally:
+An extension adds a feature to an agent's training without changing the agent: an extra loss term,
+another way to pick actions while collecting, an expert to learn from, extra measurements. Pass
+them as a tuple, `extensions=`; each holds its own settings. [CONTRIBUTING.md](CONTRIBUTING.md) shows how to write one.
 
 ```python
-from ajax import PPO, ASAC
+from ajax import PPO
+from ajax.extensions.instrumentation import ConditioningMetrics
+from ajax.logging.wandb_logging import LoggingConfig
+
+# Measures the critic's health (effective rank, dormant units, norms) at each evaluation, on the
+# latest rollout for an on-policy agent: expose_recent_rollout=True keeps it.
+agent = PPO("CartPole-v1", expose_recent_rollout=True, extensions=(ConditioningMetrics(),))
+logging = LoggingConfig(config={}, log_frequency=8_192, use_wandb=False)
+state, evaluations = agent.train(seed=[1, 2], n_timesteps=32_768, logging_config=logging)
+print(evaluations["Cond/critic_srank"])
+```
+
+| Module (`ajax.extensions.`) | Extensions | What for |
+| --- | --- | --- |
+| `expert` | `ExpertGuidance`, `ExpertObsAugmentation`, `OnlineBC`, `ImitationLoss`, `ResidualPolicy`, `JSRLCurriculum` | learning from a fixed expert policy |
+| `exploration` | `EDGEExploration` | letting the expert act during collection while it looks better |
+| `target_mods` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox` | using the expert in the critic's target (`ValueBox`: in the action) |
+| `pretrain` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` | pre-training a critic on expert data |
+| `ensemble` | `KernelRepulsion` | keeping an ensemble's critics apart |
+| `instrumentation` | `ConditioningMetrics`, `BiasVoreDecomposition`, `DiagnosticSnapshots`, `BiasVorePenalty` | measuring the critic (and one critic-loss term) |
+
+## Memory
+
+When the current observation is not enough (a hidden velocity, a cue seen earlier), the agent must
+remember. `memory=` gives `PPO`, `SAC`, `TD3`, `REDQ`, `ASAC` and `APG` a memory block before their
+output heads; carrying it, resetting it at episode ends and replaying it in training are automatic.
+
+```python
+from ajax import PPO, SAC
 from ajax.networks.memory import MemoryConfig
 
 agent = PPO("CartPole-v1", memory=MemoryConfig(kind="gru", hidden_size=64))
-agent = ASAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})  # dict works too
-agent = PPO("CartPole-v1", memory=MemoryConfig(kind="mamba", hidden_size=64))
-agent = PPO(
-    "CartPole-v1",
-    memory=MemoryConfig(kind="transformer", hidden_size=64, window=32, num_heads=4),
-)
+agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})  # a dict works too
 ```
 
-Available kinds and their profiles:
+`kind` is `"gru"`, `"lstm"`, `"transformer"` (attention over the episode's last `window` steps) or
+`"mamba"` (a selective state-space model). PPO trains on whole rollouts or on `bptt_length`-step
+chunks. Replay agents train on stored sequences, as in R2D2 (Kapturowski et al. 2019): `burn_in`
+steps warm the memory up, then `sequence_length` steps are learned from; `stored_state=True`
+starts each sequence from the memory the actor had when it collected it.
 
-| Kind | Carry per env | Training over T |
-| ---- | ------------- | --------------- |
-| `"gru"` / `"lstm"` | O(hidden) | sequential (`nn.scan`) |
-| `"transformer"` (sliding-window attention) | O(window · hidden) | parallel attention with episode-segment masks |
-| `"mamba"` (selective SSM) | O(d_state · hidden) | parallel `associative_scan` |
+## Differentiable simulation: APG
 
-Shared knobs: `num_layers` (stacked blocks) and `gradient_checkpoint`
-(rematerialize activations on long sequences). All kinds are reset-aware
-(no information leaks across episode boundaries, forward or backward) and
-step-wise acting is numerically identical to sequence-mode training —
-enforced by the equivalence tests in `tests/networks/test_memory.py`.
-`tests/agents/PPO/test_memory_probe.py` verifies end-to-end that each kind
-actually uses its memory: on velocity-masked CartPole, feedforward PPO
-plateaus near 40 return while every memory kind exceeds 450/500.
-
-- **PPO** trains with truncated BPTT over full rollouts: each epoch uses the
-  whole `(n_steps, n_envs)` sequence from the rollout-start hidden states
-  (`batch_size` is ignored in recurrent mode to keep sequences intact).
-- **PPO truncated BPTT** (`bptt_length=L`): each env's rollout splits into
-  `n_steps/L` contiguous sequences whose start carries are recomputed
-  chunk-wise with the current params — never zero-initialized mid-episode
-  (the naive-zero variant demonstrably *hurts*). Combined with
-  `num_minibatches`, this both bounds BPTT memory and multiplies the
-  gradient-step count; on velocity-masked CartPole (GRU-128,
-  n_steps=2048) it matches full-rollout BPTT's ~500 return while
-  training ~8× faster.
-- **SAC / ASAC / REDQ / TD3** switch their replay buffer to trajectory
-  storage and train on sampled sequences R2D2-style (shared machinery in
-  `ajax/agents/recurrent.py`): carries are warmed up from zero over
-  `burn_in` steps under `stop_gradient`, then `sequence_length` steps are
-  trained with BPTT. TD3 additionally burns in a target-actor carry for
-  its bootstrap action. Expert-guidance features are rejected loudly when
-  combined with memory.
-- **Stored-state replay** (`stored_state=True`, off-policy agents): the
-  actor's carry at each collection step is written to the buffer and
-  replayed sequences start from it instead of zero + burn-in — R2D2's
-  headline ablation shows this mitigates recurrent-state staleness best
-  (Kapturowski et al. 2019). Critics keep the burn-in (they never run at
-  collection time). Note the buffer cost is O(carry) per step — small for
-  GRU/LSTM/Mamba, O(window·hidden·layers) for the transformer.
-- Other agents (AVG, APO, UDRL) raise `NotImplementedError` when `memory`
-  is set rather than silently ignoring it.
-
-### Differentiable simulation and in-context control
-
-`APG` back-propagates the closed-loop return through a gymnax env that
-exposes transition gradients (Pendulum, MountainCarContinuous, PointRobot,
-Reacher, Swimmer), across a *system class* (a distribution over
-`EnvParams`). `ModelReferenceWrapper` turns any env into a model-reference
-tracking task, and `APG.contextual_controller` reproduces the transformer +
-PID contextual controller of Busetto et al. 2024:
+`APG` has no critic and no replay buffer: it runs the controller in closed loop and follows the
+gradient of the return through the simulator, so it needs a gymnax environment that exposes those
+gradients (Pendulum, MountainCarContinuous, PointRobot, Reacher, Swimmer), and can train across a
+*system class*, a distribution over the environment's physical parameters. `APG.contextual_controller`
+is the transformer-plus-PID controller of Busetto et al. 2024; `train_curriculum` runs the paper's
+staged training (Algorithm 2) on a reference-tracking task:
 
 ```python
-from ajax import APG
-from ajax.agents.APG import CurriculumStage, train_curriculum
-from ajax.environments.model_reference import (
-    LinearReferenceModel, ModelReferenceWrapper, StepReference,
-)
+import gymnax
+import jax.numpy as jnp
+from ajax.agents.APG import APG, CurriculumStage, train_curriculum
+from ajax.environments.model_reference import LinearReferenceModel, ModelReferenceWrapper, StepReference
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
 from ajax.wrappers import InitialStateWrapper
-import gymnax
 
 plant, params = gymnax.make("Pendulum-v1")
-# The paper keeps initial conditions fixed (no p(O) sampling); pin them so the
-# matching cost is not dominated by the approach transient.
-plant = InitialStateWrapper(
-    plant, lambda key, state, _: state.replace(theta=jnp.asarray(0.0), theta_dot=jnp.asarray(0.0))
-)
-task = ModelReferenceWrapper(
+fixed_start = lambda key, s, p: s.replace(theta=jnp.asarray(0.0), theta_dot=jnp.asarray(0.0))
+plant = InitialStateWrapper(plant, fixed_start)  # the paper keeps the initial conditions fixed
+task = ModelReferenceWrapper(  # track a reference model's step response
     plant,
     StepReference(horizon=100, min_value=-0.5, max_value=0.5, min_duration=20, max_duration=50),
-    # first_order() defaults to the paper's M, tuned for its 1 s sampling;
-    # at Pendulum's 50 ms step use a slower pole so the target is reachable.
-    LinearReferenceModel.first_order(a=0.9, b=0.1, c=1.0, d=0.0),
+    LinearReferenceModel.first_order(a=0.9, b=0.1, c=1.0, d=0.0),  # slower than the paper's M: 50 ms steps
     output_fn=lambda obs: jnp.arctan2(obs[1], obs[0]),
 )
-system_class = UniformPerturbation(params, fields=("m", "l"), scale=0.05)
-stages = [  # Algorithm 2: nominal system first, then the whole class
+systems = UniformPerturbation(params, fields=("m", "l"), scale=0.05)
+stages = [  # the nominal system first, then the whole class
     CurriculumStage(APG.contextual_controller(task, FixedSystem(params), env_params=params), n_timesteps=200_000),
-    CurriculumStage(APG.contextual_controller(task, system_class, env_params=params), n_timesteps=500_000),
+    CurriculumStage(APG.contextual_controller(task, systems, env_params=params), n_timesteps=500_000),
 ]
 (state, aux), *_ = train_curriculum(stages, seed=0)
 ```
 
-### Composable research features
+## How training is organised
 
-Research features are Extensions passed as `extensions=`; see
-[CONTRIBUTING.md](CONTRIBUTING.md) for the phases and the catalogue.
+The replay agents, the on-policy agents and the world models run on one shared loop, `TrainLoop`
+in [src/ajax/agents/loop.py](src/ajax/agents/loop.py). An agent supplies only its algorithm (how to
+initialise its state and how to update it); the loop does the rest the same way for all: collecting
+experience, waiting for `learning_starts`, applying the extensions, evaluating and logging. APG,
+UDRL and the offline `TDMPC2MultiTask`, whose iterations differ, reuse the loop's pieces. `train`
+runs the seeds side by side with `jax.vmap`: every array in the returned state has a seed axis first.
+To continue a run, pass its state back: `agent.train(seed=seeds, n_timesteps=more, initial_state=state)`
+trains `more` further steps. `ajax.checkpoint.save_checkpoint` and `restore_into` save a state and
+load it into a new agent's 0-step state, so another process can resume; the probing tests check
+that a run split this way equals the run left whole.
 
-```python
-from ajax import SAC
-from ajax.extensions.exploration import EDGEExploration
+## Testing
 
-agent = SAC(
-    env_id="Pendulum-v1",
-    expert_policy=my_expert,
-    extensions=(EDGEExploration(expert_policy=my_expert, gate="lcb"),),
-)
+*Unit tests* check pieces in isolation (losses, buffers, networks, wrappers, logging) and that every
+agent and extension runs. *Probing tests* (`tests/probing`, older ones in `tests/agents/test_probing.py`)
+check that agents learn the right thing: each trains an agent on a tiny problem whose answer is known
+exactly (a value, a best action, a count) and tells it apart from named wrong answers, such as a
+discount applied twice.
+
+```bash
+uv run pytest                  # every test
+uv run pytest -m "not slow"    # skip the long trainings
+uv run pytest tests/probing    # the probing tests
+make ci                        # what CI runs
 ```
 
----
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on CPU for every pull request and
+push to `main`: pre-commit (ruff, mypy), the tests not marked slow with at least 70% coverage, the
+slow tests, and the probing tests. A pull request merges only when all of them pass.
 
-## Project Structure
+## Project layout
 
 ```
 src/ajax/
-├── agents/
-│   ├── base.py              # Shared ActorCritic base class
-│   ├── cloning.py           # Behavioral-cloning utilities (actor + critic pretrain)
-│   ├── SAC/, ASAC/, REDQ/, AVG/, PPO/, APO/, TD3/, UDRL/, APG/, DreamerV3/, TDMPC2/
-│   │   ├── <AGENT>.py       # Public class (config, __init__, get_make_train)
-│   │   ├── train_<AGENT>.py # make_train, update steps, loss functions
-│   │   └── state.py         # Agent-specific flax.struct.dataclass state
-│   │                        #   (TDMPC2/ adds networks.py, core.py (one update),
-│   │                        #   planner.py (MPPI) and buffer.py (episode replay);
-│   │                        #   multi-task: multitask.py, dataset.py and the
-│   │                        #   offline TDMPC2MultiTask.py / train_TDMPC2MultiTask.py)
-├── buffers/                 # flashbax-based replay buffer helpers
-├── environments/            # Env creation, interaction loops, collect_experience,
-│                            #   system_class (EnvParams distributions), differentiable
-│                            #   (closed-loop BPTT rollouts), model_reference (tracking tasks)
-├── logging/                 # wandb / tensorboard logging
-├── modules/                 # PID network pieces (pid_actor, pid_head)
-├── networks/                # Actor / Critic / ScannedRNN
-├── state.py                 # Shared config dataclasses
-├── wrappers.py              # Env wrappers (AutoReset, Normalize, Noise, …)
-├── evaluate.py, log.py      # Eval loop and metric logging
-└── schedule.py              # Optimizer step schedules (warmup_cosine_schedule)
-
-tests/                       # Unit + probing tests (see tests/agents/test_probing.py)
+├── agents/        one folder per agent: <AGENT>.py (the class), train_<AGENT>.py (the algorithm);
+│                  base.py (ActorCritic, train), loop.py (TrainLoop), recurrent.py (sequence replay)
+├── extensions/    the Extension base class and the extensions above
+├── environments/  environment creation, collection, differentiable rollouts, system classes
+├── networks/      actor and critic networks, memory blocks (modules/: learnable PID layers)
+├── buffers/, logging/   replay buffers (flashbax); Weights & Biases and TensorBoard logging
+└── checkpoint.py, evaluate.py, log.py, wrappers.py   checkpoints, evaluation, logged metrics, env wrappers
+tests/             unit tests; tests/probing holds the probing tests
+benchmarks/        per-agent speed benchmark (agent_bench.py) and recorded baselines
 ```
-
-Top-level scripts (experiment runners; see [pipeline.py](pipeline.py)):
-- `pipeline.py` — orchestrates hyperparameter search → ablation → noise study → plots.
-- `gpu_launcher.py` — launches experiments one-per-GPU.
-- `sac_hyperparam_search.py` — TPE-based SAC hyperparameter search.
-- `ablation_study.py`, `noisy_expert_study.py` — research experiments on the `Plane` env.
-- `plot_sweep.py` — plotting utilities.
-- `task_configs.py` — per-task pipeline config (currently `Plane`).
-
----
-
-## Running Tests
-
-```bash
-uv run pytest                                          # all tests
-uv run pytest tests/agents/test_probing.py             # cross-agent behavioral tests
-uv run pytest tests/modules/test_hook_composition.py   # hook API contract
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how the test suite is structured.
-
----
 
 ## Contributing
 
-Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for:
-- Adding a new agent
-- Adding a new composable module (hook)
-- Style / CI requirements
+Run `uv run pre-commit install` once after `uv sync`. [CONTRIBUTING.md](CONTRIBUTING.md) covers adding
+an agent or an extension; [CLAUDE.md](CLAUDE.md) lists the checks every commit must pass.
 
----
+## License and citation
 
-## License
-
-MIT. See [LICENSE](LICENSE).
-
----
-
-## Citation
+MIT, see [LICENSE](LICENSE). To cite Ajax:
 
 ```bibtex
 @misc{ajax2025,

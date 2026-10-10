@@ -22,6 +22,7 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
+from ajax.wrappers import RAW_FINAL_OBS_KEY
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -124,6 +125,12 @@ def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
         if key in info:
             return info[key]
     return fallback
+
+
+def get_raw_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
+    """:func:`get_final_obs` in the env's own units: an observation
+    normaliser normalises the final observation and keeps the raw one."""
+    return info.get(RAW_FINAL_OBS_KEY, get_final_obs(info, fallback))
 
 
 @partial(jax.jit, static_argnames=["mode", "env"])
@@ -850,7 +857,7 @@ def collect_experience(
     )
     if next_expert_fn is not None:
         _next_a_expert_for_buf = jax.lax.stop_gradient(
-            next_expert_fn(new_expert_state, raw_next_obs)
+            next_expert_fn(new_expert_state, get_raw_final_obs(info, raw_next_obs))
         )
     else:
         _next_a_expert_for_buf = jnp.zeros_like(buffer_action)

@@ -591,7 +591,6 @@ def p1_readings(cell: str, seeds: tuple, budget: int) -> dict[str, np.ndarray]:
     return out | {"eval": run.logged("Eval/episodic mean reward")}
 
 
-_A = "(a) every stored next_obs is raw: gymnax writes the raw pre-reset obs in info['final_observation'] on every step, the normaliser passes it through (src/ajax/wrappers.py:443-447) and get_final_obs prefers it (src/ajax/environments/interaction.py:113-125, 874)"
 CLIP = "(c) training clip sends action 2 as 1"
 RAW = "(a) raw next obs: s0 bootstraps on s0"
 _D, _ALONE = (
@@ -630,14 +629,9 @@ P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "APO-discrete-c": ("APO-discrete", (EVAL_D,), ()),
     "AVG-a": ("AVG", (Q_SOFT,), ()),
 }
-P1_LIVE = {
-    "PQN-a": f"{_A} (bootstrap at src/ajax/agents/PQN/train_PQN.py:162-166); right answer Q(s0,0) 1.62, today 2.631",
-    "AVG-a": f"{_A} (target at src/ajax/agents/AVG/train_AVG.py:162-176); right answer Q(s0,-0.5) - oracle 0, today +0.93 to +1.02",
-}
 for label, (cell, p1_queries, p1_tols) in P1_CASES.items():
     reads, steps = functools.partial(p1_readings, cell), P1_CELLS[cell][2]
-    why = P1_LIVE.get(label, "")
-    CASES[f"p1-{label}"] = Case(f"p1-{label}", p1_queries, reads, steps, p1_tols, why)
+    CASES[f"p1-{label}"] = Case(f"p1-{label}", p1_queries, reads, steps, p1_tols)
 
 
 @pytest.mark.parametrize("cell", list(P1_CELLS))

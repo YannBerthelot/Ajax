@@ -931,3 +931,29 @@ def test_initial_state_wrapper_overrides_reset_state():
         keys[0], jax.tree.map(lambda x: x[0], states), jnp.zeros(1), params
     )
     assert obs2.shape == (3,) and jnp.isfinite(r)
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "fast"])
+def test_normaliser_presents_the_final_observation_normalised(env_id):
+    """Off an episode end the pre-reset observation is the step's own: the
+    normaliser presents it as it presents the observation (it is the
+    transition's next observation) and keeps the raw one."""
+    import numpy as np
+
+    from ajax.environments.create import prepare_env
+    from ajax.environments.interaction import (
+        get_final_obs,
+        get_raw_final_obs,
+        reset,
+        step,
+    )
+    from ajax.environments.utils import get_env_type
+
+    env, params, *_ = prepare_env(env_id, normalize_obs=True)
+    mode = get_env_type(env)
+    key = jax.random.PRNGKey(0)
+    keys = jax.random.split(key, 1) if mode == "gymnax" else key
+    _, state = reset(keys, env, mode, params)
+    obs, *_, info = step(keys, state, jnp.full((1, 1), 0.5), env, mode, params)
+    np.testing.assert_allclose(get_final_obs(info, None), obs, rtol=1e-6)
+    assert not np.allclose(get_raw_final_obs(info, None), obs)

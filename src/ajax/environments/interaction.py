@@ -926,7 +926,6 @@ def collect_experience(
         raw_obs=raw_obs,
         next_obs=next_obs_for_buffer,
         log_prob=log_probs,
-        inside_box=in_value_box if action_pipeline is not None else None,
         a_expert=_a_expert_for_buf,
         next_a_expert=_next_a_expert_for_buf,
     )
@@ -1242,9 +1241,6 @@ def init_collector_state(
         last_truncated=last_done,
         rollout=transition,
         episodic_return_state=episodic_return_state,
-        cumulative_reward=jnp.zeros(
-            (env_args.n_envs)
-        ),  # TODO : switch to (env_args.n_envs,1)
         max_timesteps=max_timesteps,
         last_in_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
         obs_norm_info=obs_norm_info,

@@ -25,7 +25,6 @@ class Transition:
     next_obs: jnp.ndarray
     raw_obs: Optional[jnp.ndarray] = None
     log_prob: Optional[jnp.ndarray] = None
-    inside_box: Optional[jnp.ndarray] = None
     # Pre-tanh sample for SquashedNormal; lets on-policy agents recompute
     # log_prob without arctanh (which is unstable as |action| -> 1).
     raw_action: Optional[jnp.ndarray] = None
@@ -163,12 +162,9 @@ class CollectorState:
     last_truncated: jnp.ndarray
     episodic_return_state: RollinEpisodicMeanRewardState
     episodic_mean_return: float = jnp.nan
-    num_update: int = 0
     timestep: int = 0
-    average_reward: float = 0.0
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
     rollout: Optional[Transition] = None
-    cumulative_reward: Optional[jnp.ndarray] = None
     max_timesteps: Optional[int] = None
     last_in_box: Optional[jnp.ndarray] = None
     # Batched internal state of a stateful expert policy (e.g. PID integrator).
@@ -181,19 +177,9 @@ class CollectorState:
     # so it's part of agent_state and threads through naturally. None
     # disables normalization.
     obs_norm_info: Optional[NormalizationInfo] = None
-    # Live gating telemetry (per-step batch means from the latest
-    # collect_experience call). Plumbed into SACAux for tensorboard.
-    # NaN until the first collection step. last_expert_frac is universal;
-    # the other three only populate for LCB / Thompson gates.
+    # Fraction of envs an expert drove on the latest collection step
+    # (EDGEExploration logs it); NaN until the first step.
     last_expert_frac: float = jnp.nan
-    last_q_advantage: float = jnp.nan
-    last_critic_sigma_actor: float = jnp.nan
-    last_critic_sigma_expert: float = jnp.nan
-    # Empirical max of the LCB gate's expert-arm probability over the
-    # last collection batch. Diagnostic for the Coverage Lemma's gap-
-    # bound hypothesis: a uniform p_max < 1 over training implies the
-    # bounded-gap precondition holds on the visited support.
-    last_p_expert_max: float = jnp.nan
     # Per-env step counter within the current episode. Incremented on
     # every env step, reset to 0 on done. Used by jsrl_curriculum to
     # decide whether the expert acts (step_in_episode < H_t) or the

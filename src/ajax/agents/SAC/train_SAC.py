@@ -278,7 +278,6 @@ def init_SAC(
         critic_state=critic_state,
         alpha=alpha,
         collector_state=collector_state,
-        lambda_param=1.0,
     )
 
 

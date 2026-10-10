@@ -1,7 +1,7 @@
 import time
 import uuid
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -213,14 +213,18 @@ class ActorCritic:
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
         **kwargs,
-    ) -> BaseAgentState:
+    ) -> tuple[BaseAgentState, Any]:
         """
-        Train the PPO agent.
+        Train the agent, every seed at once.
 
         Args:
             seed (int | Sequence[int]): Random seed(s) for training.
             n_timesteps (int): Total number of timesteps for training.
             num_episode_test (int): Number of episodes for evaluation during training.
+
+        Returns ``(state, out)``, each leaf with a leading seed axis. On the
+        shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
+        logging config, else the evaluations.
         """
         if isinstance(seed, int):
             seed = [seed]

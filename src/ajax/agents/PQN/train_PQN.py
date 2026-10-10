@@ -285,7 +285,7 @@ def make_train(
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids)
 
-    if logging_config is not None:
+    if logging_config is not None and logging_config.backend:
         start_async_logging()
 
     n_actions = get_action_dim(env_args.env, env_args.env_params)

@@ -305,7 +305,11 @@ An on-policy agent uses `loop.on_policy(init, update, n_steps)`, its
 pretraining on a fresh run (`ExtensionStack.fold_init`), resuming from a
 checkpoint, the warm-up gate before `learning_starts` (the update's metrics
 then NaN), `post_update`, evaluation and logging with the extensions'
-`eval_metrics`.
+`eval_metrics`. With a `LoggingConfig` the run evaluates every
+`log_frequency` steps and `train` returns `(state, evaluations)`, each
+logged key's values per seed and evaluation, whether or not a backend
+(`use_wandb`, `use_tensorboard`) records them; the logging worker starts
+only for a backend. Without one, `train` returns `(state, None)`.
 
 Key points:
 - `extensions=` is the **only** research-feature surface. No per-feature kwargs on `make_train`.

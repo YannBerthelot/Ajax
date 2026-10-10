@@ -397,7 +397,7 @@ class DreamerV3(ActorCritic):
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
         **kwargs: Any,
-    ) -> BaseAgentState:
+    ) -> tuple[BaseAgentState, Any]:
         """Train for ``n_timesteps`` rows (``n_timesteps // n_envs`` ticks).
 
         Returns ``(state, metrics)`` vmapped over seeds; ``metrics`` holds

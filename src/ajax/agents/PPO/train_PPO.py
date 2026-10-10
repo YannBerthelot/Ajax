@@ -1247,8 +1247,9 @@ def make_train(
     if _recurrent and extensions:
         raise NotImplementedError("Recurrent PPO does not support extensions yet.")
 
-    # Start async logging if logging is enabled
-    if logging_config is not None:
+    # The logging worker runs only for a backend: without one PPO still
+    # evaluates and returns the metrics.
+    if logging_config is not None and logging_config.backend:
         start_async_logging()
 
     num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1

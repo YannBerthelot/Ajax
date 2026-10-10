@@ -132,7 +132,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     ),
     "ajax.extensions.base:Extension": (),
     "ajax.extensions.base:ExtensionContext": (),
-    "ajax.extensions.expert:ExpertGuidance": (),
     "ajax.extensions.expert:JSRLCurriculum": ("decay_frac", "episode_length"),
     "ajax.extensions.expert:ResidualPolicy": ("scale",),
     "ajax.extensions.exploration:EDGEExploration": (

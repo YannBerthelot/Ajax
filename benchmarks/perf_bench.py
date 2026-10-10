@@ -180,7 +180,6 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
             buffer_size=20_000,
             num_critics=4,
             expert_policy=_ZeroExpert(),
-            use_expert_guidance=False,
             use_expert_guided_exploration=True,
             exploration_lcb=True,
             lcb_beta_init=1.0,
@@ -189,7 +188,6 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
             normalize_obs_running=True,
             num_critic_updates=1,
             expert_buffer_n_steps=0,
-            expert_mix_fraction=0.0,
         )
     if scenario == "p3dcircle_edge_qa":
         # Mirrors AjaxExperiments' `sac_quality_aware` config on
@@ -234,7 +232,6 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
             buffer_size=20_000,
             num_critics=2,
             expert_policy=expert,
-            use_expert_guidance=False,
             use_expert_guided_exploration=True,
             exploration_lcb=True,
             lcb_beta_init=1.0,
@@ -243,7 +240,6 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
             normalize_obs_running=True,
             num_critic_updates=1,
             expert_buffer_n_steps=0,
-            expert_mix_fraction=0.0,
         )
     raise ValueError(f"unknown scenario: {scenario}")
 

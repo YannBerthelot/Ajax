@@ -113,16 +113,10 @@ class SAC(ActorCritic):
         use_pid_policy: bool = False,
         fixed_alpha: bool = False,
         num_critics: int = 2,
-        # ExpertGuidance secondary plumbing. ``use_expert_guidance``
-        # gates the expert-action telemetry / loss term inside
-        # ``update_agent`` (deeper than extension surface). The
-        # ExpertGuidance extension owns the user-facing config; these
-        # mirror its fields so ``init_SAC`` / ``update_agent``
-        # can read them as plain Python values.
-        use_expert_guidance: bool = False,
         num_critic_updates: int = 1,
+        # Expert prefill: steps of expert_policy per env written to the
+        # replay buffer before training.
         expert_buffer_n_steps: int = 20_000,
-        expert_mix_fraction: float = 0.1,
         # Obs augmentation: changes init_SAC / collect_experience
         # network input dim.
         augment_obs_with_expert_action: bool = False,
@@ -133,8 +127,7 @@ class SAC(ActorCritic):
         policy_update_start: int = 2_000,
         alpha_update_start: int = 2_000,
         # Warmup expert-vs-uniform mix fraction (gates uniform sampling
-        # in the action pipeline). Distinct from the ExpertGuidance
-        # extension's own fields.
+        # in the action pipeline).
         expert_fraction: float = 0.7,
         # Expert-state augmentation (PID integrator state etc.).
         # Changes the network input dim.
@@ -243,10 +236,8 @@ class SAC(ActorCritic):
         self.jsrl_curriculum = jsrl_curriculum
         self.use_pid_policy = use_pid_policy
         self.fixed_alpha = fixed_alpha
-        self.use_expert_guidance = use_expert_guidance
         self.num_critic_updates = num_critic_updates
         self.expert_buffer_n_steps = expert_buffer_n_steps
-        self.expert_mix_fraction = expert_mix_fraction
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
         self.use_train_frac = use_train_frac
         self.policy_update_start = policy_update_start
@@ -282,10 +273,8 @@ class SAC(ActorCritic):
             use_pid_policy=self.use_pid_policy,
             fixed_alpha=self.fixed_alpha,
             num_critics=self.num_critics,
-            use_expert_guidance=self.use_expert_guidance,
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,
-            expert_mix_fraction=self.expert_mix_fraction,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
             use_train_frac=self.use_train_frac,
             policy_update_start=self.policy_update_start,

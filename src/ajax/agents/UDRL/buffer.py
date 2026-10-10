@@ -25,6 +25,9 @@ class SegmentBuffer:
     rewards: jnp.ndarray  # (B, T, n_envs, 1)
     dones: jnp.ndarray  # (B, T, n_envs, 1)  float in {0., 1.}
     cum_rewards: jnp.ndarray  # (B, T+1, n_envs, 1)  prefix sum, cum[..., 0]=0
+    # (B, n_envs, 1) 1. where the slot's first step starts an episode: what
+    # the top-K statistics need of an evicted slot (``topk_command_stats``).
+    episode_start: jnp.ndarray
     write_idx: jnp.ndarray  # scalar int32
     fill_count: jnp.ndarray  # scalar int32 (capped at B)
 
@@ -51,6 +54,7 @@ def init_buffer(
         cum_rewards=jnp.zeros(
             (capacity, segment_length + 1, n_envs, 1), dtype=jnp.float32
         ),
+        episode_start=jnp.zeros((capacity, n_envs, 1), dtype=jnp.float32),
         write_idx=jnp.asarray(0, dtype=jnp.int32),
         fill_count=jnp.asarray(0, dtype=jnp.int32),
     )
@@ -85,6 +89,10 @@ def add_segment(
         [jnp.zeros_like(rewards[:1]), jnp.cumsum(rewards, axis=0)],
         axis=0,
     )  # (T+1, n_envs, 1)
+    # The segment starts an episode where the previous one ended on a done,
+    # or when it is the first.
+    previous_end = buffer.dones[(slot - 1) % capacity, -1]
+    starts = jnp.where(buffer.fill_count > 0, previous_end, 1.0)
 
     return buffer.replace(
         obs=buffer.obs.at[slot].set(obs.astype(buffer.obs.dtype)),
@@ -94,6 +102,7 @@ def add_segment(
         cum_rewards=buffer.cum_rewards.at[slot].set(
             cum.astype(buffer.cum_rewards.dtype)
         ),
+        episode_start=buffer.episode_start.at[slot].set(starts),
         write_idx=(buffer.write_idx + 1) % capacity,
         fill_count=jnp.minimum(buffer.fill_count + 1, capacity),
     )
@@ -163,36 +172,36 @@ def topk_command_stats(
     in the buffer (by realised return). Used to set rollout commands per
     UDRL Algorithm 5.
 
-    A "position" is one (slot, t, env) triple where the dones flag is 1 —
-    that signals an episode terminating at step t. We accumulate per-(env,
-    slot) running rewards/horizons and emit them at done positions.
+    The slots are read oldest first, one stream per env, so an episode
+    spanning several segments counts whole: a running return and horizon
+    per env, emitted where the dones flag ends an episode whose start the
+    stream holds (not the oldest slot's leading fragment once its start
+    was evicted).
     """
-    B = buffer.obs.shape[0]
-    rewards = buffer.rewards  # (B, T, n_envs, 1)
-    dones = buffer.dones  # (B, T, n_envs, 1)
+    B, T, n_envs = buffer.rewards.shape[:3]
+    # Oldest first: the FIFO's oldest slot is write_idx once it is full.
+    order = (buffer.write_idx - buffer.fill_count + jnp.arange(B)) % B
+    filled = (jnp.arange(B) < buffer.fill_count).astype(jnp.float32)
+    rewards = buffer.rewards[order].reshape(B * T, n_envs, 1)
+    dones = buffer.dones[order] * filled[:, None, None, None]
+    dones = dones.reshape(B * T, n_envs, 1)
 
-    # Mask out unfilled slots so they don't contribute episodes.
-    slot_valid = (jnp.arange(B) < buffer.fill_count).astype(jnp.float32)
-    slot_valid_b = slot_valid[:, None, None, None]
-    dones_masked = dones * slot_valid_b
-
-    # Per-(slot, env) running sum/horizon along time, emitting at dones.
     def body(carry, x):
-        running_r, running_h = carry  # each (B, n_envs, 1)
-        r, d = x  # (B, n_envs, 1) each
+        running_r, running_h, whole = carry  # each (n_envs, 1)
+        r, d = x  # (n_envs, 1) each
         running_r = running_r + r
         running_h = running_h + 1.0
         ep_r = running_r
         ep_h = running_h
         running_r = running_r * (1.0 - d)
         running_h = running_h * (1.0 - d)
-        return (running_r, running_h), (ep_r, ep_h, d)
+        # The episode after a done starts inside the stream.
+        return (running_r, running_h, jnp.maximum(whole, d)), (ep_r, ep_h, d * whole)
 
-    init = (jnp.zeros_like(rewards[:, 0]), jnp.zeros_like(rewards[:, 0]))
-    rewards_tT = jnp.transpose(rewards, (1, 0, 2, 3))  # (T, B, n_envs, 1)
-    dones_tT = jnp.transpose(dones_masked, (1, 0, 2, 3))
-    _, (ep_r, ep_h, d) = jax.lax.scan(body, init, (rewards_tT, dones_tT))
-    # ep_r, ep_h, d: (T, B, n_envs, 1)
+    zeros = jnp.zeros_like(rewards[0])
+    init = (zeros, zeros, buffer.episode_start[order[0]])
+    _, (ep_r, ep_h, d) = jax.lax.scan(body, init, (rewards, dones))
+    # ep_r, ep_h, d: (B * T, n_envs, 1)
     flat_r = ep_r.reshape(-1)
     flat_h = ep_h.reshape(-1)
     flat_d = d.reshape(-1)

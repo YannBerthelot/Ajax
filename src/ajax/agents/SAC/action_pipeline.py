@@ -322,7 +322,10 @@ def make_action_pipeline(
             warmup_action = uniform_action
             use_expert_this_step = jnp.zeros((), dtype=jnp.bool_)
         else:
-            use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
+            # Its own key: on mix_key the decision would be the uniform
+            # action's first draw (env 0, dim 0), and select on it.
+            decision_key = jax.random.fold_in(mix_key, 1)
+            use_expert_this_step = jax.random.uniform(decision_key) < expert_fraction
             warmup_action = jnp.where(
                 use_expert_this_step, expert_action, uniform_action
             )

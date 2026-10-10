@@ -29,7 +29,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params, xfail, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a8c5ecad49aa"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "23895d40fb8e"  # verdict.digest(CASES): every answer, pinned
 L = 7
 
 
@@ -617,7 +617,7 @@ def _q4_read(run: runs.Run) -> dict:
 
 
 Q4_READ, Q4_BUDGET = runs.readings(_q4_sac, _q4_read), 32_000
-SAME = "the decision's draw reused for this cell (today: env 0, dim 0)"
+SAME = "the decision's draw reused for this cell (on mix_key: env 0, dim 0)"
 Q4_UNIFORM: list[Query] = []
 for _e, _d in CELLS:
     Q4_UNIFORM += [Query(f"mean a[env {_e}, dim {_d}]", 0.0, {SAME: 0.7})]
@@ -627,7 +627,6 @@ CASES["q4-SAC-uniform"] = Case(
     tuple(Q4_UNIFORM),
     Q4_READ,
     Q4_BUDGET,
-    defect="one mix_key draws both the warm-up decision and the uniform action (agents/SAC/action_pipeline.py); right env 0 dim 0 mean 0 and share below 0.4 = 0.7, today 0.70 and 0.0",
 )
 ONE, SHARE_WRONG = {"one draw shared by the two cells": 1.0}, {"expert never used": 0.0}
 CASES["q4-SAC-independence"] = Case(

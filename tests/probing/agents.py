@@ -66,7 +66,7 @@ _BOOKKEEPING = {
     "TD3": {**_B_SAC, "policy_delay": 3},
     "REDQ": {**_B_SAC, "num_critics": 4, "subset_size": 2, "num_critic_updates": 3},
     "ASAC": {k: v for k, v in _B_SAC.items() if k != "gamma"},
-    # AVG always normalises observations and never rewards (AVG.py:105-111).
+    # AVG always normalises observations and never rewards (AVG.py:80-93).
     "AVG": {**_split(SMALL), "gamma": GAMMA, "learning_starts": 0, "n_envs": 1},
     "PPO": {**_B_PPO, "gamma": GAMMA},
     "APO": _B_PPO,

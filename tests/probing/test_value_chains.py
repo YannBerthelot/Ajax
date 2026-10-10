@@ -641,7 +641,7 @@ P1_LIVE = {
     "PPO-continuous-b": f"{_B}; right answer eval 2.0, today 0.63-1.06",
     "PPO-discrete-bc": f"{_B} and {_C}; right answer eval 2.0, today 1.3",
     "APO-discrete-c": f"{_C}; right answer eval 2.0, today 1.3",
-    "AVG-a": f"{_A} (target at src/ajax/agents/AVG/train_AVG.py:792 -> 216, 227); right answer Q(s0,-0.5) - oracle 0, today +0.93 to +1.02",
+    "AVG-a": f"{_A} (target at src/ajax/agents/AVG/train_AVG.py:162-176); right answer Q(s0,-0.5) - oracle 0, today +0.93 to +1.02",
 }
 for label, (cell, p1_queries, p1_tols) in P1_CASES.items():
     reads, steps = functools.partial(p1_readings, cell), P1_CELLS[cell][2]
@@ -744,7 +744,7 @@ P8_TD3 = (
 )
 # A zero learning rate pins alpha (Adam's step scales by it). REDQ: 5 critic
 # updates a step, not 20, keep its cost near SAC's. AVG never updates alpha
-# (train_AVG.py:662-683); at its own learning rates its policy still wanders
+# (train_AVG.update_agent); at its own learning rates its policy still wanders
 # by 0.09 at 40,000 steps.
 _LR0 = {"alpha_learning_rate": 0.0, "alpha_init": 1.0}
 _SMOOTH = {"target_policy_noise": 2.0, "target_noise_clip": 0.8}
@@ -928,7 +928,7 @@ Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
 }
 Q6_LIVE = {
     "PPO-b2": "(convention, pending the owner's choice) PPO's unsquashed bonus averages the entropy over the action dimensions (pi.entropy().mean(), train_PPO.py:346), so ent_coef acts as c / d, while its squashed path sums them (SAC/utils.py:62, 68); right answer sigma_i 1.0 (joint entropy), today 0.707",
-    "APO-c": "APO's squashed bonus maximises the latent Gaussian's entropy (pi.unsquashed_entropy(), train_APO.py:102-105), which grows without bound in sigma, not the executed action's entropy as PPO does (train_PPO.py:341-342); right answer sigma_u 0.874, today exp(min(2, lr x Adam steps)) = 1.456 at 80,000 steps",
+    "APO-c": "APO's squashed bonus maximises the latent Gaussian's entropy (pi.unsquashed_entropy(), train_APO.py:80-84), which grows without bound in sigma, not the executed action's entropy as PPO does (train_PPO.py:341-342); right answer sigma_u 0.874, today exp(min(2, lr x Adam steps)) = 1.456 at 80,000 steps",
 }
 for cell, (agent, bandit, c, steps, q6_tols, kw) in Q6_CELLS.items():
     build = functools.partial(_q6_agent, agent, bandit, c, **kw)

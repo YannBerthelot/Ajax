@@ -204,7 +204,6 @@ class ActorCritic:
     def get_make_train(self) -> Callable:
         raise NotImplementedError
 
-    # @with_wandb_silent
     def train(
         self,
         seed: int | Sequence[int] = 42,

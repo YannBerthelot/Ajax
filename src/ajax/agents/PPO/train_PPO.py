@@ -21,6 +21,7 @@ from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
     init_collector_state,
+    preallocate_last_rollout,
     reset,
 )
 from ajax.environments.utils import (
@@ -46,7 +47,6 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
-    zeros_like_abstract_pytree,
 )
 
 
@@ -421,7 +421,7 @@ def _stack_critic_loss(
     ``agent_state`` (the iteration-time state, captured by closure) is
     what the extensions read ``ext_state`` from.
     """
-    if extension_stack is None or not extension_stack.extensions:
+    if not extension_stack:
         return None
 
     def critic_loss(critic_params, critic_states, observations, value_targets):
@@ -450,7 +450,7 @@ def _stack_actor_loss(
     """The stack's additive actor-loss term as a ``policy_loss_function``
     ``extra_loss_fn``: ``(actor_params, actor_state) -> scalar``; ``None``
     for an empty stack."""
-    if extension_stack is None or not extension_stack.extensions:
+    if not extension_stack:
         return None
 
     def actor_loss(actor_params, actor_state):
@@ -535,7 +535,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     # placeholder allocated in ``make_train`` keeps the scan carry's
     # pytree structure stable; when disabled, ``last_rollout`` stays
     # ``None`` and this branch is skipped (zero extra cost).
-    if getattr(agent_config, "expose_recent_rollout", False):
+    if agent_config.expose_recent_rollout:
         agent_state = agent_state.replace(last_rollout=transition)
 
     # GAE / value-target handling depends on the minibatch geometry:
@@ -780,7 +780,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
             gamma=agent_config.gamma,
             gae_lambda=agent_config.gae_lambda,
         )
-        if extension_stack is not None:
+        if extension_stack:
             _tgt_rng, _ppo_rng = jax.random.split(agent_state.rng)
             agent_state = agent_state.replace(rng=_ppo_rng)
             _tgt_batch = {
@@ -988,7 +988,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                 )
                 gae_mb = jax.lax.stop_gradient(gae_mb)
                 value_targets_mb = jax.lax.stop_gradient(value_targets_mb)
-                if extension_stack is not None:
+                if extension_stack:
                     _tgt_batch = {
                         "observations": observations,
                         "next_observations": next_observations,
@@ -1180,7 +1180,7 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
 
     # Extension post_update — folded after the per-iteration update loop.
     # Empty stack ⇒ identity.
-    if extension_stack is not None:
+    if extension_stack:
         _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=_pu_rng2)
         agent_state = extension_stack.fold_post_update(
@@ -1253,7 +1253,7 @@ def make_train(
 
     num_updates = (total_timesteps // (env_args.n_envs * agent_config.n_steps)) + 1
 
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
 
     def init_fn(key, index):
         # Preserve the original RNG layout: key -> (_, init_key, _).
@@ -1267,33 +1267,18 @@ def make_train(
             pid_actor_config=pid_actor_config,
             normalize_obs_running=normalize_obs_running,
         )
-        if extension_stack is not None:
-            # Reuse the unused 3rd split for ext init/pretrain RNG so the
-            # legacy (1st, 2nd) slots are unchanged — preserves byte-
-            # identical numerics for any code that derived its RNG from
-            # the first two splits.
-            _ext_key, _pre_key = jax.random.split(_transform_key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
-        # Gap A: pre-allocate the ``last_rollout`` placeholder with the
-        # exact shape/dtype of one ``(T, n_envs, ...)`` rollout so the
-        # JIT-traced scan body sees a stable pytree carry from iteration
-        # zero. ``None``-vs-``Transition`` would otherwise change the
-        # carry structure on the first iteration and crash the scan.
-        if getattr(agent_config, "expose_recent_rollout", False):
-            _trace_scan = partial(
-                collect_experience, recurrent=_recurrent, mode=mode, env_args=env_args
-            )
-            _, _trans_abs = jax.eval_shape(
-                lambda st: jax.lax.scan(
-                    _trace_scan, st, xs=None, length=agent_config.n_steps
-                ),
+        # The extensions draw on the unused 3rd split, leaving the first two
+        # as they were.
+        agent_state = extension_stack.fold_init(
+            agent_state, _transform_key, total_timesteps
+        )
+        if agent_config.expose_recent_rollout:
+            agent_state = preallocate_last_rollout(
                 agent_state,
-            )
-            agent_state = agent_state.replace(
-                last_rollout=zeros_like_abstract_pytree(_trans_abs)
+                agent_config.n_steps,
+                recurrent=_recurrent,
+                mode=mode,
+                env_args=env_args,
             )
         return agent_state
 

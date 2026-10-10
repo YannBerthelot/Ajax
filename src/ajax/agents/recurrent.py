@@ -13,7 +13,8 @@ memory the same way:
 
 ``sample_and_burnin_sequences`` implements steps 1-3 once for all agents;
 the per-agent losses then consume the returned :class:`RecurrentCarries`
-via their sequence-mode branches.
+through :func:`actor_dist` and :func:`q_values`, which run a network on a
+feedforward batch or, given carries, on a replayed sequence.
 """
 
 from typing import Any, Optional, Tuple
@@ -22,11 +23,16 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from ajax.buffers.utils import get_sequence_batch_from_buffer
-from ajax.environments.interaction import get_pi_sequence
-from ajax.networks.memory import unflatten_carry, zeros_carry_like
-from ajax.networks.networks import predict_value_sequence
-from ajax.state import BaseAgentState, Transition
+from ajax.buffers.utils import get_batch_from_buffer, get_sequence_batch_from_buffer
+from ajax.environments.interaction import get_pi, get_pi_sequence
+from ajax.networks.memory import (
+    MemoryConfig,
+    flat_carry_dim,
+    unflatten_carry,
+    zeros_carry_like,
+)
+from ajax.networks.networks import predict_value, predict_value_sequence
+from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
 
 
@@ -184,6 +190,91 @@ def sample_and_burnin_sequences(
         next_obs=obs_seq[burn_in + 1 :],
     )
     return transition, carries
+
+
+def sample_replay(
+    agent_state: BaseAgentState,
+    buffer: BufferType,
+    key: jax.Array,
+    recurrent: bool = False,
+    burn_in: int = 0,
+    stored_state: bool = False,
+    burn_target_actor: bool = False,
+) -> Tuple[Transition, Optional[RecurrentCarries]]:
+    """One replay batch: transitions, or burned-in sequences when recurrent.
+
+    Returns ``(batch, carries)``. A feedforward batch keeps its
+    pre-normalisation observations in ``batch.raw_obs`` and has no carries
+    (``None``); sequences are time-major, with the carries of
+    :func:`sample_and_burnin_sequences` and no raw observations.
+    """
+    if recurrent:
+        return sample_and_burnin_sequences(
+            agent_state, buffer, key, burn_in, burn_target_actor, stored_state
+        )
+    obs, terminated, truncated, next_obs, rewards, actions, raw_obs, _ = (
+        get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, key)
+    )
+    batch = Transition(obs, actions, rewards, terminated, truncated, next_obs, raw_obs)
+    return batch, None
+
+
+def actor_dist(
+    actor_state: LoadedTrainState,
+    params: Any,
+    obs: jax.Array,
+    carries: Optional[RecurrentCarries] = None,
+    *,
+    bootstrap: bool = False,
+    target_actor: bool = False,
+) -> Any:
+    """The actor's distribution over ``obs``.
+
+    Without ``carries``, one feedforward batch. With them, a replayed
+    sequence started from its burned-in carry: the online actor's for the
+    observations, or for the next observations when ``bootstrap`` (the
+    target actor's as well when ``target_actor``, TD3's bootstrap).
+    """
+    if carries is None:
+        return get_pi(actor_state, params, obs)[0]
+    if not bootstrap:
+        resets, hidden = carries.resets, carries.actor_hidden
+    elif target_actor:
+        resets, hidden = carries.next_resets, carries.target_actor_next_hidden
+    else:
+        resets, hidden = carries.next_resets, carries.actor_next_hidden
+    return get_pi_sequence(actor_state, params, obs, resets, hidden)[0]
+
+
+def q_values(
+    critic_state: LoadedTrainState,
+    params: Any,
+    obs: jax.Array,
+    actions: jax.Array,
+    carries: Optional[RecurrentCarries] = None,
+    *,
+    bootstrap: bool = False,
+) -> jax.Array:
+    """Every critic's ``Q(obs, actions)``, the ensemble axis first.
+
+    With ``carries``, on a replayed sequence from the online critic's
+    burned-in carry, or the target critic's when ``bootstrap`` (``obs``
+    then being next observations).
+    """
+    x = jnp.concatenate((obs, actions), axis=-1)
+    if carries is None:
+        return predict_value(critic_state, params, x)
+    if bootstrap:
+        resets, hidden = carries.next_resets, carries.target_critic_hidden
+    else:
+        resets, hidden = carries.resets, carries.critic_hidden
+    return predict_value_sequence(critic_state, params, x, resets, hidden)[0]
+
+
+def stored_actor_carry_dim(memory: Optional[MemoryConfig], stored_state: bool) -> int:
+    """Width of the actor carry a stored-state replay buffer keeps per step
+    (R2D2 stored state), 0 when nothing is stored."""
+    return flat_carry_dim(memory) if stored_state and memory is not None else 0
 
 
 def check_recurrent_learning_starts(

@@ -334,7 +334,7 @@ def training_iteration(
         )
         matching_loss = -returns.mean()
         loss = matching_loss
-        if extension_stack is not None:
+        if extension_stack:
             loss = loss + extension_stack.fold_actor_loss(
                 agent_state,
                 {"rollout": rollout, "actor_params": params, "returns": returns},
@@ -354,7 +354,7 @@ def training_iteration(
         collector_state=agent_state.collector_state.replace(timestep=new_timestep),
         n_updates=agent_state.n_updates + 1,
     )
-    if extension_stack is not None:
+    if extension_stack:
         agent_state = extension_stack.fold_post_update(
             agent_state, new_timestep, post_key, total_timesteps
         )
@@ -414,7 +414,7 @@ def make_train(
     elif lr_schedule is not None:
         raise ValueError(f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'")
 
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
     stateful = build_controller(
         env_args, network_args, pid, squash, factory=controller_factory
     ).stateful
@@ -455,15 +455,6 @@ def make_train(
         )
         return agent_state.replace(index=index)
 
-    def init_transform(agent_state, key):
-        if extension_stack is None:
-            return agent_state
-        ext_key, pre_key = jax.random.split(key)
-        agent_state = extension_stack.fold_init_states(agent_state, ext_key)
-        return extension_stack.fold_pretrain(
-            agent_state, jnp.asarray(0), pre_key, total_timesteps
-        )
-
     def resume_transform(agent_state, key):
         del key
         if not reset_optimizer_on_resume:
@@ -487,6 +478,6 @@ def make_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=num_updates,
-        init_transform=init_transform,
+        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
         resume_transform=resume_transform,
     )

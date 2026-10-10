@@ -209,8 +209,8 @@ ONE_STEP = {"SAC": 5000, "SafeSAC": 5000, "REDQ": 1000, "TD3": 5000, "DQN": 5000
 OR_MASK = {
     "SAC": "train_SAC.py:998",
     "SafeSAC": "SAC's train_SAC.py:998",
-    "REDQ": "train_REDQ.py:899",
-    "TD3": "train_TD3.py:695",
+    "REDQ": "train_REDQ.py:293",
+    "TD3": "train_TD3.py:239",
     "DQN": "train_DQN.py:357",
 }
 TODAY_OR = {  # mean (V(0), V(A), V(B)) on seeds 0-7; OR flags predicts (0.8, 1.6, 1.6)
@@ -342,8 +342,8 @@ S5, G5 = 2.0, agents.GAMMA
 
 @dataclasses.dataclass(frozen=True)
 class IdentityTarget(Extension):
-    """Any extension sends REDQ down its extension path, which scales the
-    reward at another line (train_REDQ.py:564, against :240)."""
+    """REDQ with an extension: its target once took a separate path, which
+    scaled the reward at another line; one path now, kept checked."""
 
     name = "identity_target"
 
@@ -578,11 +578,11 @@ def _asac_read(run: runs.Run) -> dict:
 
 # Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified on 3000-3031;
 # the two xfails with the units fix planted (update_theta fed rewards *
-# reward_scale, train_ASAC.py:1088), which turns them XPASS. The tolerances
+# reward_scale, train_ASAC.py:455), which turns them XPASS. The tolerances
 # are half the gap, not 0.1: levels of size 8 carry buffer and critic noise.
 # theta's step holds both units (today -0.65 to -0.41; fixed +0.34 to +0.58);
 # at 4500 steps today's reads -1, so the budget must not move.
-UNITS = "ASAC's target scales the rewards (train_ASAC.py:226) but update_theta averages them unscaled (:902, called at :1088)"
+UNITS = "ASAC's target scales the rewards (train_ASAC.py:153) but update_theta averages them unscaled (:392, called at :455)"
 ASAC_RUN = runs.readings(lambda: _asac((ASAC_TRACE,)), _asac_read)
 for part, queries, tols, why in (
     ("theta", (THETA,), (1.08,), f"{UNITS}; right theta - alpha*H = -8, today -4"),
@@ -839,7 +839,7 @@ APO_CONST = cycle((1.0,), (1.0,), False, actions=2)  # no boundary at all
 
 
 def asac_values(rule: Rule, penalty: float) -> np.ndarray:
-    """Q(s) - Q(A) on the chain from ASAC's target (train_ASAC.py:226-290):
+    """Q(s) - Q(A) on the chain from ASAC's target (train_ASAC.py:135-187):
     r - P term - theta + Q'(s') - Q'(0, 0), no done mask, theta the mean
     penalised reward, alpha log pi dropped; one buffer row per position."""
     t = np.array([0, 0, 1])
@@ -905,7 +905,7 @@ CASES["q1-ASAC-truncation"] = Case(
     "ASAC bootstraps a truncated step on the reset observation, the next buffer row (buffers/utils.py:140; the collector stores last_obs only, interaction.py:900-907); right Q(B) - Q(A) = (r_B - r_A) / 2 = 1.5, today (r_B - r_A) / (2 - 1/2) = 2.0",
 )
 
-APO_SIGN = "APO's value loss is 0.5 mean(((V - nu b) - target)^2) (train_APO.py:444) and b an EMA of mean V (:776), so each fit pulls V towards target + nu b and |b| grows without bound"
+APO_SIGN = "APO's value loss is 0.5 mean(((V - nu b) - target)^2) (train_APO.py:251) and b an EMA of mean V (:372), so each fit pulls V towards target + nu b and |b| grows without bound"
 
 
 def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
@@ -963,7 +963,7 @@ CASES["q1-APO-termination"] = Case(
     _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}),
     10_000,
     (0.1, 0.1, 0.1),
-    f"{APO_SIGN}; and its GAE bootstraps the reset obs inside a rollout but the final one at its end (APO/utils.py:48-51, train_APO.py:755-768); right b = 0, V(A) = -0.25, V(B) = 0.25 (a consistent reset bootstrap; the convention is the owner's call), today b >> 10",
+    f"{APO_SIGN}; and its GAE bootstraps the reset obs inside a rollout but the final one at its end (APO/utils.py:48-51, train_APO.py:360-382); right b = 0, V(A) = -0.25, V(B) = 0.25 (a consistent reset bootstrap; the convention is the owner's call), today b >> 10",
 )
 
 

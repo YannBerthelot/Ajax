@@ -1,58 +1,40 @@
+"""AVG (Vasan et al., 2024): Action Value Gradient, Algorithm 1.
+
+Incremental deep RL: one environment step, then one update on that single
+transition, with no replay buffer and no target network. The critic's TD
+error is divided by a running estimate of its scale (from the statistics of
+the entropy-regularised reward, the discount and the episode returns), the
+entropy coefficient ``alpha`` stays at its initial value, and the actor's
+gradient flows through the action actually taken.
+"""
+
 from collections.abc import Sequence
-from dataclasses import fields
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
-from flax.training.train_state import TrainState
-from jax.tree_util import Partial as partial
 
 from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
 from ajax.agents.AVG.utils import compute_td_error_scaling
-from ajax.environments.interaction import (
-    Transition,
-    collect_experience,
-    get_pi,
-    init_collector_state,
-    should_use_uniform_sampling,
-)
+from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.SAC.train_SAC import TemperatureAuxiliaries, create_alpha_train_state
+from ajax.environments.interaction import get_pi, init_collector_state
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.networks import (
-    get_adam_tx,
-    get_initialized_actor_critic,
-    predict_value,
-)
-from ajax.perf_utils import train_jit
+from ajax.networks.networks import get_initialized_actor_critic, predict_value
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
-    zeros_like_abstract_pytree,
+    Transition,
 )
-
-
-def get_alpha_from_params(params: FrozenDict) -> float:
-    return jnp.exp(params["log_alpha"])
-
-
-@struct.dataclass
-class TemperatureAuxiliaries:
-    alpha_loss: jax.Array
-    alpha: jax.Array
-    log_alpha: jax.Array
 
 
 @struct.dataclass
@@ -78,33 +60,6 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
 
 
-def create_alpha_train_state(
-    learning_rate: float = 3e-4,
-    alpha_init: float = 1.0,
-) -> TrainState:
-    """
-    Initialize the train state for the temperature parameter (alpha).
-
-    Args:
-        learning_rate (float): Learning rate for alpha optimizer.
-        alpha_init (float): Initial value for alpha.
-
-    Returns:
-        TrainState: Initialized train state for alpha.
-    """
-    log_alpha = jnp.log(alpha_init)
-    params = FrozenDict({"log_alpha": log_alpha})
-    # Unclipped, as in SAC core: clipping the scalar dual gradient
-    # erases the entropy-target term from the update (see
-    # ajax.agents.SAC.core.create_alpha_train_state).
-    tx = get_adam_tx(learning_rate)
-    return TrainState.create(
-        apply_fn=get_alpha_from_params,  # Optional
-        params=params,
-        tx=tx,
-    )
-
-
 def init_AVG(
     key: jax.Array,
     env_args: EnvironmentConfig,
@@ -116,25 +71,7 @@ def init_AVG(
     window_size: int = 10,
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> AVGState:
-    """
-    Initialize the SAC agent's state, including actor, critic, alpha, and collector states.
-
-    Args:
-        key (jax.Array): Random number generator key.
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-
-    Returns:
-        AVGState: Initialized SAC agent state.
-    """
-    (
-        rng,
-        init_key,
-        collector_key,
-    ) = jax.random.split(key, num=3)
-
+    rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -147,36 +84,60 @@ def init_AVG(
         num_critics=num_critics,
         pid_actor_config=pid_actor_config,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-
     collector_state = init_collector_state(
-        collector_key, env_args=env_args, mode=mode, window_size=window_size
+        collector_key,
+        env_args=env_args,
+        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
+        window_size=window_size,
     )
-
-    alpha = create_alpha_train_state(**to_state_dict(alpha_args))
-
-    init_val = jnp.zeros(
-        (env_args.n_envs, 1)
-    )  # a single dim as we are normalizing scalars (gamma, reward, G_return) (1 scalar for all envs)
-
+    # One running statistic per scalar (reward, discount, return), shared
+    # by every env.
     init_norm_info = NormalizationInfo(
-        value=init_val,
+        value=jnp.zeros((env_args.n_envs, 1)),
         count=jnp.zeros((1,)),
         mean=jnp.zeros((1, 1)),
         mean_2=jnp.zeros((1, 1)),
     )
-
     return AVGState(
         rng=rng,
         eval_rng=rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=alpha,
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
         reward=init_norm_info,
         gamma=init_norm_info,
         G_return=init_norm_info,
         scaling_coef=jnp.ones((1, 1)),
+    )
+
+
+def update_AVG_values(
+    agent_state: AVGState, rollout: Transition, agent_config: AVGConfig
+) -> AVGState:
+    """Fold the step just taken into the statistics behind the TD-error
+    scale: its entropy-regularised reward and discount and, where an
+    episode ended, its return."""
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(
+        -1, keepdims=True
+    )
+    reward = agent_state.reward.replace(value=r_ent)
+    gamma = agent_state.gamma.replace(
+        value=agent_config.gamma * (1 - rollout.terminated)
+    )
+    new_G = agent_state.G_return.value + r_ent
+    ended = rollout.terminated.astype(bool)
+    # The statistics read the returns of the episodes that ended (NaN marks
+    # the others); those restart at 0, the others accumulate.
+    scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
+        reward,
+        gamma,
+        G_return=agent_state.G_return.replace(value=jnp.where(ended, new_G, jnp.nan)),
+    )
+    G_return = G_return.replace(value=jnp.where(ended, 0.0, new_G))
+    return agent_state.replace(
+        reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
     )
 
 
@@ -194,21 +155,15 @@ def compute_avg_td_target(
 ) -> Tuple[jax.Array, jax.Array]:
     """AVG bellman target (no target network, uses current critic_params)."""
     rewards = rewards * reward_scale
-    next_pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_state.params,
-        obs=next_observations,
-        done=dones,
-        recurrent=False,
-    )
+    next_pi, _ = get_pi(actor_state, actor_state.params, next_observations)
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = next_pi.sample_and_log_prob(seed=sample_key)
     next_log_probs = next_log_probs.sum(-1, keepdims=True)
     q_target = jnp.min(
         predict_value(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=jnp.concatenate((next_observations, next_actions), axis=-1),
+            critic_states,
+            critic_params,
+            jnp.concatenate((next_observations, next_actions), axis=-1),
         ),
         axis=0,
     )
@@ -221,75 +176,23 @@ def compute_avg_td_target(
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
-    actor_state: LoadedTrainState,
-    actions: jax.Array,
     observations: jax.Array,
-    next_observations: jax.Array,
-    dones: jax.Array,
-    rewards: jax.Array,
-    gamma: float,
-    alpha: jax.Array,
+    actions: jax.Array,
+    target_q: jax.Array,
+    next_log_probs: jax.Array,
     scaling_coef: jax.Array,
-    reward_scale: float = 5.0,  # Add reward scaling factor here
-    target_q_override: Optional[jax.Array] = None,
-    log_probs_override: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """
-    Compute the value loss for the critic networks.
-
-    Args:
-        critic_params (FrozenDict): Parameters of the critic networks.
-        critic_states (LoadedTrainState): Critic train states.
-        rng (jax.Array): Random number generator key.
-        actor_state (LoadedTrainState): Actor train state.
-        actions (jax.Array): Actions taken.
-        observations (jax.Array): Current observations.
-        next_observations (jax.Array): Next observations.
-        dones (jax.Array): Done flags.
-        rewards (jax.Array): Rewards received.
-        gamma (float): Discount factor.
-        alpha (jax.Array): Temperature parameter.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
-    """
+    """The squared TD error divided by its running scale."""
     q_pred = jnp.min(
         predict_value(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=jnp.concatenate((observations, actions), axis=-1),
+            critic_states,
+            critic_params,
+            jnp.concatenate((observations, actions), axis=-1),
         ),
         axis=0,
     )
-
-    if target_q_override is not None:
-        target_q = target_q_override
-        next_log_probs = (
-            log_probs_override
-            if log_probs_override is not None
-            else jnp.zeros_like(target_q)
-        )
-    else:
-        target_q, next_log_probs = compute_avg_td_target(
-            actor_state,
-            critic_states,
-            critic_params,
-            rng,
-            next_observations,
-            dones,
-            rewards,
-            gamma,
-            alpha,
-            reward_scale,
-        )
-
     assert target_q.shape == q_pred.shape, f"{target_q.shape} != {q_pred.shape}"
-
-    delta = q_pred - target_q
-    scaled_delta = delta / scaling_coef
-    assert scaled_delta.shape == delta.shape, f"{scaled_delta.shape} != {delta.shape}"
+    scaled_delta = (q_pred - target_q) / scaling_coef
     total_loss = jnp.mean(scaled_delta**2)
     return total_loss, ValueAuxiliaries(
         critic_loss=total_loss,
@@ -305,53 +208,32 @@ def policy_loss_function(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
     observations: jax.Array,
-    dones: Optional[jax.Array],
+    raw_actions: jax.Array,
     alpha: jax.Array,
-    rng: jax.random.PRNGKey,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
+    """``alpha log pi(a|s) - Q(s, a)`` at the action taken.
+
+    The action is reparameterised with the noise ``eps`` of its stored
+    pre-squash sample ``u``: ``a = tanh(mu(s) + sigma(s) eps)``, ``eps = (u
+    - mu(s)) / sigma(s)``. The actor has not changed since it sampled ``u``,
+    so ``a`` is the action executed and the gradient flows through it, as
+    in AVG's update.
     """
-    Compute the policy loss for the actor network.
-
-    Args:
-        actor_params (FrozenDict): Parameters of the actor network.
-        actor_state (LoadedTrainState): Actor train state.
-        critic_states (LoadedTrainState): Critic train states.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        alpha (jax.Array): Temperature parameter.
-        rng (jax.random.PRNGKey): Random number generator key.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
-    """
-    pi, _ = get_pi(
-        actor_state=actor_state,
-        actor_params=actor_params,
-        obs=observations,
-        done=dones,
-        recurrent=False,
-    )
-    actions, log_probs = pi.sample_and_log_prob(seed=rng)
-
-    # Predict Q-values from critics
+    pi, _ = get_pi(actor_state, actor_params, observations)
+    loc, scale = pi.distribution.loc, pi.distribution.scale
+    eps = jax.lax.stop_gradient((raw_actions - loc) / scale)
+    raw = loc + scale * eps
+    log_probs = pi.log_prob_from_raw(raw)
     q_pred = jnp.min(
         predict_value(
-            critic_state=critic_states,
-            critic_params=critic_states.params,
-            x=jnp.hstack((observations, actions)),
+            critic_states,
+            critic_states.params,
+            jnp.concatenate((observations, jnp.tanh(raw)), axis=-1),
         ),
         axis=0,
     )
-
-    # q_pred: shape(n_envs,1) , squeeze is to remove the leading dimension of ensemble-critic
-
-    log_probs = log_probs.sum(
-        -1, keepdims=True
-    )  # Shape (B,n_actions) to shape (n_envs,1)
-
     assert log_probs.shape == q_pred.shape, f"{log_probs.shape} != {q_pred.shape}"
     loss = (alpha * log_probs - q_pred).mean()
-
     return loss, PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_pred.mean()
     )
@@ -359,430 +241,139 @@ def policy_loss_function(
 
 def update_value_functions(
     agent_state: AVGState,
-    observations: jax.Array,
-    actions: jax.Array,
-    next_observations: jax.Array,
-    dones: Optional[jax.Array],
-    rewards: jax.Array,
-    gamma: float,
-    reward_scale: float = 1.0,  # Add reward scaling factor here
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
-) -> Tuple[AVGState, Dict[str, Any]]:
-    """
-    Update the critic networks using the value loss.
-
-    Args:
-        agent_state (AVGState): Current SAC agent state.
-        observations (jax.Array): Current observations.
-        actions (jax.Array): Actions taken.
-        next_observations (jax.Array): Next observations.
-        dones (Optional[jax.Array]): Done flags.
-        rewards (jax.Array): Rewards received.
-        gamma (float): Discount factor.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[AVGState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    value_loss_key, _ = jax.random.split(agent_state.rng, 2)
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-
-    target_q_override = None
-    log_probs_override = None
-    if has_stack:
-        assert extension_stack is not None
-        target_q, log_probs = compute_avg_td_target(
-            agent_state.actor_state,
-            agent_state.critic_state,
-            agent_state.critic_state.params,
-            value_loss_key,
-            next_observations,
-            dones,
-            rewards,
-            gamma,
-            alpha,
-            reward_scale,
+    transition: Transition,
+    agent_config: AVGConfig,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
+) -> Tuple[AVGState, ValueAuxiliaries]:
+    """The critic step on the scaled TD error of ``transition``."""
+    key, rng = jax.random.split(agent_state.rng)
+    step = agent_state.collector_state.timestep
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    critic_state = agent_state.critic_state
+    dones = jnp.logical_or(transition.terminated, transition.truncated)
+    target_q, next_log_probs = compute_avg_td_target(
+        agent_state.actor_state,
+        critic_state,
+        critic_state.params,
+        key,
+        transition.next_obs,
+        dones,
+        transition.reward,
+        agent_config.gamma,
+        alpha,
+        agent_config.reward_scale,
+    )
+    target_batch = {
+        "observations": transition.obs,
+        "actions": transition.action,
+        "next_observations": transition.next_obs,
+        "rewards": transition.reward,
+        "dones": dones,
+        "gamma": agent_config.gamma,
+        "reward_scale": agent_config.reward_scale,
+    }
+    target_q = jax.lax.stop_gradient(
+        extension_stack.fold_on_target(
+            agent_state, target_batch, target_q, step, key, total_timesteps
         )
-        _tgt_batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "rewards": rewards,
-            "dones": dones,
-            "gamma": gamma,
-            "reward_scale": reward_scale,
-        }
-        target_q = extension_stack.fold_on_target(
-            agent_state,
-            _tgt_batch,
-            target_q,
-            agent_state.collector_state.timestep,
-            value_loss_key,
-            total_timesteps,
-        )
-        target_q_override = jax.lax.stop_gradient(target_q)
-        log_probs_override = log_probs
+    )
 
-    def _critic_loss(params):
-        loss, core_aux = value_loss_function(
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
+        loss, aux = value_loss_function(
             params,
-            agent_state.critic_state,
-            value_loss_key,
-            agent_state.actor_state,
-            actions,
-            observations,
-            next_observations,
-            dones,
-            rewards,
-            gamma,
-            alpha,
+            critic_state,
+            transition.obs,
+            transition.action,
+            target_q,
+            next_log_probs,
             agent_state.scaling_coef,
-            reward_scale,
-            target_q_override,
-            log_probs_override,
         )
-        if has_stack:
-            assert extension_stack is not None
-            _cl_batch = {
-                "observations": observations,
-                "actions": actions,
-                "critic_params": params,
-                "critic_state": agent_state.critic_state,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                _cl_batch,
-                agent_state.collector_state.timestep,
-                value_loss_key,
-                total_timesteps,
-            )
-        return loss, core_aux
+        loss_batch = {
+            "observations": transition.obs,
+            "actions": transition.action,
+            "critic_params": params,
+            "critic_state": critic_state,
+        }
+        extra = extension_stack.fold_critic_loss(
+            agent_state, loss_batch, step, key, total_timesteps
+        )
+        return loss + extra, aux
 
-    # Call the value loss function with reward scaling applied
-    (loss, aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
-        agent_state.critic_state.params,
-    )
-    updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        # rng=rng, need to keep the same RNG to keep the same action sampled, \
-        # next actions are still used with a different seed than action
-        critic_state=updated_critic_state,
-    )
-    return agent_state, aux
+    critic_state, aux = gradient_step(critic_state, loss_fn)
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 
 def update_policy(
     agent_state: AVGState,
     observations: jax.Array,
-    done: Optional[jax.Array],
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
-) -> Tuple[AVGState, Dict[str, Any]]:
-    """
-    Update the actor network using the policy loss.
+    raw_actions: jax.Array,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
+) -> Tuple[AVGState, PolicyAuxiliaries]:
+    """The actor step through the action taken."""
+    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    actor_state = agent_state.actor_state
 
-    Args:
-        agent_state (AVGState): Current SAC agent state.
-        observations (jax.Array): Current observations.
-        done (Optional[jax.Array]): Done flags.
-
-    Returns:
-        Tuple[AVGState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    rng, policy_key, _ = jax.random.split(agent_state.rng, 3)
-
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-
-    def _actor_loss(params):
-        loss, core_aux = policy_loss_function(
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
+        loss, aux = policy_loss_function(
             params,
-            agent_state.actor_state,
+            actor_state,
             agent_state.critic_state,
             observations,
-            done,
+            raw_actions,
             alpha,
-            policy_key,
         )
-        if has_stack:
-            assert extension_stack is not None
-            _al_batch = {
-                "observations": observations,
-                "actor_params": params,
-                "actor_state": agent_state.actor_state,
-            }
-            loss = loss + extension_stack.fold_actor_loss(
-                agent_state,
-                _al_batch,
-                agent_state.collector_state.timestep,
-                policy_key,
-                total_timesteps,
-            )
-        return loss, core_aux
+        actor_batch = {
+            "observations": observations,
+            "actor_params": params,
+            "actor_state": actor_state,
+        }
+        extra = extension_stack.fold_actor_loss(
+            agent_state,
+            actor_batch,
+            agent_state.collector_state.timestep,
+            agent_state.rng,
+            total_timesteps,
+        )
+        return loss + extra, aux
 
-    (loss, aux), grads = jax.value_and_grad(_actor_loss, has_aux=True)(
-        agent_state.actor_state.params,
-    )
-
-    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        actor_state=updated_actor_state,
-    )
-    return agent_state, aux
+    actor_state, aux = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(actor_state=actor_state), aux
 
 
-# AVG never updates alpha (it stays at its init value); whether it should be
-# tuned is pending the AVG defect decision.
 def update_agent(
     agent_state: AVGState,
-    gamma: float,
-    reward_scale: float = 5.0,
-    extension_stack: Optional[ExtensionStack] = None,
-    total_timesteps: int = 1,
+    transition: Transition,
+    agent_config: AVGConfig,
+    extension_stack: ExtensionStack,
+    total_timesteps: int,
 ) -> Tuple[AVGState, AuxiliaryLogs]:
-    """
-    One incremental AVG update on the latest transition: critic and actor.
-
-    Both steps start from the same ``agent_state``, so the actor loss sees
-    the pre-update critic.
-
-    Args:
-        agent_state (AVGState): Current AVG agent state.
-        gamma (float): Discount factor.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[AVGState, AuxiliaryLogs]: Updated agent state and metrics.
-    """
-    transition = agent_state.collector_state.rollout
-    done = jnp.logical_or(transition.terminated, transition.truncated)  # type: ignore[union-attr]
-
-    agent_state_critic, aux_value = update_value_functions(
-        observations=transition.obs,  # type: ignore[union-attr]
-        actions=transition.action,  # type: ignore[union-attr]
-        next_observations=transition.next_obs,  # type: ignore[union-attr]
-        dones=done,
-        agent_state=agent_state,
-        rewards=transition.reward,  # type: ignore[union-attr]
-        gamma=gamma,
-        reward_scale=reward_scale,
-        extension_stack=extension_stack,
-        total_timesteps=total_timesteps,
+    """One update on the step just taken: a critic and an actor step, both
+    from the current parameters (the actor's loss sees the critic before
+    its step). ``alpha`` is not updated."""
+    critic_updated, aux_value = update_value_functions(
+        agent_state, transition, agent_config, extension_stack, total_timesteps
     )
-
-    agent_state_policy, aux_policy = update_policy(
-        agent_state=agent_state,
-        observations=transition.obs,  # type: ignore[union-attr]
-        done=done,
-        extension_stack=extension_stack,
-        total_timesteps=total_timesteps,
+    policy_updated, aux_policy = update_policy(
+        agent_state,
+        transition.obs,
+        transition.raw_action,
+        extension_stack,
+        total_timesteps,
     )
-    collector_state = agent_state.collector_state.replace(
-        num_update=agent_state.collector_state.num_update + 1
-    )
-    agent_state = agent_state.replace(
-        actor_state=agent_state_policy.actor_state,
-        critic_state=agent_state_critic.critic_state,
-        rng=agent_state_policy.rng,
-        collector_state=collector_state,
-    )
-
+    agent_state = critic_updated.replace(actor_state=policy_updated.actor_state)
+    log_alpha = agent_state.alpha.params["log_alpha"]
     aux = AuxiliaryLogs(
         temperature=TemperatureAuxiliaries(
-            jnp.nan,
-            jnp.exp(agent_state.alpha.params["log_alpha"]),
-            agent_state.alpha.params["log_alpha"],
+            alpha=jnp.exp(log_alpha),
+            log_alpha=log_alpha,
+            effective_target_entropy=jnp.nan,  # alpha is not tuned
         ),
         policy=aux_policy,
         value=aux_value,
     )
     return agent_state, aux
-
-
-def no_op(x, *args):
-    return x
-
-
-def squeeze_dim_0(x):
-    return x.squeeze(0)
-
-
-def get_nan(x):
-    return jnp.nan * x
-
-
-def update_AVG_values(
-    agent_state: AVGState, rollout: Transition, agent_config: AVGConfig
-) -> AVGState:
-    log_alpha = agent_state.alpha.params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-
-    r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(
-        -1, keepdims=True
-    )
-
-    reward = agent_state.reward.replace(value=r_ent)
-
-    gamma = agent_state.gamma.replace(
-        value=agent_config.gamma * (1 - rollout.terminated)
-    )
-
-    new_G = agent_state.G_return.value + r_ent
-
-    temp_G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
-        rollout.terminated.astype("int8").squeeze(-1), no_op, get_nan, new_G
-    )  # set G_return.value to nan if not terminal, for compute_td_error_scaling
-
-    scaling_coef, reward, gamma, G_return = compute_td_error_scaling(
-        reward, gamma, G_return=agent_state.G_return.replace(value=temp_G_value)
-    )
-
-    G_value = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
-        rollout.terminated.astype("int8").squeeze(-1), jnp.zeros_like, no_op, new_G
-    )  # either revert to new_G (from nan) to keep on accumulating, or reset to 0
-    G_return = G_return.replace(value=G_value)
-    agent_state = agent_state.replace(
-        reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
-    )
-
-    return agent_state
-
-
-def training_iteration(
-    agent_state: AVGState,
-    _: Any,
-    env_args: EnvironmentConfig,
-    mode: str,
-    agent_config: AVGConfig,
-    total_timesteps: int,
-    log_frequency: int = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
-    expert_policy: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> tuple[AVGState, None]:
-    """
-    Perform one training iteration, including experience collection and agent updates.
-
-    Args:
-        agent_state (AVGState): Current AVG agent state.
-        _ (Any): Placeholder for scan compatibility.
-        env_args (EnvironmentConfig): Environment configuration.
-        mode (str): Environment mode ("gymnax" or "brax").
-        agent_config (AVGConfig): AVG agent configuration.
-        log_frequency (int): Frequency of logging and evaluation.
-        num_episode_test (int): Number of episodes for evaluation.
-
-    Returns:
-        Tuple[AVGState, None]: Updated agent state.
-    """
-
-    timestep = agent_state.collector_state.timestep
-    uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
-
-    collect_scan_fn = partial(
-        collect_experience,
-        recurrent=False,
-        mode=mode,
-        env_args=env_args,
-        uniform=uniform,
-    )
-    rng = agent_state.rng
-    agent_state, rollout = jax.lax.scan(collect_scan_fn, agent_state, xs=None, length=1)
-
-    # Gap A: expose the freshly collected ``(T=1, n_envs, ...)`` rollout
-    # on ``agent_state.last_rollout`` BEFORE the T-axis is squeezed, so
-    # measurement extensions see the same ``(T, n_envs, ...)`` layout
-    # as the other on-policy agents (PPO / PQN / APO). Off by default —
-    # see :attr:`BaseAgentState.last_rollout`.
-    if getattr(agent_config, "expose_recent_rollout", False):
-        agent_state = agent_state.replace(last_rollout=rollout)
-
-    rollout = jax.tree.map(
-        squeeze_dim_0, rollout
-    )  # Remove first dim as we only have one transition
-    collector_state = agent_state.collector_state.replace(rollout=rollout)
-    agent_state = agent_state.replace(collector_state=collector_state)
-    agent_state = update_AVG_values(agent_state, rollout, agent_config)
-    timestep = agent_state.collector_state.timestep
-    agent_state = agent_state.replace(rng=rng)
-
-    def do_update(agent_state):
-        agent_state, aux = update_agent(
-            agent_state,
-            gamma=agent_config.gamma,
-            reward_scale=agent_config.reward_scale,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-        )
-        # One (1,)-shaped leaf per metric: the metric-flattening contract.
-        aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
-
-        # Extension post_update — folded once per training_iteration.
-        # Empty stack ⇒ identity.
-        if extension_stack is not None:
-            _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
-            agent_state = agent_state.replace(rng=_pu_rng2)
-            agent_state = extension_stack.fold_post_update(
-                agent_state,
-                agent_state.collector_state.timestep,
-                _pu_rng,
-                total_timesteps,
-            )
-        return agent_state, aux
-
-    def fill_with_nan(dataclass):
-        """
-        Recursively fills all fields of a dataclass with jnp.nan.
-        """
-        nan = jnp.ones(1) * jnp.nan
-        dict = {}
-        for field in fields(dataclass):
-            sub_dataclass = field.type
-            if hasattr(
-                sub_dataclass, "__dataclass_fields__"
-            ):  # Check if the field is another dataclass
-                dict[field.name] = fill_with_nan(sub_dataclass)
-            else:
-                dict[field.name] = nan
-        return dataclass(**dict)
-
-    def skip_update(agent_state):
-        return agent_state, fill_with_nan(AuxiliaryLogs)
-
-    agent_state, aux = jax.lax.cond(
-        timestep >= agent_config.learning_starts,
-        do_update,
-        skip_update,
-        operand=agent_state,
-    )
-
-    _extra_eval = compose_eval_metrics(None, extension_stack, total_timesteps)
-    agent_state, metrics_to_log = evaluate_and_log(
-        agent_state,
-        aux,
-        index,
-        mode,
-        env_args,
-        num_episode_test,
-        False,
-        log,
-        log_fn,
-        log_frequency,
-        total_timesteps,
-        expert_policy=expert_policy,
-        extra_eval_metrics=_extra_eval,
-    )
-
-    jax.clear_caches()
-    return agent_state, metrics_to_log
 
 
 def make_train(
@@ -800,96 +391,38 @@ def make_train(
     pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
-    """
-    Create the training function for the AVG agent.
+    """AVG's train function: one step per env, the TD-error statistics, then
+    (from ``learning_starts``) one update on that step, per iteration."""
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
 
-    Args:
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        agent_config (AVGConfig): AVG agent configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        total_timesteps (int): Total timesteps for training.
-        num_episode_test (int): Number of episodes for evaluation during training.
-
-    Returns:
-        Callable: JIT-compiled training function.
-    """
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
-
-    # Start async logging if logging is enabled
-    if logging_config is not None:
-        start_async_logging()
-
-    extension_stack = ExtensionStack(extensions) if extensions else None
-
-    @train_jit
-    def train(key, index: Optional[int] = None):
-        """Train the AVG agent."""
-
-        agent_state = init_AVG(
-            key=key,
-            env_args=env_args,
-            actor_optimizer_args=actor_optimizer_args,
-            critic_optimizer_args=critic_optimizer_args,
-            network_args=network_args,
-            alpha_args=alpha_args,
+    def init(key: jax.Array, _pretrain_key: jax.Array) -> AVGState:
+        return init_AVG(
+            key,
+            env_args,
+            actor_optimizer_args,
+            critic_optimizer_args,
+            network_args,
+            alpha_args,
             num_critics=agent_config.num_critics,
             pid_actor_config=pid_actor_config,
         )
 
-        if extension_stack is not None:
-            _ext_key, _pre_key = jax.random.split(key)
-            agent_state = extension_stack.fold_init_states(agent_state, _ext_key)
-            agent_state = extension_stack.fold_pretrain(
-                agent_state, jnp.asarray(0), _pre_key, total_timesteps
-            )
+    def after_collect(agent_state: AVGState, transition: Transition) -> AVGState:
+        return update_AVG_values(agent_state, transition, agent_config)
 
-        num_updates = total_timesteps  # // env_args.n_envs
-
-        # Gap A: pre-allocate the ``last_rollout`` placeholder so the
-        # scan-carry pytree structure is stable from iteration zero.
-        # AVG collects ``length=1`` per iteration, so the placeholder
-        # carries a leading ``T=1`` axis (matching the pre-squeeze
-        # rollout the training_iteration stashes).
-        if getattr(agent_config, "expose_recent_rollout", False):
-            _trace_scan = partial(
-                collect_experience, recurrent=False, mode=mode, env_args=env_args
-            )
-            _, _trans_abs = jax.eval_shape(
-                lambda st: jax.lax.scan(_trace_scan, st, xs=None, length=1),
-                agent_state,
-            )
-            agent_state = agent_state.replace(
-                last_rollout=zeros_like_abstract_pytree(_trans_abs)
-            )
-
-        training_iteration_scan_fn = partial(
-            training_iteration,
-            agent_config=agent_config,
-            mode=mode,
-            env_args=env_args,
-            num_episode_test=num_episode_test,
-            log_fn=log_fn,
-            index=index,
-            log=log,
-            total_timesteps=total_timesteps,
-            log_frequency=(
-                logging_config.log_frequency if logging_config is not None else None
-            ),
-            expert_policy=expert_policy,
-            extension_stack=extension_stack,
+    def update(agent_state: AVGState, transition: Transition) -> Any:
+        return update_agent(
+            agent_state, transition, agent_config, loop.stack, total_timesteps
         )
 
-        agent_state, metrics = jax.lax.scan(
-            f=training_iteration_scan_fn,
-            init=agent_state,
-            xs=None,
-            length=num_updates,
-        )
-
-        return agent_state, metrics
-
-    return train
+    return loop.off_policy(
+        init,
+        update,
+        AuxiliaryLogs,
+        agent_config.learning_starts,
+        expose_rollout=agent_config.expose_recent_rollout,
+        after_collect=after_collect,
+        eval_kwargs={"expert_policy": expert_policy},
+    )

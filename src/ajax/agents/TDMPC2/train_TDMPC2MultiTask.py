@@ -116,7 +116,7 @@ def update_step(
     agent_state = agent_state.replace(
         n_updates=agent_state.n_updates + 1, update_metrics=metrics
     )
-    if extension_stack is not None:
+    if extension_stack:
         agent_state = extension_stack.fold_post_update(
             agent_state, agent_state.n_updates, post_key, total_timesteps
         )
@@ -143,7 +143,7 @@ def make_init(
     program (one program then serves every chunk of a run, fresh or
     resumed).
     """
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
 
     def init(key: jax.Array, index: Any) -> TDMPC2MultiTaskState:
         agent_state = init_TDMPC2MultiTask(
@@ -155,13 +155,7 @@ def make_init(
             enc_lr_scale=enc_lr_scale,
             pi_eps=pi_eps,
         ).replace(index=index)
-        if extension_stack is None:
-            return agent_state
-        ext_key, pre_key = jax.random.split(key)
-        agent_state = extension_stack.fold_init_states(agent_state, ext_key)
-        return extension_stack.fold_pretrain(
-            agent_state, jnp.asarray(0), pre_key, total_timesteps
-        )
+        return extension_stack.fold_init(agent_state, key, total_timesteps)
 
     return init
 
@@ -188,7 +182,7 @@ def make_train(
     last update's quantities are ``state.update_metrics``.
     ``total_timesteps`` is the extensions' ``total_steps``.
     """
-    extension_stack = ExtensionStack(extensions) if extensions else None
+    extension_stack = ExtensionStack(extensions)
     init = make_init(
         config,
         tasks,

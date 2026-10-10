@@ -47,18 +47,21 @@ src/ajax/
 ├── agents/
 │   ├── base.py              # ActorCritic base class (env prep, network args,
 │   │                        #   .train(), extensions= plumbing)
+│   ├── loop.py              # TrainLoop: the shared training loop (collect,
+│   │                        #   update gate, post_update, eval + log, resume)
+│   ├── recurrent.py         # Replay sampling + R2D2-style sequence burn-in,
+│   │                        #   actor_dist / q_values over batch or sequence
 │   ├── cloning.py           # BC utilities (pre-train actor/critic from expert)
 │   └── <AGENT>/
 │       ├── <AGENT>.py       # Public class — __init__, get_make_train
-│       ├── train_<AGENT>.py # make_train, update_<step>, loss functions,
-│       │                    #   training_iteration (the lax.scan body)
+│       ├── train_<AGENT>.py # make_train, update_<step>, loss functions
 │       ├── core.py          # (SAC family) The proven algorithm math, lifted
 │       │                    #   for lineage descendants to import (REDQ/SafeSAC)
 │       ├── state.py         # flax.struct.dataclass state types
 │       └── utils.py         # Agent-specific utilities
 ├── extensions/
 │   ├── base.py              # Extension + ExtensionStack + ExtensionContext
-│   │                        #   + fold_<phase> helpers
+│   │                        #   + fold_<phase> / fold_init helpers
 │   ├── expert.py            # ExpertGuidance / OnlineBC / ResidualPolicy /
 │   │                        #   ExpertObsAugmentation / JSRLCurriculum
 │   ├── target_mods.py       # IBRL / LCBGatedBootstrap / CriticBlend /
@@ -91,7 +94,7 @@ src/ajax/
 Every agent follows the same split:
 
 - **`<AGENT>.py`** — the public class. Inherits `ActorCritic` (see [src/ajax/agents/base.py](src/ajax/agents/base.py)), stores algorithm-specific hyperparameters, accepts `extensions: Sequence[Extension] = ()`, and exposes `get_make_train()` returning a `functools.partial` over `make_train`.
-- **`train_<AGENT>.py`** — the JIT-compiled training logic. `make_train(…)` builds the closure; `training_iteration` is the `jax.lax.scan` body; loss / update functions live here. Folds the ExtensionStack at every relevant phase via `stack.fold_<phase>(...)`.
+- **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents with a loop of their own (SAC, PPO, DQN, PQN, the world models) build on `build_resumable_train` directly.
 - **`core.py`** (SAC family only) — proven reusable algorithm pieces (e.g. `compute_td_target`, `critic_loss_fn`). Lineage descendants (REDQ, SafeSAC, ASAC) import from here rather than duplicating.
 - **`state.py`** — `<AGENT>State` and `<AGENT>Config` extending `BaseAgentState` / `BaseAgentConfig`.
 
@@ -218,9 +221,9 @@ callable hooks live in
 The split-line: **boilerplate goes in shared backbone, RL essence
 goes in one file per agent.** A practitioner should be able to read
 `train_<AGENT>.py` top-to-bottom like the paper's pseudocode. The
-shared backbone (`agents/base.py`, `perf_utils.py`, `log.py`,
-`environments/interaction.py`, `extensions/base.py`) carries everything
-that isn't algorithm-specific.
+shared backbone (`agents/base.py`, `agents/loop.py`, `perf_utils.py`,
+`log.py`, `environments/interaction.py`, `extensions/base.py`) carries
+everything that isn't algorithm-specific.
 
 **Lineage rule:** if your agent descends from an existing one (e.g.
 REDQ from SAC), **import** the parent's reusable mechanisms from its
@@ -262,60 +265,56 @@ class FOOState(BaseAgentState):
 
 ### 3. Write `train_FOO.py`
 
+The algorithm's maths, then a `make_train` that hands it to the shared
+loop. An off-policy agent collecting one step per env (TD3, REDQ, ASAC,
+AVG):
+
 ```python
-from typing import Sequence
-import jax
+from collections.abc import Sequence
+from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.recurrent import sample_replay
 from ajax.extensions.base import Extension, ExtensionStack
-from ajax.log import compose_eval_metrics, evaluate_and_log
+
+def update_agent(agent_state, buffer, agent_config, extension_stack, total_timesteps):
+    """FOO's update, as in the paper: sample, critic step, actor step, ..."""
+    sample_key, rng = jax.random.split(agent_state.rng)
+    batch, carries = sample_replay(agent_state, buffer, sample_key)
+    ...  # fold extension_stack.fold_on_target / fold_critic_loss / fold_actor_loss
+    return agent_state, AuxiliaryLogs(...)
 
 def make_train(
-    env_args, network_args, optimizer_args,
-    # … FOO algorithm hyperparameters only …
+    env_args, network_args, actor_optimizer_args, critic_optimizer_args,
+    buffer, agent_config, total_timesteps, num_episode_test,
+    run_ids=None, logging_config=None,
     extensions: Sequence[Extension] = (),
 ):
-    stack = ExtensionStack(extensions)
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
 
-    def init_fn(seed, _):
-        agent_state = init_FOO(…)
-        # Bind extensions to runtime context they need.
-        bound_stack = stack.bind_to_agent(
-            env_args=env_args, network_args=network_args, …
-        )
-        # Materialise per-extension state on the agent.
-        agent_state = bound_stack.fold_init_states(agent_state, seed)
-        # Run any one-shot pretrain extensions.
-        agent_state = bound_stack.fold_pretrain(
-            agent_state, step=0, rng=seed, total_steps=total_timesteps
-        )
-        return agent_state, bound_stack
+    def init(key, pretrain_key):  # pretrain_key: one-shot pretraining (cloning)
+        return init_FOO(key, ...)
 
-    def training_iteration(carry, _):
-        agent_state, bound_stack = carry
+    def update(agent_state, _transition):  # a replay agent samples its buffer
+        return update_agent(agent_state, buffer, agent_config, loop.stack, total_timesteps)
 
-        # collect_experience folds stack.action / stack.on_obs internally
-        # if you call the shared collector; otherwise fold here explicitly.
-        agent_state, transition = collect_experience(agent_state, …)
-
-        # Update step folds on_target / critic_loss / actor_loss / post_update.
-        agent_state = update_FOO(agent_state, transition, bound_stack)
-        agent_state = bound_stack.fold_post_update(
-            agent_state, step=agent_state.collector_state.timestep,
-            rng=agent_state.rng, total_steps=total_timesteps,
-        )
-
-        # Eval + log
-        merged_eval = compose_eval_metrics(None, bound_stack, total_timesteps)
-        agent_state, metrics_to_log = evaluate_and_log(
-            agent_state, …, extra_eval_metrics=merged_eval
-        )
-        return (agent_state, bound_stack), metrics_to_log
-
-    return build_resumable_train(init_fn, training_iteration, length=…)
+    return loop.off_policy(
+        init, update, AuxiliaryLogs, agent_config.learning_starts,
+        collect_kwargs={"buffer": buffer},
+    )
 ```
+
+An on-policy agent uses `loop.on_policy(init, update, n_steps)`, its
+`update(agent_state, rollout)` receiving the `(n_steps, n_envs)` rollout
+(APO). The loop owns the rest: the extensions' initial state and
+pretraining on a fresh run (`ExtensionStack.fold_init`), resuming from a
+checkpoint, the warm-up gate before `learning_starts` (the update's metrics
+then NaN), `post_update`, evaluation and logging with the extensions'
+`eval_metrics`.
 
 Key points:
 - `extensions=` is the **only** research-feature surface. No per-feature kwargs on `make_train`.
-- `stack.fold_<phase>(agent_state, step, rng, total_steps)` does the None-guard, ctx-build, and `ext_state` replace in one call — never inline that boilerplate.
+- `stack.fold_<phase>(agent_state, …, step, rng, total_steps)` builds the context and threads `ext_state` in one call, and is a no-op on an empty stack — never inline that boilerplate, and a fold needs no guard. Guard (`if stack:`) a key split drawn only for the extensions, so an agent without extensions keeps its random stream.
 - `compose_eval_metrics(user_fn, stack, total_steps)` collapses to `None` when both inputs are no-ops, preserving `evaluate_and_log`'s zero-overhead path.
 
 ### 4. Write `FOO.py`

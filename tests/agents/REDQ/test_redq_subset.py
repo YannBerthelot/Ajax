@@ -80,7 +80,6 @@ def _call_target(REDQ_state, env_config, subset_size, seed=1):
         rewards=rewards,
         gamma=0.99,
         alpha=jnp.array(0.1),
-        recurrent=False,
         subset_size=subset_size,
         reward_scale=1.0,
     )

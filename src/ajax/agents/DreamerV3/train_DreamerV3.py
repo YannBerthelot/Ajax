@@ -448,7 +448,7 @@ def update(
         n_updates=agent_state.n_updates + 1,
         train_metrics=agent_state.train_metrics.add(metrics),
     )
-    if extension_stack is not None:
+    if extension_stack:
         agent_state = extension_stack.fold_post_update(
             agent_state,
             agent_state.collector_state.timestep,
@@ -638,15 +638,11 @@ def make_train(
     metric_keys = train_metric_keys(
         config, spec, agent_config.batch_size, agent_config.batch_length
     )
-    extension_stack = (
-        ExtensionStack(extensions).bind_to_agent(
-            env_args=env_args,
-            agent_config=agent_config,
-            gamma=config.gamma,
-            total_timesteps=total_timesteps,
-        )
-        if extensions
-        else None
+    extension_stack = ExtensionStack(extensions).bind_to_agent(
+        env_args=env_args,
+        agent_config=agent_config,
+        gamma=config.gamma,
+        total_timesteps=total_timesteps,
     )
 
     log = logging_config is not None
@@ -677,15 +673,6 @@ def make_train(
         agent_state = init_dreamer(key, env_args, config, spec, replay, metric_keys)
         return agent_state.replace(index=index)
 
-    def init_transform(agent_state, key):
-        if extension_stack is None:
-            return agent_state
-        ext_key, pre_key = jax.random.split(key)
-        agent_state = extension_stack.fold_init_states(agent_state, ext_key)
-        return extension_stack.fold_pretrain(
-            agent_state, jnp.asarray(0), pre_key, total_timesteps
-        )
-
     def make_scan_fn(_agent_state, _resume, _key, index):
         return partial(
             training_iteration,
@@ -704,7 +691,7 @@ def make_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=num_ticks,
-        init_transform=init_transform,
+        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
     )
 
 

@@ -48,6 +48,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 from flax import struct
 
 
@@ -390,36 +391,26 @@ class ExtensionStack:
             out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], ctx))
         return out
 
-    # -- introspection ---------------------------------------------------
-    def implemented_phases(self) -> frozenset[str]:
-        """Union of the phases used by any extension in the stack."""
-        used: frozenset[str] = frozenset()
-        for ext in self.extensions:
-            used = used | ext.implemented_phases()
-        return used
-
     # ------------------------------------------------------------------
-    # ``fold_<phase>`` sugar helpers
+    # ``fold_<phase>``: the phase folded on an agent state
     # ------------------------------------------------------------------
-    # The methods below collapse the ~5-line ctx-build / fold-call /
-    # ext_state-replace boilerplate that every agent training loop used
-    # to repeat at every phase site (~65 sites across the 9 agents) into
-    # a single call. Each helper is a None-guarded + zero-cost shim on
-    # top of the existing ``self.<phase>(...)`` API — no change to the
-    # phase signatures, just sugar.
-    #
-    # Empty-stack zero-cost guarantee
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # Every helper short-circuits when ``self.extensions == ()`` and
-    # returns the input unchanged WITHOUT constructing an
-    # :class:`ExtensionContext`. This is what lets jit-traced empty-stack
-    # code paths stay constant-folded — the helper is a Python-side
-    # no-op the tracer sees as the identity function, allocating
-    # nothing.
+    # Each helper builds the phase's :class:`ExtensionContext` and reads
+    # (and, for state-threading phases, writes) ``agent_state.ext_state``.
+    # On an empty stack it returns its input unchanged without building a
+    # context, so an agent without extensions traces nothing extra and an
+    # agent never needs to guard a fold itself.
 
-    @staticmethod
-    def _build_ctx(step: Any, rng: jax.Array, total_steps: int) -> ExtensionContext:
-        return ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+    def fold_init(self, agent_state: Any, rng: jax.Array, total_steps: int) -> Any:
+        """A fresh run's extension setup: every extension's initial state,
+        then its one-shot ``pretrain`` at step 0 (``rng`` split between the
+        two). Skipped on resume, where the state already carries both."""
+        if not self.extensions:
+            return agent_state
+        init_key, pretrain_key = jax.random.split(rng)
+        agent_state = self.fold_init_states(agent_state, init_key)
+        return self.fold_pretrain(
+            agent_state, jnp.asarray(0), pretrain_key, total_steps
+        )
 
     def fold_init_states(self, agent_state: Any, rng: jax.Array) -> Any:
         """Initialise ``ext_state`` on a fresh ``agent_state``.
@@ -440,7 +431,7 @@ class ExtensionStack:
         """One-shot pretrain fold; returns the updated ``agent_state``."""
         if not self.extensions:
             return agent_state
-        ctx = self._build_ctx(step, rng, total_steps)
+        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         agent_state, new_ext_state = self.pretrain(
             agent_state, agent_state.ext_state, ctx
         )
@@ -456,7 +447,7 @@ class ExtensionStack:
         """Post-update fold; returns the updated ``agent_state``."""
         if not self.extensions:
             return agent_state
-        ctx = self._build_ctx(step, rng, total_steps)
+        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         agent_state, new_ext_state = self.post_update(
             agent_state, agent_state.ext_state, ctx
         )
@@ -474,36 +465,8 @@ class ExtensionStack:
         """Target-modifier fold; returns the (possibly reshaped) target."""
         if not self.extensions:
             return target
-        ctx = self._build_ctx(step, rng, total_steps)
+        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         return self.on_target(agent_state, agent_state.ext_state, batch, target, ctx)
-
-    def fold_on_obs(
-        self,
-        obs: jax.Array,
-        agent_state: Any,
-        step: Any,
-        rng: jax.Array,
-        total_steps: int,
-    ) -> jax.Array:
-        """Obs-transform fold; returns the (possibly transformed) obs."""
-        if not self.extensions:
-            return obs
-        ctx = self._build_ctx(step, rng, total_steps)
-        return self.on_obs(obs, agent_state.ext_state, ctx)
-
-    def fold_on_batch(
-        self,
-        batch: Any,
-        agent_state: Any,
-        step: Any,
-        rng: jax.Array,
-        total_steps: int,
-    ) -> Any:
-        """Batch-transform fold; returns the (possibly transformed) batch."""
-        if not self.extensions:
-            return batch
-        ctx = self._build_ctx(step, rng, total_steps)
-        return self.on_batch(batch, agent_state.ext_state, ctx)
 
     def fold_critic_loss(
         self,
@@ -516,7 +479,7 @@ class ExtensionStack:
         """Critic-loss fold; returns the additive critic-loss term."""
         if not self.extensions:
             return 0.0
-        ctx = self._build_ctx(step, rng, total_steps)
+        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         return self.critic_loss(agent_state, agent_state.ext_state, batch, ctx)
 
     def fold_actor_loss(
@@ -530,36 +493,8 @@ class ExtensionStack:
         """Actor-loss fold; returns the additive actor-loss term."""
         if not self.extensions:
             return 0.0
-        ctx = self._build_ctx(step, rng, total_steps)
+        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         return self.actor_loss(agent_state, agent_state.ext_state, batch, ctx)
-
-    def fold_action(
-        self,
-        agent_state: Any,
-        obs: jax.Array,
-        step: Any,
-        rng: jax.Array,
-        total_steps: int,
-    ) -> jax.Array | None:
-        """Collection-time action override fold; ``None`` if no override."""
-        if not self.extensions:
-            return None
-        ctx = self._build_ctx(step, rng, total_steps)
-        return self.action(agent_state, agent_state.ext_state, obs, rng, ctx)
-
-    def fold_eval_action(
-        self,
-        agent_state: Any,
-        obs: jax.Array,
-        step: Any,
-        rng: jax.Array,
-        total_steps: int,
-    ) -> jax.Array | None:
-        """Eval-time action override fold; ``None`` if no override."""
-        if not self.extensions:
-            return None
-        ctx = self._build_ctx(step, rng, total_steps)
-        return self.eval_action(agent_state, agent_state.ext_state, obs, rng, ctx)
 
     def fold_eval_metrics(
         self,
@@ -571,7 +506,7 @@ class ExtensionStack:
         """Eval-metrics fold; returns the merged extra-eval dict."""
         if not self.extensions:
             return {}
-        ctx = self._build_ctx(step, rng, total_steps)
+        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         return self.eval_metrics(agent_state, agent_state.ext_state, rng, ctx)
 
     # ------------------------------------------------------------------

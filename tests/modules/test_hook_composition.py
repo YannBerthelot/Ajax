@@ -126,17 +126,11 @@ def test_hooks_are_stored(agent_cls):
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_get_make_train_forwards_hooks(agent_cls):
-    """get_make_train wraps make_train in a partial that carries the hooks.
-
-    Skipped for agents that call ``make_train`` directly from ``train()``
-    rather than exposing it via ``get_make_train`` (currently AVG).
-    """
+    """get_make_train wraps make_train in a partial that carries the hooks."""
     hook_kwargs = {
         h: _identity_hook for h in AGENT_HOOKS[agent_cls] if h != "pid_actor_config"
     }
     agent = _instantiate(agent_cls, **hook_kwargs)
-    if not hasattr(agent, "get_make_train"):
-        pytest.skip(f"{agent_cls.__name__} does not expose get_make_train")
     make_train_partial = agent.get_make_train()
     # functools.partial stores kwargs on .keywords
     keywords = getattr(make_train_partial, "keywords", {})

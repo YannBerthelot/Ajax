@@ -75,20 +75,17 @@ def online_normalize(
 
 
 def fill_with_nan(dataclass):
-    """
-    Recursively fills all fields of a dataclass with jnp.nan.
-    """
+    """An instance of the (possibly nested) metrics ``dataclass`` whose every
+    leaf is a ``(1,)`` NaN: an update's metrics on an iteration that skips
+    the update (the logger drops NaN values)."""
     nan = jnp.ones(1) * jnp.nan
-    dict = {}
+    values = {}
     for field in fields(dataclass):
-        sub_dataclass = field.type
-        if hasattr(
-            sub_dataclass, "__dataclass_fields__"
-        ):  # Check if the field is another dataclass
-            dict[field.name] = fill_with_nan(sub_dataclass)
-        else:
-            dict[field.name] = nan
-    return dataclass(**dict)
+        sub = field.type
+        values[field.name] = (
+            fill_with_nan(sub) if hasattr(sub, "__dataclass_fields__") else nan
+        )
+    return dataclass(**values)
 
 
 def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:

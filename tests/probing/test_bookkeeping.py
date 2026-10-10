@@ -99,7 +99,7 @@ def log_timesteps(agent: str, n_envs: int) -> list[int]:
 def steps(agent: str, n_envs: int, starts: int) -> dict[str, int]:
     """Each optimiser's final ``.step`` from the first post-collection
     timestep >= ``starts``; AVG never updates its temperature
-    (train_AVG.py:662), DQN and PQN never their critic_state copy."""
+    (train_AVG.update_agent), DQN and PQN never their critic_state copy."""
     its = iterations(agent, n_envs)
     u, rollout = sum(t >= starts for t in its), len(its) * 2 * 2
     if agent in ("SAC", "SafeSAC"):
@@ -211,20 +211,7 @@ AVG_PARTS = {
 }
 
 
-@pytest.mark.parametrize(
-    "part",
-    [
-        xparam(
-            "budget",
-            "AVG runs total_timesteps iterations of n_envs steps ('// env_args.n_envs' commented out, train_AVG.py:1224; whether deliberate in 27fe958 is the owner's call); right final timestep 2800 and 676 critic/actor steps, today 11200 and 2776",
-        ),
-        xparam(
-            "warm-up keys",
-            "AVG saves agent_state.rng before collecting and restores it after (train_AVG.py:1030, 1050), and skip_update does not advance it (:1102): every warm-up step reuses one key; right 0 repeated 8-step windows of the first 32 draws and actions, today 0.720",
-        ),
-        "rest",
-    ],
-)
+@pytest.mark.parametrize("part", list(AVG_PARTS))
 def test_p2_avg_with_parallel_envs(part: str) -> None:
     """AVG at 4 envs from timestep 100: budget, warm-up keys, the rest."""
     found = errors("AVG", 4, p2_run("AVG", 4, learning_starts=100), 100)
@@ -278,8 +265,7 @@ def p2_worker(agent: str, folder: str) -> dict:
 @pytest.mark.parametrize("agent", ["SAC", "AVG"])
 def test_p2_logging_worker_writes_every_event(agent: str, tmp_path: Any) -> None:
     """Through the real logging process, in a fresh interpreter with a
-    timeout: 8 runs of 10 events, Train = Eval = 7, length 7 (AVG stops the
-    logger inside its vmapped function, AVG.py:231; on CPU it is in time)."""
+    timeout: 8 runs of 10 events, Train = Eval = 7, length 7."""
     worker = "tests.probing.test_bookkeeping:p2_worker"
     logged = runs.in_subprocess(worker, [agent, str(tmp_path)], 300)
     want = [L] * len(log_timesteps(agent, 1))

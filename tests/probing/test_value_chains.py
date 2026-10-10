@@ -178,7 +178,7 @@ def _apg_read(run: runs.Run) -> dict:
         a = R.action(R.nets(state), x0, clip=False)
         args = run.agent.env_args
         args = args.replace(env_params=args.env_params.replace(start=x0))
-        m = evaluate_apg(state, R.KEY, args, None, 2, 2, stateful=False)
+        m = evaluate_apg(state, R.KEY, args, None, 2, 2)
         return a, m["Eval/episodic mean reward"]
 
     out: dict[str, Any] = {}

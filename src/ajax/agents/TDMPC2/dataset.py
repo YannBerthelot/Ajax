@@ -72,8 +72,33 @@ if TYPE_CHECKING:
     from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 
 
+class _EpisodeShape:
+    """The episode-shape accessors of a set of episodes ``obs [N, L, O]``
+    and ``action [N, L, A]``."""
+
+    obs: Any
+    action: Any
+
+    @property
+    def num_episodes(self) -> int:
+        return int(self.obs.shape[0])
+
+    @property
+    def rows(self) -> int:
+        """Rows per episode ``L``."""
+        return int(self.obs.shape[1])
+
+    @property
+    def obs_dim(self) -> int:
+        return int(self.obs.shape[-1])
+
+    @property
+    def action_dim(self) -> int:
+        return int(self.action.shape[-1])
+
+
 @dataclasses.dataclass(frozen=True, eq=False)
-class TaskEpisodes:
+class TaskEpisodes(_EpisodeShape):
     """Whole episodes of one task, unpadded (host numpy, obs-aligned rows).
 
     Attributes:
@@ -108,23 +133,6 @@ class TaskEpisodes:
                 f" got {n} episodes of {rows} rows, episode_length"
                 f" {self.episode_length}"
             )
-
-    @property
-    def num_episodes(self) -> int:
-        return int(self.obs.shape[0])
-
-    @property
-    def rows(self) -> int:
-        """Rows per episode ``L``."""
-        return int(self.obs.shape[1])
-
-    @property
-    def obs_dim(self) -> int:
-        return int(self.obs.shape[-1])
-
-    @property
-    def action_dim(self) -> int:
-        return int(self.action.shape[-1])
 
 
 def _host(x: Any) -> np.ndarray:
@@ -215,21 +223,13 @@ def concatenate_episodes(episodes: Sequence[TaskEpisodes]) -> TaskEpisodes:
     """
     if not episodes:
         raise ValueError("nothing to concatenate")
+
+    def key(e: TaskEpisodes) -> tuple:
+        return (e.rows, e.obs_dim, e.action_dim, e.episode_length, e.name)
+
     first = episodes[0]
     for other in episodes[1:]:
-        if (
-            other.rows,
-            other.obs_dim,
-            other.action_dim,
-            other.episode_length,
-            other.name,
-        ) != (
-            first.rows,
-            first.obs_dim,
-            first.action_dim,
-            first.episode_length,
-            first.name,
-        ):
+        if key(other) != key(first):
             raise ValueError(
                 f"cannot concatenate episodes of {other.name!r} (rows {other.rows},"
                 f" dims {other.obs_dim}/{other.action_dim}, T"
@@ -247,7 +247,7 @@ def concatenate_episodes(episodes: Sequence[TaskEpisodes]) -> TaskEpisodes:
 
 
 @struct.dataclass
-class MultiTaskDataset:
+class MultiTaskDataset(_EpisodeShape):
     """A pooled multi-task dataset (module docstring for the schema).
 
     A pytree of the four arrays; the per-task metadata is static. The
@@ -277,23 +277,6 @@ class MultiTaskDataset:
     @property
     def num_tasks(self) -> int:
         return len(self.obs_dims)
-
-    @property
-    def num_episodes(self) -> int:
-        return int(self.obs.shape[0])
-
-    @property
-    def rows(self) -> int:
-        """Rows per episode ``L``."""
-        return int(self.obs.shape[1])
-
-    @property
-    def obs_dim(self) -> int:
-        return int(self.obs.shape[-1])
-
-    @property
-    def action_dim(self) -> int:
-        return int(self.action.shape[-1])
 
     @property
     def nbytes(self) -> int:
@@ -346,10 +329,9 @@ class MultiTaskDataset:
         task = _host(self.task)
         if np.any((task < 0) | (task >= self.num_tasks)):
             raise ValueError(f"task ids must be in [0, {self.num_tasks})")
-        if np.any(self.episode_counts() == 0):
-            raise ValueError(
-                f"every task needs episodes, got counts {self.episode_counts()}"
-            )
+        counts = np.bincount(task, minlength=self.num_tasks)
+        if np.any(counts == 0):
+            raise ValueError(f"every task needs episodes, got counts {counts}")
         for field, dims in (("obs", self.obs_dims), ("action", self.action_dims)):
             values = _host(getattr(self, field))
             valid = np.arange(values.shape[-1])[None] < np.asarray(dims)[task][:, None]

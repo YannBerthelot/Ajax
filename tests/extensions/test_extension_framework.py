@@ -310,22 +310,11 @@ def test_fold_init_states_writes_ext_state():
 # compose_eval_metrics — None-collapse property + merge ordering.
 # --------------------------------------------------------------------------
 def test_compose_eval_metrics_none_collapse():
-    """Both inputs are no-ops -> returns None (preserves zero-overhead branch)."""
+    """No extension -> returns None (preserves zero-overhead branch)."""
     from ajax.log import compose_eval_metrics
 
-    assert compose_eval_metrics(None, None, 100) is None
-    assert compose_eval_metrics(None, ExtensionStack(), 100) is None
-
-
-def test_compose_eval_metrics_user_only_passthrough():
-    """User callable + empty stack -> the user callable itself."""
-    from ajax.log import compose_eval_metrics
-
-    def user_fn(agent_state, rng):
-        return {"u": 1.0}
-
-    out = compose_eval_metrics(user_fn, ExtensionStack(), 100)
-    assert out is user_fn
+    assert compose_eval_metrics(None, 100) is None
+    assert compose_eval_metrics(ExtensionStack(), 100) is None
 
 
 # --------------------------------------------------------------------------
@@ -363,13 +352,13 @@ def test_extension_stack_bind_to_agent_empty_is_noop():
     assert stack.bind_to_agent(env_args="X") is stack
 
 
-def test_compose_eval_metrics_merges_user_and_stack():
-    """Both contribute -> dict union, stack metrics take precedence on conflict."""
+def test_compose_eval_metrics_folds_the_stack_at_the_collector_timestep():
+    """The stack's metrics, its context's step the collector's timestep."""
     from ajax.log import compose_eval_metrics
 
     class Metric(Extension):
         def eval_metrics(self, agent_state, ext_state, rng, ctx):
-            return {"s/x": 2.0}
+            return {"s/x": 2.0, "s/step": ctx.step}
 
     class FakeCollector:
         def __init__(self):
@@ -380,11 +369,6 @@ def test_compose_eval_metrics_merges_user_and_stack():
             self.collector_state = FakeCollector()
             self.ext_state = ((),)
 
-    def user_fn(agent_state, rng):
-        return {"u/a": 1.0}
-
-    stack = ExtensionStack([Metric()])
-    merged = compose_eval_metrics(user_fn, stack, 100)
-    out = merged(_FakeAgent(), jax.random.PRNGKey(0))
-    assert set(out) == {"u/a", "s/x"}
-    assert float(out["s/x"]) == 2.0
+    eval_metrics = compose_eval_metrics(ExtensionStack([Metric()]), 100)
+    out = eval_metrics(_FakeAgent(), jax.random.PRNGKey(0))
+    assert float(out["s/x"]) == 2.0 and int(out["s/step"]) == 7

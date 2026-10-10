@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from ajax import TDMPC2
+from ajax.agents import loop
 from ajax.agents.TDMPC2 import core, train_TDMPC2
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_policy
@@ -491,8 +492,7 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
     def capture(metrics, index, run_ids):
         logged.append({k: np.asarray(v) for k, v in metrics.items()})
 
-    monkeypatch.setattr(train_TDMPC2, "vmap_log", capture)
-    monkeypatch.setattr(train_TDMPC2, "start_async_logging", lambda: None)
+    monkeypatch.setattr(loop, "vmap_log", capture)
 
     # Trace-time record of the planner's mode and env count per call site.
     planner_calls = set()
@@ -507,12 +507,13 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
     updates: dict = {}
     update = core.update
 
-    def record(index, obs, td_eps):
-        updates.setdefault(int(index), []).append((np.array(obs), np.array(td_eps)))
+    def record(seed_key, obs, td_eps):  # the seed's eval_rng, fixed in training
+        seed = np.asarray(seed_key).tobytes()
+        updates.setdefault(seed, []).append((np.array(obs), np.array(td_eps)))
 
     def update_spy(state, batch, noise, **kwargs):
         if isinstance(state, TDMPC2State):  # not the init's shape-only call
-            jax.debug.callback(record, state.index, batch.obs, noise.td_eps)
+            jax.debug.callback(record, state.eval_rng, batch.obs, noise.td_eps)
         return update(state, batch, noise, **kwargs)
 
     monkeypatch.setattr(core, "update", update_spy)
@@ -562,7 +563,7 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
     assert planner_calls == {(False, N_ENVS), (True, 3)}
     # Every update samples a fresh batch with fresh noise: no two updates of
     # a seed share either, within the burst or across ticks.
-    assert sorted(updates) == list(range(len(SEEDS)))
+    assert len(updates) == len(SEEDS)
     for records in updates.values():
         assert len(records) == expected
         for i, (obs, eps) in enumerate(records):
@@ -584,9 +585,11 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
         assert int(entry["Train/n_updates"]) == 40 + N_ENVS * (40 - 21)
         assert int(entry["Train/terminations"]) == 0
         assert float(entry["ext_smoke/x"]) == 1.0  # the extension's metric
-    evals = np.asarray(metrics["Eval/episodic mean reward"])
-    logged_ticks = np.flatnonzero(np.isfinite(evals[0]))
-    np.testing.assert_array_equal(logged_ticks, [2 * 21 - 1])
+    # The returned evaluations: the one log, then the sentinel up to the most
+    # the call's 63 ticks can make (every 42 ticks: 2).
+    np.testing.assert_array_equal(metrics["timestep"], [[80, -1]] * len(SEEDS))
+    assert set(metrics) == set(logged[0])
+    np.testing.assert_array_equal(metrics["Train/n_updates"][:, 0], 40 + N_ENVS * 19)
 
 
 # ---------------------------------------------------------------------------

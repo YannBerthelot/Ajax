@@ -337,12 +337,10 @@ def _policy(theta) -> Policy:
     )
 
 
-_imagination_loss = jax.jit(
-    imagination_loss, static_argnums=0, static_argnames="update_retnorm"
-)
+_imagination_loss = jax.jit(imagination_loss, static_argnums=0)
 
 
-def _imagination(inputs, retnorm=None, config=CONFIG, update=True, action=None):
+def _imagination(inputs, retnorm=None, config=CONFIG, action=None):
     """Algorithm F on :func:`_imagination_inputs` (jitted)."""
     policy = _policy(inputs["theta"])
     if action is None:
@@ -357,7 +355,6 @@ def _imagination(inputs, retnorm=None, config=CONFIG, update=True, action=None):
         inputs["reward"],
         inputs["cont"],
         retnorm,
-        update_retnorm=update,
     )
 
 
@@ -404,12 +401,6 @@ def test_return_normaliser_is_updated_then_read_and_the_advantage_not_offset():
     assert out.scale == pytest.approx(hi - lo, rel=1e-6)
     np.testing.assert_allclose(
         out.adv, (ret - value[:, :-1]) / (hi - lo), rtol=1e-5, atol=1e-6
-    )
-    # Not updated (the reference's report pass): the old scale, 8.
-    frozen = _imagination(inputs, old, update=False)
-    assert (frozen.retnorm.lo, frozen.retnorm.hi) == (old.lo, old.hi)
-    np.testing.assert_allclose(
-        frozen.adv, (ret - value[:, :-1]) / 8.0, rtol=1e-5, atol=1e-6
     )
     # The scale is floored at 1 (small returns are not amplified).
     assert _imagination(inputs).scale == 1.0
@@ -726,7 +717,7 @@ def test_one_joint_gradient_for_three_optimizers_is_one_optimizer():
             ),
             actor_state=state.actor_state.replace(params=params.actor),
             critic_state=critic.replace(step=critic.step + 1),
-            retnorm=aux.retnorm,
+            retnorm=aux.imagination.retnorm,
         )
         return new, opt_state
 
@@ -744,7 +735,7 @@ def test_one_joint_gradient_for_three_optimizers_is_one_optimizer():
             critic, state.critic_state.step, FAST.slow_rate
         )
         return middle.replace(
-            actor_state=actor, critic_state=critic, retnorm=aux.retnorm
+            actor_state=actor, critic_state=critic, retnorm=aux.imagination.retnorm
         )
 
     joint, single, sequential = state, state, state
@@ -817,9 +808,7 @@ def test_slow_critic_is_a_copy_after_the_first_update_then_an_ema():
 def test_train_step_returns_the_pre_update_posterior_and_the_new_normaliser():
     """The write-back entries are the posterior of the step's own forward
     pass, at the parameters before the update (dreamerv3_spec 5.9); the
-    state carries the return normaliser after its update, which a
-    non-training loss (the reference's report pass) only reads; the
-    counters of the three train states advance together; the parameter
+    state carries the return normaliser after its update; the counters of the three train states advance together; the parameter
     norm is logged after the update (``jaxutils.py:527-530``)."""
     state = tiny_learner(False, FAST)
     batch, noise = replay_batch(13), _noise(14, config=FAST)
@@ -831,16 +820,11 @@ def test_train_step_returns_the_pre_update_posterior_and_the_new_normaliser():
     np.testing.assert_array_equal(entries.stoch, before.entries.stoch)
     np.testing.assert_allclose(entries.deter, before.entries.deter, atol=1e-6)
 
-    loss = jax.jit(learner.loss_and_grads, static_argnames=("config", "training"))
+    loss = jax.jit(learner.loss_and_grads, static_argnames=("config",))
     (_, aux), _ = loss(state, batch, noise, config=FAST)
-    updated = (aux.retnorm.lo, aux.retnorm.hi)
+    updated = (aux.imagination.retnorm.lo, aux.imagination.retnorm.hi)
     np.testing.assert_allclose((new.retnorm.lo, new.retnorm.hi), updated, rtol=1e-6)
     assert new.retnorm.hi != state.retnorm.hi
-    (_, report), _ = loss(state, batch, noise, config=FAST, training=False)
-    assert (report.retnorm.lo, report.retnorm.hi) == (
-        state.retnorm.lo,
-        state.retnorm.hi,
-    )
 
     train_states = (new.world_model_state, new.actor_state, new.critic_state)
     assert {int(ts.step) for ts in train_states} == {1}

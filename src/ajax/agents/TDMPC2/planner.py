@@ -68,6 +68,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents.TDMPC2.core import (
+    Params,
     TaskContext,
     draw_q_pair,
     policy_sample,
@@ -77,8 +78,6 @@ from ajax.agents.TDMPC2.core import (
 )
 from ajax.agents.TDMPC2.networks import make_policy_prior, make_world_model
 from ajax.agents.TDMPC2.state import TDMPC2Config
-
-Params = Any
 
 # tdmpc2.py:157-158: added to the score sum in the mean and std denominators.
 _SCORE_EPS = 1e-9

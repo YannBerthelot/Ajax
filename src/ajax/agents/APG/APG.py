@@ -110,15 +110,12 @@ class APG(ActorCritic):
         self.config = {k: v for k, v in locals().items() if k != "self"}
         self.config.update({"algo_name": "APG"})
 
+        # No critic; the actor's optimizer is built below.
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
-            actor_learning_rate=learning_rate,
-            critic_learning_rate=learning_rate,  # no critic
             actor_architecture=tuple(actor_architecture),
-            critic_architecture=tuple(actor_architecture),
             env_params=env_params,
-            max_grad_norm=max_grad_norm,
             memory=memory,
             episode_length=episode_length,
             extensions=extensions,
@@ -173,6 +170,9 @@ class APG(ActorCritic):
         weight_decay: float = 0.0,
         warmup_steps: int = 5000,
         pid: Optional[PIDHeadConfig] = _DEFAULT_PID,
+        beta_2: float = 0.95,
+        lr_schedule: Optional[str] = "warmup_cosine",
+        actor_architecture: Sequence[str] = (),
         **kwargs: Any,
     ) -> "APG":
         """The in-context controller of Busetto et al. 2024.
@@ -193,10 +193,10 @@ class APG(ActorCritic):
             horizon=horizon,
             learning_rate=learning_rate,
             weight_decay=weight_decay,
-            beta_2=kwargs.pop("beta_2", 0.95),
-            lr_schedule=kwargs.pop("lr_schedule", "warmup_cosine"),
+            beta_2=beta_2,
+            lr_schedule=lr_schedule,
             warmup_steps=warmup_steps,
-            actor_architecture=kwargs.pop("actor_architecture", ()),
+            actor_architecture=actor_architecture,
             memory=MemoryConfig(
                 kind="transformer",
                 hidden_size=d_model,

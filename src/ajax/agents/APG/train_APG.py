@@ -18,6 +18,7 @@ metric, at the logging frequency.
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -26,17 +27,12 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.APG.networks import Controller, PIDHeadConfig
 from ajax.agents.APG.state import APGConfig, APGState
-from ajax.environments.differentiable import closed_loop_rollout
+from ajax.agents.loop import Evaluation, TrainLoop, fresh_state
+from ajax.environments.differentiable import Rollout, closed_loop_rollout
 from ajax.environments.interaction import init_collector_state
-from ajax.environments.system_class import SystemClass, broadcast_env_params
+from ajax.environments.system_class import FixedSystem, SystemClass
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, maybe_eval_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.memory import zeros_carry_like
 from ajax.networks.utils import get_adam_tx
 from ajax.perf_utils import build_resumable_train
@@ -76,7 +72,7 @@ def build_controller(
     pid: Optional[PIDHeadConfig],
     squash: bool,
     factory: Optional[ControllerFactory] = None,
-) -> Any:
+) -> nn.Module:
     action_dim = get_action_dim(env_args.env, env_args.env_params)
     if factory is not None:
         return factory(
@@ -102,7 +98,6 @@ def init_APG(
     network_args: NetworkConfig,
     pid: Optional[PIDHeadConfig],
     squash: bool,
-    window_size: int = 10,
     controller_factory: Optional[ControllerFactory] = None,
 ) -> APGState:
     rng, params_key, carry_key, collector_key = jax.random.split(key, 4)
@@ -126,10 +121,9 @@ def init_APG(
         tx=get_adam_tx(**to_state_dict(actor_optimizer_args)),
         apply_fn=controller.apply,
         hidden_state=carry,
-        recurrent=controller.stateful,
     )
     collector_state = init_collector_state(
-        collector_key, env_args=env_args, mode="gymnax", window_size=window_size
+        collector_key, env_args=env_args, mode="gymnax"
     )
     return APGState(
         rng=rng,
@@ -185,14 +179,6 @@ def make_policy_step(
     return policy_step
 
 
-def sample_systems(
-    system_class: Optional[SystemClass], rng: jax.Array, n: int, nominal: Any
-) -> Any:
-    if system_class is None:
-        return broadcast_env_params(nominal, n)
-    return system_class.sample(rng, n)
-
-
 def rollout_returns(
     agent_state: APGState,
     params: Any,
@@ -201,11 +187,20 @@ def rollout_returns(
     system_class: Optional[SystemClass],
     horizon: int,
     n: int,
-    stateful: bool,
-):
-    """Closed-loop returns ``(n,)`` of the controller on ``n`` fresh systems."""
+    stateful: Optional[bool] = None,
+) -> Tuple[jax.Array, Rollout]:
+    """Closed-loop returns ``(n,)`` of the controller on ``n`` fresh systems
+    (the env's own system without a ``system_class``), and the rollout.
+
+    ``stateful`` (a static flag) defaults to whether the actor carries a
+    hidden state, which ``init_APG`` sets exactly for a stateful controller.
+    """
+    if stateful is None:
+        stateful = agent_state.actor_state.hidden_state is not None
     sys_key, roll_key = jax.random.split(rng)
-    env_params = sample_systems(system_class, sys_key, n, env_args.env_params)
+    if system_class is None:
+        system_class = FixedSystem(env_args.env_params)
+    env_params = system_class.sample(sys_key, n)
     carry = (
         zeros_carry_like(agent_state.actor_state.hidden_state, n) if stateful else None
     )
@@ -232,7 +227,6 @@ def evaluate_apg(
     system_class: Optional[SystemClass],
     horizon: int,
     num_episode_test: int,
-    stateful: bool,
 ) -> dict:
     returns, _ = rollout_returns(
         agent_state,
@@ -242,7 +236,6 @@ def evaluate_apg(
         system_class,
         horizon,
         num_episode_test,
-        stateful,
     )
     return {
         "Eval/episodic mean reward": returns.mean(),
@@ -260,44 +253,6 @@ def _train_metrics(agent_state: APGState, aux: APGAuxiliaries) -> dict:
     }
 
 
-def _maybe_log(
-    agent_state: APGState,
-    aux: APGAuxiliaries,
-    index: Any,
-    iteration: Any,
-    *,
-    per_update: int,
-    evaluate_fn: Callable,
-    extra_eval_metrics: Optional[Callable],
-    log: bool,
-    log_fn: Callable,
-    log_frequency: Optional[int],
-    total_timesteps: int,
-) -> Tuple[APGState, dict]:
-    """Evaluate + log every ``log_frequency`` env steps.
-
-    :func:`ajax.log.maybe_eval_and_log` with APG's training metrics: gated
-    on the scan's iteration index (unbatched even when the agent state is
-    batched across seeds on the resume path), ``log_frequency`` rounded to
-    a whole number of updates, the cadence relative to the start of this
-    ``train`` call (a curriculum stage).
-    """
-    del total_timesteps
-    return maybe_eval_and_log(
-        agent_state,
-        aux,
-        index,
-        iteration,
-        metrics_fn=_train_metrics,
-        evaluate_fn=evaluate_fn,
-        extra_eval_metrics=extra_eval_metrics,
-        log=log,
-        log_fn=log_fn,
-        log_frequency=log_frequency,
-        per_update=per_update,
-    )
-
-
 # ---------------------------------------------------------------------------
 # One update
 # ---------------------------------------------------------------------------
@@ -310,13 +265,17 @@ def training_iteration(
     env_args: EnvironmentConfig,
     agent_config: APGConfig,
     system_class: Optional[SystemClass],
-    extension_stack: Optional[ExtensionStack],
-    total_timesteps: int,
+    loop: TrainLoop,
+    evaluation: Evaluation,
     index: Any,
-    log_kwargs: dict,
-    stateful: bool,
 ) -> Tuple[APGState, APGAuxiliaries]:
-    rng, roll_key, ext_key, post_key = jax.random.split(agent_state.rng, 4)
+    """One update on a closed-loop rollout through the simulator, then the
+    ``post_update`` fold and, every few updates, the evaluation and logs
+    (:meth:`~ajax.agents.loop.TrainLoop.evaluate_every`, gated on the scan's
+    iteration: unbatched even when the state is batched across seeds on the
+    resume path, the cadence relative to the start of this ``train`` call,
+    a curriculum stage)."""
+    rng, roll_key, ext_key = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
     horizon = agent_config.horizon
     timestep = agent_state.collector_state.timestep
@@ -330,17 +289,16 @@ def training_iteration(
             system_class,
             horizon,
             env_args.n_envs,
-            stateful,
         )
         matching_loss = -returns.mean()
         loss = matching_loss
-        if extension_stack:
-            loss = loss + extension_stack.fold_actor_loss(
+        if loop.stack:
+            loss = loss + loop.stack.fold_actor_loss(
                 agent_state,
                 {"rollout": rollout, "actor_params": params, "returns": returns},
                 timestep,
                 ext_key,
-                total_timesteps,
+                loop.total_timesteps,
             )
         return loss, matching_loss
 
@@ -354,17 +312,14 @@ def training_iteration(
         collector_state=agent_state.collector_state.replace(timestep=new_timestep),
         n_updates=agent_state.n_updates + 1,
     )
-    if extension_stack:
-        agent_state = extension_stack.fold_post_update(
-            agent_state, new_timestep, post_key, total_timesteps
-        )
+    agent_state = loop.post_update(agent_state)
     aux = APGAuxiliaries(
         loss=loss,
         matching_loss=matching_loss,
         m_rmse=jnp.sqrt(jnp.maximum(matching_loss, 0.0) / horizon),
         timestep=new_timestep,
     )
-    agent_state, _ = _maybe_log(agent_state, aux, index, iteration, **log_kwargs)
+    agent_state, _ = loop.evaluate_every(agent_state, aux, index, iteration, evaluation)
     return agent_state, aux
 
 
@@ -390,11 +345,14 @@ def make_train(
     warmup_steps: int = 0,
     lr_end_fraction: float = 0.1,
     reset_optimizer_on_resume: bool = True,
-    extra_eval_metrics: Optional[Callable] = None,
     controller_factory: Optional[ControllerFactory] = None,
     extensions: Sequence = (),
-    **_unused: Any,
-):
+) -> Callable:
+    """APG's train function: its own iteration (no collect-then-update: one
+    gradient step through the simulator per iteration) inside
+    ``build_resumable_train``, on the shared loop's pieces (initialisation,
+    ``post_update``, evaluation without a backend, the logging worker only
+    for one). ``train`` returns every update's :class:`APGAuxiliaries`."""
     del critic_optimizer_args  # no critic
     per_update = env_args.n_envs * agent_config.horizon
     num_updates = max(total_timesteps // per_update, 1)
@@ -414,37 +372,24 @@ def make_train(
     elif lr_schedule is not None:
         raise ValueError(f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'")
 
-    extension_stack = ExtensionStack(extensions)
-    stateful = build_controller(
-        env_args, network_args, pid, squash, factory=controller_factory
-    ).stateful
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids)
-    if log:
-        start_async_logging()
-    log_kwargs = {
-        "per_update": per_update,
-        "evaluate_fn": partial(
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
+    evaluation = Evaluation(
+        metrics=_train_metrics,
+        every=loop.log_frequency and max(loop.log_frequency // per_update, 1),
+        evaluate=partial(
             evaluate_apg,
             env_args=env_args,
             system_class=system_class,
             horizon=agent_config.horizon,
             num_episode_test=num_episode_test,
-            stateful=stateful,
         ),
-        "extra_eval_metrics": compose_eval_metrics(
-            extra_eval_metrics, extension_stack, total_timesteps
-        ),
-        "log": log,
-        "log_fn": log_fn,
-        "log_frequency": (
-            logging_config.log_frequency if logging_config is not None else None
-        ),
-        "total_timesteps": total_timesteps,
-    }
+    )
 
-    def init_fn(key, index):
-        agent_state = init_APG(
+    def init(key: jax.Array, pretrain_key: jax.Array) -> APGState:
+        del pretrain_key  # no pretraining of its own
+        return init_APG(
             key=key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
@@ -453,7 +398,10 @@ def make_train(
             squash=squash,
             controller_factory=controller_factory,
         )
-        return agent_state.replace(index=index)
+
+    def init_fn(key, index):
+        del index
+        return fresh_state(init, loop.stack, total_timesteps, key)
 
     def resume_transform(agent_state, key):
         del key
@@ -467,17 +415,14 @@ def make_train(
             env_args=env_args,
             agent_config=agent_config,
             system_class=system_class,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
+            loop=loop,
+            evaluation=evaluation,
             index=index,
-            log_kwargs=log_kwargs,
-            stateful=stateful,
         )
 
     return build_resumable_train(
         init_fn=init_fn,
         make_scan_fn=make_scan_fn,
         num_updates=num_updates,
-        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
         resume_transform=resume_transform,
     )

@@ -75,7 +75,6 @@ from ajax.agents.DreamerV3.world_model import (
     draw_posterior_noise,
     world_model_loss,
 )
-from ajax.distributional import TwoHot
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import LoadedTrainState
 
@@ -114,9 +113,6 @@ class LearnerState:
     actor_state: LoadedTrainState
     critic_state: LoadedTrainState
     retnorm: ReturnNormalizer
-
-    def replace(self, **kwargs) -> LearnerState:  # To make mypy happy
-        return struct.replace(self, **kwargs)
 
 
 class Params(NamedTuple):
@@ -219,11 +215,10 @@ class LossAux(NamedTuple):
             H]``, ``repval`` ``[B, T - 1]``.
         entries: the posterior latents of the replayed steps, for the replay
             write-back.
-        retnorm: the return normaliser after this step's update.
-        imagination: Algorithm F's outputs (returns, values, weights, ...).
+        imagination: Algorithm F's outputs (returns, values, weights, the
+            return normaliser after this step's update, ...).
         reward: ``[B T, H + 1]`` the rewards of the imagined trajectories
             (index 0 from the replayed data).
-        cont: ``[B T, H + 1]`` their continuations (likewise).
         action: ``[B T, H + 1, A]`` their actions.
         prior_stoch: ``[B T, H, S, C]`` the one-hot samples of the imagined
             prior latents.
@@ -233,28 +228,12 @@ class LossAux(NamedTuple):
 
     losses: dict[str, jax.Array]
     entries: PosteriorEntries
-    retnorm: ReturnNormalizer
     imagination: ImaginationLoss
     reward: jax.Array
-    cont: jax.Array
     action: jax.Array
     prior_stoch: jax.Array
     replay_ret: jax.Array
     metrics: dict[str, jax.Array]
-
-
-def loss_scales(config: DreamerV3Config) -> dict[str, float]:
-    """The scale of each term (``loss_scales``, ``configs.yaml:98``)."""
-    return {
-        "rec": config.rec_scale,
-        "rew": config.rew_scale,
-        "con": config.con_scale,
-        "dyn": config.dyn_scale,
-        "rep": config.rep_scale,
-        "actor": config.actor_scale,
-        "critic": config.critic_scale,
-        "repval": config.repval_scale,
-    }
 
 
 def compute_loss(
@@ -264,16 +243,13 @@ def compute_loss(
     noise: TrainNoise,
     *,
     config: DreamerV3Config,
-    training: bool = True,
 ) -> tuple[jax.Array, LossAux]:
     """The total loss ``sum_k mean(scale_k loss_k)`` and its parts (``Agent.loss``).
 
     ``params`` are the differentiated parameters; ``state`` gives the
     modules (``apply_fn``), the slow critic and the return normaliser. The
     batch has ``B`` rows of ``T + 1`` steps, the first being context
-    (:class:`~ajax.agents.DreamerV3.world_model.ReplayContextBatch`). With
-    ``training=False`` the return normaliser is read without being updated
-    (the reference's report pass, ``agent.py:410``).
+    (:class:`~ajax.agents.DreamerV3.world_model.ReplayContextBatch`).
 
     Steps (dreamerv3_spec 3.20; ``29eb964:dreamerv3/agent.py:225-399``):
 
@@ -299,7 +275,7 @@ def compute_loss(
       ``replay_critic_grad: True``).
     """
     model = WorldModel(config, batch.obs.shape[-1])
-    twohot = TwoHot.dreamerv3(config.bins)
+    twohot = config.two_hot
 
     def heads(feat: jax.Array) -> tuple[jax.Array, jax.Array]:
         variables = {"params": params.world_model}
@@ -359,7 +335,6 @@ def compute_loss(
         imag_reward,
         imag_cont,
         state.retnorm,
-        update_retnorm=training,
     )
 
     # Replay critic (agent.py:331-352).
@@ -376,16 +351,14 @@ def compute_loss(
 
     # Combine (agent.py:392-394): scale each term, mean, sum over terms.
     losses = {**wm.losses, "actor": imag.actor, "critic": imag.critic, "repval": repval}
-    scales = loss_scales(config)
+    scales = config.loss_scales
     total = jnp.stack([jnp.mean(losses[k] * scales[k]) for k in ALL_TERMS]).sum()
 
     aux = LossAux(
         losses=losses,
         entries=wm.entries,
-        retnorm=imag.retnorm,
         imagination=imag,
         reward=imag_reward,
-        cont=imag_cont,
         action=action,
         prior_stoch=traj.stoch,
         replay_ret=replay_ret,
@@ -486,14 +459,13 @@ def loss_and_grads(
     noise: TrainNoise,
     *,
     config: DreamerV3Config,
-    training: bool = True,
 ) -> tuple[tuple[jax.Array, LossAux], Params]:
     """``((total, aux), grads)``: one ``jax.value_and_grad`` of
     :func:`compute_loss` over the world model, actor and critic parameters
     together, at their current values (the reference's ``nj.grad`` over
     ``self.modules``, ``agent.py:89-91``; ``jaxutils.py:478-479``)."""
     return jax.value_and_grad(compute_loss, has_aux=True)(
-        learner_params(state), state, batch, noise, config=config, training=training
+        learner_params(state), state, batch, noise, config=config
     )
 
 
@@ -568,7 +540,7 @@ def train_step(
         world_model_state=wm_state,
         actor_state=actor_state,
         critic_state=critic_state,
-        retnorm=aux.retnorm,
+        retnorm=aux.imagination.retnorm,
     )
     metrics = dict(aux.metrics)
     metrics["opt_loss"] = total

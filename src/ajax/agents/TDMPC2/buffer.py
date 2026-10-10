@@ -59,16 +59,14 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import Any, Union
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
-from ajax.agents.TDMPC2.core import TDMPC2Batch
-
-IntLike = Union[int, jax.Array]
+from ajax.agents.TDMPC2.core import IntLike, TDMPC2Batch
 
 
 def replay_capacity(buffer_size: int, total_timesteps: int) -> int:
@@ -200,19 +198,6 @@ class EpisodeBuffer:
         rounds = np.arange(complete - held, complete) % self.n_rounds
         slots = (rounds[:, None] * self.n_envs + np.arange(self.n_envs)).reshape(-1)
         return slots, (complete - held) * self.n_envs
-
-    def check_sampleable_from(self, tick: int) -> None:
-        """Raise unless an update at (static) tick ``tick`` has an episode to draw.
-
-        The schedule's guarantee that the sampler never draws from zero
-        committed episodes (``DESIGN.md`` §4.4): committed rounds only grow
-        with the tick, so checking the first update tick suffices.
-        """
-        if self.committed_rounds(tick) < 1:
-            raise ValueError(
-                f"the first update (tick {tick}) would sample before any"
-                f" episode is committed (episodes end at tick {self.period - 1})"
-            )
 
     def check_layout(
         self, state: EpisodeBufferState, *, any_rounds: bool = False
@@ -369,7 +354,7 @@ class EpisodeBuffer:
         ``RandomCropTensorDict(H + 1)``, independent per sample), then
         :func:`slice_batch`. ``tick`` is the tick whose row was written last
         (unbatched); the schedule guarantees at least one committed episode
-        (:meth:`check_sampleable_from`).
+        (:attr:`~ajax.agents.TDMPC2.train_TDMPC2.Schedule.seed_step`).
         """
         self.check_layout(state)
         if horizon > self.episode_length:

@@ -82,6 +82,7 @@ from typing import Any, Literal, NamedTuple, Optional, Protocol
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 
 from ajax.environments.interaction import (
@@ -587,6 +588,22 @@ def _keep_batch_shared_seed(env: Any, restored: Any, stepped: Any) -> Any:
 
 # ---------------------------------------------------------------------------
 # Helpers
+def resume_tick(collector_state: Any, n_envs: int) -> int:
+    """The absolute tick a resumed run starts at (host-side).
+
+    The :class:`RowCollectorState`'s ``rows`` (summed over envs, one per env per tick) over
+    ``n_envs``; every seed must be at the same tick, so that every schedule
+    of the tick continues for all of them.
+    """
+    rows = np.asarray(jax.device_get(collector_state.rows)).reshape(-1)
+    if rows.size == 0 or np.any(rows != rows[0]) or rows[0] % n_envs:
+        raise ValueError(
+            "cannot resume: the collector row counts differ across seeds or"
+            f" are not a multiple of n_envs={n_envs} ({rows.tolist()})"
+        )
+    return int(rows[0]) // n_envs
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -621,4 +638,5 @@ __all__ = [
     "check_unnormalized_env",
     "collect_row",
     "init_row_collector_state",
+    "resume_tick",
 ]

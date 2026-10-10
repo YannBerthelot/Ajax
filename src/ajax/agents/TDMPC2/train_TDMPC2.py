@@ -13,17 +13,18 @@ online_trainer.py:67-117``, unchanged at 5f6fade; tdmpc2_spec §4.C) is::
                 agent.update(buffer)
         step += 1
 
-Ajax runs it as one ``lax.scan`` over *ticks* (``DESIGN.md`` §2, §4.4): one
-obs-aligned row per env per tick, ``T + 1`` ticks per fixed-length episode
-(``T`` stepping ticks, then the held tick ``i mod (T + 1) == T`` that emits the
-final observation and resets the envs with a fresh key). One tick
-(:func:`training_iteration`)::
+Ajax runs it on the shared off-policy loop
+(:meth:`ajax.agents.loop.TrainLoop.off_policy`), one ``lax.scan`` over
+*ticks* (``DESIGN.md`` §2, §4.4): one obs-aligned row per env per tick,
+``T + 1`` ticks per fixed-length episode (``T`` stepping ticks, then the held
+tick ``i mod (T + 1) == T`` that emits the final observation and resets the
+envs with a fresh key). One tick::
 
-    row = collect_row(tick)        # uniform random actions in the seed phase,
-                                   # the MPPI planner afterwards
-    buffer.add(row, tick)          # the episode ring, in place
+    row = collect_row(tick)        # collect: uniform random actions in the
+    buffer.add(row, tick)          # seed phase, the MPPI planner afterwards;
+                                   # the episode ring, in place
     repeat schedule.n_updates(tick) times:
-        agent.update(buffer.sample(fresh key), fresh noise)
+        agent.update(buffer.sample(fresh key), fresh noise)   # update
         extensions.post_update
     every log_frequency env steps: evaluate + log (with a logging_config)
 
@@ -55,25 +56,15 @@ from typing import Any, Callable, Optional, Union
 import jax
 import jax.numpy as jnp
 
+from ajax.agents.loop import Evaluation, TrainLoop
 from ajax.agents.TDMPC2 import core
-from ajax.agents.TDMPC2.buffer import EpisodeBuffer, replay_capacity
+from ajax.agents.TDMPC2.buffer import EpisodeBuffer
 from ajax.agents.TDMPC2.planner import draw_plan_noise, plan
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.environments.row_collector import collect_row, init_row_collector_state
-from ajax.environments.utils import (
-    agent_episode_length,
-    get_action_dim,
-    get_state_action_shapes,
-)
+from ajax.environments.utils import get_action_dim
 from ajax.evaluate import evaluate_policy
-from ajax.extensions.base import ExtensionStack
-from ajax.log import compose_eval_metrics, maybe_eval_and_log
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    start_async_logging,
-    vmap_log,
-)
-from ajax.perf_utils import build_resumable_train, final_aux_fori
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import FloatOrCallable
 
@@ -155,7 +146,10 @@ class Schedule:
 
     @property
     def seed_step(self) -> int:
-        """``k_S``: the per-env env step of the seed tick."""
+        """``k_S``: the per-env env step of the seed tick. At least ``T``, so
+        the seed tick follows the first committed round: the sampler never
+        draws from an empty buffer (committed rounds only grow with the
+        tick)."""
         return max(self.seed_steps // self.n_envs, self.episode_length)
 
     @property
@@ -271,7 +265,6 @@ def init_TDMPC2(
     learning_rate: FloatOrCallable,
     enc_lr_scale: float,
     pi_eps: float,
-    window_size: int = 10,
 ) -> TDMPC2State:
     """Fresh networks and optimizers (:func:`core.create_update_state`), a zero
     planner carry, reset envs (every env's first row is ``is_first``) and an
@@ -289,7 +282,7 @@ def init_TDMPC2(
     )
     prev_mean = jnp.zeros((env_args.n_envs, config.horizon, action_dim))
     collector_state = init_row_collector_state(
-        collector_key, env_args, policy_carry=prev_mean, window_size=window_size
+        collector_key, env_args, policy_carry=prev_mean
     )
     return TDMPC2State(
         rng=rng,
@@ -368,40 +361,7 @@ def train_metrics(
 # ---------------------------------------------------------------------------
 
 
-def update_step(
-    agent_state: TDMPC2State,
-    tick: jax.Array,
-    *,
-    config: TDMPC2Config,
-    buffer: EpisodeBuffer,
-    gamma: float,
-    extension_stack: Optional[ExtensionStack],
-    total_timesteps: int,
-) -> tuple[TDMPC2State, dict[str, jax.Array]]:
-    """One ``agent.update(buffer)``: a fresh batch and fresh noise, then
-    :func:`core.update` (tdmpc2_spec §2) and the ``post_update`` fold."""
-    rng, sample_key, noise_key, post_key = jax.random.split(agent_state.rng, 4)
-    batch = buffer.sample(
-        agent_state.buffer_state, sample_key, tick, config.batch_size, config.horizon
-    )
-    noise = core.draw_update_noise(
-        noise_key, config, config.batch_size, buffer.action_dim
-    )
-    agent_state, metrics = core.update(
-        agent_state.replace(rng=rng), batch, noise, config=config, gamma=gamma
-    )
-    agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
-    if extension_stack:
-        agent_state = extension_stack.fold_post_update(
-            agent_state,
-            agent_state.collector_state.timestep,
-            post_key,
-            total_timesteps,
-        )
-    return agent_state, metrics
-
-
-def training_iteration(
+def collect(
     agent_state: TDMPC2State,
     tick: jax.Array,
     *,
@@ -410,17 +370,10 @@ def training_iteration(
     schedule: Schedule,
     buffer: EpisodeBuffer,
     gamma: float,
-    extension_stack: Optional[ExtensionStack],
-    total_timesteps: int,
-    index: Any,
-    log_kwargs: Optional[dict],
-) -> tuple[TDMPC2State, Optional[dict]]:
-    """One tick: act and store one row per env, run the scheduled updates,
-    evaluate and log at the cadence (module docstring).
-
-    Returns the tick's metrics (:func:`maybe_eval_and_log`), or ``None``
-    when ``log_kwargs`` is ``None`` (no logging: nothing to report).
-    """
+) -> tuple[TDMPC2State, jax.Array]:
+    """Act and store one row per env on the absolute, unbatched tick
+    ``tick``; returns the state and ``tick``, which locates the buffer's
+    newest rows for the tick's updates (:func:`update`)."""
     collector_state, row = collect_row(
         agent_state.collector_state,
         tick,
@@ -441,31 +394,35 @@ def training_iteration(
         n_terminations=agent_state.n_terminations
         + jnp.sum(row.is_terminal, dtype=jnp.int32),
     )
+    return agent_state, tick
 
-    n_updates = schedule.n_updates(tick)
-    agent_state, metrics = final_aux_fori(
-        lambda _, state: update_step(
-            state,
-            tick,
-            config=config,
-            buffer=buffer,
-            gamma=gamma,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-        ),
-        agent_state,
-        n_updates,
+
+def update(
+    agent_state: TDMPC2State,
+    tick: jax.Array,
+    *,
+    config: TDMPC2Config,
+    buffer: EpisodeBuffer,
+    gamma: float,
+) -> tuple[TDMPC2State, None]:
+    """One ``agent.update(buffer)`` after tick ``tick``'s rows: a fresh batch
+    and fresh noise, then :func:`core.update` (tdmpc2_spec §2), its logged
+    quantities kept on ``update_metrics``. The loop folds ``post_update``
+    after it."""
+    rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
+    batch = buffer.sample(
+        agent_state.buffer_state, sample_key, tick, config.batch_size, config.horizon
+    )
+    noise = core.draw_update_noise(
+        noise_key, config, config.batch_size, buffer.action_dim
+    )
+    agent_state, metrics = core.update(
+        agent_state.replace(rng=rng), batch, noise, config=config, gamma=gamma
     )
     agent_state = agent_state.replace(
-        update_metrics=jax.tree.map(
-            lambda new, old: jnp.where(n_updates > 0, new, old),
-            metrics,
-            agent_state.update_metrics,
-        )
+        n_updates=agent_state.n_updates + 1, update_metrics=metrics
     )
-    if log_kwargs is None:
-        return agent_state, None
-    return maybe_eval_and_log(agent_state, None, index, tick, **log_kwargs)
+    return agent_state, None
 
 
 # ---------------------------------------------------------------------------
@@ -485,88 +442,39 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     *,
     gamma: float,
-    seed_steps: int,
+    schedule: Schedule,
+    buffer: EpisodeBuffer,
     learning_rate: FloatOrCallable = 3e-4,
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
-    capacity: Optional[int] = None,
     start_tick: int = 0,
-    extra_eval_metrics: Optional[Callable] = None,
     extensions: Sequence = (),
-    **_unused: Any,
 ) -> Callable:
-    """Build the per-seed train function (``build_resumable_train``).
+    """TD-MPC2's train function on :meth:`TrainLoop.off_policy`.
 
     ``total_timesteps`` counts env steps (summed over envs); the scan runs
     :meth:`Schedule.num_ticks` ticks from ``start_tick``, the absolute tick a
     resumed run starts at (the ``iteration_offset`` the agent's ``train``
     passes, :meth:`ajax.agents.TDMPC2.TDMPC2.TDMPC2.resume_iteration_offset`;
-    0 for a fresh run). ``capacity`` is the replay capacity in
-    env steps (``None``: :func:`~ajax.agents.TDMPC2.buffer.replay_capacity`
-    of a fresh run of ``total_timesteps``); the agent passes the capacity of
-    the whole run so far and adopts a resumed state's ring into it
-    (:meth:`~ajax.agents.TDMPC2.buffer.EpisodeBuffer.adopt`).
+    0 for a fresh run). ``schedule`` and ``buffer`` are the agent's (the
+    buffer sized for the whole run so far,
+    :meth:`ajax.agents.TDMPC2.TDMPC2.TDMPC2._replay_buffer`).
     ``logging_config.log_frequency`` counts env steps and is converted to
     ticks with the static map from the start of the run (exact when it is a
     multiple of ``T * n_envs``, as the reference's ``eval_freq`` 50,000 is of
-    DMC's 500); without a ``logging_config`` nothing is evaluated or logged
-    and the scan returns no per-tick metrics. The optimizers are
-    built by :func:`core.create_update_state` from ``learning_rate``,
-    ``enc_lr_scale`` and ``pi_eps``; the base class's actor / critic
-    optimizer and network configs do not apply.
+    DMC's 500). The optimizers are built by :func:`core.create_update_state`
+    from ``learning_rate``, ``enc_lr_scale`` and ``pi_eps``; the base class's
+    actor / critic optimizer and network configs do not apply.
     """
     del actor_optimizer_args, critic_optimizer_args, network_args
     config = agent_config
-    env, env_params, n_envs = env_args.env, env_args.env_params, env_args.n_envs
-    episode_length = agent_episode_length(env, env_params, env_args.action_repeat)
-    obs_shape, _ = get_state_action_shapes(env)
-    if len(obs_shape) != 1:
-        raise ValueError(
-            f"TD-MPC2 takes flat state observations, got shape {obs_shape}"
-        )
-    buffer = EpisodeBuffer.create(
-        capacity=(
-            replay_capacity(config.buffer_size, total_timesteps)
-            if capacity is None
-            else capacity
-        ),
-        n_envs=n_envs,
-        episode_length=episode_length,
-        obs_dim=obs_shape[0],
-        action_dim=get_action_dim(env, env_params),
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
     )
-    schedule = Schedule(
-        n_envs=n_envs, episode_length=episode_length, seed_steps=seed_steps
-    )
-    # Updates only start on the seed tick: the sampler never sees an empty
-    # buffer (committed rounds only grow with the tick).
-    buffer.check_sampleable_from(schedule.seed_tick)
 
-    extension_stack = ExtensionStack(extensions)
-    if logging_config is not None:
-        start_async_logging()
-    log_kwargs: Optional[dict] = None
-    if logging_config is not None and logging_config.log_frequency:
-        log_kwargs = {
-            "metrics_fn": partial(train_metrics, action_repeat=env_args.action_repeat),
-            "evaluate_fn": partial(
-                evaluate_tdmpc2,
-                env_args=env_args,
-                config=config,
-                gamma=gamma,
-                num_episodes=num_episode_test,
-            ),
-            "extra_eval_metrics": compose_eval_metrics(
-                extra_eval_metrics, extension_stack, total_timesteps
-            ),
-            "log": True,
-            "log_fn": partial(vmap_log, run_ids=run_ids),
-            "log_frequency": max(schedule.num_ticks(logging_config.log_frequency), 1),
-            "per_update": 1,  # log_frequency is already in ticks
-        }
-
-    def init_fn(key, index):
-        agent_state = init_TDMPC2(
+    def init(key: jax.Array, pretrain_key: jax.Array) -> TDMPC2State:
+        del pretrain_key  # no pretraining of its own
+        return init_TDMPC2(
             key,
             env_args,
             config,
@@ -576,38 +484,37 @@ def make_train(
             enc_lr_scale=enc_lr_scale,
             pi_eps=pi_eps,
         )
-        return agent_state.replace(index=index)
 
-    def make_scan_fn(_agent_state, _resume, _key, index):
-        return partial(
-            training_iteration,
-            env_args=env_args,
-            config=config,
-            schedule=schedule,
-            buffer=buffer,
-            gamma=gamma,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-            index=index,
-            log_kwargs=log_kwargs,
-        )
-
-    return build_resumable_train(
-        init_fn=init_fn,
-        make_scan_fn=make_scan_fn,
-        num_updates=schedule.num_ticks(total_timesteps, start_tick),
-        init_transform=partial(extension_stack.fold_init, total_steps=total_timesteps),
+    models = {"config": config, "buffer": buffer, "gamma": gamma}
+    every = loop.log_frequency and max(schedule.num_ticks(loop.log_frequency), 1)
+    return loop.off_policy(
+        init,
+        partial(update, **models),
+        collect=partial(collect, env_args=env_args, schedule=schedule, **models),
+        n_updates=schedule.n_updates,
+        evaluation=Evaluation(
+            metrics=partial(train_metrics, action_repeat=env_args.action_repeat),
+            every=every,
+            evaluate=partial(
+                evaluate_tdmpc2,
+                env_args=env_args,
+                config=config,
+                gamma=gamma,
+                num_episodes=num_episode_test,
+            ),
+        ),
+        num_ticks=schedule.num_ticks(total_timesteps, start_tick),
     )
 
 
 __all__ = [
     "Schedule",
+    "collect",
     "evaluate_tdmpc2",
     "init_TDMPC2",
     "make_train",
     "planner_policy",
     "train_metrics",
-    "training_iteration",
+    "update",
     "update_metrics_zeros",
-    "update_step",
 ]

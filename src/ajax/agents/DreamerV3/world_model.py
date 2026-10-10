@@ -10,10 +10,10 @@ observations and flags are indices ``1..T`` and the previous actions are
 
 :func:`world_model_loss` returns every term per step ``[B, T]``, unscaled and
 reduced over feature dimensions only, as the reference's ``losses`` dict
-before scaling; the actor-critic milestone adds its terms and applies
-``sum_k scale_k mean(loss_k)`` over all of them. The world-model part of that
-sum is returned too (``weighted``), so the world model can be tested on its
-own. Parity with the reference: ``tests/agents/DreamerV3/
+before scaling; :func:`ajax.agents.DreamerV3.learner.compute_loss` adds the
+actor-critic terms and applies ``sum_k scale_k mean(loss_k)`` over all of
+them. The world-model part of that sum is returned too (``weighted``), so the
+world model can be tested on its own. Parity with the reference: ``tests/agents/DreamerV3/
 test_dreamerv3_parity.py``.
 """
 
@@ -39,12 +39,13 @@ from ajax.agents.DreamerV3.networks import (
     observe,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config
-from ajax.distributional import TwoHot
 
 #: The world-model terms, in the reference's order (``agent.py:237-247``):
 #: reconstruction (one term for the flat vector observation, deviation D5),
 #: reward, continue, dynamics and representation.
 LOSS_TERMS = ("rec", "rew", "con", "dyn", "rep")
+
+sg = jax.lax.stop_gradient
 
 
 class ReplayContextBatch(NamedTuple):
@@ -143,7 +144,6 @@ def kl_losses(
     :class:`DreamerV3Config` field), so this is a trace-time branch. Returns
     ``(dyn, rep, kl)`` with ``kl`` the unclamped KL, without gradient.
     """
-    sg = jax.lax.stop_gradient
     dyn_kl = OneHot.from_logits(sg(post_logits), unimix).kl(
         OneHot.from_logits(prior_logits, unimix)
     )
@@ -230,18 +230,12 @@ def world_model_loss(
     cont_target = (1 - batch.is_terminal[:, 1:].astype(jnp.float32)) * config.gamma
     losses = {
         "rec": symlog_mse(recon, obs),
-        "rew": TwoHot.dreamerv3(config.bins).loss(reward_logits, batch.reward[:, 1:]),
+        "rew": config.two_hot.loss(reward_logits, batch.reward[:, 1:]),
         "con": bernoulli_loss(cont_logit, cont_target),
         "dyn": dyn,
         "rep": rep,
     }
-    scales = {
-        "rec": config.rec_scale,
-        "rew": config.rew_scale,
-        "con": config.con_scale,
-        "dyn": config.dyn_scale,
-        "rep": config.rep_scale,
-    }
+    scales = config.loss_scales
     # agent.py:393-394: scale each term, mean over (B, T), sum over terms.
     weighted = jnp.stack([jnp.mean(losses[k] * scales[k]) for k in LOSS_TERMS]).sum()
     entries = PosteriorEntries(

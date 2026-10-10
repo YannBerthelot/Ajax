@@ -22,7 +22,7 @@ distribution out. The distribution is ``distrax.Deterministic`` so
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Optional, Sequence, Tuple, Union
 
 import distrax
@@ -38,7 +38,8 @@ from ajax.types import ActivationFunction
 
 @dataclass(frozen=True)
 class PIDHeadConfig:
-    """Hyper-parameters of the controller's PID output layer."""
+    """Hyper-parameters of the controller's PID output layer (the fields of
+    :class:`~ajax.modules.pid_head.PIDOutputHead` but its width)."""
 
     use_p: bool = True
     use_i: bool = True
@@ -46,6 +47,7 @@ class PIDHeadConfig:
     kp_init: float = 1.0
     ki_init: float = 0.0
     kd_init: float = 0.0
+    anti_windup: Optional[float] = None
 
 
 ControllerCarry = Tuple[Any, Any]  # (memory carry | None, pid carry | None)
@@ -72,15 +74,7 @@ class Controller(nn.Module):
         self.norm = nn.LayerNorm()
         self.out = nn.Dense(self.action_dim, name="out")
         self.pid_head = (
-            PIDOutputHead(
-                n_outputs=self.action_dim,
-                use_p=self.pid.use_p,
-                use_i=self.pid.use_i,
-                use_d=self.pid.use_d,
-                kp_init=self.pid.kp_init,
-                ki_init=self.pid.ki_init,
-                kd_init=self.pid.kd_init,
-            )
+            PIDOutputHead(n_outputs=self.action_dim, **asdict(self.pid))
             if self.pid is not None
             else None
         )
@@ -99,28 +93,21 @@ class Controller(nn.Module):
         return (memory_carry, pid_carry)
 
     def __call__(self, obs, hidden_state=None, done=None):
+        h = self.encoder(obs) if self.encoder is not None else obs
         if not self.stateful:
-            return distrax.Deterministic(self._head(self._embed(obs)))
+            return distrax.Deterministic(self._squash(self.out(self.norm(h))))
         if hidden_state is None or done is None:
             raise ValueError("A stateful Controller requires hidden_state and done.")
         memory_carry, pid_carry = hidden_state
         resets = done.reshape(obs.shape[:2]).astype(bool)
-        h = self._embed(obs)
         if self.memory_cell is not None:
             memory_carry, h = self.memory_cell(memory_carry, h, resets)
-        z = self._head(h)
-        if self.pid_head is not None:
-            pid_carry, z = self.pid_head(pid_carry, z, resets)
-        u = jnp.tanh(z) if self.squash else z
-        return distrax.Deterministic(u), (memory_carry, pid_carry)
-
-    def _embed(self, obs):
-        return self.encoder(obs) if self.encoder is not None else obs
-
-    def _head(self, h):
         z = self.out(self.norm(h))
-        if self.stateful:
-            return z  # squash applied after the PID head
+        if self.pid_head is not None:  # squashed after the PID head
+            pid_carry, z = self.pid_head(pid_carry, z, resets)
+        return distrax.Deterministic(self._squash(z)), (memory_carry, pid_carry)
+
+    def _squash(self, z):
         return jnp.tanh(z) if self.squash else z
 
 

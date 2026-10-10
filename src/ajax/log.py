@@ -13,47 +13,22 @@ if TYPE_CHECKING:
 
 
 def compose_eval_metrics(
-    user_fn: Optional[Callable],
-    extension_stack: Optional["ExtensionStack"],
-    total_timesteps: int,
+    extension_stack: Optional["ExtensionStack"], total_timesteps: int
 ) -> Optional[Callable]:
-    """Compose a user ``extra_eval_metrics`` callable with the stack's
-    :meth:`ExtensionStack.fold_eval_metrics`.
-
-    Replaces the per-agent ``_wrap_extra_eval_metrics`` pattern. Returns
-    ``None`` when both inputs are no-ops so ``evaluate_and_log``'s zero-
-    overhead branch stays.
-
-    The composed callable has signature ``(agent_state, rng) -> dict``,
-    matching what :func:`evaluate_and_log` expects under the
-    ``extra_eval_metrics`` static-arg.
-    """
-    has_stack = extension_stack is not None and bool(extension_stack.extensions)
-    if user_fn is None and not has_stack:
+    """``(agent_state, rng) -> dict``: the stack's
+    :meth:`ExtensionStack.fold_eval_metrics` at the collector's timestep, the
+    ``extra_eval_metrics`` of :func:`evaluate_and_log` and
+    :func:`maybe_eval_and_log`; ``None`` without extensions, so that their
+    zero-overhead branch stays."""
+    if extension_stack is None or not extension_stack.extensions:
         return None
-    if user_fn is None:
-        # Stack-only path.
-        def stack_only(agent_state, rng):
-            return extension_stack.fold_eval_metrics(
-                agent_state, agent_state.collector_state.timestep, rng, total_timesteps
-            )
 
-        return stack_only
-    if not has_stack:
-        # User-only path — just return it directly.
-        return user_fn
-
-    def merged(agent_state, rng):
-        out: dict = {}
-        out.update(user_fn(agent_state, rng))
-        out.update(
-            extension_stack.fold_eval_metrics(
-                agent_state, agent_state.collector_state.timestep, rng, total_timesteps
-            )
+    def eval_metrics(agent_state, rng):
+        return extension_stack.fold_eval_metrics(
+            agent_state, agent_state.collector_state.timestep, rng, total_timesteps
         )
-        return out
 
-    return merged
+    return eval_metrics
 
 
 def unevaluated(shapes: Any, rows: tuple[int, ...] = ()) -> Any:
@@ -102,16 +77,13 @@ def maybe_eval_and_log(
     extra_eval_metrics: Optional[Callable],
     log: bool,
     log_fn: Callable,
-    log_frequency: Optional[int],
-    per_update: int,
+    every: Optional[int],
 ) -> tuple[Any, dict]:
-    """Evaluate + log every ``log_frequency`` env steps, gated on the scan index.
+    """Evaluate + log every ``every`` scan iterations, gated on the scan index.
 
-    For agents that own their logging cadence (APG, the world-model
-    agents). The gate is ``(iteration + 1) % every == 0`` with
-    ``every = max(log_frequency // per_update, 1)`` scan iterations
-    (``per_update`` = env steps per iteration, so ``log_frequency`` is
-    rounded to a whole number of iterations). ``iteration`` is the scan
+    For agents with their own evaluation
+    (:meth:`ajax.agents.loop.TrainLoop.evaluate_every`). The gate is
+    ``(iteration + 1) % every == 0``. ``iteration`` is the scan
     input -- unbatched even when the agent state is batched across seeds
     (resume, curriculum) -- so the ``lax.cond`` stays a real cond and the
     evaluation only runs on the iterations that log. With an iteration
@@ -126,17 +98,12 @@ def maybe_eval_and_log(
     through :func:`gated_log_callback` and ``agent_state.n_logs`` is
     incremented. Otherwise the same structure is returned filled with NaN
     (``-1`` for integer leaves) and ``n_logs`` is unchanged. When logging is
-    disabled (``log`` false or no ``log_frequency``) nothing is evaluated.
+    disabled (``log`` false or no ``every``) nothing is evaluated.
 
     Returns ``(agent_state, metrics)``.
     """
-    enabled = log and bool(log_frequency)
-    every = (
-        max(int(log_frequency) // max(per_update, 1), 1)
-        if enabled and log_frequency is not None
-        else 1
-    )
-    flag = jnp.logical_and(enabled, (iteration + 1) % every == 0)
+    enabled = log and bool(every)
+    flag = jnp.logical_and(enabled, (iteration + 1) % (every or 1) == 0)
 
     def run(agent_state, aux, index):
         eval_key, extra_key = jax.random.split(agent_state.eval_rng)

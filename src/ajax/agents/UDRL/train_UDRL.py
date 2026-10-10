@@ -26,6 +26,7 @@ from flax import struct
 from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
+from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.UDRL.buffer import (
     add_segment,
@@ -45,8 +46,8 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
 )
 from ajax.extensions.base import ExtensionStack
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import get_initialized_actor_critic
-from ajax.perf_utils import build_resumable_train
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -421,17 +422,13 @@ def training_iteration(
     update_keys = jax.random.split(train_rng, agent_config.n_updates_per_iter)
     agent_state, update_losses = jax.lax.scan(update_step, agent_state, update_keys)
 
-    # Extension post_update — folded after the per-iteration update loop.
-    # Empty stack ⇒ identity.
-    if extension_stack:
-        _pu_rng, _pu_rng2 = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=_pu_rng2)
-        agent_state = extension_stack.fold_post_update(
-            agent_state,
-            agent_state.collector_state.timestep,
-            _pu_rng,
-            total_timesteps,
-        )
+    # Extension post_update, folded after the per-iteration update loop.
+    agent_state = fold_post_update(
+        extension_stack,
+        agent_state,
+        agent_state.collector_state.timestep,
+        total_timesteps,
+    )
 
     # 5. Compute training-curve metric: mean completed-episode return in this
     #    segment. (Used purely for logging; not for training signal.)
@@ -462,6 +459,19 @@ def training_iteration(
     return agent_state, aux
 
 
+def train_metrics(agent_state: UDRLState, aux: UDRLAuxiliaries) -> dict:
+    """The logged training metrics: the iteration's segment and updates."""
+    del agent_state
+    return {
+        "timestep": aux.timestep,
+        "Train/episodic mean reward": aux.episodic_return,
+        "Train/actor_loss": aux.actor_loss,
+        "Train/mean_rtg": aux.mean_rtg,
+        "Train/mean_horizon": aux.mean_horizon,
+        "Train/n_completed_episodes": aux.n_completed_episodes,
+    }
+
+
 def make_train(
     env_args: EnvironmentConfig,
     actor_optimizer_args: OptimizerConfig,
@@ -471,19 +481,34 @@ def make_train(
     total_timesteps: int,
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
-    logging_config: Optional[Any] = None,
+    logging_config: Optional[LoggingConfig] = None,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     extensions: Sequence = (),
 ):
-    del num_episode_test, run_ids, logging_config  # UDRL logs no evaluation
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    extension_stack = ExtensionStack(extensions)
+    """UDRL's train function: its own iteration (a segment, the replay of
+    segments, the command statistics, the updates) on :meth:`TrainLoop.train`.
 
-    def init_fn(key: jax.Array, index: Optional[int]) -> UDRLState:
-        del index
-        init_key, ext_key = jax.random.split(key, 2)
-        agent_state = init_UDRL(
-            key=init_key,
+    With a logging config every ``log_frequency`` env steps it logs the
+    iteration's training metrics and the extensions' ``eval_metrics``,
+    whether or not a backend records them, and ``train`` returns them; it
+    has no policy evaluation (a command-conditioned policy needs a command
+    to be evaluated with).
+    """
+    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    loop = TrainLoop.create(
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+    )
+    per_iter = env_args.n_envs * agent_config.n_steps
+    num_iterations = max(total_timesteps // per_iter, 1)
+    evaluation = Evaluation(
+        metrics=train_metrics,
+        every=loop.log_frequency and max(loop.log_frequency // per_iter, 1),
+    )
+
+    def init(key: jax.Array, pretrain_key: jax.Array) -> UDRLState:
+        del pretrain_key  # no pretraining of its own
+        return init_UDRL(
+            key=key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
             critic_optimizer_args=critic_optimizer_args,
@@ -491,18 +516,19 @@ def make_train(
             agent_config=agent_config,
             cnn_image_shape=cnn_image_shape,
         )
-        return extension_stack.fold_init(agent_state, ext_key, total_timesteps)
 
-    per_iter = env_args.n_envs * agent_config.n_steps
-    return build_resumable_train(
-        init_fn=init_fn,
-        scan_fn=partial(
-            training_iteration,
+    def iteration(agent_state: UDRLState, index: Any, tick: Any) -> tuple:
+        agent_state, aux = training_iteration(
+            agent_state,
+            None,
             env_args=env_args,
             mode=mode,
             agent_config=agent_config,
-            extension_stack=extension_stack,
+            extension_stack=loop.stack,
             total_timesteps=total_timesteps,
-        ),
-        num_updates=max(total_timesteps // per_iter, 1),
+        )
+        return loop.evaluate_every(agent_state, aux, index, tick, evaluation)
+
+    return loop.train(
+        init, iteration, num_iterations, evaluations=evaluation.count(num_iterations)
     )

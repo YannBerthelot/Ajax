@@ -249,7 +249,6 @@ class TDMPC2MultiTask:
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)
         self.pi_eps = float(pi_eps)
-        self.action_repeat = int(action_repeat)
         self.eval_env_args: Optional[tuple[EnvironmentConfig, ...]] = (
             None
             if eval_envs is None
@@ -260,7 +259,6 @@ class TDMPC2MultiTask:
         self._eval_fns: dict[tuple[int, int], Callable] = {}
         self._extra_eval_fns: dict[int, Callable] = {}
         self._init_fns: dict[int, Callable] = {}
-        config = self.agent_config
         self.config.update(
             {
                 "tasks": list(self.tasks.names),
@@ -268,22 +266,10 @@ class TDMPC2MultiTask:
                 "padded_obs_dim": self.tasks.obs_dim,
                 "padded_action_dim": self.tasks.action_dim,
                 "resolved_discounts": list(self.tasks.discounts),
-                "resolved_iterations": config.planning_iterations(
-                    self.tasks.action_dim
-                ),
                 "dataset_episodes": dataset.num_episodes,
                 "dataset_rows": dataset.rows,
                 "dataset_bytes": dataset.nbytes,
-                **{
-                    f"resolved_{name}": getattr(config, name)
-                    for name in (
-                        "enc_dim",
-                        "mlp_dim",
-                        "latent_dim",
-                        "num_enc_layers",
-                        "num_q",
-                    )
-                },
+                **self.agent_config.resolved(self.tasks.action_dim),
             }
         )
 
@@ -530,7 +516,8 @@ class TDMPC2MultiTask:
             self.run_ids = [new_id() for _ in range(seeds.shape[0])]
             for run_id, run_seed in zip(self.run_ids, seeds.tolist()):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))
-            start_async_logging()
+            if logging_config.backend:  # else the logs are only returned
+                start_async_logging()
         else:
             self.run_ids = []
         if on_ids_ready is not None:

@@ -89,7 +89,7 @@ src/ajax/
 Every agent follows the same split:
 
 - **`<AGENT>.py`** — the public class. Inherits `ActorCritic` (see [src/ajax/agents/base.py](src/ajax/agents/base.py)), stores algorithm-specific hyperparameters, accepts `extensions: Sequence[Extension] = ()`, and exposes `get_make_train()` returning a `functools.partial` over `make_train`.
-- **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents with a loop of their own (APG, UDRL, the world models) build on `build_resumable_train` directly.
+- **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents whose iteration is their own keep it and take the loop's pieces: UDRL runs it on `TrainLoop.train`, APG (which returns every update's aux) and the offline multi-task TD-MPC2 trainer on `build_resumable_train` with `fresh_state`, `fold_post_update` and `TrainLoop.evaluate_every`.
 - **`core.py`** (SAC and PPO only) — SAC's soft actor-critic maths (init, bootstrap sampling, TD target, critic and actor losses, actor step, temperature, target update); PPO's clipped surrogate (log-prob recompute, entropy bonus, minibatch epochs). Lineage descendants (ASAC, REDQ, AVG; APO, which also builds its state with `init_PPO`) import from here rather than duplicating.
 - **`state.py`** — `<AGENT>State` and `<AGENT>Config` extending `BaseAgentState` / `BaseAgentConfig`.
 
@@ -314,10 +314,18 @@ logged key's values per seed and evaluation, whether or not a backend
 (`use_wandb`, `use_tensorboard`) records them; the logging worker starts
 only for a backend. Without one, `train` returns `(state, None)`.
 
+An off-policy agent that acts, trains and evaluates its own way (DreamerV3,
+TD-MPC2) supplies those steps to `loop.off_policy`: `collect(agent_state,
+tick)` (its acting and storing, through the row collector), `n_updates(tick)`
+(a static schedule of the absolute tick, such as a train ratio, run by
+`TrainLoop.repeat_update`), an `Evaluation` (its metrics and policy
+evaluation every k ticks, `TrainLoop.evaluate_every`) and, when its ticks are
+not `total_timesteps // n_envs`, `num_ticks`.
+
 Key points:
 - `extensions=` is the **only** research-feature surface. No per-feature kwargs on `make_train`.
 - `stack.fold_<phase>(agent_state, …, step, rng, total_steps)` builds the context and threads `ext_state` in one call, and is a no-op on an empty stack — never inline that boilerplate, and a fold needs no guard. Guard (`if stack:`) a key split drawn only for the extensions, so an agent without extensions keeps its random stream.
-- `compose_eval_metrics(user_fn, stack, total_steps)` collapses to `None` when both inputs are no-ops, preserving `evaluate_and_log`'s zero-overhead path.
+- `compose_eval_metrics(stack, total_steps)` collapses to `None` without extensions, preserving `evaluate_and_log`'s zero-overhead path.
 
 ### 4. Write `FOO.py`
 

@@ -43,7 +43,6 @@ import jax.numpy as jnp
 from ajax.agents.DreamerV3.distributions import Policy
 from ajax.agents.DreamerV3.networks import RSSM, RSSMState, features
 from ajax.agents.DreamerV3.state import DreamerV3Config
-from ajax.distributional import TwoHot
 from ajax.normalizers import ReturnNormalizer
 
 sg = jax.lax.stop_gradient
@@ -196,7 +195,6 @@ def imagination_loss(
     reward: jax.Array,
     cont: jax.Array,
     retnorm: ReturnNormalizer,
-    update_retnorm: bool = True,
 ) -> ImaginationLoss:
     """Actor and critic losses on imagined trajectories (Algorithm F).
 
@@ -212,8 +210,7 @@ def imagination_loss(
       probabilities are the discounted continuation ``live`` (the reference's
       ``disc``) and the scalar lambda its lambda continuation;
     * the normaliser folds the percentiles of ``R`` in, then gives ``S =
-      max(1, hi - lo)`` (update then read, 3.8; ``update_retnorm=False``
-      only reads it, as the reference's report pass);
+      max(1, hi - lo)`` (update then read, 3.8);
     * ``adv = (R - value) / S``, no offset subtracted (3.10);
     * ``actor = sg(w) * -(log pi(sg(a)) * sg(adv) + actent * H[pi])``:
       REINFORCE for both action types (3.11);
@@ -222,12 +219,11 @@ def imagination_loss(
 
     Losses cover states ``0..H-1``; the last state only bootstraps.
     """
-    twohot = TwoHot.dreamerv3(config.bins)
+    twohot = config.two_hot
     value = twohot.decode(value_logits)
     weight = jnp.cumprod(cont, 1)
     ret = lambda_return(reward, live=cont, cont=config.lam, boot=value)
-    if update_retnorm:
-        retnorm = retnorm.update(ret)
+    retnorm = retnorm.update(ret)
     scale = retnorm.scale()
     adv = (ret - value[:, :-1]) / scale
     log_pi = policy.log_prob(sg(action))[:, :-1]
@@ -276,7 +272,7 @@ def replay_critic_loss(
     the replayed posterior features, which carry gradient into the world
     model (``replay_critic_grad: True``). The last step gets no loss.
     """
-    twohot = TwoHot.dreamerv3(config.bins)
+    twohot = config.two_hot
     live = (~is_terminal).astype(jnp.float32) * config.gamma
     cont = (~is_last).astype(jnp.float32) * config.repval_lam
     ret = lambda_return(reward, live=live, cont=cont, boot=boot)

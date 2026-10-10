@@ -21,8 +21,9 @@ functions (the lineage rule):
   (:func:`ajax.agents.TDMPC2.core.renorm_task_embedding`);
 * the **task context** of a batch or decision
   (:class:`ajax.agents.TDMPC2.core.TaskContext`: task ids and their action
-  masks, :meth:`TaskSet.context`), which :func:`update` and :func:`plan`
-  pass to the single-task :func:`ajax.agents.TDMPC2.core.update` and
+  masks, :meth:`TaskSet.context`), which :func:`update` and
+  :func:`task_planner_policy` pass to the single-task
+  :func:`ajax.agents.TDMPC2.core.update` and
   :func:`ajax.agents.TDMPC2.planner.plan` together with the per-task
   discounts.
 
@@ -37,21 +38,20 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Sequence
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ajax.agents.TDMPC2 import core, planner
+from ajax.agents.TDMPC2 import core
+from ajax.agents.TDMPC2.core import IntLike
 from ajax.agents.TDMPC2.state import TDMPC2Config
 from ajax.agents.TDMPC2.train_TDMPC2 import planner_policy
 from ajax.types import FloatOrCallable
 
 # Paper Table 8-9 (deviation T14: the code's 64 for mt30 at 5/19/48M).
 PAPER_TASK_DIM = 96
-
-IntLike = Union[int, jax.Array]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -240,41 +240,6 @@ def update(
     )
 
 
-def plan(
-    wm_params: Any,
-    pi_params: Any,
-    obs: jax.Array,
-    prev_mean: jax.Array,
-    t0: Union[bool, jax.Array],
-    noise: planner.PlanNoise,
-    task: IntLike,
-    *,
-    config: TDMPC2Config,
-    tasks: TaskSet,
-    eval_mode: bool,
-) -> tuple[jax.Array, jax.Array, planner.PlanInfo]:
-    """One MPPI decision for task ``task``: ``act(obs, t0, eval_mode, task)``
-    (``tdmpc2.py:70-171``).
-
-    :func:`ajax.agents.TDMPC2.planner.plan` with the task's context and
-    discount; ``obs [obs_dim]`` is padded, ``prev_mean [H, A]`` and the
-    returned action are in the padded action space (invalid dims exactly 0).
-    The embedding row is renormed for the decision, not persisted (T15).
-    """
-    return planner.plan(
-        wm_params,
-        pi_params,
-        obs,
-        prev_mean,
-        t0,
-        noise,
-        config=config,
-        gamma=tasks.discount(task),
-        eval_mode=eval_mode,
-        task=tasks.context(task),
-    )
-
-
 def task_planner_policy(
     carry: jax.Array,
     obs: jax.Array,
@@ -318,7 +283,6 @@ __all__ = [
     "TaskSet",
     "create_update_state",
     "pad_observation",
-    "plan",
     "task_planner_policy",
     "update",
 ]

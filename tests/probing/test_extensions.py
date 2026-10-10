@@ -328,7 +328,6 @@ P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     + " (SAC dispatches only extensions declaring an action_slot, and only with an expert_policy: agents/SAC/action_pipeline.py); right train return 0.3 (discrete 0), today the policy's own (SAC 0.02-0.08 at 2000 steps, PPO 1.0, DQN 0.9-1.0, PQN 0.975)",
     "E5-*": NO_FOLD.format("eval_action")
     + " (evaluate_and_log runs the actor, log.py:317-347); right eval return -0.2 (discrete 0), today the policy's own (SAC 0.05-0.07, PPO, DQN, PQN 1.0)",
-    "metric-UDRL": "UDRL declares eval_metrics (base.py:56 by default) but never evaluates or logs: train_UDRL.py has no evaluate_and_log or compose_eval_metrics call; right 7.0 in the log, today no record (NaN)",
 }
 # "test-agent": cell, budget, tolerances calibrated on seeds 1000-1031 and
 # 2000-2031, certified 32/32 on 3000-3031 unless noted (none: a defect).

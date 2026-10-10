@@ -107,40 +107,6 @@ MODEL_SIZE: dict[int, dict[str, int]] = {
 }
 
 
-def resolve_model_size(
-    model_size: int = 5,
-    *,
-    enc_dim: Optional[int] = None,
-    mlp_dim: Optional[int] = None,
-    latent_dim: Optional[int] = None,
-    num_enc_layers: Optional[int] = None,
-    num_q: Optional[int] = None,
-) -> dict[str, int]:
-    """Architecture widths of a ``model_size`` preset, explicit values winning.
-
-    Returns ``{"enc_dim", "mlp_dim", "latent_dim", "num_enc_layers",
-    "num_q"}`` from :data:`MODEL_SIZE` with every argument that is not
-    ``None`` overriding its preset value (``DESIGN.md`` §4.1). The reference
-    lets the preset overwrite the config instead (``common/parser.py:43-49``);
-    its ``mt30`` / 19M latent of 512 only serves the released checkpoints and
-    is not reproduced.
-    """
-    if model_size not in MODEL_SIZE:
-        raise ValueError(
-            f"model_size must be one of {sorted(MODEL_SIZE)}, got {model_size!r}"
-        )
-    explicit = {
-        "enc_dim": enc_dim,
-        "mlp_dim": mlp_dim,
-        "latent_dim": latent_dim,
-        "num_enc_layers": num_enc_layers,
-        "num_q": num_q,
-    }
-    sizes = dict(MODEL_SIZE[model_size])
-    sizes.update({k: v for k, v in explicit.items() if v is not None})
-    return sizes
-
-
 def simnorm(x: jax.Array, simnorm_dim: int = 8) -> jax.Array:
     """Simplicial normalisation: softmax over consecutive groups of ``simnorm_dim``.
 

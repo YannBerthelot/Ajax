@@ -152,9 +152,10 @@ def main(argv=None):
     (out / "timing.json").write_text(json.dumps({"train_wall_s": wall}, indent=1))
     print(f"train wall {wall:.0f}s", flush=True)
 
-    ev = np.asarray(metrics["Eval/episodic mean reward"])
-    ticks = np.flatnonzero(np.isfinite(ev[0]))
-    dump = {k: np.asarray(v)[:, ticks] for k, v in metrics.items()}
+    # One row per evaluation; rows past the last hold the -1 timestep.
+    logged = np.asarray(metrics["timestep"])[0] >= 0
+    ticks = np.asarray(metrics["timestep"])[0, logged] // agent.env_args.n_envs - 1
+    dump = {k: np.asarray(v)[:, logged] for k, v in metrics.items()}
     np.savez(
         out / "all_metrics.npz",
         seeds=np.asarray(a.seeds),

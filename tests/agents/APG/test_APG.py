@@ -8,8 +8,13 @@ import pytest
 from gymnax import make as make_gymnax_env
 
 from ajax import APG
-from ajax.agents.APG import CurriculumStage, PIDHeadConfig, train_curriculum
-from ajax.agents.APG.train_APG import evaluate_apg
+from ajax.agents.APG import (
+    Controller,
+    CurriculumStage,
+    PIDHeadConfig,
+    train_curriculum,
+)
+from ajax.agents.APG.train_APG import evaluate_apg, init_APG, rollout_returns
 from ajax.environments.model_reference import (
     LinearReferenceModel,
     ModelReferenceWrapper,
@@ -271,7 +276,7 @@ def test_evaluate_reports_m_rmse_on_fresh_systems(env_and_class):
     state, _ = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
     single = jax.tree.map(lambda x: x[0], state)
     metrics = evaluate_apg(
-        single, jax.random.PRNGKey(0), agent.env_args, sc, HORIZON, 5, stateful=False
+        single, jax.random.PRNGKey(0), agent.env_args, sc, HORIZON, 5
     )
     assert set(metrics) == {"Eval/episodic mean reward", "Eval/m_rmse"}
     assert jnp.isfinite(metrics["Eval/m_rmse"]) and metrics["Eval/m_rmse"] >= 0
@@ -299,50 +304,58 @@ def test_extensions_fold_post_update(env_and_class):
     assert int(state.ext_state[0][0]) == 4
 
 
-def test_maybe_log_fires_only_at_the_gate_under_batched_state(env_and_class):
-    """Resumed / curriculum runs batch the agent state across seeds; the
-    gate is on the unbatched scan iteration so the callback fires exactly
-    at the cadence and the eval branch stays a real cond."""
-    from ajax.agents.APG.train_APG import APGAuxiliaries, _maybe_log, init_APG
-
+def test_the_downstream_training_and_evaluation_contract(env_and_class):
+    """What TargetFoundation does (tmdp/experiments, tmdp/evaluate.py): a
+    contextual controller from a factory, trained without a logging config,
+    returns every update's aux per seed; init_APG and rollout_returns rebuild
+    and evaluate it positionally, with ``stateful=True``."""
     env, sc = env_and_class
-    agent = make_agent(env, sc)
-    state = init_APG(
+
+    def factory(*, env_args, network_args, action_dim, pid, squash):
+        del env_args
+        return Controller((), action_dim, network_args.memory, pid, squash)
+
+    agent = APG.contextual_controller(
+        env,
+        sc,
+        n_envs=2,
+        horizon=HORIZON,
+        n_layers=1,
+        n_heads=1,
+        d_model=8,
+        context=8,
+        learning_rate=1e-3,
+        weight_decay=0.01,
+        warmup_steps=1,
+        env_params=sc.nominal,
+        controller_factory=factory,
+        max_grad_norm=1.0,
+        extensions=[Counter()],
+    )
+    state, aux = agent.train(seed=0, n_timesteps=3 * 2 * HORIZON)
+    curve = jax.device_get(-aux.matching_loss[0] / HORIZON).tolist()
+    assert len(curve) == 3 and jnp.isfinite(aux.loss).all()
+    single = jax.tree.map(lambda x: x[0], state)
+    fresh = init_APG(
         jax.random.PRNGKey(0),
         agent.env_args,
         agent.actor_optimizer_args,
         agent.network_args,
         agent.pid,
         agent.squash,
+        controller_factory=agent.controller_factory,
     )
-    state = jax.tree.map(lambda x: jnp.asarray(x)[None], state)  # one batched "seed"
-    calls = []
-
-    def log_fn(metrics, index):
-        calls.append(int(metrics["timestep"]))
-
-    per_update = N_ENVS * HORIZON
-    log_kwargs = {
-        "per_update": per_update,
-        "evaluate_fn": lambda s, k: {},
-        "extra_eval_metrics": None,
-        "log": True,
-        "log_fn": log_fn,
-        "log_frequency": 3 * per_update,  # every third update
-        "total_timesteps": 10_000,
-    }
-
-    def step(state, iteration):
-        aux = APGAuxiliaries(
-            loss=jnp.asarray(0.0),
-            matching_loss=jnp.asarray(0.0),
-            m_rmse=jnp.asarray(0.0),
-            timestep=(iteration + 1) * per_update,
-        )
-        return _maybe_log(state, aux, jnp.asarray(0), iteration, **log_kwargs)
-
-    for i in range(7):
-        state, _ = jax.vmap(step, in_axes=(0, None))(state, jnp.asarray(i))
-    jax.effects_barrier()
-    assert calls == [3 * per_update, 6 * per_update]
-    assert int(state.n_logs[0]) == 2
+    assert jax.tree.structure(fresh.actor_state.params) == jax.tree.structure(
+        single.actor_state.params
+    )
+    returns, _ = rollout_returns(
+        single,
+        single.actor_state.params,
+        jax.random.PRNGKey(1),
+        agent.env_args,
+        sc,
+        HORIZON,
+        5,
+        stateful=True,
+    )
+    assert returns.shape == (5,) and jnp.isfinite(returns).all()

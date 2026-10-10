@@ -332,32 +332,35 @@ def get_pre_trained_agent(
         bc_min_log_std=cloning_args.bc_min_log_std,
         bc_action_clip_eps=cloning_args.bc_action_clip_eps,
     )
-    # Seed the agent's running obs_norm_info with the BC dataset stats.
-    # The actor / critic params have just been trained on standardised
-    # inputs; the runtime get_pi / predict_value will apply the same
-    # standardisation via obs_norm_info, so the actor sees a consistent
-    # input distribution across BC and online. Online collection then
-    # continues to update these stats from this seeded baseline.
+    # The actor was just trained on inputs standardised with the dataset's
+    # statistics: the agent's running observation statistics start from
+    # them, so that get_pi / predict_value standardise its inputs online
+    # as cloning did. An agent without running statistics gets them here
+    # (online collection then updates them from this baseline); without
+    # them the cloned actor would be queried on raw observations.
     new_state = agent_state.replace(actor_state=actor_state)
-    if agent_state.collector_state.obs_norm_info is not None:
-        from ajax.wrappers import NormalizationInfo
+    if (
+        cloning_args.skip_actor_pretrain
+        and agent_state.collector_state.obs_norm_info is None
+    ):
+        return new_state  # no actor cloned: nothing to keep consistent
+    from ajax.wrappers import NormalizationInfo
 
-        # Agent-side stats live with leading axis size 1 (see
-        # init_agent_obs_norm); broadcast obs_mean / var to (1, obs_dim).
-        n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
-        var = obs_std**2
-        mean_1 = obs_mean.reshape(1, -1)
-        var_1 = var.reshape(1, -1)
-        seeded = NormalizationInfo(
-            count=jnp.full((1, 1), n_samples),
-            mean=mean_1,
-            mean_2=var_1 * n_samples,
-            var=var_1,
-            returns=None,
-        )
-        new_state = new_state.replace(
-            collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
-            actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
-            critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
-        )
-    return new_state
+    # Agent-side stats live with leading axis size 1 (see
+    # init_agent_obs_norm); broadcast obs_mean / var to (1, obs_dim).
+    n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
+    var = obs_std**2
+    mean_1 = obs_mean.reshape(1, -1)
+    var_1 = var.reshape(1, -1)
+    seeded = NormalizationInfo(
+        count=jnp.full((1, 1), n_samples),
+        mean=mean_1,
+        mean_2=var_1 * n_samples,
+        var=var_1,
+        returns=None,
+    )
+    return new_state.replace(
+        collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
+        actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
+        critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
+    )

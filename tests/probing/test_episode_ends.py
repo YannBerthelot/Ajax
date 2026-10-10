@@ -386,12 +386,12 @@ class RecordTargetBatch(Extension):
 
 @pytest.mark.parametrize(
     "cell",
-    ["DQN", "PQN", "TD3", "REDQ", "AVG", "ASAC"],
+    ["SAC", "DQN", "PQN", "TD3", "REDQ", "AVG", "ASAC"],
 )
 def test_p5_on_target_batch_states_its_reward_scale(cell: str) -> None:
     """Rewards reach every on_target batch unscaled, so the batch states the
-    scale the target applies (2); traced on one seed, never run. SAC's batch
-    carries no rewards (train_SAC.py:370-403); PPO and APO have no scale."""
+    scale the target applies (2); traced on one seed, never run. PPO and APO
+    have no scale."""
     label = f"{cell}-{len(SEEN)}"
     ext = (RecordTargetBatch(label),)
     agent = _asac(ext) if cell == "ASAC" else _scaled(cell, ext)

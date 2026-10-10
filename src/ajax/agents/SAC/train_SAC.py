@@ -288,6 +288,8 @@ def update_value_functions(
             "observations": observations,
             "actions": actions,
             "next_observations": next_observations,
+            "rewards": rewards,
+            "reward_scale": reward_scale,
             "dones": dones,
             "rng_key": value_loss_key,
             "q_preds": q_preds_for_var,

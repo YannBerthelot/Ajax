@@ -273,12 +273,14 @@ State: `RowCollectorState(CollectorState)` adds `reward`, `is_first`, `is_last`,
 `timestep` follows §2. Episode return/length tracking reuses the existing rolling-mean
 machinery.
 
-### 5.3 Update loop helper (`perf_utils.final_aux_fori`)
-`final_aux_fori(body, carry, n)`: `fori_loop(0, n, ...)` that carries only the last
-aux (zeros via `eval_shape` when n = 0), one trace of `body`. `n` is computed from the
-unbatched tick, so it lowers to an unbatched while loop under the seed vmap (probed).
-Extension `post_update` is folded after **each** update inside the loop (CONTRIBUTING's
-contract), with `step = collector_state.timestep`.
+### 5.3 Update loop (`TrainLoop.repeat_update`)
+Both agents run on the shared off-policy loop (`ajax.agents.loop.TrainLoop.off_policy`)
+with their own acting (`collect`), update schedule (`n_updates(tick)`) and evaluation.
+`repeat_update(state, n, update)`: `fori_loop(0, n, ...)` over the update, which keeps
+what it logs on the state. `n` is computed from the unbatched tick, so it lowers to an
+unbatched while loop under the seed vmap (tested). Extension `post_update` is folded
+after **each** update inside the loop (CONTRIBUTING's contract), with `step =
+collector_state.timestep`.
 
 ### 5.4 Evaluation and logging
 - `evaluate_policy(env_args, policy_fn, init_carry, num_episodes, key, T, ...)` in
@@ -540,7 +542,7 @@ agents. APG and both new agents get bench entries with a small documented preset
 - **Backbone.** Episode length per backend; action_repeat parity train/eval; static and
   dynamic reset modes (T+1 rows, held env bit-identical, consecutive episodes start from
   different states on playground); replay wrap-around; write-back with overlaps;
-  `final_aux_fori` single trace and exact counts; resume offset; extension rejection;
+  `TrainLoop.repeat_update` unbatched while and exact counts; resume offset; extension rejection;
   `evaluate_policy` vs `evaluate`; APG logging unchanged.
 - **Agent.** Module-scoped tiny-config fixtures (train once, assert smoke / metrics /
   resume / extensions on the same run); ≤ 3 min of CI per agent test module; regression

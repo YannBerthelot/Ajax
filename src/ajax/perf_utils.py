@@ -12,8 +12,6 @@ Public API:
                          (directly, or through ``ajax.agents.loop``).
     final_aux_scan       lax.scan that exposes only the last-step aux,
                          without materializing the full ys axis.
-    final_aux_fori       fori_loop with a traced trip count that exposes
-                         only the last iteration's aux.
 """
 
 from functools import partial
@@ -124,7 +122,7 @@ def build_resumable_train(
     """
     if (scan_fn is None) == (make_scan_fn is None):
         raise ValueError(
-            "build_resumable_train: pass exactly one of `scan_fn` or " "`make_scan_fn`."
+            "build_resumable_train: pass exactly one of `scan_fn` or `make_scan_fn`."
         )
 
     @partial(
@@ -228,52 +226,4 @@ def final_aux_scan(
     return final_carry, last_aux
 
 
-# ---------------------------------------------------------------------------
-# final_aux_fori
-# ---------------------------------------------------------------------------
-def final_aux_fori(
-    body: Callable[[jax.Array, Any], Tuple[Any, Any]],
-    carry: Any,
-    n: Any,
-) -> Tuple[Any, Any]:
-    """Run ``body`` ``n`` times (``n`` may be traced); keep only the last aux.
-
-    The loop-with-a-data-dependent-trip-count counterpart of
-    :func:`final_aux_scan`, for a variable number of updates per tick
-    (DESIGN §5.3)::
-
-        carry, aux = final_aux_fori(update, carry, n_updates(tick))
-
-    ``body(i, carry) -> (carry, aux)`` receives the int32 iteration index
-    ``i`` in ``[0, n)``. The result is ``(carry, aux)`` with ``aux`` from
-    the final iteration, or zeros of its shape when ``n == 0`` (the aux
-    structure comes from ``jax.eval_shape``). Only the last aux is carried,
-    never a stacked ``[n, ...]`` history.
-
-    ``n`` must be computed from *unbatched* values (the absolute tick
-    index, static hyperparameters): ``lax.fori_loop`` then lowers to one
-    ``while`` whose predicate stays unbatched under the seed ``vmap``, so
-    the loop runs exactly ``n`` times instead of becoming a select-masked
-    loop to the maximum over seeds.
-
-    ``body`` is traced once: it is wrapped in ``jax.jit`` so the abstract
-    evaluation that derives the aux structure and the loop body share
-    jit's trace cache (the index and carry have the same types in both).
-    A carry whose types change across iterations (e.g. Python-scalar weak
-    types) would only cost one extra trace, never correctness.
-    """
-    body_jit = jax.jit(body)
-    index_struct = jax.ShapeDtypeStruct((), jnp.int32)
-    aux_struct = jax.eval_shape(body_jit, index_struct, carry)[1]
-    init_aux = jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), aux_struct)
-
-    def step(i, state):
-        inner, _prev_aux = state
-        return body_jit(i, inner)
-
-    return jax.lax.fori_loop(
-        jnp.int32(0), jnp.asarray(n, jnp.int32), step, (carry, init_aux)
-    )
-
-
-__all__ = ["build_resumable_train", "final_aux_fori", "final_aux_scan"]
+__all__ = ["build_resumable_train", "final_aux_scan"]

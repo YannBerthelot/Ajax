@@ -3,8 +3,9 @@
 The paper-era driver loop (``danijar/dreamerv3@2411f7d:embodied/run/
 train.py`` with ``embodied/core/driver.py`` and ``when.Ratio``) made
 synchronous and seeded: dreamerv3_spec Algorithm K, ``docs/world_models/
-DESIGN.md`` sections 6.4-6.6, deviations D1-D3 and D6. One scan iteration
-(a *tick*) is one vector step of the ``n_envs`` workers:
+DESIGN.md`` sections 6.4-6.6, deviations D1-D3 and D6, on the shared
+off-policy loop (:meth:`ajax.agents.loop.TrainLoop.off_policy`). One scan
+iteration (a *tick*) is one vector step of the ``n_envs`` workers:
 
 1. **Act** (:func:`policy_step`; dreamerv3_spec 7.1, 2411f7d
    ``dreamerv3/agent.py:145-180`` = ``29eb964:dreamerv3/agent.py:129-164``):
@@ -18,15 +19,15 @@ DESIGN.md`` sections 6.4-6.6, deviations D1-D3 and D6. One scan iteration
    emits one row per env -- the driver's transition, its action zeroed at
    ``is_last`` (``driver.py:67-75``) -- and maps the action to the env's
    bounds; the replay stores the raw action (:mod:`.replay`).
-3. **Train**: :meth:`TrainRatio.updates_in_tick` updates, each on a fresh
-   batch (online queue first, then uniform), with fresh noise
-   (:func:`~ajax.agents.DreamerV3.learner.train_step`), followed by the
-   latent write-back and the Extension ``post_update`` fold.
-4. **Log** (:func:`ajax.log.maybe_eval_and_log`) every
-   ``logging_config.log_frequency`` rows: the training-episode returns of
-   the stochastic policy (the reference's score, dreamerv3_spec 7.3), sampled
-   evaluation episodes (:func:`ajax.evaluate.evaluate_policy`, from a zero
-   carry), the mean training metrics since the last log, ``env_frames``.
+3. **Train**: :meth:`TrainRatio.updates_in_tick` updates (:func:`update`),
+   each on a fresh batch (online queue first, then uniform), with fresh
+   noise (:func:`~ajax.agents.DreamerV3.learner.train_step`), followed by
+   the latent write-back and the Extension ``post_update`` fold.
+4. **Log** every ``logging_config.log_frequency`` rows: the
+   training-episode returns of the stochastic policy (the reference's score,
+   dreamerv3_spec 7.3), sampled evaluation episodes
+   (:func:`ajax.evaluate.evaluate_policy`, from a zero carry), the mean
+   training metrics since the last log, ``env_frames``.
 
 ``n_timesteps`` counts **rows** (the reference's ``step``, reset rows
 included); the collector's ``timestep`` advances by ``n_envs`` per tick.
@@ -68,13 +69,12 @@ from ajax.agents.DreamerV3.state import (
     MetricsAccumulator,
 )
 from ajax.agents.DreamerV3.world_model import ReplayContextBatch, draw_posterior_noise
+from ajax.agents.loop import Evaluation, TrainLoop
 from ajax.environments.row_collector import collect_row, init_row_collector_state
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.evaluate import evaluate_policy
 from ajax.extensions.base import Extension, ExtensionStack
-from ajax.log import compose_eval_metrics, maybe_eval_and_log
-from ajax.logging.wandb_logging import LoggingConfig, start_async_logging, vmap_log
-from ajax.perf_utils import build_resumable_train, final_aux_fori
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig
 
 # ---------------------------------------------------------------------------
@@ -402,26 +402,25 @@ def init_dreamer(
 
 
 def update(
-    _: jax.Array,
     agent_state: DreamerV3State,
+    tick: jax.Array,
     *,
-    rows: jax.Array,
     config: DreamerV3Config,
     spec: EnvSpec,
     replay: StreamReplay,
-    extension_stack: Optional[ExtensionStack],
-    total_timesteps: int,
 ) -> tuple[DreamerV3State, None]:
     """One training step on a fresh batch, then the write-back.
 
-    ``rows`` is the number of rows per env in the replay (unbatched). The
-    batch pops the online queue and fills up uniformly
+    ``tick`` is the absolute, unbatched tick whose rows were added last: the
+    replay holds ``tick + 1`` rows per env. The batch pops the online queue
+    and fills up uniformly
     (:meth:`~ajax.agents.DreamerV3.replay.StreamReplay.sample`); the
     learner's step (Algorithm J: replay context, joint gradient, LaProp,
     slow critic) uses fresh noise; its posterior latents of the trained rows
-    are written back at once (synchronous, deviation D1); the Extension
-    ``post_update`` phase is folded after the update.
+    are written back at once (synchronous, deviation D1). The loop folds the
+    Extension ``post_update`` phase after it.
     """
+    rows = jnp.asarray(tick, jnp.int32) + 1
     rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
     replay_state, index = replay.sample(agent_state.replay_state, rows, sample_key)
     batch = replay.gather(
@@ -448,14 +447,6 @@ def update(
         n_updates=agent_state.n_updates + 1,
         train_metrics=agent_state.train_metrics.add(metrics),
     )
-    if extension_stack:
-        post_key, rng = jax.random.split(agent_state.rng)
-        agent_state = extension_stack.fold_post_update(
-            agent_state.replace(rng=rng),
-            agent_state.collector_state.timestep,
-            post_key,
-            total_timesteps,
-        )
     return agent_state, None
 
 
@@ -519,11 +510,11 @@ def train_metrics(agent_state: DreamerV3State, aux: Any, *, action_repeat: int) 
 
 
 # ---------------------------------------------------------------------------
-# One tick (Algorithm K)
+# Acting and storing (Algorithm K)
 # ---------------------------------------------------------------------------
 
 
-def training_iteration(
+def collect(
     agent_state: DreamerV3State,
     tick: jax.Array,
     *,
@@ -531,19 +522,16 @@ def training_iteration(
     config: DreamerV3Config,
     spec: EnvSpec,
     replay: StreamReplay,
-    schedule: TrainRatio,
-    extension_stack: Optional[ExtensionStack],
-    total_timesteps: int,
-    index: Any,
-    log_kwargs: dict,
-) -> tuple[DreamerV3State, dict]:
-    """One vector step: act and store, train at the ratio, maybe log.
+) -> tuple[DreamerV3State, jax.Array]:
+    """Act and store one row per env (``driver.py:55-81``,
+    ``replay.py:97-144``).
 
     ``tick`` is the absolute, unbatched tick index (the scan input, offset
     on resume): the row of every env written now is the ``tick``-th of its
-    stream.
+    stream. Returns the state and ``tick``, which locates the replay's newest
+    rows for the tick's updates (:func:`update`, after the tick's rows:
+    deviation D3).
     """
-    # Act and store (driver.py:55-81; replay.py:97-144).
     collector_state, row = collect_row(
         agent_state.collector_state,
         tick,
@@ -556,33 +544,16 @@ def training_iteration(
         collector_state=collector_state,
         replay_state=replay.add(agent_state.replay_state, row, tick),
     )
+    return agent_state, tick
 
-    # Train (train.py:80-91, when.Ratio), after the tick's rows (D3).
-    agent_state, _ = final_aux_fori(
-        partial(
-            update,
-            rows=jnp.asarray(tick, jnp.int32) + 1,
-            config=config,
-            spec=spec,
-            replay=replay,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-        ),
-        agent_state,
-        schedule.updates_in_tick(tick),
-    )
 
-    # Log (train.py:113-121): the training metrics' means since the last log.
-    n_logs = agent_state.n_logs
-    agent_state, metrics = maybe_eval_and_log(
-        agent_state, None, index, tick, **log_kwargs
+def restart_train_metrics(
+    agent_state: DreamerV3State, logged: jax.Array
+) -> DreamerV3State:
+    """The training metrics' means restart after each log (``train.py:113-121``)."""
+    return agent_state.replace(
+        train_metrics=agent_state.train_metrics.reset_where(logged)
     )
-    agent_state = agent_state.replace(
-        train_metrics=agent_state.train_metrics.reset_where(
-            agent_state.n_logs != n_logs
-        )
-    )
-    return agent_state, metrics
 
 
 # ---------------------------------------------------------------------------
@@ -604,9 +575,8 @@ def make_train(
     config: DreamerV3Config,
     replay_rows_per_env: int,
     extensions: Sequence[Extension] = (),
-    **_unused: Any,
 ) -> Callable:
-    """The per-seed train function (``build_resumable_train``).
+    """DreamerV3's train function on :meth:`TrainLoop.off_policy`.
 
     ``total_timesteps`` counts rows: ``total_timesteps // n_envs`` ticks.
     ``replay_rows_per_env`` is the ring length ``C`` the agent resolved.
@@ -616,7 +586,6 @@ def make_train(
     """
     del actor_optimizer_args, critic_optimizer_args, network_args
     n_envs = env_args.n_envs
-    num_ticks = total_timesteps // n_envs
     spec = env_spec(env_args)
     replay = StreamReplay(
         n_envs=n_envs,
@@ -633,63 +602,43 @@ def make_train(
     metric_keys = train_metric_keys(
         config, spec, agent_config.batch_size, agent_config.batch_length
     )
-    extension_stack = ExtensionStack(extensions).bind_to_agent(
+    stack = ExtensionStack(extensions).bind_to_agent(
         env_args=env_args,
         agent_config=agent_config,
         gamma=config.gamma,
         total_timesteps=total_timesteps,
     )
+    loop = TrainLoop.create(
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        stack.extensions,
+    )
 
-    log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids)
-    if log:
-        start_async_logging()
-    log_kwargs = {
-        "metrics_fn": partial(train_metrics, action_repeat=env_args.action_repeat),
-        "evaluate_fn": partial(
-            evaluate_dreamer,
-            env_args=env_args,
-            config=config,
-            spec=spec,
-            num_episode_test=num_episode_test,
+    def init(key: jax.Array, pretrain_key: jax.Array) -> DreamerV3State:
+        del pretrain_key  # no pretraining of its own
+        return init_dreamer(key, env_args, config, spec, replay, metric_keys)
+
+    common = {"config": config, "spec": spec, "replay": replay}
+    return loop.off_policy(
+        init,
+        partial(update, **common),
+        collect=partial(collect, env_args=env_args, **common),
+        n_updates=schedule.updates_in_tick,
+        evaluation=Evaluation(
+            metrics=partial(train_metrics, action_repeat=env_args.action_repeat),
+            every=loop.log_frequency and max(loop.log_frequency // n_envs, 1),
+            evaluate=partial(
+                evaluate_dreamer,
+                env_args=env_args,
+                config=config,
+                spec=spec,
+                num_episode_test=num_episode_test,
+            ),
+            after_log=restart_train_metrics,
         ),
-        "extra_eval_metrics": compose_eval_metrics(
-            None, extension_stack, total_timesteps
-        ),
-        "log": log,
-        "log_fn": log_fn,
-        "log_frequency": (
-            logging_config.log_frequency if logging_config is not None else None
-        ),
-        "per_update": n_envs,
-    }
-
-    def init_fn(key, index):
-        del index
-        init_key, pretrain_key = jax.random.split(key)
-        agent_state = init_dreamer(
-            init_key, env_args, config, spec, replay, metric_keys
-        )
-        return extension_stack.fold_init(agent_state, pretrain_key, total_timesteps)
-
-    def make_scan_fn(_agent_state, _resume, _key, index):
-        return partial(
-            training_iteration,
-            env_args=env_args,
-            config=config,
-            spec=spec,
-            replay=replay,
-            schedule=schedule,
-            extension_stack=extension_stack,
-            total_timesteps=total_timesteps,
-            index=index,
-            log_kwargs=log_kwargs,
-        )
-
-    return build_resumable_train(
-        init_fn=init_fn,
-        make_scan_fn=make_scan_fn,
-        num_updates=num_ticks,
     )
 
 
@@ -698,10 +647,10 @@ __all__ = [
     "PolicyCarry",
     "TrainRatio",
     "bind_policy",
+    "collect",
     "env_spec",
     "initial_policy_carry",
     "make_train",
     "policy_step",
-    "training_iteration",
     "update",
 ]

@@ -1,77 +1,12 @@
-"""perf_utils: final_aux_fori, and the resume iteration offset and the shared
-input of build_resumable_train / ActorCritic.train."""
+"""perf_utils: the resume iteration offset and the shared input of
+build_resumable_train / ActorCritic.train."""
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from ajax.agents.base import ActorCritic
-from ajax.perf_utils import build_resumable_train, final_aux_fori
-
-# ---------------------------------------------------------------------------
-# final_aux_fori
-# ---------------------------------------------------------------------------
-
-
-def make_body(scale, traces):
-    def body(i, carry):
-        traces.append(1)
-        carry = carry * scale + jnp.sin(carry)
-        return carry, {"total": carry.sum(), "i": i}
-
-    return body
-
-
-def reference(carry, scale, n):
-    aux = {"total": np.float32(0.0), "i": np.int32(0)}
-    for i in range(n):
-        carry = carry * scale + np.sin(carry)
-        aux = {"total": carry.sum(), "i": i}
-    return carry, aux
-
-
-@pytest.mark.parametrize("n", [0, 1, 5])
-def test_final_aux_fori_runs_exactly_n_times_and_keeps_the_last_aux(n):
-    traces = []
-    x = jnp.linspace(-1.0, 1.0, 6).reshape(2, 3)
-    run = jax.jit(lambda x, n: final_aux_fori(make_body(0.5, traces), x, n))
-    carry, aux = run(x, n)
-    ref_carry, ref_aux = reference(np.asarray(x), 0.5, n)
-    np.testing.assert_allclose(carry, ref_carry, rtol=1e-6)
-    np.testing.assert_allclose(aux["total"], ref_aux["total"], rtol=1e-6)
-    assert int(aux["i"]) == ref_aux["i"]  # zeros when n == 0
-    assert aux["i"].dtype == jnp.int32
-    assert len(traces) == 1  # one trace of the body
-
-
-def test_final_aux_fori_is_one_unbatched_while_under_the_seed_vmap():
-    """``n`` from unbatched values -> a single while whose predicate is not
-    batched, even though the carry (and a closed-over value) are per seed:
-    no select-masked loop to the maximum trip count."""
-    traces = []
-
-    def per_seed(x, scale, n):
-        return final_aux_fori(make_body(scale, traces), x, n)
-
-    seeds_x = jnp.ones((4, 2, 3))
-    scales = jnp.linspace(0.1, 0.4, 4)
-    jaxpr = jax.make_jaxpr(jax.vmap(per_seed, in_axes=(0, 0, None)))(
-        seeds_x, scales, 3
-    ).jaxpr
-    loops = [e for e in jaxpr.eqns if e.primitive.name == "while"]
-    assert len(loops) == 1
-    cond_jaxpr = loops[0].params["cond_jaxpr"].jaxpr
-    assert cond_jaxpr.outvars[0].aval.shape == ()
-    assert [e.primitive.name for e in cond_jaxpr.eqns] == ["lt"]
-    assert len(traces) == 1
-    # and the batched result is the per-seed result
-    carry, aux = jax.vmap(per_seed, in_axes=(0, 0, None))(seeds_x, scales, 3)
-    for s in range(4):
-        ref_carry, ref_aux = reference(np.ones((2, 3), np.float32), float(scales[s]), 3)
-        np.testing.assert_allclose(carry[s], ref_carry, rtol=1e-6)
-        assert int(aux["i"][s]) == 2
-
+from ajax.perf_utils import build_resumable_train
 
 # ---------------------------------------------------------------------------
 # Resume offset

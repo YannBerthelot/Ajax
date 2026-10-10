@@ -307,7 +307,7 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
         )
     # Logging on, writing nowhere: train() returns the logged metrics, NaN
     # where nothing was evaluated (the shared loop's rows past its last
-    # evaluation; the world models' ticks that do not log).
+    # evaluation).
     logging_config = LoggingConfig(
         config={"learning_check": name},
         project_name="ajax-learning-checks",

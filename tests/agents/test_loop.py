@@ -1,8 +1,9 @@
 """The shared training loop (``ajax.agents.loop``): its steps on a stand-in
 state (the update gate before ``learning_starts``, the extensions'
-``post_update`` key, one gradient step), and on a tiny APO run the
-evaluations ``train`` returns with a logging config. The agents' smoke and
-resume tests and the probes run the loop end to end."""
+``post_update`` key, one gradient step, an agent's own update schedule and
+evaluation), and on a tiny APO run the evaluations ``train`` returns with a
+logging config. The agents' smoke and resume tests and the probes run the
+loop end to end."""
 
 import dataclasses
 import functools
@@ -235,3 +236,65 @@ def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
     # budget, which the restored timestep is past.
     np.testing.assert_array_equal(resumed.collector_state.timestep, 2 * 80)
     assert resumed_rows["timestep"].shape == (len(SEEDS), ROWS)
+
+
+# --- Agents acting, training and evaluating their own way --------------------
+@struct.dataclass
+class Logged(State):
+    """A stand-in state that evaluates: an evaluation key and a log count."""
+
+    eval_rng: jax.Array = struct.field(default_factory=lambda: jax.random.PRNGKey(1))
+    n_logs: jax.Array = struct.field(default_factory=lambda: jnp.asarray(0))
+
+
+def test_repeat_update_folds_post_update_after_each_update() -> None:
+    """``n`` updates, each followed by ``post_update``; none for ``n = 0``."""
+    state, loop = _state(5, (jnp.asarray(0),)), _loop(Count())
+    run = jax.jit(lambda s, n: loop.repeat_update(s, n, _update))
+    out, same = run(state, 3), run(state, 0)
+    assert float(out.value) == 4.0 and int(out.ext_state[0]) == 3
+    assert float(same.value) == 1.0 and int(same.ext_state[0]) == 0
+
+
+def test_a_tick_schedule_is_one_unbatched_while_under_the_seed_vmap() -> None:
+    """A count from unbatched values (a train ratio of the tick) is one
+    ``while`` whose predicate is not batched, though the states are per
+    seed: no select-masked loop to the largest count."""
+    loop = _loop()
+    run = jax.vmap(lambda s, n: loop.repeat_update(s, n, _update), in_axes=(0, None))
+    states = jax.vmap(lambda v: _state(0).replace(value=v))(jnp.arange(4.0))
+    jaxpr = jax.make_jaxpr(run)(states, 3).jaxpr
+    loops = [e for e in jaxpr.eqns if e.primitive.name == "while"]
+    assert len(loops) == 1
+    assert loops[0].params["cond_jaxpr"].jaxpr.outvars[0].aval.shape == ()
+    np.testing.assert_array_equal(run(states, 3).value, np.arange(4.0) + 3)
+
+
+def test_an_agents_own_evaluation_runs_every_few_ticks() -> None:
+    """On the ticks ``t`` with ``(t + 1) % every == 0``: the agent's metrics,
+    its evaluation and the extensions' metrics, one more log, ``after_log``
+    told it logged; the -1 timestep sentinel and NaN on the others."""
+    loop = dataclasses.replace(_loop(Counted()), log=True, log_fn=lambda *_: None)
+    evaluation = loop_module.Evaluation(
+        metrics=lambda s, aux: {"timestep": s.collector_state.timestep},
+        every=2,
+        evaluate=lambda s, key: {"Eval/value": s.value},
+        after_log=lambda s, logged: s.replace(value=jnp.where(logged, 0.0, s.value)),
+    )
+    state = Logged(
+        rng=jax.random.PRNGKey(0),
+        collector_state=Collector(jnp.asarray(7)),
+        value=jnp.asarray(3.0),
+        ext_state=(jnp.asarray(5),),
+    )
+    step = jax.jit(lambda s, t: loop.evaluate_every(s, None, 0, t, evaluation))
+    skipped, metrics = step(state, 0)
+    assert int(metrics["timestep"]) == -1 and np.isnan(metrics["Eval/value"])
+    assert int(skipped.n_logs) == 0 and float(skipped.value) == 3.0
+    logged, metrics = step(state, 1)
+    assert int(metrics["timestep"]) == 7 and float(metrics["Eval/value"]) == 3.0
+    assert int(metrics["count"]) == 5 and int(logged.n_logs) == 1
+    assert float(logged.value) == 0.0
+    # Rows for every evaluation a call of 5 ticks can make; none without.
+    assert evaluation.count(5) == 3
+    assert dataclasses.replace(evaluation, every=None).count(5) == 0

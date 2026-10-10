@@ -386,9 +386,10 @@ class DreamerV3(ActorCritic):
     ) -> tuple[BaseAgentState, Any]:
         """Train for ``n_timesteps`` rows (``n_timesteps // n_envs`` ticks).
 
-        Returns ``(state, metrics)`` vmapped over seeds; ``metrics`` holds
-        the logged metrics of every tick (NaN, or -1 for integers, on ticks
-        that do not log; :func:`ajax.log.maybe_eval_and_log`). Resume with
+        Returns ``(state, evaluations)`` vmapped over seeds, as every agent
+        on the shared loop (:mod:`ajax.agents.loop`): ``None`` without a
+        logging config, else every logged key's values at the evaluations
+        (every ``log_frequency`` rows). Resume with
         ``initial_state=`` a returned state (or ``(state, metrics)``): the
         run continues the uninterrupted run of all the rows, schedules and
         replay included (:meth:`_resolve_replay`).

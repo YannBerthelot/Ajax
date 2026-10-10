@@ -25,6 +25,7 @@ import pytest
 from flax import struct
 
 from ajax import DreamerV3
+from ajax.agents import loop
 from ajax.agents.DreamerV3 import train_DreamerV3
 from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
 from ajax.agents.DreamerV3.state import MODEL_SIZES
@@ -165,8 +166,7 @@ def cartpole():
         config={}, use_wandb=False, use_tensorboard=False, log_frequency=LOG_EVERY
     )
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(train_DreamerV3, "start_async_logging", lambda: None)
-        patch.setattr(train_DreamerV3, "vmap_log", record)
+        patch.setattr(loop, "vmap_log", record)
         patch.setattr(train_DreamerV3, "train_step", train_step_spy)
         patch.setattr(StreamReplay, "sample", sample_spy)
         patch.setattr(StreamReplay, "write_back", write_back_spy)
@@ -260,23 +260,21 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
     ):
         assert key in last, key
     assert int(last["env_frames"]) == int(last["timestep"])  # action_repeat 1
-    # The returned per-tick metrics: values on the logging ticks only.
-    eval_return = np.asarray(metrics["Eval/episodic mean reward"])
-    assert eval_return.shape == (2, ROWS // N_ENVS)
-    assert np.all(np.isfinite(eval_return[:, ticks]))
-    others = np.setdiff1d(np.arange(ROWS // N_ENVS), ticks)
-    assert np.all(np.isnan(eval_return[:, others]))
-    np.testing.assert_array_equal(np.asarray(metrics["ext/x"])[:, ticks], 1.0)
+    # The returned evaluations: what was logged, one row per log in order.
+    np.testing.assert_array_equal(
+        metrics["timestep"], [[(t + 1) * N_ENVS for t in ticks]] * 2
+    )
+    assert np.all(np.isfinite(np.asarray(metrics["Eval/episodic mean reward"])))
+    np.testing.assert_array_equal(np.asarray(metrics["ext/x"]), 1.0)
     # Episodes last at least one step and at most CartPole's 500.
-    length = np.asarray(metrics["Eval/mean episodic length"])[:, ticks]
+    length = np.asarray(metrics["Eval/mean episodic length"])
     assert np.all((length >= 1) & (length <= 500))
-    n_updates = np.asarray(metrics["Train/n_updates"])[:, ticks]
     expected = [cartpole.agent.schedule.total_updates(t + 1) for t in ticks]
-    np.testing.assert_array_equal(n_updates, [expected, expected])
+    np.testing.assert_array_equal(metrics["Train/n_updates"], [expected, expected])
     # Train metrics are means over the updates since the previous log (every
     # logged window has updates), and the accumulator restarts at each log:
     # the run ends on a logging tick, so it holds nothing.
-    assert np.all(np.isfinite(np.asarray(metrics["Train/opt_loss"])[:, ticks]))
+    assert np.all(np.isfinite(np.asarray(metrics["Train/opt_loss"])))
     np.testing.assert_array_equal(cartpole.state.train_metrics.count, [0, 0])
 
 

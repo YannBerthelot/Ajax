@@ -1,8 +1,9 @@
 """REDQ (Chen et al., 2021): Randomized Ensembled Double Q-learning.
 
 SAC with an ensemble of ``num_critics`` critics updated
-``num_critic_updates`` times per environment step, each target the min over
-a random subset of ``subset_size`` target critics, and an actor that
+``num_critic_updates`` times per environment step, each on a fresh replay
+minibatch with a target the min over a random subset of ``subset_size``
+target critics, and an actor that
 maximises the ensemble's mean Q. ``repulsion_coef`` adds a function-space
 kernel repulsion between the critics (off by default).
 """
@@ -397,28 +398,37 @@ def update_agent(
     extension_stack: ExtensionStack,
     total_timesteps: int,
 ) -> Tuple[REDQState, AuxiliaryLogs]:
-    """One update: ``num_critic_updates`` critic and target steps on a replay
-    batch, then one actor step and one temperature step."""
-    sample_key, rng = jax.random.split(agent_state.rng)
-    batch, carries = sample_replay(
-        agent_state,
-        buffer,
-        sample_key,
-        recurrent,
-        agent_config.burn_in,
-        agent_config.stored_state,
-    )
-    agent_state = agent_state.replace(rng=rng)
+    """One update: ``num_critic_updates`` critic and target steps, each on a
+    fresh replay batch, then one actor step and one temperature step on the
+    last batch (Chen et al., 2021, Algorithm 1)."""
 
     def critic_update_step(agent_state: REDQState, _: Any) -> Tuple[REDQState, Any]:
+        sample_key, rng = jax.random.split(agent_state.rng)
+        batch, carries = sample_replay(
+            agent_state,
+            buffer,
+            sample_key,
+            recurrent,
+            agent_config.burn_in,
+            agent_config.stored_state,
+        )
         agent_state, aux_value = update_value_functions(
-            agent_state, batch, agent_config, extension_stack, total_timesteps, carries
+            agent_state.replace(rng=rng),
+            batch,
+            agent_config,
+            extension_stack,
+            total_timesteps,
+            carries,
         )
         critic_state = agent_state.critic_state.soft_update(tau=agent_config.tau)
-        return agent_state.replace(critic_state=critic_state), aux_value
+        return agent_state.replace(critic_state=critic_state), (
+            aux_value,
+            batch,
+            carries,
+        )
 
-    # Carry-only scan: only the last critic step's metrics are kept.
-    agent_state, aux_value = final_aux_scan(
+    # Carry-only scan: only the last critic step's metrics and batch are kept.
+    agent_state, (aux_value, batch, carries) = final_aux_scan(
         critic_update_step, agent_state, length=agent_config.num_critic_updates
     )
     agent_state, aux_policy, log_probs = update_policy(

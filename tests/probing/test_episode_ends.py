@@ -898,7 +898,6 @@ CASES["q1-ASAC-truncation"] = Case(
     _q1_asac(ASAC_TRUNC, {"Q(B) - Q(A)": 1.0}),
     1250,
     (0.1,),
-    "ASAC bootstraps a truncated step on the reset observation, the next buffer row (buffers/utils.py:140; the collector stores last_obs only, interaction.py:900-907); right Q(B) - Q(A) = (r_B - r_A) / 2 = 1.5, today (r_B - r_A) / (2 - 1/2) = 2.0",
 )
 
 APO_SIGN = "APO's value loss is 0.5 mean(((V - nu b) - target)^2) (train_APO.py:251) and b an EMA of mean V (:372), so each fit pulls V towards target + nu b and |b| grows without bound"

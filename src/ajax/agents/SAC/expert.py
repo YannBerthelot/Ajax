@@ -81,9 +81,13 @@ def collect_and_store_expert_transitions(
 
     buffer_obs_dim = buffer_state.experience["obs"].shape[-1]
     expert_obs_dim = flat.obs.shape[-1]
-    flat_obs = maybe_append_train_frac(
-        flat.obs,
-        train_frac=0.0 if buffer_obs_dim == expert_obs_dim + 1 else None,
+    train_frac = 0.0 if buffer_obs_dim == expert_obs_dim + 1 else None
+    flat_obs = maybe_append_train_frac(flat.obs, train_frac=train_frac)
+    # The expert collector's next observations are the final ones at every
+    # end, the live collector's (bootstrap_obs) at time limits only: they
+    # differ at terminations alone, which SAC's target masks.
+    flat_next_obs = maybe_append_train_frac(
+        flat.next_obs.astype(jnp.float32), train_frac=train_frac
     )
     flat_raw_obs = flat.raw_obs if flat.raw_obs is not None else flat.obs
 
@@ -99,6 +103,7 @@ def collect_and_store_expert_transitions(
             "reward": take(flat.reward),
             "terminated": take(flat.terminated),
             "truncated": take(flat.truncated),
+            "next_obs": take(flat_next_obs),
             "raw_obs": take(flat_raw_obs),
             "is_expert": take(jnp.ones_like(flat_obs[..., :1])),
         }

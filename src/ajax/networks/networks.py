@@ -39,27 +39,26 @@ class Encoder(nn.Module):
     penultimate_normalization: bool = False
     kernel_init: Optional[str] = None
     bias_init: Optional[str] = None
-    # When True, skip both LayerNorm and L2 normalization at the encoder
-    # output. Required for identity-pass-through to be learnable, e.g.
-    # when the actor input includes the expert action and BC must be
-    # able to copy it to the output. Default False preserves the
-    # existing LayerNorm behaviour for all other call sites.
-    disable_output_norm: bool = False
+    # Opt-in LayerNorm on the output features. Off by default: the SAC,
+    # TD3, PPO and DQN papers use plain MLPs. Ignored under
+    # penultimate_normalization, which takes precedence.
+    layer_norm: bool = False
 
     def setup(self):
         layers = parse_architecture(
             self.input_architecture, self.kernel_init, self.bias_init
         )
         self.network = nn.Sequential(layers)
-        self.norm = nn.LayerNorm()
+        if self.layer_norm:
+            self.norm = nn.LayerNorm()
 
     def __call__(self, x):
         features = self.network(x)
-        if self.disable_output_norm:
-            return features
         if self.penultimate_normalization:
             return _l2_normalize(features, axis=1)
-        return self.norm(features)
+        if self.layer_norm:
+            return self.norm(features)
+        return features
 
 
 class CNNEncoder(nn.Module):
@@ -183,13 +182,8 @@ class Actor(nn.Module):
     # move; combined with the wide std=1 exploration noise this produces
     # the "train_reward >> eval_reward" pathology on continuous control.
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    # When True, skip the LayerNorm at the encoder output. Ajax's
-    # Encoder applies ``nn.LayerNorm()`` to the final hidden features
-    # before the policy/value heads; brax PPO's MLP does not. The
-    # LayerNorm silently rescales the encoder output to ~N(0,1) PRE
-    # the heads, which interacts badly with brax-tuned lecun_uniform
-    # head init (the heads expect un-normalised inputs).
-    disable_encoder_output_norm: bool = False
+    # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
+    encoder_layer_norm: bool = False
     # Optional CNN encoder. When `cnn_image_shape` is provided, the encoder
     # treats obs as `(*batch, H*W*C + cnn_extra_obs_dim)` flat: the image
     # portion is reshaped to NHWC, run through a small conv stack, then
@@ -217,7 +211,7 @@ class Actor(nn.Module):
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
                 bias_init=self.encoder_bias_init,
-                disable_output_norm=self.disable_encoder_output_norm,
+                layer_norm=self.encoder_layer_norm,
             )
         if self.kernel_init is None:
             kernel_init = orthogonal(1.0)
@@ -317,9 +311,8 @@ class Critic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
-    # See Actor.disable_encoder_output_norm for rationale; same field
-    # for the critic so PPO can disable LayerNorm on both heads.
-    disable_encoder_output_norm: bool = False
+    # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
+    encoder_layer_norm: bool = False
     # When set, the encoder is a `CNNEncoder` over flat image obs rather
     # than the MLP `Encoder`. See `NetworkConfig.cnn_image_shape`. Valid
     # only for state-value critics (obs-only input); an action-value
@@ -346,7 +339,7 @@ class Critic(nn.Module):
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
                 bias_init=self.encoder_bias_init,
-                disable_output_norm=self.disable_encoder_output_norm,
+                layer_norm=self.encoder_layer_norm,
             )
         kernel_init = (
             orthogonal(1.0)
@@ -400,7 +393,7 @@ class MultiCritic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
-    disable_encoder_output_norm: bool = False
+    encoder_layer_norm: bool = False
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
@@ -431,7 +424,7 @@ class MultiCritic(nn.Module):
             bias_init=self.bias_init,
             encoder_kernel_init=self.encoder_kernel_init,
             encoder_bias_init=self.encoder_bias_init,
-            disable_encoder_output_norm=self.disable_encoder_output_norm,
+            encoder_layer_norm=self.encoder_layer_norm,
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
@@ -480,7 +473,6 @@ def get_initialized_actor_critic(
     log_std_state_independent: bool = False,
     log_std_init: float = -1.0,
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    disable_encoder_output_norm: bool = False,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
     Create actor and critic networks.
@@ -550,7 +542,7 @@ def get_initialized_actor_critic(
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
             mean_kernel_init=mean_kernel_init,
-            disable_encoder_output_norm=disable_encoder_output_norm,
+            encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
         )
     critic = MultiCritic(
@@ -561,7 +553,7 @@ def get_initialized_actor_critic(
         bias_init=critic_bias_init,
         encoder_kernel_init=encoder_kernel_init,
         encoder_bias_init=encoder_bias_init,
-        disable_encoder_output_norm=disable_encoder_output_norm,
+        encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=critic_cnn_image_shape,
         cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
@@ -623,6 +615,7 @@ def get_initialized_critic(
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
+        encoder_layer_norm=network_config.encoder_layer_norm,
         num=num_critics,
     )
 

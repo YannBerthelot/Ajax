@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "6fcb0fefdd7a"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "99d0216e0c08"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -171,8 +171,8 @@ class GradientValueEnv(continuous.ValueLossOrOptimizerEnv):
     transition_gradients_enabled = True
 
 
-# (continuous, discrete) package probes: the 1-step value probe (reward 1);
-# the chain (0 then 1: V(1) = 1, V(0) = gamma).
+# (continuous, discrete) package probes: the 1-step value probe (reward 1,
+# observed at 1: envs.package); the chain (0 then 1: V(1) = 1, V(0) = gamma).
 ENV = {
     "value": (continuous.ValueLossOrOptimizerEnv, discrete.ValueLossOrOptimizerEnv),
     "chain": (continuous.RewardDiscountingEnv, discrete.RewardDiscountingEnv),
@@ -182,13 +182,13 @@ CELLS = {  # cell: probe, extensions (continuous, discrete)
     "B": ("value", ((CriticPull(),), (CriticPull(),))),
     "E7": ("value", ((MC,), ())),
     "F": ("chain", ((TerminalSafeShift(),), (TerminalSafeShift(),))),
-    "G": ("value", ((ActorPull(gated=True),), ())),
+    "G": ("value", ((ActorPull(gated=True, probe_obs=(1.0,)),), ())),
 }
 
 
 def _p3_read(agent: str, cell: str) -> Callable:
     """V(0), V(1) by the agent's own readout (SAC's chain V(0) without the
-    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the action and
+    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the actions and
     phi*."""
 
     def one(n: R.Nets) -> dict:
@@ -197,9 +197,9 @@ def _p3_read(agent: str, cell: str) -> Callable:
             v["V(0)"] -= GAMMA * R.alpha(n) * R.entropy(R.pi(n, 1.0), R.KEY)
         if agent in ("DQN", "PQN"):
             return v
-        v["a(0)"] = R.action(n, 0.0)
+        v |= {"a(0)": R.action(n, 0.0), "a(1)": R.action(n, 1.0)}
         if cell == "E7":
-            v["phi*(0, a_E)"] = R.critic(n, 0.0, 0.3, params=n.extra)
+            v["phi*(1, a_E)"] = R.critic(n, 1.0, 0.3, params=n.extra)
         return v
 
     def read(run: runs.Run) -> dict:
@@ -254,10 +254,10 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
     w = 0.5 * _default(PPO, "vf_coef") if agent == "PPO" else 1.0
     loc = {"pull on the pre-squash loc": float(np.tanh(-0.5))} if agent == "SAC" else {}
     single = {
-        "E2": Query("V(0)", w / (w + 100.0), {"term not folded or no gradient": 1.0}),
+        "E2": Query("V(1)", w / (w + 100.0), {"term not folded or no gradient": 1.0}),
         "E3": Query("a(0)", -0.5, {"no pull (max-entropy or initial mean)": 0.0} | loc),
-        "E3-gated": Query("a(0)", -0.5, {"gate never opens (ctx.step 0)": 0.0}),
-        "E7": Query("phi*(0, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
+        "E3-gated": Query("a(1)", -0.5, {"gate never opens (ctx.step 0)": 0.0}),
+        "E7": Query("phi*(1, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
     }
     return (single[test],)
 

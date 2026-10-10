@@ -119,7 +119,9 @@ def get_initialized_td3_actor_critic(
     pid_actor_config: Optional[object] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """TD3-specific init: deterministic actor + standard MultiCritic ensemble
-    (its encoder's output LayerNorm per ``network_config``; TD3 turns it off).
+    (a plain MLP, as Fujimoto's critic -- sfujim/TD3, TD3.py, Critic: Linear
+    -> ReLU -> Linear -> ReLU -> Linear -- unless ``network_config`` opts
+    into the encoder's LayerNorm).
 
     Falls back to PIDActor when pid_actor_config is provided (the PID actor
     already returns a deterministic action via its `.mean()`).
@@ -154,7 +156,7 @@ def get_initialized_td3_actor_critic(
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_bias_init=network_config.encoder_bias_init,
-        disable_encoder_output_norm=network_config.disable_encoder_output_norm,
+        encoder_layer_norm=network_config.encoder_layer_norm,
         memory=memory,
     )
 

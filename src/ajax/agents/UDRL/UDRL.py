@@ -73,6 +73,9 @@ class UDRL(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            # Kept from Ajax's earlier networks: a LayerNorm on the policy
+            # encoder's output (the shared default is now a plain MLP).
+            encoder_layer_norm=True,
             extensions=extensions,
         )
 

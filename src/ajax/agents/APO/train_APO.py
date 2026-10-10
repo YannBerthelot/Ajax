@@ -13,24 +13,31 @@ from typing import Any, Callable, Optional, Tuple
 import distrax
 import jax
 import jax.numpy as jnp
-from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.APO.utils import _compute_gae
 from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, gradient_step
-from ajax.agents.PPO.utils import get_minibatches_from_batch
-from ajax.agents.SAC.utils import SquashedNormal
-from ajax.environments.interaction import get_pi, init_collector_state
-from ajax.environments.utils import (
-    check_env_is_gymnax,
-    check_if_environment_has_continuous_actions,
+from ajax.agents.PPO.core import (
+    AuxiliaryLogs,
+    PolicyAuxiliaries,
+    ValueAuxiliaries,
+    clipped_surrogate,
+    policy_entropy,
+    recompute_log_prob,
+    resolve_clip_coef,
+    resolve_num_minibatches,
+    rollout_actions,
+    run_epochs,
 )
+from ajax.agents.PPO.train_PPO import init_PPO
+from ajax.agents.PPO.utils import get_minibatches_from_batch
+from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDActorConfig
-from ajax.networks.networks import get_initialized_actor_critic, predict_value
+from ajax.networks.networks import predict_value
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -38,52 +45,6 @@ from ajax.state import (
     OptimizerConfig,
     Transition,
 )
-
-
-@struct.dataclass
-class PolicyAuxiliaries:
-    policy_loss: float
-    log_probs: float
-    old_log_probs: float
-    clip_fraction: float
-    entropy: float
-
-
-@struct.dataclass
-class ValueAuxiliaries:
-    critic_loss: float
-    predictions: float
-    targets: float
-
-
-@struct.dataclass
-class AuxiliaryLogs:
-    policy: PolicyAuxiliaries
-    value: ValueAuxiliaries
-
-
-def compute_entropy_and_log_probs(pi, actions, raw_actions=None):
-    """Return new log_probs and entropy with shape normalization.
-
-    For SquashedNormal policies, pass the pre-tanh ``raw_actions``
-    (stored at collection time) to get a numerically stable log_prob
-    via ``pi.log_prob_from_raw(raw_actions)`` -- avoids the unstable
-    ``arctanh(post_tanh_action)`` path inside distrax. See m4 audit
-    (May 2026) and ``SquashedNormal.log_prob_from_raw`` docstring.
-    """
-    if isinstance(pi, distrax.Categorical):
-        new_log_probs = jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
-        entropy = jnp.expand_dims(pi.entropy(), -1)
-    elif isinstance(pi, SquashedNormal) and raw_actions is not None:
-        # SAFE recompute via the helper -- never inverts tanh.
-        new_log_probs = pi.log_prob_from_raw(raw_actions)
-        entropy = pi.unsquashed_entropy()
-    else:
-        new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-        entropy = (
-            pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
-        )
-    return new_log_probs, entropy
 
 
 def policy_loss_function(
@@ -95,26 +56,19 @@ def policy_loss_function(
     gae: jax.Array,
     clip_coef: float,
     ent_coef: float,
-    # Pre-tanh raw action for SquashedNormal log_prob recompute (m4).
-    # See SquashedNormal.log_prob_from_raw and PPO's policy_loss_function
-    # for the rationale. None ⇒ fall back to the standard
-    # pi.log_prob(actions) path (Categorical or unsquashed policies).
     raw_actions: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
-    """Clipped surrogate loss; also returns the policy mean for extensions
-    (``None`` for a discrete policy, which has no mean action)."""
+    """PPO's clipped surrogate with the latent entropy bonus; also returns
+    the policy mean for extensions (``None`` for a discrete policy, which
+    has no mean action)."""
     pi, _ = get_pi(actor_state, actor_params, observations)
-    new_log_probs, entropy = compute_entropy_and_log_probs(
-        pi, actions, raw_actions=raw_actions
-    )
+    new_log_probs = recompute_log_prob(pi, actions, raw_actions)
+    entropy = policy_entropy(pi)
     ratio = jnp.exp(new_log_probs - log_probs)
     assert (
         ratio.shape[0] == gae.shape[0]
     ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
-    loss_actor1 = ratio * gae
-    loss_actor2 = jnp.clip(ratio, 1.0 - clip_coef, 1.0 + clip_coef) * gae
-    loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
-    clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
+    loss_actor, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
     total_loss = (loss_actor - ent_coef * entropy.mean()).mean()
     aux = PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -181,66 +135,19 @@ def init_APO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    window_size: int = 10,
     pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> APOState:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
-    actor_state, critic_state = get_initialized_actor_critic(
-        key=init_key,
-        env_config=env_args,
-        actor_optimizer_config=actor_optimizer_args,
-        critic_optimizer_config=critic_optimizer_args,
-        network_config=network_args,
-        continuous=check_if_environment_has_continuous_actions(
-            env_args.env, env_params=env_args.env_params
-        ),
-        action_value=False,
-        # Average-reward PPO (Ma et al. 2021). Continuous-action APO on
-        # bounded control envs (brax / mujoco_playground) suffers the
-        # same Gaussian-saturates-at-clip pathology as PPO when
-        # squash=False (unbounded Normal + external ClipActionBrax).
-        # Squashing natively keeps the policy in [-1, 1] with a correct
-        # log-prob Jacobian. Discrete-action APO ignores this flag.
-        squash=True,
-        # brax-style policy noise: a single learnable scalar log_std per
-        # action dim (state-independent), init at log(std=1.0)=0.0 —
-        # ~3.5x more exploration than Ajax's legacy state-dependent
-        # log_std with bias=-1 (std≈0.37). See PPO for the rationale.
-        log_std_state_independent=True,
-        log_std_init=0.0,
-        # brax-style mean-head init: see PPO for the rationale. Legacy
-        # orthogonal(0.01) gives an essentially-zero deterministic eval
-        # action; lecun_uniform produces moderate initial actions that
-        # train_reward >> eval_reward feedback was traced to.
-        mean_kernel_init="lecun_uniform",
-        # brax MLP has no output LayerNorm; Ajax's Encoder adds one by
-        # default. Disable to match brax (see PPO for full rationale).
-        disable_encoder_output_norm=True,
-        num_critics=1,
+    """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`),
+    the reward rate and the value bias at 0."""
+    state = init_PPO(
+        key,
+        env_args,
+        actor_optimizer_args,
+        critic_optimizer_args,
+        network_args,
         pid_actor_config=pid_actor_config,
-        actor_kernel_init=network_args.actor_kernel_init,
-        actor_bias_init=network_args.actor_bias_init,
-        critic_kernel_init=network_args.critic_kernel_init,
-        critic_bias_init=network_args.critic_bias_init,
-        encoder_kernel_init=network_args.encoder_kernel_init,
-        encoder_bias_init=network_args.encoder_bias_init,
     )
-    collector_state = init_collector_state(
-        collector_key,
-        env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
-        window_size=window_size,
-    )
-    return APOState(
-        rng=rng,
-        eval_rng=rng,
-        actor_state=actor_state,
-        critic_state=critic_state,
-        collector_state=collector_state,
-        n_updates=0,
-        average_reward=0.0,
-        b=0.0,
-    )
+    return APOState(**vars(state), average_reward=0.0, b=0.0)
 
 
 def value_loss_function(
@@ -295,61 +202,6 @@ def update_value_functions(
 
     critic_state, aux = gradient_step(critic_state, loss_fn)
     return agent_state.replace(critic_state=critic_state), aux
-
-
-def update_epoch(
-    agent_state: APOState,
-    minibatches: tuple,
-    agent_config: APOConfig,
-    b: float,
-    extension_stack: ExtensionStack,
-    total_timesteps: int,
-) -> Tuple[APOState, AuxiliaryLogs]:
-    """One epoch: a critic and an actor step on every minibatch (minibatch
-    axis leading); the metrics stacked per minibatch."""
-
-    def minibatch_step(agent_state: APOState, mb: tuple) -> Tuple[APOState, Any]:
-        (
-            observations,
-            actions,
-            _terminated,
-            _truncated,
-            value_targets,
-            gae,
-            log_probs,
-            raw_observations,
-            raw_action,
-        ) = mb
-        agent_state, aux_value = update_value_functions(
-            agent_state,
-            observations,
-            value_targets,
-            agent_config.nu,
-            b,
-            extension_stack,
-            total_timesteps,
-        )
-        clip_coef = (
-            agent_config.clip_range(agent_state.collector_state.timestep)
-            if callable(agent_config.clip_range)
-            else agent_config.clip_range
-        )
-        agent_state, aux_policy = update_policy(
-            agent_state,
-            observations,
-            actions,
-            gae,
-            log_probs,
-            clip_coef,
-            agent_config.ent_coef,
-            extension_stack,
-            total_timesteps,
-            raw_observations=raw_observations,
-            raw_actions=raw_action,  # m4: SquashedNormal log_prob recompute
-        )
-        return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
-
-    return jax.lax.scan(minibatch_step, agent_state, minibatches)
 
 
 def update_agent(
@@ -419,66 +271,49 @@ def update_agent(
     if agent_config.normalize_advantage:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
 
-    assert transition.log_prob is not None  # an on-policy rollout carries it
-    batch = (
-        transition.obs,
-        (
-            jnp.expand_dims(transition.action, axis=-1)
-            if jnp.ndim(transition.action)
-            < 3  # discrete case without trailing dimension
-            else transition.action
-        ),
-        transition.terminated,
-        transition.truncated,
-        value_targets,
-        gae,
-        (
-            jnp.expand_dims(transition.log_prob, axis=-1)
-            if jnp.ndim(transition.log_prob)
-            < 3  # discrete case without trailing dimension
-            else transition.log_prob.sum(-1, keepdims=True)
-        ),
-        transition.raw_obs,
-        # Pre-tanh raw_action for SquashedNormal log_prob recompute
-        # (m4 fix). For non-squashed / discrete policies this equals
-        # ``transition.action``, so same shape.
-        transition.raw_action,
-    )
-
+    actions, log_probs = rollout_actions(transition)
+    batch = {
+        "obs": transition.obs,
+        "actions": actions,
+        "targets": value_targets,
+        "gae": gae,
+        "log_probs": log_probs,
+        "raw_obs": transition.raw_obs,
+        "raw_actions": transition.raw_action,
+    }
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
-
-    # num_minibatches: brax-style when set explicitly (positive),
-    # independent of batch_size and n_steps; otherwise legacy Ajax,
-    # derived from the batch_size / n_steps ratio.
-    if agent_config.num_minibatches > 0:
-        num_minibatches = agent_config.num_minibatches
-    else:
-        assert (
-            max(agent_config.batch_size, agent_config.n_steps)
-            % min(agent_config.batch_size, agent_config.n_steps)
-            == 0
-        ), (
-            "can't evenly break n_steps into batch size chunks,"
-            f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
-        )
-        num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
-            agent_config.batch_size, agent_config.n_steps
-        )
     minibatches = get_minibatches_from_batch(
-        batch, rng=shuffle_key, num_minibatches=num_minibatches
+        batch, shuffle_key, resolve_num_minibatches(agent_config)
     )
 
-    def epoch(agent_state: APOState, _: Any) -> Tuple[APOState, AuxiliaryLogs]:
-        return update_epoch(
-            agent_state, minibatches, agent_config, b, extension_stack, total_timesteps
+    def step(agent_state: APOState, mb: dict) -> Tuple[APOState, AuxiliaryLogs]:
+        """A critic, then an actor step on one minibatch."""
+        agent_state, aux_value = update_value_functions(
+            agent_state,
+            mb["obs"],
+            mb["targets"],
+            agent_config.nu,
+            b,
+            extension_stack,
+            total_timesteps,
         )
+        agent_state, aux_policy = update_policy(
+            agent_state,
+            mb["obs"],
+            mb["actions"],
+            mb["gae"],
+            mb["log_probs"],
+            resolve_clip_coef(agent_config, agent_state.collector_state.timestep),
+            agent_config.ent_coef,
+            extension_stack,
+            total_timesteps,
+            raw_observations=mb["raw_obs"],
+            raw_actions=mb["raw_actions"],
+        )
+        return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
 
-    agent_state, aux = jax.lax.scan(
-        epoch, agent_state, xs=None, length=agent_config.n_epochs
-    )
-    # The metrics, averaged over every epoch and minibatch.
-    aux = jax.tree.map(jnp.mean, aux)
+    agent_state, aux = run_epochs(agent_state, minibatches, step, agent_config.n_epochs)
     return agent_state.replace(n_updates=agent_state.n_updates + 1), aux
 
 

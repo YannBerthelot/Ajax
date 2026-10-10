@@ -1,5 +1,3 @@
-from typing import Optional
-
 import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
@@ -29,7 +27,7 @@ def _compute_gae(
     """
 
     def _get_advantages(
-        gae_next_value: tuple[jax.Array, jax.Array, Optional[jax.Array]],
+        gae_next_value: tuple[jax.Array, jax.Array],
         transition,
     ) -> tuple[tuple[jax.Array, jax.Array], jax.Array]:
         """

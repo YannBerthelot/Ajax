@@ -1,21 +1,48 @@
+"""PPO (Schulman et al., 2017) with brax's minibatch geometries.
+
+Each iteration collects an ``(n_steps, n_envs)`` rollout, then runs
+``n_epochs`` passes of a critic and an actor step on every minibatch of it
+(the clipped surrogate: :mod:`ajax.agents.PPO.core`). The rollout's
+:class:`Geometry` decides how it is minibatched and where GAE is computed:
+
+* ``time``: fragments of ``length`` steps (whole rollouts per env unless
+  ``unroll_length``) shuffled into minibatches, GAE recomputed in every
+  minibatch with the current critic (brax's ``compute_ppo_loss``);
+* ``flat``: GAE once on the whole rollout, then a flat shuffle of the
+  samples (when the fragments do not split evenly, e.g. one env);
+* ``recurrent``: GAE once on the whole rollout, then a shuffle of whole
+  sequences of ``length`` steps, each replayed from the carry it started
+  from.
+"""
+
+import dataclasses
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
-import distrax
 import jax
 import jax.numpy as jnp
-from flax import struct
 from flax.core import FrozenDict
-from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
+from ajax.agents.PPO.core import (
+    AuxiliaryLogs,
+    PolicyAuxiliaries,
+    ValueAuxiliaries,
+    clipped_surrogate,
+    policy_entropy,
+    recompute_log_prob,
+    resolve_clip_coef,
+    resolve_num_minibatches,
+    rollout_actions,
+    run_epochs,
+)
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.utils import (
     _compute_gae,
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
+    split_fragments,
 )
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     collect_experience,
     get_pi,
@@ -47,29 +74,8 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    Transition,
 )
-
-
-@struct.dataclass
-class PolicyAuxiliaries:
-    policy_loss: float
-    log_probs: float
-    old_log_probs: float
-    clip_fraction: float
-    entropy: float
-
-
-@struct.dataclass
-class ValueAuxiliaries:
-    critic_loss: float
-    predictions: float
-    targets: float
-
-
-@struct.dataclass
-class AuxiliaryLogs:
-    policy: PolicyAuxiliaries
-    value: ValueAuxiliaries
 
 
 def init_PPO(
@@ -78,24 +84,11 @@ def init_PPO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    window_size: int = 10,
     pid_actor_config: Optional[PIDActorConfig] = None,
     normalize_obs_running: bool = False,
 ) -> PPOState:
-    """
-    Initialize the PPO agent's state, including actor, critic, alpha, and collector states.
-
-    Args:
-        key (jax.Array): Random number generator key.
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        buffer (BufferType): Replay buffer.
-
-    Returns:
-        PPOState: Initialized PPO agent state.
-    """
+    """The initial actor, critic and collector; with
+    ``normalize_obs_running``, the agent-side observation statistics."""
     (
         rng,
         init_key,
@@ -132,7 +125,6 @@ def init_PPO(
         collector_key,
         env_args=env_args,
         mode=mode,
-        window_size=window_size,
         normalize_obs_running=normalize_obs_running,
     )
 
@@ -163,54 +155,30 @@ def value_loss_function(
     critic_states: LoadedTrainState,
     observations: jax.Array,
     value_targets: jax.Array,
-    dones: jax.Array,
     recurrent: bool,
     vf_coef: float = 1.0,
     extra_loss_fn: Optional[Callable] = None,
+    resets: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """
-    Compute the value loss for the critic networks.
-
-    Args:
-        critic_params (FrozenDict): Parameters of the critic networks.
-        critic_states (LoadedTrainState): Critic train states.
-        rng (jax.Array): Random number generator key.
-        actor_state (LoadedTrainState): Actor train state.
-        actions (jax.Array): Actions taken.
-        observations (jax.Array): Current observations.
-        next_observations (jax.Array): Next observations.
-        dones (jax.Array): Done flags.
-        rewards (jax.Array): Rewards received.
-        gamma (float): Discount factor.
-        alpha (jax.Array): Temperature parameter.
-        recurrent (bool): Whether the model is recurrent.
-        reward_scale (float): Reward scaling factor.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
-    """
-
-    # Predict V-values from critics
+    """``vf_coef * 0.5 * MSE(V(obs), targets)`` plus ``extra_loss_fn``'s
+    term. A recurrent critic replays the sequence from ``initial_hidden``,
+    ``resets`` flagging the observations that start an episode."""
     if recurrent:
-        # `dones` carries obs-aligned reset flags (episode starts) in the
-        # recurrent path; `initial_hidden` is the rollout-start carry.
         v_preds, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_params,
             x=observations,
-            resets=dones,
+            resets=resets,
             initial_hidden=initial_hidden,
         )
-        v_preds = v_preds.squeeze(0)
     else:
         v_preds = predict_value(
             critic_state=critic_states,
             critic_params=critic_params,
             x=observations,
-        ).squeeze(
-            0
-        )  # squeeze to stay consistent with ensemble_critic that adds a leading dimension even for a single critic.
+        )
+    v_preds = v_preds.squeeze(0)  # the single critic keeps the ensemble axis
 
     loss = vf_coef * 0.5 * jnp.mean((v_preds - value_targets) ** 2)
     if extra_loss_fn is not None:
@@ -232,7 +200,6 @@ def policy_loss_function(
     actions: jax.Array,
     log_probs: jax.Array,
     gae: jax.Array,
-    dones: Optional[jax.Array],
     recurrent: bool,
     clip_coef: float,
     ent_coef: float,
@@ -240,86 +207,33 @@ def policy_loss_function(
     extra_loss_fn: Optional[Callable] = None,
     raw_actions: Optional[jax.Array] = None,
     entropy_rng: Optional[jax.Array] = None,
+    resets: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
-    """
-    Compute the policy loss for the actor network.
-
-    Args:
-        actor_params (FrozenDict): Parameters of the actor network.
-        actor_state (LoadedTrainState): Actor train state.
-        critic_states (LoadedTrainState): Critic train states.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        recurrent (bool): Whether the model is recurrent.
-        alpha (jax.Array): Temperature parameter.
-        rng (jax.random.PRNGKey): Random number generator key.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, jax.Array]]: Loss and auxiliary metrics.
-    """
+    """The clipped surrogate minus ``ent_coef`` times the entropy bonus,
+    plus ``extra_loss_fn``'s term; with ``advantage_normalization`` the
+    advantages are normalised per minibatch. A recurrent actor replays the
+    sequence from ``initial_hidden`` (the live carry on ``actor_state`` has
+    advanced past this rollout), ``resets`` flagging episode starts."""
     if recurrent:
-        # Sequence-mode BPTT: observations are time-major (T, B, obs),
-        # `dones` carries obs-aligned reset flags and `initial_hidden` the
-        # rollout-start carry (the live carry on actor_state has already
-        # advanced past this rollout).
         pi, _ = get_pi_sequence(
             actor_state=actor_state,
             actor_params=actor_params,
             obs=observations,
-            resets=dones,
+            resets=resets,
             initial_hidden=initial_hidden,
         )
     else:
-        pi, _ = get_pi(
-            actor_state=actor_state,
-            actor_params=actor_params,
-            obs=observations,
-            done=dones,
-            recurrent=recurrent,
-        )
+        pi, _ = get_pi(actor_state, actor_params, observations)
 
-    # Need to deal with various shapes depending on brax vs gymnax and discrete vs continuous
-
-    if isinstance(pi, distrax.Categorical):
-        new_log_probs = jnp.expand_dims(
-            pi.log_prob(actions.squeeze(-1)), -1
-        )  # .sum(-1, keepdims=True)
-    elif isinstance(pi, SquashedNormal) and raw_actions is not None:
-        new_log_probs = pi.log_prob_from_raw(raw_actions)
-    else:
-        new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-
+    new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     ratio = jnp.exp(new_log_probs - log_probs)
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-    loss_actor1 = ratio * gae
-    loss_actor2 = (
-        jnp.clip(
-            ratio,
-            1.0 - clip_coef,
-            1.0 + clip_coef,
-        )
-        * gae
-    )
-
-    loss_actor = -jnp.minimum(loss_actor1, loss_actor2).mean()
-
-    # CALCULATE AUXILIARIES
-    clip_fraction = (jnp.abs(ratio - 1) > clip_coef).mean()
-
-    # Match brax NormalTanhDistribution.entropy: latent Gaussian entropy
-    # plus the tanh log-det-jacobian evaluated at a sample (1-sample MC
-    # estimate). Without the Jacobian term, the entropy bonus is the
-    # latent-Gaussian entropy only -- which is independent of mean, so
-    # the entropy gradient never flows back to the mean head.
-    if isinstance(pi, SquashedNormal) and entropy_rng is not None:
-        entropy = pi.effective_entropy(entropy_rng, num_samples=1).mean()
-    elif isinstance(pi, SquashedNormal):
-        entropy = pi.unsquashed_entropy().mean()
-    else:
-        entropy = pi.entropy().mean()
+    surrogate, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
+    loss_actor = surrogate.mean()
+    entropy = policy_entropy(pi, entropy_rng).mean()
 
     total_loss = loss_actor - ent_coef * entropy
     if extra_loss_fn is not None:
@@ -332,78 +246,6 @@ def policy_loss_function(
         clip_fraction=clip_fraction,
         entropy=entropy,
     )
-
-
-VALUE_AND_GRAD_FN = jax.value_and_grad(value_loss_function, has_aux=True)
-POLICY_AND_GRAD_FN = jax.value_and_grad(policy_loss_function, has_aux=True)
-
-
-def _value_and_grad_with_extra(extra_loss_fn):
-    """Return value_and_grad of value_loss_function with ``extra_loss_fn`` bound
-    by closure so it doesn't have to be passed as an arg through jax's flatten.
-    """
-
-    def bound(
-        critic_params,
-        critic_states,
-        observations,
-        value_targets,
-        dones,
-        recurrent,
-        vf_coef=1.0,
-        initial_hidden=None,
-    ):
-        return value_loss_function(
-            critic_params,
-            critic_states,
-            observations,
-            value_targets,
-            dones,
-            recurrent,
-            vf_coef=vf_coef,
-            extra_loss_fn=extra_loss_fn,
-            initial_hidden=initial_hidden,
-        )
-
-    return jax.value_and_grad(bound, has_aux=True)
-
-
-def _policy_value_and_grad_with_extra(extra_loss_fn):
-    def bound(
-        actor_params,
-        actor_state,
-        observations,
-        actions,
-        log_probs,
-        gae,
-        dones,
-        recurrent,
-        clip_coef,
-        ent_coef,
-        advantage_normalization,
-        raw_actions=None,
-        entropy_rng=None,
-        initial_hidden=None,
-    ):
-        return policy_loss_function(
-            actor_params,
-            actor_state,
-            observations,
-            actions,
-            log_probs,
-            gae,
-            dones,
-            recurrent,
-            clip_coef,
-            ent_coef,
-            advantage_normalization,
-            extra_loss_fn=extra_loss_fn,
-            raw_actions=raw_actions,
-            entropy_rng=entropy_rng,
-            initial_hidden=initial_hidden,
-        )
-
-    return jax.value_and_grad(bound, has_aux=True)
 
 
 # ---------------------------------------------------------------------------
@@ -469,326 +311,293 @@ def _stack_actor_loss(
     return actor_loss
 
 
-def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branches)
+# ---------------------------------------------------------------------------
+# Minibatch geometry
+# ---------------------------------------------------------------------------
+@dataclasses.dataclass(frozen=True)
+class Geometry:
+    """How an update minibatches its rollout (the module docstring)."""
+
+    kind: str  # "time", "flat" or "recurrent"
+    num_minibatches: int
+    length: int  # steps per fragment ("time") or sequence ("recurrent")
+
+
+def minibatch_geometry(
+    agent_config: PPOConfig, n_steps: int, n_envs: int, recurrent: bool
+) -> Geometry:
+    """The rollout's :class:`Geometry`.
+
+    ``time`` needs fragments that split evenly into more than one
+    minibatch: recomputing GAE on a single minibatch, the whole rollout,
+    with a critic that just stepped only makes the value targets oscillate
+    (the flake of the one-env probing fixture). A recurrent rollout is a
+    pool of sequences of ``bptt_length`` steps (whole rollouts by default),
+    in one minibatch when the pool does not split evenly (one env).
+    """
+    num_minibatches = resolve_num_minibatches(agent_config)
+    if recurrent:
+        length = agent_config.bptt_length or n_steps
+        if n_steps % length:
+            raise ValueError(f"bptt_length ({length}) must divide n_steps ({n_steps}).")
+        if num_minibatches > 1 and n_steps // length * n_envs % num_minibatches == 0:
+            return Geometry("recurrent", num_minibatches, length)
+        return Geometry("recurrent", 1, length)
+    unroll = agent_config.unroll_length
+    if num_minibatches > 1:
+        if (
+            unroll is not None
+            and n_steps % unroll == 0
+            and n_steps // unroll * n_envs % num_minibatches == 0
+        ):
+            return Geometry("time", num_minibatches, unroll)
+        if n_envs % num_minibatches == 0:
+            return Geometry("time", num_minibatches, n_steps)
+    return Geometry("flat", num_minibatches, n_steps)
+
+
+def _recurrent_values(
+    agent_state: PPOState, rollout: Transition, start: PPOState, length: int
+) -> tuple[PPOState, jax.Array, jax.Array, jax.Array, tuple]:
+    """A recurrent rollout's values, next values and reset flags, and the
+    actor's and critic's carries at the start of each sequence of
+    ``length`` steps.
+
+    One critic pass gives the values and advances the critic carry, which
+    collection never steps: it ends as the next rollout's start carry. Run
+    as a scan over the sequences, it also yields their start carries. The
+    actor's are recomputed sequence by sequence with the current params (one
+    more pass, skipped for whole-rollout sequences, whose start carry is
+    exact): a sequence never starts from a zero carry mid-episode, the
+    variant that makes truncated BPTT worse than none. ``V(s_{t+1})`` is the
+    shifted sequence plus one step on the collector's last observation: at a
+    truncation, the reset observation (the usual recurrent-PPO
+    approximation; GAE masks terminal steps).
+
+    Returns the state (critic carry advanced), the values, the next values,
+    the reset flags (``resets[t]``: ``obs[t]`` starts an episode) and the
+    ``(actor, critic)`` start carries.
+    """
+    n_steps, n_envs = rollout.obs.shape[:2]
+    n_sequences = n_steps // length
+    initial_done = jnp.logical_or(
+        start.collector_state.last_terminated, start.collector_state.last_truncated
+    ).astype(bool)
+    dones_seq = jnp.logical_or(rollout.terminated, rollout.truncated).squeeze(-1)
+    resets = jnp.concatenate(
+        [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
+    )  # (T, B)
+    obs_seqs = rollout.obs.reshape(n_sequences, length, *rollout.obs.shape[1:])
+    resets_seqs = resets.reshape(n_sequences, length, n_envs)
+    critic, actor = agent_state.critic_state, agent_state.actor_state
+
+    def critic_chunk(carry: Any, seq: tuple) -> tuple[Any, tuple]:
+        obs, seq_resets = seq
+        values, carry_next = predict_value_sequence(
+            critic_state=critic,
+            critic_params=critic.params,
+            x=obs,
+            resets=seq_resets,
+            initial_hidden=carry,
+        )
+        return carry_next, (values, carry)
+
+    critic_end, (seq_values, critic_starts) = jax.lax.scan(
+        critic_chunk,
+        jax.lax.stop_gradient(start.critic_state.hidden_state),
+        (obs_seqs, resets_seqs),
+    )
+    # (S, num, L, B, 1) -> (num, T, B, 1) -> (T, B, 1)
+    values = jnp.moveaxis(seq_values, 0, 1).reshape(
+        seq_values.shape[1], n_steps, *seq_values.shape[3:]
+    )
+    values = values.squeeze(0)
+
+    initial_actor_hidden = jax.lax.stop_gradient(start.actor_state.hidden_state)
+    if n_sequences > 1:
+
+        def actor_chunk(carry: Any, seq: tuple) -> tuple[Any, Any]:
+            obs, seq_resets = seq
+            _, carry_next = get_pi_sequence(actor, actor.params, obs, seq_resets, carry)
+            return carry_next, carry
+
+        _, actor_starts = jax.lax.scan(
+            actor_chunk, initial_actor_hidden, (obs_seqs, resets_seqs)
+        )
+    else:
+        actor_starts = jax.tree.map(lambda x: x[None], initial_actor_hidden)
+
+    v_last, _ = predict_value_sequence(
+        critic_state=critic,
+        critic_params=critic.params,
+        x=agent_state.collector_state.last_obs[None],
+        resets=dones_seq[-1:].astype(bool),
+        initial_hidden=critic_end,
+    )
+    next_values = jnp.concatenate([values[1:], v_last.squeeze(0)], axis=0)
+    agent_state = agent_state.replace(
+        critic_state=critic.replace(hidden_state=jax.lax.stop_gradient(critic_end))
+    )
+    carries = jax.lax.stop_gradient((actor_starts, critic_starts))
+    return agent_state, values, next_values, resets, carries
+
+
+def _split_carries(x: jax.Array, perm: jax.Array, num_minibatches: int) -> jax.Array:
+    """``(S, B, ...)`` start carries to ``(k, S * B // k, ...)``, sequence
+    ``s * B + b`` in the order of ``perm`` (as :func:`split_fragments`)."""
+    x = x.reshape(-1, *x.shape[2:])
+    x = jnp.take(x, perm, axis=0)
+    return x.reshape(num_minibatches, -1, *x.shape[1:])
+
+
+def _sequence_minibatches(
+    batch: dict, carries: tuple, rng: jax.Array, num_minibatches: int, length: int
+) -> dict:
+    """A recurrent rollout's minibatches of whole sequences, each with the
+    actor's and the critic's carry at its start (the critic's ensemble axis
+    second)."""
+    n_steps, n_envs = batch["obs"].shape[:2]
+    perm = jax.random.permutation(rng, n_steps // length * n_envs)
+
+    def split(x: jax.Array) -> jax.Array:
+        return _split_carries(x, perm, num_minibatches)
+
+    actor_starts, critic_starts = carries
+    return split_fragments(batch, perm, num_minibatches, length) | {
+        "actor_hidden": jax.tree.map(split, actor_starts),
+        "critic_hidden": jax.tree.map(
+            jax.vmap(split, in_axes=1, out_axes=1), critic_starts
+        ),
+    }
+
+
+def _joint_clip(actor_grads: Any, critic_grads: Any) -> tuple[Any, Any]:
+    """brax's global-norm clip at 1.0, over both networks' gradients."""
+    actor_sq = sum(jnp.sum(jnp.square(g)) for g in jax.tree.leaves(actor_grads))
+    critic_sq = sum(jnp.sum(jnp.square(g)) for g in jax.tree.leaves(critic_grads))
+    scale = jnp.minimum(1.0, 1.0 / jnp.sqrt(actor_sq + critic_sq + 1e-12))
+    return jax.tree.map(lambda g: g * scale, (actor_grads, critic_grads))
+
+
+def _force_reset(
+    agent_state: PPOState, env_args: EnvironmentConfig, mode: str
+) -> PPOState:
+    """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
+
+    The env wrapper's reset re-initialises its observation normaliser: the
+    running statistics are kept, the fresh observation re-normalised with
+    them.
+    """
+    reset_key, new_rng = jax.random.split(agent_state.rng)
+    saved_norm = None
+    if mode == "brax" and "normalization_info" in (
+        agent_state.collector_state.env_state.info or {}
+    ):
+        saved_norm = agent_state.collector_state.env_state.info["normalization_info"]
+    reset_keys = (
+        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
+    )
+    new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
+    if saved_norm is not None:
+        fresh_obs_info = new_env_state.info["normalization_info"].obs
+        saved_obs_info = saved_norm.obs
+        # Undo fresh normalisation, re-apply saved-stats normalisation.
+        # Match online_normalize: it uses ``mean(clipped_std, axis=0)``
+        # to broadcast across envs (all rows of the batched stat are
+        # identical post-Welford). Apply the same clip + mean here so
+        # the recovered raw_obs is bit-for-bit what the env produced.
+        fresh_std = jnp.clip(jnp.sqrt(fresh_obs_info.var + 1e-8), 1e-6, 1e6).mean(
+            axis=0
+        )
+        fresh_mean = fresh_obs_info.mean.mean(axis=0)
+        raw_obs = new_obs * fresh_std + fresh_mean
+        saved_std = jnp.clip(jnp.sqrt(saved_obs_info.var + 1e-8), 1e-6, 1e6).mean(
+            axis=0
+        )
+        saved_mean = saved_obs_info.mean.mean(axis=0)
+        new_obs = (raw_obs - saved_mean) / saved_std
+        new_env_state.info["normalization_info"] = saved_norm
+        new_env_state = new_env_state.replace(obs=new_obs)
+    new_collector = agent_state.collector_state.replace(
+        _env_state=new_env_state, last_obs=new_obs
+    )
+    return agent_state.replace(collector_state=new_collector, rng=new_rng)
+
+
+# ---------------------------------------------------------------------------
+# The update
+# ---------------------------------------------------------------------------
+def update_agent(
     agent_state: PPOState,
-    _: Any,
+    rollout: Transition,
+    start: PPOState,
+    agent_config: PPOConfig,
     env_args: EnvironmentConfig,
     mode: str,
     recurrent: bool,
-    agent_config: PPOConfig,
+    extension_stack: ExtensionStack,
     total_timesteps: int,
     total_n_updates: int,
-    log_frequency: int = 1000,
-    num_episode_test: int = 10,
-    log_fn: Optional[Callable] = None,
-    index: Optional[int] = None,
-    log: bool = False,
     reward_shaping_fn: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
-) -> tuple[PPOState, None]:
-    """
-    Perform one training iteration, including experience collection and agent updates.
-
-    Args:
-        agent_state (PPOState): Current PPO agent state.
-        _ (Any): Placeholder for scan compatibility.
-        env_args (EnvironmentConfig): Environment configuration.
-        mode (str): Environment mode ("gymnax" or "brax").
-        recurrent (bool): Whether the model is recurrent.
-        agent_config (PPOConfig): PPO agent configuration.
-        total_n_updates (int): Number of training iterations.
-        log_frequency (int): Frequency of logging and evaluation.
-        num_episode_test (int): Number of episodes for evaluation.
-
-    Returns:
-        Tuple[PPOState, None]: Updated agent state.
-    """
-    # Recurrent bookkeeping: remember the carries and done flags valid for
-    # the FIRST observation of the rollout — the update replays the whole
-    # sequence from these, while collection advances the live actor carry.
-    if recurrent:
-        initial_actor_hidden = jax.lax.stop_gradient(
-            agent_state.actor_state.hidden_state
-        )
-        initial_critic_hidden = jax.lax.stop_gradient(
-            agent_state.critic_state.hidden_state
-        )
-        initial_done = jnp.logical_or(
-            agent_state.collector_state.last_terminated,
-            agent_state.collector_state.last_truncated,
-        ).astype(bool)
-    else:
-        initial_actor_hidden = None
-        initial_critic_hidden = None
-
-    collect_scan_fn = partial(
-        collect_experience, recurrent=recurrent, mode=mode, env_args=env_args
-    )
-    agent_state, transition = jax.lax.scan(
-        collect_scan_fn, agent_state, xs=None, length=agent_config.n_steps
-    )  # transition = s_t, a_t, r_{s_t -> s_{t+1}}, s_{t+1}, d_{s_t -> s_{t+1}}
-
-    # Gap A: expose the freshly collected ``(T, n_envs, ...)`` rollout on
-    # ``agent_state.last_rollout`` so cross-agent measurement extensions
-    # (EVarEst-style probes) can read an on-state-visitation batch
-    # without triggering a fresh rollout per eval. Off by default — the
-    # placeholder allocated in ``make_train`` keeps the scan carry's
-    # pytree structure stable; when disabled, ``last_rollout`` stays
-    # ``None`` and this branch is skipped (zero extra cost).
-    if agent_config.expose_recent_rollout:
-        agent_state = agent_state.replace(last_rollout=transition)
-
-    # GAE / value-target handling depends on the minibatch geometry:
-    #
-    #   * brax-faithful path (``n_envs % num_minibatches == 0``):
-    #     time-preserving minibatches built by splitting the env axis,
-    #     value baseline + GAE recomputed inside ``mb_body`` with the
-    #     CURRENT critic params (matches
-    #     brax/training/agents/ppo/losses.py::compute_ppo_loss).
-    #
-    #   * Legacy path (cannot evenly split env axis -- mostly small
-    #     test fixtures with ``n_envs=1``): GAE precomputed once on the
-    #     full rollout, then flat-shuffled minibatches (Ajax pre-rework
-    #     behaviour). Required because per-mb GAE needs ``n_envs %
-    #     num_minibatches == 0`` to keep within-fragment causality.
-
+) -> tuple[PPOState, AuxiliaryLogs]:
+    """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
+    from ``start``: ``n_epochs`` passes over its minibatches, then brax's
+    periodic forced reset."""
+    rewards = rollout.reward
     if reward_shaping_fn is not None:
-        shaped_rewards = transition.reward + reward_shaping_fn(agent_state, transition)
-    else:
-        shaped_rewards = transition.reward
+        rewards = rewards + reward_shaping_fn(agent_state, rollout)
+    geometry = minibatch_geometry(agent_config, *rollout.obs.shape[:2], recurrent)
+    actions, log_probs = rollout_actions(rollout)
+    batch = {
+        "obs": rollout.obs,
+        "actions": actions,
+        "log_probs": log_probs,
+        "raw_actions": rollout.raw_action,
+    }
 
-    if agent_config.num_minibatches > 0:
-        num_minibatches = agent_config.num_minibatches
+    if geometry.kind == "time":
+        # GAE in each minibatch, with the critic of that step.
+        batch |= {
+            "next_obs": rollout.next_obs,
+            "terminated": rollout.terminated,
+            "truncated": rollout.truncated,
+            "rewards": rewards,
+        }
     else:
-        num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
-            agent_config.batch_size, agent_config.n_steps
-        )
-
-    n_envs = transition.obs.shape[1]
-    T_rollout = transition.obs.shape[0]
-    unroll_length = agent_config.unroll_length
-    # Decide which minibatch geometry to use:
-    #
-    #   * If ``unroll_length`` is set, sub-split T axis into fragments of
-    #     length ``unroll_length`` (brax convention). Need
-    #     ``(T/unroll_length) * n_envs`` divisible by ``num_minibatches``
-    #     AND ``T % unroll_length == 0``.
-    #
-    #   * Otherwise, if ``n_envs % num_minibatches == 0``, env-axis split
-    #     (each fragment spans the full T).
-    #
-    #   * Else, legacy flat-shuffle with precomputed GAE.
-    #
-    # Additional gate: the brax-faithful path recomputes GAE inside
-    # mb_body with the CURRENT critic params. That's only meaningful
-    # when each minibatch carries DIFFERENT data (so each per-mb GAE
-    # call sees a different (obs, reward, next_obs) slice). When
-    # ``num_minibatches == 1`` and ``n_epochs > 1`` the single
-    # minibatch IS the full rollout, and per-mb recompute degenerates
-    # into recomputing the same GAE on the same data with a critic
-    # that just took an SGD step -- this oscillates the value targets
-    # and was the cause of CI flake on the n_envs=1, n_steps=32
-    # probing fixture. Fall back to the legacy precompute path when
-    # num_minibatches <= 1.
-    if recurrent:
-        # Recurrent geometry: sequences must stay temporally contiguous
-        # and start from carries the actor/critic actually had at the
-        # sequence's first observation, so neither the brax-faithful
-        # T-fragment split nor the legacy flat shuffle apply. Instead the
-        # rollout is treated as a pool of sequences:
-        #
-        #   * bptt_length=None: one sequence per env (full-T trajectories),
-        #     minibatched along the env axis with rollout-start carries.
-        #   * bptt_length=L (truncated BPTT, Pleines et al. 2022 style):
-        #     each env's trajectory splits into T/L fragments; fragment
-        #     boundary carries are recomputed chunk-wise with the CURRENT
-        #     params (one extra actor pass; the critic pass produces them
-        #     for free). Fragments never zero-init mid-episode — that
-        #     failure mode is exactly what makes naive truncation WORSE.
-        #
-        # Either way the gradient-step count decouples from n_steps — a
-        # single full-rollout minibatch gives only n_epochs steps per
-        # rollout, which starves long-rollout configs (n_steps=2048 ⇒
-        # ~80 total updates in 1M steps and a policy that barely learns).
-        use_brax_faithful_mb = False
-        mb_unroll_length = None
-        bptt_length = getattr(agent_config, "bptt_length", None)
-        if bptt_length is not None and T_rollout % bptt_length != 0:
-            raise ValueError(
-                f"bptt_length ({bptt_length}) must divide n_steps" f" ({T_rollout})."
-            )
-        _frag_len = bptt_length if bptt_length is not None else T_rollout
-        _num_frags = T_rollout // _frag_len
-        _pool = _num_frags * n_envs  # total sequences per rollout
-        if num_minibatches > 1 and _pool % num_minibatches == 0:
-            recurrent_num_mb = num_minibatches
-        else:
-            # Sequence pool not evenly splittable: fall back to one
-            # minibatch (small test fixtures with n_envs=1).
-            recurrent_num_mb = 1
-    elif num_minibatches <= 1:
-        use_brax_faithful_mb = False
-        mb_unroll_length = None
-    elif (
-        unroll_length is not None
-        and T_rollout % unroll_length == 0
-        and (T_rollout // unroll_length) * n_envs % num_minibatches == 0
-    ):
-        use_brax_faithful_mb = True
-        mb_unroll_length = unroll_length
-    elif n_envs >= num_minibatches and n_envs % num_minibatches == 0:
-        use_brax_faithful_mb = True
-        mb_unroll_length = None  # full-T fragments
-    else:
-        use_brax_faithful_mb = False
-        mb_unroll_length = None
-
-    if use_brax_faithful_mb:
-        batch = (
-            transition.obs,
-            transition.next_obs,
-            (
-                jnp.expand_dims(transition.action, axis=-1)
-                if jnp.ndim(transition.action) < 3
-                else transition.action
-            ),
-            transition.terminated,
-            transition.truncated,
-            (
-                jnp.expand_dims(transition.log_prob, axis=-1)
-                if jnp.ndim(transition.log_prob) < 3
-                else transition.log_prob.sum(-1, keepdims=True)
-            ),
-            transition.raw_action,
-            shaped_rewards,
-        )
-        shuffle_key, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
-        shuffled_batch = get_minibatches_preserving_time(
-            batch,
-            rng=shuffle_key,
-            num_minibatches=num_minibatches,
-            unroll_length=mb_unroll_length,
-        )
-    else:
-        # Legacy: precompute GAE on full rollout, flat-shuffle.
-        # (Recurrent mode reuses this precompute path with sequence-mode
-        # value estimation and NO shuffling — see below.)
         if recurrent:
-            # Obs-aligned reset flags: resets[t] means obs[t] starts a new
-            # episode, i.e. the previous step ended one.
-            dones_seq = jnp.logical_or(
-                transition.terminated, transition.truncated
-            ).squeeze(-1)  # (T, B)
-            resets = jnp.concatenate(
-                [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
-            )  # (T, B)
-
-            # One critic pass over the rollout gives the values AND
-            # advances the critic carry (which is otherwise never stepped,
-            # since the critic doesn't act during collection). The carry
-            # after obs[T-1] becomes the initial critic carry of the next
-            # iteration. Running it as a scan over bptt fragments is
-            # numerically identical (carry threading) and yields the
-            # fragment-START carries for free — truncated-BPTT minibatches
-            # start from them instead of zero (the naive-zero variant is
-            # exactly what makes truncation WORSE than no truncation).
-            _obs_frags = transition.obs.reshape(
-                _num_frags, _frag_len, *transition.obs.shape[1:]
+            agent_state, values, next_values, resets, carries = _recurrent_values(
+                agent_state, rollout, start, geometry.length
             )
-            _resets_frags = resets.reshape(_num_frags, _frag_len, n_envs)
-
-            def _critic_chunk(carry, frag):
-                x_f, r_f = frag
-                vals, carry_next = predict_value_sequence(
-                    critic_state=agent_state.critic_state,
-                    critic_params=agent_state.critic_state.params,
-                    x=x_f,
-                    resets=r_f,
-                    initial_hidden=carry,
-                )
-                return carry_next, (vals, carry)
-
-            critic_carry_end, (_values_frags, critic_frag_starts) = jax.lax.scan(
-                _critic_chunk, initial_critic_hidden, (_obs_frags, _resets_frags)
-            )
-            # (F, num, L, B, 1) -> (num, T, B, 1) -> (T, B, 1)
-            values = jnp.moveaxis(_values_frags, 0, 1).reshape(
-                _values_frags.shape[1], T_rollout, *_values_frags.shape[3:]
-            )
-            values = values.squeeze(0)
-
-            # Fragment-start ACTOR carries: recomputed chunk-wise with the
-            # current params (one extra actor pass). Skipped for full-T
-            # sequences, where the rollout-start carry is already exact.
-            if _num_frags > 1:
-
-                def _actor_chunk(carry, frag):
-                    x_f, r_f = frag
-                    _, carry_next = get_pi_sequence(
-                        agent_state.actor_state,
-                        agent_state.actor_state.params,
-                        x_f,
-                        r_f,
-                        carry,
-                    )
-                    return carry_next, carry
-
-                _, actor_frag_starts = jax.lax.scan(
-                    _actor_chunk, initial_actor_hidden, (_obs_frags, _resets_frags)
-                )
-            else:
-                actor_frag_starts = jax.tree_util.tree_map(
-                    lambda x: x[None], initial_actor_hidden
-                )
-            # Bootstrap values V(s_{t+1}) come from the shifted sequence
-            # plus one extra step on the collector's last_obs. At
-            # truncation boundaries this evaluates the post-reset obs
-            # instead of the final obs (standard recurrent-PPO
-            # approximation); terminal steps are masked inside GAE.
-            last_obs = agent_state.collector_state.last_obs  # (B, obs)
-            v_last, _ = predict_value_sequence(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.params,
-                x=last_obs[None],
-                resets=dones_seq[-1:].astype(bool),
-                initial_hidden=critic_carry_end,
-            )
-            next_values = jnp.concatenate([values[1:], v_last.squeeze(0)], axis=0)
-            agent_state = agent_state.replace(
-                critic_state=agent_state.critic_state.replace(
-                    hidden_state=jax.lax.stop_gradient(critic_carry_end)
-                )
-            )
+            batch["resets"] = resets
         else:
             values = predict_value(
                 critic_state=agent_state.critic_state,
                 critic_params=agent_state.critic_state.params,
-                x=transition.obs,
+                x=rollout.obs,
             ).squeeze(0)
             next_values = predict_value(
                 critic_state=agent_state.critic_state,
                 critic_params=agent_state.critic_state.params,
-                x=transition.next_obs,
+                x=rollout.next_obs,
             ).squeeze(0)
         gae, value_targets = _compute_gae(
             values=values,
             next_values=next_values,
-            rewards=shaped_rewards,
-            terminateds=transition.terminated,
-            truncateds=transition.truncated,
+            rewards=rewards,
+            terminateds=rollout.terminated,
+            truncateds=rollout.truncated,
             gamma=agent_config.gamma,
             gae_lambda=agent_config.gae_lambda,
         )
         if extension_stack:
-            _tgt_rng, _ppo_rng = jax.random.split(agent_state.rng)
-            agent_state = agent_state.replace(rng=_ppo_rng)
-            _tgt_batch = {
-                "observations": transition.obs,
-                "next_observations": transition.next_obs,
-                "rewards": shaped_rewards,
-                "terminated": transition.terminated,
-                "truncated": transition.truncated,
+            target_key, rng = jax.random.split(agent_state.rng)
+            agent_state = agent_state.replace(rng=rng)
+            target_batch = {
+                "observations": rollout.obs,
+                "next_observations": rollout.next_obs,
+                "rewards": rewards,
+                "terminated": rollout.terminated,
+                "truncated": rollout.truncated,
                 "gae": gae,
                 "values": values,
                 "next_values": next_values,
@@ -796,331 +605,131 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
             }
             value_targets = extension_stack.fold_on_target(
                 agent_state,
-                _tgt_batch,
+                target_batch,
                 value_targets,
                 agent_state.collector_state.timestep,
-                _tgt_rng,
+                target_key,
                 total_timesteps,
             )
-        batch = (
-            transition.obs,
-            (
-                jnp.expand_dims(transition.action, axis=-1)
-                if jnp.ndim(transition.action) < 3
-                else transition.action
-            ),
-            transition.terminated,
-            transition.truncated,
-            value_targets,
-            gae,
-            (
-                jnp.expand_dims(transition.log_prob, axis=-1)
-                if jnp.ndim(transition.log_prob) < 3
-                else transition.log_prob.sum(-1, keepdims=True)
-            ),
-            transition.raw_action,
-        )
-        shuffle_key, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
-        if recurrent:
-            # Sequence-pool minibatches: the rollout is a pool of
-            # N = (T / bptt_length) * n_envs contiguous sequences of length
-            # bptt_length (full-T when bptt_length is None). Permute the
-            # pool, split into recurrent_num_mb groups, and slice each
-            # sequence's own start carry alongside (actor carry leaves are
-            # (F, B, ...); critic ensemble carries (F, num, B, ...)). The
-            # obs-aligned resets ride along as the 9th batch element, so
-            # per-step reset masking inside each sequence stays intact.
-            k = recurrent_num_mb
-            L, Fn, N = _frag_len, _num_frags, _pool
-            perm = jax.random.permutation(shuffle_key, N)
+        batch |= {"targets": value_targets, "gae": gae}
 
-            def _split_time_major(x):  # (T, B, ...) -> (k, L, N//k, ...)
-                x = x.reshape(Fn, L, *x.shape[1:])  # (F, L, B, ...)
-                x = jnp.moveaxis(x, 0, 1)  # (L, F, B, ...)
-                x = x.reshape(L, N, *x.shape[3:])  # pool index = f*B + b
-                x = jnp.take(x, perm, axis=1)
-                return x.reshape(L, k, N // k, *x.shape[2:]).swapaxes(0, 1)
+    shuffle_key, rng = jax.random.split(agent_state.rng)
+    agent_state = agent_state.replace(rng=rng)
+    k, length = geometry.num_minibatches, geometry.length
+    if geometry.kind == "time":
+        minibatches = get_minibatches_preserving_time(batch, shuffle_key, k, length)
+    elif geometry.kind == "recurrent":
+        minibatches = _sequence_minibatches(batch, carries, shuffle_key, k, length)
+    else:
+        minibatches = get_minibatches_from_batch(batch, shuffle_key, k)
 
-            def _split_actor_carry(x):  # (F, B, ...) -> (k, N//k, ...)
-                x = x.reshape(N, *x.shape[2:])
-                x = jnp.take(x, perm, axis=0)
-                return x.reshape(k, N // k, *x.shape[1:])
+    # The extensions' loss terms read the state the epochs start from.
+    critic_extra = _stack_critic_loss(extension_stack, agent_state, total_timesteps)
+    actor_extra = _stack_actor_loss(extension_stack, agent_state, total_timesteps)
 
-            def _split_critic_carry(x):  # (F, num, B, ...) -> (k, num, N//k, ...)
-                x = jnp.moveaxis(x, 0, 1)  # (num, F, B, ...)
-                x = x.reshape(x.shape[0], N, *x.shape[3:])
-                x = jnp.take(x, perm, axis=1)
-                return x.reshape(x.shape[0], k, N // k, *x.shape[2:]).swapaxes(0, 1)
+    def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
+        """A critic and an actor step, both from the state before either."""
+        ent_rng, on_target_rng, new_rng = jax.random.split(agent_state.rng, 3)
+        agent_state = agent_state.replace(rng=new_rng)
+        critic, actor = agent_state.critic_state, agent_state.actor_state
 
-            shuffled_batch = (
-                *jax.tree_util.tree_map(_split_time_major, (*batch, resets)),
-                jax.tree_util.tree_map(
-                    _split_actor_carry, jax.lax.stop_gradient(actor_frag_starts)
-                ),
-                jax.tree_util.tree_map(
-                    _split_critic_carry, jax.lax.stop_gradient(critic_frag_starts)
-                ),
+        if geometry.kind == "time":
+            # brax's compute_ppo_loss: GAE from the current critic, held
+            # constant (no gradient reaches the critic through it).
+            values = jax.lax.stop_gradient(
+                predict_value(
+                    critic_state=critic, critic_params=critic.params, x=mb["obs"]
+                ).squeeze(0)
             )
+            next_values = jax.lax.stop_gradient(
+                predict_value(
+                    critic_state=critic,
+                    critic_params=critic.params,
+                    x=mb["next_obs"],
+                ).squeeze(0)
+            )
+            gae, value_targets = _compute_gae(
+                values=values,
+                next_values=next_values,
+                rewards=mb["rewards"],
+                terminateds=mb["terminated"],
+                truncateds=mb["truncated"],
+                gamma=agent_config.gamma,
+                gae_lambda=agent_config.gae_lambda,
+            )
+            gae = jax.lax.stop_gradient(gae)
+            value_targets = jax.lax.stop_gradient(value_targets)
+            if extension_stack:
+                target_batch = {
+                    "observations": mb["obs"],
+                    "next_observations": mb["next_obs"],
+                    "rewards": mb["rewards"],
+                    "terminated": mb["terminated"],
+                    "truncated": mb["truncated"],
+                    "gae": gae,
+                    "values": values,
+                    "next_values": next_values,
+                    "gamma": agent_config.gamma,
+                }
+                value_targets = extension_stack.fold_on_target(
+                    agent_state,
+                    target_batch,
+                    value_targets,
+                    agent_state.collector_state.timestep,
+                    on_target_rng,
+                    total_timesteps,
+                )
         else:
-            shuffled_batch = get_minibatches_from_batch(
-                batch, rng=shuffle_key, num_minibatches=num_minibatches
-            )
+            gae, value_targets = mb["gae"], mb["targets"]
 
-    def do_update(
-        agent_state: PPOState, num_epochs: int
-    ) -> tuple[PPOState, AuxiliaryLogs]:
-        # Closures rebuilt each ``do_update`` so the scan body sees no mutable state.
-        _composed_critic_extra = _stack_critic_loss(
-            extension_stack, agent_state, total_timesteps
+        resets = mb.get("resets")
+        (_, v_aux), v_grads = jax.value_and_grad(value_loss_function, has_aux=True)(
+            critic.params,
+            critic,
+            mb["obs"],
+            value_targets,
+            recurrent,
+            vf_coef=agent_config.vf_coef,
+            extra_loss_fn=critic_extra,
+            resets=resets,
+            initial_hidden=mb.get("critic_hidden"),
         )
-        _composed_actor_extra = _stack_actor_loss(
-            extension_stack, agent_state, total_timesteps
+        (_, p_aux), p_grads = jax.value_and_grad(policy_loss_function, has_aux=True)(
+            actor.params,
+            actor,
+            mb["obs"],
+            mb["actions"],
+            mb["log_probs"],
+            gae,
+            recurrent,
+            resolve_clip_coef(agent_config, agent_state.collector_state.timestep),
+            agent_config.ent_coef,
+            agent_config.normalize_advantage,
+            extra_loss_fn=actor_extra,
+            raw_actions=mb["raw_actions"],
+            entropy_rng=ent_rng,
+            resets=resets,
+            initial_hidden=mb.get("actor_hidden"),
         )
-
-        # Capture extra_loss_fns in closure (jax rejects function args inside scan).
-        critic_grad_fn = (
-            VALUE_AND_GRAD_FN
-            if _composed_critic_extra is None
-            else _value_and_grad_with_extra(_composed_critic_extra)
+        if agent_config.fused_grad_clip:
+            p_grads, v_grads = _joint_clip(p_grads, v_grads)
+        agent_state = agent_state.replace(
+            critic_state=critic.apply_gradients(grads=v_grads),
+            actor_state=actor.apply_gradients(grads=p_grads),
         )
-        actor_grad_fn = (
-            POLICY_AND_GRAD_FN
-            if _composed_actor_extra is None
-            else _policy_value_and_grad_with_extra(_composed_actor_extra)
-        )
+        return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux)
 
-        # NOTE: Brax-faithful obs normalisation is now wired through
-        # the AGENT-side ``obs_norm_info`` carried on ``actor_state`` /
-        # ``critic_state`` (synced every collect step via
-        # ``collect_experience``). ``get_pi`` and ``predict_value`` both
-        # call ``apply_obs_norm`` internally when those fields are set,
-        # so mb_body forward calls below get normalised obs without an
-        # explicit re-normalisation here. See ``ajax.agents.obs_norm``.
+    agent_state, aux = run_epochs(
+        agent_state, minibatches, minibatch_step, agent_config.n_epochs
+    )
+    agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
 
-        def mb_body(agent_state, mb):
-            """One minibatch update: critic grad + actor grad + (optional
-            joint global-norm clip) + apply both. Handles both layouts:
-
-              * brax-faithful: ``mb`` carries raw rollout tensors; the
-                value baseline + GAE are recomputed here with CURRENT
-                critic params so post-SGD-step updates see fresh value
-                targets (matches
-                brax/training/agents/ppo/losses.py::compute_ppo_loss).
-
-              * Legacy: ``mb`` already carries precomputed
-                ``value_targets`` and ``gae`` from the full rollout.
-            """
-            if use_brax_faithful_mb:
-                (
-                    observations,
-                    next_observations,
-                    actions,
-                    terminated,
-                    truncated,
-                    log_probs_mb,
-                    raw_actions_mb,
-                    rewards_mb,
-                ) = mb
-                dones = jnp.logical_or(terminated, truncated)
-            elif recurrent:
-                (
-                    observations,
-                    actions,
-                    terminated,
-                    truncated,
-                    value_targets_mb,
-                    gae_mb,
-                    log_probs_mb,
-                    raw_actions_mb,
-                    resets_mb,
-                    actor_hidden_mb,
-                    critic_hidden_mb,
-                ) = mb
-                # In sequence mode the losses need obs-aligned reset
-                # flags, not the step-aligned dones.
-                dones = resets_mb
-            else:
-                (
-                    observations,
-                    actions,
-                    terminated,
-                    truncated,
-                    value_targets_mb,
-                    gae_mb,
-                    log_probs_mb,
-                    raw_actions_mb,
-                ) = mb
-                dones = jnp.logical_or(terminated, truncated)
-            if not recurrent:
-                actor_hidden_mb = None
-                critic_hidden_mb = None
-            ent_rng, on_target_rng, new_rng = jax.random.split(agent_state.rng, 3)
-            agent_state = agent_state.replace(rng=new_rng)
-
-            if use_brax_faithful_mb:
-                # Forward current critic to get baseline + bootstrap
-                # value. stop_gradient so the GAE-target side does not
-                # flow gradients through the critic via GAE (brax does
-                # the same via jax.lax.stop_gradient inside compute_gae).
-                values_mb = jax.lax.stop_gradient(
-                    predict_value(
-                        critic_state=agent_state.critic_state,
-                        critic_params=agent_state.critic_state.params,
-                        x=observations,
-                    ).squeeze(0)
-                )
-                next_values_mb = jax.lax.stop_gradient(
-                    predict_value(
-                        critic_state=agent_state.critic_state,
-                        critic_params=agent_state.critic_state.params,
-                        x=next_observations,
-                    ).squeeze(0)
-                )
-                gae_mb, value_targets_mb = _compute_gae(
-                    values=values_mb,
-                    next_values=next_values_mb,
-                    rewards=rewards_mb,
-                    terminateds=terminated,
-                    truncateds=truncated,
-                    gamma=agent_config.gamma,
-                    gae_lambda=agent_config.gae_lambda,
-                )
-                gae_mb = jax.lax.stop_gradient(gae_mb)
-                value_targets_mb = jax.lax.stop_gradient(value_targets_mb)
-                if extension_stack:
-                    _tgt_batch = {
-                        "observations": observations,
-                        "next_observations": next_observations,
-                        "rewards": rewards_mb,
-                        "terminated": terminated,
-                        "truncated": truncated,
-                        "gae": gae_mb,
-                        "values": values_mb,
-                        "next_values": next_values_mb,
-                        "gamma": agent_config.gamma,
-                    }
-                    value_targets_mb = extension_stack.fold_on_target(
-                        agent_state,
-                        _tgt_batch,
-                        value_targets_mb,
-                        agent_state.collector_state.timestep,
-                        on_target_rng,
-                        total_timesteps,
-                    )
-
-            (_v_loss, v_aux), v_grads = critic_grad_fn(
-                agent_state.critic_state.params,
-                agent_state.critic_state,
-                observations,
-                value_targets_mb,
-                dones,
-                recurrent,
-                agent_config.vf_coef,
-                initial_hidden=critic_hidden_mb,
-            )
-
-            clip_coef = (
-                agent_config.clip_range(agent_state.collector_state.timestep)
-                if callable(agent_config.clip_range)
-                else agent_config.clip_range
-            )
-            # raw_actions as kwarg, not positionally into extra_loss_fn's slot.
-            (_p_loss, p_aux), p_grads = actor_grad_fn(
-                agent_state.actor_state.params,
-                agent_state.actor_state,
-                observations,
-                actions,
-                log_probs_mb,
-                gae_mb,
-                dones,
-                recurrent,
-                clip_coef,
-                agent_config.ent_coef,
-                agent_config.normalize_advantage,
-                raw_actions=raw_actions_mb,
-                entropy_rng=ent_rng,
-                initial_hidden=actor_hidden_mb,
-            )
-
-            # brax-style joint global-norm clip (max-norm 1.0).
-            if agent_config.fused_grad_clip:
-                actor_sq = sum(
-                    jnp.sum(jnp.square(g)) for g in jax.tree_util.tree_leaves(p_grads)
-                )
-                critic_sq = sum(
-                    jnp.sum(jnp.square(g)) for g in jax.tree_util.tree_leaves(v_grads)
-                )
-                joint_norm = jnp.sqrt(actor_sq + critic_sq + 1e-12)
-                scale = jnp.minimum(1.0, 1.0 / joint_norm)
-                p_grads = jax.tree_util.tree_map(lambda g: g * scale, p_grads)
-                v_grads = jax.tree_util.tree_map(lambda g: g * scale, v_grads)
-
-            agent_state = agent_state.replace(
-                critic_state=agent_state.critic_state.apply_gradients(grads=v_grads),
-                actor_state=agent_state.actor_state.apply_gradients(grads=p_grads),
-            )
-
-            aux = AuxiliaryLogs(
-                policy=p_aux,
-                value=ValueAuxiliaries(
-                    **{k: v.flatten() for k, v in to_state_dict(v_aux).items()}
-                ),
-            )
-            return agent_state, aux
-
-        def body_fn(agent_state, _):
-            """One epoch: scan ``mb_body`` over ``shuffled_batch``'s minibatch axis."""
-            agent_state, mb_aux = jax.lax.scan(
-                f=mb_body, init=agent_state, xs=shuffled_batch
-            )
-            # Aggregate per-minibatch aux into one aux for this epoch by
-            # averaging across the leading minibatch axis.
-            aux = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), mb_aux)
-            return agent_state, aux
-
-        agent_state, aux = jax.lax.scan(
-            f=body_fn, init=agent_state, xs=None, length=num_epochs
-        )
-        aux = aux.replace(
-            value=ValueAuxiliaries(
-                **{key: val.flatten() for key, val in to_state_dict(aux.value).items()}
-            )
-        )
-        aux = jax.tree_util.tree_map(
-            lambda x: x.mean(), aux
-        )  # need to aggregate over the n-epochs
-        return (
-            agent_state.replace(n_updates=agent_state.n_updates + 1),
-            aux,
-        )  # aux should be the one from the last epoch
-
-    agent_state, aux = do_update(agent_state, num_epochs=agent_config.n_epochs)
-
-    # Brax-faithful periodic forced env reset. Brax calls
-    # ``reset_fn(env_state, key_envs)`` every
-    # ``num_training_steps_per_epoch`` training_steps (with
-    # ``num_resets_per_eval > 0``), drawing fresh randomised initial
-    # conditions, because brax's auto-reset wrapper caches the FIRST
-    # reset state and reuses it indefinitely. Ajax's playground envs
-    # draw a new initial state on every episode end by default
-    # (``build_env_from_id(..., fresh_reset=True)``), so this is not
-    # needed for diversity there. It matters with ``fresh_reset=False``
-    # (playground's cached auto-reset): without periodic forced resets
-    # the agent then sees only ``n_envs`` distinct starting conditions
-    # for the entire training, which for envs with randomised reset
-    # states (e.g. PandaOpenCabinet perturbs target_pos and arm joints
-    # in ``reset``) dramatically limits diversity.
-    #
-    # Implementation: every ``reset_every`` iterations, call env.reset
-    # with a fresh RNG. The wrapper's reset re-initialises the obs
-    # normalizer -- we preserve the running stats by extracting them
-    # from old state, then re-normalising the fresh obs with the
-    # preserved stats.
+    # brax's num_resets_per_eval: every env reset every reset_every updates.
+    # Playground envs draw a fresh initial state at every episode end by
+    # default (build_env_from_id(fresh_reset=True)); with fresh_reset=False
+    # their auto-reset replays the first reset state, and without these
+    # resets a run sees only n_envs initial conditions.
     if agent_config.num_resets_per_eval > 0:
-        # ``num_evals``/``num_resets_per_eval`` are static (PPOConfig);
-        # ``total_n_updates`` is a traced int, so reset_every must be a
-        # JAX scalar.
         num_evals_after_init = max(int(agent_config.num_evals) - 1, 1)
         reset_every = jnp.maximum(
             1,
@@ -1129,54 +738,61 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
                 / (num_evals_after_init * agent_config.num_resets_per_eval)
             ).astype(jnp.int32),
         )
-
-        def _force_reset(agent_state):
-            reset_key, new_rng = jax.random.split(agent_state.rng)
-            saved_norm = None
-            if mode == "brax" and "normalization_info" in (
-                agent_state.collector_state.env_state.info or {}
-            ):
-                saved_norm = agent_state.collector_state.env_state.info[
-                    "normalization_info"
-                ]
-            reset_keys = (
-                jax.random.split(reset_key, env_args.n_envs)
-                if mode == "gymnax"
-                else reset_key
-            )
-            new_obs, new_env_state = reset(
-                reset_keys, env_args.env, mode, env_args.env_params
-            )
-            if saved_norm is not None:
-                fresh_norm = new_env_state.info["normalization_info"]
-                fresh_obs_info = fresh_norm.obs
-                saved_obs_info = saved_norm.obs
-                # Undo fresh normalisation, re-apply saved-stats normalisation.
-                # Match online_normalize: it uses ``mean(clipped_std, axis=0)``
-                # to broadcast across envs (all rows of the batched stat are
-                # identical post-Welford). Apply the same clip + mean here so
-                # the recovered raw_obs is bit-for-bit what the env produced.
-                fresh_std = jnp.clip(
-                    jnp.sqrt(fresh_obs_info.var + 1e-8), 1e-6, 1e6
-                ).mean(axis=0)
-                fresh_mean = fresh_obs_info.mean.mean(axis=0)
-                raw_obs = new_obs * fresh_std + fresh_mean
-                saved_std = jnp.clip(
-                    jnp.sqrt(saved_obs_info.var + 1e-8), 1e-6, 1e6
-                ).mean(axis=0)
-                saved_mean = saved_obs_info.mean.mean(axis=0)
-                new_obs = (raw_obs - saved_mean) / saved_std
-                new_env_state.info["normalization_info"] = saved_norm
-                new_env_state = new_env_state.replace(obs=new_obs)
-            new_collector = agent_state.collector_state.replace(
-                _env_state=new_env_state, last_obs=new_obs
-            )
-            return agent_state.replace(collector_state=new_collector, rng=new_rng)
-
         should_reset = (agent_state.n_updates % reset_every == 0) & (
             agent_state.n_updates > 0
         )
-        agent_state = jax.lax.cond(should_reset, _force_reset, lambda s: s, agent_state)
+        agent_state = jax.lax.cond(
+            should_reset,
+            lambda s: _force_reset(s, env_args, mode),
+            lambda s: s,
+            agent_state,
+        )
+    return agent_state, aux
+
+
+def training_iteration(
+    agent_state: PPOState,
+    _: Any,
+    env_args: EnvironmentConfig,
+    mode: str,
+    recurrent: bool,
+    agent_config: PPOConfig,
+    total_timesteps: int,
+    total_n_updates: int,
+    log_frequency: Optional[int] = 1000,
+    num_episode_test: int = 10,
+    log_fn: Optional[Callable] = None,
+    index: Optional[int] = None,
+    log: bool = False,
+    reward_shaping_fn: Optional[Callable] = None,
+    extension_stack: Optional[ExtensionStack] = None,
+) -> tuple[PPOState, dict]:
+    """Collect a rollout, update, fold the extensions' ``post_update``,
+    then evaluate and log."""
+    extension_stack = extension_stack or ExtensionStack()
+    start = agent_state
+    collect_scan_fn = partial(
+        collect_experience, recurrent=recurrent, mode=mode, env_args=env_args
+    )
+    agent_state, transition = jax.lax.scan(
+        collect_scan_fn, agent_state, xs=None, length=agent_config.n_steps
+    )
+    if agent_config.expose_recent_rollout:
+        agent_state = agent_state.replace(last_rollout=transition)
+
+    agent_state, aux = update_agent(
+        agent_state,
+        transition,
+        start,
+        agent_config,
+        env_args,
+        mode,
+        recurrent,
+        extension_stack,
+        total_timesteps,
+        total_n_updates,
+        reward_shaping_fn,
+    )
 
     # Extension post_update — folded after the per-iteration update loop.
     # Empty stack ⇒ identity.
@@ -1223,22 +839,8 @@ def make_train(
     extensions: Sequence = (),
     normalize_obs_running: bool = False,
 ):
-    """
-    Create the training function for the PPO agent.
-
-    Args:
-        env_args (EnvironmentConfig): Environment configuration.
-        optimizer_args (OptimizerConfig): Optimizer configuration.
-        network_args (NetworkConfig): Network configuration.
-        buffer (BufferType): Replay buffer.
-        agent_config (PPOConfig): PPO agent configuration.
-        alpha_args (AlphaConfig): Alpha configuration.
-        total_timesteps (int): Total timesteps for training.
-        num_episode_test (int): Number of episodes for evaluation during training.
-
-    Returns:
-        Callable: JIT-compiled training function.
-    """
+    """PPO's train function: an ``n_steps`` rollout per env, then one
+    update, per iteration."""
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids)

@@ -49,8 +49,8 @@ src/ajax/
 │   └── <AGENT>/
 │       ├── <AGENT>.py       # Public class — __init__, get_make_train
 │       ├── train_<AGENT>.py # make_train, update_<step>, loss functions
-│       ├── core.py          # (SAC family) The soft actor-critic maths that
-│       │                    #   descendants (ASAC, REDQ, AVG) import
+│       ├── core.py          # (SAC, PPO) The maths that descendants
+│       │                    #   (ASAC, REDQ, AVG; APO) import
 │       ├── state.py         # flax.struct.dataclass state types
 │       └── utils.py         # Agent-specific utilities
 ├── extensions/
@@ -90,7 +90,7 @@ Every agent follows the same split:
 
 - **`<AGENT>.py`** — the public class. Inherits `ActorCritic` (see [src/ajax/agents/base.py](src/ajax/agents/base.py)), stores algorithm-specific hyperparameters, accepts `extensions: Sequence[Extension] = ()`, and exposes `get_make_train()` returning a `functools.partial` over `make_train`.
 - **`train_<AGENT>.py`** — the algorithm: its losses and update steps, and a `make_train(…)` that hands `init` and `update` to the shared `TrainLoop` ([src/ajax/agents/loop.py](src/ajax/agents/loop.py)). The update folds the ExtensionStack at its phases via `stack.fold_<phase>(...)`; the loop folds the rest (`init_state` / `pretrain`, `post_update`, `eval_metrics`). Agents with a loop of their own (SAC, PPO, DQN, PQN, the world models) build on `build_resumable_train` directly.
-- **`core.py`** (SAC family only) — the soft actor-critic maths (init, bootstrap sampling, TD target, critic and actor losses, actor step, temperature, target update). Lineage descendants (ASAC, REDQ, AVG) import from here rather than duplicating.
+- **`core.py`** (SAC and PPO only) — SAC's soft actor-critic maths (init, bootstrap sampling, TD target, critic and actor losses, actor step, temperature, target update); PPO's clipped surrogate (log-prob recompute, entropy bonus, minibatch epochs). Lineage descendants (ASAC, REDQ, AVG; APO, which also builds its state with `init_PPO`) import from here rather than duplicating.
 - **`state.py`** — `<AGENT>State` and `<AGENT>Config` extending `BaseAgentState` / `BaseAgentConfig`.
 
 ---
@@ -224,8 +224,10 @@ REDQ from SAC), **import** the parent's reusable mechanisms from its
 `init_soft_actor_critic`, `create_alpha_train_state`,
 `sample_next_actions`, `compute_td_target`, `critic_loss_fn`,
 `soft_policy_loss`, `soft_actor_step`, `update_temperature` and
-`update_target_networks` for descendants; `agents/loop.py` has the
-replay agents' `critic_step`.
+`update_target_networks` for descendants; PPO's exports
+`recompute_log_prob`, `policy_entropy`, `clipped_surrogate`,
+`rollout_actions`, `resolve_num_minibatches`, `resolve_clip_coef` and
+`run_epochs`; `agents/loop.py` has the replay agents' `critic_step`.
 
 Let's say you want to add an agent called `FOO`.
 

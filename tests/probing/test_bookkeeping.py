@@ -667,9 +667,6 @@ def test_q4_rows_store_the_step_and_the_expert_state_before_the_call() -> None:
     assert not (uniform == -0.5).all(-1).any()
 
 
-@xfail(
-    "on a done step the next last_obs is the pre-reset final obs concatenated with the un-reset post-step expert state (environments/interaction.py:874, 933-941, 970-971); right (0, 0) on every episode-start row, today (7, 7)"
-)
 def test_q4_episode_start_rows_store_the_reset_obs_and_reset_expert_state() -> None:
     """The first row of every later episode stores (0, 0): the reset obs and
     the expert's reset state."""

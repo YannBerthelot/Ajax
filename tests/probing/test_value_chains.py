@@ -592,7 +592,6 @@ def p1_readings(cell: str, seeds: tuple, budget: int) -> dict[str, np.ndarray]:
 
 
 _A = "(a) every stored next_obs is raw: gymnax writes the raw pre-reset obs in info['final_observation'] on every step, the normaliser passes it through (src/ajax/wrappers.py:443-447) and get_final_obs prefers it (src/ajax/environments/interaction.py:113-125, 874)"
-_C = "(c) ClipAction(-1, 1) wraps every normalised env whatever its action space (src/ajax/environments/create.py:375-388) after the index is cast to int32 (interaction.py:204-205): action 2 reaches the env as 1.0"
 CLIP = "(c) training clip sends action 2 as 1"
 RAW = "(a) raw next obs: s0 bootstraps on s0"
 _D, _ALONE = (
@@ -632,11 +631,7 @@ P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "AVG-a": ("AVG", (Q_SOFT,), ()),
 }
 P1_LIVE = {
-    "DQN-c": f"{_C}; right answer eval 2.0, Q(s0,0) 1.62, Q(s1,2) 1.0; today 1.3, 1.186, 0.00",
-    "PQN-c": f"{_C}; right answer eval 2.0, Q(s1,2) 1.0; today 1.3, 0.00",
-    "PQN-a": f"{_A} (bootstrap at src/ajax/agents/PQN/train_PQN.py:162-166); right answer Q(s0,0) 1.62, today 2.631 (1.186 once (a) alone is fixed)",
-    "PPO-discrete-bc": f"{_C}; right answer eval 2.0, today 1.3",
-    "APO-discrete-c": f"{_C}; right answer eval 2.0, today 1.3",
+    "PQN-a": f"{_A} (bootstrap at src/ajax/agents/PQN/train_PQN.py:162-166); right answer Q(s0,0) 1.62, today 2.631",
     "AVG-a": f"{_A} (target at src/ajax/agents/AVG/train_AVG.py:162-176); right answer Q(s0,-0.5) - oracle 0, today +0.93 to +1.02",
 }
 for label, (cell, p1_queries, p1_tols) in P1_CASES.items():

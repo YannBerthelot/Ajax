@@ -183,23 +183,29 @@ class LogWrapper(GymnaxWrapper):
 
 
 class ClipAction(GymnaxWrapper):
-    """Continus action clipping wrapper"""
+    """Clip a continuous action to the env's action space, or to ``[low,
+    high]`` when given: gym's ``ClipAction``. PureJaxRL's, which this one
+    descends from, clips to ``[-1, 1]`` and leaves reading the space as a
+    TODO; ``[-1, 1]`` would make the top of a ``Box(0, 2)`` unreachable."""
 
-    def __init__(self, env, low=-1.0, high=1.0):
-        """Set the high and low bounds"""
+    def __init__(self, env, low=None, high=None):
         super().__init__(env)
-        self.low = jnp.array(low)
-        self.high = jnp.array(high)
+        self.low = None if low is None else jnp.array(low)
+        self.high = None if high is None else jnp.array(high)
 
     def step(self, key, state, action, params=None):
         """Step the environment while clipping the action first"""
-        # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
-        action = jnp.clip(action, self.low, self.high)
+        space = self._env.action_space(
+            self.default_params if params is None else params
+        )
+        low = space.low if self.low is None else self.low
+        high = space.high if self.high is None else self.high
+        action = jnp.clip(action, low, high)
         return self._env.step(key=key, state=state, action=action, params=params)
 
 
 class ClipActionBrax(BraxWrapper):
-    """Continus action clipping wrapper"""
+    """Clip an action to brax's action space, ``[-1, 1]`` (or ``[low, high]``)."""
 
     def __init__(self, env, low=-1.0, high=1.0):
         """Set the high and low bounds"""

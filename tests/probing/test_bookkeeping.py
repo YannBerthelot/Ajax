@@ -239,9 +239,6 @@ def test_p2_ppo_forced_reset_starts_each_return_at_zero() -> None:
     assert exact, Counter(r["returns"].tolist())
 
 
-@xfail(
-    "prepare_env wraps discrete envs in ClipAction(-1, 1) whenever it normalises (create.py:375-386), after the int32 cast (interaction.py:204-205): action 2 runs as 1; right each action on 1/3 of the uniform steps, today action 2 on 0.0 and action 1 on 0.654"
-)
 @pytest.mark.parametrize("agent", ["DQN", "PQN"])
 def test_p2_discrete_actions_are_executed_as_chosen(agent: str) -> None:
     """Uniform exploration on Discrete(3), observations normalised: each
@@ -710,7 +707,6 @@ W |= {"collector maps to the box, training clip stays +-1": 0.5}
 UNIT = Query("share outside [-1, 1], cell A minus cell B", 0.0, W)
 W = {"training clip made bounds-aware, collector unmapped": 0.5}
 BOX = Query("share outside [0, 2], cell A minus cell B", 0.0, W)
-CLIPPED = "ClipAction(-1, 1) wraps the env only when a normalisation flag is set (environments/create.py:375-388) and PPO is unsquashed (PPO.py:78); right the same share of executed actions outside [-1, 1] with and without normalize_rewards (A - B = 0 +- 0.1), today A ~0.32 and B 0"
 
 
 def _outside(x: np.ndarray) -> dict:
@@ -730,8 +726,8 @@ def _q5_flag(agent: str) -> Callable:
 
 
 for _a in ("PPO", "SAC", "TD3"):
-    _tol, _why = ((), CLIPPED) if _a == "PPO" else ((0.02, 0.02), "")
-    CASES[f"q5-{_a}"] = Case(f"q5-{_a}", (UNIT, BOX), _q5_flag(_a), 64, _tol, _why)
+    _tol = () if _a == "PPO" else (0.02, 0.02)
+    CASES[f"q5-{_a}"] = Case(f"q5-{_a}", (UNIT, BOX), _q5_flag(_a), 64, _tol)
 
 
 def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:

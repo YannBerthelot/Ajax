@@ -10,7 +10,11 @@ from gymnax.environments import spaces
 
 from ajax.agents.base import ActorCritic
 from ajax.environments import create
-from ajax.environments.create import build_env_from_id, prepare_env
+from ajax.environments.create import (
+    build_env_from_id,
+    prepare_env,
+    strip_ajax_wrappers,
+)
 from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import (
     agent_action_to_env,
@@ -66,7 +70,8 @@ def test_prebuilt_envs_reject_action_repeat():
     with pytest.raises(ValueError, match="built from an id"):
         ActorCritic(env_id=repeating, n_envs=2)
     unrepeated, _ = build_env_from_id("fast", n_envs=2, episode_length=10)
-    assert prepare_env(unrepeated, n_envs=2)[0] is unrepeated
+    prepared = prepare_env(unrepeated, n_envs=2)[0]  # only its action clip on top
+    assert strip_ajax_wrappers(prepared) == (unrepeated, {})
 
 
 def test_actor_critic_builds_the_env_with_action_repeat():

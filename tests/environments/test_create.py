@@ -11,6 +11,7 @@ from ajax.environments.create import (
 )
 from ajax.environments.utils import wrapper_chain
 from ajax.wrappers import (
+    ClipAction,
     InitialStateWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
@@ -140,7 +141,6 @@ def test_strip_ajax_wrappers_reads_back_the_layers_prepare_env_added():
     stripped, layers = strip_ajax_wrappers(trained)
     assert stripped is task and strip_ajax_wrappers(task) == (task, {})
     assert layers == {
-        "clip": True,
         "normalize_obs": True,
         "normalize_reward": False,
         "gamma": None,
@@ -150,3 +150,20 @@ def test_strip_ajax_wrappers_reads_back_the_layers_prepare_env_added():
     assert list(map(type, wrapper_chain(rebuilt))) == list(
         map(type, wrapper_chain(trained))
     )
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_prepare_env_clips_continuous_actions_to_their_space(normalize):
+    """Whatever the normalisation flags: a discrete env is never clipped, a
+    continuous one always, to its own bounds (Pendulum's torque is 2)."""
+    env, *_ = prepare_env("CartPole-v1", normalize_obs=normalize)
+    assert not any(isinstance(layer, ClipAction) for layer in wrapper_chain(env))
+    env, params, *_ = prepare_env("Pendulum-v1", normalize_obs=normalize)
+    assert isinstance(env, ClipAction)
+    key = jax.random.PRNGKey(0)
+    _, state = env.reset(key, params)
+
+    def reward(a: float) -> float:
+        return float(env.step(key, state, jnp.array([a]), params)[2])
+
+    assert reward(3.0) == reward(2.0) != reward(1.0)

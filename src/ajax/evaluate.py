@@ -40,20 +40,17 @@ def setup_environment(
     gamma,  # noqa: ARG001 -- positional in downstream calls; eval never normalises rewards
     action_repeat: int = 1,
     episode_length: Optional[int] = None,
-    clip_actions: bool = True,
 ):
     """The training env's stack, rebuilt for evaluation (gymnax or brax).
 
     Ajax's own layers come off (:func:`~ajax.environments.create.strip_ajax_wrappers`)
     and go back on as training composed them
-    (:func:`~ajax.environments.create.add_ajax_wrappers`): the action clip
-    where training clipped (``clip_actions=False`` drops it, for callers
-    that map actions to the env's bounds themselves, see
-    :func:`ajax.environments.utils.agent_action_to_env`), the observation
-    normaliser frozen at ``norm_info`` (``None``: no normaliser) and applied
-    to the observations only where training applied it, rewards never
-    normalised. The task under them -- the user's wrappers, the
-    flattening -- is kept as trained on (gymnax).
+    (:func:`~ajax.environments.create.add_ajax_wrappers`): the clip to a
+    continuous action space's bounds, the observation normaliser frozen at
+    ``norm_info`` (``None``: no normaliser) and applied to the observations
+    only where training applied it, rewards never normalised. The task
+    under them -- the user's wrappers, the flattening -- is kept as trained
+    on (gymnax).
 
     brax / playground tasks are rebuilt from their id with ``num_episodes``
     parallel envs. ``episode_length`` (simulator steps) and
@@ -131,8 +128,7 @@ def setup_environment(
             "train": False,
             "norm_info": repeat_first_entry(norm_info, num_repeats=num_episodes),
         }
-    clip = layers.get("clip", False) and clip_actions
-    return add_ajax_wrappers(env, clip=clip, **normaliser), mode, continuous
+    return add_ajax_wrappers(env, **normaliser), mode, continuous
 
 
 def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):
@@ -619,9 +615,10 @@ def evaluate_policy(
 
     * the env is rebuilt through :func:`setup_environment` with
       ``num_episodes`` parallel envs and the *training* ``action_repeat``
-      and episode length, without the ``[-1, 1]`` action clip: actions go
-      through :func:`ajax.environments.utils.agent_action_to_env`, as in
-      the row collector, so train and eval act on the env identically;
+      and episode length; actions go through
+      :func:`ajax.environments.utils.agent_action_to_env`, as in the row
+      collector, so train and eval act on the env identically (the env's
+      clip to its bounds is then a no-op);
     * the envs are reset with ``key`` (the same reset-key derivation as
       :func:`evaluate`, so both see the same initial states for one key);
     * the policy starts from ``init_carry_fn(num_episodes)`` (a zero carry)
@@ -656,7 +653,6 @@ def evaluate_policy(
         gamma=0.99,  # unused without norm_info
         action_repeat=env_args.action_repeat,
         episode_length=train_episode_length,
-        clip_actions=False,
     )
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
 

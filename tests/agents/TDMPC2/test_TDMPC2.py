@@ -194,13 +194,17 @@ def test_episode_length_derived_defaults():
 def test_the_config_is_built_from_the_constructor_arguments():
     """``from_arguments`` takes ``model_size`` and the fields the arguments
     name, ignoring the others; both constructors name every field, so none
-    silently keeps its default (the multi-task agent has no replay)."""
+    silently keeps its default (the multi-task agent has no replay and no
+    episodic mode, which is single-task)."""
     arguments = {"model_size": 1, "rho": 0.3, "enc_dim": None, "env_id": "x"}
     got = TDMPC2Config.from_arguments(arguments)
     assert got == TDMPC2Config.from_model_size(1, rho=0.3)
     fields = {f.name for f in dataclasses.fields(TDMPC2Config)}
     fields.discard("expose_recent_rollout")  # BaseAgentConfig's
-    for agent, unused in ((TDMPC2, set()), (TDMPC2MultiTask, {"buffer_size"})):
+    # The episodic mode (T29) reaches the single-task agent with its loop.
+    episodic = {"episodic", "termination_coef"}
+    multitask = {"buffer_size"} | episodic
+    for agent, unused in ((TDMPC2, episodic), (TDMPC2MultiTask, multitask)):
         parameters = set(inspect.signature(agent.__init__).parameters)
         assert fields - unused <= parameters, (agent, fields - unused - parameters)
 

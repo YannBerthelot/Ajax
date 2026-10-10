@@ -165,13 +165,22 @@ def paper_config(fx: Fixture) -> dict[str, Any]:
 
 
 def test_config_defaults_are_the_paper_defaults(paper_config):
-    """Every ``TDMPC2Config`` default is ``config.yaml``'s (the 5M model)."""
+    """Every ``TDMPC2Config`` default is ``config.yaml``'s (the 5M model); the
+    episodic mode's, which the paper era lacks, are the latest
+    ``config.yaml``'s (``e9f5932``: ``episodic: false``, ``termination_coef:
+    1``; deviation T29)."""
     default = TDMPC2Config()
     base = {f.name for f in dataclasses.fields(BaseAgentConfig)}
-    names = [f.name for f in dataclasses.fields(default) if f.name not in base]
+    latest = {"episodic": False, "termination_coef": 1.0}
+    names = [
+        f.name
+        for f in dataclasses.fields(default)
+        if f.name not in base and f.name not in latest
+    ]
     assert {n: getattr(default, n) for n in names} == {
         n: paper_config[n] for n in names
     }
+    assert {n: getattr(default, n) for n in latest} == latest
     assert paper_config["vmin"] == -default.vmax
     assert TDMPC2Config.from_model_size(5) == default
 

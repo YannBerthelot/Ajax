@@ -18,16 +18,10 @@ from ajax.environments.utils import check_env_is_gymnax
 @struct.dataclass
 class CloningConfig:
     actor_epochs: int = 10
-    critic_epochs: int = 10
     actor_lr: float = 1e-3
-    critic_lr: float = 1e-3
     actor_batch_size: int = 64
-    critic_batch_size: int = 64
     pre_train_n_steps: int = int(1e5)
-    # Per-component pretrain switches. Default keeps backwards-compat:
-    # actor BC enabled, critic MC disabled (matches the legacy behaviour).
     skip_actor_pretrain: bool = False
-    skip_critic_pretrain: bool = True
     # When True, reset only the log_std head after BC training (preserves
     # the BC'd mean, restores entropy). See pre_train docstring.
     reset_log_std_after_bc: bool = False
@@ -113,95 +107,13 @@ def _reset_actor_heads(
     return bc_actor_state.replace(params=freeze(new_params_dict))
 
 
-def _critic_pretrain(
-    bc_critic_state: train_state.TrainState,
-    obs: jnp.ndarray,
-    actions: jnp.ndarray,
-    rewards: jnp.ndarray,
-    terminated: jnp.ndarray,
-    rng: jax.Array,
-    gamma: float,
-    critic_epochs: int,
-    critic_batch_size: int,
-) -> Tuple[train_state.TrainState, jnp.ndarray]:
-    """MC critic pretrain over (T, n_envs) trajectories. Returns (state, per-epoch losses)."""
-    rew_flat = rewards
-    term_flat = terminated.astype(jnp.float32)
-    if rew_flat.ndim == term_flat.ndim:
-        pass
-    elif rew_flat.ndim == term_flat.ndim + 1 and rew_flat.shape[-1] == 1:
-        rew_flat = rew_flat.squeeze(-1)
-    elif term_flat.ndim == rew_flat.ndim + 1 and term_flat.shape[-1] == 1:
-        term_flat = term_flat.squeeze(-1)
-
-    def _backward_step(carry_G, x):
-        r, term = x
-        G = r + gamma * carry_G * (1.0 - term)
-        return G, G
-
-    _, returns_to_go = jax.lax.scan(
-        _backward_step,
-        jnp.zeros(rew_flat.shape[1:]),
-        (rew_flat[::-1], term_flat[::-1]),
-    )
-    returns_to_go = returns_to_go[::-1]
-
-    flat_obs = obs.reshape((-1,) + obs.shape[2:])
-    flat_act = actions.reshape((-1,) + actions.shape[2:])
-    flat_G = returns_to_go.reshape((-1,))
-
-    def critic_loss_fn(params, batch_obs, batch_actions, batch_G):
-        x = jnp.concatenate([batch_obs, jax.lax.stop_gradient(batch_actions)], axis=-1)
-        q_preds = bc_critic_state.apply_fn(params, x)
-        target = batch_G[None, :, None]
-        return jnp.mean((q_preds - target) ** 2)
-
-    def critic_train_step(state, batch_obs, batch_actions, batch_G):
-        loss, grads = jax.value_and_grad(critic_loss_fn)(
-            state.params, batch_obs, batch_actions, batch_G
-        )
-        return state.apply_gradients(grads=grads), loss
-
-    def critic_epoch_step(carry, rng_epoch):
-        state = carry
-        perm = jax.random.permutation(rng_epoch, flat_obs.shape[0])
-        obs_shuffled = flat_obs[perm]
-        act_shuffled = flat_act[perm]
-        G_shuffled = flat_G[perm]
-
-        obs_batches = batchify(obs_shuffled, critic_batch_size)
-        act_batches = batchify(act_shuffled, critic_batch_size)
-        G_batches = batchify(G_shuffled, critic_batch_size)
-
-        def batch_step(carry, batch):
-            state = carry
-            b_obs, b_act, b_G = batch
-            new_state, loss = critic_train_step(state, b_obs, b_act, b_G)
-            return new_state, loss
-
-        state, batch_losses = jax.lax.scan(
-            batch_step,
-            state,
-            (obs_batches, act_batches, G_batches),
-        )
-        return state, jnp.mean(batch_losses)
-
-    rng_epochs = jax.random.split(rng, critic_epochs)
-    return jax.lax.scan(critic_epoch_step, bc_critic_state, rng_epochs)
-
-
 @partial(
     jax.jit,
     static_argnames=[
         "actor_lr",
         "actor_epochs",
         "actor_batch_size",
-        "critic_lr",
-        "critic_epochs",
-        "critic_batch_size",
         "skip_actor",
-        "skip_critic",
-        "gamma",
         "reset_log_std_after_bc",
         "reset_actor_head_after_bc",
         "augment_obs_with_expert_action",
@@ -211,20 +123,11 @@ def _critic_pretrain(
 def pre_train(
     rng: jax.Array,
     actor_state: train_state.TrainState,
-    critic_state: train_state.TrainState,
     dataset: Sequence,  # Sequence[Transition]
-    # Actor hyperparameters
     actor_lr: float = 1e-3,
     actor_epochs: int = 10,
     actor_batch_size: int = 64,
-    # Critic hyperparameters
-    critic_lr: float = 1e-3,
-    critic_epochs: int = 10,
-    critic_batch_size: int = 64,
-    # Pretrain mode controls
     skip_actor: bool = False,
-    skip_critic: bool = True,  # Default-off for backward compat with SAC users
-    gamma: float = 0.99,
     # If True, after BC training the SAC actor's mean (and encoder), reset
     # the ``log_std`` head's params to its init values (zeros kernel,
     # constant -1.0 bias → std ≈ 0.37). Preserves the BC'd mean.
@@ -240,16 +143,11 @@ def pre_train(
     bc_loss_type: str = "nll",
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
-) -> Tuple[
-    train_state.TrainState,
-    train_state.TrainState,
-    Dict[str, jnp.ndarray],
-    jnp.ndarray,
-    jnp.ndarray,
-]:
-    """
-    Pre-train actor (behavioral cloning) and critic (TD(0)) from a dataset of transitions.
-    Returns trained states and metrics dict with per-epoch actor/critic losses.
+) -> Tuple[train_state.TrainState, Dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]:
+    """Behaviour-clone the actor on a dataset of expert transitions.
+
+    Returns the trained actor state, the per-epoch actor losses and the
+    observation mean and standard deviation the actor was trained on.
     """
     obs = dataset.obs
     actions = dataset.action
@@ -270,12 +168,7 @@ def pre_train(
     obs_mean = obs_flat.mean(axis=0)
     obs_std = obs_flat.std(axis=0) + 1e-6
     obs = (obs - obs_mean) / obs_std
-    rewards = dataset.reward
-    terminated = dataset.terminated
-    metrics = {
-        "actor_loss": jnp.zeros((actor_epochs,)),
-        "critic_loss": jnp.zeros((critic_epochs,)),
-    }
+    metrics = {"actor_loss": jnp.zeros((actor_epochs,))}
 
     # --------------------------
     # Actor pre-training
@@ -369,54 +262,10 @@ def pre_train(
                 reset_actor_head_after_bc,
             )
 
-    # --------------------------
-    # Critic pre-training (Monte Carlo, Q(s, a) -> G_t)
-    # --------------------------
-    # Each critic in the ensemble fits the same MC return-to-go target
-    # G_t = sum_{k>=t} gamma^(k-t) * r_k, with the sum bounded at episode
-    # termination (terminated[t] resets the carry). This yields a calibrated
-    # initial Q on the expert distribution; both critics share the targets so
-    # their *disagreement* is small on expert (s, a) and large elsewhere — the
-    # property the quality-aware action pipeline relies on.
-    if not skip_critic:
-        bc_critic_state = train_state.TrainState.create(
-            apply_fn=critic_state.apply_fn,
-            params=critic_state.params,
-            tx=optax.adam(critic_lr),
-        )
-        rng, rng_critic = jax.random.split(rng)
-        bc_critic_state, critic_losses = _critic_pretrain(
-            bc_critic_state,
-            obs,
-            actions,
-            rewards,
-            terminated,
-            rng_critic,
-            gamma,
-            critic_epochs,
-            critic_batch_size,
-        )
-        metrics["critic_loss"] = critic_losses
-    else:
-        bc_critic_state = critic_state
-
-    # Update original states with trained parameters. Skip the actor write-
-    # back when actor pretraining was bypassed; same for critic.
+    # Skip the write-back when actor pretraining was bypassed.
     if not skip_actor:
         actor_state = actor_state.replace(params=bc_actor_state.params)
-    if not skip_critic:
-        # Sync target_params too if the critic state has them (TD3, SAC).
-        new_critic_params = bc_critic_state.params
-        if (
-            hasattr(critic_state, "target_params")
-            and critic_state.target_params is not None
-        ):
-            critic_state = critic_state.replace(
-                params=new_critic_params, target_params=new_critic_params
-            )
-        else:
-            critic_state = critic_state.replace(params=new_critic_params)
-    return actor_state, critic_state, metrics, obs_mean, obs_std
+    return actor_state, metrics, obs_mean, obs_std
 
 
 def pretrain_on_expert(
@@ -425,9 +274,7 @@ def pretrain_on_expert(
     cloning_args,
     expert_policy,
     env_args,
-    agent_config,
     actor_optimizer_args,
-    critic_optimizer_args,
 ):
     """Behaviour-clone ``expert_policy`` when ``cloning_args`` asks for
     pre-training steps (:func:`get_pre_trained_agent`); else the state as is."""
@@ -441,9 +288,7 @@ def pretrain_on_expert(
         env_args,
         cloning_args,
         mode,
-        agent_config,
         actor_optimizer_args,
-        critic_optimizer_args,
     )
 
 
@@ -454,9 +299,7 @@ def get_pre_trained_agent(
     env_args,
     cloning_args,
     mode,
-    agent_config,
     actor_optimizer_args,
-    critic_optimizer_args,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
 ):
@@ -470,20 +313,14 @@ def get_pre_trained_agent(
         augment_obs_with_expert_state=augment_obs_with_expert_state,
     )
     jax.clear_caches()
-    actor_state, critic_state, metrics, obs_mean, obs_std = pre_train(
+    actor_state, _metrics, obs_mean, obs_std = pre_train(
         rng=expert_key,
         actor_state=agent_state.actor_state,
-        critic_state=agent_state.critic_state,
         dataset=dataset,
         actor_lr=actor_optimizer_args.learning_rate,
-        critic_lr=critic_optimizer_args.learning_rate,
         actor_epochs=cloning_args.actor_epochs,
-        critic_epochs=cloning_args.critic_epochs,
         actor_batch_size=cloning_args.actor_batch_size,
-        critic_batch_size=cloning_args.critic_batch_size,
         skip_actor=cloning_args.skip_actor_pretrain,
-        skip_critic=cloning_args.skip_critic_pretrain,
-        gamma=getattr(agent_config, "gamma", 0.99),
         reset_log_std_after_bc=cloning_args.reset_log_std_after_bc,
         reset_actor_head_after_bc=cloning_args.reset_actor_head_after_bc,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
@@ -497,7 +334,7 @@ def get_pre_trained_agent(
     # standardisation via obs_norm_info, so the actor sees a consistent
     # input distribution across BC and online. Online collection then
     # continues to update these stats from this seeded baseline.
-    new_state = agent_state.replace(actor_state=actor_state, critic_state=critic_state)
+    new_state = agent_state.replace(actor_state=actor_state)
     if agent_state.collector_state.obs_norm_info is not None:
         from ajax.wrappers import NormalizationInfo
 

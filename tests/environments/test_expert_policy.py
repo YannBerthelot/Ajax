@@ -70,31 +70,12 @@ class DummyPolicy(nn.Module):
         return distrax.Normal(x, 1)
 
 
-class DummyCritic(nn.Module):
-    @nn.compact
-    def __call__(self, x):
-        x = nn.Dense(16)(x)
-        x = nn.relu(x)
-        x = nn.Dense(16)(x)
-        x = nn.relu(x)
-        x = nn.Dense(1)(x)
-        return x
-
-
 # -----------------------------
 # Fixtures
 # -----------------------------
 def create_dummy_actor_state(obs_dim=4, action_dim=2):
     rng = jax.random.PRNGKey(0)
     model = DummyPolicy(action_dim=action_dim)
-    params = model.init(rng, jnp.ones((1, obs_dim)))
-    tx = optax.adam(1e-3)
-    return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-
-
-def create_dummy_critic_state(obs_dim=4):
-    rng = jax.random.PRNGKey(0)
-    model = DummyCritic()
     params = model.init(rng, jnp.ones((1, obs_dim)))
     tx = optax.adam(1e-3)
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
@@ -175,20 +156,15 @@ def expand_dataset(dataset, repeat=20):
 # -----------------------------
 def test_pre_train_actor_converges():
     actor_state = create_dummy_actor_state()
-    critic_state = create_dummy_critic_state()
     dataset = expand_dataset(create_dummy_dataset(), repeat=1)
     key = jax.random.PRNGKey(42)
-    trained_actor, trained_critic, metrics, obs_mean, obs_std = pre_train(
+    trained_actor, metrics, obs_mean, obs_std = pre_train(
         key,
         actor_state,
-        critic_state,
         dataset,
         actor_lr=5e-2,
         actor_epochs=100,
         actor_batch_size=2,
-        critic_lr=5e-2,
-        critic_epochs=50,
-        critic_batch_size=4,
     )
 
     actor_losses = jnp.array(metrics["actor_loss"])
@@ -207,35 +183,24 @@ def test_pre_train_vmap_compatible():
     actor_states = jax.tree_util.tree_map(
         lambda x: jnp.stack([x] * n), create_dummy_actor_state()
     )
-    critic_states = jax.tree_util.tree_map(
-        lambda x: jnp.stack([x] * n), create_dummy_critic_state()
-    )
 
     dataset = expand_dataset(create_dummy_dataset(), repeat=10)
 
     batched_pre_train = jax.vmap(
-        lambda rng, actor, critic: pre_train(
+        lambda rng, actor: pre_train(
             rng,
             actor,
-            critic,
             dataset,
             actor_lr=1e-3,
             actor_epochs=2,
             actor_batch_size=2,
-            critic_lr=1e-3,
-            critic_epochs=2,
-            critic_batch_size=2,
         ),
-        in_axes=(0, 0, 0),
+        in_axes=(0, 0),
     )
 
-    trained_actors, trained_critics, metrics, _obs_mean, _obs_std = batched_pre_train(
-        rngs, actor_states, critic_states
-    )
+    trained_actors, metrics, _obs_mean, _obs_std = batched_pre_train(rngs, actor_states)
 
-    assert "actor_loss" in metrics and "critic_loss" in metrics
     assert metrics["actor_loss"].shape[0] == n
-    assert metrics["critic_loss"].shape[0] == n
 
     for a_old, a_new in zip(
         jax.tree_util.tree_leaves(create_dummy_actor_state().params),

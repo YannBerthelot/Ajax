@@ -1261,9 +1261,7 @@ def make_train(
                 env_args,
                 cloning_args,
                 mode,
-                agent_config,
                 actor_optimizer_args,
-                critic_optimizer_args,
                 augment_obs_with_expert_action=augment_obs_with_expert_action,
                 augment_obs_with_expert_state=augment_obs_with_expert_state,
             )

@@ -441,9 +441,7 @@ def make_train(
             cloning_args,
             expert_policy,
             env_args,
-            agent_config,
             actor_optimizer_args,
-            critic_optimizer_args,
         )
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:

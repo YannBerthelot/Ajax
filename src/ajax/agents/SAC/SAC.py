@@ -82,11 +82,8 @@ class SAC(ActorCritic):
         normalize_rewards: bool = False,
         # Cloning / pre-train kwargs (kept: route through CloningConfig)
         actor_cloning_epochs: int = 10,
-        critic_cloning_epochs: int = 10,
         actor_cloning_lr: float = 1e-3,
-        critic_cloning_lr: float = 1e-3,
         actor_cloning_batch_size: int = 64,
-        critic_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         # Expert objects: still used by collection / cloning / a fair
         # number of action-pipeline call sites. ``expert_policy=`` is
@@ -161,8 +158,12 @@ class SAC(ActorCritic):
         # ``temperature_loss_function``).
         target_entropy_initial_per_dim: Optional[float] = None,
         target_entropy_ramp_frac: float = 0.5,
-        # Critic / actor BC controls (route through CloningConfig)
+        # Actor BC controls (route through CloningConfig)
         skip_actor_pretrain: bool = False,
+        # Deliberate transitional shim (CLAUDE.md rule 10, expand then
+        # contract): the critic pretraining this switched off is gone, so
+        # True is a no-op and False cannot be honoured. AjaxExperiments
+        # still passes it; remove it once AjaxExperiments stops.
         skip_critic_pretrain: bool = True,
         reset_log_std_after_bc: bool = False,
         reset_actor_head_after_bc: bool = False,
@@ -231,16 +232,17 @@ class SAC(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
         self.num_critics = num_critics
+        if not skip_critic_pretrain:
+            raise ValueError(
+                "SAC no longer pretrains its critic on the cloning dataset; "
+                "use the MCPretrain extension."
+            )
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
-            critic_epochs=critic_cloning_epochs,
             actor_lr=actor_cloning_lr,
-            critic_lr=critic_cloning_lr,
             actor_batch_size=actor_cloning_batch_size,
-            critic_batch_size=critic_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
             skip_actor_pretrain=skip_actor_pretrain,
-            skip_critic_pretrain=skip_critic_pretrain,
             reset_log_std_after_bc=reset_log_std_after_bc,
             reset_actor_head_after_bc=reset_actor_head_after_bc,
         )

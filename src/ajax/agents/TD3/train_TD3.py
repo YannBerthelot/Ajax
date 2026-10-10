@@ -23,6 +23,7 @@ from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
+    bootstrap_cuts,
     q_values,
     sample_replay,
     stored_actor_carry_dim,
@@ -236,7 +237,7 @@ def update_value_functions(
     """The critic step on the smoothed, clipped double-Q target."""
     key, rng = jax.random.split(agent_state.rng)
     step = agent_state.collector_state.timestep
-    dones = jnp.logical_or(batch.terminated, batch.truncated)
+    dones = bootstrap_cuts(batch, carries)
     target_q = compute_td3_td_target(
         agent_state.actor_state,
         agent_state.critic_state,

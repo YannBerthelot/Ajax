@@ -268,6 +268,7 @@ def update_value_functions(
         key,
         total_timesteps,
         rewards=transition.reward,
+        dones=dones,
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
     )

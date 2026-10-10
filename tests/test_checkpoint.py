@@ -94,6 +94,35 @@ def test_atomic_save_tmp_cleanup(tmp_path):
     assert not os.path.exists(path + ".tmp")
 
 
+def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
+    tmp_path,
+):
+    """A checkpoint from before the replay buffer stored ``next_obs`` resumes
+    with each row's successor there, what its replay bootstrapped on then."""
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    agent = SAC(
+        env_id="Pendulum-v1",
+        n_envs=2,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=100,
+        batch_size=4,
+        buffer_size=40,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=10)
+    buffer = state.collector_state.buffer_state
+    rows = {k: v for k, v in buffer.experience.items() if k != "next_obs"}
+    old = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state.replace(collector_state=old), path)
+    got = restore_into(state, path).collector_state.buffer_state.experience
+    obs = np.asarray(rows["obs"])
+    np.testing.assert_array_equal(got["next_obs"][..., :-1, :], obs[..., 1:, :])
+    np.testing.assert_array_equal(got["next_obs"][..., -1, :], obs[..., 0, :])
+
+
 def test_agent_train_returns_tuple_shape():
     """Regression: ``agent.train(...)`` returns a ``(state, metrics)`` 2-tuple,
     not a bare ``BaseAgentState``. The resume path in ``agents/base.py`` must

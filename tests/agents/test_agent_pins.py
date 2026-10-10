@@ -311,21 +311,41 @@ _GOLDEN: dict[str, dict[str, float]] = {
 # the critic tree lost the norm's scales (64 of the old 79.6) and the actor
 # moved 3.6%.
 _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
-# Recorded on macOS ARM CPU once PPO and PQN took TrainLoop's init keys,
-# before step 17 restructured them. DQN's and PQN's critic state is a
-# never-updated copy of the initial Q-network: not pinned.
+# Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
+# partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
+    "PPO-flat": {"actor": 20.36318016052246, "critic": 21.18039321899414},
+    "PPO-env-split": {"actor": 19.09400177001953, "critic": 20.218984603881836},
+    "PPO-unroll": {"actor": 20.432720184326172, "critic": 21.03376007080078},
+    "PPO-gru": {"actor": 69.55516052246094, "critic": 68.83757019042969},
+    "PPO-discrete-nudge": {
+        "actor": 21.77309799194336,
+        "critic": 21.17990493774414,
+        "nudge": 0.29222556948661804,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 19.13752555847168,
+        "critic": 20.32254409790039,
+        "nudge": 0.3099551498889923,
+    },
     "APO-nudge": {
-        "actor": 3.837249994277954,
-        "critic": 4.151569843292236,
+        "actor": 3.8527090549468994,
+        "critic": 4.158751964569092,
         "nudge": 0.33622848987579346,
     },
+}
+# Recorded on macOS ARM CPU once PQN took TrainLoop's init keys, before
+# step 17 restructured it. DQN's and PQN's critic state is a never-updated
+# copy of the initial Q-network: not pinned.
+_GOLDEN |= {
     "PQN": {"actor": 25.90884017944336},
     "PQN-nudge": {"actor": 25.898910522460938, "nudge": 0.33566388487815857},
 }
 # Recorded on macOS ARM CPU once the shared encoder's output LayerNorm became
 # opt-in (SAC, REDQ, ASAC, PPO and DQN build plain MLPs, as in their papers):
 # each tree lost the norm's scales, one per hidden unit (16 or 32 per encoder).
+# PPO's entries re-recorded once this met the per-epoch reshuffle (#81):
+# 0.05-2.6% on the actors, under 0.4% on the critics.
 _GOLDEN |= {
     "ASAC": {
         "actor": 4.500450611114502,
@@ -342,18 +362,18 @@ _GOLDEN |= {
         "critic": 109.36508178710938,
         "alpha": 0.9514929056167603,
     },
-    "PPO-flat": {"actor": 4.222780704498291, "critic": 4.493257522583008},
-    "PPO-env-split": {"actor": 3.0351836681365967, "critic": 4.084441184997559},
-    "PPO-unroll": {"actor": 4.338447570800781, "critic": 4.533243179321289},
-    "PPO-gru": {"actor": 53.386173248291016, "critic": 52.814151763916016},
+    "PPO-flat": {"actor": 4.138375282287598, "critic": 4.506361961364746},
+    "PPO-env-split": {"actor": 3.0261974334716797, "critic": 4.079187870025635},
+    "PPO-unroll": {"actor": 4.224678993225098, "critic": 4.548887729644775},
+    "PPO-gru": {"actor": 53.321449279785156, "critic": 52.78514099121094},
     "PPO-discrete-nudge": {
         "actor": 5.820460796356201,
         "critic": 5.029939651489258,
         "nudge": 0.29222556948661804,
     },
     "PPO-env-split-nudge": {
-        "actor": 3.7158429622650146,
-        "critic": 4.229516983032227,
+        "actor": 3.742928981781006,
+        "critic": 4.225018501281738,
         "nudge": 0.3099551498889923,
     },
     "DQN": {"actor": 9.462096214294434, "target": 9.303977966308594},

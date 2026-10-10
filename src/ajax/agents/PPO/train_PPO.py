@@ -607,12 +607,14 @@ def update_agent(
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
     k, length = geometry.num_minibatches, geometry.length
-    if geometry.kind == "time":
-        minibatches = get_minibatches_preserving_time(batch, shuffle_key, k, length)
-    elif geometry.kind == "recurrent":
-        minibatches = _sequence_minibatches(batch, carries, shuffle_key, k, length)
-    else:
-        minibatches = get_minibatches_from_batch(batch, shuffle_key, k)
+
+    def minibatches(key: jax.Array) -> dict:
+        """One epoch's partition of the rollout."""
+        if geometry.kind == "time":
+            return get_minibatches_preserving_time(batch, key, k, length)
+        if geometry.kind == "recurrent":
+            return _sequence_minibatches(batch, carries, key, k, length)
+        return get_minibatches_from_batch(batch, key, k)
 
     # The extensions' loss terms read the state the epochs start from.
     critic_extra = _stack_critic_loss(extension_stack, agent_state, total_timesteps)
@@ -711,7 +713,7 @@ def update_agent(
         return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux)
 
     agent_state, aux = run_epochs(
-        agent_state, minibatches, minibatch_step, agent_config.n_epochs
+        agent_state, shuffle_key, minibatches, minibatch_step, agent_config.n_epochs
     )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
 

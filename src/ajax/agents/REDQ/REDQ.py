@@ -6,6 +6,7 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
@@ -25,6 +26,11 @@ class REDQ(ActorCritic):
     action spaces."""
 
     name: str = "REDQ"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
     supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913

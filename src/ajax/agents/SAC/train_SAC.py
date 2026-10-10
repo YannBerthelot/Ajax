@@ -35,7 +35,7 @@ from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_batch_from_buffer, get_expert_fields_from_buffer
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.extensions.base import ExtensionContext, ExtensionStack
+from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
 from ajax.perf_utils import final_aux_scan
@@ -387,33 +387,17 @@ def policy_loss_function(
     """SAC actor loss with composable expert modifiers.
 
     Structure mirrors the critic side: core SAC loss + layered expert additions.
-    1. Pre-process: extension_stack.on_obs (detach expert-action dims)
-    2. Core: forward pass → sample → Q eval → α·log π - Q
-    3. Modifier: policy_action_transform (residual RL before Q eval)
-    4. Modifier: extension_stack.actor_loss (e.g. OnlineBC term)
-    5. Diagnostics: expert Q gap, L2 distance
+    1. Core: forward pass → sample → Q eval → α·log π - Q
+    2. Modifier: policy_action_transform (residual RL before Q eval)
+    3. Modifier: extension_stack.actor_loss (e.g. OnlineBC term)
+    4. Diagnostics: expert Q gap, L2 distance
     """
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
     )
 
-    # 1. Pre-process: the ExtensionStack's ``on_obs`` fold
-    # (ExpertObsAugmentation detaches the expert-action dims) on
-    # ``agent_state``'s extension states and step. Empty stack ⇒ identity.
-    if extension_stack:
-        _on_obs_ctx = ExtensionContext(
-            step=agent_state.collector_state.timestep,
-            rng=rng,
-            total_steps=total_timesteps,
-        )
-        obs_for_actor = extension_stack.on_obs(
-            observations, agent_state.ext_state, _on_obs_ctx
-        )
-    else:
-        obs_for_actor = observations
-
-    # 2. Core forward pass + sample (``carries`` for sequence replay).
-    pi = actor_dist(actor_state, actor_params, obs_for_actor, carries)
+    # 1. Core forward pass + sample (``carries`` for sequence replay).
+    pi = actor_dist(actor_state, actor_params, observations, carries)
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
@@ -424,7 +408,7 @@ def policy_loss_function(
         else pi.stddev().mean()
     )
 
-    # 3. Action transform modifier (residual RL)
+    # 2. Action transform modifier (residual RL)
     q_input_actions = (
         policy_action_transform(actions, _raw_obs, a_expert_precomputed)
         if policy_action_transform is not None
@@ -441,7 +425,7 @@ def policy_loss_function(
     q_min = jnp.min(q_preds, axis=0)
     loss_actor = alpha * log_probs - q_min
 
-    # 4. Expert diagnostics and the actor-loss extensions' terms, which
+    # 3. Expert diagnostics and the actor-loss extensions' terms, which
     # get the expert action (OnlineBC's BC target) once phi* exists.
     needs_expert = expert_policy is not None and use_expert_guidance
     needs_bc = (
@@ -910,8 +894,7 @@ def make_train(
     # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
     use_bellman_critic_pretrain: bool = False,
     # Expert obs augmentation: changes init_SAC / collect_experience
-    # network input dim. The runtime stop-gradient on the augmented dims
-    # lives on :meth:`ExpertObsAugmentation.on_obs`.
+    # network input dim.
     augment_obs_with_expert_action: bool = False,
     # Train-fraction conditioning: append timestep/total_timesteps to obs
     use_train_frac: bool = False,

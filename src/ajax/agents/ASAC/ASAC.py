@@ -7,6 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.ASAC.state import ASACConfig
 from ajax.agents.ASAC.train_ASAC import make_train
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
@@ -23,6 +24,11 @@ class ASAC(ActorCritic):
     """Average-Reward Soft Actor-Critic (ASAC) from Adamczyk et al. 2025. See https://arxiv.org/abs/2501.09080v2"""
 
     name: str = "ASAC"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
     supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913

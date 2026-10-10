@@ -46,7 +46,6 @@ import pytest
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import (
     ExpertGuidance,
-    ExpertObsAugmentation,
     JSRLCurriculum,
     OnlineBC,
     ResidualPolicy,
@@ -336,10 +335,8 @@ def test_expert_obs_aug_constructs_and_trains():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        # The ``augment_obs_with_expert_action`` flag is still required on
-        # the SAC class because it changes the network input dim (init_SAC
-        # / collect_experience). The :class:`ExpertObsAugmentation`
-        # extension carries the runtime ``detach`` stop-gradient.
+        # The flag changes the network input dim (init_SAC /
+        # collect_experience).
         augment_obs_with_expert_action=True,
         extensions=(
             ExpertGuidance(
@@ -347,7 +344,6 @@ def test_expert_obs_aug_constructs_and_trains():
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            ExpertObsAugmentation(expert_policy=expert, detach=False),
         ),
     )
     state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)

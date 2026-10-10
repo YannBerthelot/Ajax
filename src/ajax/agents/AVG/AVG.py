@@ -7,6 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
@@ -27,6 +28,11 @@ class AVG(ActorCritic):
     """
 
     name: str = "AVG"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
 
     def __init__(  # pylint: disable=W0102, R0913
         self,

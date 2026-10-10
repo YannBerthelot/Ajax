@@ -28,6 +28,7 @@ from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.APG.state import APGConfig
 from ajax.agents.APG.train_APG import make_train
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.environments.differentiable import with_transition_gradients
 from ajax.environments.system_class import SystemClass
 from ajax.environments.utils import check_env_is_gymnax
@@ -45,6 +46,7 @@ _DEFAULT_PID = PIDHeadConfig()
 
 class APG(ActorCritic):
     name: str = "APG"
+    supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
     supports_memory: bool = True
 
     def __init__(

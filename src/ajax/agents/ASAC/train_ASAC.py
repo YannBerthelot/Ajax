@@ -367,7 +367,11 @@ def update_agent(
         target_entropy=agent_config.target_entropy,
         carries=carries,
     )
-    agent_state = update_theta(agent_state, tau, rewards, transition.obs, carries)
+    # In the target's units: the reward rate theta is subtracted from the
+    # scaled rewards there.
+    agent_state = update_theta(
+        agent_state, tau, rewards * agent_config.reward_scale, transition.obs, carries
+    )
     agent_state = core.update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(
         temperature=aux_temperature,

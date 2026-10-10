@@ -317,7 +317,15 @@ def update_agent(
 ) -> Tuple[AVGState, AuxiliaryLogs]:
     """One update on the step just taken: a critic and an actor step, both
     from the current parameters (the actor's loss sees the critic before
-    its step). ``alpha`` is not updated."""
+    its step, the critic's TD target the actor before its step). ``alpha``
+    is not updated.
+
+    The official code's order (``gauthamvasan/avg``, ``AVG.update`` in
+    ``incremental_rl/avg_ablation.py`` and in ``avg.py``): both losses are
+    built before ``popt.step()``, then ``qopt.step()``. Vasan et al. (2024),
+    Algorithm 1, writes the critic's update line before the actor's; the
+    paper's runs come from that code.
+    """
     critic_updated, aux_value = update_value_functions(
         agent_state, transition, agent_config, extension_stack, total_timesteps
     )

@@ -4,9 +4,13 @@ Guidance for Claude Code (and any agent) working in the Ajax repository.
 
 ## Commit requirement
 
-**Every commit must pass tests, pre-commit, and the CI checks — verify
-this BEFORE creating the commit.** All of the following must pass on the
-state being committed:
+**Nothing merges into main unless every check below is green.** The full
+test suite is expensive (about an hour of CPU), so it runs in GitHub CI on
+the pull request, not locally before each commit. Before committing, run
+the cheap checks locally: pre-commit (step 1), `poetry run pytest
+--collect-only -q`, and the test files that exercise what you changed.
+Then push and let CI run the rest; fix anything it reports on the same
+branch. The checks:
 
 1. **pre-commit** — `poetry run pre-commit run --all-files`
    (ruff lint, ruff-format, mypy).
@@ -22,11 +26,11 @@ state being committed:
 4. **Probing tests** — `poetry run pytest tests/agents/test_probing.py
    tests/probing`.
 
-`make ci` runs all four. These are the checks in
-`.github/workflows/ci.yml`, which splits step 2 across three runners. Do not create
-a commit while any of them is red. If a failure is pre-existing and
-unrelated to the change, call it out explicitly instead of committing
-over it.
+`make ci` runs all four locally when you do want them. These are the
+checks in `.github/workflows/ci.yml`, which runs steps 2-4 in parallel
+jobs. Never merge while any of them is red. If a failure is
+pre-existing and unrelated to the change, call it out explicitly instead
+of merging over it.
 
 See `CONTRIBUTING.md` for repository layout, the agent-implementation
 template, and the Extension framework conventions.
@@ -35,10 +39,10 @@ template, and the Extension framework conventions.
 
 Heavy or risky changes go on a dedicated branch — never committed
 directly to a shared branch. Tests ship with new code: no new module
-or function lands without a covering test. Full CI must be green on
-every commit; never stack a red commit on a red parent (if a failure
-is pre-existing and unrelated, call it out explicitly instead of
-committing over it).
+or function lands without a covering test. Full CI must be green
+before a branch merges; never build new work on a red branch (if a
+failure is pre-existing and unrelated, call it out explicitly instead
+of merging over it).
 
 Improve quality as you go — readability, refactoring, performance —
 but never at the expense of clarity or reliability. No tricks, no
@@ -60,7 +64,7 @@ We are not in a rush; do things as cleanly as possible.
    it does today (goldens, `tests/probing`, the downstream API pin).
 2. **Restructure or change behaviour, never both** in one commit. A fix
    that moves numbers re-records its goldens in its own commit, saying why.
-3. **Small green steps**, each one bisectable.
+3. **Small steps**, each PR green in CI before merging, and bisectable.
 4. **One source of truth per piece of knowledge.** Descendants import
    the parent's maths. Merge only what is truly the same; abstract on the
    third occurrence, not the second.

@@ -39,7 +39,7 @@ class SAC(ActorCritic):
     Several kwargs survived because they thread into network init,
     collection, or the action pipeline at a level the extension
     framework doesn't reach (``residual``, ``jsrl_curriculum``,
-    ``use_bellman_critic_pretrain``, ``use_pid_policy``,
+    ``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
     ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``).
     They mirror the matching extension's "static" flag.
@@ -130,14 +130,9 @@ class SAC(ActorCritic):
         num_critic_updates: int = 1,
         expert_buffer_n_steps: int = 20_000,
         expert_mix_fraction: float = 0.1,
-        # MC sizing kwarg threaded into the inline Bellman-pretrain
-        # block (``use_bellman_critic_pretrain``). MCPretrain extensions
-        # own the equivalent for the MC path via ``n_steps``.
-        mc_pretrain_n_steps: int = 5_000,
         # Obs augmentation: changes init_SAC / collect_experience
         # network input dim.
         augment_obs_with_expert_action: bool = False,
-        use_bellman_critic_pretrain: bool = False,
         # Train-fraction conditioning: append timestep/total_timesteps
         # to obs (changes the network input dim).
         use_train_frac: bool = False,
@@ -266,9 +261,7 @@ class SAC(ActorCritic):
         self.num_critic_updates = num_critic_updates
         self.expert_buffer_n_steps = expert_buffer_n_steps
         self.expert_mix_fraction = expert_mix_fraction
-        self.mc_pretrain_n_steps = mc_pretrain_n_steps
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
-        self.use_bellman_critic_pretrain = use_bellman_critic_pretrain
         self.use_train_frac = use_train_frac
         self.policy_update_start = policy_update_start
         self.alpha_update_start = alpha_update_start
@@ -307,9 +300,7 @@ class SAC(ActorCritic):
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,
             expert_mix_fraction=self.expert_mix_fraction,
-            mc_pretrain_n_steps=self.mc_pretrain_n_steps,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
-            use_bellman_critic_pretrain=self.use_bellman_critic_pretrain,
             use_train_frac=self.use_train_frac,
             policy_update_start=self.policy_update_start,
             alpha_update_start=self.alpha_update_start,

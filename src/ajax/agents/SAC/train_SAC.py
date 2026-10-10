@@ -29,7 +29,6 @@ from ajax.agents.SAC.expert import (
     augment_obs_if_needed,
     collect_and_store_expert_transitions,
     compute_expert_diagnostics,
-    pretrain_critic_bellman,
 )
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
@@ -889,12 +888,6 @@ def make_train(
     expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
     expert_mix_fraction: float = 0.1,
-    # MC sizing kwarg threaded into the inline Bellman-pretrain block
-    # below (``use_bellman_critic_pretrain``). MCPretrain extensions own
-    # the equivalent for the MC path inside ``MCPretrain(n_steps=...)``.
-    mc_pretrain_n_steps: int = 5_000,
-    # Bellman critic pretraining (legacy fallback, mutually exclusive with MC)
-    use_bellman_critic_pretrain: bool = False,
     # Expert obs augmentation: changes init_SAC / collect_experience
     # network input dim.
     augment_obs_with_expert_action: bool = False,
@@ -963,6 +956,10 @@ def make_train(
         augment_obs_with_expert_action=augment_obs_with_expert_action,
         action_dim=_resolved_action_dim,
         extensions=tuple(extensions),
+        expert_policy=expert_policy,
+        recurrent=recurrent,
+        update_value_fn=update_value_functions,
+        update_target_fn=update_target_networks,
     )
     if recurrent:
         # Expert-guidance features (and their Extension replacements) are
@@ -1014,20 +1011,6 @@ def make_train(
             normalize_obs_running=normalize_obs_running,
             jsrl_curriculum=jsrl_curriculum,
         )
-        if expert_policy is not None and use_bellman_critic_pretrain:
-            agent_state = pretrain_critic_bellman(
-                agent_state=agent_state,
-                recurrent=recurrent,
-                gamma=agent_config.gamma,
-                reward_scale=agent_config.reward_scale,
-                buffer=buffer,
-                n_steps=mc_pretrain_n_steps,
-                update_value_fn=update_value_functions,
-                update_target_fn=update_target_networks,
-            )
-            jax.debug.print(
-                "[Bellman pretrain] done ({n} steps)", n=mc_pretrain_n_steps
-            )
         return pretrain_on_expert(
             agent_state,
             pretrain_key,

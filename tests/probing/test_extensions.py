@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xfail, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "53be5c49a794"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "8aef57bbefbb"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -107,16 +107,6 @@ class ActorPull(Extension):
         if self.gated:
             term = jnp.where(ctx.step >= ctx.total_steps // 2, term, 0.0)
         return term
-
-
-@dataclasses.dataclass(frozen=True)
-class RewardShift(Extension):
-    name: str = "p3_reward_shift"
-
-    def on_batch(self, batch, ext_state, ctx):
-        if isinstance(batch, dict):
-            return {**batch, "rewards": batch["rewards"] + 1.0}
-        return batch.replace(reward=batch.reward + 1.0)
 
 
 def _fixed(obs: jax.Array, value: float, shape: tuple[int, ...]) -> jax.Array:
@@ -220,7 +210,6 @@ CELLS = {  # cell: probe, extensions (continuous, discrete), log frequency
     "E7": ("value", ((MC,), ()), None),
     "F": ("chain", ((TerminalSafeShift(),), (TerminalSafeShift(),)), None),
     "G": ("value", ((ActorPull(gated=True),), ()), None),
-    "H": ("value", ((RewardShift(),), (RewardShift(),)), None),
 }
 
 
@@ -298,7 +287,6 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
         "E2": Query("V(0)", w / (w + 100.0), {"term not folded or no gradient": 1.0}),
         "E3": Query("a(0)", -0.5, {"no pull (max-entropy or initial mean)": 0.0} | loc),
         "E3-gated": Query("a(0)", -0.5, {"gate never opens (ctx.step 0)": 0.0}),
-        "on_batch": Query("V(0)", 2.0, {"on_batch ignored": 1.0}),
         "E7": Query("phi*(0, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
     }
     if test in single:
@@ -321,7 +309,6 @@ NO_FOLD = "no fold_{} call anywhere in src/ajax, yet every agent but the world m
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
     "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
     "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
-    "on_batch-*": NO_FOLD.format("on_batch") + "; right V(0) 2.0, today 1.00",
     "E6-SAC": "(contract pending) SAC folds on_obs in the actor loss only (train_SAC.py:516-524), so the policy learns pi(.|-s) against Q(s, .); right train return > 0 and a_net(+1) < 0, today -0.39 to -0.75 and -0.70 to -0.75",
     "E6-*": "(contract pending) on_obs is folded only in SAC's actor loss (train_SAC.py:524), so the flip is ignored here; right the network acts on the flipped input (a_net(+1) < 0; discrete Q_net(1,0) > Q_net(1,1)), today the raw mapping (PPO a_net(+1) 1.3-2.0; DQN and PQN gap -1.0)",
     "E4-*": NO_FOLD.format("action")
@@ -348,10 +335,6 @@ P3_CAL = {
     "E3-PPO": ("A", 5000, (0.045,)),
     "E3-gated-SAC": ("G", 5000, ()),
     "E3-gated-PPO": ("G", 1250, (0.02,)),
-    "on_batch-SAC": ("H", 1250, ()),
-    "on_batch-PPO": ("H", 1250, ()),
-    "on_batch-DQN": ("H", 1250, ()),
-    "on_batch-PQN": ("H", 80_000, ()),
     "E6-SAC": ("D", 5000, ()),
     "E6-PPO": ("D", 1250, ()),
     "E6-DQN": ("D", 1250, ()),
@@ -376,7 +359,6 @@ def _exact(test: str, names: Any, raises: Any = AssertionError) -> list:
 
 PHASE_EXTENSIONS = {
     "on_obs": ObsFlip,
-    "on_batch": RewardShift,
     "on_target": TargetShift,
     "critic_loss": CriticPull,
     "actor_loss": ActorPull,

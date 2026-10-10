@@ -48,9 +48,6 @@ class EveryPhase(Extension):
     def on_obs(self, obs, ext_state, ctx):
         return obs
 
-    def on_batch(self, batch, ext_state, ctx):
-        return batch
-
     def on_target(self, agent_state, ext_state, batch, target, ctx):
         return target
 

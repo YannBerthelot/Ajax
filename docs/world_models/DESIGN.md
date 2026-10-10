@@ -322,7 +322,7 @@ training working set (the seed vmap multiplies it).
 `ActorCritic.supported_extension_phases: frozenset = frozenset(PHASES)` checked in
 `ActorCritic.__init__` against `extension_stack.implemented_phases()` (existing agents:
 unchanged). Both new agents declare `{pretrain, post_update, eval_metrics}` (+
-`init_state`). `on_target`, `critic_loss`, `actor_loss`, `on_obs`, `on_batch`,
+`init_state`). `on_target`, `critic_loss`, `actor_loss`, `on_obs`,
 `action`, `eval_action` are rejected with a clear message until a concrete use defines
 their semantics on latent agents.
 

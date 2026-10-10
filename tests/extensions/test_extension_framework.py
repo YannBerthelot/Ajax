@@ -32,7 +32,6 @@ def test_extension_defaults_are_noops():
 
     assert ext.init_state(None, key) == ()
     assert ext.on_obs(obs, (), ctx) is obs
-    assert ext.on_batch("batch", (), ctx) == "batch"
     assert ext.on_target(None, (), None, target, ctx) is target
     assert ext.critic_loss(None, (), None, ctx) == 0.0
     assert ext.actor_loss(None, (), None, ctx) == 0.0

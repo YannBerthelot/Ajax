@@ -139,7 +139,6 @@ is exactly as invasive as the phases it overrides):
 | `init_state(agent_state, rng) -> pytree` | once, on fresh init | stateful Extensions; `()` default = stateless |
 | `pretrain(agent_state, ext_state, ctx)` | once, before training loop | MC pre-train, BC pre-train |
 | `on_obs(obs, ext_state, ctx) -> obs` | before network consumes obs | obs augmentation, stop-grad |
-| `on_batch(batch, ext_state, ctx) -> batch` | after replay sample | HER relabel, expert mixing |
 | `on_target(agent_state, ext_state, batch, target, ctx) -> target` | TD target | IBRL, CriticBlend, LCBGatedBootstrap, MCVarianceCorrection |
 | `critic_loss(agent_state, ext_state, batch, ctx) -> scalar` | extra critic-loss term | BiasVorePenalty |
 | `actor_loss(agent_state, ext_state, batch, ctx) -> scalar` | extra actor-loss term | OnlineBC |

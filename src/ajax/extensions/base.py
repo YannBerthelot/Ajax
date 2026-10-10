@@ -31,7 +31,6 @@ Phases
 ``init_state``   build the extension's pytree state (once, on fresh init)
 ``pretrain``     one-shot, before the training loop (MC/BC pre-training)
 ``on_obs``       transform an observation before the network sees it
-``on_batch``     transform a sampled batch before the update
 ``on_target``    transform the TD / value target
 ``critic_loss``  extra additive critic-loss term (summed over extensions)
 ``actor_loss``   extra additive actor-loss term (summed over extensions)
@@ -71,7 +70,6 @@ class ExtensionContext:
 PHASES: tuple[str, ...] = (
     "pretrain",
     "on_obs",
-    "on_batch",
     "on_target",
     "critic_loss",
     "actor_loss",
@@ -144,11 +142,6 @@ class Extension:
         """Transform an observation before the network consumes it."""
         del ext_state, ctx
         return obs
-
-    def on_batch(self, batch: Any, ext_state: Any, ctx: ExtensionContext) -> Any:
-        """Transform a sampled batch before the update step."""
-        del ext_state, ctx
-        return batch
 
     def on_target(
         self,
@@ -309,11 +302,6 @@ class ExtensionStack:
         for i, ext in enumerate(self.extensions):
             obs = ext.on_obs(obs, ext_states[i], ctx)
         return obs
-
-    def on_batch(self, batch: Any, ext_states: tuple, ctx: ExtensionContext) -> Any:
-        for i, ext in enumerate(self.extensions):
-            batch = ext.on_batch(batch, ext_states[i], ctx)
-        return batch
 
     def on_target(
         self,

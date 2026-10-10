@@ -910,11 +910,6 @@ def make_train(
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
     store_policy_action: bool = False,
-    # Residual RL (Johannink et al.): execute clip(a_expert + scale * a_pi, -1, 1).
-    # Threads into ``make_action_pipeline``; the ResidualPolicy extension
-    # owns the actor-loss / TD-target transform via :meth:`transform_action`.
-    use_residual_rl: bool = False,
-    residual_scale: float = 1.0,
     # True JSRL (Uchendu et al. 2023): per-episode curriculum handoff.
     # The flag gates the ``step_in_episode`` counter init in
     # :func:`init_SAC`; the curriculum math lives on
@@ -1039,11 +1034,12 @@ def make_train(
             augment_obs_with_expert_state=augment_obs_with_expert_state,
         )
 
-    # An extension with ``build_policy_transform`` (ResidualPolicy)
-    # supplies the actor-loss / TD-target action transform
-    # ``(actions, raw_obs, a_expert) -> actions`` and the eval-time one;
-    # ``None`` ⇒ pure SAC actor loss. Gain mode (``use_pid_policy``)
-    # handles its own eval transform in ``step_environment``.
+    # An extension with ``build_policy_transform`` (ResidualPolicy) makes
+    # the executed action residual: in collection (the action pipeline),
+    # the actor loss and TD target ``(actions, raw_obs, a_expert) ->
+    # actions``, and evaluation; ``None`` ⇒ pure SAC. Gain mode
+    # (``use_pid_policy``, which rejects a residual policy) handles its own
+    # eval transform in ``step_environment``.
     residual = next(
         (e for e in loop.stack.extensions if hasattr(e, "build_policy_transform")),
         None,
@@ -1094,8 +1090,7 @@ def make_train(
         env_args=env_args,
         extension_stack=loop.stack,
         expert_fraction=expert_fraction,
-        use_residual_rl=use_residual_rl,
-        residual_scale=residual_scale,
+        residual=residual,
         use_pid_policy=use_pid_policy,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
         store_policy_action=store_policy_action,

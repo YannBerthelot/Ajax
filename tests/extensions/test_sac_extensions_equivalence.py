@@ -252,11 +252,6 @@ def test_residual_policy_matches_legacy_use_residual_rl():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        # ``residual`` on the SAC class still routes the residual-policy
-        # flag onto network init and the action pipeline; mirror it for
-        # an honest equivalence check against the golden.
-        residual=True,
-        residual_scale=0.5,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,

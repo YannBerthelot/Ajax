@@ -1,5 +1,5 @@
 # fmt: off
-# ruff: noqa: C901, E731, I001
+# ruff: noqa: ARG001, ARG005, C901, E731, I001
 #
 # Derived from danijar/dreamerv3 at commit 29eb964
 # (29eb964e2918a3f4db04086f7f51b60388e97f3d): a copy of the whole file

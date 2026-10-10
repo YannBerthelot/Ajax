@@ -140,7 +140,7 @@ def runs():
         patch.setattr(
             trainer_module,
             "vmap_log",
-            lambda metrics, index, run_ids, config: logged.append((index, metrics)),
+            lambda metrics, index, run_ids: logged.append((index, metrics)),
         )
         patch.setattr(trainer_module, "start_async_logging", lambda: None)
         patch.setattr(trainer_module, "stop_async_logging", lambda: None)

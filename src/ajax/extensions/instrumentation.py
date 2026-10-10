@@ -581,7 +581,7 @@ class BiasVorePenalty(Extension):
         batch: dict,
         ctx: ExtensionContext,
     ) -> jax.Array:
-        del ext_state, ctx
+        del agent_state, ext_state, ctx
         coeff = self._coeff()
         if coeff == 0.0:
             return jnp.asarray(0.0)

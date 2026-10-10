@@ -1144,7 +1144,7 @@ def make_train(
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+    log_fn = partial(vmap_log, run_ids=run_ids)
 
     # Bind the SAC-factory-only context onto every extension (see
     # :meth:`Extension.bind_to_agent`: each picks the kwargs it needs).
@@ -1199,7 +1199,7 @@ def make_train(
     # run; on resume the shared helper reuses ``initial_state`` directly
     # so none of this expensive one-shot work is re-run.
     # ------------------------------------------------------------------
-    def init_fn(key, index):
+    def init_fn(key, _index):
         """Build a fresh SAC agent state with all one-shot pretraining."""
         # Three keys: the third once seeded a user init hook; splitting
         # three keeps init_key and expert_key, hence every run, unchanged.
@@ -1277,7 +1277,7 @@ def make_train(
     # (the original ``train`` defaulted ``_box_v_min/_box_v_max`` to 0.0
     # and only overwrote them inside the fresh-init MC-pretrain branch).
     # ------------------------------------------------------------------
-    def make_scan_fn(agent_state, resume_from_state, key, index):
+    def make_scan_fn(agent_state, resume_from_state, _key, index):
         # Value-box bounds: on a fresh ``use_box`` run they equal the
         # MC-pretrain v_min/v_max persisted on the agent state; on resume
         # (or when no MC pretrain ran) they default to 0.0.

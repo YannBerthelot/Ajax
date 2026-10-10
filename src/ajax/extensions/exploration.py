@@ -130,7 +130,7 @@ def edge_boltzmann_gate(
 
 
 def edge_fixed_gate(
-    gap: jax.Array,
+    gap: jax.Array,  # noqa: ARG001 -- the gates' shared (gap, decay, rng) signature
     decay: jax.Array,
     rng: jax.Array,
     fixed_prob: float,

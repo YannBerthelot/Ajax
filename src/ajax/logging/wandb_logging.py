@@ -286,7 +286,6 @@ def vmap_log(
     log_metrics: Dict[str, Any],
     index: int,
     run_ids: Sequence[str],
-    logging_config: LoggingConfig,
 ) -> None:
     """Forward per-seed metrics to the logging process."""
     if _log_queue is None:

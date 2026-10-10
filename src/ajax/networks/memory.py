@@ -417,7 +417,7 @@ class _MambaCore(nn.Module):
             # Selective SSM with input-dependent discretization.
             A_log = self.param(
                 f"A_log_{layer}",
-                lambda key, shape: jnp.broadcast_to(
+                lambda _key, shape: jnp.broadcast_to(
                     jnp.log(jnp.arange(1, d_state + 1, dtype=jnp.float32)),
                     shape,
                 ),

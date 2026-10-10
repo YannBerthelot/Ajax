@@ -560,7 +560,7 @@ def make_train(
                 extra_eval_metrics, extension_stack, total_timesteps
             ),
             "log": True,
-            "log_fn": partial(vmap_log, run_ids=run_ids, logging_config=logging_config),
+            "log_fn": partial(vmap_log, run_ids=run_ids),
             "log_frequency": max(schedule.num_ticks(logging_config.log_frequency), 1),
             "per_update": 1,  # log_frequency is already in ticks
         }

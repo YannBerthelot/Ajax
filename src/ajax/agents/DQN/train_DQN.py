@@ -514,7 +514,8 @@ def training_iteration(
 
 def make_train(
     env_args: EnvironmentConfig,
-    actor_optimizer_args: OptimizerConfig,
+    # base.py passes every agent both optimiser configs; one Q-network here.
+    actor_optimizer_args: OptimizerConfig,  # noqa: ARG001
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     buffer: BufferType,
@@ -533,7 +534,7 @@ def make_train(
 ):
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     log = logging_config is not None
-    log_fn = partial(vmap_log, run_ids=run_ids, logging_config=logging_config)
+    log_fn = partial(vmap_log, run_ids=run_ids)
 
     if logging_config is not None:
         start_async_logging()
@@ -557,7 +558,7 @@ def make_train(
 
     extension_stack = ExtensionStack(extensions)
 
-    def init_fn(key, index):
+    def init_fn(key, _index):
         agent_state = init_DQN(
             key=key,
             env_args=env_args,

@@ -179,7 +179,7 @@ def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _make_no_op(extra_eval_metrics=None):
-    def no_op(agent_state, aux, *args):
+    def no_op(agent_state, aux, *_args):
         fake_metrics_to_log = {
             "timestep": -1,  # must be int
             "Eval/episodic mean reward": jnp.nan,

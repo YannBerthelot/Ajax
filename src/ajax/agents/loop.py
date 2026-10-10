@@ -153,7 +153,7 @@ class TrainLoop:
             num_episode_test=num_episode_test,
             stack=ExtensionStack(extensions),
             log=logging_config is not None,
-            log_fn=partial(vmap_log, run_ids=run_ids, logging_config=logging_config),
+            log_fn=partial(vmap_log, run_ids=run_ids),
             log_frequency=log_frequency,
         )
 

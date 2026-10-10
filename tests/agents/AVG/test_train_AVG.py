@@ -1,8 +1,8 @@
 """AVG-specific training tests.
 
 Tests the unique AVG mechanics: the running-average value updates that
-AVG uses instead of a target network (``update_AVG_values``) and the order
-of its actor and critic steps. Shared behaviors (loss shapes, updates,
+AVG uses instead of a target network (``update_AVG_values``), the order
+of its actor and critic steps and the episode ends its target cuts. Shared behaviors (loss shapes, updates,
 training loop, make_train) are covered by the probing suite and the smoke
 test in ``test_AVG.py``.
 """
@@ -147,14 +147,9 @@ def test_update_AVG_values_terminal(env_config, avg_state):
     assert jnp.allclose(updated_state.gamma.mean, jnp.array([[0.0]]))
 
 
-def test_actor_and_critic_step_from_the_same_parameters(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The official AVG code (``gauthamvasan/avg``, ``AVG.update``) builds
-    both losses before either optimizer step: the actor's loss reads the
-    critic before its step, the critic's TD target the actor before its."""
+def _one_step() -> tuple[AVG, Any, Transition]:
+    """A small AVG, its initial state and one running transition."""
     agent = AVG("Pendulum-v1", actor_architecture=("8", "relu"))
-    agent_config = cast(AVGConfig, agent.agent_config)
     state = init_AVG(
         jax.random.PRNGKey(0),
         agent.env_args,
@@ -176,6 +171,17 @@ def test_actor_and_critic_step_from_the_same_parameters(
         next_obs=jax.random.normal(keys[2], (1, *obs_shape)),
         raw_action=raw,
     )
+    return agent, state, transition
+
+
+def test_actor_and_critic_step_from_the_same_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The official AVG code (``gauthamvasan/avg``, ``AVG.update``) builds
+    both losses before either optimizer step: the actor's loss reads the
+    critic before its step, the critic's TD target the actor before its."""
+    agent, state, transition = _one_step()
+    agent_config = cast(AVGConfig, agent.agent_config)
     read: dict[str, Any] = {}
     policy_loss, td_target = (
         train_AVG.policy_loss_function,
@@ -202,3 +208,34 @@ def test_actor_and_critic_step_from_the_same_parameters(
     ):
         assert jax.tree.all(jax.tree.map(np.array_equal, read[name], before)), name
         assert not jax.tree.all(jax.tree.map(np.array_equal, before, after)), name
+
+
+def test_a_truncated_step_bootstraps_and_a_terminated_one_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The official AVG code passes only ``terminated`` as the update's done
+    (``gauthamvasan/avg``, ``avg.py``): at a time limit the critic's target
+    still bootstraps on the final observation; only a termination cuts it."""
+    agent, state, transition = _one_step()
+    agent_config = cast(AVGConfig, agent.agent_config)
+    targets: list[jax.Array] = []
+    td_target = train_AVG.compute_avg_td_target
+
+    def spy_td_target(*a: Any):
+        target, next_log_probs = td_target(*a)
+        targets.append(target)
+        return target, next_log_probs
+
+    monkeypatch.setattr(train_AVG, "compute_avg_td_target", spy_td_target)
+    one, zero = jnp.ones((1, 1)), jnp.zeros((1, 1))
+    for terminated, truncated in ((zero, zero), (zero, one), (one, zero)):
+        step = transition.replace(terminated=terminated, truncated=truncated)
+        train_AVG.update_value_functions(
+            state, step, agent_config, ExtensionStack(()), 1_000
+        )
+
+    running, truncated, terminated = targets
+    reward = transition.reward * agent_config.reward_scale
+    np.testing.assert_array_equal(truncated, running)
+    assert not np.allclose(running, reward)
+    np.testing.assert_allclose(terminated, reward)

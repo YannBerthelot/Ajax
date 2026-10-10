@@ -33,7 +33,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "3093646a89a6"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "b0e5ffafe3eb"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -360,7 +360,8 @@ def test_q9_rollouts_hold_whole_episodes(cell: str) -> None:
 
 # --- pilot: the package's known-answer probes -------------------------------
 # Every probe an agent's action space fits, gamma 0.62; the continuous policy
-# probes declared and clipped to [-1, 1], the coupling one paying clip(a) s.
+# probes declared and clipped to [-1, 1], the coupling one paying clip(a) s;
+# the value and discrete advantage probes observed at 1 (envs.package).
 # Max-entropy agents settle below the reward bound (SAC near 0.91): policy
 # readings are margins. A query's name is its reading: V(x), a(x) (the
 # clipped mean action), Q(x, a=i) or a difference of two. Ladder on seeds
@@ -382,7 +383,7 @@ def _pilot(pkg: Any) -> Probes:
     late = {"done mask ignored": 1 / (1 - G**2)}
     backprop = (Query("V(0)", 0.0, BLIND), Query("V(1)", 1.0, BLIND))
     return {
-        "value": (pkg.ValueLossOrOptimizerEnv, (Query("V(0)", 1.0, done),)),
+        "value": (pkg.ValueLossOrOptimizerEnv, (Query("V(1)", 1.0, done),)),
         "backprop": (pkg.ValueBackpropEnv, backprop),
         "discounting": (
             pkg.RewardDiscountingEnv,
@@ -408,8 +409,8 @@ PILOT["continuous"]["coupling"] = (
 PILOT["discrete"]["advantage"] = (
     pe.AdvantagePolicyLossPolicyUpdateEnv,
     (
-        Query("Q(0, a=0)", 1.0, {"actions swapped": 0.0}),
-        Query("Q(0, a=0) - Q(0, a=1)", 1.0, NONE | {"actions swapped": -1.0}, True),
+        Query("Q(1, a=0)", 1.0, {"actions swapped": 0.0}),
+        Query("Q(1, a=0) - Q(1, a=1)", 1.0, NONE | {"actions swapped": -1.0}, True),
     ),
 )
 PILOT["discrete"]["coupling"] = (

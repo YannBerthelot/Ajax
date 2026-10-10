@@ -301,25 +301,10 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
 _TOL = 1e-3
 # Recorded on macOS ARM CPU at the parent of the step-16 lineage commit.
 _GOLDEN: dict[str, dict[str, float]] = {
-    "ASAC": {
-        "actor": 37.438865661621094,
-        "critic": 74.46932983398438,
-        "alpha": 0.9724646210670471,
-    },
     "AVG": {
         "actor": 5.874258518218994,
         "critic": 18.981433868408203,
         "alpha": 0.07000000029802322,
-    },
-    "REDQ": {
-        "actor": 37.609249114990234,
-        "critic": 158.7569122314453,
-        "alpha": 0.9725564122200012,
-    },
-    "SAC-gru": {
-        "actor": 87.06092834472656,
-        "critic": 173.4002227783203,
-        "alpha": 0.951093316078186,
     },
 }
 # Recorded on macOS ARM CPU once TD3's critic dropped its encoder LayerNorm:
@@ -330,20 +315,6 @@ _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
 # before step 17 restructured them. DQN's and PQN's critic state is a
 # never-updated copy of the initial Q-network: not pinned.
 _GOLDEN |= {
-    "PPO-flat": {"actor": 20.46432876586914, "critic": 21.161226272583008},
-    "PPO-env-split": {"actor": 19.116395950317383, "critic": 20.26976776123047},
-    "PPO-unroll": {"actor": 20.528013229370117, "critic": 21.03093910217285},
-    "PPO-gru": {"actor": 69.79020690917969, "critic": 68.853759765625},
-    "PPO-discrete-nudge": {
-        "actor": 21.793909072875977,
-        "critic": 21.164554595947266,
-        "nudge": 0.29222556948661804,
-    },
-    "PPO-env-split-nudge": {
-        "actor": 19.185230255126953,
-        "critic": 20.3308048248291,
-        "nudge": 0.3099551498889923,
-    },
     "APO-nudge": {
         "actor": 3.837249994277954,
         "critic": 4.151569843292236,
@@ -351,10 +322,44 @@ _GOLDEN |= {
     },
     "PQN": {"actor": 25.90884017944336},
     "PQN-nudge": {"actor": 25.898910522460938, "nudge": 0.33566388487815857},
-    "DQN": {"actor": 28.83551025390625, "target": 28.488685607910156},
+}
+# Recorded on macOS ARM CPU once the shared encoder's output LayerNorm became
+# opt-in (SAC, REDQ, ASAC, PPO and DQN build plain MLPs, as in their papers):
+# each tree lost the norm's scales, one per hidden unit (16 or 32 per encoder).
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 4.500450611114502,
+        "critic": 9.956274032592773,
+        "alpha": 0.972590446472168,
+    },
+    "REDQ": {
+        "actor": 4.491269588470459,
+        "critic": 23.677350997924805,
+        "alpha": 0.9729597568511963,
+    },
+    "SAC-gru": {
+        "actor": 57.4627571105957,
+        "critic": 109.36508178710938,
+        "alpha": 0.9514929056167603,
+    },
+    "PPO-flat": {"actor": 4.222780704498291, "critic": 4.493257522583008},
+    "PPO-env-split": {"actor": 3.0351836681365967, "critic": 4.084441184997559},
+    "PPO-unroll": {"actor": 4.338447570800781, "critic": 4.533243179321289},
+    "PPO-gru": {"actor": 53.386173248291016, "critic": 52.814151763916016},
+    "PPO-discrete-nudge": {
+        "actor": 5.820460796356201,
+        "critic": 5.029939651489258,
+        "nudge": 0.29222556948661804,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 3.7158429622650146,
+        "critic": 4.229516983032227,
+        "nudge": 0.3099551498889923,
+    },
+    "DQN": {"actor": 9.462096214294434, "target": 9.303977966308594},
     "DQN-dueling-nudge": {
-        "actor": 25.996488571166992,
-        "target": 25.84494400024414,
+        "actor": 10.129926681518555,
+        "target": 9.98266887664795,
         "nudge": 0.22634370625019073,
     },
 }

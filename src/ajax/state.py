@@ -334,12 +334,16 @@ class NetworkConfig:
     # Actor head knobs (Actor in networks.py). Default = legacy Ajax.
     # Set per-env to match brax/playground convention for envs that
     # need it (e.g. mujoco_playground manip uses scalar state-indep
-    # log_std at init=1.0, lecun_uniform mean head, no encoder-output
-    # LayerNorm).
+    # log_std at init=1.0 and a lecun_uniform mean head).
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    disable_encoder_output_norm: bool = False
+    # Opt-in LayerNorm on the shared encoder's output (Encoder in
+    # networks.py), for every network built from this config. Off by
+    # default: the SAC, TD3, PPO and DQN papers use plain MLPs. Agents
+    # without a constructor argument for it take it through
+    # ``agent.network_args.replace(encoder_layer_norm=True)``.
+    encoder_layer_norm: bool = False
     squash: bool = False
 
 

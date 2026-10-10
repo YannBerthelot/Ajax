@@ -31,6 +31,11 @@ every non-empty stack moved by 6e-5..7.4e-4 (the new key stream), the
 empty stack not at all. The five MCPretrain goldens were re-captured
 again when SAC's init drew the extensions' keys as ``TrainLoop`` does
 (MCPretrain trains phi* on a new key): moves of 9e-6..8.7e-4.
+
+Re-captured when the shared encoder's output LayerNorm became opt-in (SAC's
+networks are plain MLPs): every fingerprint lost the norm's scales, 256 per
+encoder (critic about 1038 -> 525..552, actor 517 -> 267..271, target 1034
+-> 522), alpha moved by at most 0.04%.
 """
 
 from __future__ import annotations

@@ -104,7 +104,6 @@ def init_PPO(
         log_std_state_independent=network_args.log_std_state_independent,
         log_std_init=network_args.log_std_init,
         mean_kernel_init=network_args.mean_kernel_init,
-        disable_encoder_output_norm=network_args.disable_encoder_output_norm,
         actor_kernel_init=network_args.actor_kernel_init,
         actor_bias_init=network_args.actor_bias_init,
         critic_kernel_init=network_args.critic_kernel_init,

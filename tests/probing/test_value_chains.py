@@ -819,8 +819,8 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 
 
 # --- Q6: the fixed entropy bonus (ent_coef) of PPO and APO -------------------
-# One-step bandits at the constant observation 1 (at 0, PPO's LayerNorm
-# amplifies the first updates): the policy settles where E[r] + c H peaks.
+# One-step bandits at the constant observation 1 (at 0, PPO's then-default
+# LayerNorm amplified the first updates): the policy settles where E[r] + c H peaks.
 # a: Discrete(2) paying 1 for action 0, c = 1: pi(0) = sigmoid(1 / c). b: r =
 # -(a - 0.5)^2, unclipped, c = 2: mu 0.5, sigma sqrt(c / 2) (b2: per dimension
 # of the joint action). c: r = 0, c = 0.1, squashed: sigma_u 0.8744, the

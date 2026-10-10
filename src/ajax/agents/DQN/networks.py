@@ -94,6 +94,7 @@ def _build_q_encoder(module: nn.Module) -> nn.Module:
     return Encoder(
         input_architecture=module.input_architecture,
         penultimate_normalization=module.penultimate_normalization,
+        layer_norm=module.encoder_layer_norm,
     )
 
 
@@ -103,6 +104,8 @@ class QNetwork(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     n_actions: int
     penultimate_normalization: bool = False
+    # Opt-in LayerNorm on the encoder's output; Mnih et al.'s network has none.
+    encoder_layer_norm: bool = False
     # Optional CNN encoder for image obs -- see `NetworkConfig.cnn_image_shape`.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
@@ -179,6 +182,7 @@ def get_initialized_q_network(
         input_architecture=network_config.critic_architecture,
         n_actions=n_actions,
         penultimate_normalization=network_config.penultimate_normalization,
+        encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=network_config.cnn_image_shape,
         cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
         cnn_spec=network_config.cnn_spec,

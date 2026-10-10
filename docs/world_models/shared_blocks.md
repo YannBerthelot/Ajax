@@ -310,7 +310,7 @@ class NormedMLP(nn.Module):
    - `nn.RMSNorm` defaults to eps 1e-6, and with `dtype=None` a bf16 input gives an **f32** output.
 2. **D3 has no shift on RMSNorm.** Do not use LayerNorm with eps 1e-4 for D3. The D3 'layer' implementation exists in the code but is unused.
 3. **Dropout sits before the norm in T2.** It is not after the activation.
-4. **Ajax's existing `Encoder` and `parse_architecture`** add an output LayerNorm or L2 norm and use an orthogonal init. Neither paper does this, so do not reuse them.
+4. **Ajax's existing `Encoder` and `parse_architecture`** add an optional output LayerNorm or L2 norm and use an orthogonal init. Neither paper does this, so do not reuse them.
 
 ### Tests (pinned)
 
@@ -481,7 +481,7 @@ def reduce_pair(q_scalars[2, ...], how: Literal["min", "avg"])
 
 ### False friends
 
-- **Ajax `networks.MultiCritic`.** Its nn.vmap pattern is reusable, but `split_rngs` lacks `"dropout"`, so the members would share one mask. Its member is Ajax's `Critic`, which has its own Encoder and LayerNorm output. Write a fresh member.
+- **Ajax `networks.MultiCritic`.** Its nn.vmap pattern is reusable, but `split_rngs` lacks `"dropout"`, so the members would share one mask. Its member is Ajax's `Critic`, which has its own Encoder (with an optional LayerNorm output). Write a fresh member.
 - **Reduction order.** Reduce **decoded scalars**, not logits or probabilities.
 
 ### Tests

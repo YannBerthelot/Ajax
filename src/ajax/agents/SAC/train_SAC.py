@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from math import floor
 from typing import Any, Callable, Optional, Tuple
 
 import jax
@@ -580,7 +579,6 @@ def update_agent(
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     fixed_alpha: bool = False,
-    expert_mix_fraction: float = 0.1,
     augment_obs_with_expert_action: bool = False,
     total_timesteps: int = 1,
     target_entropy_initial: Optional[float] = None,
@@ -590,7 +588,9 @@ def update_agent(
     burn_in: int = 8,
     stored_state: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
-    sample_key, expert_sample_key, rng = jax.random.split(agent_state.rng, 3)
+    # Three keys: the second once drew a batch mixed into this one from the
+    # same buffer; splitting three keeps the agent's key stream unchanged.
+    sample_key, _, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
 
     # --- Sample from buffer ---
@@ -635,45 +635,6 @@ def update_agent(
             raw_obs=raw_observations,
             a_expert=a_expert_buf,
             next_a_expert=next_a_expert_buf,
-        )
-
-    # --- Expert batch mixing ---
-    if expert_mix_fraction > 0.0 and expert_policy is not None:
-        (
-            exp_obs,
-            exp_terminated,
-            exp_truncated,
-            exp_next_obs,
-            exp_rewards,
-            exp_actions,
-            exp_raw_obs,
-            _,
-        ) = get_batch_from_buffer(
-            buffer, agent_state.collector_state.buffer_state, expert_sample_key
-        )
-        exp_a_expert, exp_next_a_expert = get_expert_fields_from_buffer(
-            buffer, agent_state.collector_state.buffer_state, expert_sample_key
-        )
-
-        n_total = transition.obs.shape[0]
-        n_expert = floor(expert_mix_fraction * n_total)
-        n_online = n_total - n_expert
-
-        def _cat(a, b):
-            if a is None or b is None:
-                return a
-            return jnp.concatenate([a[:n_online], b[:n_expert]], axis=0)
-
-        transition = Transition(
-            obs=_cat(transition.obs, exp_obs),
-            action=_cat(transition.action, exp_actions),
-            reward=_cat(transition.reward, exp_rewards),
-            terminated=_cat(transition.terminated, exp_terminated),
-            truncated=_cat(transition.truncated, exp_truncated),
-            next_obs=_cat(transition.next_obs, exp_next_obs),
-            raw_obs=_cat(transition.raw_obs, exp_raw_obs),
-            a_expert=_cat(transition.a_expert, exp_a_expert),
-            next_a_expert=_cat(transition.next_a_expert, exp_next_a_expert),
         )
 
     dones = bootstrap_cuts(transition, carries)
@@ -888,7 +849,6 @@ def make_train(
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
-    expert_mix_fraction: float = 0.1,
     # MC sizing kwarg threaded into the inline Bellman-pretrain block
     # below (``use_bellman_critic_pretrain``). MCPretrain extensions own
     # the equivalent for the MC path inside ``MCPretrain(n_steps=...)``.
@@ -1073,7 +1033,6 @@ def make_train(
             alpha_update_start=alpha_update_start,
             fixed_alpha=fixed_alpha,
             num_critic_updates=num_critic_updates,
-            expert_mix_fraction=expert_mix_fraction,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             total_timesteps=total_timesteps,
             target_entropy_initial=target_entropy_initial,

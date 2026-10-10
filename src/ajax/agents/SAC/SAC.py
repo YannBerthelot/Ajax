@@ -129,7 +129,6 @@ class SAC(ActorCritic):
         use_expert_guidance: bool = False,
         num_critic_updates: int = 1,
         expert_buffer_n_steps: int = 20_000,
-        expert_mix_fraction: float = 0.1,
         # MC sizing kwarg threaded into the inline Bellman-pretrain
         # block (``use_bellman_critic_pretrain``). MCPretrain extensions
         # own the equivalent for the MC path via ``n_steps``.
@@ -265,7 +264,6 @@ class SAC(ActorCritic):
         self.use_expert_guidance = use_expert_guidance
         self.num_critic_updates = num_critic_updates
         self.expert_buffer_n_steps = expert_buffer_n_steps
-        self.expert_mix_fraction = expert_mix_fraction
         self.mc_pretrain_n_steps = mc_pretrain_n_steps
         self.augment_obs_with_expert_action = augment_obs_with_expert_action
         self.use_bellman_critic_pretrain = use_bellman_critic_pretrain
@@ -306,7 +304,6 @@ class SAC(ActorCritic):
             use_expert_guidance=self.use_expert_guidance,
             num_critic_updates=self.num_critic_updates,
             expert_buffer_n_steps=self.expert_buffer_n_steps,
-            expert_mix_fraction=self.expert_mix_fraction,
             mc_pretrain_n_steps=self.mc_pretrain_n_steps,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
             use_bellman_critic_pretrain=self.use_bellman_critic_pretrain,

@@ -194,7 +194,6 @@ def test_expert_guidance_matches_legacy_expert_policy():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         use_expert_guidance=False,
         extensions=(
             ExpertGuidance(
@@ -228,7 +227,6 @@ def test_online_bc_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -251,7 +249,6 @@ def test_residual_policy_matches_legacy_use_residual_rl():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         # ``residual`` on the SAC class still routes the residual-policy
         # flag onto network init and the action pipeline; mirror it for
         # an honest equivalence check against the golden.
@@ -281,7 +278,6 @@ def test_jsrl_curriculum_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         # ``jsrl_curriculum`` on the SAC class still gates the per-env
         # ``step_in_episode`` counter init inside :func:`init_SAC`.
         jsrl_curriculum=True,
@@ -309,7 +305,6 @@ def test_ibrl_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -334,7 +329,6 @@ def test_expert_obs_aug_constructs_and_trains():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         # The flag changes the network input dim (init_SAC /
         # collect_experience).
         augment_obs_with_expert_action=True,
@@ -365,7 +359,6 @@ def test_edge_exploration_matches_legacy_flags(gate: str):
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -397,7 +390,6 @@ def test_lcb_gated_bootstrap_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -433,7 +425,6 @@ def test_mc_pretrain_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -456,7 +447,6 @@ def test_bellman_pretrain_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         # ``use_bellman_critic_pretrain`` and ``mc_pretrain_n_steps`` are
         # kept on the SAC class because the inline Bellman-pretrain block
         # in :func:`make_train` reads them. The BellmanPretrain extension
@@ -488,7 +478,6 @@ def test_critic_blend_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -520,7 +509,6 @@ def test_mc_variance_correction_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -550,7 +538,6 @@ def test_value_box_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,
@@ -577,7 +564,6 @@ def test_phi_refresh_matches_legacy_flag():
         **_TINY,
         expert_policy=expert,
         expert_buffer_n_steps=0,
-        expert_mix_fraction=0.0,
         extensions=(
             ExpertGuidance(
                 expert_policy=expert,

@@ -264,7 +264,7 @@ def value_box_agent(records: list) -> Any:
     """SAC, MC pre-training and the recording ValueBox under a constant
     expert; the expert buffer off (with it on, the expert path crashes)."""
     e = ConstantExpert()
-    off: dict[str, Any] = {"expert_buffer_n_steps": 0, "expert_mix_fraction": 0.0}
+    off: dict[str, Any] = {"expert_buffer_n_steps": 0}
     mc: dict[str, Any] = {"n_mc_steps": 200, "n_mc_episodes": 4, "n_steps": 20}
     mc |= {"online_light_steps": 5}
 

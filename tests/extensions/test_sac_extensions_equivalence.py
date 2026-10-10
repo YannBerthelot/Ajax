@@ -36,6 +36,12 @@ Re-captured when the shared encoder's output LayerNorm became opt-in (SAC's
 networks are plain MLPs): every fingerprint lost the norm's scales, 256 per
 encoder (critic about 1038 -> 525..552, actor 517 -> 267..271, target 1034
 -> 522), alpha moved by at most 0.04%.
+
+Re-captured when, on those plain MLPs, SAC drew its warm-up decision and
+its uniform action from separate keys and CriticBlend kept reward, discount
+and done mask in its target: the stacks that warm up through an expert moved
+by 1.1e-3..4.5e-3, the empty stack, ValueBox and the residual policy not at
+all (2e-7 at most).
 """
 
 from __future__ import annotations

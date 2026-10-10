@@ -1195,9 +1195,7 @@ def make_train(
     # ------------------------------------------------------------------
     def init_fn(key, _index):
         """Build a fresh SAC agent state with all one-shot pretraining."""
-        # Three keys: the third once seeded a user init hook; splitting
-        # three keeps init_key and expert_key, hence every run, unchanged.
-        init_key, expert_key, _ = jax.random.split(key, 3)
+        init_key, pretrain_key = jax.random.split(key)
 
         agent_state = init_SAC(
             key=init_key,
@@ -1223,15 +1221,6 @@ def make_train(
             jsrl_curriculum=jsrl_curriculum,
         )
 
-        # The extensions' states (on a sub-key of init_key), then their
-        # one-shot pretraining (MCPretrain fills phi* and the value range
-        # v_min/v_max ValueBox reads off the state) on expert_key. Both
-        # folds are no-ops without extensions.
-        agent_state = stack.fold_init_states(agent_state, jax.random.split(init_key)[0])
-        agent_state = stack.fold_pretrain(
-            agent_state, jnp.asarray(0), expert_key, total_timesteps
-        )
-
         if expert_policy is not None and use_bellman_critic_pretrain:
             agent_state = pretrain_critic_bellman(
                 agent_state=agent_state,
@@ -1251,7 +1240,7 @@ def make_train(
             agent_state = get_pre_trained_agent(
                 agent_state,
                 expert_policy,
-                expert_key,
+                pretrain_key,
                 env_args,
                 cloning_args,
                 mode,
@@ -1260,7 +1249,9 @@ def make_train(
                 augment_obs_with_expert_state=augment_obs_with_expert_state,
             )
 
-        return agent_state
+        # The extensions' states, then their one-shot pretraining
+        # (MCPretrain fills phi* and the value range ValueBox reads).
+        return stack.fold_init(agent_state, pretrain_key, total_timesteps)
 
     def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         # The pipeline carries the SAC-side bookkeeping (warmup mix,

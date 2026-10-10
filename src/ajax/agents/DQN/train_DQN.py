@@ -429,7 +429,7 @@ def training_iteration(
     td_target_fn: Callable = compute_dqn_td_target,
     td_loss_fn: Callable = mse_td_loss,
     extension_stack: Optional[ExtensionStack] = None,
-) -> Tuple[DQNState, Any]:
+) -> Tuple[DQNState, None]:
     timestep = agent_state.collector_state.timestep
     uniform = should_use_uniform_sampling(timestep, agent_config.learning_starts)
 
@@ -490,7 +490,7 @@ def training_iteration(
         operand=agent_state,
     )
 
-    agent_state, metrics_to_log = evaluate_and_log(
+    agent_state, _ = evaluate_and_log(
         agent_state,
         aux,
         index,
@@ -504,7 +504,9 @@ def training_iteration(
         total_timesteps,
         extra_eval_metrics=compose_eval_metrics(None, extension_stack, total_timesteps),
     )
-    return agent_state, metrics_to_log
+    # The metrics reach the logger inside the loop: stacking them per
+    # iteration would only cost memory.
+    return agent_state, None
 
 
 # ---------------------------------------------------------------------------
@@ -559,8 +561,9 @@ def make_train(
     extension_stack = ExtensionStack(extensions)
 
     def init_fn(key, _index):
+        init_key, pretrain_key = jax.random.split(key)
         agent_state = init_DQN(
-            key=key,
+            key=init_key,
             env_args=env_args,
             optimizer_args=critic_optimizer_args,
             network_args=network_args,
@@ -568,7 +571,7 @@ def make_train(
             n_actions=n_actions,
             q_network_cls=q_network_cls,
         )
-        return extension_stack.fold_init(agent_state, key, total_timesteps)
+        return extension_stack.fold_init(agent_state, pretrain_key, total_timesteps)
 
     def make_scan_fn(_agent_state, _resume_from_state, _key, index):
         return partial(

@@ -210,22 +210,28 @@ def test_update_matches_reference_over_four_updates(fx, ref_config, config):
 
             # Intermediates on the pre-update state.
             td, next_z = core.td_target(
-                wm.apply_fn,
-                pi.apply_fn,
-                wm.params,
-                wm.target_params,
-                pi.params,
-                batch.obs[1:],
-                batch.reward,
-                gamma,
-                noise.td_eps,
-                noise.td_pair,
-                None,
-                config,
+                wm_apply=wm.apply_fn,
+                pi_apply=pi.apply_fn,
+                wm_params=wm.params,
+                target_q_params=wm.target_params,
+                pi_params=pi.params,
+                next_obs=batch.obs[1:],
+                reward=batch.reward,
+                gamma=gamma,
+                eps=noise.td_eps,
+                pair=noise.td_pair,
+                dropout_key=None,
+                config=config,
             )
             report.check("td_targets", td, fx[p + "td_targets"][..., 0], SCALAR_TOL)
             _, (_, zs) = core.world_model_loss(
-                wm.params, wm.apply_fn, batch, next_z, td, None, config
+                wm.params,
+                wm_apply=wm.apply_fn,
+                batch=batch,
+                next_z=next_z,
+                td_targets=td,
+                dropout_key=None,
+                config=config,
             )
             sample = core.policy_sample(
                 pi.apply_fn, pi.params, zs, noise.pi_eps, config

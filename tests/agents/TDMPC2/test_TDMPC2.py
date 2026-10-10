@@ -248,6 +248,8 @@ def test_every_hyperparameter_reaches_the_config():
     )
     assert keywords["learning_rate"] is lr
     assert (keywords["enc_lr_scale"], keywords["pi_eps"]) == (0.5, 1e-6)
+    ratio = TDMPC2("Pendulum-v1", n_envs=4, updates_per_step=0.5).schedule
+    assert (ratio.updates_per_step, ratio.updates_per_tick) == (0.5, 2)
 
     config = TDMPC2("Pendulum-v1", model_size=1).config
     assert config["algo_name"] == "TDMPC2"
@@ -410,6 +412,19 @@ def test_adam_steps_equal_the_scheduled_updates(pendulum):
         state.ext_state[0]["updates"],  # post_update after every update
     ):
         np.testing.assert_array_equal(count, expected)
+
+
+def test_updates_per_step_sets_the_updates_of_a_run():
+    """The agent's schedule drives its loop: two updates per env step after
+    the burst of S = 5 (T = 10; the seed tick is per-env step 10, tick 11)."""
+    agent = TDMPC2(
+        ConstantRewardEnv(length=10), seed_steps=5, updates_per_step=2.0, **TINY
+    )
+    state, _ = agent.train(seed=0, n_timesteps=20, num_episode_test=1)
+    n_ticks = agent.schedule.num_ticks(20)
+    assert _scheduled_updates(agent.schedule, n_ticks) == 5 + 2 * 9
+    for count in (state.n_updates, state.world_model_state.step):
+        np.testing.assert_array_equal(count, 5 + 2 * 9)
 
 
 def test_extension_hooks_follow_the_schedule(pendulum):

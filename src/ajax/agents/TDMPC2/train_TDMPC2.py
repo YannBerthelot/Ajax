@@ -35,7 +35,8 @@ Every schedule is static arithmetic on the absolute, unbatched tick
 exactly: random actions at env steps ``0 .. S`` (S + 1 of them), a burst of
 ``S`` updates right after step ``S`` with ``floor(S / T)`` episodes in the
 buffer, then one update per env step. ``n_envs > 1`` is a generalisation
-(deviation T7).
+(deviation T7), and so is another number of updates per env step
+(``updates_per_step``, deviation T28).
 
 ``n_timesteps`` counts env (agent) steps, summed over envs (``DESIGN.md`` §2);
 logs add ``env_frames = env steps * action_repeat``, the papers' x-axis.
@@ -90,8 +91,8 @@ class Schedule:
       held ticks, whose action is discarded, so the planner never runs
       there);
     * ``n_updates(i)`` is ``S`` on the seed tick (the pretraining burst,
-      ``online_trainer.py:105-112``), ``n`` on later stepping ticks (UTD 1
-      per env step) and 0 otherwise.
+      ``online_trainer.py:105-112``), :attr:`updates_per_tick` on later
+      stepping ticks and 0 otherwise.
 
     The methods accept Python ints, NumPy arrays and traced (unbatched)
     ticks.
@@ -100,11 +101,14 @@ class Schedule:
         n_envs: lockstep envs ``n``.
         episode_length: ``T`` agent steps.
         seed_steps: ``S`` (the reference's ``max(1000, 5 T)`` by default).
+        updates_per_step: ``r``, updates per env step after the burst (the
+            reference's 1; deviation T28).
     """
 
     n_envs: int
     episode_length: int
     seed_steps: int
+    updates_per_step: float = 1.0
 
     def __post_init__(self) -> None:
         if self.n_envs < 1 or self.episode_length < 1 or self.seed_steps < 0:
@@ -112,6 +116,17 @@ class Schedule:
                 "need n_envs >= 1, episode_length >= 1 and seed_steps >= 0, got"
                 f" {self.n_envs}, {self.episode_length}, {self.seed_steps}"
             )
+        if not self.updates_per_step > 0:
+            raise ValueError(
+                f"updates_per_step must be > 0, got {self.updates_per_step}"
+            )
+
+    @property
+    def updates_per_tick(self) -> int:
+        """Updates per stepping tick after the burst: ``max(1, round(n r))``
+        (Python's ``round``, halves to even); ``n`` for the reference's
+        ``r = 1``. At least one, so a small ``r`` never stops training."""
+        return max(1, round(self.n_envs * self.updates_per_step))
 
     @property
     def period(self) -> int:
@@ -164,7 +179,7 @@ class Schedule:
         return (tick <= self.seed_tick) | self.is_held(tick)
 
     def n_updates(self, tick: Any) -> Any:
-        after = jnp.where(tick > self.seed_tick, self.n_envs, 0)
+        after = jnp.where(tick > self.seed_tick, self.updates_per_tick, 0)
         stepping = jnp.where(tick == self.seed_tick, self.seed_steps, after)
         return jnp.where(self.is_held(tick), 0, stepping).astype(jnp.int32)
 

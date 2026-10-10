@@ -146,6 +146,7 @@ class TDMPC2(ActorCritic):
         batch_size: int = 256,
         buffer_size: int = 1_000_000,
         seed_steps: Optional[int] = None,
+        updates_per_step: float = 1.0,
         gamma: Optional[float] = None,
         discount_denom: float = 5,
         discount_min: float = 0.95,
@@ -168,6 +169,11 @@ class TDMPC2(ActorCritic):
                 gymnax env.
             n_envs: lockstep envs; each stepping tick runs ``n_envs``
                 updates (UTD 1 per env step; deviation T7 for ``> 1``).
+            updates_per_step: updates per env step after the seed-phase
+                burst, ``max(1, round(n_envs * updates_per_step))`` per
+                stepping tick (static); the default 1 is the reference's
+                UTD, which ``config.yaml`` does not expose (deviation T28).
+                The burst stays ``seed_steps`` updates.
             episode_length: simulator steps per episode on brax /
                 playground (ignored on gymnax, which uses its params'
                 ``max_steps_in_episode``).
@@ -237,6 +243,7 @@ class TDMPC2(ActorCritic):
             n_envs=n_envs,
             episode_length=self.agent_episode_length,
             seed_steps=self.seed_steps,
+            updates_per_step=float(updates_per_step),
         )
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)

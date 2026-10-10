@@ -198,7 +198,7 @@ not reproduced (registered).
     tick on which total env steps first exceed S, and at least one round has been
     committed;
   - burst: `S` updates right after that tick;
-  - afterwards `n_envs` updates per stepping tick, 0 on held ticks (UTD 1 per env step).
+  - afterwards `n_envs` updates per stepping tick, 0 on held ticks (UTD 1 per env step; `updates_per_step` r makes it `max(1, round(n_envs·r))`, deviation T28).
   For `n_envs = 1` this reproduces b67b21c exactly (S+1 random actions at steps 0..S,
   burst after step S with ⌊S/T⌋ completed episodes, then 1 update per step) — pinned by
   a test against a Python port of the reference loop. `n_envs > 1` is a generalisation

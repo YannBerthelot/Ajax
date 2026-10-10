@@ -160,6 +160,36 @@ def test_short_seed_phases_wait_for_the_first_episode():
     assert int(schedule.n_updates(11)) == 3
 
 
+@pytest.mark.parametrize(
+    "n_envs, ratio, per_tick",
+    [
+        (1, 1.0, 1),  # the reference
+        (4, 1.0, 4),  # T7: n_envs per stepping tick
+        (4, 0.5, 2),
+        (2, 2.0, 4),
+        (1, 0.25, 1),  # at least one update per stepping tick
+        (3, 0.5, 2),  # round(1.5)
+        (5, 0.5, 2),  # round(2.5): Python rounds halves to even
+    ],
+)
+def test_updates_per_step_scales_the_updates_per_tick(n_envs, ratio, per_tick):
+    """``max(1, round(n r))`` updates on every stepping tick after the
+    burst (deviation T28); the burst and the other ticks are unchanged."""
+    kwargs = {"n_envs": n_envs, "episode_length": 10, "seed_steps": 30}
+    schedule = Schedule(**kwargs, updates_per_step=ratio)
+    assert schedule.updates_per_tick == per_tick
+    ticks = np.arange(schedule.num_ticks(100 * n_envs))
+    after = (ticks > schedule.seed_tick) & ~np.asarray(schedule.is_held(ticks))
+    got = np.asarray(schedule.n_updates(ticks))
+    np.testing.assert_array_equal(got[after], per_tick)
+    reference = np.asarray(Schedule(**kwargs).n_updates(ticks))
+    np.testing.assert_array_equal(got[~after], reference[~after])
+    assert got[schedule.seed_tick] == 30
+    for bad in (0.0, -1.0):
+        with pytest.raises(ValueError, match="updates_per_step"):
+            Schedule(**kwargs, updates_per_step=bad)
+
+
 def test_held_ticks_and_tick_counts():
     schedule = Schedule(n_envs=2, episode_length=4, seed_steps=8)
     ticks = np.arange(20)

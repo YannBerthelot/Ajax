@@ -218,10 +218,10 @@ def test_evaluate_policy_refuses_what_it_cannot_rebuild():
 
 def test_evaluate_rebuilds_the_eval_env_with_the_training_action_repeat():
     """The house evaluate() (every existing agent) reproduces the training
-    env's action repeat: brax "fast" never terminates and evaluate()
-    rebuilds it at its native 1000 simulator steps, so an episode lasts
-    1000 agent steps at repeat 1 and 500 at repeat 2."""
-    for repeat, expected_length in ((1, 1000.0), (2, 500.0)):
+    env's action repeat and time limit: brax "fast" never terminates and
+    evaluate() rebuilds it at the training 10 simulator steps, so an episode
+    lasts 10 agent steps at repeat 1 and 5 at repeat 2."""
+    for repeat, expected_length in ((1, 10.0), (2, 5.0)):
         env, _ = build_env_from_id("fast", episode_length=10, action_repeat=repeat)
         actor_state = actor_state_for(env.observation_size, env.action_size, False)
         *_, length, _ = evaluate(

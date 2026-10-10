@@ -54,11 +54,11 @@ AJAX is a high-performance reinforcement learning library built entirely on **JA
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
 cd Ajax
-poetry install
-poetry shell
+uv sync
+source .venv/bin/activate
 ```
 
-Poetry is required. Install it via `curl -sSL https://install.python-poetry.org | python3 -` if needed.
+uv is required. Install it via `curl -LsSf https://astral.sh/uv/install.sh | sh` if needed.
 
 ---
 
@@ -240,9 +240,9 @@ Top-level scripts (experiment runners; see [pipeline.py](pipeline.py)):
 ## Running Tests
 
 ```bash
-poetry run pytest                                          # all tests
-poetry run pytest tests/agents/test_probing.py             # cross-agent behavioral tests
-poetry run pytest tests/modules/test_hook_composition.py   # hook API contract
+uv run pytest                                          # all tests
+uv run pytest tests/agents/test_probing.py             # cross-agent behavioral tests
+uv run pytest tests/modules/test_hook_composition.py   # hook API contract
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how the test suite is structured.

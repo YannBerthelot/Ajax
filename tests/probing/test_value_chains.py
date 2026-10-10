@@ -817,11 +817,13 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 # the spread, not the answer. Measured wrong answers: medians, 1000-1031.
 
 
-def _bandit(reward: Callable, actions: int = 0, dim: int = 1) -> envs.Spec:
+def _bandit(
+    reward: Callable, actions: int = 0, dim: int = 1, bound: float = 1.0
+) -> envs.Spec:
     def step(st: envs.State, a: jax.Array, key: Any) -> tuple:
         return st.replace(s=st.s + 1), reward(a), True
 
-    one, box = (lambda st: jnp.ones(1)), (-1.0, 1.0, dim)
+    one, box = (lambda st: jnp.ones(1)), (-bound, bound, dim)
     return envs.Spec("bandit", step, one, obs_box=(0.0, 2.0), actions=actions, box=box)
 
 
@@ -831,8 +833,11 @@ def _quadratic(a: jax.Array) -> jax.Array:
 
 BANDITS = {
     "a": _bandit(lambda a: jnp.where(a == 0, 1.0, 0.0), actions=2),
-    "b": _bandit(_quadratic),
-    "b2": _bandit(_quadratic, dim=2),
+    # The quadratic bandits' answers (sigma 1, mu 0.5) are for the raw Gaussian
+    # action: continuous actions are clipped to the action box, so the box is
+    # wide enough (+-10, ten sigmas) that the clip never binds.
+    "b": _bandit(_quadratic, bound=10.0),
+    "b2": _bandit(_quadratic, dim=2, bound=10.0),
     "c": _bandit(lambda a: jnp.float32(0.0)),
 }
 

@@ -23,8 +23,7 @@ clipping was removed from every non-PPO agent (SAC's actor, critic and
 temperature optimizers all clipped at 0.5 before). Every fingerprint
 moved by 1e-3..2e-3 in the same direction — the plain-SAC parity goldens
 in ``tests/agents/SAC/test_sac_parity.py`` moved identically — so the
-shift is the optimizer change, not extension wiring. The sentinel
-``not_applicable`` entry is for a smoke-only test and was kept as-is.
+shift is the optimizer change, not extension wiring.
 """
 
 from __future__ import annotations

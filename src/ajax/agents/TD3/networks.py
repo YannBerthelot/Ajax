@@ -97,8 +97,7 @@ class DeterministicActor(nn.Module):
             name="head",
         )
 
-    def __call__(self, obs: jax.Array, raw_obs=None, hidden_state=None, done=None):
-        del raw_obs
+    def __call__(self, obs: jax.Array, hidden_state=None, done=None):
         h = self.hidden(obs)
         if self.memory is not None:
             if hidden_state is None or done is None:

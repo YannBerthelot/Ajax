@@ -64,8 +64,7 @@ class PQNNetwork(nn.Module):
     cnn_spec: Optional[tuple] = None
 
     @nn.compact
-    def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
-        del raw_obs
+    def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         kernel_init = _resolve_init(self.kernel_init, orthogonal(2.0**0.5))
         bias_init = _resolve_init(self.bias_init, constant(0.0))
         if self.cnn_image_shape is not None:

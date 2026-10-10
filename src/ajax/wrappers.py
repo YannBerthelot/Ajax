@@ -209,7 +209,6 @@ class ClipActionBrax(BraxWrapper):
 
     def step(self, state, action):
         """Step the environment while clipping the action first"""
-        # action = jnp.clip(action, self.env.action_space.low, self.env.action_space.high)
         action = jnp.clip(action, self.low, self.high)
         return self.env.step(state=state, action=action)
 
@@ -509,14 +508,6 @@ def normalize_wrapper_factory(
                 return reward
             return reward * jnp.sqrt(norm_info.var.squeeze() + 1e-8)
 
-        def normalize_observation(
-            self, obs: jax.Array, norm_info: NormalizationInfo
-        ) -> jax.Array:
-            """Normalize the observation using the normalization info."""
-            if norm_info is None or norm_info.var is None:
-                return obs
-            return (obs - norm_info.mean) / jnp.sqrt(norm_info.var + 1e-8)
-
         def step(self, *, state, action, params=None, key=None):
             if params is None and self.mode == "gymnax":
                 params = self._env.default_params
@@ -546,12 +537,6 @@ def normalize_wrapper_factory(
                 )
             )
 
-            # if mode == "gymnax":
-            #     # obs, env_state, reward, done, info = raw_state
-            #     # env_state = self.state_class(**to_state_dict(env_state), normalization_info=state.normalization_info)  # type: ignore[call-arg]
-            #     # state = obs, env_state, reward, done, info
-            # else:
-            #     state = raw_state
             raw_obs, reward, done = get_obs_and_reward_and_done_from_state(
                 raw_state, mode=self.mode
             )
@@ -616,12 +601,6 @@ def normalize_wrapper_factory(
             state = self.update_state_step(raw_state, obs, reward, norm_info, self.mode)
 
             return state
-
-        # def step(self, *, state, action, params=None, key=None):
-        #     return self.step(state=state, action=action, params=params, key=key)
-
-        # def reset(self, key, params=None):
-        #     return self.reset(key=key, params=params)
 
     return NormalizeVecObservation
 
@@ -780,7 +759,6 @@ class AutoResetWrapper(BraxWrapper):
         state = self.env.reset(rng)
         state.info["first_pipeline_state"] = state.pipeline_state
         state.info["first_obs"] = state.obs
-        # state.info["obs_st"] = state.obs
         state.info["rng"] = (
             rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
         )
@@ -839,7 +817,6 @@ class AutoResetWrapper(BraxWrapper):
         )
         obs = where_done(first_obs, state.obs)
         info = state.info
-        # info["obs_st"] = state.obs
         state = state.replace(pipeline_state=pipeline_state, obs=obs, info=info)
         return state
 
@@ -869,7 +846,6 @@ class NoiseWrapper(BraxWrapper):
             state.done,
             state.info,
         )
-        # key = info["rng"][0]
 
         obs_key, reward_key = jax.random.split(key, 2)
         noisy_obs = add_gaussian_noise(obsv, obs_key, scale=self.scale)

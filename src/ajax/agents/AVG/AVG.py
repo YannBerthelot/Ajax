@@ -234,32 +234,3 @@ class AVG:
         index = jnp.arange(len(seed))
         seed = jnp.array(seed)
         return jax.vmap(set_key_and_train, in_axes=0)(seed, index)
-
-
-if __name__ == "__main__":
-    n_seeds = 1
-    log_frequency = 5000
-    n_envs = 128
-    logging_config = LoggingConfig(
-        project_name="avg_multi_env",
-        run_name="test",
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-            "num_envs": n_envs,
-        },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=False,
-    )
-    env_id = "halfcheetah"
-    avg_agent = AVG(
-        env_id=env_id,
-        n_envs=n_envs,
-    )
-    avg_agent.train(
-        seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
-        logging_config=logging_config,
-    )

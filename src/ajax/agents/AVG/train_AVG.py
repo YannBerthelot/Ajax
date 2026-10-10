@@ -1,4 +1,3 @@
-import os
 from collections.abc import Sequence
 from dataclasses import fields
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -43,8 +42,6 @@ from ajax.state import (
     OptimizerConfig,
     zeros_like_abstract_pytree,
 )
-
-PROFILER_PATH = "./tensorboard"
 
 
 def get_alpha_from_params(params: FrozenDict) -> float:
@@ -108,18 +105,6 @@ def create_alpha_train_state(
     )
 
 
-# @partial(
-#     jax.jit,
-#     static_argnames=[
-#         "num_critics",
-#         "window_size",
-#         "alpha_args",
-#         "network_args",
-#         "actor_optimizer_args",
-#         "critic_optimizer_args",
-#         "env_args",
-#     ],
-# )
 def init_AVG(
     key: jax.Array,
     env_args: EnvironmentConfig,
@@ -320,9 +305,6 @@ def value_loss_function(
     )
 
 
-EPS = 1e-12
-
-
 @partial(
     jax.jit,
     static_argnames=["recurrent", "obs_preprocessor", "policy_action_transform"],
@@ -396,41 +378,6 @@ def policy_loss_function(
 
     return loss, PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_pred.mean()
-    )
-
-
-@partial(
-    jax.jit,
-    static_argnames=["target_entropy"],
-)
-def temperature_loss_function(
-    log_alpha_params: FrozenDict,
-    corrected_log_probs: jax.Array,
-    target_entropy: float,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
-    """
-    Compute the loss for the temperature parameter (alpha).
-
-    Args:
-        log_alpha_params (FrozenDict): Logarithm of alpha parameters.
-        corrected_log_probs (jax.Array): Log probabilities of actions.
-        target_entropy (float): Target entropy value.
-
-    Returns:
-        Tuple[jax.Array, Dict[str, Any]]: Loss and auxiliary metrics.
-    """
-    log_alpha = log_alpha_params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-
-    loss = (
-        -1.0
-        * (
-            log_alpha * jax.lax.stop_gradient(corrected_log_probs + target_entropy)
-        ).mean()
-    )
-
-    return loss, TemperatureAuxiliaries(
-        alpha_loss=loss, alpha=alpha, log_alpha=log_alpha
     )
 
 
@@ -659,73 +606,8 @@ def update_policy(
     return agent_state, aux
 
 
-# TODO(2026-05-27): ``update_temperature`` is defined here but
-# NEVER called from the active path. ``create_alpha_train_state``
-# initialises ``agent_state.alpha`` (default alpha=1.0) and
-# ``update_agent`` reads alpha from it, but no caller ever runs the
-# alpha gradient update. Net effect: AVG runs with alpha frozen at
-# init forever. This mirrors the pattern that turned out to be a real
-# bug in PPO (``update_agent`` defined-but-not-called → the active
-# ``body_fn`` did the wrong thing). Two interpretations:
-#   (a) intentional — Vasan 2024 AVG uses a fixed entropy bonus, in
-#       which case ``temperature_loss_function`` and
-#       ``update_temperature`` should be deleted and
-#       ``create_alpha_train_state`` simplified to a fixed scalar.
-#   (b) bug — alpha was meant to be tuned via the dual-gradient
-#       (SAC/ASAC/REDQ pattern), and the call was forgotten.
-# Decision pending; pilot results suggest AVG behaves reasonably with
-# alpha=init, so (a) is plausible. Surfacing here so the next AVG
-# pass settles it.
-@partial(
-    jax.jit,
-    static_argnames=["target_entropy", "recurrent"],
-)
-def update_temperature(
-    agent_state: AVGState,
-    observations: jax.Array,
-    dones: Optional[jax.Array],
-    target_entropy: float,
-    recurrent: bool,
-) -> Tuple[AVGState, Dict[str, Any]]:
-    """
-    Update the temperature parameter (alpha) using the alpha loss.
-
-    Args:
-        agent_state (AVGState): Current SAC agent state.
-        observations (jax.Array): Current observations.
-        dones (Optional[jax.Array]): Done flags.
-        target_entropy (float): Target entropy value.
-        recurrent (bool): Whether the model is recurrent.
-
-    Returns:
-        Tuple[AVGState, Dict[str, Any]]: Updated agent state and auxiliary metrics.
-    """
-    loss_fn = jax.value_and_grad(temperature_loss_function, has_aux=True)
-
-    pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=observations,
-        done=dones,
-        recurrent=recurrent,
-    )
-    rng, sample_key = jax.random.split(agent_state.rng)
-    _, log_probs = pi.sample_and_log_prob(seed=sample_key)
-
-    (loss, aux), grads = loss_fn(
-        agent_state.alpha.params,
-        log_probs.sum(-1),
-        target_entropy,
-    )
-
-    new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
-    agent_state = agent_state.replace(
-        rng=rng,
-        alpha=new_alpha_state,
-    )
-    return agent_state, jax.lax.stop_gradient(aux)
-
-
+# AVG never updates alpha (it stays at its init value); whether it should be
+# tuned is pending the AVG defect decision.
 @partial(
     jax.jit,
     static_argnames=[
@@ -849,28 +731,8 @@ def update_agent(
     return agent_state, aux
 
 
-def flatten_dict(dict: Dict) -> Dict:
-    return_dict = {}
-    for key, val in dict.items():
-        if isinstance(val, Dict):
-            for subkey, subval in val.items():
-                return_dict[f"{key}/{subkey}"] = subval
-        else:
-            return_dict[key] = val
-    return return_dict
-
-
-def prepare_metrics(aux):
-    log_metrics = flatten_dict(to_state_dict(aux))
-    return {key: val for (key, val) in log_metrics.items() if not (jnp.isnan(val))}
-
-
 def no_op(x, *args):
     return x
-
-
-def no_op_none(*args, **kwargs):
-    return None
 
 
 def squeeze_dim_0(x):
@@ -915,37 +777,6 @@ def update_AVG_values(
         reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
     )
 
-    return agent_state
-
-
-@partial(
-    jax.jit, static_argnames=["run_and_log", "no_op_none", "log_frequency", "env_args"]
-)
-def log_function(
-    agent_state,
-    log_frequency,
-    timestep,
-    total_timesteps,
-    aux,
-    run_and_log,
-    no_op_none,
-    env_args,
-    index,
-):
-    _, eval_rng = jax.random.split(agent_state.eval_rng)
-    agent_state = agent_state.replace(eval_rng=eval_rng)
-    log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
-
-    agent_state = agent_state.replace(
-        n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
-    )
-    flag = jnp.logical_or(
-        jnp.logical_and(log_flag, timestep > 1),
-        timestep >= (total_timesteps - env_args.n_envs),
-    )
-
-    jax.lax.cond(flag, run_and_log, no_op_none, agent_state, aux, index)
-    del aux
     return agent_state
 
 
@@ -1041,12 +872,10 @@ def training_iteration(
     rollout = jax.tree.map(
         squeeze_dim_0, rollout
     )  # Remove first dim as we only have one transition
-    # jax.debug.print("before {x}", x=timestep)
     collector_state = agent_state.collector_state.replace(rollout=rollout)
     agent_state = agent_state.replace(collector_state=collector_state)
     agent_state = update_AVG_values(agent_state, rollout, agent_config)
     timestep = agent_state.collector_state.timestep
-    # jax.debug.print("after {x}", x=timestep)
     agent_state = agent_state.replace(rng=rng)
 
     def do_update(agent_state):
@@ -1131,27 +960,6 @@ def training_iteration(
 
     jax.clear_caches()
     return agent_state, metrics_to_log
-
-
-def profile_memory(timestep):
-    jax.profiler.save_device_memory_profile(f"memory{timestep}.prof")
-
-
-def safe_get_env_var(var_name: str, default: Optional[str] = None) -> Optional[str]:
-    """
-    Safely retrieve an environment variable.
-
-    Args:
-        var_name (str): The name of the environment variable.
-        default (Optional[str]): Default value if the variable is not set.
-
-    Returns:
-        Optional[str]: The value of the environment variable or default.
-    """
-    value = os.environ.get(var_name)
-    if value is None:
-        return default
-    return value
 
 
 def make_train(

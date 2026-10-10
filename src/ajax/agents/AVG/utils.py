@@ -9,10 +9,6 @@ def no_op(x, *args):
     return x
 
 
-def no_op_tuple(x, *args):
-    return x, jnp.ones_like(x.value)
-
-
 def _normalize_and_update(
     info: NormalizationInfo, square_value: bool
 ) -> tuple[NormalizationInfo, jnp.array]:

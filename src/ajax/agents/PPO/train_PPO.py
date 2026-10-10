@@ -50,10 +50,6 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 
-PROFILER_PATH = "./tensorboard"
-
-DEBUG = False
-
 
 @struct.dataclass
 class PolicyAuxiliaries:
@@ -163,7 +159,6 @@ def init_PPO(
     )
 
 
-# @partial(jax.jit, static_argnames=["recurrent"])
 def value_loss_function(
     critic_params: FrozenDict,
     critic_states: LoadedTrainState,
@@ -232,10 +227,6 @@ def value_loss_function(
     )
 
 
-# @partial(
-#     jax.jit,
-#     static_argnames=["recurrent", "advantage_normalization"],
-# )
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
@@ -304,20 +295,11 @@ def policy_loss_function(
         new_log_probs = pi.log_prob_from_raw(raw_actions)
     else:
         new_log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
-    if DEBUG:
-        assert new_log_probs.shape == log_probs.shape, (
-            f"Shape mismatch between new_log_probs {new_log_probs.shape} and log_probs"
-            f" {log_probs.shape}"
-        )
 
     ratio = jnp.exp(new_log_probs - log_probs)
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-    if DEBUG:
-        assert (
-            ratio.shape[0] == gae.shape[0]
-        ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     loss_actor1 = ratio * gae
     loss_actor2 = (
         jnp.clip(
@@ -432,27 +414,6 @@ def _policy_value_and_grad_with_extra(extra_loss_fn):
         )
 
     return jax.value_and_grad(bound, has_aux=True)
-
-
-def check_no_nan(x, id):
-    assert not jnp.isnan(x).any(), f"NaN detected {id}"
-
-
-def _normalize_obs_with_stats(obs, obs_norm_info):
-    """Apply the env's running-stats normaliser to raw observations.
-
-    Mirrors ``ajax.utils.online_normalize``'s formula at use-time: mean
-    of the batched-stat across envs, std = clip(sqrt(var + 1e-8),
-    1e-6, 1e6) likewise. With ``obs_norm_info`` containing the LATEST
-    stats from ``env_state.info["normalization_info"].obs``, the
-    forward pass sees brax-style normalise-at-forward semantics.
-    Returns raw obs unchanged when obs_norm_info is None.
-    """
-    if obs_norm_info is None:
-        return obs
-    norm_mean = obs_norm_info.mean.mean(axis=0)
-    norm_std = jnp.clip(jnp.sqrt(obs_norm_info.var + 1e-8), 1e-6, 1e6).mean(axis=0)
-    return (obs - norm_mean) / norm_std
 
 
 # ---------------------------------------------------------------------------
@@ -617,8 +578,6 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     Returns:
         Tuple[PPOState, None]: Updated agent state.
     """
-    # collector_state = agent_state.collector_state
-
     # Recurrent bookkeeping: remember the carries and done flags valid for
     # the FIRST observation of the rollout — the update replays the whole
     # sequence from these, while collection advances the live actor carry.
@@ -680,15 +639,6 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
     if agent_config.num_minibatches > 0:
         num_minibatches = agent_config.num_minibatches
     else:
-        if DEBUG:
-            assert (
-                max(agent_config.batch_size, agent_config.n_steps)
-                % min(agent_config.batch_size, agent_config.n_steps)
-                == 0
-            ), (
-                "can't evenly break n_steps into batch size chunks,"
-                f" n_steps={agent_config.n_steps} batch_size={agent_config.batch_size}"
-            )
         num_minibatches = max(agent_config.batch_size, agent_config.n_steps) // min(
             agent_config.batch_size, agent_config.n_steps
         )
@@ -1384,8 +1334,6 @@ def training_iteration(  # noqa: C901  (brax-faithful PPO has many gated branche
 
     metrics_to_log = {**metrics_to_log, **auxiliary_metrics}
 
-    # jax.clear_caches()
-    # gc.collect()
     return agent_state, metrics_to_log
 
 

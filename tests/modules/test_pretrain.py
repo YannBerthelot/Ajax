@@ -16,11 +16,9 @@ import optax
 import pytest
 from flax import struct
 
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.modules.pretrain import (
     MCPretrainAux,
     PhiRefreshAuxiliaries,
-    pretrain_actor_weighted_bc,
     pretrain_critic_online_light,
 )
 from ajax.state import LoadedTrainState
@@ -41,25 +39,10 @@ class TinyCritic(nn.Module):
         return q[None, ...]
 
 
-class TinyActor(nn.Module):
-    action_dim: int
-
-    @nn.compact
-    def __call__(self, x):
-        h = nn.Dense(16)(x)
-        h = nn.relu(h)
-        loc = nn.Dense(self.action_dim)(h)
-        scale = jnp.ones_like(loc) * 0.5
-        return SquashedNormal(loc, scale)
-
-
 @struct.dataclass
 class FakePretrainState:
     critic_state: LoadedTrainState
-    actor_state: Optional[LoadedTrainState] = None
     expert_critic_params: Optional[Any] = None
-    expert_v_min: Optional[jax.Array] = None
-    expert_v_max: Optional[jax.Array] = None
 
 
 def _make_critic_state(rng):
@@ -71,18 +54,6 @@ def _make_critic_state(rng):
         params=params,
         tx=optax.sgd(1e-2),
         target_params=params,
-    )
-
-
-def _make_actor_state(rng):
-    actor = TinyActor(action_dim=ACTION_DIM)
-    dummy_in = jnp.zeros((1, OBS_DIM))
-    params = actor.init(rng, dummy_in)
-    return LoadedTrainState.create(
-        apply_fn=actor.apply,
-        params=params,
-        tx=optax.sgd(1e-2),
-        target_params=None,
     )
 
 
@@ -176,59 +147,5 @@ def test_pretrain_critic_online_light_zero_lr_is_no_op(rng, pretrain_batches):
     for a, b in zip(
         jax.tree_util.tree_leaves(critic_state.params),
         jax.tree_util.tree_leaves(out.critic_state.params),
-    ):
-        assert jnp.allclose(a, b)
-
-
-# ---------------------------------------------------------------------------
-# pretrain_actor_weighted_bc
-# ---------------------------------------------------------------------------
-
-
-def test_pretrain_actor_weighted_bc_updates_actor_only(rng, pretrain_batches):
-    actor_key, critic_key = jax.random.split(rng)
-    actor_state = _make_actor_state(actor_key)
-    critic_state = _make_critic_state(critic_key)
-    state = FakePretrainState(
-        critic_state=critic_state,
-        actor_state=actor_state,
-        expert_critic_params=critic_state.params,
-        expert_v_min=jnp.asarray(-1.0),
-        expert_v_max=jnp.asarray(1.0),
-    )
-    obs, actions = pretrain_batches
-    out = pretrain_actor_weighted_bc(state, obs, actions, n_steps=2, recurrent=False)
-    # Actor params must have changed.
-    orig_actor = jax.tree_util.tree_leaves(actor_state.params)
-    new_actor = jax.tree_util.tree_leaves(out.actor_state.params)
-    diffs = [float(jnp.abs(a - b).sum()) for a, b in zip(orig_actor, new_actor)]
-    assert max(diffs) > 0.0
-    # Critic params must be untouched.
-    for a, b in zip(
-        jax.tree_util.tree_leaves(critic_state.params),
-        jax.tree_util.tree_leaves(out.critic_state.params),
-    ):
-        assert jnp.allclose(a, b)
-
-
-def test_pretrain_actor_weighted_bc_zero_weight_window_is_noop(rng, pretrain_batches):
-    """When V* is outside [v_min, v_max] floor, the BC loss weight collapses
-    to zero and the actor should remain unchanged."""
-    actor_key, critic_key = jax.random.split(rng)
-    actor_state = _make_actor_state(actor_key)
-    critic_state = _make_critic_state(critic_key)
-    # v_min=v_max=very_large ensures the clip floors everything to 0.
-    state = FakePretrainState(
-        critic_state=critic_state,
-        actor_state=actor_state,
-        expert_critic_params=critic_state.params,
-        expert_v_min=jnp.asarray(1e6),
-        expert_v_max=jnp.asarray(1e6 + 1.0),
-    )
-    obs, actions = pretrain_batches
-    out = pretrain_actor_weighted_bc(state, obs, actions, n_steps=2, recurrent=False)
-    for a, b in zip(
-        jax.tree_util.tree_leaves(actor_state.params),
-        jax.tree_util.tree_leaves(out.actor_state.params),
     ):
         assert jnp.allclose(a, b)

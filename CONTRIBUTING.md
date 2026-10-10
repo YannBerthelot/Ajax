@@ -80,7 +80,7 @@ src/ajax/
 │                            #   logging (evaluate_and_log, maybe_eval_and_log)
 ├── perf_utils.py            # build_resumable_train (init-or-resume + scan
 │                            #   skeleton, resume offset), final_aux_scan/_fori
-├── schedule.py              # Schedulable scalars
+├── schedule.py              # Optimizer step schedules (warmup_cosine_schedule)
 └── wrappers.py              # Env wrappers
 ```
 
@@ -90,7 +90,7 @@ Every agent follows the same split:
 
 - **`<AGENT>.py`** — the public class. Inherits `ActorCritic` (see [src/ajax/agents/base.py](src/ajax/agents/base.py)), stores algorithm-specific hyperparameters, accepts `extensions: Sequence[Extension] = ()`, and exposes `get_make_train()` returning a `functools.partial` over `make_train`.
 - **`train_<AGENT>.py`** — the JIT-compiled training logic. `make_train(…)` builds the closure; `training_iteration` is the `jax.lax.scan` body; loss / update functions live here. Folds the ExtensionStack at every relevant phase via `stack.fold_<phase>(...)`.
-- **`core.py`** (SAC family only) — proven reusable algorithm pieces (e.g. `compute_td_target`, `critic_loss_fn`, `soft_update_target_params`). Lineage descendants (REDQ, SafeSAC, ASAC) import from here rather than duplicating.
+- **`core.py`** (SAC family only) — proven reusable algorithm pieces (e.g. `compute_td_target`, `critic_loss_fn`). Lineage descendants (REDQ, SafeSAC, ASAC) import from here rather than duplicating.
 - **`state.py`** — `<AGENT>State` and `<AGENT>Config` extending `BaseAgentState` / `BaseAgentConfig`.
 
 ---
@@ -217,7 +217,7 @@ that isn't algorithm-specific.
 REDQ from SAC), **import** the parent's reusable mechanisms from its
 `core.py`; do not copy-paste. SAC's `core.py` exports
 `compute_td_target`, `critic_loss_fn`, `actor_loss_fn`,
-`temperature_loss_fn`, `soft_update_target_params`, `create_alpha_train_state`
+`temperature_loss_fn`, `create_alpha_train_state`
 for descendants.
 
 Let's say you want to add an agent called `FOO`.
@@ -542,7 +542,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) enforces pre-commit an
 
 - **No new boolean flags. No new agent-level kwargs for features.** If you feel the urge, build an Extension.
 - **Extensions are self-contained.** The base agent must never hardcode any Extension's hyperparameters or know about a specific Extension. See [CLAUDE.md](CLAUDE.md) §"Extensions are self-contained" for the full rule + history.
-- **Every scalar hyperparameter must be schedulable** — accept either a `float` or `Callable[[int], float]`. See [src/ajax/schedule.py](src/ajax/schedule.py) and existing agents for the pattern.
+- **Every scalar hyperparameter must be schedulable** — accept either a `float` or `Callable[[int], float]`. See `FloatOrCallable` in [src/ajax/types.py](src/ajax/types.py) and existing agents for the pattern.
 - **Probing first.** When adding a feature, run `tests/agents/test_probing.py` to verify no agent regressed before opening a PR.
 - **Composable modules, not inheritance.** Prefer adding an Extension over subclassing an agent. The lineage exception is for genuine algorithmic descent (e.g. REDQ extends SAC's actor/temperature machinery) — and even then, import the shared pieces from `core.py` rather than copy-pasting.
 - **Heavy changes go on a dedicated branch** with per-commit CI green; see [CLAUDE.md](CLAUDE.md) §"Refactoring & code-quality standards".

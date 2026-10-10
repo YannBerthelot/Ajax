@@ -6,7 +6,6 @@ import jax.numpy as jnp
 import optax
 import pytest
 from flax import linen as nn
-from flax import struct
 from flax.training import train_state
 
 from ajax.agents.cloning import (
@@ -80,16 +79,6 @@ class DummyCritic(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(1)(x)
         return x
-
-
-@struct.dataclass
-class FakeTransition:
-    obs: jax.Array
-    action: jax.Array
-    reward: jax.Array
-    terminated: jax.Array
-    truncated: jax.Array
-    next_obs: jax.Array
 
 
 # -----------------------------
@@ -212,45 +201,6 @@ def test_pre_train_actor_converges():
         assert jnp.allclose(pred_action, dataset.action[i], atol=0.3)
 
 
-# def test_pre_train_critic_converges():
-#     actor_state = create_dummy_actor_state()
-#     critic_state = create_dummy_critic_state()
-#     dataset = expand_dataset(create_dummy_dataset(), repeat=20)
-#     key = jax.random.PRNGKey(42)
-#     trained_actor, trained_critic, metrics = pre_train(
-#         key,
-#         actor_state,
-#         critic_state,
-#         dataset,
-#         actor_lr=1e-3,
-#         actor_epochs=10,
-#         actor_batch_size=2,
-#         critic_lr=5e-2,
-#         critic_epochs=50,
-#         critic_batch_size=4,
-#     )
-
-#     critic_losses = jnp.array(metrics["critic_loss"])
-#     assert critic_losses[-1] <= critic_losses[0]
-
-#     gamma = 0.99
-#     for i in range(2):
-#         v_pred = trained_critic.apply_fn(trained_critic.params, dataset.obs[i])
-#         v_pred = jnp.squeeze(v_pred)
-
-#         v_next = trained_critic.apply_fn(trained_critic.params, dataset.next_obs[i])
-#         v_next = jnp.squeeze(v_next)
-
-#         td_target = jnp.squeeze(dataset.reward[i]) + gamma * v_next * (
-#             1.0 - jnp.squeeze(dataset.terminated[i])
-#         )
-
-#         # Use allclose or norm-based check
-#         assert jnp.allclose(
-#             v_pred, td_target, atol=0.5
-#         ), f"Critic prediction {v_pred} too far from TD target {td_target}"
-
-
 def test_pre_train_vmap_compatible():
     n = 3
     rngs = jax.random.split(jax.random.PRNGKey(0), n)
@@ -323,9 +273,6 @@ def test_collect_experience_shapes_and_types(request, mode, env_args_fixture):
 
         def expert_policy(obs):
             return jnp.zeros((1), dtype=jnp.int32)
-
-    # def expert_policy(obs):
-    #     return env_args.env.action_space(env_args.env_params).sample(rng)
 
     transitions = collect_experience_from_expert_policy(
         expert_policy, rng, mode, env_args, n_timesteps=n_steps

@@ -4,7 +4,7 @@ Every memory architecture unifies behind one interface, operating on
 time-major sequences ``(T, B, features)`` with per-step reset flags
 ``(T, B)``:
 
-- ``initialize_carry(rng, batch_size) -> carry`` returns the recurrent
+- ``init_carry(config, rng, batch_size) -> carry`` returns the recurrent
   state as a pytree (always a tuple with one entry per layer).
 - ``__call__(carry, x, resets) -> (new_carry, y)`` runs the cell over the
   whole sequence, isolating episodes wherever ``resets[t]`` is set, and
@@ -515,7 +515,3 @@ class MemoryCell(nn.Module):
 
     def __call__(self, carry, x, resets):
         return self.core(carry, x, resets)
-
-    def initialize_carry(self, rng: jax.Array, batch_size: int) -> Carry:
-        """Fresh (zero) carry: a tuple with one entry per layer."""
-        return init_carry(self.config, rng, batch_size)

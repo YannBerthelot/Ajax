@@ -15,9 +15,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-)
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig, NetworkConfig
@@ -216,74 +213,3 @@ class REDQ(ActorCritic):
             policy_action_transform=self.policy_action_transform,
             extensions=tuple(self.extension_stack.extensions),
         )
-
-
-if __name__ == "__main__":
-    # def main():
-    #     n_seeds = 1
-    #     log_frequency = 1000
-    #     logging_config = LoggingConfig(
-    #         project_name="dyna_REDQ_tests_sweep",
-    #         run_name="REDQ",
-    #         config={
-    #             "debug": False,
-    #             "log_frequency": log_frequency,
-    #             "n_seeds": n_seeds,
-    #         },
-    #         log_frequency=log_frequency,
-    #         horizon=10_000,
-    #         use_tensorboard=False,
-    #         use_wandb=False,
-    #     )
-    #     env_id = "halfcheetah"
-
-    #     def init_and_train(config):
-    #         REDQ_agent = REDQ(env_id=env_id, **config)
-    #         _, score = REDQ_agent.train(
-    #             seed=list(range(n_seeds)),
-    #             n_timesteps=int(1e4),
-    #             logging_config=logging_config,
-    #         )
-    #         return score
-
-    #     wandb.init(project="my-first-sweep")
-    #     score = init_and_train(wandb.config)
-
-    #     wandb.log({"score": score})
-
-    # sweep_configuration = {
-    #     "method": "random",
-    #     "metric": {"goal": "maximize", "name": "score"},
-    #     "parameters": {
-    #         "actor_learning_rate": {"max": 0.1, "min": 0.01},
-    #         "n_envs": {"values": [1, 3, 7]},
-    #     },
-    # }
-    # sweep_id = wandb.sweep(sweep=sweep_configuration, project="my-first-sweep")
-
-    # wandb.agent(sweep_id, function=main, count=10)
-
-    n_seeds = 1
-    log_frequency = 5_000
-    logging_config = LoggingConfig(
-        project_name="REDQ_benchmark",
-        run_name="baseline",
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-        },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=False,
-        use_wandb=True,
-    )
-
-    env_id = "hopper"
-    REDQ_agent = REDQ(env_id=env_id, learning_starts=int(1e4), n_envs=1)
-    REDQ_agent.train(
-        seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
-        logging_config=logging_config,
-    )
-    # upload_tensorboard_to_wandb(REDQ_agent.run_ids, logging_config, use_wandb=True)

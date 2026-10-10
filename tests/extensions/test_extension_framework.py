@@ -168,10 +168,6 @@ def test_stack_hashable_and_jit_static():
     s2 = ExtensionStack([Frozen(1.0)])
     assert hash(s1) == hash(s2) and s1 == s2
 
-    @jax.jit
-    def f(x, stack):  # stack is hashable -> static when not an array arg
-        return x * len(stack)
-
     f_static = jax.jit(lambda x, st: x * len(st), static_argnums=1)
     assert int(f_static(jnp.asarray(3.0), s1)) == 3
 
@@ -203,12 +199,6 @@ class _FakeAgentState:
 def test_fold_helpers_empty_stack_zero_cost():
     """Empty stack: every fold returns the input unchanged, no ctx built."""
 
-    # Sentinel that would fail if ExtensionContext were instantiated with
-    # our crafted args (proving the empty-stack short-circuit is taken).
-    class _Boom:
-        def __getattr__(self, name):
-            raise AssertionError("ctx attr accessed on empty-stack path")
-
     stack = ExtensionStack()
     agent = _FakeAgentState()
     obs = jnp.ones((3,))
@@ -229,12 +219,6 @@ def test_fold_helpers_empty_stack_zero_cost():
     assert stack.fold_action(agent, obs, step, rng, 100) is None
     assert stack.fold_eval_action(agent, obs, step, rng, 100) is None
     assert stack.fold_eval_metrics(agent, step, rng, 100) == {}
-
-    # Spot-check the spirit of the "no ctx built" claim: an Extension
-    # implementation that touches ctx would crash if reached; we
-    # construct one and verify the empty stack never reaches its phase.
-    # The above identity-return assertions are the concrete evidence.
-    del _Boom  # explicitly unused — kept as documentation of intent
 
 
 def test_fold_helpers_route_through_phase():

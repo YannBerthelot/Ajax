@@ -199,7 +199,6 @@ def step_environment(
     expert_policy=None,
     action_scale=1.0,
     early_termination_condition=None,
-    expert_handover: bool = False,
     train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
     agent_state=None,
@@ -439,12 +438,6 @@ def step_environment_expert(mode, env, env_params, expert_policy):
         )
 
     return fn
-
-
-def while_env_not_done(carry):
-    """Condition for while_loop."""
-    done = carry[3]
-    return jnp.logical_not(done.all())
 
 
 def _infer_max_eval_steps(env, env_params) -> int:

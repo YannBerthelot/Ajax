@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 from brax.envs import create as create_brax_env
-from gymnax import EnvParams
 
 from ajax.environments.create import build_env_from_id
 from ajax.environments.utils import get_state_action_shapes
@@ -121,29 +120,6 @@ def real_env_config():
     return EnvironmentConfig(
         env=env,
         env_params=env_params,
-        n_envs=1,
-        continuous=True,
-    )
-
-
-@pytest.fixture
-def mock_env_config():
-    class MockEnv:
-        def __init__(self, action_space_shape, action_space_n=None):
-            self.action_space_shape = action_space_shape
-            self.action_space_n = action_space_n
-
-        def action_space(self, params):
-            if self.action_space_n:
-                return type("Discrete", (), {"n": self.action_space_n})
-            return type("Box", (), {"shape": self.action_space_shape})
-
-    mock_env = MockEnv(action_space_shape=(4,), action_space_n=None)
-    mock_env_params = EnvParams()  # Example empty EnvParams
-
-    return EnvironmentConfig(
-        env=mock_env,
-        env_params=mock_env_params,
         n_envs=1,
         continuous=True,
     )

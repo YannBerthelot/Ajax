@@ -43,7 +43,7 @@ def _train(extra_kwargs=None) -> tuple[int, int, int]:
     ``actor_step`` and ``critic_step`` are the Adam step counters on
     each network -- they increment once per ``apply_gradients`` call
     and are part of the pytree so the JIT trace updates them (no
-    spying / no_jit needed).
+    spying needed).
 
     ``n_updates`` is the number of training iterations Ajax actually
     ran. We don't assume this equals 1 -- Ajax's training loop may

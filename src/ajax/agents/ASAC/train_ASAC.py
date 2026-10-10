@@ -1017,7 +1017,6 @@ def update_agent(
     rewards = get_episode_termination_penalized_rewards(
         episode_termination_penalty, transition.reward, transition.terminated
     )
-    # rewards = transition.reward
 
     agent_state = agent_state.replace(
         rng=rng, episode_termination_penalty=episode_termination_penalty
@@ -1303,7 +1302,6 @@ def training_iteration(
         log_fn,
         log_frequency,
         total_timesteps,
-        # avg_reward_mode=True,
         action_scale=action_scale,
         expert_policy=expert_policy,
         eval_action_transform=eval_action_transform,

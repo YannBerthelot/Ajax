@@ -8,7 +8,6 @@ PretrainResult.
 Design:
   - pretrain_critic_mc: MC returns → expert critic → frozen params + v_min/v_max
   - pretrain_critic_online_light: weak nudge of online critic toward φ*
-  - pretrain_actor_weighted_bc: value-weighted BC on the actor
   - pretrain_critic_bellman: legacy Bellman-bootstrapped pretraining
   - refresh_phi_star: periodic self-consistent φ* refresh (runtime)
 
@@ -26,7 +25,6 @@ from flax.core import FrozenDict
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
-    get_pi,
 )
 from ajax.environments.utils import check_env_is_gymnax, maybe_append_train_frac
 from ajax.networks.networks import predict_value
@@ -306,82 +304,6 @@ def pretrain_critic_online_light(
         step, agent_state, (obs_batched[:n_steps], action_batched[:n_steps])
     )
     return agent_state
-
-
-# ---------------------------------------------------------------------------
-# Actor pre-training via value-weighted behavioral cloning
-# ---------------------------------------------------------------------------
-
-
-@partial(jax.jit, static_argnames=["n_steps", "recurrent"])
-def pretrain_actor_weighted_bc(
-    agent_state,
-    obs_batched: jax.Array,
-    action_batched: jax.Array,
-    n_steps: int = 5_000,
-    recurrent: bool = False,
-):
-    """Value-weighted behavioral cloning on the actor.
-
-    Loss: mean_s [w(s) * ||μ_θ(s) - π*(s)||²]
-    w(s) = clip((V*(s) - V_min) / (V_max - V_min), 0, 1)²
-    V*(s) = min_k Q_φ*(s, π*(s)) using frozen expert_critic_params
-
-    Only actor_state is modified; all other agent_state fields are unchanged.
-    """
-    expert_critic_params = agent_state.expert_critic_params
-    v_min = agent_state.expert_v_min
-    v_max = agent_state.expert_v_max
-    n_batches = obs_batched.shape[0]
-
-    def actor_bc_loss_fn(actor_params, obs, a_expert):
-        pi, _ = get_pi(
-            actor_state=agent_state.actor_state,
-            actor_params=actor_params,
-            obs=obs,
-            done=None,
-            recurrent=recurrent,
-        )
-        mu = jnp.tanh(pi.distribution.loc)
-
-        v_star = jax.lax.stop_gradient(
-            jnp.min(
-                predict_value(
-                    critic_state=agent_state.critic_state,
-                    critic_params=expert_critic_params,
-                    x=jnp.concatenate([obs, a_expert], axis=-1),
-                ),
-                axis=0,
-            )
-        )
-        w = jnp.clip((v_star - v_min) / (v_max - v_min + 1e-8), 0.0, 1.0)
-        w = w**2
-        l2 = jnp.sum((mu - a_expert) ** 2, axis=-1, keepdims=True)
-        return jnp.mean(w * l2)
-
-    def bc_step(carry, batch):
-        actor_state = carry
-        obs_b, action_b = batch
-        loss, grads = jax.value_and_grad(actor_bc_loss_fn)(
-            actor_state.params,
-            obs_b,
-            action_b,
-        )
-        return actor_state.apply_gradients(grads=grads), loss
-
-    n_passes = max(1, n_steps // n_batches)
-    batches = (obs_batched, action_batched)
-
-    def one_pass(carry, _):
-        return jax.lax.scan(bc_step, carry, batches)
-
-    final_actor_state, _ = jax.lax.scan(
-        one_pass,
-        agent_state.actor_state,
-        None,
-        length=n_passes,
-    )
-    return agent_state.replace(actor_state=final_actor_state)
 
 
 # ---------------------------------------------------------------------------

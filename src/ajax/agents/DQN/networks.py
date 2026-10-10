@@ -126,8 +126,7 @@ class QNetwork(nn.Module):
             self.n_actions, kernel_init=kernel_init, bias_init=bias_init
         )
 
-    def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
-        del raw_obs
+    def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         features = self.encoder(obs)
         # Penultimate encoder features, exposed for plasticity/conditioning
         # probes. `sow` is a no-op unless the caller marks "intermediates"
@@ -177,8 +176,7 @@ class DuelingQNetwork(nn.Module):
             self.n_actions, kernel_init=kernel_init, bias_init=bias_init
         )
 
-    def __call__(self, obs: jax.Array, raw_obs=None) -> GreedyQPolicy:
-        del raw_obs
+    def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         features = self.encoder(obs)
         # See QNetwork.__call__: zero-cost probe seam for conditioning metrics.
         self.sow("intermediates", "encoder_features", features)

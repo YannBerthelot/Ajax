@@ -282,17 +282,3 @@ def temperature_loss_fn(
         log_alpha=log_alpha,
         effective_target_entropy=target_entropy,
     )
-
-
-# ---------------------------------------------------------------------------
-# Target network soft update
-# ---------------------------------------------------------------------------
-
-
-def soft_update_target_params(params, target_params, tau: float):
-    """Polyak averaging: target ← τ·params + (1-τ)·target."""
-    return jax.tree.map(
-        lambda p, tp: tau * p + (1.0 - tau) * tp,
-        params,
-        target_params,
-    )

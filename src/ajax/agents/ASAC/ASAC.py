@@ -13,10 +13,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.logging.wandb_logging import (
-    LoggingConfig,
-    upload_tensorboard_to_wandb,
-)
 from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
@@ -180,31 +176,3 @@ class ASAC(ActorCritic):
             policy_action_transform=self.policy_action_transform,
             extensions=tuple(self.extension_stack.extensions),
         )
-
-
-if __name__ == "__main__":
-    n_seeds = 25
-    log_frequency = 5_000
-    logging_config = LoggingConfig(
-        project_name="ASAC_benchmark",
-        run_name="baseline",
-        config={
-            "debug": False,
-            "log_frequency": log_frequency,
-            "n_seeds": n_seeds,
-        },
-        log_frequency=log_frequency,
-        horizon=10_000,
-        use_tensorboard=True,
-        use_wandb=True,
-    )
-    env_id = "hopper"
-    ASAC_agent = ASAC(
-        env_id=env_id, learning_starts=int(1e4), n_envs=1, alpha_init=1 / 5
-    )
-    ASAC_agent.train(
-        seed=list(range(n_seeds)),
-        n_timesteps=int(1e6),
-        logging_config=logging_config,
-    )
-    upload_tensorboard_to_wandb(ASAC_agent.run_ids, logging_config, use_wandb=True)

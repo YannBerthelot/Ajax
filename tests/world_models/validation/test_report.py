@@ -70,10 +70,6 @@ def write_replicas(root, scale: float = 1.0, skip=()) -> None:
             write_run(root, name, replica(spec.agent, spec.reference_task, scale))
 
 
-def statuses(runs, agent, reference):
-    return [v.status for v in paper_report.judge_agent(agent, reference, runs)]
-
-
 def test_runs_that_copy_the_references_pass(tmp_path):
     write_replicas(tmp_path)
     text, verdicts = paper_report.report(str(tmp_path))

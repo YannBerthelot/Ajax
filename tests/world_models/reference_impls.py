@@ -206,8 +206,6 @@ def d_mlp(x, layers: Sequence[Tuple[jax.Array, jax.Array, jax.Array]], bdims=2):
 # nicklashansen/tdmpc2@5f6fade, torch -> float32 numpy.
 
 T_NUM_BINS, T_VMIN, T_VMAX = 101, -10.0, 10.0  # tdmpc2/config.yaml:48-50
-# tdmpc2/common/parser.py:40
-T_BIN_SIZE = (T_VMAX - T_VMIN) / (T_NUM_BINS - 1)
 
 
 # tdmpc2/common/math.py:48-54

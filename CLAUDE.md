@@ -64,6 +64,10 @@ We are not in a rush; do things as cleanly as possible.
    it does today (goldens, `tests/probing`, the downstream API pin).
 2. **Restructure or change behaviour, never both** in one commit. A fix
    that moves numbers re-records its goldens in its own commit, saying why.
+   Bitwise reproduction of earlier outputs is not a goal: the target is
+   each paper's algorithm and performance. Exact-output pins are change
+   detectors, not truth; a behaviour-neutral change that shifts them only
+   by floating-point drift re-records them in the same PR.
 3. **Small steps**, each PR green in CI before merging, and bisectable.
 4. **One source of truth per piece of knowledge.** Descendants import
    the parent's maths. Merge only what is truly the same; abstract on the

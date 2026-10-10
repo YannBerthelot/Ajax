@@ -38,7 +38,6 @@ class LoggingConfig:
     project_name: Optional[str] = None
     run_name: Optional[str] = None
     log_frequency: int = 1000
-    mode: str = "online"
     group_name: Optional[str] = None
     horizon: int = 10_000
     folder: Optional[str] = None

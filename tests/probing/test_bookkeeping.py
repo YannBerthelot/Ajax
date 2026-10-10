@@ -219,7 +219,7 @@ def test_p2_avg_with_parallel_envs(part: str) -> None:
 
 
 @xfail(
-    "with normalize_rewards=True the Train return is logged in normalised units: no gamma reaches the normaliser (base.py:128-137, create.py:385), a constant reward has std sqrt(1e-8) (utils.py:24-29), and get_raw_reward's dir() check misses the outer ClipAction (interaction.py:554-566); right Train 7, today 70000 (Eval reads 7)"
+    "with normalize_rewards=True the Train return is logged in normalised units: no gamma reaches the normaliser (base.py:128-137, create.py:385), a constant reward has std sqrt(1e-8) (utils.py:24-29), and the collector adds the normalised reward to the Train window (interaction.py:905-909); right Train 7, today 70000 (Eval reads 7)"
 )
 @pytest.mark.parametrize("agent", ["SAC", "PPO", "DQN", "PQN"])
 def test_p2_train_return_in_raw_units_with_normalized_rewards(agent: str) -> None:

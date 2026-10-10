@@ -157,10 +157,16 @@ def value_loss_function(
     nu: float,
     b: float,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """The differential value loss ``0.5 (V(s) - nu b - target)^2``."""
+    """The differential value loss ``0.5 (V(s) - (target - nu b))^2``.
+
+    APO's official code (``xtma/apo``, ``apo/algos/apg/``) subtracts
+    ``nu b`` from the critic's target, so with ``b`` the mean value each fit
+    pulls the values back towards zero mean (Ma et al., 2021, the value
+    bias penalty); adding it would push them away and let ``|b|`` grow.
+    """
     # The single critic still has the ensemble's leading axis.
     v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
-    loss = 0.5 * jnp.mean(((v_preds - nu * b) - value_targets) ** 2)  # classic MSE
+    loss = 0.5 * jnp.mean((v_preds - (value_targets - nu * b)) ** 2)
     return loss, ValueAuxiliaries(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),

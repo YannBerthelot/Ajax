@@ -30,7 +30,7 @@ from ajax.networks.networks import predict_value
 from . import agents, envs, oracles, runs
 from . import readouts as R
 from .oracles import RIGHT, Rule
-from .verdict import STAGE_1, Case, Query, check, params, xfail, xparam
+from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
 ANSWER_DIGEST = "7d3835420718"  # verdict.digest(CASES): every answer, pinned
@@ -630,7 +630,8 @@ for kind, n in (("box", 0), ("discrete", 2)):
 # run out of step, so an input taken from env e - 1's column moves the odd
 # parts (V(s, +1) - V(s, -1)) / 2, where entropy, ensemble or offset biases
 # cancel. Not built: TD3, REDQ, ASAC share SAC's env-axis path (and
-# TD3, ASAC are too noisy for the ceiling); APO waits on Q1's centring fix.
+# TD3, ASAC are too noisy for the ceiling); APO, whose Q1 centring is fixed,
+# is not built yet.
 
 G9, N9 = 0.8, 4
 TRUTH9 = (G9 / 0.6, 1.0 / 0.6)
@@ -901,8 +902,6 @@ CASES["q1-ASAC-truncation"] = Case(
     "ASAC bootstraps a truncated step on the reset observation, the next buffer row (buffers/utils.py:140; the collector stores last_obs only, interaction.py:900-907); right Q(B) - Q(A) = (r_B - r_A) / 2 = 1.5, today (r_B - r_A) / (2 - 1/2) = 2.0",
 )
 
-APO_SIGN = "APO's value loss is 0.5 mean(((V - nu b) - target)^2) (train_APO.py:251) and b an EMA of mean V (:372), so each fit pulls V towards target + nu b and |b| grows without bound"
-
 
 def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
     """APO's own lambda, alpha and nu, no entropy bonus; V and b."""
@@ -915,7 +914,6 @@ def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
     return runs.readings(build, read)
 
 
-@xfail(f"{APO_SIGN}; right: mean V goes down, today it goes up")
 def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     """With targets equal to the predictions and b = 1 > 0 only the
     centring force is left: a small gradient step must lower mean V."""
@@ -940,7 +938,8 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
 # GAE now drops V(s') at a termination and cuts the lambda-carry at every
 # end (xtma/apo's generalized_advantage_estimation): rho 1/2, V(B) = 1/2 -
 # nu b, V(A) = -(2 - lambda) nu b, b = 1/2 / (2 + nu (3 - lambda)) (nu 0.1,
-# lambda 0.95; derived, not yet read on a scratch copy).
+# lambda 0.95). Seeds 0-7 read medians b 0.2268, V(A) -0.0238, V(B) 0.4773;
+# the constant cycle |b|, |V(1)| <= 0.0062.
 GROWS = {"centring sign reversed: grows without bound": math.inf}
 CASES["q1-APO-constant"] = Case(
     "q1-APO-constant",
@@ -948,7 +947,6 @@ CASES["q1-APO-constant"] = Case(
     _q1_apo(APO_CONST, {"V(1)": 1.0}),
     10_000,
     (0.1, 0.1),
-    f"{APO_SIGN}; right b = 0 (average reward 1, every advantage 0), today b >> 10",
 )
 FIXED = "reset obs inside a rollout, final obs at its end (the old GAE), sign fixed"
 RESET_OBS = "the reset observation bootstrapped at every end, sign fixed"
@@ -965,15 +963,12 @@ CASES["q1-APO-termination"] = Case(
     _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}),
     10_000,
     (0.1, 0.1, 0.1),
-    f"{APO_SIGN}; right b = 0.227, V(A) = -0.024, V(B) = 0.477 (APO's done mask, the reference's convention), today b >> 10",
 )
 
 
-@xfail(
-    f"{APO_SIGN}; right |b| <= 35.8 under any convention, 1373 to 2225 before the done mask"
-)
 def test_q1_apo_termination_cycle_keeps_b_bounded() -> None:
-    """Past |b| = 100 b feeds itself, and no convention can be read yet."""
+    """Past |b| = 100 b feeds itself (1373 to 2225 with the value bias's
+    sign reversed, before the done mask); under any convention |b| <= 35.8."""
     case = CASES["q1-APO-termination"]
     b = case.readings(STAGE_1, case.budget)["b"]
     assert (np.abs(b) < 100.0).all(), f"b reads {b}"

@@ -21,6 +21,9 @@ import jax
 import jax.numpy as jnp
 
 from ajax.agents.APG.APG import APG
+from ajax.agents.APG.state import APGState
+from ajax.agents.APG.train_APG import APGAuxiliaries
+from ajax.logging.wandb_logging import LoggingConfig
 
 
 @dataclass
@@ -53,9 +56,9 @@ def train_curriculum(
     stages: Sequence[CurriculumStage],
     seed: int | Sequence[int] = 42,
     num_episode_test: int = 10,
-    logging_config: Optional[Any] = None,
+    logging_config: Optional[LoggingConfig] = None,
     reset_optimizer: bool = True,
-) -> list:
+) -> list[tuple[APGState, APGAuxiliaries]]:
     """Train ``stages`` in order, each resumed from the previous one.
 
     Returns one ``(agent_state, aux)`` pair per stage (what ``train``
@@ -67,7 +70,7 @@ def train_curriculum(
     first = stages[0].agent
     for stage in stages[1:]:
         _check_compatible(first, stage.agent, stage.name)
-    results: list = []
+    results: list[tuple[APGState, APGAuxiliaries]] = []
     state: Any = None
     for stage in stages:
         out: Any = stage.agent.train(

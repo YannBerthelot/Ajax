@@ -18,6 +18,7 @@ metric, at the logging frequency.
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -26,9 +27,9 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.APG.networks import Controller, PIDHeadConfig
 from ajax.agents.APG.state import APGConfig, APGState
-from ajax.environments.differentiable import closed_loop_rollout
+from ajax.environments.differentiable import Rollout, closed_loop_rollout
 from ajax.environments.interaction import init_collector_state
-from ajax.environments.system_class import SystemClass, broadcast_env_params
+from ajax.environments.system_class import FixedSystem, SystemClass
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.log import compose_eval_metrics, maybe_eval_and_log
@@ -76,7 +77,7 @@ def build_controller(
     pid: Optional[PIDHeadConfig],
     squash: bool,
     factory: Optional[ControllerFactory] = None,
-) -> Any:
+) -> nn.Module:
     action_dim = get_action_dim(env_args.env, env_args.env_params)
     if factory is not None:
         return factory(
@@ -102,7 +103,6 @@ def init_APG(
     network_args: NetworkConfig,
     pid: Optional[PIDHeadConfig],
     squash: bool,
-    window_size: int = 10,
     controller_factory: Optional[ControllerFactory] = None,
 ) -> APGState:
     rng, params_key, carry_key, collector_key = jax.random.split(key, 4)
@@ -126,10 +126,9 @@ def init_APG(
         tx=get_adam_tx(**to_state_dict(actor_optimizer_args)),
         apply_fn=controller.apply,
         hidden_state=carry,
-        recurrent=controller.stateful,
     )
     collector_state = init_collector_state(
-        collector_key, env_args=env_args, mode="gymnax", window_size=window_size
+        collector_key, env_args=env_args, mode="gymnax"
     )
     return APGState(
         rng=rng,
@@ -185,14 +184,6 @@ def make_policy_step(
     return policy_step
 
 
-def sample_systems(
-    system_class: Optional[SystemClass], rng: jax.Array, n: int, nominal: Any
-) -> Any:
-    if system_class is None:
-        return broadcast_env_params(nominal, n)
-    return system_class.sample(rng, n)
-
-
 def rollout_returns(
     agent_state: APGState,
     params: Any,
@@ -201,11 +192,20 @@ def rollout_returns(
     system_class: Optional[SystemClass],
     horizon: int,
     n: int,
-    stateful: bool,
-):
-    """Closed-loop returns ``(n,)`` of the controller on ``n`` fresh systems."""
+    stateful: Optional[bool] = None,
+) -> Tuple[jax.Array, Rollout]:
+    """Closed-loop returns ``(n,)`` of the controller on ``n`` fresh systems
+    (the env's own system without a ``system_class``), and the rollout.
+
+    ``stateful`` (a static flag) defaults to whether the actor carries a
+    hidden state, which ``init_APG`` sets exactly for a stateful controller.
+    """
+    if stateful is None:
+        stateful = agent_state.actor_state.hidden_state is not None
     sys_key, roll_key = jax.random.split(rng)
-    env_params = sample_systems(system_class, sys_key, n, env_args.env_params)
+    if system_class is None:
+        system_class = FixedSystem(env_args.env_params)
+    env_params = system_class.sample(sys_key, n)
     carry = (
         zeros_carry_like(agent_state.actor_state.hidden_state, n) if stateful else None
     )
@@ -232,7 +232,6 @@ def evaluate_apg(
     system_class: Optional[SystemClass],
     horizon: int,
     num_episode_test: int,
-    stateful: bool,
 ) -> dict:
     returns, _ = rollout_returns(
         agent_state,
@@ -242,7 +241,6 @@ def evaluate_apg(
         system_class,
         horizon,
         num_episode_test,
-        stateful,
     )
     return {
         "Eval/episodic mean reward": returns.mean(),
@@ -314,7 +312,6 @@ def training_iteration(
     total_timesteps: int,
     index: Any,
     log_kwargs: dict,
-    stateful: bool,
 ) -> Tuple[APGState, APGAuxiliaries]:
     rng, roll_key, ext_key, post_key = jax.random.split(agent_state.rng, 4)
     agent_state = agent_state.replace(rng=rng)
@@ -330,7 +327,6 @@ def training_iteration(
             system_class,
             horizon,
             env_args.n_envs,
-            stateful,
         )
         matching_loss = -returns.mean()
         loss = matching_loss
@@ -415,9 +411,6 @@ def make_train(
         raise ValueError(f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'")
 
     extension_stack = ExtensionStack(extensions)
-    stateful = build_controller(
-        env_args, network_args, pid, squash, factory=controller_factory
-    ).stateful
     log = logging_config is not None
     log_fn = partial(vmap_log, run_ids=run_ids)
     if log:
@@ -430,7 +423,6 @@ def make_train(
             system_class=system_class,
             horizon=agent_config.horizon,
             num_episode_test=num_episode_test,
-            stateful=stateful,
         ),
         "extra_eval_metrics": compose_eval_metrics(
             extra_eval_metrics, extension_stack, total_timesteps
@@ -471,7 +463,6 @@ def make_train(
             total_timesteps=total_timesteps,
             index=index,
             log_kwargs=log_kwargs,
-            stateful=stateful,
         )
 
     return build_resumable_train(

@@ -78,16 +78,16 @@ class PIDOutputHead(nn.Module):
         of an episode.
         """
         n = self.n_outputs
-        gains = {}
-        for name, enabled, init in (
+        terms = (
             ("kp", self.use_p, self.kp_init),
             ("ki", self.use_i, self.ki_init),
             ("kd", self.use_d, self.kd_init),
-        ):
-            if enabled:
-                gains[name] = self.param(
-                    name, nn.initializers.constant(init), (n,), jnp.float32
-                )
+        )
+        gains = {
+            name: self.param(name, nn.initializers.constant(init), (n,), jnp.float32)
+            for name, enabled, init in terms
+            if enabled
+        }
         if not gains:
             raise ValueError("PIDOutputHead needs at least one of P, I, D enabled")
 
@@ -95,14 +95,8 @@ class PIDOutputHead(nn.Module):
         resets = resets.reshape((T, B)).astype(bool)
 
         def output(integral, z_t, previous):
-            u = jnp.zeros_like(z_t)
-            if "kp" in gains:
-                u = u + gains["kp"] * z_t
-            if "ki" in gains:
-                u = u + gains["ki"] * integral
-            if "kd" in gains:
-                u = u + gains["kd"] * (z_t - previous)
-            return u
+            signal = {"kp": z_t, "ki": integral, "kd": z_t - previous}
+            return sum(gains[k] * signal[k] for k in gains)
 
         def body(carry, inputs):
             integral, previous = carry

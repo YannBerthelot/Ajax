@@ -90,3 +90,12 @@ def test_pid_gains_are_parameters_of_the_controller():
     net, params, *_ = build(pid=PIDHeadConfig(ki_init=0.3))
     gains = params["params"]["pid_head"]
     assert set(gains) == {"kp", "ki", "kd"} and jnp.all(gains["ki"] == 0.3)
+
+
+def test_every_pid_head_field_reaches_the_head():
+    """The head is built from every PIDHeadConfig field, anti-windup included."""
+    pid = PIDHeadConfig(use_d=False, kp_init=0.5, anti_windup=3.0)
+    net, params, *_ = build(pid=pid)
+    head = net.bind(params).pid_head
+    assert (head.use_d, head.kp_init, head.anti_windup) == (False, 0.5, 3.0)
+    assert "kd" not in params["params"]["pid_head"]

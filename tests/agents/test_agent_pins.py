@@ -299,22 +299,15 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "APG-pid-nudge": (APG, {**_APG, "pid": PIDHeadConfig()}, 80),
 }
 _TOL = 1e-3
+# AVG (final observation normalised) and PPO-env-split (PPO trains on
+# observations as normalised at collection, on the plain-MLP default)
+# re-recorded once batch/env-eval-logging met main: -0.6%/+0.7%, +0.3%/+0.5%.
 # Recorded on macOS ARM CPU at the parent of the step-16 lineage commit.
 _GOLDEN: dict[str, dict[str, float]] = {
-    "ASAC": {
-        "actor": 37.438865661621094,
-        "critic": 74.46932983398438,
-        "alpha": 0.9724646210670471,
-    },
-    "REDQ": {
-        "actor": 37.609249114990234,
-        "critic": 158.7569122314453,
-        "alpha": 0.9725564122200012,
-    },
-    "SAC-gru": {
-        "actor": 87.06092834472656,
-        "critic": 173.4002227783203,
-        "alpha": 0.951093316078186,
+    "AVG": {
+        "actor": 5.839523792266846,
+        "critic": 19.103961944580078,
+        "alpha": 0.07000000029802322,
     },
 }
 # Recorded on macOS ARM CPU once TD3's critic dropped its encoder LayerNorm:
@@ -325,6 +318,7 @@ _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
     "PPO-flat": {"actor": 20.36318016052246, "critic": 21.18039321899414},
+    "PPO-env-split": {"actor": 19.09400177001953, "critic": 20.218984603881836},
     "PPO-unroll": {"actor": 20.432720184326172, "critic": 21.03376007080078},
     "PPO-gru": {"actor": 69.55516052246094, "critic": 68.83757019042969},
     "PPO-discrete-nudge": {
@@ -349,10 +343,46 @@ _GOLDEN |= {
 _GOLDEN |= {
     "PQN": {"actor": 25.90884017944336},
     "PQN-nudge": {"actor": 25.898910522460938, "nudge": 0.33566388487815857},
-    "DQN": {"actor": 28.83551025390625, "target": 28.488685607910156},
+}
+# Recorded on macOS ARM CPU once the shared encoder's output LayerNorm became
+# opt-in (SAC, REDQ, ASAC, PPO and DQN build plain MLPs, as in their papers):
+# each tree lost the norm's scales, one per hidden unit (16 or 32 per encoder).
+# PPO's entries re-recorded once this met the per-epoch reshuffle (#81):
+# 0.05-2.6% on the actors, under 0.4% on the critics.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 4.500450611114502,
+        "critic": 9.956274032592773,
+        "alpha": 0.972590446472168,
+    },
+    "REDQ": {
+        "actor": 4.491269588470459,
+        "critic": 23.677350997924805,
+        "alpha": 0.9729597568511963,
+    },
+    "SAC-gru": {
+        "actor": 57.4627571105957,
+        "critic": 109.36508178710938,
+        "alpha": 0.9514929056167603,
+    },
+    "PPO-flat": {"actor": 4.138375282287598, "critic": 4.506361961364746},
+    "PPO-env-split": {"actor": 3.0352354049682617, "critic": 4.100451469421387},
+    "PPO-unroll": {"actor": 4.224678993225098, "critic": 4.548887729644775},
+    "PPO-gru": {"actor": 53.321449279785156, "critic": 52.78514099121094},
+    "PPO-discrete-nudge": {
+        "actor": 5.820460796356201,
+        "critic": 5.029939651489258,
+        "nudge": 0.29222556948661804,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 3.742928981781006,
+        "critic": 4.225018501281738,
+        "nudge": 0.3099551498889923,
+    },
+    "DQN": {"actor": 9.462096214294434, "target": 9.303977966308594},
     "DQN-dueling-nudge": {
-        "actor": 25.996488571166992,
-        "target": 25.84494400024414,
+        "actor": 10.129926681518555,
+        "target": 9.98266887664795,
         "nudge": 0.22634370625019073,
     },
 }
@@ -384,23 +414,6 @@ _GOLDEN |= {
 _GOLDEN |= {
     "APG-nudge": {"actor": 35.82789611816406, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.82305145263672, "nudge": 0.27262088656425476},
-}
-
-# Recorded on macOS ARM CPU once PPO trained on the observations its env
-# normaliser handed it at collection, not re-normalised at the loss with the
-# latest agent-side statistics (actor -0.16%, critic -0.04%).
-_GOLDEN |= {
-    "PPO-env-split": {"actor": 19.064250946044922, "critic": 20.2108154296875},
-}
-
-# Recorded on macOS ARM CPU once the observation normaliser normalised the
-# final observation AVG bootstraps on (actor -0.59%, critic +0.65%).
-_GOLDEN |= {
-    "AVG": {
-        "actor": 5.839523792266846,
-        "critic": 19.103961944580078,
-        "alpha": 0.07000000029802322,
-    },
 }
 
 

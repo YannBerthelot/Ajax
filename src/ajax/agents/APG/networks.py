@@ -66,7 +66,9 @@ class Controller(nn.Module):
 
     def setup(self):
         self.encoder = (
-            Encoder(input_architecture=self.input_architecture)
+            # Kept from Ajax's earlier encoder: a LayerNorm on its output
+            # (the shared default is now a plain MLP).
+            Encoder(input_architecture=self.input_architecture, layer_norm=True)
             if len(self.input_architecture) > 0
             else None
         )

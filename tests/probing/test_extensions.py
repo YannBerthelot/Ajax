@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xfail, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "53be5c49a794"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "fb50d33a8c0f"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -198,7 +198,8 @@ class GradientValueEnv(continuous.ValueLossOrOptimizerEnv):
     transition_gradients_enabled = True
 
 
-# (continuous, discrete) package probes: the 1-step value probe (reward 1);
+# (continuous, discrete) package probes: the 1-step value probe (reward 1,
+# observed at 1 as the discrete bandit: envs.package);
 # the chain (0 then 1: V(1) = 1, V(0) = gamma); the bandit (reward a, or
 # 1 - a); the contextual bandit (clip(a) s, or [a == s]).
 ENV = {
@@ -219,14 +220,14 @@ CELLS = {  # cell: probe, extensions (continuous, discrete), log frequency
     "D": ("contextual", ((ObsFlip(0.0),), (ObsFlip(1.0),)), None),
     "E7": ("value", ((MC,), ()), None),
     "F": ("chain", ((TerminalSafeShift(),), (TerminalSafeShift(),)), None),
-    "G": ("value", ((ActorPull(gated=True),), ()), None),
+    "G": ("value", ((ActorPull(gated=True, probe_obs=(1.0,)),), ()), None),
     "H": ("value", ((RewardShift(),), (RewardShift(),)), None),
 }
 
 
 def _p3_read(agent: str, cell: str) -> Callable:
     """V(0), V(1) by the agent's own readout (SAC's chain V(0) without the
-    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the action and
+    entropy bonus gamma alpha H(pi(.|1)) of the step to 1), the actions and
     the network's own reading of +1, phi*, the train and eval returns."""
 
     def one(n: R.Nets) -> dict:
@@ -236,9 +237,10 @@ def _p3_read(agent: str, cell: str) -> Callable:
         if agent in ("DQN", "PQN"):
             q = R.q_values(n, 1.0)
             return v | {"Q_net(1,0) - Q_net(1,1)": q[0] - q[1]}
-        v |= {"a(0)": R.action(n, 0.0), "a_net(+1)": R.action(n, 1.0, clip=False)}
+        v |= {"a(0)": R.action(n, 0.0), "a(1)": R.action(n, 1.0)}
+        v["a_net(+1)"] = R.action(n, 1.0, clip=False)
         if cell == "E7":
-            v["phi*(0, a_E)"] = R.critic(n, 0.0, 0.3, params=n.extra)
+            v["phi*(1, a_E)"] = R.critic(n, 1.0, 0.3, params=n.extra)
         return v
 
     def read(run: runs.Run) -> dict:
@@ -295,11 +297,11 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
     w = 0.5 * _default(PPO, "vf_coef") if agent == "PPO" else 1.0
     loc = {"pull on the pre-squash loc": float(np.tanh(-0.5))} if agent == "SAC" else {}
     single = {
-        "E2": Query("V(0)", w / (w + 100.0), {"term not folded or no gradient": 1.0}),
+        "E2": Query("V(1)", w / (w + 100.0), {"term not folded or no gradient": 1.0}),
         "E3": Query("a(0)", -0.5, {"no pull (max-entropy or initial mean)": 0.0} | loc),
-        "E3-gated": Query("a(0)", -0.5, {"gate never opens (ctx.step 0)": 0.0}),
-        "on_batch": Query("V(0)", 2.0, {"on_batch ignored": 1.0}),
-        "E7": Query("phi*(0, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
+        "E3-gated": Query("a(1)", -0.5, {"gate never opens (ctx.step 0)": 0.0}),
+        "on_batch": Query("V(1)", 2.0, {"on_batch ignored": 1.0}),
+        "E7": Query("phi*(1, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
     }
     if test in single:
         return (single[test],)
@@ -319,9 +321,9 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
 
 NO_FOLD = "no fold_{} call anywhere in src/ajax, yet every agent but the world models declares the phase (base.py:56, all phases by default)"
 P3_DEFECTS = {  # "test-agent" (or "test-*"): the live defect
-    "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(0) 0.0099, today 1.00",
-    "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(0) 0.0099, today 0.997",
-    "on_batch-*": NO_FOLD.format("on_batch") + "; right V(0) 2.0, today 1.00",
+    "E2-DQN": "DQN's critic_loss batch carries q_state, not the differentiated params (train_DQN.py:392-417): the term has no gradient; right V(1) 0.0099, today 1.00",
+    "E2-PQN": "PQN's critic_loss batch carries q_state, not the differentiated params (train_PQN.py:217-243): the term has no gradient; right V(1) 0.0099, today 1.00",
+    "on_batch-*": NO_FOLD.format("on_batch") + "; right V(1) 2.0, today 1.00",
     "E6-SAC": "(contract pending) SAC folds on_obs in the actor loss only (train_SAC.py:516-524), so the policy learns pi(.|-s) against Q(s, .); right train return > 0 and a_net(+1) < 0, today -0.39 to -0.75 and -0.70 to -0.75",
     "E6-*": "(contract pending) on_obs is folded only in SAC's actor loss (train_SAC.py:524), so the flip is ignored here; right the network acts on the flipped input (a_net(+1) < 0; discrete Q_net(1,0) > Q_net(1,1)), today the raw mapping (PPO a_net(+1) 1.3-2.0; DQN and PQN gap -1.0)",
     "E4-*": NO_FOLD.format("action")

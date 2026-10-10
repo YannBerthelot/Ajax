@@ -98,10 +98,6 @@ class TD3(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
-            # Fujimoto's critic is a plain MLP (sfujim/TD3, TD3.py, Critic:
-            # Linear -> ReLU -> Linear -> ReLU -> Linear): no LayerNorm on
-            # the shared encoder's output.
-            disable_encoder_output_norm=True,
             extensions=extensions,
         )
 

@@ -115,13 +115,12 @@ class APO(ActorCritic):
             # 3.5 times the exploration of Ajax's state-dependent log-std
             # at std 0.37); a lecun_uniform mean head, whose moderate
             # initial actions keep evaluation close to training (orthogonal
-            # 0.01 makes the deterministic action essentially zero); no
-            # LayerNorm at the encoder's output, which brax's MLP lacks.
+            # 0.01 makes the deterministic action essentially zero). Like
+            # brax's MLP, the encoder has no output LayerNorm (the default).
             squash=True,
             log_std_state_independent=True,
             log_std_init=0.0,
             mean_kernel_init="lecun_uniform",
-            disable_encoder_output_norm=True,
             extensions=extensions,
         )
 

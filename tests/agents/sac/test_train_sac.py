@@ -10,6 +10,7 @@ suite (``tests/agents/test_probing.py``) and the per-agent smoke tests
 import gymnax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from brax.envs import create as create_brax_env
 from flax.core import FrozenDict
@@ -22,8 +23,9 @@ from ajax.agents.SAC.core import (
     update_target_networks,
     update_temperature,
 )
-from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.SAC.train_SAC import init_SAC, update_value_functions
 from ajax.buffers.utils import get_buffer
+from ajax.networks.networks import predict_value
 from ajax.state import (
     AlphaConfig,
     BufferConfig,
@@ -212,3 +214,33 @@ def test_update_target_networks(env_config, SAC_state):
         assert validate_soft_update(
             old_target, new_target, current, tau
         ), f"Soft update computation is incorrect for key: {key}"
+
+
+@pytest.mark.parametrize("env_config", ["gymnax_env_config"], indirect=True)
+def test_q_gap_is_the_expert_value_above_the_critics_minimum(env_config, SAC_state):
+    """``q_gap`` = mean(expert_q - min_k Q_k(s, a)) over the batch, with the
+    critic before the update."""
+    keys = jax.random.split(jax.random.PRNGKey(1), 4)
+    obs = jax.random.normal(keys[0], (8, 3))
+    actions = jax.random.uniform(keys[1], (8, 1), minval=-1.0, maxval=1.0)
+    expert_q = jax.random.normal(keys[2], (8, 1))
+    _, aux = update_value_functions(
+        SAC_state,
+        obs,
+        actions,
+        jax.random.normal(keys[3], (8, 3)),
+        jnp.zeros((8, 1)),
+        False,
+        jnp.ones((8, 1)),
+        0.99,
+        expert_q=expert_q,
+    )
+    critic = SAC_state.critic_state
+    q = predict_value(
+        critic_state=critic,
+        critic_params=critic.params,
+        x=jnp.concatenate([obs, actions], axis=-1),
+    )
+    want = jnp.mean(expert_q - jnp.min(q, axis=0))
+    np.testing.assert_allclose(aux.q_gap, [want], rtol=1e-5)
+    np.testing.assert_allclose(aux.q_expert_mean, [expert_q.mean()], rtol=1e-6)

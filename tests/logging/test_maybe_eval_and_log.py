@@ -31,19 +31,18 @@ def extra_eval_metrics(state, key):
 PER_ITERATION = 10  # env steps
 
 
-def run(iterations, log=True, every=3, seeds=2):
-    calls = []
-
-    def log_fn(metrics, index):
-        calls.append(
-            (int(index), int(metrics["timestep"]), float(metrics["Eval/extra"]))
-        )
-
-    state = State(
+def make_state(seeds):
+    """``seeds`` agent states (batched), the values ``0 .. seeds - 1``."""
+    return State(
         eval_rng=jax.random.split(jax.random.PRNGKey(0), seeds),
         n_logs=jnp.zeros(seeds, jnp.int32),
         value=jnp.arange(seeds, dtype=jnp.float32),
     )
+
+
+def make_step(log_fn=lambda metrics, index: None, log=True, every=3):
+    """The agents' step: ``(state, seed index, iteration) -> (state,
+    metrics)``, ``PER_ITERATION`` env steps per iteration."""
 
     def step(state, index, iteration):
         return maybe_eval_and_log(
@@ -58,6 +57,19 @@ def run(iterations, log=True, every=3, seeds=2):
             log_fn=log_fn,
             every=every,
         )
+
+    return step
+
+
+def run(iterations, log=True, every=3, seeds=2):
+    calls = []
+
+    def log_fn(metrics, index):
+        calls.append(
+            (int(index), int(metrics["timestep"]), float(metrics["Eval/extra"]))
+        )
+
+    state, step = make_state(seeds), make_step(log_fn, log, every)
 
     outputs = []
     for i in iterations:
@@ -153,28 +165,8 @@ def test_the_evaluation_stays_a_real_cond_under_the_seed_vmap():
     (the evaluation runs only on logging iterations), never to a select
     that would evaluate on every iteration."""
     seeds = 3
-    state = State(
-        eval_rng=jax.random.split(jax.random.PRNGKey(0), seeds),
-        n_logs=jnp.zeros(seeds, jnp.int32),
-        value=jnp.arange(seeds, dtype=jnp.float32),
-    )
-
-    def step(state, index, iteration):
-        return maybe_eval_and_log(
-            state,
-            iteration * 10,
-            index,
-            iteration,
-            metrics_fn=metrics_fn,
-            evaluate_fn=evaluate_fn,
-            extra_eval_metrics=extra_eval_metrics,
-            log=True,
-            log_fn=lambda metrics, index: None,
-            every=3,
-        )
-
-    jaxpr = jax.make_jaxpr(jax.vmap(step, in_axes=(0, 0, None)))(
-        state, jnp.arange(seeds), jnp.int32(2)
+    jaxpr = jax.make_jaxpr(jax.vmap(make_step(), in_axes=(0, 0, None)))(
+        make_state(seeds), jnp.arange(seeds), jnp.int32(2)
     ).jaxpr
     names = [e.primitive.name for e in jaxpr.eqns]
     assert names.count("cond") == 1

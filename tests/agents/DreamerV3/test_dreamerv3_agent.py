@@ -62,14 +62,6 @@ TRAIN_RATIO = 32  # 1 update per transition with 4 x 8 batches: 4 per tick
 LOG_EVERY = N_ENVS * 30  # rows
 
 
-def _playground_available() -> bool:
-    try:
-        import mujoco_playground  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
 @dataclass(frozen=True)
 class Counter(Extension):
     """Counts the ``post_update`` folds."""
@@ -459,7 +451,6 @@ def test_pendulum_trains_on_raw_continuous_actions(pendulum):
     assert not bool(replay.is_first[0, :, 1:].any() | replay.is_last.any())
 
 
-@pytest.mark.skipif(not _playground_available(), reason="mujoco_playground missing")
 def test_playground_cartpole_with_action_repeat():
     """Action repeat 2 and 40 simulator steps: 20 agent steps per episode,
     so rows ``0, 21, 42, ...`` start episodes and ``20, 41, ...`` end them

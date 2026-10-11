@@ -14,6 +14,7 @@ import jax.numpy as jnp
 import pytest
 
 from ajax.networks.memory import (
+    MEMORY_KINDS,
     MemoryCell,
     MemoryConfig,
     flat_carry_dim,
@@ -24,15 +25,15 @@ from ajax.networks.memory import (
     zeros_carry_like,
 )
 
-KINDS = ["gru", "lstm", "transformer", "mamba"]
+KINDS = MEMORY_KINDS
 T, B, F = 7, 4, 5
 
 
-def make_cell(kind, num_layers=1, hidden_size=8):
+def make_cell(kind, **overrides):
+    """A cell of ``kind`` (width 8, ``overrides`` on the config), its
+    parameters, initial carry, a ``(T, B, F)`` input and no resets."""
     # window < T so the transformer's sliding window is actually exercised
-    config = MemoryConfig(
-        kind=kind, hidden_size=hidden_size, num_layers=num_layers, window=5
-    )
+    config = MemoryConfig(**{"kind": kind, "hidden_size": 8, "window": 5, **overrides})
     cell = MemoryCell(config)
     rng = jax.random.PRNGKey(0)
     x = jax.random.normal(jax.random.PRNGKey(1), (T, B, F))
@@ -172,13 +173,7 @@ def test_no_gradient_across_reset(kind):
 @pytest.mark.parametrize("kind", KINDS)
 def test_gradient_flows_through_time_without_reset(kind):
     # window >= T so the transformer's full receptive field covers step 0
-    config = MemoryConfig(kind=kind, hidden_size=8, window=T + 1)
-    cell = MemoryCell(config)
-    rng = jax.random.PRNGKey(0)
-    x = jax.random.normal(jax.random.PRNGKey(1), (T, B, F))
-    resets = jnp.zeros((T, B), dtype=bool)
-    carry = init_carry(config, rng, B)
-    params = cell.init(rng, carry, x, resets)
+    cell, params, carry, x, resets = make_cell(kind, window=T + 1)
 
     def out_at_end(x_in):
         _, y = cell.apply(params, carry, x_in, resets)
@@ -223,13 +218,9 @@ def test_transformer_sliding_window_bounds_memory():
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_jit_and_gradient_checkpoint(kind):
-    config = MemoryConfig(kind=kind, hidden_size=8, gradient_checkpoint=True)
-    cell = MemoryCell(config)
-    rng = jax.random.PRNGKey(0)
-    x = jax.random.normal(rng, (T, B, F))
-    resets = jnp.zeros((T, B), dtype=bool)
-    carry = init_carry(config, rng, B)
-    params = cell.init(rng, carry, x, resets)
+    cell, params, carry, x, resets = make_cell(
+        kind, gradient_checkpoint=True, window=MemoryConfig().window
+    )
 
     @jax.jit
     def run(c, x_in):

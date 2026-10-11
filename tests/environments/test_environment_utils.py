@@ -11,17 +11,7 @@ from ajax.environments.utils import (
     get_raw_env,
     get_state_action_shapes,
 )
-
-
-@pytest.mark.parametrize(
-    "env,expected_continuous",
-    [
-        (gymnax.make("Pendulum-v1")[0], True),
-        (gymnax.make("CartPole-v1")[0], False),
-    ],
-)
-def test_check_if_environment_has_continuous_actions(env, expected_continuous):
-    assert check_if_environment_has_continuous_actions(env) == expected_continuous
+from ajax.wrappers import ClipAction
 
 
 def test_check_continuous_actions_under_trace():
@@ -55,96 +45,62 @@ def test_check_continuous_actions_under_trace():
     probe(jnp.zeros(()))
 
 
-def test_get_raw_env():
-    env, _ = gymnax.make("CartPole-v1")
-    raw_env = get_raw_env(env)
-    assert raw_env is env
+#: ``(build, is_brax, is_gymnax, env type, continuous, action dim, obs
+#: shape, action shape)``; built lazily (in the test).
+ENVS = {
+    "CartPole-v1": (
+        lambda: gymnax.make("CartPole-v1")[0],
+        False,
+        True,
+        "gymnax",
+        False,
+        2,
+        (4,),
+        (1,),
+    ),
+    "Pendulum-v1": (
+        lambda: gymnax.make("Pendulum-v1")[0],
+        False,
+        True,
+        "gymnax",
+        True,
+        1,
+        (3,),
+        (1,),
+    ),
+    "fast": (
+        lambda: create_brax_env("fast"),
+        True,
+        False,
+        "brax",
+        True,
+        1,
+        (2,),
+        (1,),
+    ),
+}
 
 
-@pytest.mark.parametrize(
-    "env,expected_is_brax",
-    [
-        (create_brax_env("fast"), True),
-    ],
-)
-def test_check_env_is_brax(env, expected_is_brax):
-    assert check_env_is_brax(env) == expected_is_brax
+@pytest.mark.parametrize("env_id", list(ENVS))
+def test_env_predicates_and_shapes(env_id):
+    build, is_brax, is_gymnax, env_type, continuous, action_dim, obs, action = ENVS[
+        env_id
+    ]
+    env = build()
+    assert check_env_is_brax(env) == is_brax
+    assert check_env_is_gymnax(env) == is_gymnax
+    assert get_env_type(env) == env_type
+    assert check_if_environment_has_continuous_actions(env) == continuous
+    assert get_action_dim(env, getattr(env, "default_params", None)) == action_dim
+    assert get_state_action_shapes(env) == (obs, action)
 
 
-@pytest.mark.parametrize(
-    "env,expected_is_gymnax",
-    [
-        (gymnax.make("CartPole-v1")[0], True),
-    ],
-)
-def test_check_env_is_gymnax(env, expected_is_gymnax):
-    assert check_env_is_gymnax(env) == expected_is_gymnax
-
-
-@pytest.mark.parametrize(
-    "env,expected_type",
-    [
-        (create_brax_env("fast"), "brax"),
-        (gymnax.make("Pendulum-v1")[0], "gymnax"),
-    ],
-)
-def test_get_env_type(env, expected_type):
-    assert get_env_type(env) == expected_type
-
+def test_get_env_type_rejects_unknown_envs():
     with pytest.raises(ValueError):
         get_env_type("unsupported_env")
 
 
-@pytest.mark.parametrize(
-    "env,env_params,expected_action_dim",
-    [
-        (
-            create_brax_env("fast"),
-            None,
-            1,
-        ),  # Example Brax environment with action size 1
-        (
-            gymnax.make("CartPole-v1")[0],
-            gymnax.make("CartPole-v1")[0].default_params,
-            2,
-        ),  # Discrete Gymnax environment with 2 actions
-        (
-            gymnax.make("Pendulum-v1")[0],
-            gymnax.make("Pendulum-v1")[0].default_params,
-            1,
-        ),  # Continuous Gymnax environment with action dim 1
-    ],
-)
-def test_action_dim(env, env_params, expected_action_dim):
-    assert get_action_dim(env, env_params) == expected_action_dim
-
-
-@pytest.mark.parametrize(
-    "env,env_params,expected_obs_shape,expected_action_shape",
-    [
-        (
-            gymnax.make("CartPole-v1")[0],
-            gymnax.make("CartPole-v1")[0].default_params,
-            (4,),  # Observation shape for CartPole-v1
-            (1,),  # Discrete action space
-        ),
-        (
-            gymnax.make("Pendulum-v1")[0],
-            gymnax.make("Pendulum-v1")[0].default_params,
-            (3,),  # Observation shape for Pendulum-v1
-            (1,),  # Continuous action space
-        ),
-        (
-            create_brax_env("fast"),
-            None,
-            (2,),  # Example observation size for Brax environment
-            (1,),  # Example action size for Brax environment
-        ),
-    ],
-)
-def test_get_state_action_shapes(
-    env, env_params, expected_obs_shape, expected_action_shape
-):
-    obs_shape, action_shape = get_state_action_shapes(env)
-    assert obs_shape == expected_obs_shape
-    assert action_shape == expected_action_shape
+def test_get_raw_env():
+    env, _ = gymnax.make("CartPole-v1")
+    assert get_raw_env(env) is env
+    assert get_raw_env(ClipAction(env)) is env

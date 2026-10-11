@@ -19,20 +19,6 @@ from ajax.environments.utils import agent_episode_length
 from ajax.state import EnvironmentConfig
 
 
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
-
-
 def env_args_for(env_id, n_envs, **build_kwargs):
     env, env_params = build_env_from_id(env_id, n_envs=n_envs, **build_kwargs)
     return EnvironmentConfig(
@@ -566,7 +552,6 @@ def test_dynamic_mode_time_limit_ends_are_not_terminal():
     assert np.asarray(run.last_truncated).sum() == 3 * n_envs
 
 
-@requires_playground
 def test_static_mode_on_playground_gives_fresh_episodes():
     """With ``fresh_reset=False`` playground's auto-reset returns a cached
     first state; the static mode still re-randomises every episode with its
@@ -611,7 +596,6 @@ def test_static_mode_on_playground_gives_fresh_episodes():
     assert np.asarray(rows.reward).max() > 1.0
 
 
-@requires_playground
 def test_dynamic_mode_on_playground_warns_about_the_cached_reset():
     env_args = env_args_for("CartpoleBalance", 1, episode_length=4, fresh_reset=False)
     state = init_row_collector_state(jax.random.PRNGKey(0), env_args)
@@ -624,7 +608,6 @@ def test_dynamic_mode_on_playground_warns_about_the_cached_reset():
         )
 
 
-@requires_playground
 def test_dynamic_mode_on_a_fresh_reset_playground_env_does_not_warn():
     env_args = env_args_for("CartpoleBalance", 1, episode_length=4)
     state = init_row_collector_state(jax.random.PRNGKey(0), env_args)

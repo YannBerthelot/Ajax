@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import jax
 import jax.numpy as jnp
@@ -6,7 +6,7 @@ from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
 from ajax.evaluate import evaluate
-from ajax.state import BaseAgentState
+from ajax.state import BaseAgentState, EnvironmentConfig
 
 if TYPE_CHECKING:
     from ajax.extensions.base import ExtensionStack
@@ -143,9 +143,6 @@ def maybe_eval_and_log(
     return agent_state, metrics
 
 
-class AuxiliaryLogsProtocol(Protocol): ...
-
-
 def eval_norm_info(agent_state: Any, mode: str) -> Optional[Any]:
     """The observation statistics the evaluation env normalises with: those
     the training env's normaliser holds now, ``None`` without one.
@@ -239,10 +236,10 @@ def _make_no_op(extra_eval_metrics=None):
 )
 def evaluate_and_log(
     agent_state: BaseAgentState,
-    aux: AuxiliaryLogsProtocol,
+    aux: Any,
     index: int,
     mode: str,
-    env_args: int,
+    env_args: EnvironmentConfig,
     num_episode_test: int,
     recurrent: bool,
     log: bool,
@@ -284,9 +281,7 @@ def evaluate_and_log(
     )
     flag = jnp.logical_and(flag, close_to_end_flag)
 
-    def run_and_log(
-        agent_state: BaseAgentState, aux: AuxiliaryLogsProtocol, index: int
-    ):
+    def run_and_log(agent_state: BaseAgentState, aux: Any, index: int):
         eval_key, extra_key = evaluation_keys(agent_state)
         (
             eval_rewards,
@@ -347,7 +342,5 @@ def evaluate_and_log(
     agent_state = agent_state.replace(
         n_logs=jax.lax.select(log_flag, agent_state.n_logs + 1, agent_state.n_logs)
     )
-
-    del aux
 
     return agent_state, metrics_to_log

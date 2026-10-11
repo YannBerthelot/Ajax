@@ -26,7 +26,7 @@ import jax
 import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import phi_star_critic_state, predict_value
 
 
 def residual_action_transform(
@@ -65,7 +65,7 @@ def compute_online_bc_loss(
     v_star = jax.lax.stop_gradient(
         jnp.min(
             predict_value(
-                critic_state=critic_state,
+                critic_state=phi_star_critic_state(critic_state),
                 critic_params=expert_critic_params,
                 x=jnp.concatenate([observations, a_expert], axis=-1),
             ),
@@ -382,9 +382,9 @@ class ExpertValueMetrics(Extension):
             obs = augment_obs(obs, expert_action=a_expert)
         critic = agent_state.critic_state
 
-        def q_min(params: Any, a: jax.Array) -> jax.Array:
+        def q_min(params: Any, a: jax.Array, state: Any = critic) -> jax.Array:
             x = jnp.concatenate([obs, a], axis=-1)
-            return jnp.min(predict_value(critic, params, x), axis=0)
+            return jnp.min(predict_value(state, params, x), axis=0)
 
         q_expert = q_min(critic.params, a_expert)
         out = {
@@ -393,6 +393,7 @@ class ExpertValueMetrics(Extension):
         }
         phi_star = getattr(agent_state, "expert_critic_params", None)
         if phi_star is not None:
-            gap = jnp.abs(q_min(phi_star, a_expert) - q_expert).mean()
+            phi = q_min(phi_star, a_expert, phi_star_critic_state(critic))
+            gap = jnp.abs(phi - q_expert).mean()
             out["value/phi_star_q_gap_ood"] = gap
         return out

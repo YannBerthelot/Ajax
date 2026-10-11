@@ -23,8 +23,9 @@ Usage::
 
 ``--smoke`` runs each check's tiny variant (:data:`SMOKE`) to check the
 script itself; it says nothing about learning and gives no verdict. Each
-check appends one JSON line (curves, finals, bar, verdict, wall time, git
-sha) to ``--out``; the exit code is 1 when a (non-smoke) check fails.
+check appends one JSON line (curves, finals, bar, verdict, wall time, and
+the paper-protocol runs' provenance: git commit and dirtiness, JAX
+version, backend, device) to ``--out``; the exit code is 1 when a (non-smoke) check fails.
 
 **The metric** is ``Eval/episodic mean reward``: the mean return of
 ``num_episode_test`` episodes of the current policy from fresh resets (for DreamerV3, sampled actions from a zero carry: the reference has
@@ -88,15 +89,12 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import os
-import subprocess
 import time
 from typing import Any, Optional
 
 import numpy as np
 from paper_protocol import DREAMERV3_TINY, TDMPC2_TINY
-
-_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from wm_runs import provenance
 
 
 @dataclasses.dataclass(frozen=True)
@@ -223,15 +221,6 @@ SMOKE: dict[str, Check] = {
 }
 
 
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=_REPO, text=True
-        ).strip()
-    except Exception:
-        return "unknown"
-
-
 def _logged(metrics: dict, key: str, ticks: np.ndarray) -> np.ndarray:
     """``[seeds, logs]``: ``key`` at the logging ticks."""
     return np.asarray(metrics[key], np.float64)[:, ticks]
@@ -333,8 +322,7 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
             if hasattr(agent, key)
         },
         "wall_s": round(wall, 1),
-        "git_sha": _git_sha(),
-        "jax_backend": jax.default_backend(),
+        "provenance": provenance(),
     }
 
 

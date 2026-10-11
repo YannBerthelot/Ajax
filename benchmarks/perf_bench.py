@@ -104,9 +104,11 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
         return SAC(**common)
     if scenario == "obs_norm_sac":
         return SAC(normalize_obs_running=True, **common)
-    if scenario == "stress_sac":
+    if scenario in ("stress_sac", "stress_sac_utd"):
         # Amplifies patch effects: many critics (#2), bigger obs broadcast
         # via larger n_envs (#1), larger nets so forward passes dominate.
+        # stress_sac_utd adds an update-to-data ratio of 10 (REDQ-like),
+        # amplifying patch #4 (no-ys inner critic scan) by a long scan.
         return SAC(
             env_id="Pendulum-v1",
             n_envs=max(n_envs, 64),
@@ -116,21 +118,7 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
             batch_size=512,
             buffer_size=20_000,
             num_critics=10,
-            normalize_obs_running=True,
-        )
-    if scenario == "stress_sac_utd":
-        # Update-to-data ratio > 1 (REDQ-like). Amplifies patch #4
-        # (no-ys inner critic scan) by making the scan trip-count large.
-        return SAC(
-            env_id="Pendulum-v1",
-            n_envs=max(n_envs, 64),
-            learning_starts=learning_starts,
-            actor_architecture=("256", "relu", "256", "relu"),
-            critic_architecture=("256", "relu", "256", "relu"),
-            batch_size=512,
-            buffer_size=20_000,
-            num_critics=10,
-            num_critic_updates=10,
+            num_critic_updates=10 if scenario == "stress_sac_utd" else 1,
             normalize_obs_running=True,
         )
     if scenario == "p3dcircle_sac":

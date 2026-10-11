@@ -330,11 +330,6 @@ _GOLDEN: dict[str, dict[str, float]] = {
 # the critic tree lost the norm's scales (64 of the old 79.6) and the actor
 # moved 3.6%.
 _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
-# Recorded on macOS ARM CPU once a recurrent Q-critic embedded the
-# observation and the previous action before its memory and read the
-# current one at a head after it: new critic parameters (against the
-# head-only critic before it: +42.9% critic, +0.17% actor, -0.045% alpha).
-_GOLDEN |= {}
 # Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
@@ -381,11 +376,6 @@ _GOLDEN |= {
         "critic": 23.677350997924805,
         "alpha": 0.9729597568511963,
     },
-    "SAC-gru": {
-        "actor": 57.405818939208984,
-        "critic": 134.20553588867188,
-        "alpha": 0.9515719413757324,
-    },
     "PPO-flat": {"actor": 4.138375282287598, "critic": 4.506361961364746},
     "PPO-env-split": {"actor": 3.0352354049682617, "critic": 4.100451469421387},
     "PPO-unroll": {"actor": 4.224678993225098, "critic": 4.548887729644775},
@@ -405,6 +395,17 @@ _GOLDEN |= {
         "actor": 10.129926681518555,
         "target": 9.98266887664795,
         "nudge": 0.22634370625019073,
+    },
+}
+# Recorded on macOS ARM CPU once a recurrent Q-critic's memory read narrow
+# embeddings of the observation and the previous action (a quarter and an
+# eighth of its width) instead of the encoder's output: new critic
+# parameters (-7.0% critic, +0.10% actor, -0.009% alpha).
+_GOLDEN |= {
+    "SAC-gru": {
+        "actor": 57.46352767944336,
+        "critic": 124.83243560791016,
+        "alpha": 0.9514806866645813,
     },
 }
 # Recorded on macOS ARM CPU before step 17 moved the world models onto

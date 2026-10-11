@@ -326,24 +326,23 @@ class Critic(nn.Module):
     # (values, new_hidden_state).
     memory: Optional[MemoryConfig] = None
     # A recurrent Q-critic's current action: the input's last ``query_dim``
-    # features skip the encoder and the memory, which read the rest (the
-    # observation and the previous action, :func:`action_value_input`), and
-    # join the memory's output at a head of the encoder's architecture. A
-    # queried action never feeds the carry (Ni et al. 2022's recurrent
-    # critic, embedders before the memory, the action at the head after it;
-    # cited from memory, unverified).
+    # features skip the memory, which reads the rest (the observation and
+    # the previous action, :func:`action_value_input`) through small ReLU
+    # embedders, and join its output at the encoder, run after it as the
+    # head. A queried action never feeds the carry. Ni et al. 2022's
+    # recurrent critic (pomdp-baselines, policies/models/recurrent_critic.py):
+    # one-layer ReLU embedders, observation 32 and action 16 wide for a
+    # 128-wide RNN in its continuous-control configs (hopper_blt/p/rnn.yml),
+    # here a quarter and an eighth of the memory's width.
     query_dim: int = 0
 
     def setup(self):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
             if self.query_dim:
-                self.head = Encoder(
-                    input_architecture=self.input_architecture,
-                    kernel_init=self.encoder_kernel_init,
-                    bias_init=self.encoder_bias_init,
-                    layer_norm=self.encoder_layer_norm,
-                )
+                width = self.memory.hidden_size
+                self.obs_embedder = nn.Dense(max(1, width // 4))
+                self.action_embedder = nn.Dense(max(1, width // 8))
         if self.cnn_image_shape is not None:
             self.encoder = build_cnn_encoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
@@ -377,12 +376,17 @@ class Critic(nn.Module):
             return self.model(self.encoder(x))
         if hidden_state is None or done is None:
             raise ValueError("Recurrent Critic requires hidden_state and done flags.")
-        query = None
-        if self.query_dim:
-            x, query = x[..., : -self.query_dim], x[..., -self.query_dim :]
-        hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
-        if query is not None:
-            feat = self.head(jnp.concatenate([feat, query], axis=-1))
+        if not self.query_dim:
+            hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
+            return self.model(feat), hidden_state
+        n = self.query_dim
+        obs, previous, query = x[..., : -2 * n], x[..., -2 * n : -n], x[..., -n:]
+        embedded = jnp.concatenate(
+            [nn.relu(self.obs_embedder(obs)), nn.relu(self.action_embedder(previous))],
+            axis=-1,
+        )
+        hidden_state, feat = self.memory_cell(hidden_state, embedded, done)
+        feat = self.encoder(jnp.concatenate([feat, query], axis=-1))
         return self.model(feat), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:

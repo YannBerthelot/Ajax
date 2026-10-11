@@ -767,48 +767,49 @@ x86).
 
 Two changes to the recurrent SAC/ASAC/REDQ/TD3 replay
 ([recurrent.py](src/ajax/agents/recurrent.py)) move its cost. First, a
-recurrent Q-critic embeds the observation and the previous action before
-its memory and reads the queried action at a head after it, an MLP of the
-critic's architecture (`Critic.query_dim`): every loss is one parallel
-pass, and each critic call runs the encoder, the memory and the head.
-Second, a window's bootstrap runs over a stream holding each time limit's
-final observation after its row (`_bootstrap_stream`), exact for any
-number of time limits in a window, so twice the rows long: the target
-critic's and the bootstrap actor's forward passes grow from the 16 next
-rows to 32 steps. The stream is built and read with one-hot selects;
-building it with scatters, which XLA runs one index at a time on CPU,
-cost about 15% more on the transformer.
+recurrent Q-critic's memory reads small ReLU embeddings of the observation
+and the previous action (a quarter and an eighth of the memory's width, as
+in Ni et al. 2022's pomdp-baselines configs) and the critic's MLP runs
+after it as the head over the memory's output and the queried action
+(`Critic.query_dim`): every loss is one parallel pass. Second, a window's
+bootstrap runs over a stream holding each time limit's final observation
+after its row (`_bootstrap_stream`), exact for any number of time limits
+in a window, so twice the rows long: the target critic's and the bootstrap
+actor's forward passes grow from the 16 next rows to 32 steps. The stream
+is built and read with one-hot selects; building it with scatters, which
+XLA runs one index at a time on CPU, cost about 15% more on the
+transformer.
 
-SAC on Pendulum, 4 envs, 2,048 steps, actor and critic `("64", "relu")`,
-memory width 32 (window 16), CPU, the second of two identical calls,
-base and branch interleaved while unrelated jobs kept the load at 6-12 on
-14 cores (single runs swing by about 15%); medians of five rounds (mamba
-three), seconds:
+SAC on Pendulum, 4 envs, 2,048 steps, actor and critic `("64", "relu")`
+(plain MLPs, main's default since #87), memory width 32 (window 16), CPU,
+the second of two identical calls, main and the branch with a 64-wide
+encoder or narrow embedders before the memory interleaved while unrelated
+jobs kept the load at 6-7 on 14 cores (single runs swing by about 15%);
+medians of four rounds (mamba two), seconds:
 
-| memory | base | both changes | delta |
+| memory | main | 64-wide encoder before the memory | narrow embedders (kept) |
 |---|---|---|---|
-| gru | 13.61 | 15.92 | +17% |
-| transformer | 12.97 | 16.09 | +24% |
-| mamba | 80.4 | 95.2 | +18% |
+| gru | 12.58 | 14.71 (+17%) | 11.43 (-9%) |
+| transformer | 12.36 | 15.65 (+27%) | 14.82 (+20%) |
+| mamba | 75.1 | 91.3 (+22%) | 90.6 (+21%) |
 
-Where it goes, from the variants timed on the way (each against its own
-interleaved base): the head without an embedder before the memory, which
-then read the raw 4-wide input, measured -13% on the GRU and par on the
-transformer; adding the exact stream to it, -12%, +17% and +25% (mamba).
-That layout learned the probes' step counting more slowly (p0b's
-cue-free value read 0.1 instead of 0 at 2,500 steps), so the embedder
-came back by the owner's decision, for the last third of the deltas
-above: the memory's input projection is 64 wide again. Attention
-cost grows with the square of the stream's length and the state-space
-scan with its length, on two forward passes per update. A stream holding
-only a window's first time limit (two rows longer than the window)
-measured +1% on the transformer and par on mamba, but cut the later time
-limits' targets in windows holding several (episodes shorter than the
-window); exactness was kept by the owner's decision. Holding the final
-observations elsewhere (per-step carries, or extra query tokens) needs
-per-memory-kind changes and costs as many tokens. A narrower embedder
-(Ni et al.'s are small linear layers) would cut the memory's input
-projection; not tried.
+The remaining slowdown is the exact stream: attention cost grows with the
+square of the stream's length and the state-space scan with its length, on
+two forward passes per update; the narrow embedders cut the memory's input
+projection, which matters for the GRU and the transformer and not for
+mamba. Variants timed on the way, before #87 (encoders with a LayerNorm):
+no embedder at all (the memory reading the raw 4-wide input) measured
+-12% / +17% / +25% with the stream, but learned the probes' step counting
+more slowly (p0b's cue-free value read 0.1 instead of 0 at 2,500 steps);
+the 64-wide encoder before the memory fixed that at the cost in the table,
+and the narrow embedders keep the fix (test_memory.py passes whole). A
+stream holding only a
+window's first time limit (two rows longer than the window) measured +1%
+on the transformer and par on mamba, but cut the later time limits'
+targets in windows holding several (episodes shorter than the window);
+exactness was kept by the owner's decision. Holding the final observations
+elsewhere (per-step carries, or extra query tokens) needs per-memory-kind
+changes and costs as many tokens.
 
 ## Where to look for more
 

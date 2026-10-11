@@ -128,12 +128,6 @@ def init_buffer(
     return buffer.init(schema)
 
 
-def assert_shape(x, expected_shape, name="tensor"):
-    assert (
-        x.shape == expected_shape
-    ), f"{name} has shape {x.shape}, expected {expected_shape}"
-
-
 @partial(jax.jit, static_argnames=["buffer"])
 def get_batch_from_buffer(
     buffer: BufferType,

@@ -13,7 +13,6 @@ from brax.envs import Env as BraxEnv
 from brax.envs.base import State
 from brax.envs.base import Wrapper as BraxWrapper
 from flax import struct
-from flax.serialization import to_state_dict
 from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
@@ -58,7 +57,7 @@ class GymnaxWrapper:
         return self._env.unwrapped
 
 
-_FINAL_OBS_KEYS = ("final_obs", "final_observation", "obs_st")
+_FINAL_OBS_KEYS = ("final_obs", "final_observation")
 # Where an observation normaliser keeps the pre-reset observation in the
 # env's own units once it has normalised the final-observation keys.
 RAW_FINAL_OBS_KEY = "raw_final_obs"
@@ -232,42 +231,6 @@ class ClipActionBrax(BraxWrapper):
         return self.env.step(state=state, action=action)
 
 
-class TransformObservation(GymnaxWrapper):
-    """Observation modifying wrapper"""
-
-    def __init__(self, env, transform_obs):
-        """Set the observation transformation"""
-        super().__init__(env)
-        self.transform_obs = transform_obs
-
-    def reset(self, key, params=None):
-        """Reset the env and return the transformed obs"""
-        obs, state = self._env.reset(key, params)
-        return self.transform_obs(obs), state
-
-    def step(self, key, state, action, params=None):
-        """Step the env and return the transformed obs"""
-        obs, state, reward, terminated, truncated, info = self._env.step(
-            key, state, action, params
-        )
-        return self.transform_obs(obs), state, reward, terminated, truncated, info
-
-
-class TransformReward(GymnaxWrapper):
-    """Reward modifying wrapper"""
-
-    def __init__(self, env, transform_reward):
-        super().__init__(env)
-        self.transform_reward = transform_reward
-
-    def step(self, key, state, action, params=None):
-        """Step the env and return the transformed reward"""
-        obs, state, reward, terminated, truncated, info = self._env.step(
-            key, state, action, params
-        )
-        return obs, state, self.transform_reward(reward), terminated, truncated, info
-
-
 class InitialStateWrapper(GymnaxWrapper):
     """Override the plant's state at reset (an initial-condition distribution).
 
@@ -305,16 +268,6 @@ class InitialStateWrapper(GymnaxWrapper):
         state = jax.tree.map(lambda s, x: jnp.where(done, s, x), start, state)
         obs = jnp.where(done, self._env.get_obs(start, params), obs)
         return obs, state, reward, terminated, truncated, info
-
-
-class VecEnv(GymnaxWrapper):
-    """Vectorized an environment by vectorizing step and reset"""
-
-    def __init__(self, env):
-        """Override reset and step"""
-        super().__init__(env)
-        self.reset = jax.vmap(self._env.reset, in_axes=(0, None))
-        self.step = jax.vmap(self._env.step, in_axes=(0, 0, 0, None))
 
 
 def init_norm_info(
@@ -590,12 +543,6 @@ def normalize_wrapper_factory(
 
             return state
 
-        def unnormalize_reward(self, reward: jax.Array, norm_info: NormalizationInfo):
-            """Unnormalize the reward using the normalization info."""
-            if norm_info is None or norm_info.var is None:
-                return reward
-            return reward * jnp.sqrt(norm_info.var.squeeze() + 1e-8)
-
         def step(self, *, state, action, params=None, key=None):
             if params is None and self.mode == "gymnax":
                 params = self._env.default_params
@@ -702,37 +649,6 @@ def normalize_wrapper_factory(
 
 NormalizeVecObservationBrax = normalize_wrapper_factory("brax")
 NormalizeVecObservationGymnax = normalize_wrapper_factory("gymnax")
-
-
-def clean_to_state_dict(struct_obj):
-    raw_state_dict = to_state_dict(struct_obj)
-    for key in raw_state_dict.keys():
-        if "__dataclass_fields__" in dir(struct_obj.__dataclass_fields__[key].type):
-            raw_state_dict[key] = struct_obj.__dataclass_fields__[key].type(
-                **raw_state_dict[key]
-            )
-
-    return raw_state_dict
-
-
-@jax.jit
-def _return_original_reward(reward):
-    return reward
-
-
-@jax.jit
-def _normalize_reward(reward, var):
-    return reward / jnp.sqrt(var + 1e-8)
-
-
-@jax.jit
-def normalize_reward(reward, var):
-    return jax.lax.cond(
-        jnp.abs(var) < 1e-3,
-        _return_original_reward,
-        lambda x: _normalize_reward(x, var),
-        operand=reward,
-    )
 
 
 def get_wrappers(mode: str = "gymnax"):

@@ -142,10 +142,8 @@ def update_rolling_mean(
 # Keys under which the supported backends expose the pre-reset ("final")
 # observation of a transition. Ajax's brax/playground stack writes
 # ``final_obs`` (see :class:`ajax.wrappers.FinalObsWrapper`); gymnax >= 1.0
-# writes ``final_observation``; ``obs_st`` was the name used by the pre-1.0
-# gymnax fork Ajax used to pin, kept so envs still on it keep bootstrapping
-# correctly.
-_FINAL_OBS_KEYS = ("final_obs", "final_observation", "obs_st")
+# writes ``final_observation``.
+_FINAL_OBS_KEYS = ("final_obs", "final_observation")
 
 
 def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
@@ -271,12 +269,10 @@ def step(
             state: EnvState,
             action: jax.Array,
             env_params: EnvParams,
-        ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]:
+        ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, jax.Array, Any]:
             """Wrapper to step the environment."""
             return env.step(key=rng, state=state, action=action, params=env_params)
 
-        time = state.time if hasattr(state, "time") else state.t
-        truncated = time >= env_params.max_steps_in_episode - 1  # type: ignore[union-attr]
         params_axis = 0 if env_params_is_batched(env_params) else None
         if rng.ndim > 1:
             out = jax.vmap(
@@ -285,20 +281,10 @@ def step(
             )(rng, state, action, env_params)
         else:
             out = step_wrapper(rng, state, action, env_params)
-
-        if len(out) == 5:
-            # Pre-1.0 five-value contract: a single ``done`` that folds the
-            # time limit into termination. Prefer the env's own ``truncated``
-            # when it publishes one -- some emit only {"discount": ...} -- else
-            # fall back to the time-based estimate computed before the step
-            # call above, then subtract it back out of ``done``.
-            obsv, env_state, reward, done, info = out
-            truncated = info.get("truncated", truncated)
-            terminated = done * (1 - truncated)
-        else:
-            # Gymnax >= 1.0 six-value contract: the env reports the split
-            # itself, so take it at face value.
-            obsv, env_state, reward, terminated, truncated, info = out
+        # Gymnax >= 1.0 reports terminated and truncated apart; an env still
+        # folding the time limit into one ``done`` needs
+        # :class:`ajax.wrappers.TerminatedTruncatedWrapper`.
+        obsv, env_state, reward, terminated, truncated, info = out
         terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
         if "normalization_info" in env_state.__dict__:
             obs_norm_info = jax.tree.map(
@@ -532,12 +518,6 @@ def get_action_and_new_agent_state(
     )
 
 
-def assert_shape(x, expected_shape, name="tensor"):
-    assert (
-        x.shape == expected_shape
-    ), f"{name} has shape {x.shape}, expected {expected_shape}"
-
-
 def update_episodic_return(
     episodic_return_state: RollinEpisodicMeanRewardState,
     reward: jnp.ndarray,
@@ -671,10 +651,6 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
     if n_obs_params > 1:
         return env_state.obs
     return maybe_vmap(env._get_obs, vmap_on)(env_state.pipeline_state)
-
-
-def identity(*args):
-    return args
 
 
 class ActionPipelineResult(NamedTuple):
@@ -1312,38 +1288,6 @@ def init_collector_state(
     )
 
 
-@jax.jit
-def _select_uniform_action(uniform_action, _):
-    return uniform_action
-
-
-@jax.jit
-def _select_policy_action(_, action):
-    return action
-
-
-@jax.jit
-def _return_true(_):
-    return True
-
-
-@jax.jit
-def _return_false(_):
-    return False
-
-
-@jax.jit
-def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bool:
-    """Check if we should use uniform sampling based on timestep and learning starts.
-
-    Args:
-        timestep: Current timestep
-        learning_starts: Number of timesteps before learning starts
-
-    Returns:
-        bool: Whether to use uniform sampling
-    """
-
-    return jnp.where(
-        timestep < learning_starts, jnp.ones_like(timestep), jnp.zeros_like(timestep)
-    )
+def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> jax.Array:
+    """Whether the collector acts uniformly: before ``learning_starts``."""
+    return timestep < learning_starts

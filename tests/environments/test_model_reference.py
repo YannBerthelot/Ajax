@@ -16,7 +16,7 @@ from ajax.environments.model_reference import (
     StepReference,
 )
 from ajax.environments.system_class import UniformPerturbation
-from ajax.wrappers import TransformObservation
+from ajax.wrappers import GymnaxWrapper
 
 N = 50
 
@@ -160,12 +160,25 @@ def test_wrapper_step_bookkeeping_and_reward(tracking_pendulum):
     assert jnp.allclose(env.get_obs(s1, params), obs1)
 
 
+class _ShiftedObservation(GymnaxWrapper):
+    """The plant's returned observations shifted by 0.25; ``get_obs`` (the
+    inner env's) still recomputes the unshifted one from the state."""
+
+    def reset(self, key, params=None):
+        obs, state = self._env.reset(key, params)
+        return obs + 0.25, state
+
+    def step(self, key, state, action, params=None):
+        obs, *rest = self._env.step(key, state, action, params)
+        return obs + 0.25, *rest
+
+
 def test_controller_sees_the_observation_the_plant_returned():
     """The controller's error and raw-observation columns come from the
     observation the plant returned, the one the reward scores, not from one
     recomputed from the plant's state: here an inner wrapper shifts it."""
     env, params = make_gymnax_env("Pendulum-v1")
-    shifted = TransformObservation(env, lambda obs: obs + 0.25)
+    shifted = _ShiftedObservation(env)
     w = ModelReferenceWrapper(
         shifted,
         StepReference(N, -1.0, 1.0, 5, 15),

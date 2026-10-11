@@ -383,7 +383,9 @@ class ExpertInAgentUnits:
 
     def __call__(self, *args: Any) -> Any:
         out = self.expert(*args)
-        if hasattr(self.expert, "init_state"):  # (state, obs) -> (action, state)
+        # The call, not init_state, says what came back: an expert with a
+        # state may also be called on observations alone (expert(obs)).
+        if len(args) == 2:  # expert(state, obs) -> (action, state)
             return _to_agent_units(out[0], self._bounds), out[1]
         return _to_agent_units(out, self._bounds)
 

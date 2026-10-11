@@ -123,6 +123,28 @@ def test_a_wrapped_expert_acts_in_agent_units():
     assert wrapped.anchor_gains is gain.anchor_gains
 
 
+class _EitherWayExpert:
+    """A stateful expert also callable on observations alone, as the SAC
+    equivalence tests' expert is: ``expert(obs)`` or ``expert(state, obs)``."""
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, *args):
+        action = jnp.full((args[-1].shape[0], 1), 1.5)
+        return action if len(args) == 1 else (action, args[0] + 1.0)
+
+
+def test_the_call_not_init_state_says_what_the_expert_returned():
+    env, params = gymnax.make("Pendulum-v1")
+    wrapped = ExpertInAgentUnits(_EitherWayExpert(), env, params)
+    obs = jnp.zeros((4, 3))
+    np.testing.assert_array_equal(wrapped(obs), np.full((4, 1), 0.75))
+    action, state = wrapped(jnp.zeros((4, 1)), obs)
+    np.testing.assert_array_equal(action, np.full((4, 1), 0.75))
+    np.testing.assert_array_equal(state, np.ones((4, 1)))
+
+
 @pytest.mark.parametrize("env_id", ["Pendulum-v1", "MountainCarContinuous-v0"])
 def test_the_gain_policy_executes_the_experts_control(env_id):
     """Mapped back at the env door, the converted control is the expert's

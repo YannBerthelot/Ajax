@@ -12,19 +12,25 @@ from ajax.state import EnvironmentConfig
 from ajax.types import BufferType
 
 
+def insert_expert_action(observations: jax.Array, a_expert: jax.Array) -> jax.Array:
+    """The update's augmented layout: [env_obs | a_expert | train_frac]."""
+    a_expert = jax.lax.stop_gradient(a_expert)
+    return jnp.concatenate(
+        [observations[..., :-1], a_expert, observations[..., -1:]], axis=-1
+    )
+
+
 def augment_obs_if_needed(
     observations: jax.Array,
     raw_observations: jax.Array,
     expert_policy,
     augment: bool,
 ) -> jax.Array:
-    """Append expert action to obs at runtime. Layout: [env_obs | a_expert | train_frac]."""
+    """Append the expert's action at ``raw_observations`` to ``observations``
+    (:func:`insert_expert_action`)."""
     if not augment or expert_policy is None:
         return observations
-    a_expert = jax.lax.stop_gradient(expert_policy(raw_observations))
-    return jnp.concatenate(
-        [observations[..., :-1], a_expert, observations[..., -1:]], axis=-1
-    )
+    return insert_expert_action(observations, expert_policy(raw_observations))
 
 
 def collect_and_store_expert_transitions(

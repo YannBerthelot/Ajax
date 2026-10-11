@@ -111,8 +111,10 @@ class TDMPC2(ActorCritic):
     ``episodic=True`` takes terminating tasks instead (the latest code's
     episodic mode, ``nicklashansen/tdmpc2@eece801``; deviation T29): a
     termination head, ``1 - terminated`` in the targets and the planner,
-    the variable-length replay of ``ceil(buffer_size / n_envs)`` rows per
-    env, and ``n_timesteps`` counting rows (env steps plus one per finished
+    the variable-length replay of ``ceil(min(buffer_size, total) /
+    n_envs)`` rows per env (``total`` the rows of the run when the call ends,
+    sized and adopted on a resume as the episode ring is), and
+    ``n_timesteps`` counting rows (env steps plus one per finished
     episode). ``T`` is then the time limit, still bootstrapped.
 
     Extensions: ``pretrain``, ``post_update`` (folded after every update,
@@ -296,11 +298,11 @@ class TDMPC2(ActorCritic):
 
     def _replay_buffer(self, total_timesteps: int) -> EpisodeBuffer | EpisodicBuffer:
         """The ring of a call that ends after ``total_timesteps`` env steps of
-        the run (the episodic mode's rings ignore it); records its capacity
-        and size (class docstring)."""
+        the run (rows in the episodic mode); records its capacity and size
+        (class docstring)."""
         buffer: EpisodeBuffer | EpisodicBuffer
+        capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
         if self.agent_config.episodic:
-            capacity = self.agent_config.buffer_size
             buffer = EpisodicBuffer.create(
                 buffer_size=capacity,
                 n_envs=self.env_args.n_envs,
@@ -308,7 +310,6 @@ class TDMPC2(ActorCritic):
                 action_dim=self.action_dim,
             )
         else:
-            capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
             buffer = EpisodeBuffer.create(
                 capacity=capacity,
                 n_envs=self.env_args.n_envs,
@@ -358,21 +359,19 @@ class TDMPC2(ActorCritic):
         start_tick = (
             0 if initial_state is None else self.resume_iteration_offset(initial_state)
         )
-        buffer: EpisodeBuffer | EpisodicBuffer
-        if isinstance(self.schedule, EpisodicSchedule):
-            buffer = self._replay_buffer(0)  # not sized for the run
-            if initial_state is not None:
-                buffer.check_layout(initial_state.buffer_state)
-        else:
-            end_tick = start_tick + self.schedule.num_ticks(n_timesteps, start_tick)
-            buffer = self._replay_buffer(
-                self.schedule.steps_before(end_tick) * self.env_args.n_envs
+        end_tick = start_tick + self.schedule.num_ticks(n_timesteps, start_tick)
+        # Per env, the rows the replay stores by then: env steps, or every
+        # tick's row in the episodic mode (held ones included).
+        per_env = (
+            end_tick
+            if isinstance(self.schedule, EpisodicSchedule)
+            else self.schedule.steps_before(end_tick)
+        )
+        buffer = self._replay_buffer(per_env * self.env_args.n_envs)
+        if initial_state is not None:
+            initial_state = initial_state.replace(
+                buffer_state=buffer.adopt(initial_state.buffer_state, start_tick)
             )
-            assert isinstance(buffer, EpisodeBuffer)
-            if initial_state is not None:
-                initial_state = initial_state.replace(
-                    buffer_state=buffer.adopt(initial_state.buffer_state, start_tick)
-                )
         result: Any = super().train(
             seed=seed,
             n_timesteps=n_timesteps,

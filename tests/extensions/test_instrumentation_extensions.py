@@ -32,10 +32,11 @@ from ajax.extensions.instrumentation import (
     BiasVorePenalty,
     ConditioningMetrics,
     DiagnosticSnapshots,
-    _sample_state_batch,
+    _sample_transitions,
     evarest_coeff,
 )
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.state import Transition
 
 # Evaluate (and return the evaluations) without a logging backend.
 EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
@@ -74,13 +75,26 @@ def test_bias_vore_penalty_coeff_override_wins():
 def test_a_rollout_batch_is_one_row_per_step():
     """A ``(T, n_envs, ...)`` rollout gives ``(T * n_envs, ...)`` rows, cut
     at ``on_policy_take``: srank and the dormant fraction read a 2-D
-    feature matrix, not one matrix per time step."""
+    feature matrix, not one matrix per time step. Either end of an episode
+    stops a rollout's bootstrap."""
     obs = jnp.arange(4 * 2 * 3.0).reshape(4, 2, 3)
-    rollout = SimpleNamespace(obs=obs, action=jnp.ones((4, 2, 1)))
+    flags = jnp.zeros((4, 2), dtype=bool)
+    rollout = Transition(
+        obs=obs,
+        action=jnp.ones((4, 2, 1)),
+        reward=jnp.ones((4, 2)),
+        terminated=flags.at[2, 1].set(True),
+        truncated=flags.at[1, 0].set(True),
+        next_obs=obs + 1.0,
+    )
     state = SimpleNamespace(collector_state=None, last_rollout=rollout)
-    rows, actions = _sample_state_batch(state, jax.random.PRNGKey(0), None, 5)
-    assert rows.shape == (5, 3) and actions.shape == (5, 1)
-    assert jnp.array_equal(rows, obs.reshape(8, 3)[:5])
+    rows, actions, rewards, next_rows, done = _sample_transitions(
+        state, jax.random.PRNGKey(0), None, 6
+    )
+    assert jnp.array_equal(rows, obs.reshape(8, 3)[:6])
+    assert jnp.array_equal(next_rows, rows + 1.0)
+    assert actions.shape == rewards.shape == (6, 1)
+    assert done[:, 0].tolist() == [False, False, True, False, False, True]
 
 
 # --------------------------------------------------------------------------

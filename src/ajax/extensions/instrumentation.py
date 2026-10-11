@@ -117,19 +117,22 @@ def _has_last_rollout(agent_state: Any) -> bool:
     return getattr(agent_state, "last_rollout", None) is not None
 
 
-def _sample_state_batch(
+def _sample_transitions(
     agent_state: Any,
     rng: jax.Array,
     buffer: Optional[Any],
     on_policy_take: int,
-) -> Tuple[jax.Array, jax.Array]:
-    """Return ``(obs, act)`` for a measurement batch.
+) -> Tuple[jax.Array, ...]:
+    """Return ``(obs, act, reward, next_obs, done)`` for a measurement
+    batch, one ``(N, features)`` row per transition.
 
     Off-policy: sample from the replay buffer via the public
-    ``get_batch_from_buffer`` seam. On-policy: flatten the ``(T, n_envs)``
-    steps of ``agent_state.last_rollout`` into rows and keep the first
-    ``on_policy_take``; srank and the dormant fraction need one feature
-    row per sample. Raises ``ValueError`` if neither source is
+    ``get_batch_from_buffer`` seam; its ``next_obs`` is the observation a
+    target bootstraps on, so only a termination ends the episode. On-policy:
+    flatten the ``(T, n_envs)`` steps of ``agent_state.last_rollout`` into
+    rows and keep the first ``on_policy_take``; srank and the dormant
+    fraction need one feature row per sample. A rollout's episode ends at a
+    termination or a truncation. Raises ``ValueError`` if neither source is
     populated — extensions need to fail loudly when their state-batch
     contract is broken.
     """
@@ -139,20 +142,24 @@ def _sample_state_batch(
         # time so a missing optional dep doesn't break their import).
         from ajax.buffers.utils import get_batch_from_buffer
 
-        batch = get_batch_from_buffer(
+        obs, terminated, _, next_obs, reward, act = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, rng
-        )
-        return batch[0], batch[5]
-    if _has_last_rollout(agent_state):
+        )[:6]
+        rows = (obs, act, reward, next_obs, terminated)
+        take = None
+    elif _has_last_rollout(agent_state):
         sub = agent_state.last_rollout
-        n_steps = math.prod(sub.obs.shape[:-1])
-        obs = sub.obs.reshape(n_steps, -1)[:on_policy_take]
-        return obs, sub.action.reshape(n_steps, -1)[:on_policy_take]
-    raise ValueError(
-        "ConditioningMetrics / BiasVoreDecomposition need either a replay "
-        "buffer (off-policy) or agent_state.last_rollout populated via "
-        "BaseAgentConfig.expose_recent_rollout=True (on-policy)."
-    )
+        done = jnp.logical_or(sub.terminated, sub.truncated)
+        rows = (sub.obs, sub.action, sub.reward, sub.next_obs, done)
+        take = on_policy_take
+    else:
+        raise ValueError(
+            "ConditioningMetrics / BiasVoreDecomposition need either a replay "
+            "buffer (off-policy) or agent_state.last_rollout populated via "
+            "BaseAgentConfig.expose_recent_rollout=True (on-policy)."
+        )
+    n = math.prod(rows[0].shape[:-1])
+    return tuple(x.reshape(n, -1)[:take] for x in rows)
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +202,25 @@ def _takes_action(
     raise ValueError(
         "The critic's parameters fit neither the observation nor the"
         " observation and action of the measurement batch."
+    )
+
+
+def _critic_kind(
+    agent_state: Any, obs: jax.Array, act: jax.Array, rng: jax.Array
+) -> str:
+    """The agent's critic, read from its networks: ``"q"`` or ``"v"`` for
+    an ensemble critic on ``critic_state`` taking the observation and action
+    or the observation alone, ``"qnet"`` for a Q-network on ``actor_state``
+    (its output carries ``q_values``)."""
+    critic_state = getattr(agent_state, "critic_state", None)
+    if _is_ensemble_critic(critic_state):
+        return "q" if _takes_action(critic_state, obs, act, rng) else "v"
+    actor = agent_state.actor_state
+    if hasattr(actor.apply_fn(actor.params, obs), "q_values"):
+        return "qnet"
+    raise ValueError(
+        f"{type(agent_state).__name__} has neither an ensemble critic on"
+        " critic_state nor a Q-network on actor_state to measure."
     )
 
 
@@ -286,7 +312,7 @@ class ConditioningMetrics(Extension):
     ) -> dict:
         del ext_state, ctx
         try:
-            obs, act = _sample_state_batch(
+            obs, act, *_ = _sample_transitions(
                 agent_state, rng, self.buffer, self.on_policy_batch
             )
         except ValueError:
@@ -339,77 +365,71 @@ class BiasVoreDecomposition(Extension):
     ``mechanism.make_evarest_decomposition_metrics``. The residual is
     reconstructed from the agent's *current* critic on a measurement
     batch sampled the same way :class:`ConditioningMetrics` samples
-    (replay buffer for off-policy, ``last_rollout`` for on-policy). The
-    SAC variant uses :func:`ajax.agents.SAC.core.compute_td_target` to
-    rebuild the Bellman target; the PPO variant uses the supplied
-    ``value_target_fn`` callable (kept generic so the extension stays
-    agent-agnostic). When ``value_target_fn`` is None the extension
-    assumes a SAC-style Q-critic.
+    (replay buffer for off-policy, ``last_rollout`` for on-policy).
+
+    By default it is the critic's one-step TD residual under the current
+    policy, ``prediction - (reward_scale * r + gamma (1 - d) next)``, with
+    the critic read from the networks (:func:`_critic_kind`):
+
+    * Q(s, a) ensemble: ``next = min_i Q_i(s', a') - alpha log pi(a'|s')``,
+      ``a' ~ pi(s')``, ``alpha`` the agent's temperature if it has one,
+      else 0;
+    * V(s) ensemble: ``next = min_i V_i(s')``;
+    * Q-network: ``next = max_a' Q(s', a')``.
+
+    The bootstrap uses the critic's current parameters: whether and how an
+    agent keeps a target network (SAC does, AVG and PQN do not) is its own
+    business, as are GAE, Q(lambda) and average-reward targets. Pass
+    ``value_target_fn`` to measure against an agent's exact target.
     """
 
     buffer: Any = None
     on_policy_batch: int = 256
     gamma: float = 0.99
     reward_scale: float = 1.0
-    # Optional override for non-SAC agents:
+    # Optional override for an agent's exact target:
     # ``(agent_state, batch_dict, rng) -> (target, q_preds)``.
     value_target_fn: Optional[Callable] = None
     name: str = "bias_vore_decomposition"
 
-    def _sac_residual(self, agent_state: Any, rng: jax.Array) -> jax.Array:
-        from ajax.agents.SAC import core
-        from ajax.buffers.utils import get_batch_from_buffer
+    def _td_residual(
+        self, agent_state: Any, transitions: Tuple[jax.Array, ...], rng: jax.Array
+    ) -> jax.Array:
+        obs, act, reward, next_obs, done = transitions
+        kind = _critic_kind(agent_state, obs, act, rng)
+        if kind == "qnet":
+            from ajax.agents.DQN.networks import predict_q
 
-        tkey, skey = jax.random.split(rng)
-        batch = get_batch_from_buffer(
-            self.buffer, agent_state.collector_state.buffer_state, skey
-        )
-        obs, terminated, _trunc, next_obs, rewards, act = batch[:6]
-        alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-        target_q = core.compute_td_target(
-            actor_state=agent_state.actor_state,
-            critic_state=agent_state.critic_state,
-            next_observations=next_obs,
-            dones=terminated,
-            rewards=rewards,
-            gamma=self.gamma,
-            alpha=alpha,
-            rng=tkey,
-            recurrent=False,
-            reward_scale=self.reward_scale,
-        )
-        q_preds = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.params,
-            x=jnp.concatenate([obs, act], axis=-1),
-        )
-        return q_preds - target_q
+            q_state = agent_state.actor_state
+            q_values = predict_q(q_state, q_state.params, obs)
+            prediction = jnp.take_along_axis(q_values, act.astype(jnp.int32), axis=-1)
+            next_value = predict_q(q_state, q_state.params, next_obs).max(
+                -1, keepdims=True
+            )
+        else:
+            critic_state = agent_state.critic_state
 
-    def _on_policy_residual(self, agent_state: Any) -> jax.Array:
-        """Generic on-policy residual: V(obs) - mean(reward) bootstrap.
+            def value(x: jax.Array) -> jax.Array:
+                return predict_value(critic_state, critic_state.params, x)
 
-        On-policy agents that opted into Gap A only expose ``(obs, act,
-        reward, next_obs, done)`` -- enough for a single-step TD
-        residual against the agent's *current* value head. The exact
-        target (GAE for PPO, Q(lambda) for PQN, average-reward for APO/
-        AVG) can be supplied via ``value_target_fn``; absent that, we
-        compute ``r + gamma (1-d) V(s') - V(s)`` (one-step TD), which
-        is the universal common subexpression of the four targets.
-        """
-        sub = agent_state.last_rollout
-        cs = agent_state.critic_state
-        v = predict_value(critic_state=cs, critic_params=cs.params, x=sub.obs).squeeze(
-            0
-        )
-        v_next = predict_value(
-            critic_state=cs, critic_params=cs.params, x=sub.next_obs
-        ).squeeze(0)
-        # Broadcast shapes so the subtraction is well-defined. Transition
-        # stores terminated/truncated separately; episode-end ≡ either.
-        reward = sub.reward.reshape(v.shape)
-        done = jnp.logical_or(sub.terminated, sub.truncated).reshape(v.shape)
-        target = reward + self.gamma * (1.0 - done) * v_next.astype(v.dtype)
-        return v - target
+            if kind == "q":
+                from ajax.agents.SAC.core import sample_next_actions
+
+                next_act, log_prob = sample_next_actions(
+                    agent_state.actor_state, next_obs, rng
+                )
+                alpha = getattr(agent_state, "alpha", None)
+                temperature = (
+                    0.0 if alpha is None else jnp.exp(alpha.params["log_alpha"])
+                )
+                prediction = value(action_value_input(obs, act.astype(obs.dtype)))
+                next_q = value(action_value_input(next_obs, next_act)).min(0)
+                next_value = next_q - temperature * log_prob
+            else:
+                prediction = value(obs)
+                next_value = value(next_obs).min(0)
+        target = self.reward_scale * reward + self.gamma * (1.0 - done) * next_value
+        return prediction - target
 
     def eval_metrics(
         self,
@@ -419,26 +439,19 @@ class BiasVoreDecomposition(Extension):
         ctx: ExtensionContext,
     ) -> dict:
         del ext_state, ctx
+        tkey, skey = jax.random.split(rng)
+        try:
+            transitions = _sample_transitions(
+                agent_state, skey, self.buffer, self.on_policy_batch
+            )
+        except ValueError:
+            return {}
         if self.value_target_fn is not None:
-            tkey, skey = jax.random.split(rng)
-            try:
-                obs, act = _sample_state_batch(
-                    agent_state, skey, self.buffer, self.on_policy_batch
-                )
-            except ValueError:
-                return {}
-            batch_dict = {"observations": obs, "actions": act}
+            batch_dict = {"observations": transitions[0], "actions": transitions[1]}
             target, q_preds = self.value_target_fn(agent_state, batch_dict, tkey)
-            resid = q_preds - target
-            return _bias_vore_decomposition_dict(resid)
-
-        if _has_buffer(agent_state) and self.buffer is not None:
-            resid = self._sac_residual(agent_state, rng)
-            return _bias_vore_decomposition_dict(resid)
-        if _has_last_rollout(agent_state):
-            resid = self._on_policy_residual(agent_state)
-            return _bias_vore_decomposition_dict(resid)
-        return {}
+            return _bias_vore_decomposition_dict(q_preds - target)
+        resid = self._td_residual(agent_state, transitions, tkey)
+        return _bias_vore_decomposition_dict(resid)
 
 
 # ---------------------------------------------------------------------------

@@ -458,8 +458,12 @@ def test_collect_experience_steps_every_env_once_per_call(env_id):
     np.testing.assert_array_equal(next_obs[[0, 1, 3]], obs[[1, 2, 4]])
     assert (np.abs(next_obs[2] - obs[3]).max(axis=-1) > 0).all()
     np.testing.assert_array_equal(collector.last_obs, next_obs[-1])
+    # Summed step by step there, by an XLA reduction here: equal to float32
+    # rounding, not to the last ulp.
     np.testing.assert_allclose(
-        collector.episodic_mean_return, rollout.reward[:3].sum(axis=0).mean()
+        collector.episodic_mean_return,
+        rollout.reward[:3].sum(axis=0).mean(),
+        rtol=1e-6,
     )
     if not buffered:
         return

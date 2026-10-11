@@ -5,6 +5,7 @@
 
 import learning_checks
 import numpy as np
+import paper_protocol
 import pytest
 
 CURVE = np.array([[10.0, 20.0, 30.0, 40.0], [1.0, 2.0, 3.0, 400.0]])
@@ -57,3 +58,19 @@ def test_dreamerv3_cartpole_follows_the_reference_comparison_protocol():
     assert check.window == (12_000, 24_000)
     assert check.bar == 156.0
     assert check.kwargs == {"model_size": "1m"}
+
+
+def test_the_smoke_runs_use_the_paper_protocols_tiny_models():
+    """One tiny model per agent: paper_protocol's, each check keeping its
+    task's own settings."""
+
+    def model(kwargs):
+        task = ("action_repeat", "episode_length", "seed_steps")
+        return {key: value for key, value in kwargs.items() if key not in task}
+
+    smoke = learning_checks.SMOKE
+    for name in ("dreamerv3-cartpole", "dreamerv3-pendulum"):
+        assert smoke[name].kwargs == model(paper_protocol.DREAMERV3_TINY), name
+    tdmpc2 = model(paper_protocol.TDMPC2_TINY)
+    assert smoke["tdmpc2-pendulum"].kwargs == {**tdmpc2, "seed_steps": 200}
+    assert smoke["tdmpc2-cartpole-balance"].kwargs == paper_protocol.TDMPC2_TINY

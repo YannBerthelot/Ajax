@@ -68,20 +68,21 @@ class CounterEnv(environment.Environment):
 
 class CountingExpert:
     """Stateful: plays t / LIMIT at observation t, its state counting its
-    calls since the episode's start (so t). Called only with its state,
-    unless ``stateless_too`` (then ``expert(obs)`` plays t / LIMIT too)."""
+    calls since the episode's start (so t; with ``state_dim`` d, the j-th
+    column j t). Called only with its state, unless ``stateless_too`` (then
+    ``expert(obs)`` plays t / LIMIT too)."""
 
-    def __init__(self, stateless_too: bool = False) -> None:
-        self.stateless_too = stateless_too
+    def __init__(self, stateless_too: bool = False, state_dim: int = 1) -> None:
+        self.stateless_too, self.state_dim = stateless_too, state_dim
 
     def init_state(self, n_envs: int) -> jax.Array:
-        return jnp.zeros((n_envs, 1))
+        return jnp.zeros((n_envs, self.state_dim))
 
     def __call__(self, *args: jax.Array) -> Any:
         if len(args) == 1 and self.stateless_too:
             return args[0][..., :1] / LIMIT
         state, obs = args
-        return obs[..., :1] / LIMIT, state + 1
+        return obs[..., :1] / LIMIT, state + jnp.arange(1.0, self.state_dim + 1)
 
 
 class RecordingExpert:
@@ -408,3 +409,35 @@ def test_an_extensions_expert_reads_the_raw_next_observation_of_each_row(
     expert_rows = rows[rows[:, -1] < -1.5]
     assert len(expert_rows) >= 8
     np.testing.assert_allclose(expert_rows[:, -1], expert_rows[:, 0] / LIMIT - 3.0)
+
+
+@pytest.mark.parametrize(
+    "state_dim, train_frac", [(1, True), (2, False)], ids=["1d+fraction", "2d"]
+)
+def test_the_expert_prefill_stores_the_experts_state_as_collection_does(
+    state_dim, train_frac
+):
+    """With augment_obs_with_expert_state, every stored row, the expert
+    prefill's (its first LIMIT per env) and collection's, is [t, (the
+    training fraction,) the expert's state t] at s and [t + 1, (...), t + 1]
+    at s', the episode's last s' included (the state before the reset)."""
+    state = train(
+        CounterEnv(),
+        expert_policy=CountingExpert(state_dim=state_dim),
+        expert_buffer_n_steps=LIMIT,
+        augment_obs_with_expert_state=True,
+        use_train_frac=train_frac,
+    )
+    rows = state.collector_state.buffer_state.experience
+    obs, nxt = (np.asarray(rows[k]) for k in ("obs", "next_obs"))
+    obs, nxt = (x.reshape(-1, *x.shape[-2:]) for x in (obs, nxt))  # (envs, rows, .)
+    assert obs.shape[-1] == nxt.shape[-1] == 1 + train_frac + state_dim
+    written = nxt[..., 0] != 0  # every transition's s' is at least 1
+    assert written[:, :LIMIT].all()  # the prefill's rows come first
+    for x in (obs, nxt):
+        for j in range(state_dim):
+            got = x[..., 1 + train_frac + j][written]
+            np.testing.assert_allclose(got, (j + 1) * x[..., 0][written])
+        if train_frac:  # 0 in the prefill, a fraction after
+            np.testing.assert_allclose(x[:, :LIMIT, 1], 0.0)
+            assert (x[..., 1][written] <= 1.0).all()

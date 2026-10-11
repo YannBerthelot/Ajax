@@ -79,7 +79,7 @@ def test_actor_and_state_value_critic_read_the_same_layout(
 def test_cnn_encoder_rejects_a_miscounted_input_width():
     """With trailing dims the encoder slices the image off the front: a
     miscounted width must raise rather than read the wrong columns."""
-    encoder = CNNEncoder(image_shape=(1, 3, 1), extra_obs_dim=2, channels=(4,))
+    encoder = CNNEncoder(image_shape=(1, 3, 1), extra_obs_dim=2, spec=SPEC)
     with pytest.raises(ValueError, match="trailing dims"):
         encoder.init(jax.random.PRNGKey(0), jnp.ones((BATCH, 4)))
 

@@ -66,6 +66,21 @@ class Encoder(nn.Module):
         return features
 
 
+class CNNSpec(NamedTuple):
+    """CNN encoder architecture: conv stack + projection width.
+
+    ``CNNSpec()`` is :class:`CNNEncoder`'s default architecture. Each
+    ``kernel_sizes`` / ``strides`` entry may be an ``int`` (square) or an
+    ``(h, w)`` tuple. A ``NamedTuple`` -> hashable, so it is safe as a flax
+    module field and as a :class:`NetworkConfig` field.
+    """
+
+    channels: Tuple[int, ...] = (16, 32)
+    kernel_sizes: Tuple = (4, 3)
+    strides: Tuple = (2, 2)
+    feature_dim: int = 128
+
+
 class CNNEncoder(nn.Module):
     """Conv encoder for image observations packed flat as ``(H*W*C + extra_dim,)``.
 
@@ -81,13 +96,11 @@ class CNNEncoder(nn.Module):
 
     image_shape: Tuple[int, int, int]  # (H, W, C)
     extra_obs_dim: int = 0
-    channels: Tuple[int, ...] = (16, 32)
-    kernel_sizes: Tuple[int, ...] = (4, 3)
-    strides: Tuple[int, ...] = (2, 2)
-    feature_dim: int = 128
+    spec: Optional[CNNSpec] = None  # None: CNNSpec()
 
     @nn.compact
     def __call__(self, x):
+        spec = self.spec if self.spec is not None else CNNSpec()
         H, W, C = self.image_shape
         img_flat = H * W * C
         if x.shape[-1] != img_flat + self.extra_obs_dim:
@@ -103,7 +116,7 @@ class CNNEncoder(nn.Module):
             extra = None
         img = img.reshape(*x.shape[:-1], H, W, C)
         for c, k, s in zip(
-            self.channels, self.kernel_sizes, self.strides, strict=False
+            spec.channels, spec.kernel_sizes, spec.strides, strict=False
         ):
             # Each kernel/stride entry may be an int (square) or an (h, w)
             # tuple -- the latter for non-square images (e.g. octax's 64x32).
@@ -113,45 +126,11 @@ class CNNEncoder(nn.Module):
             img = nn.relu(img)
         # Flatten the spatial+channel dims while preserving leading batch dims.
         img = img.reshape(*img.shape[:-3], -1)
-        feat = nn.Dense(self.feature_dim)(img)
+        feat = nn.Dense(spec.feature_dim)(img)
         feat = nn.relu(feat)
         if extra is not None:
             feat = jnp.concatenate([feat, extra], axis=-1)
         return feat
-
-
-class CNNSpec(NamedTuple):
-    """CNN encoder architecture: conv stack + projection width.
-
-    Defaults match :class:`CNNEncoder`'s own defaults, so ``CNNSpec()``
-    reproduces the legacy encoder. Each ``kernel_sizes`` / ``strides``
-    entry may be an ``int`` (square) or an ``(h, w)`` tuple. A
-    ``NamedTuple`` -> hashable, so it is safe as a flax module field and
-    as a :class:`NetworkConfig` field.
-    """
-
-    channels: Tuple[int, ...] = (16, 32)
-    kernel_sizes: Tuple = (4, 3)
-    strides: Tuple = (2, 2)
-    feature_dim: int = 128
-
-
-def build_cnn_encoder(image_shape, extra_obs_dim=0, cnn_spec=None):
-    """Build a :class:`CNNEncoder` from an optional :class:`CNNSpec`.
-
-    ``cnn_spec=None`` -> ``CNNEncoder``'s default architecture. The single
-    place that turns a (shape, spec) pair into an encoder, so every
-    network module wires the CNN identically.
-    """
-    spec = cnn_spec if cnn_spec is not None else CNNSpec()
-    return CNNEncoder(
-        image_shape=image_shape,
-        extra_obs_dim=extra_obs_dim,
-        channels=spec.channels,
-        kernel_sizes=spec.kernel_sizes,
-        strides=spec.strides,
-        feature_dim=spec.feature_dim,
-    )
 
 
 class Actor(nn.Module):
@@ -214,7 +193,7 @@ class Actor(nn.Module):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
         if self.cnn_image_shape is not None:
-            self.encoder = build_cnn_encoder(
+            self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
             )
         else:
@@ -347,7 +326,7 @@ class Critic(nn.Module):
                     layer_norm=self.encoder_layer_norm,
                 )
         if self.cnn_image_shape is not None:
-            self.encoder = build_cnn_encoder(
+            self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
             )
         else:
@@ -485,10 +464,12 @@ def get_initialized_actor_critic(
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     action_dim_override: Optional[int] = None,
+    actor: Optional[nn.Module] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
     Create actor and critic networks, their initializers and log-std head
-    as ``network_config`` sets them.
+    as ``network_config`` sets them; a prebuilt ``actor`` (TD3's
+    deterministic one) replaces the :class:`Actor` built here.
 
     extra_obs_dim: extra dimensions appended to obs at runtime before the
     network forward pass. Set to action_dim (2 for the plane) when
@@ -521,8 +502,9 @@ def get_initialized_actor_critic(
     obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
     cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
-    actor: nn.Module
-    if isinstance(network_config.actor_architecture, PIDPolicy):
+    if actor is not None:
+        pass
+    elif isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(continuous, memory)
         actor = PIDActor(
             policy=network_config.actor_architecture,

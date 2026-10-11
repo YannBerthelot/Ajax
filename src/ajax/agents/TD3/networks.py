@@ -15,18 +15,12 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.linen.initializers import constant
-from flax.serialization import to_state_dict
 
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import get_action_dim
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.memory import MemoryCell, MemoryConfig
-from ajax.networks.networks import (
-    MultiCritic,
-    action_value_input,
-    init_network_state,
-)
+from ajax.networks.networks import get_initialized_actor_critic
 from ajax.networks.utils import (
-    get_adam_tx,
     parse_architecture,
     uniform_init,
 )
@@ -147,57 +141,28 @@ def get_initialized_td3_actor_critic(
     (a plain MLP, as Fujimoto's critic -- sfujim/TD3, TD3.py, Critic: Linear
     -> ReLU -> Linear -> ReLU -> Linear -- unless ``network_config`` opts
     into the encoder's LayerNorm). A :class:`PIDPolicy` architecture makes
-    the actor a :class:`DeterministicPIDActor`.
+    the actor a :class:`DeterministicPIDActor`. The critic and both
+    initialisations are :func:`get_initialized_actor_critic`'s.
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
-    memory = network_config.memory
     actor: nn.Module
     if isinstance(network_config.actor_architecture, PIDPolicy):
-        check_pid_actor(True, memory)
+        check_pid_actor(True, network_config.memory)
         actor = DeterministicPIDActor(network_config.actor_architecture, action_dim)
     else:
         actor = DeterministicActor(
             input_architecture=network_config.actor_architecture,
             action_dim=action_dim,
-            memory=memory,
+            memory=network_config.memory,
         )
-    critic = MultiCritic(
-        input_architecture=network_config.critic_architecture,
-        penultimate_normalization=network_config.penultimate_normalization,
-        num=num_critics,
-        kernel_init=network_config.critic_kernel_init,
-        bias_init=network_config.critic_bias_init,
-        encoder_kernel_init=network_config.encoder_kernel_init,
-        encoder_bias_init=network_config.encoder_bias_init,
-        encoder_layer_norm=network_config.encoder_layer_norm,
-        memory=memory,
-        query_dim=action_dim if memory is not None else 0,
+    return get_initialized_actor_critic(
+        key,
+        env_config,
+        actor_optimizer_config,
+        critic_optimizer_config,
+        network_config,
+        continuous=True,
+        action_value=True,
+        num_critics=num_critics,
+        actor=actor,
     )
-
-    actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
-    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
-    actor_key, critic_key = jax.random.split(key)
-
-    observation_shape, action_shape = get_state_action_shapes(env_config.env)
-    init_obs = jnp.zeros((env_config.n_envs, *observation_shape))
-    init_action = jnp.zeros((env_config.n_envs, *action_shape))
-
-    actor_state = init_network_state(
-        init_x=init_obs,
-        network=actor,
-        key=actor_key,
-        tx=actor_tx,
-        memory=memory,
-        n_envs=env_config.n_envs,
-    )
-    critic_state = init_network_state(
-        init_x=action_value_input(
-            init_obs, init_action, None if memory is None else init_action
-        ),
-        network=critic,
-        key=critic_key,
-        tx=critic_tx,
-        memory=memory,
-        n_envs=env_config.n_envs,
-    )
-    return actor_state, critic_state

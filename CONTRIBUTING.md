@@ -245,7 +245,9 @@ trains with `memory=`; until then `ActorCritic` rejects it.
 `__all__`, and add a row to the README's agent table.
 
 **5. Tests and benchmark.** `tests/agents/FOO/`: the maths on hand-computed
-values and a tiny run. `tests/probing/`: presets in `agents.py`, then the
+values. `tests/agents/test_agent_contract.py`: a row, so FOO builds, refuses
+what it cannot act in and folds extensions on tiny runs. `tests/probing/`:
+presets in `agents.py`, then the
 cases that fit (`test_framework.py` fails while an exported agent has none).
 `tests/agents/test_agent_pins.py`: a tiny run's fingerprint, so a later
 restructuring can show it changed nothing. `benchmarks/agent_bench.py`: an

@@ -3,8 +3,8 @@
 Tests the unique AVG mechanics: the running-average value updates that
 AVG uses instead of a target network (``update_AVG_values``), the order
 of its actor and critic steps and the episode ends its target cuts. Shared behaviors (loss shapes, updates,
-training loop, make_train) are covered by the probing suite and the smoke
-test in ``test_AVG.py``.
+training loop, make_train) are covered by the probing suite and the tiny
+runs of ``tests/agents/test_agent_contract.py``.
 """
 
 from typing import Any, cast

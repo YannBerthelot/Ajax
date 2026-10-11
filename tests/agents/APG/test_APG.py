@@ -1,10 +1,9 @@
 """End-to-end tests for the APG agent and its contextual-controller configuration."""
 
-from dataclasses import dataclass
-
 import jax
 import jax.numpy as jnp
 import pytest
+from extension_stubs import CounterExt
 from gymnax import make as make_gymnax_env
 
 from ajax import APG
@@ -21,7 +20,6 @@ from ajax.environments.model_reference import (
     StepReference,
 )
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
-from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.wrappers import InitialStateWrapper
 
@@ -286,20 +284,9 @@ def test_evaluate_reports_m_rmse_on_fresh_systems(env_and_class):
     )
 
 
-@dataclass(frozen=True)
-class Counter(Extension):
-    name: str = "counter"
-
-    def init_state(self, agent_state, rng):
-        return jnp.asarray(0)
-
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 1
-
-
 def test_extensions_fold_post_update(env_and_class):
     env, sc = env_and_class
-    agent = make_agent(env, sc, extensions=[Counter()])
+    agent = make_agent(env, sc, extensions=[CounterExt()])
     state, _ = agent.train(seed=0, n_timesteps=4 * N_ENVS * HORIZON)
     assert int(state.ext_state[0][0]) == 4
 
@@ -330,7 +317,7 @@ def test_the_downstream_training_and_evaluation_contract(env_and_class):
         env_params=sc.nominal,
         controller_factory=factory,
         max_grad_norm=1.0,
-        extensions=[Counter()],
+        extensions=[CounterExt()],
     )
     state, aux = agent.train(seed=0, n_timesteps=3 * 2 * HORIZON)
     curve = jax.device_get(-aux.matching_loss[0] / HORIZON).tolist()

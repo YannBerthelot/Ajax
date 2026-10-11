@@ -17,6 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
+from extension_stubs import CounterExt
 from flax import struct
 from flax.training.train_state import TrainState
 
@@ -47,17 +48,6 @@ class State:
 @struct.dataclass
 class Metrics:
     loss: jax.Array
-
-
-@dataclass(frozen=True)
-class Count(Extension):
-    name: str = "count"
-
-    def init_state(self, agent_state, rng):
-        return jnp.asarray(0)
-
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 1
 
 
 def _loop(*extensions: Extension) -> TrainLoop:
@@ -102,7 +92,7 @@ def test_post_update_draws_a_key_only_with_extensions() -> None:
     on a fresh key split from the state's."""
     state = _state(0)
     assert _loop().post_update(state) is state
-    counted = _loop(Count()).post_update(_state(0, (jnp.asarray(0),)))
+    counted = _loop(CounterExt()).post_update(_state(0, (jnp.asarray(0),)))
     assert int(counted.ext_state[0]) == 1
     _, rng = jax.random.split(state.rng)
     np.testing.assert_array_equal(counted.rng, rng)
@@ -229,8 +219,8 @@ def test_the_logging_worker_starts_only_for_a_backend() -> None:
 
 
 @dataclass(frozen=True)
-class Counted(Count):
-    """``Count`` reporting its (integer) count at every evaluation."""
+class Counted(CounterExt):
+    """``CounterExt`` reporting its (integer) count at every evaluation."""
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {"count": ext_state}
@@ -374,7 +364,7 @@ class Logged(State):
 
 def test_repeat_update_folds_post_update_after_each_update() -> None:
     """``n`` updates, each followed by ``post_update``; none for ``n = 0``."""
-    state, loop = _state(5, (jnp.asarray(0),)), _loop(Count())
+    state, loop = _state(5, (jnp.asarray(0),)), _loop(CounterExt())
     run = jax.jit(lambda s, n: loop.repeat_update(s, n, _update))
     out, same = run(state, 3), run(state, 0)
     assert float(out.value) == 4.0 and int(out.ext_state[0]) == 3
@@ -384,7 +374,7 @@ def test_repeat_update_folds_post_update_after_each_update() -> None:
 def test_a_per_seed_count_runs_each_seed_its_own_updates() -> None:
     """A count read from the per-seed state (batched under the seed ``vmap``)
     runs each seed exactly its own number of updates and ``post_update``s."""
-    loop = _loop(Count())
+    loop = _loop(CounterExt())
     run = jax.vmap(lambda s, n: loop.repeat_update(s, n, _update))
     states = jax.vmap(lambda v: _state(0, (jnp.asarray(0),)))(jnp.arange(3))
     out = run(states, jnp.array([0, 2, 5]))

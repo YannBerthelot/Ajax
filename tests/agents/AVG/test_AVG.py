@@ -31,6 +31,7 @@ def test_avg_initialization(env_id):
             NetworkConfig,
             AlphaConfig,
         ),
+        strict=False,
     ):
         assert hasattr(avg_agent, expected_attr)
         assert isinstance(getattr(avg_agent, expected_attr), expected_type)

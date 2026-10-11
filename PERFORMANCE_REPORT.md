@@ -810,6 +810,47 @@ per-memory-kind changes and costs as many tokens. A narrower embedder
 (Ni et al.'s are small linear layers) would cut the memory's input
 projection; not tried.
 
+## The refactor, before and after (a1658d9 -> 91ee10f, 2026-10-11)
+
+`benchmarks/agent_bench.py` at the audit commit a1658d9, before the
+refactoring roadmap's merges, and at main 91ee10f, after them: Pendulum
+(CartPole for the discrete agents, as the bench's presets), 4 envs, 8,000
+steps, 3 trials, compile cache off, on a quiet Mac (CPU). Raw rows:
+[`agent_refactor_before.jsonl`](benchmarks/agent_refactor_before.jsonl)
+and [`agent_refactor_after.jsonl`](benchmarks/agent_refactor_after.jsonl);
+`python benchmarks/agent_bench.py --compare` on them reports no regression
+beyond 10%. Median steps/s and compile (plus warm-up) seconds:
+
+| agent | steps/s before | after | delta | compile s before | after | delta |
+|---|---|---|---|---|---|---|
+| APG | 5594 | 5494 | -1.8% | 1.52 | 1.48 | -2% |
+| APO | 4217 | 4486 | +6.4% | 1.92 | 2.03 | +6% |
+| ASAC | 4164 | 5006 | +20.2% | 2.24 | 1.55 | -31% |
+| AVG | 1787 | 4056 | +126.9% | 1.95 | 1.58 | -19% |
+| DQN | 5547 | 6375 | +14.9% | 1.17 | 0.94 | -20% |
+| DreamerV3 | 287 | 273 | -5.1% | 11.39 | 12.31 | +8% |
+| PPO | 3904 | 4281 | +9.6% | 2.21 | 1.98 | -10% |
+| PQN | 6364 | 7332 | +15.2% | 1.11 | 1.01 | -9% |
+| REDQ | 3859 | 4868 | +26.2% | 2.14 | 1.58 | -26% |
+| SAC | 4403 | 5051 | +14.7% | 4.46 | 4.71 | +6% |
+| TD3 | 5317 | 6163 | +15.9% | 1.52 | 1.30 | -14% |
+| TDMPC2 | 247 | 243 | -1.3% | 6.65 | 7.25 | +9% |
+
+SafeSAC, benchmarked before (4091 steps/s), was deleted in between
+(#77). The causes, where known:
+
+- AVG: the shared loop (a5ad4e8): its metrics are no longer stacked per
+  step, and its length-1 inner scans became direct calls (88124c5).
+- ASAC, REDQ: the shared loop (no per-step metric stacking) and the
+  plain-MLP default (#87: no encoder LayerNorm), plus the length-1 scans
+  gone.
+- TD3: the shared loop and its plain critic (#82).
+- SAC, DQN, PPO: the plain-MLP default (#87); DQN and PPO also moved
+  onto the shared loop (#78, #79).
+- PQN, APO: the shared loop (#79) and the dead work removed (#71); not
+  attributed further.
+- APG, TDMPC2, DreamerV3: within run-to-run spread; not attributed.
+
 ## Where to look for more
 
 The [audit-pending section](PERFORMANCE_LOG.md#audit-items-still-pending)

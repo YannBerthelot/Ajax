@@ -266,6 +266,7 @@ class DreamerV3(ActorCritic):
             batch_length=batch_length,
             train_ratio=train_ratio,
         )
+        env_spec(self.env_args)  # rejects observations the model cannot encode
         self._capacity_rows = -(-int(replay_capacity) // n_envs)
         if self._capacity_rows < self.schedule.min_ring_rows():
             raise ValueError(

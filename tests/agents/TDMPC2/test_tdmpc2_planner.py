@@ -213,7 +213,9 @@ def test_draw_plan_noise_shapes_and_ranges():
     assert n.elite_uniform.shape == () and 0.0 <= float(n.elite_uniform) < 1.0
     assert n.action_eps.shape == (ACT,)
     other = draw(jax.random.PRNGKey(1))
-    for a, b in zip(jax.tree_util.tree_leaves(n), jax.tree_util.tree_leaves(other)):
+    for a, b in zip(
+        jax.tree_util.tree_leaves(n), jax.tree_util.tree_leaves(other), strict=False
+    ):
         assert not np.array_equal(a, b)
 
 
@@ -525,7 +527,9 @@ def test_eval_mode_removes_only_the_final_noise(params, obs, noise, dropout):
         params, obs, noise, config=config, prev_mean=prev, t0=False, eval_mode=True
     )
     for a, b in zip(
-        jax.tree_util.tree_leaves(train), jax.tree_util.tree_leaves(evaluation)
+        jax.tree_util.tree_leaves(train),
+        jax.tree_util.tree_leaves(evaluation),
+        strict=False,
     ):
         np.testing.assert_array_equal(a, b)
     np.testing.assert_array_equal(train_mean, eval_mean)

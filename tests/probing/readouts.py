@@ -202,7 +202,7 @@ def differing_leaves(a: Any, b: Any, rtol: float = 1e-5, atol: float = 1e-6) -> 
     if names != [jax.tree_util.keystr(p) for p, _ in lb]:
         return ["the two states have different structures"]
     found = []
-    for name, (_, x), (_, y) in zip(names, la, lb):
+    for name, (_, x), (_, y) in zip(names, la, lb, strict=False):
         x, y = (np.asarray(_key_data(v)) for v in (x, y))
         if x.shape != y.shape:
             found.append(f"{name}: shape {x.shape} against {y.shape}")

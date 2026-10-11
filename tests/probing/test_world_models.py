@@ -52,7 +52,7 @@ def _twin(sign: float, length: int, dim: int) -> envs.Spec:
     return envs.Spec("twin", step, obs, obs_dim=dim, obs_box=box, limit=length)
 
 
-TWINS = [_twin(s, t, d) for s, t, d in zip(SIGNS, LENGTHS, (1, 2))]
+TWINS = [_twin(s, t, d) for s, t, d in zip(SIGNS, LENGTHS, (1, 2), strict=False)]
 
 
 def _episodes(task: int, rng: np.random.Generator) -> TaskEpisodes:
@@ -92,7 +92,10 @@ def _q10_values(agent: Any, wm: Any, target_q: Any, pi: Any, key: Any) -> dict:
         kw = {"q_params": target_q, "task_emb": emb}
         v = decode(core.q_logits(apply, params, zs, a, **kw))
         out.append((q[0], q[1], v.min(0).mean(), (SIGNS[task] * a[:, 0]).mean()))
-    return {k: jnp.stack(x) for k, x in zip(("+", "-", "v", "m"), zip(*out))}
+    return {
+        k: jnp.stack(x)
+        for k, x in zip(("+", "-", "v", "m"), zip(*out, strict=False), strict=False)
+    }
 
 
 def _q10_read(run: runs.Run) -> dict:
@@ -130,7 +133,9 @@ def _q10_queries(i: int) -> tuple[Query, ...]:
 
 CASES["q10-TDMPC2MultiTask"] = Case(
     "q10-TDMPC2MultiTask",
-    tuple(q for pair in zip(_q10_queries(0), _q10_queries(1)) for q in pair),
+    tuple(
+        q for pair in zip(_q10_queries(0), _q10_queries(1), strict=False) for q in pair
+    ),
     runs.readings(_q10_agent, _q10_read),
     3000,
     (0.459, 0.438, 0.075, 0.061, 0.497, 0.483, 0.498, 0.496),

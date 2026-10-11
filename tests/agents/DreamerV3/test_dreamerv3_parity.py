@@ -54,7 +54,9 @@ from .common import reference_to_ajax
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 RUNS = ("continuous_init", "discrete_init", "continuous_perturbed")
 #: The reference's loss keys for Ajax's terms.
-REFERENCE_TERMS = dict(zip(LOSS_TERMS, ("vector", "reward", "cont", "dyn", "rep")))
+REFERENCE_TERMS = dict(
+    zip(LOSS_TERMS, ("vector", "reward", "cont", "dyn", "rep"), strict=False)
+)
 #: Bounds on ``max |ajax - ref| / (1 + max |ref|)`` per compared quantity.
 TOLERANCES = {
     "values": 1e-6,  # deter, logits, tokens, losses, KL

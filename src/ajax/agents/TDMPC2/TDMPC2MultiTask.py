@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from functools import partial
@@ -43,17 +42,13 @@ from ajax.extensions.base import Extension, ExtensionStack, check_extension_phas
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
+    new_run_id,
     start_async_logging,
     stop_async_logging,
     vmap_log,
 )
 from ajax.state import EnvironmentConfig
 from ajax.types import EnvType, FloatOrCallable
-
-try:
-    import wandb  # type: ignore[import-untyped]
-except ImportError:
-    wandb = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -482,9 +477,8 @@ class TDMPC2MultiTask:
 
         if logging_config is not None:
             logging_config.config.update(self.config)
-            new_id = wandb.util.generate_id if wandb is not None else _uuid
-            self.run_ids = [new_id() for _ in range(seeds.shape[0])]
-            for run_id, run_seed in zip(self.run_ids, seeds.tolist()):
+            self.run_ids = [new_run_id() for _ in range(seeds.shape[0])]
+            for run_id, run_seed in zip(self.run_ids, seeds.tolist(), strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))
             if logging_config.backend:  # else the logs are only returned
                 start_async_logging()
@@ -532,10 +526,6 @@ class TDMPC2MultiTask:
         if not history:
             return state, None
         return state, {k: np.stack(v, axis=-1) for k, v in history.items()}
-
-
-def _uuid() -> str:
-    return uuid.uuid4().hex
 
 
 __all__ = ["DMC_SCORE_DIVISOR", "TDMPC2MultiTask"]

@@ -75,7 +75,7 @@ def test_a_task_without_enough_data_is_not_judged():
 def _results(ajax_means, ref_means):
     return [
         acc.judge_task(f"t{i}", "w", [a] * 3, [r] * 3)
-        for i, (a, r) in enumerate(zip(ajax_means, ref_means))
+        for i, (a, r) in enumerate(zip(ajax_means, ref_means, strict=False))
     ]
 
 

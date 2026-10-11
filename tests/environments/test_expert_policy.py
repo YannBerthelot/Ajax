@@ -223,6 +223,7 @@ def test_pre_train_vmap_compatible():
     for a_old, a_new in zip(
         jax.tree_util.tree_leaves(create_dummy_actor_state().params),
         jax.tree_util.tree_leaves(trained_actors.params),
+        strict=False,
     ):
         assert not jnp.allclose(a_old, a_new)
 
@@ -267,3 +268,38 @@ def test_collect_experience_shapes_and_types(request, mode, env_args_fixture):
     assert transitions.reward.shape[0] == n_steps
     assert transitions.terminated.shape[0] == n_steps
     assert transitions.truncated.shape[0] == n_steps
+
+
+class _HalfTorqueExpert:
+    """A stateful expert (``init_state``): SAC's evaluation steps it with a
+    state."""
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state, obs):
+        return jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0), state
+
+
+def test_cloning_pretraining_leaves_jax_caches_alone():
+    """Behaviour cloning runs while the agent's train function is traced;
+    it must not clear JAX's caches there, which would make every function
+    compiled before compile again."""
+    from ajax import SAC
+
+    double = jax.jit(lambda x: 2 * x)
+    double(jnp.ones(2))
+    agent = SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        expert_policy=_HalfTorqueExpert(),
+        pre_train_n_steps=64,
+        actor_cloning_epochs=1,
+        expert_buffer_n_steps=0,
+        learning_starts=8,
+        batch_size=8,
+    )
+    agent.train(seed=0, n_timesteps=16)
+    assert double._cache_size() == 1

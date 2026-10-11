@@ -129,7 +129,7 @@ class UniformPerturbation(SystemClass):
             return batched
         keys = jax.random.split(rng, len(self.fields))
         updates = {}
-        for key, name in zip(keys, self.fields):
+        for key, name in zip(keys, self.fields, strict=False):
             nominal_value = jnp.asarray(getattr(self.nominal, name), dtype=jnp.float32)
             factor = 1.0 + jax.random.uniform(
                 key, (n,), minval=-self.scale, maxval=self.scale

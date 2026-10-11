@@ -212,6 +212,6 @@ def test_sac_short_train_then_resume_preserves_return(tmp_path):
     ref_leaves = jax.tree.leaves(ref_state.actor_state.params)
     res_leaves = jax.tree.leaves(resumed_state.actor_state.params)
     assert len(ref_leaves) == len(res_leaves)
-    for rl, sl in zip(ref_leaves, res_leaves):
+    for rl, sl in zip(ref_leaves, res_leaves, strict=False):
         assert not np.any(np.isnan(np.asarray(sl))), "NaN in resumed params"
         assert np.asarray(sl).shape == np.asarray(rl).shape

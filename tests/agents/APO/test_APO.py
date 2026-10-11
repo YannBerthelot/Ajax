@@ -25,6 +25,7 @@ def test_APO_initialization(env_id):
             OptimizerConfig,
             NetworkConfig,
         ),
+        strict=False,
     ):
         assert hasattr(APO_agent, expected_attr)
         assert isinstance(getattr(APO_agent, expected_attr), expected_type)
@@ -43,3 +44,11 @@ def test_avg_train_all_modes(env_id, seeds, n_envs):
 
     avg_agent = APO(env_id=env_id, n_envs=n_envs)
     avg_agent.train(seed=seeds, n_timesteps=n_timesteps)
+
+
+def test_APO_rejects_minibatch_sizes_that_do_not_divide():
+    """Without num_minibatches the rollout splits into max(n_steps,
+    batch_size) // min(...) minibatches: the two must divide one another."""
+    with pytest.raises(ValueError, match="must divide"):
+        APO(env_id="Pendulum-v1", n_steps=48, batch_size=32)
+    APO(env_id="Pendulum-v1", n_steps=48, batch_size=32, num_minibatches=2)

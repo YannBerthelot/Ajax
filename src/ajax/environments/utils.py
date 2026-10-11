@@ -64,11 +64,18 @@ def get_state_action_shapes(
 
     # Brax
     if check_env_is_brax(env):
-        obs_shape = (env.observation_size,)
-        action_shape = (env.action_size,)
-        return obs_shape, action_shape
+        return (traced_observation_size(env),), (env.action_size,)
 
     raise ValueError(f"Unsupported environment type: {type(env)}")
+
+
+def traced_observation_size(env: BraxEnv) -> Any:
+    """``env.observation_size``, evaluated while tracing: brax's
+    ``PipelineEnv`` reads it off a reset it runs (seconds of physics on
+    CPU), which a trace only stages."""
+    size: list = []
+    jax.eval_shape(lambda: size.append(env.observation_size))
+    return size[0]
 
 
 def get_raw_env(env: EnvType) -> EnvType:

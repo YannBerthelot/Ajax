@@ -166,7 +166,7 @@ def test_get_minibatches_from_batch(batch_size, n_envs, num_minibatches, feature
         ), "Minibatch size is incorrect."
 
     # Validate that all elements are present in the minibatches
-    for original, shuffled in zip(batch, minibatches):
+    for original, shuffled in zip(batch, minibatches, strict=False):
         flattened_original = original.flatten()
         flattened_shuffled = shuffled.flatten()
         assert jnp.all(
@@ -188,7 +188,7 @@ def test_time_minibatches_hold_whole_fragments_in_time_order(unroll_length):
     assert mbs["step"].shape == mbs["env"].shape == (2, length, per_mb)
     np.testing.assert_array_equal(np.diff(mbs["step"], axis=1), 1)
     assert (mbs["env"] == mbs["env"][:, :1]).all()
-    starts = zip(np.ravel(mbs["step"][:, 0]), np.ravel(mbs["env"][:, 0]))
+    starts = zip(np.ravel(mbs["step"][:, 0]), np.ravel(mbs["env"][:, 0]), strict=False)
     expected = [(c * length, e) for c in range(T // length) for e in range(n_envs)]
     assert sorted(starts) == expected
 

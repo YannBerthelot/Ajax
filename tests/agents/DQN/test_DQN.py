@@ -25,6 +25,7 @@ def test_DQN_initialization():
             NetworkConfig,
             BufferType,
         ),
+        strict=False,
     ):
         assert hasattr(agent, expected_attr)
         assert isinstance(getattr(agent, expected_attr), expected_type)

@@ -124,7 +124,9 @@ def test_the_reference_side_is_per_seed_window_means_on_the_task_budget():
     runs: dict = {}
     for agent, reference, n_seeds in (("DreamerV3", DREAMER, 5), ("TDMPC2", TDMPC2, 3)):
         for verdict, window in zip(
-            paper_report.judge_agent(agent, reference, runs), acc.WINDOWS[agent]
+            paper_report.judge_agent(agent, reference, runs),
+            acc.WINDOWS[agent],
+            strict=False,
         ):
             for result in verdict.tasks:
                 budget = paper_report.reference_budget(agent, reference, result.task)

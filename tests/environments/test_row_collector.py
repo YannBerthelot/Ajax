@@ -3,6 +3,7 @@ reset modes on gymnax / brax / mujoco_playground, the random-action phase,
 per-env params, the raw-env precondition, and the unbatched-cond structure
 under the seed vmap."""
 
+import itertools
 import warnings
 from typing import Any, NamedTuple
 
@@ -98,7 +99,7 @@ def episodes(rows, env):
     last = np.asarray(rows.is_last[:, env])
     starts = np.flatnonzero(first)
     ends = np.flatnonzero(last)
-    return list(zip(starts, ends))
+    return list(zip(starts, ends, strict=False))
 
 
 def check_row_conventions(rows):
@@ -170,7 +171,7 @@ def held_state_is_bit_identical(env_states, rows, n_envs):
         for path, leaf in jax.tree_util.tree_leaves_with_path(env_states)
         if not _is_batch_shared_seed(path)
     ]
-    for t, e in zip(*np.nonzero(last[:-1])):
+    for t, e in zip(*np.nonzero(last[:-1]), strict=False):
         for _, leaf in leaves:
             if leaf.ndim > 1 and leaf.shape[1] == n_envs:
                 np.testing.assert_array_equal(leaf[t + 1, e], leaf[t, e])
@@ -216,7 +217,7 @@ def test_dynamic_mode_on_terminating_gymnax_cartpole():
             assert np.abs(obs[start, e]).max() <= 0.05  # a fresh reset obs
         # consecutive episodes start from different (fresh) states
         starts = [obs[s, e] for s, _ in eps]
-        assert all(not np.allclose(a, b) for a, b in zip(starts, starts[1:]))
+        assert all(not np.allclose(a, b) for a, b in itertools.pairwise(starts))
         # the length of the last finished episode is tracked (its final row
         # may be the one the state emits next)
         start, end = eps[-1]

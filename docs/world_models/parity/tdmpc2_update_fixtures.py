@@ -198,10 +198,14 @@ class Recorder:
         params = [p for p in parameters if p.grad is not None]
         is_pi = [id(p) in self.pi_params for p in params]
         sq_other = sum(
-            float((p.grad.double() ** 2).sum()) for p, s in zip(params, is_pi) if not s
+            float((p.grad.double() ** 2).sum())
+            for p, s in zip(params, is_pi, strict=False)
+            if not s
         )
         sq_pi = sum(
-            float((p.grad.double() ** 2).sum()) for p, s in zip(params, is_pi) if s
+            float((p.grad.double() ** 2).sum())
+            for p, s in zip(params, is_pi, strict=False)
+            if s
         )
         norm = self._clip(params, max_norm, *args)
         post_sq = sum(float((p.grad.double() ** 2).sum()) for p in params)
@@ -472,7 +476,7 @@ def main() -> None:
     clip = CONFIG["grad_clip_norm"]
     assert wm[0] < clip, "update 0: the world-model clip must not bind"
     assert any(
-        w > clip and o < clip for w, o in zip(wm, own)
+        w > clip and o < clip for w, o in zip(wm, own, strict=False)
     ), "some update must clip the world model only because of the stale pi grads"
     assert pi[0] > clip and pi[1] > clip, "updates 0-1: the pi clip must bind"
     assert any(p < clip for p in pi[1:-1]), "an unclipped pi gradient must follow"

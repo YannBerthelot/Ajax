@@ -28,6 +28,7 @@ def test_SAC_initialization():
             AlphaConfig,
             BufferType,
         ),
+        strict=False,
     ):
         assert hasattr(SAC_agent, expected_attr)
         assert isinstance(getattr(SAC_agent, expected_attr), expected_type)

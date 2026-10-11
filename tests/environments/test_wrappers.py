@@ -2,11 +2,14 @@ import jax
 import jax.numpy as jnp
 import pytest
 from brax.envs import create as create_brax_env
+from brax.envs.base import Env as BraxEnv
 from brax.envs.base import State
+from brax.envs.wrappers import training as brax_training
 from flax import struct
 from gymnax import make as make_gymnax_env
 from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
 
+from ajax.environments.utils import get_state_action_shapes
 from ajax.wrappers import (
     AutoResetWrapper,
     BraxToGymnasium,
@@ -1028,3 +1031,49 @@ def test_reward_normaliser_divides_by_the_chosen_statistics(gamma):
         if gamma is not None:
             np.testing.assert_allclose(kept[t, 0], ret, rtol=1e-5)
     assert done.sum() >= 2
+
+
+class _ResetRecorder(BraxEnv):
+    """A toy brax env counting the resets that run: its callback fires when
+    a reset executes, never when it is only traced (``jax.eval_shape``)."""
+
+    def __init__(self):
+        self.runs: list = []
+
+    def reset(self, rng):
+        jax.debug.callback(lambda: self.runs.append(1))
+        x = jax.random.uniform(rng, (3,))
+        return State(pipeline_state=x, obs=x, reward=jnp.zeros(()), done=jnp.zeros(()))
+
+    def step(self, state, action):
+        return state
+
+    @property
+    def observation_size(self):
+        """As brax's ``PipelineEnv`` defines it: by running the reset."""
+        return self.reset(jax.random.PRNGKey(0)).obs.shape[-1]
+
+    @property
+    def action_size(self):
+        return 1
+
+    @property
+    def backend(self):
+        return "toy"
+
+
+def test_the_wrappers_read_shapes_without_running_the_reset():
+    """Building the brax stack (auto-reset, noise, normaliser) and reading
+    its shapes trace the reset, never run it: on brax physics a run takes
+    seconds."""
+    env = _ResetRecorder()
+    stack = brax_training.VmapWrapper(
+        brax_training.EpisodeWrapper(env, 10, action_repeat=1), batch_size=4
+    )
+    stack = NoiseWrapper(AutoResetWrapper(stack), scale=0.1)
+    stack = NormalizeVecObservationBrax(stack)
+    shapes = get_state_action_shapes(stack)
+    jax.effects_barrier()
+    assert env.runs == []
+    assert stack.n_envs == 4 and stack.batch_size == 4
+    assert shapes == ((3,), (1,))

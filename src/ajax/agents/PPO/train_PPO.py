@@ -308,8 +308,6 @@ def minibatch_geometry(
     num_minibatches = resolve_num_minibatches(agent_config)
     if recurrent:
         length = agent_config.bptt_length or n_steps
-        if n_steps % length:
-            raise ValueError(f"bptt_length ({length}) must divide n_steps ({n_steps}).")
         if num_minibatches > 1 and n_steps // length * n_envs % num_minibatches == 0:
             return Geometry("recurrent", num_minibatches, length)
         return Geometry("recurrent", 1, length)

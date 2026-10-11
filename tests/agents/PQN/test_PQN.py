@@ -24,6 +24,7 @@ def test_PQN_initialization():
             NetworkConfig,
             PQNConfig,
         ),
+        strict=False,
     ):
         assert hasattr(agent, expected_attr)
         assert isinstance(getattr(agent, expected_attr), expected_type)
@@ -38,9 +39,10 @@ def test_PQN_initialization_with_continuous_env():
 
 
 def test_PQN_rejects_indivisible_minibatches():
-    """n_steps must be divisible by num_minibatches."""
+    """The rollout's n_steps * n_envs rows must split into num_minibatches."""
     with pytest.raises(ValueError, match="must be divisible"):
-        PQN(env_id="CartPole-v1", n_steps=7, num_minibatches=2)
+        PQN(env_id="CartPole-v1", n_envs=1, n_steps=7, num_minibatches=2)
+    PQN(env_id="CartPole-v1", n_envs=2, n_steps=7, num_minibatches=2)
 
 
 @pytest.mark.parametrize(

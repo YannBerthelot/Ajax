@@ -48,7 +48,9 @@ def test_pinned_ramp_sequence():
     norm, scale = ReturnNormalizer.create(), RunningScale.create()
     d3_expected = [1.0, 1.0, 2.3199697, 25.246771]
     t2_expected = [1.0, 1.01295, 3.2978203, 26.214842]
-    for s, d3, t2 in zip((0.001, 0.01, 1.0, 10.0), d3_expected, t2_expected):
+    for s, d3, t2 in zip(
+        (0.001, 0.01, 1.0, 10.0), d3_expected, t2_expected, strict=False
+    ):
         norm, scale = norm.update(_ramp(s)), scale.update(_ramp(s))
         np.testing.assert_allclose(norm.scale(), d3, rtol=1e-6)
         np.testing.assert_allclose(scale.scale(), t2, rtol=1e-6)
@@ -194,7 +196,9 @@ def test_percentiles_in_float32_for_low_precision_inputs(create):
     )
     ours = create().update(x)
     upcast = create().update(x.astype(jnp.float32))
-    for a, b in zip(jax.tree_util.tree_leaves(ours), jax.tree_util.tree_leaves(upcast)):
+    for a, b in zip(
+        jax.tree_util.tree_leaves(ours), jax.tree_util.tree_leaves(upcast), strict=False
+    ):
         assert a.dtype == jnp.float32
         np.testing.assert_array_equal(a, b)
     np.testing.assert_array_equal(ours.scale(), upcast.scale())

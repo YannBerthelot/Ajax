@@ -427,8 +427,7 @@ class AgentExpert:
         return (a, args[0]) if len(args) == 2 else a
 
 
-STATELESS = "SAC's evaluation compares its policy with the expert by stepping the expert with a state (step_environment_expert, evaluate.py:406), unlike its own rollout and the collector, so a stateless expert raises TypeError at trace time; right: training runs"
-EXPERTS = [xparam(constant_expert, STATELESS, TypeError, "stateless")]
+EXPERTS = [pytest.param(constant_expert, id="stateless")]
 EXPERTS += [pytest.param(AgentExpert(constant_expert), id="stateful")]
 PREFILLED = ("action", "a_expert", "next_a_expert", "is_expert")
 
@@ -451,8 +450,7 @@ def test_p3_e11_sac_expert_prefill_trains(expert: Any, n_envs: int) -> None:
 # On the chain with a constant expert a_E = 0.8: MCPretrain's phi* and value
 # range (budget 0, reward_scale 2), CriticBlend's target, IBRL's gap, OnlineBC's
 # value weighting; then the cloning pre-training (budget 0) on SignedActionEnv,
-# expert 0.5 s, and on its twin observed at s + 2. The cloning cases come last:
-# the pre-training calls jax.clear_caches() while tracing (cloning.py:476).
+# expert 0.5 s, and on its twin observed at s + 2.
 
 
 @dataclasses.dataclass(frozen=True)

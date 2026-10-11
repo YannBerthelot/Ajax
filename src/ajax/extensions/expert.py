@@ -8,6 +8,7 @@ objects. The expert-dependent group lives here:
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
 * :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
+* :class:`ExpertValueMetrics`    — the critic at the expert's actions, logged.
 
 Each extension carries only frozen config on ``self``; the maths are the
 functions below. The expert is SAC's ``expert_policy``: OnlineBC,
@@ -17,6 +18,7 @@ ImitationLoss, for agents without an expert of their own, holds its own.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional
 
@@ -321,3 +323,78 @@ __all__ = [
     "ResidualPolicy",
     "JSRLCurriculum",
 ]
+
+
+@dataclass(frozen=True)
+class ExpertValueMetrics(Extension):
+    """The critic at the expert's actions, logged at each evaluation, on a
+    replay batch: ``value/q_expert_mean``, the mean of ``min_k Q_k(s,
+    a_E)``; ``value/q_gap``, that minus the same at the batch's actions
+    (above 0: the critic rates the expert above what was done); and, once
+    :class:`~ajax.extensions.pretrain.MCPretrain` has fitted ``φ*``,
+    ``value/phi_star_q_gap_ood``, the mean ``|min_k Q_φ*(s, a_E) - min_k
+    Q(s, a_E)|``.
+
+    SAC computed them on every update's batch, a critic pass of its own (two
+    with ``φ*``) per update for three logged numbers; here one replay batch
+    per evaluation pays for them. ``a_E`` is the expert's action stored at
+    collection. SAC with an ``expert_policy`` binds its replay buffer, its
+    expert and its observation augmentation.
+    """
+
+    buffer: Any = None
+    expert_policy: Optional[Callable] = None
+    augment_obs_with_expert_action: bool = False
+    name: str = "expert_value_metrics"
+
+    def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":
+        if self.buffer is not None:
+            return self
+        buffer, expert = agent_context.get("buffer"), agent_context.get("expert_policy")
+        if buffer is None or expert is None:
+            raise ValueError(
+                "ExpertValueMetrics reads the replay buffer and the expert of a"
+                " SAC agent with an expert_policy."
+            )
+        augment = agent_context.get("augment_obs_with_expert_action", False)
+        return dataclasses.replace(
+            self,
+            buffer=buffer,
+            expert_policy=expert,
+            augment_obs_with_expert_action=augment,
+        )
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        from ajax.agents.SAC.expert import augment_obs_if_needed
+        from ajax.buffers.utils import (
+            get_batch_from_buffer,
+            get_expert_fields_from_buffer,
+        )
+
+        del ext_state, ctx
+        buffer_state = agent_state.collector_state.buffer_state
+        obs, *_, actions, raw_obs, _ = get_batch_from_buffer(
+            self.buffer, buffer_state, rng
+        )
+        a_expert, _ = get_expert_fields_from_buffer(self.buffer, buffer_state, rng)
+        obs = augment_obs_if_needed(
+            obs, raw_obs, self.expert_policy, self.augment_obs_with_expert_action
+        )
+        critic = agent_state.critic_state
+
+        def q_min(params: Any, a: jax.Array) -> jax.Array:
+            x = jnp.concatenate([obs, a], axis=-1)
+            return jnp.min(predict_value(critic, params, x), axis=0)
+
+        q_expert = q_min(critic.params, a_expert)
+        out = {
+            "value/q_expert_mean": q_expert.mean(),
+            "value/q_gap": (q_expert - q_min(critic.params, actions)).mean(),
+        }
+        phi_star = getattr(agent_state, "expert_critic_params", None)
+        if phi_star is not None:
+            gap = jnp.abs(q_min(phi_star, a_expert) - q_expert).mean()
+            out["value/phi_star_q_gap_ood"] = gap
+        return out

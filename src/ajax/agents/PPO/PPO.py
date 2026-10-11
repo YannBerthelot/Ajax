@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from functools import partial
 from typing import Callable, Optional, Union
@@ -6,11 +7,39 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.PPO.core import resolve_num_minibatches
 from ajax.agents.PPO.state import PPOConfig
-from ajax.agents.PPO.train_PPO import make_train
+from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType, InitializationFunction
+
+
+def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -> None:
+    """Refuse an ``unroll_length`` the update could not use (it would fall
+    back to whole rollouts); warn when a recurrent rollout's sequences force
+    one minibatch where more were asked for."""
+    wanted = resolve_num_minibatches(config)
+    geometry = minibatch_geometry(config, config.n_steps, n_envs, recurrent)
+    unroll = config.unroll_length
+    if unroll is not None and recurrent:
+        raise ValueError(
+            "unroll_length is the feedforward fragment length; a recurrent"
+            " PPO splits its rollout with bptt_length."
+        )
+    if unroll is not None and (geometry.kind, geometry.length) != ("time", unroll):
+        raise ValueError(
+            f"unroll_length ({unroll}) must divide n_steps ({config.n_steps})"
+            " into fragments (n_steps // unroll_length * n_envs of them) that"
+            f" split evenly into num_minibatches ({wanted}) > 1 minibatches."
+        )
+    if recurrent and geometry.num_minibatches < wanted:
+        sequences = config.n_steps // geometry.length * n_envs
+        warnings.warn(
+            f"{sequences} sequences of {geometry.length} steps do not split"
+            f" into {wanted} minibatches: recurrent PPO trains on one.",
+            stacklevel=3,
+        )
 
 
 class PPO(ActorCritic):
@@ -151,7 +180,7 @@ class PPO(ActorCritic):
             extensions=extensions,
         )
 
-        self.agent_config = PPOConfig(
+        self.agent_config = config = PPOConfig(
             gamma=gamma,
             ent_coef=ent_coef,
             clip_range=clip_range,
@@ -181,6 +210,9 @@ class PPO(ActorCritic):
                 raise ValueError(
                     f"bptt_length ({bptt_length}) must divide n_steps ({n_steps})."
                 )
+        _check_minibatch_geometry(
+            config, self.env_args.n_envs, self.network_args.memory is not None
+        )
 
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)

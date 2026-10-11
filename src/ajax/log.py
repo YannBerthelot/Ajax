@@ -78,7 +78,7 @@ def maybe_eval_and_log(
     log: bool,
     log_fn: Callable,
     every: Optional[int],
-) -> tuple[Any, dict]:
+) -> tuple[Any, Optional[dict]]:
     """Evaluate + log every ``every`` scan iterations, gated on the scan index.
 
     For agents with their own evaluation
@@ -97,12 +97,16 @@ def maybe_eval_and_log(
     extra_key = split(agent_state.eval_rng)``; they are sent to ``log_fn``
     through :func:`gated_log_callback` and ``agent_state.n_logs`` is
     incremented. Otherwise the same structure is returned filled with NaN
-    (``-1`` for integer leaves) and ``n_logs`` is unchanged. When logging is
-    disabled (``log`` false or no ``every``) nothing is evaluated.
+    (``-1`` for integer leaves) and ``n_logs`` is unchanged; never so
+    without ``every``. Without logging (``log`` false) the evaluation is not
+    even traced (tracing alone rebuilds the evaluation env) and the metrics
+    are ``None``.
 
     Returns ``(agent_state, metrics)``.
     """
-    enabled = log and bool(every)
+    if not log:
+        return agent_state, None
+    enabled = bool(every)
     flag = jnp.logical_and(enabled, (iteration + 1) % (every or 1) == 0)
 
     def run(agent_state, aux, index):
@@ -111,9 +115,8 @@ def maybe_eval_and_log(
         metrics.update(evaluate_fn(agent_state, eval_key))
         if extra_eval_metrics is not None:
             metrics.update(extra_eval_metrics(agent_state, extra_key))
-        if log:
-            # gated inside the callback: see gated_log_callback
-            gated_log_callback(log_fn, flag, metrics, index)
+        # gated inside the callback: see gated_log_callback
+        gated_log_callback(log_fn, flag, metrics, index)
         return metrics
 
     def skip(agent_state, aux, index):
@@ -129,6 +132,21 @@ def maybe_eval_and_log(
 
 
 class AuxiliaryLogsProtocol(Protocol): ...
+
+
+def eval_norm_info(agent_state: Any, mode: str) -> Optional[Any]:
+    """The observation statistics the evaluation env normalises with: those
+    the training env's normaliser holds now, ``None`` without one.
+
+    The key is the one ``NormalizeVecObservation.update_state_*`` stores
+    (``ajax/wrappers.py``). Looking for another one (as this once did:
+    ``"obs_normalization_info"``) evaluates on raw observations an agent
+    trained on normalised ones.
+    """
+    env_state = agent_state.collector_state.env_state
+    if mode == "brax":
+        return env_state.info.get("normalization_info")
+    return getattr(env_state, "normalization_info", None)
 
 
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -220,14 +238,20 @@ def evaluate_and_log(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
-):
+    expert_return: Optional[jax.Array] = None,
+) -> tuple[BaseAgentState, Optional[dict]]:
+    """Evaluate and log every ``log_frequency`` collected steps; returns the
+    state (one more ``n_logs`` per evaluation) and the logged metrics, or
+    the same structure filled with NaN (``-1``: the timestep) between
+    evaluations. Without logging (``log`` false) the evaluation is not even
+    traced (tracing alone rebuilds the evaluation env) and the metrics are
+    ``None``. ``expert_return``: the expert's evaluation return when already
+    known (:func:`ajax.evaluate.evaluate_expert`), else evaluated each time."""
+    if not log:
+        return agent_state, None
     timestep = agent_state.collector_state.timestep
 
-    log_flag = (
-        timestep - (agent_state.n_logs * log_frequency) >= log_frequency
-        if log
-        else False
-    )
+    log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
     not_finished_flag = timestep <= total_timesteps if log_frequency else False
 
     if sweep:
@@ -248,21 +272,6 @@ def evaluate_and_log(
         # advanced across iterations, so each eval uses identical initial
         # conditions (per-seed).
         eval_key = agent_state.eval_rng
-        # Key name MUST match what ``NormalizeVecObservation.update_state_*``
-        # stores in info (see ``ajax/wrappers.py``). The wrapper writes
-        # ``info["normalization_info"]``; previously this check looked
-        # for ``"obs_normalization_info"`` which never matched -- so
-        # ``norm_info`` was always ``None``, ``setup_environment``
-        # rebuilt the eval env WITHOUT the normalizer, and the agent's
-        # eval feed was RAW obs while training was NORMALISED. This
-        # silently broke eval-vs-train alignment for any brax-stack env
-        # using normalize_observations=True (PPO on mujoco_playground,
-        # locomotion, etc.).
-        obs_normalization = (
-            "normalization_info" in agent_state.collector_state.env_state.info
-            if mode == "brax"
-            else "normalization_info" in dir(agent_state.collector_state.env_state)
-        )
         (
             eval_rewards,
             eval_entropy,
@@ -277,15 +286,7 @@ def evaluate_and_log(
             rng=eval_key,
             env_params=env_args.env_params,
             recurrent=recurrent,
-            norm_info=(
-                (
-                    agent_state.collector_state.env_state.info["normalization_info"]
-                    if mode == "brax"
-                    else agent_state.collector_state.env_state.normalization_info
-                )
-                if obs_normalization
-                else None
-            ),
+            norm_info=eval_norm_info(agent_state, mode),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
             # The training-fraction column the collector appends (None
@@ -296,6 +297,7 @@ def evaluate_and_log(
             pid_gain_policy=pid_gain_policy,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
+            expert_return=expert_return,
         )
         metrics_to_log = {
             "timestep": timestep,
@@ -318,8 +320,7 @@ def evaluate_and_log(
             extras = extra_eval_metrics(agent_state, extra_key)
             metrics_to_log.update(extras)
 
-        if log:
-            gated_log_callback(log_fn, flag, metrics_to_log, index)
+        gated_log_callback(log_fn, flag, metrics_to_log, index)
 
         return metrics_to_log
 

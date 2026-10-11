@@ -165,19 +165,27 @@ def sample_training_batch(
     return state, action, dr, dh
 
 
-def topk_command_stats(
-    buffer: SegmentBuffer, k: int
-) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Compute (mean_R, std_R, mean_H) over the top-K episodes
-    in the buffer (by realised return). Used to set rollout commands per
-    UDRL Algorithm 5.
-
-    The slots are read oldest first, one stream per env, so an episode
-    spanning several segments counts whole: a running return and horizon
-    per env, emitted where the dones flag ends an episode whose start the
-    stream holds (not the oldest slot's leading fragment once its start
-    was evicted).
+@struct.dataclass
+class EpisodeStream:
+    """The buffer's filled slots oldest first, one stream of steps per env,
+    each step placed in its episode: what the top-K statistics and the
+    sampler read, computed once per iteration (:func:`episode_stream`). The
+    collector runs on across iterations, so consecutive slots continue each
+    env's stream and an episode may span several.
     """
+
+    order: jnp.ndarray  # (B,) the slots, oldest first
+    returns: jnp.ndarray  # (B * T, n_envs) the episode's return through the step
+    horizons: jnp.ndarray  # (B * T, n_envs) the episode's steps through the step
+    # (B * T, n_envs) 1. where the step ends an episode whose start the
+    # stream holds (not the oldest slot's leading fragment once its start
+    # was evicted).
+    ends_whole: jnp.ndarray
+
+
+def episode_stream(buffer: SegmentBuffer) -> EpisodeStream:
+    """Read the buffer as :class:`EpisodeStream`: a running return and
+    horizon per env, restarted after each done."""
     B, T, n_envs = buffer.rewards.shape[:3]
     # Oldest first: the FIFO's oldest slot is write_idx once it is full.
     order = (buffer.write_idx - buffer.fill_count + jnp.arange(B)) % B
@@ -189,22 +197,27 @@ def topk_command_stats(
     def body(carry, x):
         running_r, running_h, whole = carry  # each (n_envs, 1)
         r, d = x  # (n_envs, 1) each
-        running_r = running_r + r
-        running_h = running_h + 1.0
-        ep_r = running_r
-        ep_h = running_h
-        running_r = running_r * (1.0 - d)
-        running_h = running_h * (1.0 - d)
+        running_r, running_h = running_r + r, running_h + 1.0
+        out, keep = (running_r, running_h, d * whole), 1.0 - d
         # The episode after a done starts inside the stream.
-        return (running_r, running_h, jnp.maximum(whole, d)), (ep_r, ep_h, d * whole)
+        return (running_r * keep, running_h * keep, jnp.maximum(whole, d)), out
 
     zeros = jnp.zeros_like(rewards[0])
     init = (zeros, zeros, buffer.episode_start[order[0]])
-    _, (ep_r, ep_h, d) = jax.lax.scan(body, init, (rewards, dones))
-    # ep_r, ep_h, d: (B * T, n_envs, 1)
-    flat_r = ep_r.reshape(-1)
-    flat_h = ep_h.reshape(-1)
-    flat_d = d.reshape(-1)
+    _, (ep_r, ep_h, ends_whole) = jax.lax.scan(body, init, (rewards, dones))
+    return EpisodeStream(order, ep_r[..., 0], ep_h[..., 0], ends_whole[..., 0])
+
+
+def topk_command_stats(
+    stream: EpisodeStream, k: int
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Compute (mean_R, std_R, mean_H) over the top-K whole episodes of the
+    stream (by realised return). Used to set rollout commands per UDRL
+    Algorithm 5.
+    """
+    flat_r = stream.returns.reshape(-1)
+    flat_h = stream.horizons.reshape(-1)
+    flat_d = stream.ends_whole.reshape(-1)
     masked_r = jnp.where(flat_d > 0, flat_r, -jnp.inf)
     k_eff = min(k, flat_r.shape[0])
     topk_vals, topk_idx = jax.lax.top_k(masked_r, k_eff)

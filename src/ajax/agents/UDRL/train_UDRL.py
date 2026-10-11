@@ -30,6 +30,7 @@ from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.UDRL.buffer import (
     add_segment,
+    episode_stream,
     init_buffer,
     sample_training_batch,
     topk_command_stats,
@@ -365,9 +366,8 @@ def training_iteration(
     # 3. Refresh the rollout command target from buffer top-K (Algorithm 5):
     #    an EMA towards the top-K statistics, keeping the old target while
     #    the buffer holds no completed episode (NaN statistics).
-    topk_r, topk_std, topk_h = topk_command_stats(
-        new_buffer, k=agent_config.command_topk
-    )
+    stream = episode_stream(new_buffer)
+    topk_r, topk_std, topk_h = topk_command_stats(stream, k=agent_config.command_topk)
     tau = agent_config.command_target_tau
 
     def _refresh(old: jax.Array, proposal: jax.Array) -> jax.Array:

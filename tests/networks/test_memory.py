@@ -81,7 +81,9 @@ def test_output_and_carry_shapes(kind, num_layers):
     assert isinstance(new_carry, tuple) and len(new_carry) == num_layers
     # carry structure must be stable (required by lax.scan carries)
     assert jax.tree.structure(new_carry) == jax.tree.structure(carry)
-    for out_leaf, in_leaf in zip(jax.tree.leaves(new_carry), jax.tree.leaves(carry)):
+    for out_leaf, in_leaf in zip(
+        jax.tree.leaves(new_carry), jax.tree.leaves(carry), strict=False
+    ):
         assert out_leaf.shape == in_leaf.shape
 
 
@@ -127,7 +129,9 @@ def test_step_equals_sequence(kind, num_layers):
     y_steps = jnp.concatenate(ys, axis=0)
 
     assert jnp.allclose(y_seq, y_steps, atol=1e-6)
-    for a, b in zip(jax.tree.leaves(seq_carry), jax.tree.leaves(step_carry)):
+    for a, b in zip(
+        jax.tree.leaves(seq_carry), jax.tree.leaves(step_carry), strict=False
+    ):
         assert jnp.allclose(a, b, atol=1e-6)
 
 
@@ -198,7 +202,7 @@ def test_transformer_sliding_window_bounds_memory():
         new_carry, _ = cell.apply(params, carry, x, resets)
         assert jax.tree.structure(new_carry) == jax.tree.structure(carry)
         for out_leaf, in_leaf in zip(
-            jax.tree.leaves(new_carry), jax.tree.leaves(carry)
+            jax.tree.leaves(new_carry), jax.tree.leaves(carry), strict=False
         ):
             assert out_leaf.shape == in_leaf.shape  # O(window), not O(T)
 
@@ -255,6 +259,6 @@ def test_flatten_carry_roundtrip(kind):
     flat = flatten_carry(carry)
     assert flat.shape == (B, flat_carry_dim(config) * 1)
     back = unflatten_carry(flat, zeros_carry_like(carry, B))
-    for a, b in zip(jax.tree.leaves(carry), jax.tree.leaves(back)):
+    for a, b in zip(jax.tree.leaves(carry), jax.tree.leaves(back), strict=False):
         assert a.dtype == b.dtype
         assert jnp.array_equal(a, b)

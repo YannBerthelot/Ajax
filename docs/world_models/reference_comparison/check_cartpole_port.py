@@ -132,20 +132,20 @@ def test_rows():
     assert rows[0]["is_first"] and rows[0]["reward"] == 0
     starts = [i for i, o in enumerate(rows) if o["is_first"]]
     lasts = [i for i, o in enumerate(rows) if o["is_last"]]
-    for st, la in zip(starts, lasts):
+    for st, la in zip(starts, lasts, strict=False):
         assert la > st
         body = rows[st + 1 : la + 1]
         assert all(o["reward"] == 1.0 and not o["is_first"] for o in body)
         assert all(not o["is_last"] for o in body[:-1])
         assert rows[st]["reward"] == 0.0 and not rows[st]["is_last"]
-    for la, nxt in zip(lasts, starts[1:]):
+    for la, nxt in zip(lasts, starts[1:], strict=False):
         assert nxt == la + 1  # the row after is_last is the next reset row
     assert len(rec) == len(lasts)
     trunc = [r for r in rec if not r["terminal"]]
     assert len(trunc) == 1, trunc
     tr = trunc[0]
     assert not rows[tr["row_last"]]["is_terminal"] and rows[tr["row_last"]]["is_last"]
-    for r, la, st in zip(rec, lasts, starts):
+    for r, la, st in zip(rec, lasts, starts, strict=False):
         assert (
             r["row_last"] == la and r["length"] == la - st and r["score"] == r["length"]
         )

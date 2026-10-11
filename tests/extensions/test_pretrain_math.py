@@ -123,7 +123,10 @@ def test_pretrain_critic_online_light_changes_params(rng, pretrain_batches):
     # At least one leaf in the critic params should change after updates.
     orig_leaves = jax.tree_util.tree_leaves(critic_state.params)
     new_leaves = jax.tree_util.tree_leaves(out.critic_state.params)
-    diffs = [float(jnp.abs(a - b).sum()) for a, b in zip(orig_leaves, new_leaves)]
+    diffs = [
+        float(jnp.abs(a - b).sum())
+        for a, b in zip(orig_leaves, new_leaves, strict=False)
+    ]
     assert max(diffs) > 0.0
 
 
@@ -139,6 +142,7 @@ def test_pretrain_critic_online_light_zero_lr_is_no_op(rng, pretrain_batches):
     for a, b in zip(
         jax.tree_util.tree_leaves(critic_state.params),
         jax.tree_util.tree_leaves(out.critic_state.params),
+        strict=False,
     ):
         assert jnp.allclose(a, b)
 

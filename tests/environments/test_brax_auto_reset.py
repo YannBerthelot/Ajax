@@ -150,7 +150,7 @@ def _seeds():
 def _assert_trees_equal(actual, expected):
     paths = jax.tree_util.tree_flatten_with_path(expected)[0]
     assert jax.tree.structure(actual) == jax.tree.structure(expected)
-    for (path, e), a in zip(paths, jax.tree.leaves(actual)):
+    for (path, e), a in zip(paths, jax.tree.leaves(actual), strict=False):
         np.testing.assert_array_equal(a, e, err_msg=jax.tree_util.keystr(path))
 
 
@@ -321,5 +321,6 @@ def test_gated_reset_matches_the_ungated_rollout_on_brax_physics():
         for actual, ref in zip(
             jax.tree.leaves(states.pipeline_state),
             jax.tree.leaves(expected.pipeline_state),
+            strict=False,
         ):
             np.testing.assert_allclose(actual, ref, rtol=1e-5, atol=1e-5)

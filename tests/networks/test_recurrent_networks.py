@@ -193,5 +193,7 @@ def test_a_recurrent_q_critic_queries_its_action_after_the_memory(kind):
     same = jnp.arange(T) != 2
     assert jnp.array_equal(values[:, same], moved[:, same])
     assert not jnp.allclose(values[:, 2], moved[:, 2])
-    for leaf, moved_leaf in zip(jax.tree.leaves(carry), jax.tree.leaves(moved_carry)):
+    for leaf, moved_leaf in zip(
+        jax.tree.leaves(carry), jax.tree.leaves(moved_carry), strict=False
+    ):
         assert jnp.array_equal(leaf, moved_leaf)

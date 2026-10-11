@@ -32,7 +32,7 @@ def _perturbed(params, seed):
     leaves, treedef = jax.tree_util.tree_flatten_with_path(params)
     keys = jax.random.split(jax.random.PRNGKey(seed), len(leaves))
     new = []
-    for (path, leaf), key in zip(leaves, keys):
+    for (path, leaf), key in zip(leaves, keys, strict=False):
         noise = 0.5 * jax.random.normal(key, leaf.shape, leaf.dtype)
         is_scale = jax.tree_util.keystr(path).endswith("['scale']")
         new.append(1.0 + noise if is_scale else noise / math.sqrt(leaf.shape[0]))

@@ -44,6 +44,7 @@ def test_PPO_initialization(env_id):
             OptimizerConfig,
             NetworkConfig,
         ),
+        strict=False,
     ):
         assert hasattr(PPO_agent, expected_attr)
         assert isinstance(getattr(PPO_agent, expected_attr), expected_type)

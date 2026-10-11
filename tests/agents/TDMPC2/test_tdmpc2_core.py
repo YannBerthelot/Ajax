@@ -106,12 +106,12 @@ def test_clip_grad_norm_is_torch_clip_grad_norm(scale):
         extra_sq_norm=float(np.sum(stale[0].astype(np.float64) ** 2)),
     )
     np.testing.assert_allclose(norm, expected_norm, rtol=1e-6)
-    for c, e in zip(clipped, expected):
+    for c, e in zip(clipped, expected, strict=False):
         np.testing.assert_allclose(c, e, rtol=1e-5)
     unclipped, _ = core.clip_grad_norm(
         [jnp.asarray(g) for g in grads], 1e3 * scale + 1.0
     )
-    for u, g in zip(unclipped, grads):
+    for u, g in zip(unclipped, grads, strict=False):
         np.testing.assert_array_equal(u, g)
 
 

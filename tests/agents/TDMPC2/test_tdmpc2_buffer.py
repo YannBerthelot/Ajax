@@ -309,7 +309,7 @@ def test_adopting_keeps_seed_axes_and_shares_an_equal_ring():
     assert adopted.obs.shape == (2, big.n_slots, T + 1, OBS)
     for i in range(2):
         one = big.adopt(jax.tree.map(lambda x, i=i: x[i], seeds), tick)
-        for x, y in zip(jax.tree.leaves(one), jax.tree.leaves(adopted)):
+        for x, y in zip(jax.tree.leaves(one), jax.tree.leaves(adopted), strict=False):
             np.testing.assert_array_equal(x, y[i])
     # A smaller ring keeps the newest rounds it reads.
     shrunk = EpisodeBuffer.create(

@@ -43,7 +43,9 @@ def reference_online_loop(steps, seed_steps, episode_length, actions):
     while step <= steps:  # :70
         if done:  # :77
             if step > 0:  # :84
-                buffer.append(tuple(np.array(v, np.float32) for v in zip(*tds)))  # :91
+                buffer.append(
+                    tuple(np.array(v, np.float32) for v in zip(*tds, strict=False))
+                )  # :91
             t, x = 0.0, 0.0  # :93 env.reset()
             tds = [([t, x], [np.nan], np.nan)]  # :94 to_td(obs)
         random = not step > seed_steps  # :97-100

@@ -676,7 +676,7 @@ def _difference(a, b) -> float:
     """Largest difference of two trees, relative to each tensor's scale."""
     return max(
         float(np.max(np.abs(x - y)) / max(np.max(np.abs(y)), 1e-30))
-        for x, y in zip(jax.tree.leaves(a), jax.tree.leaves(b))
+        for x, y in zip(jax.tree.leaves(a), jax.tree.leaves(b), strict=False)
     )
 
 
@@ -783,7 +783,8 @@ def test_slow_critic_is_a_copy_after_the_first_update_then_an_ema():
                 first.critic_state.params,
                 state.critic_state.params,
             )
-        )
+        ),
+        strict=False,
     ):
         np.testing.assert_array_equal(slow, critic)
         assert np.any(np.asarray(critic) != np.asarray(initial))
@@ -796,7 +797,8 @@ def test_slow_critic_is_a_copy_after_the_first_update_then_an_ema():
                 second.critic_state.params,
                 first.critic_state.target_params,
             )
-        )
+        ),
+        strict=False,
     ):
         rate = np.float32(FAST.slow_rate)
         expected = rate * critic + (1 - rate) * previous
@@ -853,7 +855,8 @@ def test_init_learner():
         assert float(retnorm.lo) == float(retnorm.hi) == 0.0
     critic = state.critic_state
     for slow, online in zip(
-        *(jax.tree.leaves(t) for t in (critic.target_params, critic.params))
+        *(jax.tree.leaves(t) for t in (critic.target_params, critic.params)),
+        strict=False,
     ):
         np.testing.assert_array_equal(slow, online)
     step = jax.jit(learner.train_step, static_argnames="config", donate_argnums=0)
@@ -923,7 +926,9 @@ def test_make_optimizer_honours_every_optimizer_field():
         for i, tx in enumerate((ours, theirs, defaults)):
             update, states[i] = tx.update(grads, states[i], params)
             updates.append(update)
-        for mine, expected in zip(*(jax.tree.leaves(u) for u in updates[:2])):
+        for mine, expected in zip(
+            *(jax.tree.leaves(u) for u in updates[:2]), strict=False
+        ):
             np.testing.assert_array_equal(mine, expected)
         if k:  # the default optimizer's updates differ (update 0 is 0 for both)
             assert _difference(updates[0], updates[2]) > 0.1

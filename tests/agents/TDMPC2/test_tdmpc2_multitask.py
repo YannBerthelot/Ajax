@@ -193,6 +193,7 @@ def test_the_embedding_table_is_a_world_model_parameter():
         for a, b in zip(
             jax.tree.leaves(st.world_model_state.params[name]),
             jax.tree.leaves(state.world_model_state.params[name]),
+            strict=False,
         ):
             np.testing.assert_array_equal(a, b)
     with pytest.raises(ValueError, match="task_dim > 0"):
@@ -277,7 +278,7 @@ def test_update_renorms_and_writes_back_before_the_target_and_after_the_step(
     # (The pre-renormed row may be renormed again by a float32 ulp.)
     for name in aux:
         np.testing.assert_allclose(aux[name], same_aux[name], rtol=1e-5, err_msg=name)
-    for a, b in zip(jax.tree.leaves(new), jax.tree.leaves(same)):
+    for a, b in zip(jax.tree.leaves(new), jax.tree.leaves(same), strict=False):
         np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-6)
 
 

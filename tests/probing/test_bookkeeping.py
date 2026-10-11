@@ -127,9 +127,15 @@ def repeats(record: np.ndarray, saturated: bool) -> dict[str, float]:
     def share(axes: tuple[int, int, int]) -> float:
         w, k = win.transpose(*axes, 3), keep.transpose(axes)
         flags: list[bool] = []
-        for group, kept in zip(w.reshape(-1, *w.shape[2:]), k.reshape(-1, k.shape[2])):
-            seen = Counter(x.tobytes() for x, ok in zip(group, kept) if ok)
-            flags += [seen[x.tobytes()] > 1 for x, ok in zip(group, kept) if ok]
+        for group, kept in zip(
+            w.reshape(-1, *w.shape[2:]), k.reshape(-1, k.shape[2]), strict=False
+        ):
+            seen = Counter(
+                x.tobytes() for x, ok in zip(group, kept, strict=False) if ok
+            )
+            flags += [
+                seen[x.tobytes()] > 1 for x, ok in zip(group, kept, strict=False) if ok
+            ]
         return float(np.mean(flags)) if flags else 0.0
 
     out = {"within env": share((0, 1, 2))}

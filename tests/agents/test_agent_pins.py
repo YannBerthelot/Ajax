@@ -460,7 +460,9 @@ def fingerprint(name: str) -> dict[str, float]:
         out["n_updates"] = float(jnp.asarray(state.n_updates).reshape(-1)[0])
     if hasattr(state, "alpha"):
         out["alpha"] = float(jnp.exp(state.alpha.params["log_alpha"]).reshape(-1)[0])
-    for ext, ext_state in zip(kwargs.get("extensions", ()), state.ext_state):
+    for ext, ext_state in zip(
+        kwargs.get("extensions", ()), state.ext_state, strict=False
+    ):
         out[ext.name] = float(jnp.asarray(ext_state).reshape(-1)[0])
     return out
 

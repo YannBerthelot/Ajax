@@ -16,6 +16,7 @@ def test_UDRL_initialization():
     for attr, expected_type in zip(
         ("env_args", "actor_optimizer_args", "network_args", "agent_config"),
         (EnvironmentConfig, OptimizerConfig, NetworkConfig, UDRLConfig),
+        strict=False,
     ):
         assert hasattr(agent, attr)
         assert isinstance(getattr(agent, attr), expected_type)
@@ -53,7 +54,9 @@ def test_UDRL_train_updates_actor_params():
     def any_diff(a, b):
         leaves_a = jax.tree_util.tree_leaves(a)
         leaves_b = jax.tree_util.tree_leaves(b)
-        return any(not jnp.allclose(la, lb) for la, lb in zip(leaves_a, leaves_b))
+        return any(
+            not jnp.allclose(la, lb) for la, lb in zip(leaves_a, leaves_b, strict=False)
+        )
 
     assert any_diff(state.actor_state.params, fresh_state.actor_state.params)
 

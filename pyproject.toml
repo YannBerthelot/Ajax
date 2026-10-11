@@ -75,11 +75,6 @@ verbose = false
 line-length = 88
 fix = true
 src = ["src", "tests"]
-# Deliberate workaround: ruff takes its target from requires-python (py311)
-# once [project] exists. Under Poetry there was none and ruff used its
-# default, py38. py311 rewrites 61 files (zip(strict=False) from B905, new
-# formatting), which belongs in its own change, not in the switch to uv.
-target-version = "py38"
 
 [tool.ruff.lint]
 select =  ["I", "F", "E", "W", "B", "C", "RUF", "ARG"]

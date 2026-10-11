@@ -308,11 +308,13 @@ def test_online_items_follow_the_reference_loop(cartpole):
     )
     samples = _per_update(cartpole.spied.samples, len(reference))
     tick_of_update = np.repeat(np.arange(ticks), counts)
-    for update, (pair, expected) in enumerate(zip(samples, reference)):
+    for update, (pair, expected) in enumerate(zip(samples, reference, strict=False)):
         for rows, env, start, online in pair:
             assert int(rows) == tick_of_update[update] + 1
             np.testing.assert_array_equal(online, [k is not None for k in expected])
-            popped = list(zip(env[online].tolist(), start[online].tolist()))
+            popped = list(
+                zip(env[online].tolist(), start[online].tolist(), strict=False)
+            )
             assert popped == [k for k in expected if k is not None], update
     assert any(k is not None for batch in reference for k in batch)  # exercised
 
@@ -372,6 +374,7 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(cartpole
     for ours, theirs in zip(
         jax.tree.leaves(state.world_model_state.params),
         jax.tree.leaves(full.world_model_state.params),
+        strict=False,
     ):
         np.testing.assert_allclose(ours, theirs, rtol=1e-5, atol=1e-6)
     np.testing.assert_array_equal(state.replay_state.obs, full.replay_state.obs)

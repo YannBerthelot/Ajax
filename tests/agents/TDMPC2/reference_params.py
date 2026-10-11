@@ -162,7 +162,7 @@ class ErrorReport:
         a_leaves = jax.tree_util.tree_leaves(actual)
         e_leaves = jax.tree_util.tree_leaves(expected)
         assert len(a_leaves) == len(e_leaves), name
-        for a, e in zip(a_leaves, e_leaves):
+        for a, e in zip(a_leaves, e_leaves, strict=False):
             np.testing.assert_allclose(
                 np.asarray(a), np.asarray(e), rtol=rtol, atol=atol, err_msg=name
             )

@@ -155,7 +155,7 @@ def calibration_errors(case: Case) -> list[str]:
     errors = (
         [] if len(case.tol) in (0, len(case.queries)) else [f"{case.id}: tol length"]
     )
-    for q, t in zip(case.queries, case.tol):
+    for q, t in zip(case.queries, case.tol, strict=False):
         cap = min(q.max_tolerance, case.ceiling) + 1e-9
         if not (0 < t < abs(q.truth) if q.margin else 0 < t <= cap):
             errors.append(f"{case.id} {q.name}: {t} outside its gap")

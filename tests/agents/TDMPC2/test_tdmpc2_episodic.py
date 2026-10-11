@@ -345,7 +345,9 @@ def _fill(buffer: EpisodicBuffer) -> EpisodicBufferState:
         rows.append(out[:TICKS])
     state = buffer.init()
     for tick in range(TICKS):
-        columns, last, terminal = zip(*(rows[env][tick] for env in range(2)))
+        columns, last, terminal = zip(
+            *(rows[env][tick] for env in range(2)), strict=False
+        )
         obs = jnp.asarray(columns, jnp.float32)
         row = Row(
             obs=obs,
@@ -387,7 +389,7 @@ def test_the_replay_draws_whole_episodes_uniformly_then_a_uniform_offset():
     np.testing.assert_array_equal(batch.reward, obs[1:, :, 2])  # r_{t} on row t + 1
     lengths = {(0, 0): 4, (0, 2): 3, (1, 0): 6, (1, 1): 2}
     terminating = {(0, 0), (1, 1)}
-    keys = list(zip(env.astype(int), episode.astype(int)))
+    keys = list(zip(env.astype(int), episode.astype(int), strict=False))
     counts = {k: keys.count(k) for k in lengths}
     assert set(keys) == set(lengths)
     assert all(abs(c - 1000) < 150 for c in counts.values()), counts

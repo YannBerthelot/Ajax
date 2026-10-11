@@ -246,7 +246,7 @@ def test_the_committed_tdmpc2_reference():
     }
     for task, values in expected.items():
         for x, value in zip(
-            (100_000, 500_000, 1_000_000, 2_000_000, 4_000_000), values
+            (100_000, 500_000, 1_000_000, 2_000_000, 4_000_000), values, strict=False
         ):
             assert _seed_means(ref, task, x) == pytest.approx(value, abs=0.5)
     assert _seed_means(ref, "humanoid-run", 14_000_000) == pytest.approx(603, abs=0.5)

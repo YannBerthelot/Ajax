@@ -60,7 +60,7 @@ def make_dataset(episodes=(6, 4, 5), seed=0, episode_lengths=(T, T, T)):
     rng = np.random.default_rng(seed)
     tasks = []
     for n, (obs_dim, action_dim), name, length in zip(
-        episodes, DIMS, NAMES, episode_lengths
+        episodes, DIMS, NAMES, episode_lengths, strict=False
     ):
         action = rng.uniform(-1, 1, (n, T + 1, action_dim)).astype(np.float32)
         action[:, -1] = 0.0

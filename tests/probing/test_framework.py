@@ -117,7 +117,7 @@ def _observed(env: Any, params: Any) -> list[np.ndarray]:
         a = env.action_space(params).sample(k)
         nxt, _, r, done, *_ = env.step(k, st, a, params)
         out.append((obs, nxt, r, done))
-    return [np.stack(x) for x in zip(*out)]
+    return [np.stack(x) for x in zip(*out, strict=False)]
 
 
 def test_package_probes_observing_only_zero_observe_only_one() -> None:

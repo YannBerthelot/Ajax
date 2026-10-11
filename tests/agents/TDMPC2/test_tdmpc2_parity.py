@@ -281,7 +281,9 @@ def _max_deviation(actual: Any, expected: Any) -> float:
     return max(
         float(np.abs(np.asarray(a) - e).max())
         for a, e in zip(
-            jax.tree_util.tree_leaves(actual), jax.tree_util.tree_leaves(expected)
+            jax.tree_util.tree_leaves(actual),
+            jax.tree_util.tree_leaves(expected),
+            strict=False,
         )
     )
 

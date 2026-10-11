@@ -92,7 +92,9 @@ class CNNEncoder(nn.Module):
             img = x
             extra = None
         img = img.reshape(*x.shape[:-1], H, W, C)
-        for c, k, s in zip(self.channels, self.kernel_sizes, self.strides):
+        for c, k, s in zip(
+            self.channels, self.kernel_sizes, self.strides, strict=False
+        ):
             # Each kernel/stride entry may be an int (square) or an (h, w)
             # tuple -- the latter for non-square images (e.g. octax's 64x32).
             ks = k if isinstance(k, tuple) else (k, k)

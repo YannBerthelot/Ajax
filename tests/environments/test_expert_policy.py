@@ -223,6 +223,7 @@ def test_pre_train_vmap_compatible():
     for a_old, a_new in zip(
         jax.tree_util.tree_leaves(create_dummy_actor_state().params),
         jax.tree_util.tree_leaves(trained_actors.params),
+        strict=False,
     ):
         assert not jnp.allclose(a_old, a_new)
 

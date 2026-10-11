@@ -484,7 +484,7 @@ class TDMPC2MultiTask:
             logging_config.config.update(self.config)
             new_id = wandb.util.generate_id if wandb is not None else _uuid
             self.run_ids = [new_id() for _ in range(seeds.shape[0])]
-            for run_id, run_seed in zip(self.run_ids, seeds.tolist()):
+            for run_id, run_seed in zip(self.run_ids, seeds.tolist(), strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))
             if logging_config.backend:  # else the logs are only returned
                 start_async_logging()

@@ -25,6 +25,7 @@ def test_APO_initialization(env_id):
             OptimizerConfig,
             NetworkConfig,
         ),
+        strict=False,
     ):
         assert hasattr(APO_agent, expected_attr)
         assert isinstance(getattr(APO_agent, expected_attr), expected_type)

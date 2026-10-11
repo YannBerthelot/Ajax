@@ -453,3 +453,41 @@ def test_the_expert_prefill_stores_the_experts_state_as_collection_does(
         if train_frac:  # 0 in the prefill, a fraction after
             np.testing.assert_allclose(x[:, :LIMIT, 1], 0.0)
             assert (x[..., 1][written] <= 1.0).all()
+
+
+class IntegratingExpert:
+    """Stateful, its action reading its state: an integrator of the
+    observations since the episode's start, playing u / LIMIT - I / 200
+    at observation u with I its integral before the call (so, on the
+    counter, A(u) = u / LIMIT - u (u - 1) / 400)."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return obs[..., :1] / LIMIT - state / 200.0, state + obs[..., :1]
+
+
+def integrated_action(u: Any) -> Any:
+    return u / LIMIT - u * (u - 1) / 400.0
+
+
+def test_stored_expert_actions_come_from_the_experts_tracked_state():
+    """Every stored row, the prefill's and collection's, holds the action
+    the integrating expert took at s from its state there, a_E = A(s), and
+    at s' from its state after the step, A(s + 1): a zero, reset or
+    pre-call state stores another."""
+    state = train(
+        CounterEnv(), expert_policy=IntegratingExpert(), expert_buffer_n_steps=LIMIT
+    )
+    rows = state.collector_state.buffer_state.experience
+    s, s_next, a, a_next = (
+        np.asarray(rows[k])[..., 0].reshape(-1)
+        for k in ("raw_obs", "next_obs", "a_expert", "next_a_expert")
+    )
+    written = s_next != 0
+    assert written.sum() >= 2 * LIMIT
+    np.testing.assert_allclose(a[written], integrated_action(s[written]), atol=1e-6)
+    np.testing.assert_allclose(
+        a_next[written], integrated_action(s[written] + 1), atol=1e-6
+    )

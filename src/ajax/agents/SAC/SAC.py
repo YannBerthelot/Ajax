@@ -16,7 +16,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -154,9 +153,6 @@ class SAC(ActorCritic):
         skip_critic_pretrain: bool = True,
         reset_log_std_after_bc: bool = False,
         reset_actor_head_after_bc: bool = False,
-        # PID actor: actor network predicts PID gains instead of raw
-        # actions (affects network architecture).
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # --- Composable research features ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -262,7 +258,6 @@ class SAC(ActorCritic):
             else None
         )
         self.target_entropy_ramp_frac = target_entropy_ramp_frac
-        self.pid_actor_config = pid_actor_config
 
     def get_make_train(self) -> Callable:
         return partial(
@@ -289,7 +284,6 @@ class SAC(ActorCritic):
             target_entropy_initial=self.target_entropy_initial,
             target_entropy_ramp_frac=self.target_entropy_ramp_frac,
             jsrl_curriculum=self.jsrl_curriculum,
-            pid_actor_config=self.pid_actor_config,
             action_dim_override=self.action_dim_override,
             extensions=tuple(self.extension_stack.extensions),
         )

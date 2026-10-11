@@ -14,7 +14,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -66,7 +65,6 @@ class ASAC(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -132,8 +130,6 @@ class ASAC(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
 
-        self.pid_actor_config = pid_actor_config
-
     def get_make_train(self) -> Callable:
         """
         Create a training function for the ASAC agent.
@@ -145,6 +141,5 @@ class ASAC(ActorCritic):
             make_train,
             buffer=self.buffer,
             alpha_args=self.alpha_args,
-            pid_actor_config=self.pid_actor_config,
             extensions=tuple(self.extension_stack.extensions),
         )

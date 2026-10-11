@@ -1,6 +1,7 @@
 """Wrappers for environment"""
 
 # ruff: noqa: C901
+import dataclasses
 from functools import cached_property, partial
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -25,7 +26,7 @@ from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 
-from ajax.environments.utils import get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
@@ -366,6 +367,13 @@ def get_obs_and_reward_and_done_from_state(
         return state.obs, state.reward, state.done
 
 
+def _fields(state: Any) -> dict:
+    """A state's fields one level deep. A wrapper's nested env state stays
+    a state; ``to_state_dict`` would turn it into a dict the inner env
+    cannot step."""
+    return {f.name: getattr(state, f.name) for f in dataclasses.fields(state)}
+
+
 def normalize_wrapper_factory(
     mode,
 ):
@@ -388,6 +396,7 @@ def normalize_wrapper_factory(
             super().__init__(env)
 
             self.obs_shape, _ = get_state_action_shapes(env)
+            self.raw_columns = raw_obs_columns(env)
 
             self.train = train
             self.normalize_obs = normalize_obs
@@ -448,8 +457,7 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state = state
-                state_dict = to_state_dict(env_state)
-                state_dict["normalization_info"] = norm_info
+                state_dict = _fields(env_state) | {"normalization_info": norm_info}
                 env_state = self.state_class(**state_dict)
                 return obs, env_state
 
@@ -476,8 +484,7 @@ def normalize_wrapper_factory(
                 )
             else:
                 _, env_state, _, terminated, truncated, info = state
-                state_dict = to_state_dict(env_state)
-                state_dict["normalization_info"] = norm_info
+                state_dict = _fields(env_state) | {"normalization_info": norm_info}
                 env_state = self.state_class(**state_dict)
                 info = {**info, **extra_info}
                 return obs, env_state, reward, terminated, truncated, info
@@ -495,7 +502,12 @@ def normalize_wrapper_factory(
             keys = [k for k in _FINAL_OBS_KEYS if k in info]
             out = {
                 k: online_normalize(
-                    info[k], stats.count, stats.mean, stats.mean_2, train=False
+                    info[k],
+                    stats.count,
+                    stats.mean,
+                    stats.mean_2,
+                    train=False,
+                    raw_columns=self.raw_columns,
                 )[0]
                 for k in keys
             }
@@ -544,6 +556,7 @@ def normalize_wrapper_factory(
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,
                     train=self.train,
+                    raw_columns=self.raw_columns,
                 )
                 obs_norm_info = NormalizationInfo(
                     count=obs_count,
@@ -585,10 +598,10 @@ def normalize_wrapper_factory(
                 else state.normalization_info.reward
             )
             if mode == "gymnax":
-                raw_state_dict = to_state_dict(state)
-                if "normalization_info" in raw_state_dict:
-                    del raw_state_dict["normalization_info"]
-                raw_state = self._raw_state(**raw_state_dict)
+                raw_fields = dataclasses.fields(self._raw_state)
+                raw_state = self._raw_state(
+                    **{f.name: getattr(state, f.name) for f in raw_fields}
+                )
             else:
                 raw_state = state
 
@@ -611,6 +624,7 @@ def normalize_wrapper_factory(
                     obs_norm_info.mean,
                     obs_norm_info.mean_2,
                     train=self.train,
+                    raw_columns=self.raw_columns,
                 )
                 obs_norm_info = NormalizationInfo(
                     count=obs_count,

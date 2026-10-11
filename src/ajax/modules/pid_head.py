@@ -8,10 +8,10 @@ the applied input is
 
 with three learnable gains. The integral term promotes zero steady-state
 error on step references, and the authors report faster training. This
-is NOT :mod:`ajax.modules.pid_actor` (gains predicted from the
-observation and applied to observation-derived error terms): here the
-gains are global parameters and the PID acts on the network's own output,
-so it needs a carry (integral and previous signal) like a memory cell.
+is NOT :mod:`ajax.modules.pid_actor` (a PID policy acting on the
+observation's tracking-error terms): here the PID acts on the network's
+own output, so it needs a carry (integral and previous signal) like a
+memory cell.
 
 Interface mirrors :class:`ajax.networks.memory.MemoryCell`: time-major
 ``(T, B, n)`` inputs with ``(T, B)`` reset flags, ``initialize_carry``,

@@ -56,7 +56,6 @@ from ajax.environments.utils import (
 )
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -77,7 +76,6 @@ def init_PPO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> PPOState:
     """The initial actor, critic and collector."""
     (
@@ -99,7 +97,6 @@ def init_PPO(
         action_value=False,
         squash=network_args.squash,
         num_critics=1,
-        pid_actor_config=pid_actor_config,
         log_std_state_independent=network_args.log_std_state_independent,
         log_std_init=network_args.log_std_init,
         mean_kernel_init=network_args.mean_kernel_init,
@@ -483,9 +480,8 @@ def _force_reset(
     saved ones are put back and the reset observation, when the normaliser
     normalises it, is normalised with them instead. Gymnax keeps one
     normaliser per env (each restarts from its own observation), brax one
-    for the batch.
-    The cut episodes are abandoned, not finished: the next return starts
-    from zero.
+    for the batch. The cut episodes are abandoned, not finished: the next
+    return starts from zero.
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
@@ -755,7 +751,6 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     reward_shaping_fn: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
@@ -781,7 +776,6 @@ def make_train(
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
-            pid_actor_config=pid_actor_config,
         )
 
     def update(

@@ -33,6 +33,7 @@ from ajax.environments.interaction import init_collector_state
 from ajax.environments.system_class import FixedSystem, SystemClass
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import zeros_carry_like
 from ajax.networks.utils import get_adam_tx
 from ajax.perf_utils import build_resumable_train
@@ -82,8 +83,14 @@ def build_controller(
             pid=pid,
             squash=squash,
         )
+    architecture = network_args.actor_architecture
+    if isinstance(architecture, PIDPolicy):
+        raise TypeError(
+            "APG's controller takes hidden layers, not a PIDPolicy: its PID is"
+            " the output head, pid=PIDHeadConfig(...)."
+        )
     return Controller(
-        input_architecture=tuple(network_args.actor_architecture),
+        input_architecture=tuple(architecture),
         action_dim=action_dim,
         memory=network_args.memory,
         pid=pid,

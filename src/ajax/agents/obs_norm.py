@@ -36,17 +36,24 @@ def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
 
 
 def update_obs_norm(
-    obs: jnp.ndarray, info: Optional[NormalizationInfo]
+    obs: jnp.ndarray, info: Optional[NormalizationInfo], raw_columns: int = 0
 ) -> Tuple[jnp.ndarray, Optional[NormalizationInfo]]:
     """Update running stats with ``obs`` and return (normalized_obs, new_info).
 
     ``obs`` shape: ``(n_envs, obs_dim)``. When ``info is None`` the call is
     a no-op (returns input unchanged) so call sites can stay unconditional.
+    The leading ``raw_columns`` stay raw (see ``online_normalize``).
     """
     if info is None:
         return obs, None
     new_obs, count, mean, mean_2, var = online_normalize(
-        obs, info.count, info.mean, info.mean_2, train=True, nan_safe=False
+        obs,
+        info.count,
+        info.mean,
+        info.mean_2,
+        train=True,
+        nan_safe=False,
+        raw_columns=raw_columns,
     )
     new_info = NormalizationInfo(
         count=count,

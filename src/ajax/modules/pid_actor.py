@@ -1,121 +1,161 @@
+"""PID policies: an actor that is a PID controller with learned gains.
+
+The actor acts on the error terms ``(e, I, D)`` that
+:class:`ajax.environments.pid_terms.PIDTermsWrapper` puts first in the
+observation; its pre-squash action, per action dimension ``a``, is::
+
+    u_a = sum_j Kp[a, j] e_j + Ki[a, j] I_j + Kd[a, j] D_j
+
+Passing a :class:`PIDPolicy` as ``actor_architecture`` selects it in any
+continuous-action agent (SAC, TD3, REDQ, ASAC, AVG, PPO, APO). Two kinds
+of gains:
+
+* ``gains="fixed"``: the gains are the actor's parameters, a linear map
+  with no bias and no hidden layer, so the trained policy deploys as a
+  plain PID with the gains :func:`pid_gains` reads off it (Lawrence et
+  al. 2022, "Deep reinforcement learning with shallow controllers: an
+  experimental application to PID tuning", cited from memory, unverified).
+* ``gains="observation"``: an MLP predicts the gains from the observation
+  (gain scheduling); with a constant network it is the fixed policy.
+
+Each agent's own output rules apply to ``u`` as to any actor's mean: SAC,
+REDQ, ASAC and AVG squash it with ``tanh``, TD3 too (deterministic), PPO
+and APO sample around it unsquashed and the env clips. The deployed
+controller is that saturated PID. The stochastic agents explore with a
+learned, state-independent log-std. Gains start at zero (no control).
+Observation normalisation (env- or agent-side) leaves the terms raw, as
+the wrapper declares them, so the gains stay a PID's in the env's units;
+the gain network of ``gains="observation"`` reads the rest normalised.
 """
-PID Actor for SAC.
 
-The actor network predicts PID gains from the full observation. The policy mean
-is then computed as:
+from __future__ import annotations
 
-    mean = gains @ pid_terms
-
-where:
-    pid_terms = [error]                              (P-only, obs_derivative_idx=None)
-    pid_terms = [error, obs[obs_derivative_idx]]     (PD, obs_derivative_idx set)
-
-    error = obs[obs_target_idx] - obs[obs_current_idx]
-
-The log_std head is independent of the PID structure (standard SAC).
-
-This is a drop-in replacement for Actor — it returns SquashedNormal(mean, std)
-and is fully compatible with residual RL (clip(a_expert + a_pid, -1, 1)).
-"""
-
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Literal
 
+import distrax
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
-from flax.linen.normalization import _l2_normalize
 
 from ajax.agents.SAC.utils import SquashedNormal
+from ajax.environments.pid_terms import split_pid_terms
 from ajax.networks.utils import parse_architecture
-from ajax.types import ActivationFunction
+
+GAIN_NAMES = ("kp", "ki", "kd")
 
 
-@dataclass
-class PIDActorConfig:
-    """Indices into the observation vector used to build PID error terms.
+@dataclass(frozen=True)
+class PIDPolicy:
+    """A PID actor, passed as an agent's ``actor_architecture``.
 
-    obs_current_idx:    index of the current value (e.g. altitude).
-    obs_target_idx:     index of the target / set-point (e.g. target altitude).
-    obs_derivative_idx: index of the derivative (e.g. altitude rate).
-                        Set to None for P-only control.
+    n_errors: errors the :class:`PIDTermsWrapper` tracks (its terms are
+        the first ``3 * n_errors`` observation entries).
+    gains: ``"fixed"`` (learned constants) or ``"observation"`` (an MLP of
+        ``architecture`` predicts them from the observation).
+    architecture: the gain network's hidden layers (``"observation"``
+        only; empty: gains affine in the observation).
     """
 
-    obs_current_idx: int
-    obs_target_idx: int
-    obs_derivative_idx: Optional[int] = None
+    n_errors: int = 1
+    gains: Literal["fixed", "observation"] = "fixed"
+    architecture: tuple = ()
+
+    def __post_init__(self):
+        if self.n_errors < 1 or self.gains not in ("fixed", "observation"):
+            raise ValueError(
+                "PIDPolicy needs n_errors >= 1 and gains 'fixed' or"
+                f" 'observation', got {self.n_errors} and {self.gains!r}."
+            )
+        if self.gains == "fixed" and self.architecture:
+            raise ValueError("Fixed PID gains have no network: drop architecture.")
 
 
-class PIDActorNetwork(nn.Module):
-    """SAC actor that produces PID-structured actions.
+class PIDLaw(nn.Module):
+    """The PID output ``u`` for an observation, shape ``(..., action_dim)``."""
 
-    The neural network predicts per-dimension PID gains from the full
-    observation. The policy mean for each action dimension is then:
-
-        mean_i = K_P_i * error + K_D_i * deriv   (PD mode)
-        mean_i = K_P_i * error                   (P-only mode)
-
-    where error = obs[obs_target_idx] - obs[obs_current_idx].
-
-    The gains head is zero-initialized so that training starts from the
-    zero-gain policy (safe initialization for flight control).
-    """
-
-    input_architecture: Sequence[Union[str, ActivationFunction]]
+    policy: PIDPolicy
     action_dim: int
-    obs_current_idx: int
-    obs_target_idx: int
-    obs_derivative_idx: Optional[int]
-    penultimate_normalization: bool = False
-
-    @property
-    def n_terms(self) -> int:
-        return 2 if self.obs_derivative_idx is not None else 1
 
     def setup(self):
-        layers = parse_architecture(self.input_architecture)
-        self._encoder_net = nn.Sequential(layers)
-        self._encoder_norm = nn.LayerNorm()
-        # Zero-init gains → starts from the zero-action policy.
-        self.gains_head = nn.Dense(
-            self.action_dim * self.n_terms,
-            kernel_init=nn.initializers.zeros,
-            bias_init=nn.initializers.zeros,
-            name="gains",
-        )
-        # Standard SAC log_std head.
-        self.log_std_head = nn.Dense(
-            self.action_dim,
-            kernel_init=nn.initializers.zeros,
-            bias_init=nn.initializers.constant(-1.0),
-            name="log_std",
-        )
-
-    def _encode(self, obs):
-        features = self._encoder_net(obs)
-        if self.penultimate_normalization:
-            return _l2_normalize(features, axis=1)
-        return self._encoder_norm(features)
-
-    def __call__(self, obs) -> SquashedNormal:
-        # --- Build PID error terms ---
-        error = obs[..., self.obs_target_idx] - obs[..., self.obs_current_idx]
-        if self.obs_derivative_idx is not None:
-            pid_terms = jnp.stack(
-                [error, obs[..., self.obs_derivative_idx]], axis=-1
-            )  # (..., 2)
+        shape = (self.action_dim, self.policy.n_errors)
+        if self.policy.gains == "fixed":
+            self.fixed = [
+                self.param(n, nn.initializers.zeros, shape) for n in GAIN_NAMES
+            ]
         else:
-            pid_terms = error[..., None]  # (..., 1)
+            self.features = parse_architecture(self.policy.architecture)
+            self.head = nn.Dense(
+                3 * self.action_dim * self.policy.n_errors,
+                kernel_init=nn.initializers.zeros,
+                bias_init=nn.initializers.zeros,
+            )
 
-        # --- Predict gains from full observation ---
-        features = self._encode(obs)
-        raw_gains = self.gains_head(features)  # (..., action_dim * n_terms)
-        log_std = jnp.clip(self.log_std_head(features), -20, 2)
+    def gains(self, obs: jax.Array) -> jax.Array:
+        """Kp, Ki, Kd stacked: ``(..., 3, action_dim, n_errors)``."""
+        if self.policy.gains == "fixed":
+            gains = jnp.stack(self.fixed)
+            return jnp.broadcast_to(gains, obs.shape[:-1] + gains.shape)
+        h = obs
+        for layer in self.features:
+            h = layer(h)
+        shape = (3, self.action_dim, self.policy.n_errors)
+        return self.head(h).reshape(*obs.shape[:-1], *shape)
 
-        # Reshape gains to (..., action_dim, n_terms) and contract with pid_terms
-        gains = raw_gains.reshape(
-            raw_gains.shape[:-1] + (self.action_dim, self.n_terms)
+    def __call__(self, obs: jax.Array) -> jax.Array:
+        terms = split_pid_terms(obs, self.policy.n_errors)
+        return jnp.einsum("...tak,...tk->...a", self.gains(obs), terms)
+
+
+class PIDActor(nn.Module):
+    """Stochastic PID actor: Normal (or tanh-squashed) around the PID output."""
+
+    policy: PIDPolicy
+    action_dim: int
+    squash: bool = False
+    log_std_init: float = -1.0
+
+    def setup(self):
+        self.pid = PIDLaw(self.policy, self.action_dim)
+        self.log_std = self.param(
+            "log_std", nn.initializers.constant(self.log_std_init), (self.action_dim,)
         )
-        mean = jnp.einsum("...ij,...j->...i", gains, pid_terms)
 
-        return SquashedNormal(mean, jnp.exp(log_std))
+    def gains(self, obs: jax.Array) -> jax.Array:
+        return self.pid.gains(obs)
+
+    def __call__(self, obs: jax.Array) -> distrax.Distribution:
+        mean = self.pid(obs)
+        std = jnp.exp(jnp.clip(jnp.broadcast_to(self.log_std, mean.shape), -20, 2))
+        return SquashedNormal(mean, std) if self.squash else distrax.Normal(mean, std)
+
+
+def check_pid_actor(continuous: bool, memory: object) -> None:
+    """Reject what a PID actor cannot be: a discrete policy or a recurrent
+    one (its memory is the wrapper's integral and difference)."""
+    if not continuous:
+        raise ValueError("A PIDPolicy needs a continuous action space.")
+    if memory is not None:
+        raise NotImplementedError(
+            "A PIDPolicy reads its integral and difference from the"
+            " observation (PIDTermsWrapper); it takes no memory."
+        )
+
+
+def pid_gains(actor_params) -> dict[str, jax.Array]:
+    """``{"kp", "ki", "kd"}`` of a fixed-gain PID actor, each ``(...,
+    action_dim, n_errors)`` (leading axes, e.g. seeds, kept).
+
+    Observation-conditioned gains depend on the observation: read them
+    with ``actor.apply(params, obs, method="gains")``.
+    """
+    law = actor_params["params"]["pid"]
+    if "kp" not in law:
+        raise ValueError(
+            "These PID gains are predicted from the observation: read them"
+            ' with actor.apply(params, obs, method="gains").'
+        )
+    return {name: law[name] for name in GAIN_NAMES}
+
+
+__all__ = ["PIDActor", "PIDLaw", "PIDPolicy", "check_pid_actor", "pid_gains"]

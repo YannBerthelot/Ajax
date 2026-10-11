@@ -22,12 +22,12 @@ def get_adam_tx(
     learning_rate: Union[float, Callable[[int], float]] = 1e-3,
     max_grad_norm: Optional[float] = None,
     eps: float = 1e-5,
-    clipped: bool = False,
     beta_1: float = 0.9,
     beta_2: float = 0.999,
     weight_decay: float = 0.0,
 ) -> GradientTransformationExtraArgs:
-    """Return an Adam(W) optimizer with optional global-norm gradient clipping.
+    """Return an Adam(W) optimizer, clipping the gradients' global norm to
+    ``max_grad_norm`` when one is given.
 
     Unclipped by default. Global-norm clipping is a PPO-family convention
     (PPO / APO pass ``max_grad_norm=0.5``); the off-policy agents and the
@@ -35,9 +35,10 @@ def get_adam_tx(
 
     Args:
         learning_rate (Union[float, Callable[[int], float]]): Learning rate for the optimizer.
-        max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
+        max_grad_norm (Optional[float]): Maximum gradient norm; None does not clip.
         eps (float): Epsilon value for numerical stability.
-        clipped (bool): Whether to apply gradient clipping.
+        beta_1, beta_2 (float): Adam's decay rates of the first and second
+            moment estimates.
         weight_decay (float): Decoupled weight decay; ``> 0`` selects
             ``optax.adamw`` (used by the APG family), ``0`` keeps plain Adam.
 
@@ -57,11 +58,19 @@ def get_adam_tx(
         )
     else:
         adam = optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2)
-    if clipped:
-        if max_grad_norm is None:
-            raise ValueError("Gradient clipping requested but no norm provided.")
+    if max_grad_norm is not None:
         return optax.chain(optax.clip_by_global_norm(max_grad_norm), adam)
     return adam
+
+
+_ACTIVATIONS: dict[str, ActivationFunction] = {
+    "relu": nn.relu,
+    "tanh": nn.tanh,
+    "leaky_relu": nn.leaky_relu,
+    "swish": nn.swish,
+    "silu": nn.silu,
+    "mish": jax.nn.mish,
+}
 
 
 def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFunction:
@@ -71,29 +80,13 @@ def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFu
     arXiv:2301.04104v2). ``"mish"`` is ``x * tanh(softplus(x))`` (TD-MPC2's
     activation, Sec. 3.1 of arXiv:2310.16828v2; torch ``nn.Mish``).
     """
-    activation_matching = {
-        "relu": nn.relu,
-        "tanh": nn.tanh,
-        "leaky_relu": nn.leaky_relu,
-        "swish": nn.swish,
-        "silu": nn.silu,
-        "mish": jax.nn.mish,
-    }
-
-    match activation:
-        case str():
-            if activation in activation_matching:
-                return cast("ActivationFunction", activation_matching[activation])
-            raise ValueError(
-                (
-                    f"Unrecognized activation name {activation}, acceptable activations"
-                    f" names are : {activation_matching.keys()}"
-                ),
-            )
-        case _ if callable(activation):
-            return activation
-        case _:
-            raise ValueError(f"Unrecognized activation {activation}")
+    if callable(activation):
+        return activation
+    if isinstance(activation, str) and activation in _ACTIVATIONS:
+        return _ACTIVATIONS[activation]
+    raise ValueError(
+        f"Unrecognized activation {activation!r}; the names are {sorted(_ACTIVATIONS)}"
+    )
 
 
 def parse_function_string(s, context=None):
@@ -188,16 +181,21 @@ def get_initializer(name: str) -> Callable[..., InitializationFunction]:
 
 
 def parse_initialization(
-    initialization: Union[str, InitializationFunction],
+    initialization: Optional[Union[str, InitializationFunction]],
+    default: Optional[InitializationFunction] = None,
 ) -> InitializationFunction:
     """Parse an initializer string such as ``"orthogonal(1.0)"``, or pass a
-    callable initializer through.
+    callable initializer through; ``None`` gives ``default``.
 
     ``"name"`` calls the factory ``name`` (see :func:`get_initializer`)
     with no argument and ``"name(expr)"`` with the value of ``expr``. A
     string that does not start with a name, such as ``"0.5"`` or
     ``"-1.0"``, gives a constant initializer.
     """
+    if initialization is None:
+        if default is None:
+            raise ValueError("No initializer given, and no default for it.")
+        return default
     if callable(initialization):
         return initialization
     initialization_name, number = parse_function_string(initialization)
@@ -213,20 +211,11 @@ def parse_layer(
     bias_init: Optional[Union[str, InitializationFunction]] = None,
 ) -> Union[nn.Dense, ActivationFunction]:
     """Parse a layer representation into either a Dense or an activation function"""
-    if kernel_init is None:
-        kernel_init = orthogonal(1.0)
-    elif isinstance(kernel_init, str):
-        kernel_init = parse_initialization(kernel_init)
-    if bias_init is None:
-        bias_init = constant(0)
-    elif isinstance(bias_init, str):
-        bias_init = parse_initialization(bias_init)
-
     if str(layer).isnumeric():
         return nn.Dense(
             int(cast("str", layer)),
-            kernel_init=kernel_init,
-            bias_init=bias_init,
+            kernel_init=parse_initialization(kernel_init, default=orthogonal(1.0)),
+            bias_init=parse_initialization(bias_init, default=constant(0)),
         )
     return parse_activation(activation=layer)
 

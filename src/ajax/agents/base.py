@@ -211,12 +211,10 @@ class ActorCritic:
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
             max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
         )
         self.critic_optimizer_args = OptimizerConfig(
             learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
         )
 
         self.agent_config = BaseAgentConfig()

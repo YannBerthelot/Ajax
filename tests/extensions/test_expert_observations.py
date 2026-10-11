@@ -20,6 +20,7 @@ import ajax.extensions.expert
 import ajax.extensions.pretrain
 from ajax import SAC
 from ajax.agents.obs_norm import apply_obs_norm, init_agent_obs_norm
+from ajax.extensions.expert import ExpertValueMetrics
 from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
@@ -156,6 +157,46 @@ def _mc(expert: Any) -> MCPretrain:
 
 
 # --- the layout and the stored expert actions --------------------------------
+
+
+@pytest.mark.parametrize("with_state", [False, True], ids=["action", "state+action"])
+def test_every_actor_input_carries_its_own_rows_expert_state_and_action(
+    monkeypatch, with_state
+):
+    """Acting, evaluated and trained (s and s'), every input is [t, (the
+    expert's state, t), its action t / LIMIT]: the expert's action at that
+    row's own observation, so s' carries a_E(s'), not a_E(s); with the
+    state, state then action, as collection stores them."""
+    seen = actor_inputs(monkeypatch)
+    train(
+        CounterEnv(),
+        log=True,
+        expert_policy=CountingExpert(),
+        augment_obs_with_expert_action=True,
+        augment_obs_with_expert_state=with_state,
+    )
+    assert {x.shape[0] for x in seen} == {2, 3, 8}
+    for x in seen:
+        t = x[..., 0]
+        assert x.shape[-1] == 2 + with_state
+        np.testing.assert_allclose(x[..., -1], t / LIMIT, err_msg=f"batch {len(x)}")
+        if with_state:
+            np.testing.assert_allclose(x[..., 1], t, err_msg=f"batch {len(x)}")
+
+
+def test_expert_value_metrics_query_the_critic_in_the_training_layout(monkeypatch):
+    """ExpertValueMetrics' critic inputs are [t, a_E(t), action]."""
+    seen = _record(monkeypatch, ajax.extensions.expert, "predict_value")
+    train(
+        CounterEnv(),
+        log=True,
+        expert_policy=CountingExpert(),
+        augment_obs_with_expert_action=True,
+        extensions=(ExpertValueMetrics(),),
+    )
+    assert seen
+    for x in seen:
+        np.testing.assert_allclose(x[..., 1], x[..., 0] / LIMIT)
 
 
 def test_mc_pretraining_fits_phi_star_in_the_training_layout(monkeypatch):

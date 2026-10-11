@@ -21,6 +21,7 @@ from ajax.extensions.base import ExtensionContext
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     MCPretrainAux,
+    PhiRefresh,
     pretrain_critic_online_light,
 )
 from ajax.state import LoadedTrainState
@@ -176,3 +177,11 @@ def test_bellman_pretrain_needs_the_agent_context_and_expert():
     agent = SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
     with pytest.raises(ValueError, match="expert_policy"):
         agent.train(seed=0, n_timesteps=10)
+
+
+def test_phi_refresh_needs_the_agent_context():
+    """Unbound (no agent handed it its buffer), its post_update raises
+    rather than never refreshing phi*."""
+    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    with pytest.raises(ValueError, match="did not bind"):
+        PhiRefresh(expert_policy=abs).post_update(None, (), ctx)

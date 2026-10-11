@@ -26,7 +26,7 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
-from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_REWARD_KEY
+from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_OBS_KEY, RAW_REWARD_KEY
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -651,6 +651,10 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
         # envs (e.g. MemoryChain) make `params` required rather than optional.
         env_params = getattr(env, "default_params", None)
         return maybe_vmap(lambda st: env.get_obs(st, env_params), vmap_on)(env_state)
+    # An observation normaliser overwrites a brax state's obs and keeps the
+    # raw one in its info.
+    if RAW_OBS_KEY in getattr(env_state, "info", {}):
+        return env_state.info[RAW_OBS_KEY]
     if check_env_is_playground(env):
         # env_state.obs is already the post-wrapper observation (e.g. with
         # safety-wrapper augmentations). Recomputing it via the raw env's
@@ -897,6 +901,8 @@ def collect_experience(
 
     # Read before the train_frac column below, which info's final obs lacks.
     final_obs = get_final_obs(info, obsv).astype(obsv.dtype)
+    # The same in the environment's own units, what an expert reads.
+    raw_final_obs = get_raw_final_obs(info, final_obs)
 
     # An agent conditioned on the training fraction sees it as a last
     # column of every observation, the next one (the final observation off
@@ -925,7 +931,7 @@ def collect_experience(
     )
     if next_expert_fn is not None:
         _next_a_expert_for_buf = jax.lax.stop_gradient(
-            next_expert_fn(new_expert_state, get_raw_final_obs(info, raw_next_obs))
+            next_expert_fn(new_expert_state, raw_final_obs)
         )
     else:
         _next_a_expert_for_buf = jnp.zeros_like(buffer_action)
@@ -980,6 +986,8 @@ def collect_experience(
         if next_expert_fn is not None:
             _transition["a_expert"] = _a_expert_for_buf
             _transition["next_a_expert"] = _next_a_expert_for_buf
+        if "raw_next_obs" in buffer_state.experience:
+            _transition["raw_next_obs"] = raw_final_obs.astype(jnp.float32)
         if store_hidden:
             _transition["actor_carry"] = _pre_actor_carry_flat
         buffer_state = buffer.add(buffer_state, _transition)
@@ -1182,6 +1190,7 @@ def collect_experience_from_expert_policy(
             raw_obs=raw_obs,
             a_expert=action,
             next_a_expert=next_action,
+            raw_next_obs=raw_next_obs,
         )
 
         new_rng, _ = jax.random.split(rng)
@@ -1229,6 +1238,7 @@ def init_collector_state(
     normalize_obs_running: bool = False,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
+    include_raw_next_obs: bool = False,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -1297,6 +1307,7 @@ def init_collector_state(
             expert_state_aug_dim=expert_state_aug_dim,
             include_expert_fields=include_expert_fields,
             actor_carry_dim=actor_carry_dim,
+            include_raw_next_obs=include_raw_next_obs,
         )
         if buffer is not None
         else None

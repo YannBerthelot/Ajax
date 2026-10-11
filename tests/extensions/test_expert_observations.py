@@ -18,11 +18,12 @@ import ajax.environments.interaction
 import ajax.evaluate
 import ajax.extensions.expert
 import ajax.extensions.pretrain
+import ajax.extensions.target_mods
 from ajax import SAC
 from ajax.agents.obs_norm import apply_obs_norm, init_agent_obs_norm
 from ajax.extensions.expert import ExpertValueMetrics
 from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
-from ajax.extensions.target_mods import ValueBox
+from ajax.extensions.target_mods import IBRL, ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
 
 LIMIT = 8  # the counter's episode length
@@ -349,3 +350,61 @@ def test_replay_readers_augment_each_observation_with_its_own_expert_action(
     assert sac and (phi_star or name == "BellmanPretrain")  # phi*: PhiRefresh's
     for x in sac + phi_star:
         np.testing.assert_allclose(x[..., 1], x[..., 0] / LIMIT)
+
+
+# --- the raw next observations an extension's expert reads ----------------------
+
+
+def test_raw_next_observations_are_each_rows_successor(monkeypatch):
+    """On the counter, every stored row's raw_next_obs is its raw_obs + 1
+    (the final observation at the time limit), the expert prefill's rows
+    too, and IBRL's expert reads s' of its batch's rows: never 0, the first
+    observation, which no transition leads to."""
+    ibrl_expert = RecordingExpert(action=0.5)
+    state = train(
+        CounterEnv(),
+        expert_policy=RecordingExpert(action=0.5),
+        expert_buffer_n_steps=8,
+        extensions=(IBRL(expert_policy=ibrl_expert),),
+    )
+    rows = state.collector_state.buffer_state.experience
+    raw, raw_next = (np.asarray(rows[k])[..., 0] for k in ("raw_obs", "raw_next_obs"))
+    written = raw_next != 0  # every transition's s' is at least 1
+    assert written.sum() >= 2 * (8 + 64 // 2)
+    np.testing.assert_array_equal(raw_next[written], raw[written] + 1)
+    read = np.concatenate([x[..., 0] for x in ibrl_expert.seen if len(x) == 8])
+    assert read.size and read.min() >= 1 and read.max() <= LIMIT
+
+
+class _ShiftedExpert:
+    """Stateless, plays t / LIMIT - 3 at observation t: outside the action
+    box, so its actions tell the critic inputs it builds from any other."""
+
+    def __call__(self, obs: jax.Array) -> jax.Array:
+        return obs[..., :1] / LIMIT - 3.0
+
+
+@pytest.mark.parametrize("name", ["IBRL", "PhiRefresh"])
+def test_an_extensions_expert_reads_the_raw_next_observation_of_each_row(
+    monkeypatch, name
+):
+    """The extension's critic input at s' is [s' of the row, a_E(raw s' of
+    the same row)]: with a_E(t) = t / LIMIT - 3, every such input satisfies
+    a = s' / LIMIT - 3, which a raw s' read from another row (another
+    sampling key) breaks. IBRL reads it from the update's target batch,
+    PhiRefresh from its own replay batch."""
+    module = ajax.extensions.target_mods if name == "IBRL" else ajax.extensions.pretrain
+    seen = _record(monkeypatch, module, "predict_value")
+    expert = _ShiftedExpert()
+    stack = {
+        "IBRL": (IBRL(expert_policy=expert),),
+        "PhiRefresh": (
+            _mc(expert),
+            PhiRefresh(expert_policy=expert, interval=16, steps=2),
+        ),
+    }[name]
+    train(CounterEnv(), extensions=stack)
+    rows = np.concatenate([x.reshape(-1, x.shape[-1]) for x in seen])
+    expert_rows = rows[rows[:, -1] < -1.5]
+    assert len(expert_rows) >= 8
+    np.testing.assert_allclose(expert_rows[:, -1], expert_rows[:, 0] / LIMIT - 3.0)

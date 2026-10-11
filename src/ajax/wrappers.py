@@ -61,6 +61,9 @@ _FINAL_OBS_KEYS = ("final_obs", "final_observation", "obs_st")
 # Where an observation normaliser keeps the pre-reset observation in the
 # env's own units once it has normalised the final-observation keys.
 RAW_FINAL_OBS_KEY = "raw_final_obs"
+# Where an observation normaliser keeps a brax state's observation in the
+# env's own units, the state's ``obs`` being the normalised one.
+RAW_OBS_KEY = "raw_obs"
 # Where a reward normaliser keeps the step's reward in the env's own units.
 RAW_REWARD_KEY = "raw_reward"
 
@@ -510,6 +513,13 @@ def normalize_wrapper_factory(
             }
             return out | ({RAW_FINAL_OBS_KEY: info[keys[0]]} if keys else {})
 
+        def raw_obs_info(self, raw_obs: jax.Array) -> dict:
+            """A brax state's raw observation, under ``RAW_OBS_KEY``: its
+            ``obs`` is replaced by the normalised one, and an expert reads
+            the env's own units (get_raw_obs). A gymnax state recomputes
+            its observation from the env: nothing."""
+            return {RAW_OBS_KEY: raw_obs} if self.mode == "brax" else {}
+
         def reset(self, key, params=None):
             state = (
                 self.env.reset(key)
@@ -564,6 +574,7 @@ def normalize_wrapper_factory(
                 obs = norm_obs if self.apply_normalization else raw_obs
                 if self.apply_normalization:
                     extra_info = self.normalized_final_obs(state, obs_norm_info)
+                    extra_info |= self.raw_obs_info(raw_obs)
 
             if self.normalize_reward and self.mode == "brax":
                 # A brax state carries its info: the key exists from the reset.
@@ -632,6 +643,7 @@ def normalize_wrapper_factory(
                 obs = norm_obs if self.apply_normalization else raw_obs
                 if self.apply_normalization:
                     extra_info = self.normalized_final_obs(raw_state, obs_norm_info)
+                    extra_info |= self.raw_obs_info(raw_obs)
 
             if self.normalize_reward:
                 extra_info |= {RAW_REWARD_KEY: reward}

@@ -71,13 +71,8 @@ class PolicyAuxiliaries:
 class ValueAuxiliaries:
     critic_loss: jax.Array
     q_pred_min: jax.Array  # min over ensemble
-    q_expert_mean: jax.Array  # critic's estimate of expert value
-    q_gap: jax.Array  # q_expert - q_min: >0 = room to improve
     var_preds: jax.Array  # inter-critic variance
     expert_frac_in_buffer: jax.Array  # fraction of sampled batch flagged as expert
-    phi_star_q_gap_ood: (
-        jax.Array
-    )  # |Q_φ*(s,π*) - Q_φ(s,π*)| mean: φ* OOD coverage error
 
 
 @struct.dataclass
@@ -220,7 +215,6 @@ def update_value_functions(
     rewards: jax.Array,
     gamma: float,
     reward_scale: float = 1.0,
-    expert_q: Optional[jax.Array] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
     augment_obs_with_expert_action: bool = False,
@@ -320,24 +314,11 @@ def update_value_functions(
         critic_state.params
     )
 
-    # 4. Assemble full ValueAuxiliaries with expert diagnostics. The mean
-    # is linear, so q_gap = mean(expert_q - min_k Q_k) is q_expert_mean
-    # minus the loss pass's q_pred_min: no critic pass of its own.
-    if expert_q is not None:
-        q_expert_mean = expert_q.mean().flatten()
-        q_gap = q_expert_mean - core_aux.q_pred_min
-    else:
-        q_expert_mean = jnp.zeros(1)
-        q_gap = jnp.zeros(1)
-
     aux = ValueAuxiliaries(
         critic_loss=core_aux.critic_loss,
         q_pred_min=core_aux.q_pred_min,
-        q_expert_mean=q_expert_mean,
-        q_gap=q_gap,
         var_preds=core_aux.var_preds,
         expert_frac_in_buffer=jnp.zeros(1),
-        phi_star_q_gap_ood=jnp.zeros(1),
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -616,9 +597,9 @@ def update_agent(
         )
         transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
 
-    # --- Pre-compute Q(s, a_expert) and a_expert once for critic logging + policy ---
-    # Avoids computing expert_policy twice (once here, once inside policy_loss_function)
-    expert_q = None
+    # --- The expert's action, once, for the policy update ---
+    # The critic's values at it (q_expert_mean, q_gap, phi_star_q_gap_ood)
+    # are an extension's eval metrics (ajax.extensions.expert.ExpertValueMetrics).
     a_expert_precomputed = None
     # The actor-loss extensions (OnlineBC) take the expert action from
     # here, phi* or not.
@@ -638,40 +619,6 @@ def update_agent(
             a_expert_precomputed = jax.lax.stop_gradient(transition.a_expert)
         else:
             a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
-        # transition.obs is already augmented at this point if augment_obs_with_expert_action
-        expert_q = jax.lax.stop_gradient(
-            jnp.min(
-                predict_value(
-                    critic_state=agent_state.critic_state,
-                    critic_params=agent_state.critic_state.params,
-                    x=jnp.concatenate([transition.obs, a_expert_precomputed], axis=-1),
-                ),
-                axis=0,
-            )
-        )
-
-    # --- φ* OOD quality: |Q_φ*(s,π*) - Q_φ(s,π*)| on training batch ---
-    # Measures how much frozen φ* disagrees with the live critic on expert actions.
-    # Non-zero only when MC pretrain has been run (expert_critic_params is not None).
-    phi_star_q_gap_ood = jnp.zeros(())
-    if (
-        agent_state.expert_critic_params is not None
-        and expert_q is not None
-        and a_expert_precomputed is not None
-    ):
-        q_phi_star = jax.lax.stop_gradient(
-            jnp.min(
-                predict_value(
-                    critic_state=agent_state.critic_state,
-                    critic_params=agent_state.expert_critic_params,
-                    x=jnp.concatenate([transition.obs, a_expert_precomputed], axis=-1),
-                ),
-                axis=0,
-            )
-        )
-        phi_star_q_gap_ood = jnp.abs(
-            q_phi_star - jax.lax.stop_gradient(expert_q)
-        ).mean()
 
     # --- Critic updates ---
     # For residual RL: apply the same residual transform to the
@@ -697,7 +644,6 @@ def update_agent(
             recurrent=recurrent,
             gamma=gamma,
             reward_scale=reward_scale,
-            expert_q=expert_q,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
@@ -774,10 +720,7 @@ def update_agent(
     aux = AuxiliaryLogs(
         temperature=aux_temperature,
         policy=aux_policy,
-        value=aux_value.replace(
-            expert_frac_in_buffer=expert_frac_in_buffer,
-            phi_star_q_gap_ood=phi_star_q_gap_ood,
-        ),
+        value=aux_value.replace(expert_frac_in_buffer=expert_frac_in_buffer),
     )
     return agent_state, aux
 

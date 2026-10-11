@@ -1212,3 +1212,70 @@ class TerminatedTruncatedWrapper(GymnaxWrapper):
             jnp.asarray(done, dtype=bool), jnp.logical_not(truncated)
         )
         return obs, state, reward, terminated, truncated, info
+
+
+class ObservationNoiseWrapper(GymnaxWrapper):
+    """Sensor noise on a gymnax env's observations, ``obs + sigma * scale *
+    N(0, I)``, drawn afresh at every reset and step from a key folded off
+    the call's own (the env's own draws are unchanged).
+
+    The pre-reset observation an episode end leaves in the info gets the
+    step's draw, so a transition's next observation is the one the agent
+    then sees. ``scale`` is a scalar or one value per dimension (e.g. the
+    observations' standard deviations). ``get_obs`` stays the state's
+    noiseless observation, which an expert reads
+    (``interaction.get_raw_obs``). It replaces the ``env._obs_noise_sigma``
+    hook (``interaction._maybe_noise_obs``).
+    """
+
+    def __init__(self, env, sigma: float, scale: Any = 1.0):
+        super().__init__(env)
+        self.sigma = sigma
+        self.scale = scale
+
+    def _noise(self, key: jax.Array, obs: jax.Array) -> jax.Array:
+        draw = jax.random.normal(jax.random.fold_in(key, 0), jnp.shape(obs))
+        return self.sigma * jnp.asarray(self.scale) * draw
+
+    def reset(self, key, params=None):
+        obs, state = self._env.reset(key, params)
+        return obs + self._noise(key, obs), state
+
+    def step(self, key, state, action, params=None):
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
+        noise = self._noise(key, obs)
+        info = {k: v + noise if k in _FINAL_OBS_KEYS else v for k, v in info.items()}
+        return obs + noise, state, reward, terminated, truncated, info
+
+
+class ObservationNoiseWrapperBrax(BraxWrapper):
+    """:class:`ObservationNoiseWrapper` for a batched brax / playground stack
+    (above its ``VmapWrapper``, as ``build_env_from_id`` builds it). Its
+    step takes no key: the wrapper's own lives in the state's info, tiled
+    over the envs (row 0 is read), and is split at every reset and step."""
+
+    _RNG_KEY = "obs_noise_rng"
+
+    def __init__(self, env, sigma: float, scale: Any = 1.0):
+        super().__init__(env)
+        self.sigma = sigma
+        self.scale = scale
+
+    def _noisy(self, state: State, key: jax.Array) -> State:
+        key, draw = jax.random.split(key)
+        noise = jax.random.normal(draw, state.obs.shape)
+        noise = self.sigma * jnp.asarray(self.scale) * noise
+        info = {
+            k: v + noise if k in _FINAL_OBS_KEYS else v for k, v in state.info.items()
+        }
+        info[self._RNG_KEY] = jnp.tile(key, (state.obs.shape[0], 1))
+        return state.replace(obs=state.obs + noise, info=info)
+
+    def reset(self, rng: jax.Array) -> State:
+        return self._noisy(self.env.reset(rng), jax.random.fold_in(rng, 0))
+
+    def step(self, state: State, action: jax.Array) -> State:
+        key = state.info[self._RNG_KEY][0]
+        return self._noisy(self.env.step(state, action), key)

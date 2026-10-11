@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 
 import chex
@@ -363,6 +364,15 @@ def _maybe_noise_obs(env, obsv, env_state, rng):
     sigma = getattr(env, "_obs_noise_sigma", 0.0)
     if sigma is None or float(sigma) <= 0.0:
         return obsv, env_state
+    # Expand-then-contract (CLAUDE.md, rule 10): the hook goes once
+    # AjaxExperiments' degradation worker wraps its env instead.
+    warnings.warn(
+        "env._obs_noise_sigma is deprecated: wrap the env in"
+        " ajax.wrappers.ObservationNoiseWrapper (gymnax) or"
+        " ObservationNoiseWrapperBrax (brax / playground) instead.",
+        FutureWarning,
+        stacklevel=3,
+    )
     obs_std = getattr(env, "_obs_noise_obs_std", 1.0)
     # Per-call independent noise: derive a noise key from the input rng via
     # fold_in (so we don't accidentally consume the env's own randomness).

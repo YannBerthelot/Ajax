@@ -131,6 +131,21 @@ def maybe_eval_and_log(
 class AuxiliaryLogsProtocol(Protocol): ...
 
 
+def eval_norm_info(agent_state: Any, mode: str) -> Optional[Any]:
+    """The observation statistics the evaluation env normalises with: those
+    the training env's normaliser holds now, ``None`` without one.
+
+    The key is the one ``NormalizeVecObservation.update_state_*`` stores
+    (``ajax/wrappers.py``). Looking for another one (as this once did:
+    ``"obs_normalization_info"``) evaluates on raw observations an agent
+    trained on normalised ones.
+    """
+    env_state = agent_state.collector_state.env_state
+    if mode == "brax":
+        return env_state.info.get("normalization_info")
+    return getattr(env_state, "normalization_info", None)
+
+
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
     return_dict = {}
     for key, val in d.items():
@@ -248,21 +263,6 @@ def evaluate_and_log(
         # advanced across iterations, so each eval uses identical initial
         # conditions (per-seed).
         eval_key = agent_state.eval_rng
-        # Key name MUST match what ``NormalizeVecObservation.update_state_*``
-        # stores in info (see ``ajax/wrappers.py``). The wrapper writes
-        # ``info["normalization_info"]``; previously this check looked
-        # for ``"obs_normalization_info"`` which never matched -- so
-        # ``norm_info`` was always ``None``, ``setup_environment``
-        # rebuilt the eval env WITHOUT the normalizer, and the agent's
-        # eval feed was RAW obs while training was NORMALISED. This
-        # silently broke eval-vs-train alignment for any brax-stack env
-        # using normalize_observations=True (PPO on mujoco_playground,
-        # locomotion, etc.).
-        obs_normalization = (
-            "normalization_info" in agent_state.collector_state.env_state.info
-            if mode == "brax"
-            else "normalization_info" in dir(agent_state.collector_state.env_state)
-        )
         (
             eval_rewards,
             eval_entropy,
@@ -277,15 +277,7 @@ def evaluate_and_log(
             rng=eval_key,
             env_params=env_args.env_params,
             recurrent=recurrent,
-            norm_info=(
-                (
-                    agent_state.collector_state.env_state.info["normalization_info"]
-                    if mode == "brax"
-                    else agent_state.collector_state.env_state.normalization_info
-                )
-                if obs_normalization
-                else None
-            ),
+            norm_info=eval_norm_info(agent_state, mode),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
             # The training-fraction column the collector appends (None

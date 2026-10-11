@@ -32,7 +32,7 @@ _SPEC.loader.exec_module(agent_bench)
 def updates_in_run(agent, n_envs: int, timesteps: int) -> int:
     """The updates a run of ``timesteps`` makes, from the agent's config."""
     schedule = getattr(agent, "schedule", None)
-    if hasattr(schedule, "total_updates"):  # DreamerV3's train ratio
+    if schedule is not None and hasattr(schedule, "total_updates"):  # DreamerV3
         return schedule.total_updates(timesteps // n_envs)
     if schedule is not None:  # TD-MPC2's seed phase, burst, then per tick
         ticks = jnp.arange(schedule.num_ticks(timesteps))

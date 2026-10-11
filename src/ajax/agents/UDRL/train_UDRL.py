@@ -30,6 +30,7 @@ from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.UDRL.buffer import (
     add_segment,
+    episode_stream,
     init_buffer,
     sample_training_batch,
     topk_command_stats,
@@ -40,6 +41,7 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
     step,
+    update_episodic_return,
 )
 from ajax.environments.utils import (
     check_env_is_gymnax,
@@ -62,10 +64,10 @@ class UDRLAuxiliaries:
     actor_loss: jnp.ndarray
     mean_rtg: jnp.ndarray
     mean_horizon: jnp.ndarray
-    # Mean completed-episode return within the rollout segment (0 if no
-    # episode finished). Plotted as the training curve.
+    # The house training return (update_episodic_return): each env's
+    # rolling mean of whole-episode returns, averaged over envs.
     episodic_return: jnp.ndarray
-    # Number of completed episodes in the segment (per iter).
+    # Episodes that ended in the iteration's segment.
     n_completed_episodes: jnp.ndarray
     # Total env timesteps consumed up to and including this iter.
     timestep: jnp.ndarray
@@ -239,6 +241,10 @@ def _udrl_collect_step(
         log_prob=log_probs,
     )
 
+    # Episodes span segments: their returns are summed across iterations.
+    episodic_return_state, episodic_mean_return = update_episodic_return(
+        cs.episodic_return_state, reward, done > 0
+    )
     new_cs = cs.replace(
         rng=rng,
         _env_state=new_env_state,
@@ -246,6 +252,8 @@ def _udrl_collect_step(
         timestep=cs.timestep + env_args.n_envs,
         last_terminated=terminated,
         last_truncated=truncated,
+        episodic_return_state=episodic_return_state,
+        episodic_mean_return=episodic_mean_return,
     )
     return (
         agent_state.replace(
@@ -301,33 +309,6 @@ def actor_loss_fn(
     return -pi.log_prob(actions).sum(-1).mean()
 
 
-def _completed_episode_returns(
-    rewards: jax.Array, dones: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
-    """Sum rewards into per-env episode returns, emitting at episode end.
-
-    rewards, dones: (T, n_envs, 1). Returns (sum_of_completed_returns,
-    n_completed_episodes), both scalars summed over the (T, n_envs) axes.
-    """
-
-    def body(carry, x):
-        running, sum_done, count = carry
-        r, d = x
-        new_running = running + r
-        sum_done = sum_done + d * new_running
-        count = count + d
-        new_running = new_running * (1.0 - d)
-        return (new_running, sum_done, count), None
-
-    init = (
-        jnp.zeros_like(rewards[0]),
-        jnp.zeros_like(rewards[0]),
-        jnp.zeros_like(rewards[0]),
-    )
-    (_, sum_done, count), _ = jax.lax.scan(body, init, (rewards, dones))
-    return sum_done.sum(), count.sum()
-
-
 def training_iteration(
     agent_state: UDRLState,
     _: Any,
@@ -363,9 +344,8 @@ def training_iteration(
     # 3. Refresh the rollout command target from buffer top-K (Algorithm 5):
     #    an EMA towards the top-K statistics, keeping the old target while
     #    the buffer holds no completed episode (NaN statistics).
-    topk_r, topk_std, topk_h = topk_command_stats(
-        new_buffer, k=agent_config.command_topk
-    )
+    stream = episode_stream(new_buffer)
+    topk_r, topk_std, topk_h = topk_command_stats(stream, k=agent_config.command_topk)
     tau = agent_config.command_target_tau
 
     def _refresh(old: jax.Array, proposal: jax.Array) -> jax.Array:
@@ -385,7 +365,7 @@ def training_iteration(
     def update_step(carry, key):
         a_state = carry
         obs_b, act_b, _dr, _dh = sample_training_batch(
-            key, a_state.buffer, agent_config.batch_size
+            key, new_buffer, stream, agent_config.batch_size
         )
         # Scale the (dr, dh) portion of obs to match what the actor sees
         # at rollout time.
@@ -428,13 +408,6 @@ def training_iteration(
         total_timesteps,
     )
 
-    # 5. Compute training-curve metric: mean completed-episode return in this
-    #    segment. (Used purely for logging; not for training signal.)
-    sum_returns, n_completed = _completed_episode_returns(rollout.reward, dones)
-    mean_episode_return = jnp.where(
-        n_completed > 0, sum_returns / jnp.maximum(n_completed, 1.0), jnp.nan
-    )
-
     # Realised RTG / horizon over the segment, only used for diagnostics.
     rtg, horizon = compute_returns_to_go_horizons(
         rollout.reward, dones, gamma=agent_config.gamma
@@ -444,8 +417,8 @@ def training_iteration(
         actor_loss=update_losses.mean(),
         mean_rtg=rtg.mean(),
         mean_horizon=horizon.mean(),
-        episodic_return=mean_episode_return,
-        n_completed_episodes=n_completed,
+        episodic_return=agent_state.collector_state.episodic_mean_return,
+        n_completed_episodes=dones.sum(),
         timestep=agent_state.collector_state.timestep,
     )
     agent_state = agent_state.replace(

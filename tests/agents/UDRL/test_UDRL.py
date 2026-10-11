@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from ajax.agents.UDRL.train_UDRL import init_UDRL
 from ajax.agents.UDRL.UDRL import UDRL
@@ -50,3 +51,25 @@ def test_UDRL_logs_its_training_metrics_without_a_backend():
     assert {"Train/actor_loss", "Train/episodic mean reward"} <= set(rows)
     assert jnp.isfinite(rows["Train/actor_loss"]).all()
     assert agent.train(seed=0, n_timesteps=64)[1] is None
+
+
+def test_UDRL_logs_the_returns_of_whole_episodes():
+    """CartPole pays 1 a step, so an episode returns its length; with 4-step
+    segments its episodes span several. The logged training return is the
+    house one (each env's mean of its last 10 whole episodes, averaged over
+    envs), read here from the buffer, which holds the whole run."""
+    from ajax.logging.wandb_logging import LoggingConfig
+
+    agent = UDRL(env_id="CartPole-v1", n_envs=2, n_steps=4, batch_size=8)
+    config = LoggingConfig(config={}, log_frequency=256, use_wandb=False)
+    state, rows = agent.train(seed=[0], n_timesteps=256, logging_config=config)
+    dones = np.asarray(state.buffer.dones)[0, :32, :, :, 0]  # (slot, t, env)
+    lengths = [
+        np.diff(np.flatnonzero(dones[:, :, env].reshape(-1)), prepend=-1)
+        for env in range(2)
+    ]
+    means = [x[-10:].mean() for x in lengths]
+    assert min(x.min() for x in lengths) > 4  # every episode spans segments
+    np.testing.assert_allclose(
+        rows["Train/episodic mean reward"][0, -1], np.mean(means)
+    )

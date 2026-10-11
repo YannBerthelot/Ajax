@@ -1,4 +1,4 @@
-from typing import Dict, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import distrax
 import jax
@@ -13,7 +13,11 @@ from ajax.environments.interaction import (
     augment_obs,
     collect_experience_from_expert_policy,
 )
-from ajax.environments.utils import check_env_is_gymnax, raw_obs_columns
+from ajax.environments.utils import (
+    check_env_is_gymnax,
+    get_state_action_shapes,
+    raw_obs_columns,
+)
 
 
 @struct.dataclass
@@ -146,12 +150,15 @@ def pre_train(
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
     raw_columns: int = 0,
+    train_frac_column: Optional[int] = None,
 ) -> Tuple[train_state.TrainState, Dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]:
     """Behaviour-clone the actor on a dataset of expert transitions.
 
     Returns the trained actor state, the per-epoch actor losses and the
     observation mean and standard deviation the actor was trained on (0
-    and 1 on the env's ``raw_columns``, which stay raw).
+    and 1 on the env's ``raw_columns``, which stay raw, and on the
+    training-fraction column ``train_frac_column``: constant 0 before
+    training, its standard deviation would be 1e-6).
     """
     obs = dataset.obs
     actions = dataset.action
@@ -165,9 +172,7 @@ def pre_train(
     # apply matching normalisation online.
     # The statistics cover the observation, not the expert action appended
     # after it, which stays raw (apply_obs_norm, as at run time).
-    obs_flat = obs.reshape(-1, obs.shape[-1])
-    obs_mean = obs_flat.mean(axis=0).at[:raw_columns].set(0.0)
-    obs_std = (obs_flat.std(axis=0) + 1e-6).at[:raw_columns].set(1.0)
+    obs_mean, obs_std = bc_statistics(obs, raw_columns, train_frac_column)
     obs = (obs - obs_mean) / obs_std
     if augment_obs_with_expert_action:
         # The dataset's actions are the expert's (it ran the expert).
@@ -279,6 +284,21 @@ def pre_train(
     return actor_state, metrics, obs_mean, obs_std
 
 
+def bc_statistics(
+    obs: jnp.ndarray, raw_columns: int = 0, train_frac_column: Optional[int] = None
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """The mean and standard deviation cloning standardises its observations
+    with: 0 and 1 on the env's ``raw_columns`` and on the training-fraction
+    column (constant 0 before training: its std would be 1e-6)."""
+    obs_flat = obs.reshape(-1, obs.shape[-1])
+    mean = obs_flat.mean(axis=0).at[:raw_columns].set(0.0)
+    std = (obs_flat.std(axis=0) + 1e-6).at[:raw_columns].set(1.0)
+    if train_frac_column is not None:
+        mean = mean.at[train_frac_column].set(0.0)
+        std = std.at[train_frac_column].set(1.0)
+    return mean, std
+
+
 def pretrain_on_expert(
     agent_state,
     key,
@@ -288,9 +308,12 @@ def pretrain_on_expert(
     actor_optimizer_args,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
+    with_train_frac: bool = False,
 ):
     """Behaviour-clone ``expert_policy`` when ``cloning_args`` asks for
-    pre-training steps (:func:`get_pre_trained_agent`); else the state as is."""
+    pre-training steps (:func:`get_pre_trained_agent`); else the state as is.
+    ``with_train_frac``: the agent's observations end with the training
+    fraction (0 before training)."""
     if cloning_args is None or cloning_args.pre_train_n_steps <= 0:
         return agent_state
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
@@ -304,6 +327,7 @@ def pretrain_on_expert(
         actor_optimizer_args,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
         augment_obs_with_expert_state=augment_obs_with_expert_state,
+        with_train_frac=with_train_frac,
     )
 
 
@@ -317,8 +341,9 @@ def get_pre_trained_agent(
     actor_optimizer_args,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
+    with_train_frac: bool = False,
 ):
-    # dataset is examples of observations and actions taken
+    # The expert's transitions in the agent's layout (the collector's).
     dataset = collect_experience_from_expert_policy(
         expert_policy,
         rng=expert_key,
@@ -326,7 +351,9 @@ def get_pre_trained_agent(
         mode=mode,
         n_timesteps=cloning_args.pre_train_n_steps,
         augment_obs_with_expert_state=augment_obs_with_expert_state,
+        train_frac=0.0 if with_train_frac else None,
     )
+    env_obs_dim = get_state_action_shapes(env_args.env)[0][-1]
     actor_state, _metrics, obs_mean, obs_std = pre_train(
         rng=expert_key,
         actor_state=agent_state.actor_state,
@@ -342,6 +369,7 @@ def get_pre_trained_agent(
         bc_min_log_std=cloning_args.bc_min_log_std,
         bc_action_clip_eps=cloning_args.bc_action_clip_eps,
         raw_columns=raw_obs_columns(env_args.env),
+        train_frac_column=env_obs_dim if with_train_frac else None,
     )
     # The actor was just trained on inputs standardised with the dataset's
     # statistics: the agent's running observation statistics start from

@@ -32,7 +32,11 @@ from ajax.agents.loop import Evaluation, TrainLoop, fresh_state
 from ajax.environments.differentiable import Rollout, closed_loop_rollout
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.system_class import FixedSystem, SystemClass
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import (
+    agent_action_to_env,
+    get_action_dim,
+    get_state_action_shapes,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import zeros_carry_like
@@ -199,6 +203,9 @@ def rollout_returns(
 ) -> Tuple[jax.Array, Rollout]:
     """Closed-loop returns ``(n,)`` of the controller on ``n`` fresh systems
     (the env's own system without a ``system_class``), and the rollout.
+    The controller acts in ``[-1, 1]``, mapped onto each system's action
+    bounds (:func:`agent_action_to_env`, differentiable): ``Rollout.action``
+    is what the env received.
 
     ``stateful`` (a static flag) defaults to whether the actor carries a
     hidden state, which ``init_APG`` sets exactly for a stateful controller.
@@ -212,8 +219,14 @@ def rollout_returns(
     carry = (
         zeros_carry_like(agent_state.actor_state.hidden_state, n) if stateful else None
     )
+    policy_step = make_policy_step(agent_state.actor_state, params, stateful)
+
+    def mapped_step(carry, obs, resets):
+        action, carry = policy_step(carry, obs, resets)
+        return agent_action_to_env(action, env_args.env, env_params), carry
+
     rollout, _ = closed_loop_rollout(
-        make_policy_step(agent_state.actor_state, params, stateful),
+        mapped_step,
         carry,
         roll_key,
         env_args.env,

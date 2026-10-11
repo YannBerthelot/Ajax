@@ -293,11 +293,14 @@ def agent_action_to_env(
 ) -> jax.Array:
     """Map an agent action in ``[-1, 1]`` to the env's action bounds.
 
-    ``action`` is ``[n_envs, *action_shape]``. Continuous actions are
-    clipped to ``[-1, 1]`` and, on every dimension of the Box with finite
-    bounds ``[low, high]``, mapped affinely onto them: ``c + h * clip(a,
-    -1, 1)``, with centre ``c = (high + low) / 2`` and half-range ``h =
-    (high - low) / 2`` (CleanRL's ``action_bias`` and ``action_scale``).
+    Every Ajax env step carrying an agent's or an expert's action calls it:
+    every continuous agent acts in ``[-1, 1]`` (squashed or not), whatever
+    the env's box. ``action`` is ``[n_envs, *action_shape]``. Continuous
+    actions are clipped to ``[-1, 1]`` and, on every dimension of the Box
+    with finite bounds ``[low, high]``, mapped affinely onto them: ``c + h
+    * clip(a, -1, 1)``, with centre ``c = (high + low) / 2`` and half-range
+    ``h = (high - low) / 2`` (CleanRL's ``action_bias`` and
+    ``action_scale``).
     This is DreamerV3's ``ClipAction`` + ``NormalizeAction`` (a dimension
     with an infinite bound keeps the clipped action) and TD-MPC2's action
     scaling. For ``[-1, 1]`` bounds -- every brax / playground env, gymnax
@@ -347,9 +350,10 @@ class ExpertInAgentUnits:
     exactly when the expert's do (``hasattr`` still tells a stateful
     expert). It hashes by identity, for jit's static arguments.
 
-    Its bounds are one ``(A,)`` box read from concrete params: a stateless
-    expert is also vmapped over single observations, where per-env bounds
-    would broadcast its action. Per-env boxes that differ raise.
+    Its bounds are one ``(A,)`` box read from concrete params, also inside
+    jit (static params): a stateless expert is also vmapped over single
+    observations, where per-env bounds would broadcast its action. Per-env
+    boxes that differ raise.
     """
 
     __slots__ = ("expert", "_bounds")
@@ -358,7 +362,8 @@ class ExpertInAgentUnits:
     def __init__(
         self, expert: Any, env: EnvType, env_params: Optional[EnvParams] = None
     ) -> None:
-        bounds = _action_bounds(env, env_params)
+        with jax.ensure_compile_time_eval():
+            bounds = _action_bounds(env, env_params)
         if bounds is not None:
             bounds = tuple(np.asarray(x) for x in bounds)
         if bounds is not None and env_params_is_batched(env_params):

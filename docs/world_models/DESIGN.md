@@ -230,12 +230,15 @@ the reference reuses the training env and prev_mean).
 - `setup_environment` (eval rebuild) takes `action_repeat` and the training
   `episode_length` explicitly; `_infer_max_eval_steps` is replaced at the new call sites
   by `agent_episode_length`.
-- **Action bounds.** The collector and `evaluate_policy` map the agent's action to the
-  env: `a_env = c + h · clip(a, −1, 1)` for finite Box bounds, with centre
-  `c = (high + low)/2` and half-range `h = (high − low)/2`, exactly the clip on a
-  [−1, 1] box (DreamerV3 reference `NormalizeAction` + `ClipAction`; TD-MPC2
-  `action_scale`).
-  Replay stores the agent's raw action. Test with Pendulum's [−2, 2].
+- **Action bounds.** Every Ajax env step maps the agent's action to the env (the
+  row collector and `evaluate_policy` here; the model-free collectors, `evaluate`,
+  UDRL and APG alike): `a_env = c + h · clip(a, −1, 1)` for finite Box bounds, with
+  centre `c = (high + low)/2` and half-range `h = (high − low)/2`, exactly the clip on
+  a [−1, 1] box (DreamerV3 reference `NormalizeAction` + `ClipAction`; TD-MPC2
+  `action_scale`). Experts, written in env units, are read in agent units by the
+  inverse, `(a − c)/h` (`ExpertInAgentUnits`). Replay stores the agent's raw action.
+  The public `interaction.step` and `closed_loop_rollout` stay raw. Test with
+  Pendulum's [−2, 2].
 
 ### 5.2 Row collector (`src/ajax/environments/row_collector.py`)
 One row per env per tick, obs-aligned (DreamerV3's replay convention; also exactly

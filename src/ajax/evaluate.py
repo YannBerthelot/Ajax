@@ -17,6 +17,7 @@ from ajax.environments.interaction import (
 from ajax.environments.row_collector import PolicyFn, check_unnormalized_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
+    ExpertInAgentUnits,
     agent_action_to_env,
     agent_episode_length,
     check_env_is_gymnax,
@@ -193,6 +194,9 @@ def step_environment(
 
     Carry is a 10-tuple; the last slot holds the expert's internal state
     (e.g. PID integrator). For stateless experts it's an unused dummy.
+    The expert acts in agent units (:class:`ExpertInAgentUnits`), as every
+    action here; the executed one is mapped onto the env's bounds
+    (:func:`agent_action_to_env`), as in collection.
 
     pid_gain_policy: when True, the actor output is interpreted as PID gain
     modulation: env_action = expert.step_with_gains(state, obs, anchor*exp(ln10*a)).
@@ -317,7 +321,7 @@ def step_environment(
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
-            actions,
+            agent_action_to_env(actions, env, env_params),
             env,
             mode,
             env_params,
@@ -367,7 +371,8 @@ def step_environment_expert(mode, env, env_params, expert_policy):
     """Step function for the expert's own rollout, called as the agent's
     rollout calls it (:func:`step_environment`): a stateful expert (one with
     ``init_state``) as ``expert_policy(state, obs) -> (action, state)``, a
-    stateless one as ``expert_policy(obs) -> action``."""
+    stateless one as ``expert_policy(obs) -> action``, in agent units and
+    mapped onto the env's bounds."""
     expert_is_stateful = hasattr(expert_policy, "init_state")
 
     def fn(carry):
@@ -397,7 +402,12 @@ def step_environment_expert(mode, env, env_params, expert_policy):
         else:
             actions, new_expert_state = expert_policy(expert_obs), expert_state
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
-            step_keys, state, actions, env, mode, env_params
+            step_keys,
+            state,
+            agent_action_to_env(actions, env, env_params),
+            env,
+            mode,
+            env_params,
         )
         new_done = jnp.logical_or(new_term, new_trunc)
         still_running = 1 - done
@@ -536,7 +546,11 @@ def evaluate(
     """Evaluate the actor's deterministic policy on ``num_episodes``
     episodes; with ``expert_policy`` (the training expert, which builds the
     actor's input) the expert's return too, that of ``eval_expert_policy``
-    when given, on the same episodes (the same reset and key)."""
+    when given, on the same episodes (the same reset and key). The experts
+    speak env units: they are read in agent units here
+    (:class:`ExpertInAgentUnits`; an agent's are already)."""
+    expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
+    eval_expert_policy = ExpertInAgentUnits.wrap(eval_expert_policy, env, env_params)
     env, mode, continuous, key, obs, state = _reset_eval_env(
         env, env_params, num_episodes, norm_info, rng, gamma
     )

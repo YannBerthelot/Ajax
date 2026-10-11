@@ -40,7 +40,9 @@ from ajax.types import EnvType
 # Identity at initialisation (K_P=1, K_I=K_D=0). The reference code
 # initialises all three coefficients to 1.0 on an unbounded output; under
 # Ajax's tanh-bounded action that init trained markedly worse (pendulum
-# tracking, fresh-system M-RMSE 0.33 vs 0.25 for the identity init).
+# tracking, fresh-system M-RMSE 0.33 vs 0.25 for the identity init). These
+# runs, and the deviations of contextual_controller, predate the map of
+# actions onto the env's bounds: the torque was capped at +-1 of +-2.
 _DEFAULT_PID = PIDHeadConfig()
 
 
@@ -99,6 +101,8 @@ class APG(ActorCritic):
             pid: :class:`PIDHeadConfig` to close the controller with a
                 learnable PID layer; ``None`` for a plain output.
             squash: tanh-bound actions to ``[-1, 1]`` (Ajax convention).
+                Squashed or not, ``[-1, 1]`` is mapped onto the env's
+                bounds (an unsquashed action is clipped there first).
             system_class: distribution over ``EnvParams`` to train across;
                 ``None`` trains on the env's own params only.
             controller_factory: optional builder of a custom policy module,

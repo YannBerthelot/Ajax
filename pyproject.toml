@@ -112,6 +112,8 @@ disable_error_code = ["attr-defined" ,"call-arg","misc"]
 norecursedirs = [".*"]
 # A run without paths collects exactly what the CI shards cover together.
 testpaths = ["tests"]
+# An unregistered mark is an error, not a silent no-op.
+addopts = "--strict-markers"
 markers = [
     "slow: long trainings; CI runs them in their own job, without coverage (select with -m slow, deselect with -m \"not slow\")",
 ]

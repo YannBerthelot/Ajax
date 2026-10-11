@@ -451,8 +451,7 @@ def test_p3_e11_sac_expert_prefill_trains(expert: Any, n_envs: int) -> None:
 # On the chain with a constant expert a_E = 0.8: MCPretrain's phi* and value
 # range (budget 0, reward_scale 2), CriticBlend's target, IBRL's gap, OnlineBC's
 # value weighting; then the cloning pre-training (budget 0) on SignedActionEnv,
-# expert 0.5 s, and on its twin observed at s + 2. The cloning cases come last:
-# the pre-training calls jax.clear_caches() while tracing (cloning.py:476).
+# expert 0.5 s, and on its twin observed at s + 2.
 
 
 @dataclasses.dataclass(frozen=True)

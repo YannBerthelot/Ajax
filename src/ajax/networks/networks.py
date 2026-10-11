@@ -85,6 +85,11 @@ class CNNEncoder(nn.Module):
     def __call__(self, x):
         H, W, C = self.image_shape
         img_flat = H * W * C
+        if x.shape[-1] != img_flat + self.extra_obs_dim:
+            raise ValueError(
+                f"CNNEncoder reads {img_flat} image dims {self.image_shape} and"
+                f" {self.extra_obs_dim} trailing dims, got {x.shape[-1]} dims."
+            )
         if self.extra_obs_dim > 0:
             img = x[..., :img_flat]
             extra = x[..., img_flat:]
@@ -543,6 +548,12 @@ def get_initialized_actor_critic(
         cnn_image_shape = network_config.cnn_image_shape
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
+    # Dims appended to the env's observation at run time: the train
+    # fraction and the agent's augmentation (UDRL's command, an expert's
+    # action). A CNN passes them through after the convolutions, with the
+    # env's own trailing dims, the same way in the actor and the critic.
+    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
     actor: nn.Module
     if isinstance(network_config.actor_architecture, PIDPolicy):
@@ -565,7 +576,7 @@ def get_initialized_actor_critic(
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
-            cnn_extra_obs_dim=extra_obs_dim,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
@@ -583,7 +594,7 @@ def get_initialized_actor_critic(
         encoder_bias_init=encoder_bias_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=critic_cnn_image_shape,
-        cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
+        cnn_extra_obs_dim=cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
         memory=memory,
         query_dim=action_dim if action_value and memory is not None else 0,
@@ -596,7 +607,6 @@ def get_initialized_actor_critic(
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Inflate obs dim for train_frac and/or obs augmentation
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
     if obs_extra > 0:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += obs_extra

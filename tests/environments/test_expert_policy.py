@@ -38,7 +38,7 @@ def gymnax_env_args(gymnax_env):
         env=env,
         env_params=env_params,
         n_envs=n_envs,
-        continuous=False,
+        continuous=True,
     )
 
 
@@ -82,73 +82,24 @@ def create_dummy_actor_state(obs_dim=4, action_dim=2):
 
 
 def create_dummy_dataset():
-    obs = jnp.array(
-        [
-            [[1.0, 2.0, 3.0, 4.0]],
-            [[2.0, 3.0, 4.0, 5.0]],
-        ]
-    )  # shape (2, 1, 4)
+    """Two transitions of one env (leading axes: step, env)."""
 
-    actions = jnp.array(
-        [
-            [[0.5, 0.1]],
-            [[0.2, 0.3]],
-        ]
-    )  # shape (2, 1, 2)
-
-    rewards = jnp.array(
-        [
-            [[1.0]],
-            [[0.5]],
-        ]
-    )  # shape (2, 1, 1)
-
-    terminated = jnp.array(
-        [
-            [[0.0]],
-            [[1.0]],
-        ]
-    )  # shape (2, 1, 1)
-
-    truncated = jnp.array(
-        [
-            [[0.0]],
-            [[0.0]],
-        ]
-    )  # shape (2, 1, 1)
-
-    next_obs = jnp.array(
-        [
-            [[1.1, 2.1, 3.1, 4.1]],
-            [[2.1, 3.1, 4.1, 5.1]],
-        ]
-    )  # shape (2, 1, 4)
+    def rows(*values):
+        return jnp.array(values)[:, None]
 
     return Transition(
-        obs=obs,
-        action=actions,
-        reward=rewards,
-        terminated=terminated,
-        truncated=truncated,
-        next_obs=next_obs,
+        obs=rows([1.0, 2.0, 3.0, 4.0], [2.0, 3.0, 4.0, 5.0]),
+        action=rows([0.5, 0.1], [0.2, 0.3]),
+        reward=rows([1.0], [0.5]),
+        terminated=rows([0.0], [1.0]),
+        truncated=rows([0.0], [0.0]),
+        next_obs=rows([1.1, 2.1, 3.1, 4.1], [2.1, 3.1, 4.1, 5.1]),
         log_prob=None,
     )
 
 
 def expand_dataset(dataset, repeat=20):
-    return Transition(
-        obs=jnp.tile(dataset.obs, (repeat, 1, 1)),
-        action=jnp.tile(dataset.action, (repeat, 1, 1)),
-        reward=jnp.tile(dataset.reward, (repeat, 1, 1)),
-        terminated=jnp.tile(dataset.terminated, (repeat, 1, 1)),
-        truncated=jnp.tile(dataset.truncated, (repeat, 1, 1)),
-        next_obs=jnp.tile(dataset.next_obs, (repeat, 1, 1)),
-        log_prob=(
-            None
-            if dataset.log_prob is None
-            else jnp.tile(dataset.log_prob, (repeat, 1, 1))
-        ),
-    )
+    return jax.tree.map(lambda x: jnp.tile(x, (repeat, 1, 1)), dataset)
 
 
 # -----------------------------
@@ -156,7 +107,7 @@ def expand_dataset(dataset, repeat=20):
 # -----------------------------
 def test_pre_train_actor_converges():
     actor_state = create_dummy_actor_state()
-    dataset = expand_dataset(create_dummy_dataset(), repeat=1)
+    dataset = create_dummy_dataset()
     key = jax.random.PRNGKey(42)
     trained_actor, metrics, obs_mean, obs_std = pre_train(
         key,
@@ -180,7 +131,7 @@ def test_pre_train_actor_converges():
 def test_pre_train_leaves_raw_columns_unstandardised():
     """The env's declared raw columns keep mean 0 / std 1: the clone and
     the statistics it seeds read them raw, the rest standardised."""
-    dataset = expand_dataset(create_dummy_dataset(), repeat=1)
+    dataset = create_dummy_dataset()
     _, _, obs_mean, obs_std = pre_train(
         jax.random.PRNGKey(0),
         create_dummy_actor_state(),
@@ -244,19 +195,10 @@ def test_collect_experience_shapes_and_types(request, mode, env_args_fixture):
     rng = jax.random.PRNGKey(0)
     n_steps = 5
 
-    # Expert policy depends on env type
-    if env_args.continuous:
-        action_dim = (
-            env_args.env.action_size if hasattr(env_args.env, "action_size") else 1
-        )
+    action_dim = getattr(env_args.env, "action_size", 1)  # gymnax Pendulum: 1
 
-        def expert_policy(obs):
-            return jnp.zeros((action_dim), dtype=jnp.float32)
-
-    else:
-
-        def expert_policy(obs):
-            return jnp.zeros((1), dtype=jnp.int32)
+    def expert_policy(obs):
+        return jnp.zeros((action_dim), dtype=jnp.float32)
 
     transitions = collect_experience_from_expert_policy(
         expert_policy, rng, mode, env_args, n_timesteps=n_steps

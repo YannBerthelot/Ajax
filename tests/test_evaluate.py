@@ -20,123 +20,57 @@ from ajax.state import (
 )
 
 
-@pytest.fixture
-def fast_env_config():
-    env = create_brax_env("fast", batch_size=1)
-    return EnvironmentConfig(
-        env=env,
-        env_params=None,
-        n_envs=1,
-        continuous=True,
-    )
-
-
-@pytest.fixture
-def gymnax_env_config():
-    env, env_params = gymnax.make("Pendulum-v1")
-    return EnvironmentConfig(
-        env=env,
-        env_params=env_params,
-        n_envs=1,
-        continuous=True,
-    )
-
-
-@pytest.fixture(params=["fast_env_config", "gymnax_env_config"])
-def env_config(request, fast_env_config, gymnax_env_config):
-    return fast_env_config if request.param == "fast_env_config" else gymnax_env_config
-
-
-@pytest.fixture
-def SAC_state(env_config):
-    key = jax.random.PRNGKey(0)
+def _sac_state(env_config: EnvironmentConfig):
+    """A freshly initialised SAC (64-wide nets) on ``env_config``."""
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
         actor_architecture=["64", "relu", "64"],
         critic_architecture=["64", "relu", "64"],
         squash=True,
     )
-    alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
     buffer = get_buffer(
         **to_state_dict(
             BufferConfig(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
         )
     )
     return init_SAC(
-        key=key,
+        key=jax.random.PRNGKey(0),
         env_args=env_config,
         actor_optimizer_args=optimizer_args,
         critic_optimizer_args=optimizer_args,
         network_args=network_args,
-        alpha_args=alpha_args,
+        alpha_args=AlphaConfig(learning_rate=3e-4, alpha_init=1.0),
         buffer=buffer,
     )
 
 
-def test_evaluate_with_fast_env(env_config, SAC_state):
-    num_episodes = 5
-    rng = jax.random.PRNGKey(0)
-
-    rewards, avg_entropy, avg_reward, bias, avg_length, expert_rewards = evaluate(
-        env=env_config.env,
-        actor_state=SAC_state.actor_state,
-        num_episodes=num_episodes,
-        rng=rng,
-        env_params=env_config.env_params,
+@pytest.mark.parametrize("env_id", ["fast", "Pendulum-v1"])
+def test_evaluate_returns_scalar_metrics(env_id):
+    if env_id == "fast":
+        env, env_params = create_brax_env("fast", batch_size=1), None
+    else:
+        env, env_params = gymnax.make(env_id)
+    env_config = EnvironmentConfig(
+        env=env, env_params=env_params, n_envs=1, continuous=True
+    )
+    rewards, avg_entropy, *_ = evaluate(
+        env=env,
+        actor_state=_sac_state(env_config).actor_state,
+        num_episodes=3,
+        rng=jax.random.PRNGKey(42),
+        env_params=env_params,
         recurrent=False,
     )
-
-    # Assertions
-    assert rewards.shape == ()
-    assert avg_entropy.shape == ()
-
-
-def test_evaluate_with_gymnax_env(env_config, SAC_state):
-    num_episodes = 3
-    rng = jax.random.PRNGKey(42)
-
-    rewards, avg_entropy, avg_reward, bias, avg_length, expert_rewards = evaluate(
-        env=env_config.env,
-        actor_state=SAC_state.actor_state,
-        num_episodes=num_episodes,
-        rng=rng,
-        env_params=env_config.env_params,
-        recurrent=False,
-    )
-
-    # Assertions
     assert rewards.shape == ()
     assert avg_entropy.shape == ()
 
 
 def _eval_pendulum():
-    import gymnax
-
     env, env_params = gymnax.make("Pendulum-v1")
-    key = jax.random.PRNGKey(0)
-    optimizer_args = OptimizerConfig(learning_rate=3e-4)
-    network_args = NetworkConfig(
-        actor_architecture=["64", "relu", "64"],
-        critic_architecture=["64", "relu", "64"],
-        squash=True,
-    )
-    alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
-    buffer = get_buffer(
-        **to_state_dict(BufferConfig(buffer_size=1000, batch_size=32, n_envs=1))
-    )
     env_cfg = EnvironmentConfig(
         env=env, env_params=env_params, n_envs=1, continuous=True
     )
-    state = init_SAC(
-        key=key,
-        env_args=env_cfg,
-        actor_optimizer_args=optimizer_args,
-        critic_optimizer_args=optimizer_args,
-        network_args=network_args,
-        alpha_args=alpha_args,
-        buffer=buffer,
-    )
-    return env, env_params, state
+    return env, env_params, _sac_state(env_cfg)
 
 
 def test_evaluate_regression_pendulum():

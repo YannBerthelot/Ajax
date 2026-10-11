@@ -180,21 +180,15 @@ def test_the_committed_dreamerv3_reference():
     assert ref["units"]["x"].startswith("env (simulator) steps")
     assert "training episodes of the stochastic" in ref["units"]["y"]
     assert ref["playground"] == DREAMERV3_TO_PLAYGROUND and ref["unavailable"] == []
-    protocol = ref["protocol"]
-    assert (
-        protocol["model_size"],
-        protocol["train_ratio"],
-        protocol["action_repeat"],
-    ) == (
-        "12m",
-        512,
-        2,
-    )
-    assert (protocol["n_envs"], protocol["env_steps"], protocol["seeds"]) == (
-        16,
-        500_000,
-        5,
-    )
+    expected = {
+        "model_size": "12m",
+        "train_ratio": 512,
+        "action_repeat": 2,
+        "n_envs": 16,
+        "env_steps": 500_000,
+        "seeds": 5,
+    }
+    assert {k: ref["protocol"][k] for k in expected} == expected
     assert set(ref["tasks"]) == set(DREAMERV3_TO_PLAYGROUND)
     for curves in ref["tasks"].values():
         assert [s["seed"] for s in curves] == [0, 1, 2, 3, 4]
@@ -214,16 +208,14 @@ def test_the_committed_tdmpc2_reference():
     assert "Nicklas Hansen" in ref["source"]["copyright"]
     assert ref["units"]["x"].startswith("env (simulator) steps")
     assert "eval_mode" in ref["units"]["y"]
-    protocol = ref["protocol"]
-    assert (protocol["model_size"], protocol["action_repeat"], protocol["seeds"]) == (
-        5,
-        2,
-        3,
-    )
-    assert (protocol["eval_episodes"], protocol["eval_freq_agent_steps"]) == (
-        10,
-        50_000,
-    )
+    protocol = {
+        "model_size": 5,
+        "action_repeat": 2,
+        "seeds": 3,
+        "eval_episodes": 10,
+        "eval_freq_agent_steps": 50_000,
+    }
+    assert {k: ref["protocol"][k] for k in protocol} == protocol
     assert ref["playground"] == TDMPC2_TO_PLAYGROUND
     assert ref["unavailable"] == sorted(TDMPC2_DMC_UNAVAILABLE)
     assert ref["non_dmc_results"] == 65  # 50 Meta-World, 10 MyoSuite, 5 ManiSkill2

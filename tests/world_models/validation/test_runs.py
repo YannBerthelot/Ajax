@@ -15,6 +15,7 @@ import json
 import os
 from types import SimpleNamespace
 
+import jax
 import numpy as np
 import pytest
 import wm_runs
@@ -30,6 +31,8 @@ from wm_runs import (
     TrainEpisodeProbe,
 )
 
+from .smoke_helpers import Interrupted
+
 
 @struct.dataclass
 class Counter:
@@ -37,10 +40,6 @@ class Counter:
 
     done: np.ndarray
     total: np.ndarray
-
-
-class Interrupted(Exception):
-    """Stands for a killed process (raised after a chunk's save)."""
 
 
 class Echo(Probe):
@@ -196,7 +195,6 @@ def test_specification_differences_and_provenance_summary():
 def test_tdmpc2_evaluation_keys_depend_on_seed_and_progress_only():
     """The key of seed ``s`` after ``p`` agent steps is
     ``fold_in(PRNGKey(s), p)``, in a fresh probe as in a resumed one."""
-    import jax
 
     def evaluate(state, keys):  # the keys (raw uint32 pairs) as the "returns"
         keys = np.asarray(keys)

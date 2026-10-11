@@ -91,11 +91,10 @@ def test_rows_are_written_in_lockstep_slots_and_wrap():
 
 
 def test_windows_are_read_across_the_wrap():
-    replay = StreamReplay(N_ENVS, CAPACITY, BATCH, LENGTH)
-    state = filled(14, replay)
+    state = filled(14)
     start = jnp.array([9, 7, 3, 4], jnp.int32)  # 9 and 7 wrap (slots 9, 10, 0, ...)
     env = jnp.array([0, 2, 1, 2], jnp.int32)
-    window = replay.gather(state, BatchIndex(env, start, jnp.zeros(4, bool)), None)
+    window = REPLAY.gather(state, BatchIndex(env, start, jnp.zeros(4, bool)), None)
     expected = tag(np.asarray(env)[:, None], np.asarray(start)[:, None] + np.arange(5))
     np.testing.assert_array_equal(window.reward, expected)
     np.testing.assert_array_equal(window.obs[..., 0], expected)
@@ -111,18 +110,17 @@ def test_sampled_windows_never_cross_the_write_head(rows):
     """Uniform rows start in ``[max(0, rows - C), rows - L]``: fully written,
     not overwritten; every such item is drawn; each window reads ``L``
     consecutive rows of one env."""
-    replay = StreamReplay(N_ENVS, CAPACITY, BATCH, LENGTH)
     # The online queue drained: every row is uniform.
-    state = filled(rows, replay).replace(popped=jnp.asarray(10**6, jnp.int32))
+    state = filled(rows).replace(popped=jnp.asarray(10**6, jnp.int32))
     keys = jax.random.split(jax.random.PRNGKey(rows), 400)
-    _, index = jax.vmap(lambda k: replay.sample(state, jnp.asarray(rows), k))(keys)
+    _, index = jax.vmap(lambda k: REPLAY.sample(state, jnp.asarray(rows), k))(keys)
     assert not bool(index.online.any())
     start, env = np.asarray(index.start).ravel(), np.asarray(index.env).ravel()
     oldest = max(0, rows - CAPACITY)
     assert start.min() >= oldest and start.max() <= rows - (LENGTH + 1)
     items = {(e, s) for e in range(N_ENVS) for s in range(oldest, rows - LENGTH)}
     assert set(zip(env.tolist(), start.tolist(), strict=False)) == items
-    window = jax.vmap(lambda i: replay.gather(state, i, None))(index)
+    window = jax.vmap(lambda i: REPLAY.gather(state, i, None))(index)
     expected = tag(
         np.asarray(index.env)[..., None],
         np.asarray(index.start)[..., None] + np.arange(LENGTH + 1),
@@ -135,46 +133,43 @@ def test_uniform_rows_are_drawn_with_replacement():
     ``selectors.py:34-36``, one ``_sample`` per row, ``replay.py:268``): with
     6 items and batches of 4, a batch repeats an item with probability
     ``1 - 6 * 5 * 4 * 3 / 6**4 = 0.72``."""
-    replay = StreamReplay(N_ENVS, CAPACITY, BATCH, LENGTH)
-    state = filled(6, replay).replace(popped=jnp.asarray(10**6, jnp.int32))
+    state = filled(6).replace(popped=jnp.asarray(10**6, jnp.int32))
     keys = jax.random.split(jax.random.PRNGKey(0), 1000)
-    _, index = jax.vmap(lambda k: replay.sample(state, jnp.asarray(6), k))(keys)
+    _, index = jax.vmap(lambda k: REPLAY.sample(state, jnp.asarray(6), k))(keys)
     items = np.asarray(index.env) * 100 + np.asarray(index.start)
     repeated = np.array([len(set(batch)) < BATCH for batch in items.tolist()])
     assert 0.65 < repeated.mean() < 0.79, repeated.mean()
 
 
 def test_item_counts_and_online_pushes():
-    replay = StreamReplay(N_ENVS, CAPACITY, BATCH, LENGTH)
     rows = jnp.arange(0, 30)
-    items = np.asarray(jax.vmap(replay.items_per_env)(rows))
+    items = np.asarray(jax.vmap(REPLAY.items_per_env)(rows))
     np.testing.assert_array_equal(items, np.clip(np.minimum(rows, 11) - 4, 0, None))
     # Each env pushes at its rows 5, 10, ... (0-indexed): after r rows,
     # floor((r - 1) / 5) items per env.
-    pushed = np.asarray(jax.vmap(replay.online_pushed)(rows))
+    pushed = np.asarray(jax.vmap(REPLAY.online_pushed)(rows))
     np.testing.assert_array_equal(pushed, N_ENVS * (np.maximum(rows - 1, 0) // 5))
     q = jnp.arange(7)
-    env, start = replay.online_item(q)
+    env, start = REPLAY.online_item(q)
     np.testing.assert_array_equal(env, [0, 1, 2, 0, 1, 2, 0])
     np.testing.assert_array_equal(start, [1, 1, 1, 6, 6, 6, 11])
 
 
 def test_online_queue_pops_pending_items_first_then_skips_overwritten_ones():
-    replay = StreamReplay(N_ENVS, CAPACITY, BATCH, LENGTH)
-    state = filled(12, replay)  # pushed: starts 1 and 6 of every env = 6 items
-    state, index = replay.sample(state, jnp.asarray(12), jax.random.PRNGKey(0))
+    state = filled(12)  # pushed: starts 1 and 6 of every env = 6 items
+    state, index = REPLAY.sample(state, jnp.asarray(12), jax.random.PRNGKey(0))
     np.testing.assert_array_equal(index.online, [True] * 4)
     np.testing.assert_array_equal(index.env, [0, 1, 2, 0])
     np.testing.assert_array_equal(index.start, [1, 1, 1, 6])
-    state, index = replay.sample(state, jnp.asarray(12), jax.random.PRNGKey(1))
+    state, index = REPLAY.sample(state, jnp.asarray(12), jax.random.PRNGKey(1))
     np.testing.assert_array_equal(index.online, [True, True, False, False])
     np.testing.assert_array_equal(index.start[:2], [6, 6])
     assert int(state.popped) == 6
     # 19 rows: start 6 is overwritten (oldest kept row: 8) and start 11 is
     # live; a fresh queue skips the dead items, as the reference's KeyError
     # retry skips evicted ones (replay.py:178-191).
-    state = filled(19, replay)
-    state, index = replay.sample(state, jnp.asarray(19), jax.random.PRNGKey(2))
+    state = filled(19)
+    state, index = REPLAY.sample(state, jnp.asarray(19), jax.random.PRNGKey(2))
     np.testing.assert_array_equal(index.online, [True, True, True, False])
     np.testing.assert_array_equal(index.start[:3], [11, 11, 11])
     assert int(state.popped) == 9
@@ -187,10 +182,9 @@ def test_batch_annotation_marks_the_first_row_and_abandoned_episodes():
     def flags(env, row):
         return (row in (3, 8), row == 6, row == 6)
 
-    replay = StreamReplay(N_ENVS, CAPACITY, BATCH, LENGTH)
-    state = filled(12, replay, flags=flags)
+    state = filled(12, flags=flags)
     start = jnp.array([0, 2, 4, 6], jnp.int32)
-    window = replay.gather(
+    window = REPLAY.gather(
         state, BatchIndex(jnp.zeros(4, jnp.int32), start, start > 9), None
     )
     rows = np.asarray(start)[:, None] + np.arange(5)
@@ -297,39 +291,38 @@ def test_write_back_matches_a_sequential_numpy_loop():
     np.testing.assert_array_equal(new.obs, state.obs)
 
 
+#: The window of env 0 starting at row 0 (a uniform row).
+ORIGIN = BatchIndex(
+    jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32), jnp.zeros(1, bool)
+)
+
+
+def _one_row(action, extras) -> Row:
+    """The first row of an episode of one env, zero observation and reward."""
+    return Row(
+        obs=jnp.zeros((1, 1)),
+        reward=jnp.zeros(1),
+        is_first=jnp.ones(1, bool),
+        is_last=jnp.zeros(1, bool),
+        is_terminal=jnp.zeros(1, bool),
+        action=action,
+        extras=extras,
+    )
+
+
 @pytest.mark.parametrize("classes", [7, 256, 300])
 def test_stochastic_latents_round_trip_as_class_indices(classes):
     assert stoch_dtype(classes) == (jnp.uint8 if classes <= 256 else jnp.int32)
     replay = StreamReplay(1, 6, 1, 2)
     state = replay.init(1, 1, False, 1, 3, classes)
     indices = jnp.array([[0, classes - 1, classes // 2]], jnp.int32)
-    row = Row(
-        obs=jnp.zeros((1, 1)),
-        reward=jnp.zeros(1),
-        is_first=jnp.ones(1, bool),
-        is_last=jnp.zeros(1, bool),
-        is_terminal=jnp.zeros(1, bool),
-        action=jnp.zeros((1, 1)),
-        extras=(jnp.zeros((1, 1)), indices),
-    )
+    row = _one_row(jnp.zeros((1, 1)), (jnp.zeros((1, 1)), indices))
     state = replay.add(state, row, jnp.asarray(0))
     assert state.stoch.dtype == stoch_dtype(classes)
-    window = replay.gather(
-        state,
-        BatchIndex(
-            jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32), jnp.zeros(1, bool)
-        ),
-        None,
-    )
+    window = replay.gather(state, ORIGIN, None)
     np.testing.assert_array_equal(window.context_stoch, indices)
     entries = PosteriorEntries(jnp.zeros((1, 2, 1)), jnp.full((1, 2, 3), classes - 1))
-    state = replay.write_back(
-        state,
-        BatchIndex(
-            jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32), jnp.zeros(1, bool)
-        ),
-        entries,
-    )
+    state = replay.write_back(state, ORIGIN, entries)
     np.testing.assert_array_equal(state.stoch[0, 1:3], classes - 1)
 
 
@@ -337,20 +330,9 @@ def test_continuous_actions_are_stored_raw_and_passed_through():
     replay = StreamReplay(1, 6, 1, 2)
     state = replay.init(1, 2, False, 1, 1, 2)
     action = jnp.array([[1.7, -3.0]])  # outside [-1, 1]: stored unclipped
-    row = Row(
-        obs=jnp.zeros((1, 1)),
-        reward=jnp.zeros(1),
-        is_first=jnp.ones(1, bool),
-        is_last=jnp.zeros(1, bool),
-        is_terminal=jnp.zeros(1, bool),
-        action=action,
-        extras=(jnp.zeros((1, 1)), jnp.zeros((1, 1), jnp.int32)),
-    )
+    row = _one_row(action, (jnp.zeros((1, 1)), jnp.zeros((1, 1), jnp.int32)))
     state = replay.add(state, row, jnp.asarray(0))
-    index = BatchIndex(
-        jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32), jnp.zeros(1, bool)
-    )
-    batch = replay.gather(state, index, None)
+    batch = replay.gather(state, ORIGIN, None)
     np.testing.assert_array_equal(batch.action[0, 0], action[0])
 
 

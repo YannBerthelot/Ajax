@@ -18,20 +18,6 @@ from ajax.evaluate import evaluate, evaluate_policy
 from ajax.state import EnvironmentConfig, LoadedTrainState
 
 
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
-
-
 class TinyActor(nn.Module):
     """Feedforward actor: Categorical (discrete) or Normal with a tanh mean."""
 
@@ -76,7 +62,7 @@ def deterministic_policy(actor_state, discrete):
     [
         "CartPole-v1",
         "fast",
-        pytest.param("CartpoleBalance", marks=requires_playground),
+        "CartpoleBalance",
     ],
 )
 def test_evaluate_policy_matches_evaluate_for_a_feedforward_actor(env_id):
@@ -162,7 +148,6 @@ def test_evaluate_policy_threads_a_stateful_policy_and_maps_bounds():
     np.testing.assert_allclose(mean_return, rewards.sum(0).mean(), rtol=1e-5)
 
 
-@requires_playground
 def test_evaluate_policy_uses_the_training_action_repeat_and_length():
     num_episodes, key = 2, jax.random.PRNGKey(2)
     env, _ = build_env_from_id(

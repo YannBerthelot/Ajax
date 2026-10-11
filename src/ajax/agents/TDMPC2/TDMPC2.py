@@ -384,20 +384,25 @@ class TDMPC2(ActorCritic):
             start_tick=start_tick,
             **kwargs,
         )
-        state = result[0]
-        if self.agent_config.episodic:
-            return result
-        offschedule = np.asarray(
-            jax.device_get(state.collector_state.n_offschedule_dones)
-        ).reshape(-1)
-        terminations = np.asarray(jax.device_get(state.n_terminations)).reshape(-1)
-        if np.any(offschedule > 0) or np.any(terminations > 0):
-            raise ValueError(
-                "TD-MPC2 needs fixed-length, non-terminating episodes, but the env"
-                f" ended episodes off the T = {self.agent_episode_length}-step"
-                f" schedule {offschedule.tolist()} times and terminated on its"
-                f" last step {terminations.tolist()} times (per seed):"
-                " terminations are not supported (paper-era TD-MPC2; deviation"
-                " T10)."
-            )
+        if not self.agent_config.episodic:
+            refuse_terminations(result[0], self.agent_episode_length)
         return result
+
+
+def refuse_terminations(state: Any, episode_length: int) -> None:
+    """Raise if a paper-era run's env ended an episode off its
+    ``episode_length``-step schedule or terminated on its last step
+    (``state``'s per-seed counters; deviation T10)."""
+    offschedule = np.asarray(
+        jax.device_get(state.collector_state.n_offschedule_dones)
+    ).reshape(-1)
+    terminations = np.asarray(jax.device_get(state.n_terminations)).reshape(-1)
+    if np.any(offschedule > 0) or np.any(terminations > 0):
+        raise ValueError(
+            "TD-MPC2 needs fixed-length, non-terminating episodes, but the env"
+            f" ended episodes off the T = {episode_length}-step"
+            f" schedule {offschedule.tolist()} times and terminated on its"
+            f" last step {terminations.tolist()} times (per seed):"
+            " terminations are not supported (paper-era TD-MPC2; deviation"
+            " T10)."
+        )

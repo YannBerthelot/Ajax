@@ -44,36 +44,36 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.TDMPC2 import core, multitask, planner
+from ajax.agents.TDMPC2 import core, multitask
 from ajax.agents.TDMPC2.core import TASK_EMB
 from ajax.agents.TDMPC2.multitask import TaskSet
 from ajax.agents.TDMPC2.state import TDMPC2Config
 
+from .common import td_target_of
 from .reference_params import (
+    LOGGED,
+    POST_STEP_Q_TOL,
+    SCALAR_TOL,
     ErrorReport,
     Fixture,
     ajax_config,
     as_jnp,
+    check_decision,
+    check_final_params,
     load_fixture,
+    recorded_plan_noise,
     reference_config,
     torch_to_ajax,
+    update_inputs,
+    with_reference_params,
 )
 from .test_tdmpc2_multitask import task_plan
-from .test_tdmpc2_parity import LOGGED, PARAM_TOL, POST_STEP_Q_TOL, SCALAR_TOL
-from .test_tdmpc2_planner_parity import (
-    ACTION_TOL,
-    PI_ACTION_TOL,
-    SCORE_TOL,
-    VALUE_TOL,
-)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 N_UPDATES = 4
 # The embedding table after each update: renorms and Adam steps of O(1)
 # rows (achieved: ~1e-8).
 TABLE_TOL = (0.0, 2e-6)
-# All parameters after the four updates: the single-task PARAM_TOL
-# (achieved on CPU: 2.3e-6).
 
 
 @pytest.fixture(scope="module")
@@ -170,48 +170,7 @@ def initial_state(fx: Fixture, config: TDMPC2Config, tasks: TaskSet) -> Any:
         learning_rate=ref["lr"],
         enc_lr_scale=ref["enc_lr_scale"],
     )
-    wm, target_q, pi = (as_jnp(t) for t in torch_to_ajax(fx, "init/", config))
-    for mapped, ajax in (
-        (wm, state.world_model_state.params),
-        (target_q, state.world_model_state.target_params),
-        (pi, state.actor_state.params),
-    ):
-        assert jax.tree_util.tree_structure(mapped) == jax.tree_util.tree_structure(
-            ajax
-        )
-        assert jax.tree_util.tree_map(jnp.shape, mapped) == jax.tree_util.tree_map(
-            jnp.shape, ajax
-        )
-    wm_state, pi_state = state.world_model_state, state.actor_state
-    return state.replace(
-        world_model_state=wm_state.replace(
-            params=wm, target_params=target_q, opt_state=wm_state.tx.init(wm)
-        ),
-        actor_state=pi_state.replace(params=pi, opt_state=pi_state.tx.init(pi)),
-    )
-
-
-def batch_and_noise(
-    fx: Fixture, k: int
-) -> tuple[core.TDMPC2Batch, jax.Array, core.UpdateNoise]:
-    """Update ``k``'s batch, task ids and recorded draws (dropout is 0)."""
-    p = f"update{k}/"
-    batch = core.TDMPC2Batch(
-        obs=jnp.asarray(fx[p + "batch/obs"]),
-        action=jnp.asarray(fx[p + "batch/action"]),
-        reward=jnp.asarray(fx[p + "batch/reward"][..., 0]),
-    )
-    key = jax.random.PRNGKey(0)
-    noise = core.UpdateNoise(
-        td_eps=jnp.asarray(fx[p + "draws/td_eps"]),
-        td_pair=jnp.asarray(fx[p + "draws/td_pair"]),
-        td_dropout=key,
-        value_dropout=key,
-        pi_eps=jnp.asarray(fx[p + "draws/pi_eps"]),
-        pi_pair=jnp.asarray(fx[p + "draws/pi_pair"]),
-        pi_dropout=key,
-    )
-    return batch, jnp.asarray(fx[p + "batch/task"], jnp.int32), noise
+    return with_reference_params(state, fx, config)
 
 
 def test_multitask_update_matches_reference_over_four_updates(ufx):
@@ -225,23 +184,18 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
     )
 
     @jax.jit
-    def pre_step(wm_params, target_q, pi_params, batch, task, noise):
+    def pre_step(state, batch, task, noise):
         """The TD target and the rollout, on the pre-step renormed table."""
         ctx = tasks.context(task)
-        pre = core.renorm_task_embedding(wm_params, task)
-        td, next_z = core.td_target(
-            wm_apply=wm_apply,
-            pi_apply=pi_apply,
-            wm_params=pre,
-            target_q_params=target_q,
-            pi_params=pi_params,
-            next_obs=batch.obs[1:],
-            reward=batch.reward,
+        pre = core.renorm_task_embedding(state.world_model_state.params, task)
+        td, next_z = td_target_of(
+            state,
+            batch,
+            noise,
+            config,
             gamma=tasks.discount(task),
-            eps=noise.td_eps,
-            pair=noise.td_pair,
+            wm_params=pre,
             dropout_key=None,
-            config=config,
             task=ctx,
         )
         _, (_, zs) = core.world_model_loss(
@@ -273,7 +227,7 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
     with jax.default_matmul_precision("highest"):
         for k in range(N_UPDATES):
             p = f"update{k}/"
-            batch, task, noise = batch_and_noise(ufx, k)
+            batch, task, noise = update_inputs(ufx, k)
             wm, pi = state.world_model_state, state.actor_state
             report.check(
                 "task_emb (entry)",
@@ -281,9 +235,7 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
                 ufx[p + "task_emb/in"],
                 TABLE_TOL,
             )
-            td, zs = pre_step(
-                wm.params, wm.target_params, pi.params, batch, task, noise
-            )
+            td, zs = pre_step(state, batch, task, noise)
             report.check("td_targets", td, ufx[p + "td_targets"][..., 0], SCALAR_TOL)
 
             state, aux = step(state, batch, task, noise)
@@ -305,32 +257,14 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
                 "q_scale", state.q_scale.value, ufx[p + "pi_scale"], SCALAR_TOL
             )
 
-    wm_ref, target_ref, pi_ref = torch_to_ajax(ufx, "final/", config)
-    report.check("wm_params", state.world_model_state.params, wm_ref, PARAM_TOL)
-    report.check(
-        "target_q_params", state.world_model_state.target_params, target_ref, PARAM_TOL
-    )
-    report.check("pi_params", state.actor_state.params, pi_ref, PARAM_TOL)
+    # All parameters: the single-task PARAM_TOL (achieved on CPU: 2.3e-6).
+    check_final_params(report, state, ufx, config)
     report.print()
 
 
 # ---------------------------------------------------------------------------
 # Planning
 # ---------------------------------------------------------------------------
-
-
-def recorded_noise(fx: Fixture, d: int) -> planner.PlanNoise:
-    p = f"decision{d}/draws/"
-    iterations = fx[p + "q_pair"].shape[0]
-    return planner.PlanNoise(
-        pi_eps=jnp.asarray(fx[p + "pi_eps"]),
-        candidate_eps=jnp.asarray(fx[p + "candidate_eps"]),
-        terminal_eps=jnp.asarray(fx[p + "terminal_eps"]),
-        q_pair=jnp.asarray(fx[p + "q_pair"]),
-        q_dropout=jax.random.split(jax.random.PRNGKey(0), iterations),
-        elite_uniform=jnp.asarray(fx[p + "elite_uniform"], jnp.float32),
-        action_eps=jnp.asarray(fx[p + "action_eps"]),
-    )
 
 
 @functools.lru_cache(maxsize=None)
@@ -366,32 +300,10 @@ def test_multitask_plan_matches_reference_decisions(pfx):
                 jnp.asarray(pfx[p + "obs"]),
                 prev_mean,
                 jnp.asarray(pfx[p + "t0"]),
-                recorded_noise(pfx, d),
+                recorded_plan_noise(pfx, d),
                 task,
             )
-            report.check("init_mean", info.init_mean, pfx[p + "init_mean"], ACTION_TOL)
-            report.check(
-                "pi_actions", info.pi_actions, pfx[p + "pi_actions"], PI_ACTION_TOL
-            )
-            report.check("value", info.value, pfx[p + "value"], VALUE_TOL)
-            np.testing.assert_array_equal(
-                np.sort(info.elite_idx, axis=-1), np.sort(pfx[p + "elite_idx"], axis=-1)
-            )
-            report.check(
-                "elite_value", info.elite_value, pfx[p + "elite_value"], VALUE_TOL
-            )
-            report.check(
-                "score",
-                -np.sort(-np.asarray(info.score), axis=-1),
-                -np.sort(-pfx[p + "score"], axis=-1),
-                SCORE_TOL,
-            )
-            report.check("mean", info.mean, pfx[p + "mean"], ACTION_TOL)
-            report.check("std", info.std, pfx[p + "std"], ACTION_TOL)
-            rank, ref_rank = int(info.elite_rank), int(pfx[p + "elite_rank"])
-            assert info.elite_idx[-1, rank] == pfx[p + "elite_idx"][-1, ref_rank]
-            report.check("action", action, pfx[p + "action"], ACTION_TOL)
-            report.check("prev_mean", prev_mean, pfx[p + "prev_mean"], ACTION_TOL)
+            check_decision(report, pfx, d, action, prev_mean, info)
             # Masked dims are exactly 0 everywhere (spec 3.9).
             invalid = tasks.action_masks[task] == 0
             for name, value in (

@@ -2,7 +2,8 @@
 critic's memory reads each row's observation and the action taken before
 it; the action a loss asks about is a query at the critic's head, never
 fed to its carry; a row's target bootstraps on the observation it stores,
-read after the row, through a time limit."""
+read after the row, through a time limit. The trajectory buffer samples
+the windows time-major and contiguous."""
 
 from types import SimpleNamespace
 from typing import Any
@@ -21,7 +22,7 @@ from ajax.agents.recurrent import (
     sample_and_burnin_sequences,
     stream_positions,
 )
-from ajax.buffers.utils import get_buffer
+from ajax.buffers.utils import get_buffer, get_sequence_batch_from_buffer
 from ajax.environments.interaction import get_pi_sequence
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import (
@@ -194,3 +195,34 @@ def test_a_replayed_window_bootstraps_a_time_limit_on_its_final_observation() ->
     np.testing.assert_array_equal(
         carries.positions, jnp.arange(length)[:, None] + after_limit
     )
+
+
+def test_sequence_buffer_shapes():
+    """get_buffer(sequence_length=L) samples time-major (L, B, ...) batches
+    from single-step (n_envs, ...) adds."""
+    n_envs, seq_len, batch_size, obs_dim = 2, 5, 3, 4
+    buffer = get_buffer(
+        buffer_size=1000,
+        batch_size=batch_size,
+        n_envs=n_envs,
+        sequence_length=seq_len,
+    )
+    transition = {
+        "obs": jnp.zeros((n_envs, obs_dim)),
+        "reward": jnp.zeros((n_envs, 1)),
+    }
+    state = buffer.init({k: v[0] for k, v in transition.items()})
+    for t in range(20):
+        state = buffer.add(
+            state,
+            {
+                "obs": jnp.full((n_envs, obs_dim), float(t)),
+                "reward": jnp.full((n_envs, 1), float(t)),
+            },
+        )
+    batch = get_sequence_batch_from_buffer(buffer, state, jax.random.PRNGKey(0))
+    assert batch["obs"].shape == (seq_len, batch_size, obs_dim)
+    assert batch["reward"].shape == (seq_len, batch_size, 1)
+    # sequences must be temporally contiguous: consecutive steps differ by 1
+    diffs = jnp.diff(batch["reward"][:, :, 0], axis=0)
+    assert jnp.all(diffs == 1.0)

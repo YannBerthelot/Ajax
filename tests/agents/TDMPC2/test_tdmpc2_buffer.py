@@ -87,21 +87,36 @@ def write_ticks(buffer, state, rounds, start, stop):
     return state
 
 
-def test_slices_are_data_prep_transform_of_the_reference_rows():
-    """Every offset of a stored episode gives b67b21c's training slice."""
-    rng = np.random.default_rng(0)
-    buffer = EpisodeBuffer.create(
-        capacity=T, n_envs=1, episode_length=T, obs_dim=OBS, action_dim=ACT
+def _ring(n_rounds, n=2):
+    """A ring of ``n_rounds`` rounds of ``n`` envs (``R - 1`` committed)."""
+    return EpisodeBuffer.create(
+        capacity=(n_rounds - 1) * T * n,
+        n_envs=n,
+        episode_length=T,
+        obs_dim=OBS,
+        action_dim=ACT,
     )
-    episode = random_episode(rng)
-    state = write_round(buffer, buffer.init(), [episode], 0)
+
+
+def assert_slices_are_data_prep(state, slot, episode):
+    """Every offset of the episode in ``slot`` gives b67b21c's training
+    slice of ``episode``; the last slice."""
     reference = reference_episode(*episode)
     for start in range(T - H + 1):
-        batch = slice_batch(state, jnp.array([0]), jnp.array([start]), H)
+        batch = slice_batch(state, jnp.array([slot]), jnp.array([start]), H)
         obs, action, reward = data_prep(reference, start, H)
         np.testing.assert_array_equal(batch.obs[:, 0], obs)
         np.testing.assert_array_equal(batch.action[:, 0], action)
         np.testing.assert_array_equal(batch.reward[:, 0], reward)
+    return batch
+
+
+def test_slices_are_data_prep_transform_of_the_reference_rows():
+    """Every offset of a stored episode gives b67b21c's training slice."""
+    buffer = _ring(2, n=1)
+    episode = random_episode(np.random.default_rng(0))
+    state = write_round(buffer, buffer.init(), [episode], 0)
+    batch = assert_slices_are_data_prep(state, 0, episode)
     assert batch.obs.shape == (H + 1, 1, OBS)
     assert batch.action.shape == (H, 1, ACT)
     assert batch.reward.shape == (H, 1)
@@ -109,9 +124,7 @@ def test_slices_are_data_prep_transform_of_the_reference_rows():
 
 def test_rounds_commit_on_their_held_tick_and_staging_is_excluded():
     n = 2
-    buffer = EpisodeBuffer.create(
-        capacity=2 * T * n, n_envs=n, episode_length=T, obs_dim=OBS, action_dim=ACT
-    )
+    buffer = _ring(3)
     assert buffer.n_rounds == 3  # two committed rounds + staging
     period = buffer.period
     assert buffer.num_episodes(period - 2) == 0  # round 0 not finished
@@ -146,9 +159,7 @@ def test_the_ring_wraps_and_keeps_the_newest_rounds():
     (slots 0, 1 and 2, 3); the staging slot of round 5 still holds round 2
     and is never drawn."""
     n = 2
-    buffer = EpisodeBuffer.create(
-        capacity=2 * T * n, n_envs=n, episode_length=T, obs_dim=OBS, action_dim=ACT
-    )
+    buffer = _ring(3)
     state = buffer.init()
     rng = np.random.default_rng(2)
     episodes = {}
@@ -163,13 +174,7 @@ def test_the_ring_wraps_and_keeps_the_newest_rounds():
         expected[int(buffer.episode_slot(last_tick, jnp.array(j)))] = episodes[r][j % n]
     assert sorted(expected) == [0, 1, 2, 3]  # rounds 3 (slots 0, 1) and 4 (2, 3)
     for slot, episode in expected.items():
-        reference = reference_episode(*episode)
-        for start in range(T - H + 1):
-            batch = slice_batch(state, jnp.array([slot]), jnp.array([start]), H)
-            obs, action, reward = data_prep(reference, start, H)
-            np.testing.assert_array_equal(batch.obs[:, 0], obs)
-            np.testing.assert_array_equal(batch.action[:, 0], action)
-            np.testing.assert_array_equal(batch.reward[:, 0], reward)
+        assert_slices_are_data_prep(state, slot, episode)
     # Slots 4, 5 hold round 2 (the staging slot of round 5), never sampled.
     batch = buffer.sample(state, jax.random.PRNGKey(3), last_tick, 4096, H)
     sampled_first_obs = np.asarray(batch.obs[0])
@@ -179,9 +184,7 @@ def test_the_ring_wraps_and_keeps_the_newest_rounds():
 
 def test_sampling_is_uniform_over_committed_episodes_and_offsets():
     n = 3
-    buffer = EpisodeBuffer.create(
-        capacity=4 * T * n, n_envs=n, episode_length=T, obs_dim=OBS, action_dim=ACT
-    )
+    buffer = _ring(5, n=n)
     state = buffer.init()
     # obs = (episode id, row index), so a sample identifies its episode and offset
     for r in range(2):
@@ -253,16 +256,6 @@ def test_capacity_and_memory():
 # ---------------------------------------------------------------------------
 
 
-def _ring(n_rounds, n=2):
-    return EpisodeBuffer.create(
-        capacity=(n_rounds - 1) * T * n,
-        n_envs=n,
-        episode_length=T,
-        obs_dim=OBS,
-        action_dim=ACT,
-    )
-
-
 def test_a_chunked_ring_replays_what_the_uninterrupted_ring_does():
     """A first chunk sized for its own 2.5 rounds (R = 3) is resumed mid
     round 2 into the ring of the whole run (R = 5): after five rounds the
@@ -312,9 +305,7 @@ def test_adopting_keeps_seed_axes_and_shares_an_equal_ring():
         for x, y in zip(jax.tree.leaves(one), jax.tree.leaves(adopted), strict=False):
             np.testing.assert_array_equal(x, y[i])
     # A smaller ring keeps the newest rounds it reads.
-    shrunk = EpisodeBuffer.create(
-        capacity=T * 2, n_envs=2, episode_length=T, obs_dim=OBS, action_dim=ACT
-    ).adopt(adopted, tick)
+    shrunk = _ring(2).adopt(adopted, tick)
     assert shrunk.obs.shape[1] == 2 * 2
 
 

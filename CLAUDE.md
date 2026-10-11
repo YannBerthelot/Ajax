@@ -16,15 +16,12 @@ branch. The checks:
    (ruff lint, ruff-format, mypy).
 2. **Tests not marked slow + coverage** — `uv run coverage erase`
    (parallel mode never removes old data files), then `uv run
-   coverage run -m pytest -m "not slow" --deselect
-   tests/agents/test_probing.py --ignore=tests/probing`, then `uv run
-   coverage combine`
+   coverage run -m pytest -m "not slow" --ignore=tests/probing`, then
+   `uv run coverage combine`
    (coverage measures subprocesses, one data file each), then `uv
    run coverage report --fail-under=70`.
-3. **Slow tests** — `uv run pytest -m slow --deselect
-   tests/agents/test_probing.py --ignore=tests/probing`.
-4. **Probing tests** — `uv run pytest tests/agents/test_probing.py
-   tests/probing`.
+3. **Slow tests** — `uv run pytest -m slow --ignore=tests/probing`.
+4. **Probing tests** — `uv run pytest tests/probing`.
 
 `make ci` runs all four locally when you do want them. These are the
 checks in `.github/workflows/ci.yml`, which runs steps 2-4 in parallel

@@ -6,7 +6,11 @@ The parity fixtures (``fixtures/tdmpc2_update.npz``, ``fixtures/tdmpc2_plan.npz`
 the paper-era reference (``nicklashansen/tdmpc2@5f6fade``) under a key prefix.
 :func:`torch_to_ajax` maps one snapshot onto Ajax's parameter trees (the
 multi-task embedding table included); :class:`ErrorReport` asserts closeness
-and keeps the worst errors for printing.
+and keeps the worst errors for printing. The single- and multi-task parity
+tests share the loading of a snapshot into an update state, the recorded
+inputs, the checks of a planning decision and of the final parameters, and
+their tolerances (justified in ``test_tdmpc2_parity.py``'s and
+``test_tdmpc2_planner_parity.py``'s docstrings).
 """
 
 from __future__ import annotations
@@ -18,10 +22,43 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ajax.agents.TDMPC2 import core, planner
 from ajax.agents.TDMPC2.core import TASK_EMB
 from ajax.agents.TDMPC2.state import TDMPC2Config
 
 Fixture = dict[str, np.ndarray]
+
+# Update parity, (rtol, atol).
+SCALAR_TOL = (2e-5, 1e-5)
+# Absolute only: one Adam step moves a parameter by ~lr (3e-4; 9e-5 for the
+# encoder), so a missing or wrong step anywhere in the chain exceeds it.
+PARAM_TOL = (0.0, 1.5e-5)
+# Q values decoded from the post-step parameters: their float32 error,
+# through the peaked softmax of the fixture's large heads and symexp.
+POST_STEP_Q_TOL = (1e-4, 1e-4)
+#: The logged values of an update compared with the reference's.
+LOGGED = (
+    "consistency_loss",
+    "reward_loss",
+    "value_loss",
+    "total_loss",
+    "pi_loss",
+    "grad_norm",
+    "pi_grad_norm",
+    "pi_scale",
+)
+
+# Plan parity, (rtol, atol): a few times the errors of the planner parity
+# module's docstring, which may differ across platforms (macOS ARM / Linux
+# x86). Values are O(1) to O(10); the fixture's tie margins,
+# 2e-4 * max(1, |V|), stay 3x or more above this tolerance, so the elite
+# sets can be compared exactly.
+VALUE_TOL = (2e-5, 4e-5)
+# Actions, means, stds in [-1, 1] / [0.05, 2].
+ACTION_TOL = (0.0, 5e-6)
+# Policy-prior samples: rounding amplified by |eps| exp(log_std) (docstring).
+PI_ACTION_TOL = (0.0, 2e-5)
+SCORE_TOL = (0.0, 1e-6)
 
 # The reference's config keys that are TDMPC2Config fields.
 CONFIG_FIELDS = (
@@ -178,3 +215,110 @@ class ErrorReport:
         print(f"\n{self.title}: max |error|, max relative error (|reference| > 1e-3)")
         for name, (abs_err, rel_err) in self.worst.items():
             print(f"  {name:18s} {abs_err:.2e}  {rel_err:.2e}")
+
+
+# ---------------------------------------------------------------------------
+# Shared by the parity tests
+# ---------------------------------------------------------------------------
+
+
+def with_reference_params(
+    state: Any, fx: Fixture, config: TDMPC2Config, prefix: str = "init/"
+) -> Any:
+    """The update ``state`` holding the snapshot ``prefix``'s parameters (its
+    trees and shapes checked against Ajax's), with fresh optimizer moments."""
+    wm, target_q, pi = (as_jnp(t) for t in torch_to_ajax(fx, prefix, config))
+    for mapped, ajax in (
+        (wm, state.world_model_state.params),
+        (target_q, state.world_model_state.target_params),
+        (pi, state.actor_state.params),
+    ):
+        assert jax.tree.structure(mapped) == jax.tree.structure(ajax)
+        assert jax.tree.map(jnp.shape, mapped) == jax.tree.map(jnp.shape, ajax)
+    wm_state, pi_state = state.world_model_state, state.actor_state
+    return state.replace(
+        world_model_state=wm_state.replace(
+            params=wm, target_params=target_q, opt_state=wm_state.tx.init(wm)
+        ),
+        actor_state=pi_state.replace(params=pi, opt_state=pi_state.tx.init(pi)),
+    )
+
+
+def update_inputs(
+    fx: Fixture, k: int
+) -> tuple[core.TDMPC2Batch, jax.Array | None, core.UpdateNoise]:
+    """Update ``k``'s batch, task ids (``None`` single-task) and recorded
+    draws (dropout is 0: the keys are unused)."""
+    p = f"update{k}/"
+    batch = core.TDMPC2Batch(
+        obs=jnp.asarray(fx[p + "batch/obs"]),
+        action=jnp.asarray(fx[p + "batch/action"]),
+        reward=jnp.asarray(fx[p + "batch/reward"][..., 0]),
+    )
+    key = jax.random.PRNGKey(0)
+    noise = core.UpdateNoise(
+        td_eps=jnp.asarray(fx[p + "draws/td_eps"]),
+        td_pair=jnp.asarray(fx[p + "draws/td_pair"]),
+        td_dropout=key,
+        value_dropout=key,
+        pi_eps=jnp.asarray(fx[p + "draws/pi_eps"]),
+        pi_pair=jnp.asarray(fx[p + "draws/pi_pair"]),
+        pi_dropout=key,
+    )
+    task = fx.get(p + "batch/task")
+    return batch, None if task is None else jnp.asarray(task, jnp.int32), noise
+
+
+def check_final_params(
+    report: ErrorReport, state: Any, fx: Fixture, config: TDMPC2Config
+) -> None:
+    """Every parameter after the last update against the snapshot ``final/``."""
+    wm_ref, target_ref, pi_ref = torch_to_ajax(fx, "final/", config)
+    report.check("wm_params", state.world_model_state.params, wm_ref, PARAM_TOL)
+    report.check(
+        "target_q_params", state.world_model_state.target_params, target_ref, PARAM_TOL
+    )
+    report.check("pi_params", state.actor_state.params, pi_ref, PARAM_TOL)
+
+
+def recorded_plan_noise(fx: Fixture, d: int) -> planner.PlanNoise:
+    """Decision ``d``'s draws (dropout is 0 in the fixtures: the keys are unused)."""
+    p = f"decision{d}/draws/"
+    iterations = fx[p + "q_pair"].shape[0]
+    return planner.PlanNoise(
+        pi_eps=jnp.asarray(fx[p + "pi_eps"]),
+        candidate_eps=jnp.asarray(fx[p + "candidate_eps"]),
+        terminal_eps=jnp.asarray(fx[p + "terminal_eps"]),
+        q_pair=jnp.asarray(fx[p + "q_pair"]),
+        q_dropout=jax.random.split(jax.random.PRNGKey(0), iterations),
+        elite_uniform=jnp.asarray(fx[p + "elite_uniform"], jnp.float32),
+        action_eps=jnp.asarray(fx[p + "action_eps"]),
+    )
+
+
+def check_decision(
+    report: ErrorReport, fx: Fixture, d: int, action: Any, prev_mean: Any, info: Any
+) -> None:
+    """Decision ``d``'s planning statistics and outputs against the
+    reference's: the elite sets exactly (not their order: module docstring
+    of the planner parity test), the drawn elite exactly."""
+    p = f"decision{d}/"
+    report.check("init_mean", info.init_mean, fx[p + "init_mean"], ACTION_TOL)
+    report.check("pi_actions", info.pi_actions, fx[p + "pi_actions"], PI_ACTION_TOL)
+    report.check("value", info.value, fx[p + "value"], VALUE_TOL)
+    np.testing.assert_array_equal(
+        np.sort(info.elite_idx, axis=-1), np.sort(fx[p + "elite_idx"], axis=-1)
+    )
+    report.check("elite_value", info.elite_value, fx[p + "elite_value"], VALUE_TOL)
+    report.check(
+        "score",
+        -np.sort(-np.asarray(info.score), axis=-1),
+        -np.sort(-fx[p + "score"], axis=-1),
+        SCORE_TOL,
+    )
+    report.check("mean", info.mean, fx[p + "mean"], ACTION_TOL)
+    report.check("std", info.std, fx[p + "std"], ACTION_TOL)
+    rank, ref_rank = int(info.elite_rank), int(fx[p + "elite_rank"])
+    assert info.elite_idx[-1, rank] == fx[p + "elite_idx"][-1, ref_rank]
+    report.check("action", action, fx[p + "action"], ACTION_TOL)
+    report.check("prev_mean", prev_mean, fx[p + "prev_mean"], ACTION_TOL)

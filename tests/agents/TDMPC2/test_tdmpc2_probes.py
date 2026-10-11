@@ -1,6 +1,6 @@
 """Ajax-local probes for TD-MPC2 (``docs/world_models/DESIGN.md`` §8).
 
-The stock probing envs (``tests/agents/test_probing.py``) end after 1-2 steps;
+The ProbingEnvironments package's probes (``tests/probing``) end after 1-2 steps;
 paper-era TD-MPC2 is for fixed-length, non-terminating tasks and its training
 slices need ``T + 1 >= H + 1`` rows, so it is probed on fixed-length
 non-terminating toy envs instead (:mod:`.toy_envs`, ``T = 10``):

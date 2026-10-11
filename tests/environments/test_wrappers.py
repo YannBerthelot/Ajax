@@ -153,209 +153,122 @@ class BatchedMockGymnaxState:
 
 @pytest.fixture
 def gymnax_env():
-    return MockGymnaxEnv(), None
+    return MockGymnaxEnv(), None, "gymnax"
 
 
 @pytest.fixture
 def brax_env():
-    return MockBraxEnv()
+    return MockBraxEnv(), None, "brax"
 
 
 @pytest.fixture
 def batched_gymnax_env():
-    return BatchedMockGymnaxEnv(), None
+    return BatchedMockGymnaxEnv(), None, "gymnax"
 
 
 @pytest.fixture
 def batched_brax_env():
-    return BatchedMockBraxEnv()
+    return BatchedMockBraxEnv(), None, "brax"
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (FlattenObservationWrapper, "gymnax_env", "gymnax"),
-    ],
-)
-def test_flatten_observation_wrapper(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    env, env_params = env_data
+@pytest.fixture
+def fast_brax_env():
+    return create_brax_env("fast", batch_size=1, auto_reset=False), None, "brax"
 
-    wrapped_env = wrapper(env)
+
+def _reset(env, key, params, mode):
+    """``(obs, state)`` of either API's reset."""
+    if mode == "gymnax":
+        return env.reset(key, params)
+    state = env.reset(key)
+    return state.obs, state
+
+
+def _step(env, key, state, action, params, mode):
+    """``(obs, state, reward, done)`` of either API's step."""
+    if mode == "gymnax":
+        obs, state, reward, terminated, truncated, _ = env.step(
+            key=key, state=state, action=action, params=params
+        )
+        return obs, state, reward, jnp.logical_or(terminated, truncated)
+    state = env.step(state=state, action=action)
+    return state.obs, state, state.reward, state.done
+
+
+def _norm(state, mode):
+    """The normaliser's statistics carried in ``state``."""
+    return (
+        state.info["normalization_info"] if mode == "brax" else state.normalization_info
+    )
+
+
+NORMALIZERS = {
+    "gymnax": NormalizeVecObservationGymnax,
+    "brax": NormalizeVecObservationBrax,
+}
+
+
+def test_flatten_observation_wrapper(gymnax_env):
+    env, env_params, _ = gymnax_env
+    wrapped_env = FlattenObservationWrapper(env)
     key = jax.random.PRNGKey(0)
-
     obs, state = wrapped_env.reset(key, env_params)
     assert obs.ndim == 1  # Observation should be flattened
-
-    obs, state, reward, terminated, truncated, info = wrapped_env.step(
-        key, state, 0, env_params
-    )
+    obs, *_ = wrapped_env.step(key, state, 0, env_params)
     assert obs.ndim == 1  # Observation should remain flattened
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (LogWrapper, "gymnax_env", "gymnax"),
-    ],
-)
-def test_log_wrapper(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    env, env_params = env_data
-
-    wrapped_env = wrapper(env)
+def test_log_wrapper(gymnax_env):
+    env, env_params, _ = gymnax_env
+    wrapped_env = LogWrapper(env)
     key = jax.random.PRNGKey(0)
-
-    obs, state = wrapped_env.reset(key, env_params)
+    _, state = wrapped_env.reset(key, env_params)
     assert hasattr(state, "episode_returns")
     assert hasattr(state, "episode_lengths")
-
-    obs, state, reward, terminated, truncated, info = wrapped_env.step(
-        key, state, 0, env_params
-    )
+    *_, info = wrapped_env.step(key, state, 0, env_params)
     assert "returned_episode_returns" in info
     assert "returned_episode_lengths" in info
 
 
 @pytest.mark.parametrize(
-    "wrapper,env_fixture,low,high,mode",
-    [
-        (ClipAction, "gymnax_env", -0.5, 0.5, "gymnax"),
-        (ClipActionBrax, "brax_env", -0.5, 0.5, "brax"),
-    ],
+    "wrapper,env_fixture",
+    [(ClipAction, "gymnax_env"), (ClipActionBrax, "brax_env")],
 )
-def test_clip_action(wrapper, env_fixture, low, high, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    if mode == "gymnax":
-        env, env_params = env_data
-    else:  # Brax
-        env = env_data
-        env_params = None
-
-    wrapped_env = wrapper(env, low=low, high=high)
+def test_clip_action(wrapper, env_fixture, request):
+    env, env_params, mode = request.getfixturevalue(env_fixture)
+    wrapped_env = wrapper(env, low=-0.5, high=0.5)
     key = jax.random.PRNGKey(0)
-
-    if mode == "gymnax":
-        _, state = wrapped_env.reset(key, env_params)
-    else:  # Brax
-        state = wrapped_env.reset(key)
-
-    out_of_bound_action = jnp.array(1.0)
-    if mode == "gymnax":
-        obs_out, state_out, reward_out, term_out, trunc_out, info_out = (
-            wrapped_env.step(key, state, out_of_bound_action, env_params)
-        )
-    else:  # Brax
-        state_out = wrapped_env.step(state, out_of_bound_action)
-        obs_out = state_out.obs
-
-    at_bound_action = jnp.array(high)
-    if mode == "gymnax":
-        obs_bound, state_bound, reward_bound, term_bound, trunc_bound, info_bound = (
-            wrapped_env.step(key, state, at_bound_action, env_params)
-        )
-    else:  # Brax
-        state_bound = wrapped_env.step(state, at_bound_action)
-        obs_bound = state_bound.obs
-
-    assert jnp.allclose(obs_out, obs_bound)
-    if mode == "gymnax":
-        assert reward_out == reward_bound
-    else:
-        assert state_out.reward == state_bound.reward
+    _, state = _reset(wrapped_env, key, env_params, mode)
+    out = _step(wrapped_env, key, state, jnp.array(1.0), env_params, mode)
+    bound = _step(wrapped_env, key, state, jnp.array(0.5), env_params, mode)
+    assert jnp.allclose(out[0], bound[0])
+    assert out[2] == bound[2]
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (NormalizeVecObservationGymnax, "gymnax_env", "gymnax"),
-        (NormalizeVecObservationBrax, "fast_brax_env", "brax"),
-    ],
-)
-def test_normalize_vec_observation(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    if mode == "gymnax":
-        env, env_params = env_data
-    else:  # Brax
-        env = env_data
-        env_params = None
-
-    wrapped_env = wrapper(env, gamma=0.99)
+@pytest.mark.parametrize("env_fixture", ["gymnax_env", "fast_brax_env"])
+def test_normalize_vec_observation(env_fixture, request):
+    env, env_params, mode = request.getfixturevalue(env_fixture)
+    wrapped_env = NORMALIZERS[mode](env, gamma=0.99)
     key = jax.random.PRNGKey(0)
-
-    if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
-    else:  # Brax
-        state = wrapped_env.reset(key)
-        obs = state.obs
-    observations = [obs]
+    _, state = _reset(wrapped_env, key, env_params, mode)
     for _ in range(3):
-        key, subkey = jax.random.split(key)
-        action = jnp.array([0])
-        if mode == "gymnax":
-            obs, state, reward, terminated, truncated, info = wrapped_env.step(
-                key=key, state=state, action=action, params=env_params
-            )
-        else:  # Brax
-            state = wrapped_env.step(state=state, action=action)
-            obs = state.obs
-        observations.append(obs)
-
-    observations = jnp.stack(observations)
-    # assert jnp.allclose(jnp.mean(observations), 0, atol=1e-1)
-    # assert jnp.allclose(jnp.std(observations), 1, atol=1e-1)
+        key, _ = jax.random.split(key)
+        _, state, *_ = _step(wrapped_env, key, state, jnp.array([0]), env_params, mode)
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (NormalizeVecObservationGymnax, "gymnax_env", "gymnax"),
-        (NormalizeVecObservationBrax, "brax_env", "brax"),
-    ],
-)
-def test_normalize_vec_reward(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    if mode == "gymnax":
-        env, env_params = env_data
-    else:  # Brax
-        env = env_data
-        env_params = None
-
-    wrapped_env = wrapper(env, gamma=0.99)
+@pytest.mark.parametrize("env_fixture", ["gymnax_env", "brax_env"])
+def test_normalize_vec_reward(env_fixture, request):
+    env, env_params, mode = request.getfixturevalue(env_fixture)
+    wrapped_env = NORMALIZERS[mode](env, gamma=0.99)
     key = jax.random.PRNGKey(0)
-
-    if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
-    else:  # Brax
-        state = wrapped_env.reset(key)
-        obs = state.obs
-
-    rewards = []
+    _, state = _reset(wrapped_env, key, env_params, mode)
     for _ in range(10):
-        key, subkey = jax.random.split(key)
-        action = jnp.array(0)
-        if mode == "gymnax":
-            obs, state, reward, terminated, truncated, info = wrapped_env.step(
-                key=key, state=state, action=action, params=env_params
-            )
-            done = jnp.logical_or(terminated, truncated)
-        else:  # Brax
-            state = wrapped_env.step(state=state, action=action)
-            reward = state.reward
-        rewards.append(reward)
-
-        if mode == "gymnax" and done:
-            _, state = wrapped_env.reset(key, env_params)
-        elif mode == "brax" and state.done:
-            state = wrapped_env.reset(key)
-
-    rewards = jnp.stack(rewards)
-
-
-@pytest.fixture
-def fast_brax_env():
-    """Fixture to create a Brax environment."""
-    return create_brax_env("fast", batch_size=1, auto_reset=False)
+        key, _ = jax.random.split(key)
+        _, state, _, done = _step(
+            wrapped_env, key, state, jnp.array(0), env_params, mode
+        )
+        if done:
+            _, state = _reset(wrapped_env, key, env_params, mode)
 
 
 @pytest.fixture
@@ -407,397 +320,136 @@ def test_autoreset_initialization_differs(brax_env_with_autoreset):
     ), "Initial obs should differ after reset"
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture, mode",
-    [
-        (NormalizeVecObservationGymnax, "batched_gymnax_env", "gymnax"),
-        (NormalizeVecObservationBrax, "batched_brax_env", "brax"),
-    ],
-)
-def test_normalize_vec_observation_2(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    if mode == "gymnax":
-        env, env_params = env_data
-    else:  # Brax
-        env = env_data
-        env_params = None
-    wrapped_env = wrapper(env, gamma=0.99)
-
-    # Initial reset
-    # dummy key
+@pytest.mark.parametrize("env_fixture", ["batched_gymnax_env", "batched_brax_env"])
+def test_normalize_vec_observation_2(env_fixture, request):
+    env, env_params, mode = request.getfixturevalue(env_fixture)
+    wrapped_env = NORMALIZERS[mode](env, gamma=0.99)
     key = jax.random.PRNGKey(0)
-    if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
-    else:
-        state = wrapped_env.reset(key)
-
-    # Check initial normalization
-    norm_info = (
-        state.info["normalization_info"] if mode == "brax" else state.normalization_info
-    ).obs
-
+    obs, state = _reset(wrapped_env, key, env_params, mode)
+    norm_info = _norm(state, mode).obs
     assert jnp.all(norm_info.count == 2)  # batch size
-
     assert jnp.allclose(norm_info.mean, jnp.array([[1.0, -1.0], [1.0, -1.0]]))
-    assert jnp.allclose(
-        state.obs if mode == "brax" else obs, jnp.zeros(2)
-    )  # normalized should be 0
-
-    # Step 1
-    action = 1  # dummy action
-    if mode == "brax":
-        state = wrapped_env.step(state=state, action=action)
-    else:
-        obs, state, reward, terminated, truncated, info = wrapped_env.step(
-            key=key, state=state, action=action, params=env_params
-        )
-    expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
-    expected_obs = jnp.array([[0.0, 0.0], [0.0, 0.0]])
-
-    norm_info = (
-        state.info["normalization_info"] if mode == "brax" else state.normalization_info
-    ).obs
-
-    assert jnp.all(norm_info.count == 4)  # batch size x 2
-    assert jnp.allclose(norm_info.mean, expected_mean)
-    # The fixture env emits constant obs across batches -- correct Welford M2
-    # stays 0 (no variance to accumulate). Previous online_normalize patched
-    # zero-M2 to 1 via ``replace_zeros_with_ones`` to dodge div-by-zero; the
-    # patch was removed to match brax acme.running_statistics. std is now
-    # clipped to [1e-6, 1e6] at use time so the normalised obs stays finite.
-    assert jnp.allclose(norm_info.mean_2, 0)
-    assert jnp.allclose(state.obs if mode == "brax" else obs, expected_obs)
-
-    # Step 2
-    if mode == "brax":
-        state = wrapped_env.step(state=state, action=action)
-    else:
-        obs, state, reward, terminated, truncated, info = wrapped_env.step(
-            key=key, state=state, action=action, params=env_params
-        )
-    expected_mean = jnp.array([[1.0, -1.0], [1.0, -1.0]])
-    expected_obs = jnp.array([[0.0, 0.0], [0.0, 0.0]])
-
-    norm_info = (
-        state.info["normalization_info"] if mode == "brax" else state.normalization_info
-    ).obs
-
-    assert jnp.all(norm_info.count == 6)  # batch size x3
-    assert jnp.allclose(norm_info.mean, expected_mean)
-    # See step-1 assertion: constant obs -> M2 stays 0 in true Welford.
-    assert jnp.allclose(norm_info.mean_2, 0)
-    assert jnp.allclose(state.obs if mode == "brax" else obs, expected_obs)
+    assert jnp.allclose(obs, jnp.zeros(2))  # normalized should be 0
+    for count in (4, 6):  # batch size x 2, x 3
+        obs, state, *_ = _step(wrapped_env, key, state, 1, env_params, mode)
+        norm_info = _norm(state, mode).obs
+        assert jnp.all(norm_info.count == count)
+        assert jnp.allclose(norm_info.mean, jnp.array([[1.0, -1.0], [1.0, -1.0]]))
+        # The fixture env emits constant obs across batches -- correct Welford
+        # M2 stays 0 (no variance to accumulate). Previous online_normalize
+        # patched zero-M2 to 1 via ``replace_zeros_with_ones`` to dodge
+        # div-by-zero; the patch was removed to match brax
+        # acme.running_statistics. std is now clipped to [1e-6, 1e6] at use
+        # time so the normalised obs stays finite.
+        assert jnp.allclose(norm_info.mean_2, 0)
+        assert jnp.allclose(obs, jnp.zeros((2, 2)))
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (NormalizeVecObservationGymnax, "gymnax_env", "gymnax"),
-        (NormalizeVecObservationBrax, "brax_env", "brax"),
-    ],
-)
-def test_normalize_vec_observation_with_norm_info(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
+def _statistics(count, mean, mean_2, **extra):
+    return NormalizationInfo(
+        count=count, mean=mean, mean_2=mean_2, var=mean_2 / count, **extra
+    )
 
+
+def _shared(batch_size):
+    """Statistics shared by the envs, tiled to one row per env."""
+
+    def tiled(x):
+        return jnp.tile(x, reps=(batch_size, 1))
+
+    return EnvNormalizationInfo(
+        obs=_statistics(
+            tiled(jnp.ones(1)), tiled(jnp.array([1, -1])), tiled(jnp.array([0.5, 0.5]))
+        ),
+        reward=_statistics(
+            tiled(jnp.ones(1)),
+            tiled(jnp.array([2.0])),
+            tiled(jnp.array([0.5])),
+            returns=jnp.array([0.5]),
+        ),
+    )
+
+
+#: Given statistics: one env's, one row per env of a batch, shared ones.
+GIVEN = {
+    "one_env": lambda batch_size: EnvNormalizationInfo(
+        obs=_statistics(
+            jnp.array([[10]]), jnp.array([[1.0, -1.0]]), jnp.array([[0.5, 0.5]])
+        ),
+        reward=_statistics(jnp.array([[10]]), jnp.array([2.0]), jnp.array([0.5])),
+    ),
+    "per_env": lambda batch_size: EnvNormalizationInfo(
+        obs=_statistics(
+            jnp.array([[10], [20]]),
+            jnp.array([[1.0, -1.0]]),
+            jnp.array([[0.5, 0.5], [1.0, 1.0]]),
+        ),
+        reward=_statistics(jnp.array([[10], [20]]), jnp.array([2.0]), jnp.array([0.5])),
+    ),
+    "shared": _shared,
+}
+
+
+@pytest.mark.parametrize("mode", ["gymnax", "brax"])
+@pytest.mark.parametrize("given", list(GIVEN))
+def test_eval_mode_normalises_with_the_given_statistics(given, mode, request):
+    """``train=False`` keeps the statistics it is given, at their shapes, and
+    presents ``(obs - mean) / sqrt(var + 1e-8)``."""
+    batched = "" if given == "one_env" else "batched_"
+    env, env_params, _ = request.getfixturevalue(f"{batched}{mode}_env")
     key = jax.random.PRNGKey(0)
-    if mode == "gymnax":
-        env, env_params = env_data
-    else:  # Brax
-        env = env_data
-        env_params = None
-
-    if mode == "gymnax":
-        raw_obs, state = env.reset(key, env_params)
-    else:  # Brax
-        state = env.reset(key)
-        raw_obs = state.obs
-
-    # Provide initial normalization info
-    count = jnp.array([[10]])
-    mean_2 = jnp.array([[0.5, 0.5]])
-    obs_norm_info = NormalizationInfo(
-        count=count,
-        mean=jnp.array([[1.0, -1.0]]),
-        mean_2=mean_2,
-        var=mean_2 / count,
-    )
-    reward_norm_info = NormalizationInfo(
-        count=count,
-        mean=jnp.array([2.0]),
-        mean_2=jnp.array([0.5]),
-        var=jnp.array([0.5]) / count,
-    )
-
-    norm_info = EnvNormalizationInfo(reward=reward_norm_info, obs=obs_norm_info)
-
-    wrapped_env = wrapper(env, norm_info=norm_info, train=False, gamma=0.99)
-
-    if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
-    else:  # Brax
-        state = wrapped_env.reset(key)
-        obs = state.obs
-
-    # Validate that the normalization info is used
-    if mode == "brax":
-        assert jnp.allclose(
-            state.info["normalization_info"].obs.mean, norm_info.obs.mean
-        ), "Mean should match provided norm_info."
-        assert jnp.allclose(
-            state.info["normalization_info"].obs.var, norm_info.obs.var
-        ), "Variance should match provided norm_info."
-    else:
-        assert jnp.allclose(
-            state.normalization_info.obs.mean, norm_info.obs.mean
-        ), "Mean should match provided norm_info."
-        assert jnp.allclose(
-            state.normalization_info.obs.var, norm_info.obs.var
-        ), "Variance should match provided norm_info."
-
-    # Validate normalized observation
-    expected_obs = (raw_obs - norm_info.obs.mean) / jnp.sqrt(norm_info.obs.var + 1e-8)
-    assert jnp.allclose(obs, expected_obs), "Observation is not normalized correctly."
+    raw_obs, _ = _reset(env, key, env_params, mode)
+    norm_info = GIVEN[given](raw_obs.shape[0])
+    wrapped_env = NORMALIZERS[mode](env, norm_info=norm_info, train=False, gamma=0.99)
+    obs, state = _reset(wrapped_env, key, env_params, mode)
+    kept = _norm(state, mode).obs
+    for field in ("count", "mean", "mean_2", "var"):
+        assert getattr(kept, field).shape == getattr(norm_info.obs, field).shape
+    assert jnp.allclose(kept.mean, norm_info.obs.mean)
+    assert jnp.allclose(kept.var, norm_info.obs.var)
+    expected = (raw_obs - norm_info.obs.mean) / jnp.sqrt(norm_info.obs.var + 1e-8)
+    assert jnp.allclose(obs, expected)
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (NormalizeVecObservationGymnax, "batched_gymnax_env", "gymnax"),
-        (NormalizeVecObservationBrax, "batched_brax_env", "brax"),
-    ],
-)
-def test_normalize_vec_observation_batched(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
+@pytest.mark.parametrize("mode", ["gymnax", "brax"])
+def test_train_mode_updates_shared_statistics_per_env(mode, request):
+    env, env_params, _ = request.getfixturevalue(f"batched_{mode}_env")
     key = jax.random.PRNGKey(0)
-    if mode == "gymnax":
-        env, env_params = env_data
-    else:  # Brax
-        env = env_data
-        env_params = None
+    raw_obs, _ = _reset(env, key, env_params, mode)
+    batch_size, obs_size = raw_obs.shape
+    norm_info = _shared(batch_size)
+    wrapped_env = NORMALIZERS[mode](env, norm_info=norm_info, train=True, gamma=0.99)
 
-    # Mock batched observations
-    if mode == "gymnax":
-        raw_obs, state = env.reset(key, env_params)
-    else:  # Brax
-        state = env.reset(key)
-        raw_obs = state.obs
+    def check_shapes(statistics):
+        assert statistics.count.shape == (batch_size, 1)
+        for field in ("mean", "mean_2", "var"):
+            assert getattr(statistics, field).shape == (batch_size, obs_size)
 
-    # Provide initial normalization info
-    mean_2 = jnp.array([[0.5, 0.5], [1.0, 1.0]])
-    count = jnp.array([[10], [20]])
-    obs_norm_info = NormalizationInfo(
-        count=count,
-        mean=jnp.array([[1.0, -1.0]]),
-        mean_2=mean_2,
-        var=mean_2 / count,
-    )
-    reward_norm_info = NormalizationInfo(
-        count=count,
-        mean=jnp.array([2.0]),
-        mean_2=jnp.array([0.5]),
-        var=jnp.array([0.5]) / count,
-    )
-
-    norm_info = EnvNormalizationInfo(reward=reward_norm_info, obs=obs_norm_info)
-
-    wrapped_env = wrapper(env, norm_info=norm_info, train=False, gamma=0.99)
-
-    if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
-    else:  # Brax
-        state = wrapped_env.reset(key)
-        obs = state.obs
-
-    # Validate that the normalization info is used for each batch
-    if mode == "brax":
-        assert jnp.allclose(
-            state.info["normalization_info"].obs.mean, norm_info.obs.mean
-        ), "Mean should match provided norm_info for each batch."
-        assert jnp.allclose(
-            state.info["normalization_info"].obs.var, norm_info.obs.var
-        ), "Variance should match provided norm_info for each batch."
-    else:
-        assert jnp.allclose(
-            state.normalization_info.obs.mean, norm_info.obs.mean
-        ), "Mean should match provided norm_info for each batch."
-        assert jnp.allclose(
-            state.normalization_info.obs.var, norm_info.obs.var
-        ), "Variance should match provided norm_info for each batch."
-
-    # Validate normalized observations for each batch
-
-    expected_obs = (raw_obs - norm_info.obs.mean) / jnp.sqrt(norm_info.obs.var + 1e-8)
-
-    assert jnp.allclose(
-        obs, expected_obs
-    ), "Batched observations are not normalized correctly."
+    _, state = _reset(wrapped_env, key, env_params, mode)
+    check_shapes(_norm(state, mode).obs)
+    action = 7 if mode == "gymnax" else jnp.ones_like(raw_obs) * 7
+    _, state, *_ = _step(wrapped_env, key, state, action, env_params, mode)
+    updated = _norm(state, mode).obs
+    check_shapes(updated)
+    assert jnp.any(updated.count > norm_info.obs.count), "count not incremented"
+    assert not jnp.allclose(updated.mean, norm_info.obs.mean), "mean not updated"
+    assert not jnp.allclose(updated.var, norm_info.obs.var), "variance not updated"
 
 
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (NormalizeVecObservationGymnax, "batched_gymnax_env", "gymnax"),
-        (NormalizeVecObservationBrax, "batched_brax_env", "brax"),
-    ],
-)
-def test_normalize_vec_observation_batched_shared(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    key = jax.random.PRNGKey(0)
-    if mode == "gymnax":
-        env, env_params = env_data
-    else:  # Brax
-        env = env_data
-        env_params = None
-
-    # Mock batched observations
-    if mode == "gymnax":
-        raw_obs, state = env.reset(key, env_params)
-    else:  # Brax
-        state = env.reset(key)
-        raw_obs = state.obs
-    batch_size = raw_obs.shape[0]
-    obs_shape = raw_obs.shape[1]
-    # Provide initial shared normalization info
-    mean = jnp.tile(jnp.array([1, -1]), reps=(batch_size, 1))
-    mean_2 = jnp.tile(jnp.array([0.5, 0.5]), reps=(batch_size, 1))
-    count = jnp.tile(jnp.ones(1), reps=(batch_size, 1))
-    obs_norm_info = NormalizationInfo(
-        count=count,
-        mean=mean,
-        mean_2=mean_2,
-        var=mean_2 / count,
-    )
-    mean = jnp.tile(jnp.array([2.0]), reps=(batch_size, 1))
-    mean_2 = jnp.tile(jnp.array([0.5]), reps=(batch_size, 1))
-    count = jnp.tile(jnp.ones(1), reps=(batch_size, 1))
-    reward_norm_info = NormalizationInfo(
-        count=count,
-        mean=mean,
-        mean_2=mean_2,
-        var=mean_2 / count,
-        returns=jnp.array([0.5]),
-    )
-
-    norm_info = EnvNormalizationInfo(reward=reward_norm_info, obs=obs_norm_info)
-
-    wrapped_env = wrapper(env, norm_info=norm_info, train=False, gamma=0.99)
-
-    if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
-    else:  # Brax
-        state = wrapped_env.reset(key)
-        obs = state.obs
-
-    _norm_info = (
-        state.info["normalization_info"] if mode == "brax" else state.normalization_info
-    ).obs
-    assert _norm_info.count.shape == (batch_size, 1)
-    assert _norm_info.mean.shape == (batch_size, obs_shape)
-    assert _norm_info.mean_2.shape == (batch_size, obs_shape)
-    assert _norm_info.var.shape == (batch_size, obs_shape)
-
-    # Validate that the normalization info is shared across the batch
-    if mode == "brax":
-        assert jnp.allclose(
-            state.info["normalization_info"].obs.mean, norm_info.obs.mean
-        ), "Mean should match provided norm_info."
-        assert jnp.allclose(
-            state.info["normalization_info"].obs.var, norm_info.obs.var
-        ), "Variance should match provided norm_info."
-    else:
-        assert jnp.allclose(
-            state.normalization_info.obs.mean, norm_info.obs.mean
-        ), "Mean should match provided norm_info."
-        assert jnp.allclose(
-            state.normalization_info.obs.var, norm_info.obs.var
-        ), "Variance should match provided norm_info."
-
-    # Validate normalized observations
-    expected_obs = (raw_obs - norm_info.obs.mean) / jnp.sqrt(norm_info.obs.var + 1e-8)
-    assert jnp.allclose(
-        obs, expected_obs
-    ), "Batched observations are not normalized correctly."
-
-    # Step through the environment and validate normalization info updates
-    wrapped_env = wrapper(env, norm_info=norm_info, train=True, gamma=0.99)
-    if mode == "gymnax":
-        obs, state = wrapped_env.reset(key, env_params)
-    else:  # Brax
-        state = wrapped_env.reset(key)
-        obs = state.obs
-
-    _norm_info = (
-        state.info["normalization_info"] if mode == "brax" else state.normalization_info
-    ).obs
-    assert _norm_info.count.shape == (batch_size, 1)
-    assert _norm_info.mean.shape == (batch_size, obs_shape)
-    assert _norm_info.mean_2.shape == (batch_size, obs_shape)
-    assert _norm_info.var.shape == (batch_size, obs_shape)
-
-    if mode == "gymnax":
-        obs, state, reward, terminated, truncated, info = wrapped_env.step(
-            key=key, state=state, action=7, params=env_params
-        )
-    else:  # Brax
-        action = jnp.ones_like(raw_obs) * 7
-        state = wrapped_env.step(state=state, action=action)
-        obs = state.obs
-
-    updated_norm_info = (
-        state.info["normalization_info"] if mode == "brax" else state.normalization_info
-    ).obs
-    assert updated_norm_info.count.shape == (batch_size, 1)
-    assert updated_norm_info.mean.shape == (batch_size, obs_shape)
-    assert updated_norm_info.mean_2.shape == (batch_size, obs_shape)
-    assert updated_norm_info.var.shape == (batch_size, obs_shape)
-    assert jnp.any(
-        updated_norm_info.count > norm_info.obs.count
-    ), "Count should have been incremented."
-    assert not jnp.allclose(
-        updated_norm_info.mean, norm_info.obs.mean
-    ), "Mean should have been updated."
-    assert not jnp.allclose(
-        updated_norm_info.var, norm_info.obs.var
-    ), "Variance should have been updated."
-
-
-@pytest.mark.parametrize(
-    "wrapper,env_fixture,mode",
-    [
-        (NoiseWrapper, "batched_brax_env", "brax"),
-    ],
-)
-def test_noise_wrapper(wrapper, env_fixture, mode, request):
-    env_data = request.getfixturevalue(env_fixture)
-    if mode == "gymnax":
-        env, _ = env_data
-    else:  # Brax
-        env = env_data
-    """Test that NoiseWrapper adds noise to observations and rewards"""
-
+def test_noise_wrapper(batched_brax_env):
+    """NoiseWrapper adds noise to observations and rewards."""
+    env, _, _ = batched_brax_env
     scale = 0.1
-    wrapped_env = wrapper(env, scale=scale)
+    wrapped_env = NoiseWrapper(env, scale=scale)
     rng = jax.random.PRNGKey(0)
-    state = wrapped_env.reset(rng)
-    clean_state = env.reset(rng)
-
-    # Test step
     action = jnp.zeros((wrapped_env.action_size,))
-
-    noisy_state = wrapped_env.step(state, action)
-    clean_state = env.step(clean_state, action)
-
-    # Check that observations and rewards are different due to noise
+    noisy_state = wrapped_env.step(wrapped_env.reset(rng), action)
+    clean_state = env.step(env.reset(rng), action)
     assert not jnp.allclose(noisy_state.obs, clean_state.obs)
     assert not jnp.allclose(noisy_state.reward, clean_state.reward)
-
-    # Check that the difference is within expected range for Gaussian noise
-    obs_diff = jnp.abs(noisy_state.obs - clean_state.obs)
-    reward_diff = jnp.abs(noisy_state.reward - clean_state.reward)
-
     # 99.7% of values should be within 3 standard deviations
-    assert jnp.all(obs_diff <= 3 * scale)
-    assert jnp.all(reward_diff <= 3 * scale)
+    assert jnp.all(jnp.abs(noisy_state.obs - clean_state.obs) <= 3 * scale)
+    assert jnp.all(jnp.abs(noisy_state.reward - clean_state.reward) <= 3 * scale)
 
 
 # --------------------------------------------------------------------------

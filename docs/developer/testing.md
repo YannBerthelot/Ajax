@@ -13,7 +13,7 @@ CartPole, so a smoke test that trains and checks the return proves little.
 | Unit | `tests/<area>/`, `tests/agents/<AGENT>/` | a function, a loss, a network or a wrapper on hand-computed values; every agent and extension runs | Tests |
 | Pins | `tests/agents/test_agent_pins.py`, `tests/extensions/test_sac_extensions_equivalence.py`, `tests/test_downstream_api.py` | a restructuring reproduces a tiny run's fingerprint; the names downstream projects import still exist | Tests |
 | Slow | anywhere, marked `@pytest.mark.slow` | long trainings: an agent reaches a return, a wrapper holds over many episodes | Slow tests |
-| Probing | `tests/probing/`, and the older `tests/agents/test_probing.py` | an agent's values and actions on tiny problems with exact answers | Probing |
+| Probing | `tests/probing/` | an agent's values and actions on tiny problems with exact answers | Probing |
 | Learning checks | `benchmarks/learning_checks.py` | a world model learns its task at a small preset; too long for CI, run before merging such an agent | none |
 
 Within an agent's folder the unit tests are split by kind, as
@@ -65,7 +65,7 @@ every pull request and every push to `main`:
 | Tests (3 shards) | the tests not marked slow, probing excluded, under coverage. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere |
 | Coverage | the three shards' data combined; fails below 70% |
 | Slow tests | `-m slow`, probing excluded, without coverage (its tracing would lengthen them) |
-| Probing (5 shards) | `tests/agents/test_probing.py` and `tests/probing`, slow cases included. Shards 1-3 split the memory probes by memory kind; the last shard takes any probe file the others do not name |
+| Probing (5 shards) | `tests/probing`, slow cases included. Shards 1-3 split the memory probes by memory kind; the last shard takes any probe file the others do not name |
 | Docs | `mkdocs build --strict` with the `docs` group alone: a broken link, a page left out of the navigation or a docstring naming a parameter the signature lacks fails it |
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |
 

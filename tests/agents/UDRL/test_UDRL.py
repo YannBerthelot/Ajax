@@ -2,45 +2,8 @@
 
 import jax
 import jax.numpy as jnp
-import pytest
 
-from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.UDRL import UDRL
-from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
-
-
-def test_UDRL_initialization():
-    """The UDRL agent exposes the standard Ajax config attributes."""
-    agent = UDRL(env_id="Pendulum-v1", n_envs=1)
-
-    for attr, expected_type in zip(
-        ("env_args", "actor_optimizer_args", "network_args", "agent_config"),
-        (EnvironmentConfig, OptimizerConfig, NetworkConfig, UDRLConfig),
-        strict=False,
-    ):
-        assert hasattr(agent, attr)
-        assert isinstance(getattr(agent, attr), expected_type)
-
-
-def test_UDRL_initialization_discrete():
-    """UDRL supports discrete action envs (CartPole)."""
-    agent = UDRL(env_id="CartPole-v1", n_envs=1)
-    assert agent.env_args.continuous is False
-
-
-@pytest.mark.parametrize(
-    "env_id, seeds, n_envs",
-    [
-        ["fast", 42, 1],
-        ["fast", [42, 43], 2],
-        ["Pendulum-v1", 42, 1],
-        ["CartPole-v1", [42, 43], 2],
-    ],
-)
-def test_UDRL_train_smoke(env_id, seeds, n_envs):
-    """Train briefly under all relevant configurations: seed scalar/list, env modes, action spaces."""
-    agent = UDRL(env_id=env_id, n_envs=n_envs, n_steps=8, batch_size=8)
-    agent.train(seed=seeds, n_timesteps=64)
 
 
 def test_UDRL_train_updates_actor_params():

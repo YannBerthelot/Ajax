@@ -157,8 +157,9 @@ def test_encoder_and_dynamics_outputs_are_on_the_simplex(tiny_state):
 
 
 def test_zero_initialised_heads_predict_exactly_zero(tiny_state):
-    """Zero final weights and biases: every reward / Q logit is 0 and the
-    decoded prediction is exactly 0 (spec 1.19; symmetric decode, T24)."""
+    """Zero final weights and biases: every reward / Q logit is 0, so the
+    decoded prediction is exactly 0 (spec 1.19; symmetric decode, T24:
+    tests/world_models/test_distributional.py)."""
     wm = tiny_state.world_model_state
     params = wm.params
     for head in (params["reward"]["out"], params["q"]["members"]["out"]):
@@ -168,9 +169,7 @@ def test_zero_initialised_heads_predict_exactly_zero(tiny_state):
     reward = wm.apply_fn({"params": params}, z, a, method="reward_logits")
     q = wm.apply_fn({"params": params}, z, a, method="q_logits")
     assert q.shape == (5, 4, 101) and reward.shape == (4, 101)
-    two_hot = TINY.two_hot
-    assert not np.any(two_hot.decode(reward)) and not np.any(two_hot.decode(q))
-    assert not np.any(jax.jit(two_hot.decode)(q))
+    assert not np.any(reward) and not np.any(q)
 
 
 def test_initialisation_follows_the_reference(tiny_state):

@@ -22,6 +22,8 @@ from ajax.agents.TDMPC2 import core, planner
 from ajax.agents.TDMPC2.networks import make_policy_prior, make_world_model
 from ajax.agents.TDMPC2.state import TDMPC2Config
 
+from .common import random_heads, random_kernel
+
 # Tiny networks; fewer candidates than the paper (512 / 24 / 64) to keep the
 # tests fast. The parity test runs the paper's numbers.
 SMALL = TDMPC2Config(
@@ -50,14 +52,11 @@ def make_params(
     (``N(0, 0.3^2)``), so candidate values differ; with ``random_policy`` the
     policy head too, so the policy trajectories differ from one another."""
     state = core.create_update_state(jax.random.PRNGKey(key), config, OBS, action_dim)
-    wm = jax.tree_util.tree_map(lambda x: x, state.world_model_state.params)
-    pi = jax.tree_util.tree_map(lambda x: x, state.actor_state.params)
     k1, k2, k3 = jax.random.split(jax.random.PRNGKey(key + 1), 3)
-    reward, q = wm["reward"]["out"], wm["q"]["members"]["out"]
-    reward["kernel"] = 0.3 * jax.random.normal(k1, reward["kernel"].shape)
-    q["kernel"] = 0.3 * jax.random.normal(k2, q["kernel"].shape)
+    wm = random_heads(state.world_model_state.params, k1, k2, 0.3)
+    pi = state.actor_state.params
     if random_policy:
-        pi["out"]["kernel"] = 0.3 * jax.random.normal(k3, pi["out"]["kernel"].shape)
+        pi = random_kernel(pi, ("out",), k3, 0.3)
     return wm, pi
 
 

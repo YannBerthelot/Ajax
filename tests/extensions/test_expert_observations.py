@@ -109,6 +109,18 @@ class RecordingExpert:
         return (action, args[0]) if len(args) == 2 else action
 
 
+class StatelessRecordingExpert:
+    """RecordingExpert without a state (no init_state): an extension calls
+    an expert of its own, not the agent's, without one."""
+
+    def __init__(self, action: float) -> None:
+        self._expert = RecordingExpert(action=action)
+        self.seen = self._expert.seen
+
+    def __call__(self, obs: jax.Array) -> jax.Array:
+        return self._expert(obs)
+
+
 def _record(monkeypatch, module: Any, name: str) -> list:
     """Record the observations (or critic inputs) ``module.name`` is given."""
     seen, original = [], getattr(module, name)
@@ -460,7 +472,7 @@ def test_raw_next_observations_are_each_rows_successor(monkeypatch):
     (the final observation at the time limit), the expert prefill's rows
     too, and IBRL's expert reads s' of its batch's rows: never 0, the first
     observation, which no transition leads to."""
-    ibrl_expert = RecordingExpert(action=0.5)
+    ibrl_expert = StatelessRecordingExpert(action=0.5)
     state = train(
         CounterEnv(),
         expert_policy=RecordingExpert(action=0.5),
@@ -474,6 +486,113 @@ def test_raw_next_observations_are_each_rows_successor(monkeypatch):
     np.testing.assert_array_equal(raw_next[written], raw[written] + 1)
     read = np.concatenate([x[..., 0] for x in ibrl_expert.seen if len(x) == 8])
     assert read.size and read.min() >= 1 and read.max() <= LIMIT
+
+
+class _ShiftedIntegratingExpert:
+    """Stateful, called only with its state, its action reading it: an
+    integrator of the observations since the episode's start, playing
+    u / LIMIT - 3 - I / 200 at observation u with I its integral before the
+    call, outside the action box so the critic inputs it builds stand
+    apart. On the counter its action at u is shifted_integrated(u)."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        u = obs[..., :1]
+        return u / LIMIT - 3.0 - state / 200.0, state + u
+
+
+def shifted_integrated(u: Any) -> Any:
+    return u / LIMIT - 3.0 - u * (u - 1) / 400.0
+
+
+@pytest.mark.parametrize(
+    "name", ["IBRL", "LCBGatedBootstrap", "CriticBlend", "PhiRefresh"]
+)
+def test_an_extension_reads_a_stateful_agent_experts_stored_actions(monkeypatch, name):
+    """An extension given the agent's stateful expert reads the actions
+    collection stored for it, from its tracked state: its critic inputs at
+    s' in the replay batches it reads (8 rows: the update's, PhiRefresh's
+    refresh) are [s', shifted_integrated(s')], which a zero, reset or
+    pre-call state breaks. Such inputs must exist (PhiRefresh refreshed)."""
+    from ajax.extensions.target_mods import CriticBlend, LCBGatedBootstrap
+
+    module = (
+        ajax.extensions.pretrain
+        if name == "PhiRefresh"
+        else ajax.extensions.target_mods
+    )
+    seen = _record(monkeypatch, module, "predict_value")
+    expert = _ShiftedIntegratingExpert()
+    stack = {
+        "IBRL": (IBRL(expert_policy=expert),),
+        "LCBGatedBootstrap": (LCBGatedBootstrap(expert_policy=expert),),
+        "CriticBlend": (_mc(expert), CriticBlend(expert_policy=expert)),
+        "PhiRefresh": (
+            _mc(expert),
+            PhiRefresh(expert_policy=expert, interval=16, steps=2),
+        ),
+    }[name]
+    train(CounterEnv(), expert_policy=expert, extensions=stack)
+    rows = np.concatenate([x for x in seen if len(x) == 8])  # replay batches
+    expert_rows = rows[rows[:, -1] < -1.5]
+    assert len(expert_rows) >= 8
+    np.testing.assert_allclose(
+        expert_rows[:, -1], shifted_integrated(expert_rows[:, 0]), atol=1e-5
+    )
+
+
+SETTINGS = "expert_buffer_n_steps=0 .no expert prefill. and expert_fraction=0.0"
+
+
+@pytest.mark.parametrize("agent", ["SAC", "TD3"])
+def test_an_extension_refuses_a_stateful_expert_without_its_state(agent):
+    """IBRL on SAC without that expert, and ImitationLoss on TD3 (which
+    stores no expert action), would call a stateful expert without its
+    state: refused at construction, naming the settings that keep only the
+    extension's use of the expert. A stateless expert stays allowed."""
+    from ajax.agents.TD3.TD3 import TD3
+    from ajax.extensions.expert import ImitationLoss
+
+    stateful, stateless = _ShiftedIntegratingExpert(), _ShiftedExpert()
+    with pytest.raises(ValueError, match=SETTINGS):
+        if agent == "SAC":
+            SAC("Pendulum-v1", extensions=(IBRL(expert_policy=stateful),))
+        else:
+            TD3("Pendulum-v1", extensions=(ImitationLoss(expert_policy=stateful),))
+    if agent == "SAC":
+        SAC("Pendulum-v1", extensions=(IBRL(expert_policy=stateless),))
+    else:
+        TD3("Pendulum-v1", extensions=(ImitationLoss(expert_policy=stateless),))
+
+
+def test_the_named_settings_keep_only_the_extensions_use_of_the_expert():
+    """Following the refusal (the stateful expert given to SAC with no
+    prefill and no warm-up mixing) trains exactly as the extension using
+    the same expert statelessly, with SAC holding no expert."""
+
+    def act(obs: jax.Array) -> jax.Array:
+        return jnp.tanh(jnp.sum(obs, axis=-1, keepdims=True))
+
+    class Stateful:
+        def init_state(self, n_envs: int) -> jax.Array:
+            return jnp.zeros((n_envs, 1))
+
+        def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+            return act(obs), state
+
+    alone = train(extensions=(IBRL(expert_policy=act),))
+    expert = Stateful()
+    stored = train(
+        expert_policy=expert,
+        expert_fraction=0.0,
+        extensions=(IBRL(expert_policy=expert),),
+    )  # train() sets expert_buffer_n_steps=0
+    for name in ("actor_state", "critic_state"):
+        a, b = (jax.tree.leaves(getattr(s, name).params) for s in (alone, stored))
+        for x, y in zip(a, b, strict=True):
+            np.testing.assert_array_equal(x, y)
 
 
 class _ShiftedExpert:

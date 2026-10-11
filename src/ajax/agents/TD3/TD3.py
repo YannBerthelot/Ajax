@@ -87,6 +87,8 @@ class TD3(ActorCritic):
         self.config = {**locals()}
         self.config.update({"algo_name": "TD3"})
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -131,7 +133,6 @@ class TD3(ActorCritic):
             pre_train_n_steps=pre_train_n_steps,
             skip_actor_pretrain=skip_actor_pretrain,
         )
-        self.expert_policy = expert_policy
         self.action_pipeline = action_pipeline
 
     def get_make_train(self) -> Callable:

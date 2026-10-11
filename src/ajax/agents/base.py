@@ -84,6 +84,10 @@ class ActorCritic:
     # extension's declaration (Extension.buffer_fields); any other is
     # rejected at construction.
     supported_buffer_fields: frozenset = frozenset()
+    # Whether the agent stores its expert_policy's actions from the expert's
+    # state (a_expert, next_a_expert), which extensions may read
+    # (check_extension_experts).
+    stores_expert_actions: bool = False
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -230,6 +234,9 @@ class ActorCritic:
             self.extension_stack,
             self.supported_extension_phases,
             self.supported_buffer_fields,
+            # Set before this initialiser by the agents that take one.
+            agent_expert=getattr(self, "expert_policy", None),
+            stores_expert_actions=self.stores_expert_actions,
         )
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:

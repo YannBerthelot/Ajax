@@ -83,17 +83,21 @@ def check_extension_phases(
     stack: Iterable["Extension"],
     supported: frozenset,
     supported_fields: frozenset = frozenset(),
+    agent_expert: Any = None,
+    stores_expert_actions: bool = False,
 ) -> None:
     """Reject the extensions of ``stack`` that implement phases outside
-    ``supported`` (the phases ``agent_name``'s training loop folds), or read
+    ``supported`` (the phases ``agent_name``'s training loop folds), read
     buffer fields outside ``supported_fields`` (those the agent stores on
-    an extension's declaration, ``Extension.buffer_fields``).
+    an extension's declaration, ``Extension.buffer_fields``), or call a
+    stateful expert without its state (:func:`check_extension_experts`).
 
     Raises ``ValueError`` naming every offending extension and phase: an
     extension whose phase an agent never folds would otherwise be silently
     ignored. Agents call it at construction (``ActorCritic.__init__``).
     """
     stack = tuple(stack)
+    check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
     missing = frozenset().union(*(e.buffer_fields for e in stack)) - supported_fields
     if missing:
         raise ValueError(
@@ -113,6 +117,47 @@ def check_extension_phases(
         )
 
 
+def check_extension_experts(
+    agent_name: str,
+    stack: Sequence["Extension"],
+    agent_expert: Any = None,
+    stores_expert_actions: bool = False,
+) -> None:
+    """Reject an extension calling a stateful expert (one with
+    ``init_state``, called ``expert(state, obs)``) without its state.
+
+    An extension calls the experts it declares (:meth:`Extension.experts`)
+    on the observations it is given, where no state of the expert exists:
+    a stateful one is allowed only as the agent's ``expert_policy`` of an
+    agent that stores that expert's actions from its state
+    (``stores_expert_actions``), for an extension that reads them
+    (``reads_agent_expert_actions``). Stateless experts are always allowed.
+    """
+    for ext in stack:
+        for expert in ext.experts():
+            if not hasattr(expert, "init_state"):
+                continue
+            stored = expert is agent_expert and stores_expert_actions
+            if stored and ext.reads_agent_expert_actions:
+                continue
+            raise ValueError(
+                f"{type(ext).__name__} calls its expert without a state, and this"
+                " expert is stateful (it has init_state). An extension uses a"
+                " stateful expert only as the agent's expert_policy, whose"
+                " actions the agent stores from the expert's state, and only"
+                " if the extension reads them; here"
+                + (
+                    f" {type(ext).__name__} does not read them."
+                    if stored
+                    else f" {agent_name} does not store this expert's actions."
+                )
+                + " To keep only the extension's use of the expert, give SAC the"
+                " same expert with expert_buffer_n_steps=0 (no expert prefill)"
+                " and expert_fraction=0.0 (no warm-up mixing); or give the"
+                " extension a stateless expert."
+            )
+
+
 class Extension:
     """Base class for a composable research feature.
 
@@ -128,6 +173,9 @@ class Extension:
     #: next observation). An agent stores a field only when an extension of
     #: its stack declares it, and rejects one it cannot provide.
     buffer_fields: ClassVar[frozenset[str]] = frozenset()
+    #: Whether the extension reads the agent's stored actions of its expert
+    #: when that expert is the agent's (check_extension_experts).
+    reads_agent_expert_actions: ClassVar[bool] = False
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -218,6 +266,11 @@ class Extension:
         return {}
 
     # -- introspection ---------------------------------------------------
+    def experts(self) -> tuple:
+        """The experts this extension calls itself, on the observations it
+        is given (without a state); none by default."""
+        return ()
+
     def implemented_phases(self) -> frozenset[str]:
         """The phases this extension actually overrides (vs the no-op base)."""
         return frozenset(

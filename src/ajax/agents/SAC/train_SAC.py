@@ -227,6 +227,7 @@ def update_value_functions(
     next_a_expert: Optional[jax.Array] = None,
     carries: Optional[RecurrentCarries] = None,
     raw_next_observations: Optional[jax.Array] = None,
+    stored_next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
@@ -279,6 +280,8 @@ def update_value_functions(
             "q_preds": q_preds_for_var,
             "gamma": gamma,
             "raw_next_observations": raw_next_observations,
+            # The agent's expert's actions at s', from its state.
+            "next_a_expert": stored_next_a_expert,
             "recurrent": recurrent,
         }
         target_q = extension_stack.fold_on_target(
@@ -668,6 +671,7 @@ def update_agent(
             next_a_expert=_next_a_expert_for_target,
             carries=carries,
             raw_next_observations=raw_next_observations,
+            stored_next_a_expert=transition.next_a_expert,
         )
 
     agent_state, aux_value = final_aux_scan(

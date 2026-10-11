@@ -25,7 +25,11 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.buffers.utils import get_batch_from_buffer, get_raw_next_obs_from_buffer
+from ajax.buffers.utils import (
+    get_batch_from_buffer,
+    get_expert_fields_from_buffer,
+    get_raw_next_obs_from_buffer,
+)
 from ajax.environments.interaction import (
     augment_from_buffer,
     augment_obs,
@@ -33,6 +37,7 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
 from ajax.types import BufferType
@@ -281,11 +286,12 @@ def refresh_phi_star(
     phi_refresh_steps: int,
     gamma: float,
     reward_scale: float,
-    expert_policy: Callable,
+    ext: "PhiRefresh",
     augment: bool = False,
 ) -> Any:
     """Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
-    ``augment``: φ* reads observations augmented with SAC's expert actions.
+    ``augment``: φ* reads observations augmented with SAC's expert actions;
+    ``ext``'s expert gives the action at s' (expert_next_actions).
 
     Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
     Non-expert transitions are masked out, so the gradient comes only from
@@ -311,9 +317,15 @@ def refresh_phi_star(
         rewards = rewards * reward_scale
         dones = terminated.astype(jnp.float32)
 
-        # The expert reads the environment's own next observations.
+        # The expert's action at s': stored (the agent's expert, from its
+        # state), or its call on the raw next observations.
         raw_next = get_raw_next_obs_from_buffer(buffer, buffer_state, sample_key)
-        a_expert_next = jax.lax.stop_gradient(expert_policy(raw_next))
+        stored = (
+            get_expert_fields_from_buffer(buffer, buffer_state, sample_key)[1]
+            if ext.reads_stored_expert
+            else None
+        )
+        a_expert_next = expert_next_actions(ext, raw_next, stored)
         if augment:
             obs, next_obs = augment_from_buffer(
                 buffer, buffer_state, sample_key, obs, next_obs
@@ -701,8 +713,13 @@ class PhiRefresh(Extension):
     gamma: Optional[float] = None
     reward_scale: Optional[float] = None
     augment_obs_with_expert_action: bool = False
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.
@@ -726,6 +743,7 @@ class PhiRefresh(Extension):
             gamma=gamma,
             reward_scale=reward_scale,
             augment_obs_with_expert_action=augment,
+            reads_stored_expert=reads_stored_expert_actions(self, agent_context),
         )
 
     def post_update(
@@ -748,7 +766,6 @@ class PhiRefresh(Extension):
         steps = self.steps
         gamma = self.gamma
         reward_scale = self.reward_scale
-        expert_policy = self.expert_policy
         buffer = self.buffer
 
         def _do_refresh(s: Any) -> Any:
@@ -758,7 +775,7 @@ class PhiRefresh(Extension):
                 steps,
                 gamma,
                 reward_scale,
-                expert_policy,
+                self,
                 self.augment_obs_with_expert_action,
             )
 

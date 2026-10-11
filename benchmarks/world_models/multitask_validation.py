@@ -68,6 +68,7 @@ import numpy as np
 from paper_protocol import TDMPC2_KWARGS, TDMPC2_REFERENCE, TDMPC2_TINY
 from paper_report import AJAX_COLOR, REFERENCE_COLOR, provenance_cells
 from wm_acceptance import (
+    FAIL,
     MT_FRACTION,
     MT_SOURCE_FLOOR,
     TASK_SHARE,
@@ -575,7 +576,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if "train" in stages:
         train_offline(protocol, args.out, save_every_s)
     if "report" in stages:
-        return 1 if write_report(protocol, args.out) == "FAIL" else 0
+        return 1 if write_report(protocol, args.out) == FAIL else 0
     return 0
 
 

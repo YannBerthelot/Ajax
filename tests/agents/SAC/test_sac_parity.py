@@ -12,8 +12,9 @@ SAC algorithm's numerics — investigate to root cause; do not re-bless
 the goldens without understanding why they moved.
 """
 
-import jax
 import jax.numpy as jnp
+import pytest
+from optax.tree_utils import tree_norm
 
 from ajax.agents.SAC.SAC import SAC
 
@@ -67,29 +68,25 @@ _GOLDEN = {
 _TOL = 1e-4
 
 
-def _checksum(tree) -> jax.Array:
-    """Sum of squared elements over all floating-point leaves of a pytree."""
-    leaves = jax.tree_util.tree_leaves(tree)
-    return sum(
-        jnp.sum(leaf.astype(jnp.float32) ** 2)
-        for leaf in leaves
-        if jnp.issubdtype(leaf.dtype, jnp.floating)
-    )
-
-
 def _run_plain_sac():
     agent = SAC(**_PARITY_CONFIG)
     state, _metrics = agent.train(seed=_PARITY_SEED, n_timesteps=_PARITY_TIMESTEPS)
     return state
 
 
-def test_plain_sac_matches_golden_values():
+@pytest.fixture(scope="module")
+def plain_sac_state():
+    """One plain-SAC run, shared by the golden and determinism tests."""
+    return _run_plain_sac()
+
+
+def test_plain_sac_matches_golden_values(plain_sac_state):
     """Plain SAC (empty extension stack) reproduces the pre-refactor goldens."""
-    state = _run_plain_sac()
+    state = plain_sac_state
     measured = {
-        "critic": _checksum(state.critic_state.params),
-        "actor": _checksum(state.actor_state.params),
-        "target": _checksum(state.critic_state.target_params),
+        "critic": tree_norm(state.critic_state.params, squared=True),
+        "actor": tree_norm(state.actor_state.params, squared=True),
+        "target": tree_norm(state.critic_state.target_params, squared=True),
         "alpha": jnp.exp(state.alpha.params["log_alpha"]).reshape(-1)[0],
     }
     for key, golden in _GOLDEN.items():
@@ -101,14 +98,15 @@ def test_plain_sac_matches_golden_values():
         )
 
 
-def test_plain_sac_is_deterministic():
-    """Two identical runs of plain SAC produce bit-identical agent states."""
-    s1 = _run_plain_sac()
+def test_plain_sac_is_deterministic(plain_sac_state):
+    """A second identical run of plain SAC reproduces the shared run."""
+    s1 = plain_sac_state
     s2 = _run_plain_sac()
     for name, getter in (
         ("critic", lambda s: s.critic_state.params),
         ("actor", lambda s: s.actor_state.params),
         ("alpha", lambda s: s.alpha.params),
     ):
-        v1, v2 = _checksum(getter(s1)), _checksum(getter(s2))
+        v1 = tree_norm(getter(s1), squared=True)
+        v2 = tree_norm(getter(s2), squared=True)
         assert jnp.allclose(v1, v2), f"plain SAC not reproducible for {name}"

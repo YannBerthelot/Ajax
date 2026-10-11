@@ -31,6 +31,7 @@ from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_p
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.extension_stubs import TargetTweak
 
 from .common import TINY_AGENT
 from .toy_envs import ConstantRewardEnv, TerminatingEnv
@@ -88,14 +89,6 @@ class MetricExt(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
         return {"ext_smoke/x": jnp.asarray(1.0)}
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    name: str = "target-tweak"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
 
 
 def _scheduled_updates(schedule: Schedule, n_ticks: int) -> int:

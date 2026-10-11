@@ -36,7 +36,13 @@ from collections.abc import Sequence
 from typing import Any, Optional
 
 import numpy as np
-from paper_protocol import paper_runs, smoke_runs
+from paper_protocol import (
+    DREAMERV3_REFERENCE,
+    TDMPC2_REFERENCE,
+    paper_runs,
+    smoke_runs,
+    tdmpc2_budget_env_frames,
+)
 from wm_acceptance import (
     FAIL,
     MIN_SEEDS,
@@ -60,7 +66,7 @@ from wm_runs import (
     spec_differences,
 )
 
-REFERENCES = {"DreamerV3": "dreamerv3_dmc_proprio", "TDMPC2": "tdmpc2_dmc"}
+REFERENCES = {"DreamerV3": DREAMERV3_REFERENCE, "TDMPC2": TDMPC2_REFERENCE}
 CAVEAT = (
     "The runs use mujoco_playground's MJX ports of the DMC tasks, whose"
     " physics, observations and sometimes rewards differ from dm_control's,"
@@ -117,7 +123,7 @@ def reference_budget(agent: str, reference: dict, task: str) -> int:
     """The env steps of the reference protocol for ``task``."""
     if agent == "DreamerV3":
         return int(reference["protocol"]["env_steps"])
-    return max(max(seed["x"]) for seed in reference["tasks"][task])
+    return tdmpc2_budget_env_frames(reference["tasks"][task])
 
 
 def ajax_window_scores(records: Sequence[dict], lo: int, hi: int) -> np.ndarray:

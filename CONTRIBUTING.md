@@ -320,6 +320,12 @@ and `tests/test_downstream_api.py` (the names downstream projects import).
 *Probing tests* (`tests/probing`) check that agents learn the right thing.
 *Slow tests* (`@pytest.mark.slow`) are the long trainings.
 
+Every directory of `tests/` that holds Python files is a package (an empty
+`__init__.py`; `tests/test_repo_hygiene.py` checks it), so tests import shared
+helpers by their full name: `from tests.agents.extension_stubs import
+CounterExt`. The benchmark scripts the tests import are on the path through
+`pythonpath` in `pyproject.toml`.
+
 ```bash
 uv run pytest --collect-only -q   # everything imports and collects
 uv run pytest tests/agents/TD3    # the tests of what you changed
@@ -370,7 +376,7 @@ never as a looser tolerance. The directory is capped at 7,000 lines.
 CLAUDE.md ("Performance no-regression guardrail") sets the rule; here is the
 check. `benchmarks/agent_bench.py` times a fixed run per agent; `--compare`
 fails when one is slower than `--tol` (10% by default) against a baseline.
-Always pass `--out`: it defaults to the baseline file.
+Capturing requires `--out`, so a quick check never overwrites the baseline.
 
 ```bash
 export JAX_PLATFORMS=cpu

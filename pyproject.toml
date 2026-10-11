@@ -40,7 +40,7 @@ dev = [
 ]
 render = ["imageio[ffmpeg]>=2.37.0,<3"]
 wandb = ["wandb>=0.19.9,<0.20"]
-# The Plane3DCircle scenarios of benchmarks/perf_bench.py need target_gym;
+# The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
 # the framework does not. Opt in with `uv sync --group plane`.
 plane = ["target-gym>=0.6.1,<0.7"]
 
@@ -107,6 +107,9 @@ disable_error_code = ["attr-defined" ,"call-arg","misc"]
 norecursedirs = [".*"]
 # A run without paths collects exactly what the CI shards cover together.
 testpaths = ["tests"]
+# The benchmark scripts the tests import: they run as scripts, and the
+# world-model ones import each other as sibling modules.
+pythonpath = ["benchmarks", "benchmarks/world_models"]
 # An unregistered mark is an error, not a silent no-op.
 addopts = "--strict-markers"
 markers = [

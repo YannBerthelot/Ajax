@@ -1,29 +1,12 @@
-"""The judged statistic and the registry of ``benchmarks/learning_checks.py``.
-
-The script is not a package module; it is loaded from its path. Training is
-not run here (the checks take an hour or more on CPU).
+"""The judged statistic and the registry of
+``benchmarks/world_models/learning_checks.py``. Training is not run here
+(the checks take an hour or more on CPU).
 """
 
-import importlib.util
-import os
-import sys
-
+import learning_checks
 import numpy as np
+import paper_protocol
 import pytest
-
-_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "benchmarks",
-    "learning_checks.py",
-)
-_SPEC = importlib.util.spec_from_file_location("learning_checks", _PATH)
-assert _SPEC is not None and _SPEC.loader is not None
-learning_checks = importlib.util.module_from_spec(_SPEC)
-# Registered before execution: dataclasses resolves its classes' module there.
-sys.modules["learning_checks"] = learning_checks
-_SPEC.loader.exec_module(learning_checks)
 
 CURVE = np.array([[10.0, 20.0, 30.0, 40.0], [1.0, 2.0, 3.0, 400.0]])
 TIMESTEPS = np.array([100, 200, 300, 400])
@@ -75,3 +58,19 @@ def test_dreamerv3_cartpole_follows_the_reference_comparison_protocol():
     assert check.window == (12_000, 24_000)
     assert check.bar == 156.0
     assert check.kwargs == {"model_size": "1m"}
+
+
+def test_the_smoke_runs_use_the_paper_protocols_tiny_models():
+    """One tiny model per agent: paper_protocol's, each check keeping its
+    task's own settings."""
+
+    def model(kwargs):
+        task = ("action_repeat", "episode_length", "seed_steps")
+        return {key: value for key, value in kwargs.items() if key not in task}
+
+    smoke = learning_checks.SMOKE
+    for name in ("dreamerv3-cartpole", "dreamerv3-pendulum"):
+        assert smoke[name].kwargs == model(paper_protocol.DREAMERV3_TINY), name
+    tdmpc2 = model(paper_protocol.TDMPC2_TINY)
+    assert smoke["tdmpc2-pendulum"].kwargs == {**tdmpc2, "seed_steps": 200}
+    assert smoke["tdmpc2-cartpole-balance"].kwargs == paper_protocol.TDMPC2_TINY

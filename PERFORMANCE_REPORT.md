@@ -31,7 +31,10 @@ warmup in the same process. "warm-process" = a second invocation of
 the same script, so `import ajax` lands the disk-cache hit before any
 training starts. The two columns answer different questions: the
 first is "how fast is each training step now"; the second is "how
-fast does a freshly-launched HPO trial reach steady state".
+fast does a relaunch of the same program reach steady state". A
+distinct HPO trial is another program: its hyperparameters are
+closed over as Python constants and compiled in, so it misses the
+cache (see "Did the round-1-3 patches help this?" below).
 
 ## What changed and why it helped
 
@@ -43,7 +46,7 @@ fast does a freshly-launched HPO trial reach steady state".
 | #6 network init shape `(n_envs,*) -> (1,*)` | [networks.py](src/ajax/networks/networks.py) | One-shot allocation drop at agent build time | Material when obs is high-dim (images) or n_envs is large. |
 | #4 carry-only inner critic-update scan | [perf_utils.py](src/ajax/perf_utils.py), used by SAC + REDQ + TD3 | Drops `[num_critic_updates, *aux]` of per-step diagnostics that get discarded | Material under vmap-over-seeds with large `num_critic_updates` (REDQ-style UTD>1). |
 | #5 `donate_argnames` on top-level train jit | [perf_utils.py](src/ajax/perf_utils.py) | XLA reuses caller's `initial_state` buffer instead of cloning | Material on resume-from-checkpoint paths. No-op (and free) on init paths. |
-| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process (HPO sweep, repeated agent rebuilds). |
+| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process that runs a program already cached: relaunches of the same configuration, repeated agent rebuilds. Not distinct HPO trials. |
 
 The peak-memory column on benchmark rows tracks the per-fresh-process
 peak, which is dominated by JIT compilation transients on first
@@ -196,8 +199,12 @@ ahead of time is hard.
 No. All numbers in the table above are from HPO runs that predate the
 audit. The patches that landed:
 - #10 (persistent compile cache) saves ~17s of HLO compile **per
-  fresh process**. For HPO that's a real per-trial win (every trial
-  is a fresh process). Does not change the per-step scaling curve.
+  fresh process that runs a program already in the cache**: a
+  relaunch of the same configuration (a rerun, a resumed or repeated
+  trial). Distinct HPO trials miss it, since their hyperparameters are
+  compiled into the program as constants, and so does any run that
+  logs (programs with host callbacks are never cached). Does not
+  change the per-step scaling curve.
 - The other patches (#1-#9) shave 1-5% of steady-state per-step cost.
   Visible at the headline-bench scale, invisible against the
   bandwidth-bound regime that drives the regression.
@@ -228,10 +235,10 @@ Pragmatic operational advice given the current state:
   budget is at the largest N where the per-seed-per-step cost is
   still < ~1.5× the N=1 number.** This is empirical; there's no
   formula.
-- The persistent compile cache (#10) ensures the **per-trial**
-  startup tax stays small regardless of which N you pick. That's
-  orthogonal to the per-step scaling regression and applies
-  uniformly.
+- The persistent compile cache (#10) removes the startup tax of
+  **relaunching the same configuration**, whatever N you pick. A new
+  trial (other hyperparameters) still compiles. That's orthogonal to
+  the per-step scaling regression.
 
 ## Decision: bf16 dropped (2026-05-08)
 
@@ -563,8 +570,9 @@ existing runs are byte-identical.
 To check whether the LCB-gating + expert-call overhead changes the
 shape of the scaling curve, swept the `p3dcircle_edge_qa` scenario
 (SAC + symmetric LCB + obs/state aug + obs norm + zero-action stub
-expert) at the same N values used for vanilla SAC. 1 trial per N,
-500 measured timesteps.
+expert; since deleted from `perf_bench.py`, as it passed SAC options
+that Phase 5 moved into extensions) at the same N values used for
+vanilla SAC. 1 trial per N, 500 measured timesteps.
 
 |   N | wall (s) | throughput vs N=1 | time/seed (s) | peak (MB) | mem/seed (MB) |
 | --: | -------: | ----------------: | ------------: | --------: | ------------: |
@@ -904,7 +912,7 @@ benefit.
 
 ## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
 
-`benchmarks/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
+`benchmarks/world_models/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
 at `model_size=1` with every other hyperparameter at the paper default (512
 planning samples including 24 policy-prior trajectories, 64 elites, 6 MPPI
 iterations, batch 256, UTD 1, one env, `seed_steps = max(1000, 5 T)`, `gamma`
@@ -931,12 +939,12 @@ Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py --only TDMPC2
 lists TDMPC2 as `NEW (no baseline)`.
 
 The checks are the entries `tdmpc2-pendulum` and `tdmpc2-cartpole-balance` of
-the shared `benchmarks/learning_checks.py` registry (merged with DreamerV3's in
+the shared `benchmarks/world_models/learning_checks.py` registry (merged with DreamerV3's in
 M7; same agent arguments, budgets, cadences and bars as the runs above).
 
 ## DreamerV3 agent (M7): CPU learning checks, reference comparison and bench entry (2026-10-03)
 
-`benchmarks/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
+`benchmarks/world_models/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
 512, 4 classes) with every other hyperparameter at the paper-era default (16
 envs, train ratio 512, batches of 16 x 64, imagination horizon 15), 20,000 rows
 (the agent's unit: one row per env per vector step, reset rows included), so

@@ -1,3 +1,5 @@
+from functools import partial
+
 import distrax
 import jax
 import jax.numpy as jnp
@@ -13,6 +15,7 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_buffer
 from ajax.environments.interaction import (
+    collect_experience,
     get_action_and_new_agent_state,
     get_pi,
     init_collector_state,
@@ -375,3 +378,101 @@ def test_replayed_next_obs_is_one_step_on_from_obs_through_time_limits():
     assert cut[:, [2, 5]].all() and cut.sum() == 4
     assert step_gap(obs, next_obs).max() < 1e-4
     assert (step_gap(obs[:, :-1], obs[:, 1:])[cut[:, :-1]] > 1e-2).all()
+
+
+# --------------------------------------------------------------------------
+# collect_experience, directly
+# --------------------------------------------------------------------------
+
+
+def _constant_actor(distribution):
+    """An actor whose policy is ``distribution(batch size)``, whatever its
+    input."""
+    return LoadedTrainState.create(
+        apply_fn=lambda params, obs: distribution(obs.shape[0]),
+        params={},
+        tx=optax.sgd(0.0),
+    )
+
+
+#: The vanilla collectors (no action pipeline): PPO's, discrete actions and
+#: no replay buffer; the off-policy agents', squashed actions into a buffer.
+COLLECTORS = {
+    "CartPole-v1": (lambda n: distrax.Categorical(logits=jnp.zeros((n, 2))), False),
+    "Pendulum-v1": (
+        lambda n: SquashedNormal(jnp.zeros((n, 1)), jnp.ones((n, 1))),
+        True,
+    ),
+}
+
+
+@pytest.mark.parametrize("env_id", sorted(COLLECTORS))
+def test_collect_experience_steps_every_env_once_per_call(env_id):
+    """Five steps of two envs whose episodes last three: the timestep counts
+    env steps; each transition's next_obs is the next step's obs, except at
+    the time limit, where it is the final observation and the next obs the
+    reset one; the flags mark that step; the replay buffer, where there is
+    one, holds the transitions in order; and the episodic return is NaN
+    until an episode ends, then the ended episodes' mean."""
+    distribution, buffered = COLLECTORS[env_id]
+    env, params = make_gymnax_env(env_id)
+    params = params.replace(max_steps_in_episode=3)
+    env_args = EnvironmentConfig(
+        env=env, env_params=params, n_envs=2, continuous=buffered
+    )
+    buffer = get_buffer(buffer_size=16, batch_size=2, n_envs=2) if buffered else None
+    key = jax.random.PRNGKey(0)
+    actor = _constant_actor(distribution)
+    state = BaseAgentState(
+        rng=key,
+        eval_rng=key,
+        actor_state=actor,
+        critic_state=actor,
+        collector_state=init_collector_state(key, env_args, "gymnax", buffer),
+    )
+    collect = partial(
+        collect_experience,
+        recurrent=False,
+        mode="gymnax",
+        env_args=env_args,
+        buffer=buffer,
+    )
+
+    def run(state, length):
+        return jax.lax.scan(collect, state, None, length=length)
+
+    state, first = run(state, 2)
+    assert jnp.isnan(state.collector_state.episodic_mean_return)
+    state, limit = run(state, 1)
+    # The time limit truncates every episode at the third step.
+    np.testing.assert_array_equal(state.collector_state.last_truncated, [1, 1])
+    np.testing.assert_array_equal(state.collector_state.last_terminated, [0, 0])
+    state, last = run(state, 2)
+    rollout = jax.tree.map(lambda *x: jnp.concatenate(x), first, limit, last)
+    collector = state.collector_state
+
+    assert collector.timestep == 5 * 2
+    ended = np.asarray(rollout.terminated + rollout.truncated)[..., 0] > 0
+    np.testing.assert_array_equal(ended.sum(axis=1), [0, 0, 2, 0, 0])
+    obs, next_obs = np.asarray(rollout.obs), np.asarray(rollout.next_obs)
+    np.testing.assert_array_equal(next_obs[[0, 1, 3]], obs[[1, 2, 4]])
+    assert (np.abs(next_obs[2] - obs[3]).max(axis=-1) > 0).all()
+    np.testing.assert_array_equal(collector.last_obs, next_obs[-1])
+    # Summed step by step there, by an XLA reduction here: equal to float32
+    # rounding, not to the last ulp.
+    np.testing.assert_allclose(
+        collector.episodic_mean_return,
+        rollout.reward[:3].sum(axis=0).mean(),
+        rtol=1e-6,
+    )
+    if not buffered:
+        return
+    assert (np.abs(np.asarray(rollout.action)) <= 1).all()
+    assert int(collector.buffer_state.current_index) == 5
+    rows = collector.buffer_state.experience
+    for field in ("obs", "next_obs", "action", "reward", "truncated"):
+        np.testing.assert_array_equal(
+            np.asarray(rows[field])[:, :5],
+            np.swapaxes(getattr(rollout, field), 0, 1),
+            err_msg=field,
+        )

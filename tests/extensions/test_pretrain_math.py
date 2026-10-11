@@ -1,10 +1,11 @@
 """The pretraining helpers and extensions of :mod:`ajax.extensions.pretrain`.
 
 These are integration-style tests: they build real (tiny) flax TrainStates
-and drive the pretrain helpers end-to-end. Heavy helpers
-(``pretrain_critic_mc``, ``refresh_phi_star``) that require real env rollouts
-or buffers with expert flags are out of scope here — they are exercised
-indirectly through the SAC probing tests.
+and drive the pretrain helpers end-to-end. The helpers that need real env
+rollouts or buffers with expert flags (``pretrain_critic_mc``,
+``refresh_phi_star``) run inside SAC: the MCPretrain and PhiRefresh goldens
+of test_sac_extensions_equivalence.py, test_expert_observations.py,
+test_expert_extensions_raw_units.py and the probing tests.
 """
 
 from typing import Any, Optional
@@ -20,7 +21,6 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.pretrain import (
     BellmanPretrain,
-    MCPretrainAux,
     pretrain_critic_online_light,
 )
 from ajax.state import LoadedTrainState
@@ -73,42 +73,8 @@ def pretrain_batches(rng):
 
 
 # ---------------------------------------------------------------------------
-# Auxiliary dataclass smoke tests
-# ---------------------------------------------------------------------------
-
-
-def test_mc_pretrain_aux_fields_round_trip():
-    aux = MCPretrainAux(
-        initial_loss=jnp.asarray(1.0),
-        final_loss=jnp.asarray(0.5),
-        q_expert_mean=jnp.asarray(2.0),
-        q_expert_min=jnp.asarray(-1.0),
-        q_expert_max=jnp.asarray(5.0),
-        v_min=jnp.asarray(-1.0),
-        v_max=jnp.asarray(5.0),
-    )
-    # Field access plus dataclass-style replace should both work.
-    replaced = aux.replace(final_loss=jnp.asarray(0.25))
-    assert float(replaced.final_loss) == pytest.approx(0.25)
-    assert float(replaced.initial_loss) == pytest.approx(1.0)
-
-
-# ---------------------------------------------------------------------------
 # pretrain_critic_online_light
 # ---------------------------------------------------------------------------
-
-
-def test_pretrain_critic_online_light_returns_agent_state(rng, pretrain_batches):
-    critic_state = _make_critic_state(rng)
-    # Frozen "expert" params = different params so the nudge has signal.
-    expert_params = _make_critic_state(jax.random.fold_in(rng, 1)).params
-    state = FakePretrainState(
-        critic_state=critic_state,
-        expert_critic_params=expert_params,
-    )
-    obs, actions = pretrain_batches
-    out = pretrain_critic_online_light(state, obs, actions, n_steps=2, lr_scale=0.1)
-    assert isinstance(out, FakePretrainState)
 
 
 def test_pretrain_critic_online_light_changes_params(rng, pretrain_batches):
@@ -120,6 +86,7 @@ def test_pretrain_critic_online_light_changes_params(rng, pretrain_batches):
     )
     obs, actions = pretrain_batches
     out = pretrain_critic_online_light(state, obs, actions, n_steps=2, lr_scale=1.0)
+    assert isinstance(out, FakePretrainState)
     # At least one leaf in the critic params should change after updates.
     orig_leaves = jax.tree_util.tree_leaves(critic_state.params)
     new_leaves = jax.tree_util.tree_leaves(out.critic_state.params)

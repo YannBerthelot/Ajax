@@ -496,9 +496,10 @@ def test_stored_expert_actions_come_from_the_experts_tracked_state():
 def test_mc_pretraining_fits_phi_star_with_the_experts_state_columns(monkeypatch):
     """With augment_obs_with_expert_state (and the action, and ValueBox
     querying phi* at acting time), phi*'s inputs are the online critic's:
-    [t, 0 (the fraction), the expert's state t, a_E(t), action]."""
+    [t, 0 (the fraction), the integrating expert's state t (t - 1) / 2, its
+    action A(t), action]."""
     seen = _record(monkeypatch, ajax.extensions.pretrain, "predict_value")
-    expert = CountingExpert()
+    expert = IntegratingExpert()
     train(
         CounterEnv(),
         expert_policy=expert,
@@ -509,7 +510,24 @@ def test_mc_pretraining_fits_phi_star_with_the_experts_state_columns(monkeypatch
     )
     assert seen
     for x in seen:
+        t = x[..., 0]
         assert x.shape[-1] == 5
         np.testing.assert_allclose(x[..., 1], 0.0)
-        np.testing.assert_allclose(x[..., 2], x[..., 0])
-        np.testing.assert_allclose(x[..., 3], x[..., 0] / LIMIT)
+        np.testing.assert_allclose(x[..., 2], t * (t - 1) / 2)
+        np.testing.assert_allclose(x[..., 3], integrated_action(t), atol=1e-6)
+
+
+@pytest.mark.parametrize("own", ["stateless", "another stateful"])
+def test_mc_pretraining_refuses_another_expert_under_state_augmentation(own):
+    """phi*'s state columns are the agent's expert's: MCPretrain rolling out
+    another expert (a stateless one, or another stateful one of the same
+    width) is refused with augment_obs_with_expert_state."""
+    stateless = lambda obs: jnp.full((*obs.shape[:-1], 1), 0.5)  # noqa: E731
+    expert = stateless if own == "stateless" else IntegratingExpert()
+    with pytest.raises(ValueError, match="MC rollout must be that expert's"):
+        train(
+            CounterEnv(),
+            expert_policy=IntegratingExpert(),
+            augment_obs_with_expert_state=True,
+            extensions=(_mc(expert),),
+        )

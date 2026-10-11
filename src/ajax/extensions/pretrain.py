@@ -399,6 +399,14 @@ class MCPretrain(Extension):
         env_args = agent_context.get("env_args", None)
         if self.env_args is not None or env_args is None:
             return self
+        state_dim = agent_context.get("expert_state_aug_dim", 0)
+        if state_dim and self.expert_policy is not agent_context.get("expert_policy"):
+            raise ValueError(
+                "MCPretrain fits phi* on the agent's observations, which carry"
+                " the state of the agent's expert (augment_obs_with_expert_state):"
+                " its MC rollout must be that expert's. Give MCPretrain the"
+                " agent's expert_policy."
+            )
         return dataclasses.replace(
             self,
             env_args=env_args,
@@ -412,7 +420,7 @@ class MCPretrain(Extension):
                 "augment_obs_with_expert_action",
                 self.augment_obs_with_expert_action,
             ),
-            expert_state_aug_dim=agent_context.get("expert_state_aug_dim", 0),
+            expert_state_aug_dim=state_dim,
             use_phi_refresh=any(
                 isinstance(e, PhiRefresh) for e in agent_context.get("extensions", ())
             ),

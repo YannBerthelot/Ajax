@@ -149,24 +149,30 @@ def eval_norm_info(agent_state: Any, mode: str) -> Optional[Any]:
     return getattr(env_state, "normalization_info", None)
 
 
+def _metric_value(name: str, value: Any) -> Any:
+    """A logged array is one value: shape ``()``, the shape ``_make_no_op``
+    fills the skipped logging branch with. A wider array raises (at trace
+    time under jit) instead of being cut to its first element."""
+    if not isinstance(value, jax.Array):
+        return value
+    if value.size != 1:
+        raise ValueError(
+            f"Logged metric {name!r} must hold one value, got shape {value.shape}"
+        )
+    return value.reshape(())
+
+
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
-    return_dict = {}
+    """Name each metric ``key`` or, one level down, ``key/subkey``."""
+    flat = {}
     for key, val in d.items():
         if isinstance(val, dict):
             for subkey, subval in val.items():
-                if isinstance(subval, jax.Array):
-                    # convert 0-d array to Python scalar
-                    return_dict[f"{key}/{subkey}"] = (
-                        subval[0] if jnp.ndim(subval) > 0 else subval
-                    )
-                else:
-                    return_dict[f"{key}/{subkey}"] = subval
+                name = f"{key}/{subkey}"
+                flat[name] = _metric_value(name, subval)
         else:
-            if isinstance(val, jax.Array):
-                return_dict[key] = val.item() if val.ndim == 0 else val
-            else:
-                return_dict[key] = val
-    return return_dict
+            flat[key] = _metric_value(key, val)
+    return flat
 
 
 def _make_no_op(extra_eval_metrics=None):

@@ -34,6 +34,7 @@ from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
 
 from .reference_loop import reference_train_loop
 
@@ -61,29 +62,6 @@ ROWS = 480  # 120 ticks
 CAPACITY = N_ENVS * 100
 TRAIN_RATIO = 32  # 1 update per transition with 4 x 8 batches: 4 per tick
 LOG_EVERY = N_ENVS * 30  # rows
-
-
-@dataclass(frozen=True)
-class Counter(Extension):
-    """Counts the ``post_update`` folds."""
-
-    name: str = "counter"
-
-    def init_state(self, agent_state, rng):
-        return jnp.zeros((), jnp.int32)
-
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 1
-
-
-@dataclass(frozen=True)
-class Metric(Extension):
-    """Adds one evaluation metric."""
-
-    name: str = "metric"
-
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
-        return {"ext/x": jnp.asarray(1.0)}
 
 
 @dataclass(frozen=True)
@@ -118,7 +96,7 @@ def _recorder(records: list) -> Any:
 
 @pytest.fixture(scope="module")
 def cartpole():
-    """CartPole with a Counter and a Metric, logging every 30 ticks.
+    """CartPole with a counter and a metric extension, logging every 30 ticks.
 
     The logging worker is not started and the log callback records what it
     is sent, so the run is hermetic. Spies record, per update and per seed
@@ -128,7 +106,7 @@ def cartpole():
     the written-back windows and latents (``write_back``). They call the
     originals, so the run is the unspied one.
     """
-    agent = cartpole_agent(extensions=[Counter(), Metric()])
+    agent = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     logged: list = []
     spied = SimpleNamespace(batches=[], samples=[], writes=[])
     train_step = train_DreamerV3.train_step
@@ -250,7 +228,7 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
         "Train/opt_loss",
         "Train/rec_loss",
         "Train/actor_loss",
-        "ext/x",
+        METRIC,
     ):
         assert key in last, key
     assert int(last["env_frames"]) == int(last["timestep"])  # action_repeat 1
@@ -259,7 +237,7 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
         metrics["timestep"], [[(t + 1) * N_ENVS for t in ticks]] * 2
     )
     assert np.all(np.isfinite(np.asarray(metrics["Eval/episodic mean reward"])))
-    np.testing.assert_array_equal(np.asarray(metrics["ext/x"]), 1.0)
+    np.testing.assert_array_equal(np.asarray(metrics[METRIC]), 1.0)
     # Episodes last at least one step and at most CartPole's 500.
     length = np.asarray(metrics["Eval/mean episodic length"])
     assert np.all((length >= 1) & (length <= 500))
@@ -357,13 +335,13 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     rows, with the same extensions (whose ``post_update`` keys come from the
     agent's stream; the logging of the uninterrupted run does not touch the
     training state)."""
-    agent = cartpole_agent(extensions=[Counter(), Metric()])
+    agent = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
-    resumer = cartpole_agent(extensions=[Counter(), Metric()])
+    resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     skeleton = resumer.train(seed=SEEDS, n_timesteps=0)
     state, _ = resumer.train(
         seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restore_into(skeleton, path)

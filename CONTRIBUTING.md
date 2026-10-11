@@ -320,6 +320,12 @@ and `tests/test_downstream_api.py` (the names downstream projects import).
 *Probing tests* (`tests/probing`) check that agents learn the right thing.
 *Slow tests* (`@pytest.mark.slow`) are the long trainings.
 
+Every directory of `tests/` that holds Python files is a package (an empty
+`__init__.py`; `tests/test_repo_hygiene.py` checks it), so tests import shared
+helpers by their full name: `from tests.agents.extension_stubs import
+CounterExt`. The benchmark scripts the tests import are on the path through
+`pythonpath` in `pyproject.toml`.
+
 ```bash
 uv run pytest --collect-only -q   # everything imports and collects
 uv run pytest tests/agents/TD3    # the tests of what you changed

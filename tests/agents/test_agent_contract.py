@@ -251,3 +251,29 @@ def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
     evaluated = np.asarray(out["timestep"]) >= 0
     for key in keys:
         assert np.isfinite(np.asarray(out[key])[evaluated]).all(), key
+
+
+@AGENTS
+def test_the_evaluation_key_is_apart_from_the_training_key(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The initial state's ``eval_rng`` is split from the run's key apart
+    from ``rng``, which every training draw descends from: an evaluation
+    repeats none of them."""
+    import jax
+
+    import ajax.agents.loop as loop
+
+    seen, fresh_state = [], loop.fresh_state
+
+    def recording(*args: Any) -> Any:
+        state = fresh_state(*args)
+        record = lambda *keys: seen.append([np.asarray(k) for k in keys])  # noqa: E731
+        jax.debug.callback(record, state.rng, state.eval_rng)
+        return state
+
+    monkeypatch.setattr(loop, "fresh_state", recording)
+    case = CASES[name]
+    case.cls(env_id=case.envs[0], n_envs=1, **case.kwargs).train(seed=0, n_timesteps=0)
+    (rng, eval_rng), *_ = seen
+    assert not np.array_equal(rng, eval_rng)

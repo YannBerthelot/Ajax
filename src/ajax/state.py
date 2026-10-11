@@ -199,6 +199,12 @@ class BaseAgentState:
     actor_state: LoadedTrainState
     critic_state: LoadedTrainState
     collector_state: CollectorState
+    # The evaluations' key, never advanced: every evaluation of a seed draws
+    # the same initial states (common random numbers; TD-MPC2 folds in
+    # ``n_logs``). Inits split it from the run's key apart from ``rng``, so
+    # no evaluation draw repeats a training one, and last, so the training
+    # keys are those of the split without it (threefry is partitionable:
+    # ``split(k, n + 1)[:n] == split(k, n)``).
     eval_rng: jax.Array
     n_updates: int = 0
     n_logs: int = 0

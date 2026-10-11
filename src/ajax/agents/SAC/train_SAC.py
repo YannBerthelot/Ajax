@@ -111,7 +111,7 @@ def init_SAC(
     jsrl_curriculum: bool = False,
     store_raw_next_obs: bool = False,
 ) -> SACState:
-    rng, init_key, collector_key, expert_key = jax.random.split(key, num=4)
+    rng, init_key, collector_key, expert_key, eval_rng = jax.random.split(key, 5)
 
     # When augment_obs_with_expert_action=True, the actor and critic receive
     # obs augmented with a_expert at runtime (action_dim extra dimensions).
@@ -196,7 +196,7 @@ def init_SAC(
 
     return SACState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),

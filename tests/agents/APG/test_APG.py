@@ -220,6 +220,17 @@ def test_resume_keeps_params_and_resets_optimizer(env_and_class):
     assert int(state3.actor_state.step[0]) == 5
 
 
+def test_the_validation_set_is_drawn_apart_from_training(env_and_class):
+    """``eval_rng`` is split from the init key apart from ``rng``, which
+    every training draw descends from: the fixed validation systems are not
+    training ones."""
+    env, sc = env_and_class
+    agent = make_agent(env, sc)
+    args = (agent.env_args, agent.actor_optimizer_args, agent.network_args)
+    state = init_APG(jax.random.PRNGKey(0), *args, agent.pid, agent.squash)
+    assert not jnp.array_equal(state.eval_rng, state.rng)
+
+
 def test_reset_optimizer_keeps_the_parameters_and_restarts_adam(env_and_class):
     """What resuming with ``reset_optimizer_on_resume`` (the default) does:
     the same parameters, bit for bit, under a fresh optimizer (step 0, zero

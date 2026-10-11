@@ -118,7 +118,7 @@ def init_TD3(
     stored_state: bool = False,
     expert_policy: Optional[Callable] = None,
 ) -> TD3State:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state = get_initialized_td3_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -143,7 +143,7 @@ def init_TD3(
         )
     return TD3State(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         collector_state=collector_state,

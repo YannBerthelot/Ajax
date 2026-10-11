@@ -80,7 +80,7 @@ def init_UDRL(
     agent_config: UDRLConfig,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
 ) -> UDRLState:
-    rng, init_key, collector_key = jax.random.split(key, 3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     continuous = check_if_environment_has_continuous_actions(
         env_args.env, env_params=env_args.env_params
@@ -143,7 +143,7 @@ def init_UDRL(
 
     return UDRLState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         collector_state=collector_state,

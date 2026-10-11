@@ -270,7 +270,7 @@ def evaluate_and_log(
     def run_and_log(
         agent_state: BaseAgentState, aux: AuxiliaryLogsProtocol, index: int
     ):
-        # Deterministic evaluation: eval_rng is fixed at init_PPO and never
+        # Deterministic evaluation: eval_rng is fixed at init and never
         # advanced across iterations, so each eval uses identical initial
         # conditions (per-seed).
         eval_key = agent_state.eval_rng

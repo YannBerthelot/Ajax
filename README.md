@@ -25,9 +25,8 @@ expert, exploration rules, diagnostics) plug into any agent as *extensions*, not
 | `TDMPC2MultiTask` | The same paper's multi-task agent: one model trained offline on the data of several tasks | continuous | no |
 
 *Memory*: whether the agent accepts `memory=` (see [Memory](#memory)); DreamerV3's world model is
-recurrent by design. `TD3` and `UDRL` are not exported from `ajax`: import them from
-`ajax.agents.TD3.TD3` and `ajax.agents.UDRL.UDRL`. DreamerV3 and TD-MPC2 follow the paper-era
-official code; versions, specifications and deviations are in [docs/world_models](docs/world_models/README.md).
+recurrent by design. Every agent imports from `ajax` (`from ajax import TD3`). DreamerV3 and
+TD-MPC2 follow the paper-era official code; versions, specifications and deviations are in [docs/world_models](docs/world_models/README.md).
 
 ## Environments
 

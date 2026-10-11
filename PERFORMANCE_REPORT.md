@@ -31,7 +31,10 @@ warmup in the same process. "warm-process" = a second invocation of
 the same script, so `import ajax` lands the disk-cache hit before any
 training starts. The two columns answer different questions: the
 first is "how fast is each training step now"; the second is "how
-fast does a freshly-launched HPO trial reach steady state".
+fast does a relaunch of the same program reach steady state". A
+distinct HPO trial is another program: its hyperparameters are
+closed over as Python constants and compiled in, so it misses the
+cache (see "Did the round-1-3 patches help this?" below).
 
 ## What changed and why it helped
 
@@ -43,7 +46,7 @@ fast does a freshly-launched HPO trial reach steady state".
 | #6 network init shape `(n_envs,*) -> (1,*)` | [networks.py](src/ajax/networks/networks.py) | One-shot allocation drop at agent build time | Material when obs is high-dim (images) or n_envs is large. |
 | #4 carry-only inner critic-update scan | [perf_utils.py](src/ajax/perf_utils.py), used by SAC + REDQ + TD3 | Drops `[num_critic_updates, *aux]` of per-step diagnostics that get discarded | Material under vmap-over-seeds with large `num_critic_updates` (REDQ-style UTD>1). |
 | #5 `donate_argnames` on top-level train jit | [perf_utils.py](src/ajax/perf_utils.py) | XLA reuses caller's `initial_state` buffer instead of cloning | Material on resume-from-checkpoint paths. No-op (and free) on init paths. |
-| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process (HPO sweep, repeated agent rebuilds). |
+| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process that runs a program already cached: relaunches of the same configuration, repeated agent rebuilds. Not distinct HPO trials. |
 
 The peak-memory column on benchmark rows tracks the per-fresh-process
 peak, which is dominated by JIT compilation transients on first
@@ -196,8 +199,12 @@ ahead of time is hard.
 No. All numbers in the table above are from HPO runs that predate the
 audit. The patches that landed:
 - #10 (persistent compile cache) saves ~17s of HLO compile **per
-  fresh process**. For HPO that's a real per-trial win (every trial
-  is a fresh process). Does not change the per-step scaling curve.
+  fresh process that runs a program already in the cache**: a
+  relaunch of the same configuration (a rerun, a resumed or repeated
+  trial). Distinct HPO trials miss it, since their hyperparameters are
+  compiled into the program as constants, and so does any run that
+  logs (programs with host callbacks are never cached). Does not
+  change the per-step scaling curve.
 - The other patches (#1-#9) shave 1-5% of steady-state per-step cost.
   Visible at the headline-bench scale, invisible against the
   bandwidth-bound regime that drives the regression.
@@ -228,10 +235,10 @@ Pragmatic operational advice given the current state:
   budget is at the largest N where the per-seed-per-step cost is
   still < ~1.5× the N=1 number.** This is empirical; there's no
   formula.
-- The persistent compile cache (#10) ensures the **per-trial**
-  startup tax stays small regardless of which N you pick. That's
-  orthogonal to the per-step scaling regression and applies
-  uniformly.
+- The persistent compile cache (#10) removes the startup tax of
+  **relaunching the same configuration**, whatever N you pick. A new
+  trial (other hyperparameters) still compiles. That's orthogonal to
+  the per-step scaling regression.
 
 ## Decision: bf16 dropped (2026-05-08)
 

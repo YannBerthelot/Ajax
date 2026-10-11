@@ -1,0 +1,25 @@
+name: Save the JAX compile cache
+description: >-
+  Prune the JAX compile cache to 500 MB, least recently used entries first,
+  then save it under the key compile-cache returned.
+
+# The cache's one size bound, applied once per job (see compile-cache): at
+# most 500 MB per job and push to main, so the restored caches do not grow
+# without end; GitHub evicts the oldest caches past the repository's quota.
+inputs:
+  key:
+    description: compile-cache's key output.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: >-
+        AJAX_NO_COMPILE_CACHE=1 uv run python -c "import os;
+        from ajax._compile_cache import prune;
+        root = os.path.expanduser('~/.cache/ajax/jax_compile_cache');
+        print(prune(root, 500_000_000), 'bytes pruned')"
+    - uses: actions/cache/save@v6
+      with:
+        path: ~/.cache/ajax/jax_compile_cache
+        key: ${{ inputs.key }}

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import jax
 import pytest
 
@@ -7,103 +9,64 @@ from ajax.environments.utils import get_state_action_shapes
 from ajax.state import EnvironmentConfig
 
 
-@pytest.fixture
-def buffer_fixture():
-    buffer_size = 100
-    batch_size = 10
-    n_envs = 2
-
+@pytest.fixture(scope="module")
+def setup():
+    """A CartPole replay of 100 rows over 2 envs, batches of 10."""
+    buffer_size, batch_size, n_envs = 100, 10, 2
     buffer = get_buffer(buffer_size, batch_size, n_envs)
-    return buffer, buffer_size, batch_size, n_envs
-
-
-@pytest.fixture
-def buffer_state_fixture(buffer_fixture):
-    buffer, buffer_size, batch_size, n_envs = buffer_fixture
-
-    # Create a simple environment configuration
-    env_name = "CartPole-v1"
-    env, env_params = build_env_from_id(env_name)
+    env, env_params = build_env_from_id("CartPole-v1")
     env_args = EnvironmentConfig(
         env=env, env_params=env_params, continuous=False, n_envs=n_envs
     )
+    obs_shape, action_shape = get_state_action_shapes(env)
+    return SimpleNamespace(
+        buffer=buffer,
+        state=init_buffer(buffer, env_args),
+        buffer_size=buffer_size,
+        batch_size=batch_size,
+        n_envs=n_envs,
+        obs_shape=obs_shape,
+        action_shape=action_shape,
+    )
 
-    buffer_state = init_buffer(buffer, env_args)
-    observation_shape, action_shape = get_state_action_shapes(env_args.env)
 
-    return buffer_state, buffer, env_args, observation_shape, action_shape, batch_size
-
-
-def test_get_buffer(buffer_fixture):
-    buffer, buffer_size, batch_size, n_envs = buffer_fixture
-
+def test_get_buffer(setup):
+    buffer, n_envs = setup.buffer, setup.n_envs
     assert buffer.init.keywords["add_batch_size"] == n_envs
-    assert buffer.init.keywords["max_length_time_axis"] == buffer_size // n_envs
-    assert (
-        buffer.can_sample.keywords["min_length_time_axis"] == batch_size // n_envs + 1
-    )
+    assert buffer.init.keywords["max_length_time_axis"] == setup.buffer_size // n_envs
+    min_length = buffer.can_sample.keywords["min_length_time_axis"]
+    assert min_length == setup.batch_size // n_envs + 1
 
 
-def test_init_buffer(buffer_fixture, buffer_state_fixture):
-    buffer, buffer_size, batch_size, n_envs = buffer_fixture
-    buffer_state, buffer, env_args, observation_shape, action_shape, _ = (
-        buffer_state_fixture
-    )
-
-    expected_buffer_size = buffer_size // n_envs
-
-    # Check the buffer state structure
-    for key in ["obs", "action", "reward", "terminated", "truncated", "next_obs"]:
-        assert key in buffer_state.experience.keys()
-
-    # Validate shapes
-    for key in ["obs", "next_obs"]:
-        assert buffer_state.experience[key].shape == (
-            env_args.n_envs,
-            expected_buffer_size,
-            *observation_shape,
-        )
-    assert buffer_state.experience["action"].shape == (
-        env_args.n_envs,
-        expected_buffer_size,
-        *action_shape,
-    )
-    assert buffer_state.experience["reward"].shape == (
-        env_args.n_envs,
-        expected_buffer_size,
-        1,
-    )
-    assert buffer_state.experience["terminated"].shape == (
-        env_args.n_envs,
-        expected_buffer_size,
-        1,
-    )
-    assert buffer_state.experience["truncated"].shape == (
-        env_args.n_envs,
-        expected_buffer_size,
-        1,
-    )
+def test_init_buffer(setup):
+    rows = (setup.n_envs, setup.buffer_size // setup.n_envs)
+    experience = setup.state.experience
+    expected = {
+        "obs": setup.obs_shape,
+        "next_obs": setup.obs_shape,
+        "action": setup.action_shape,
+        "reward": (1,),
+        "terminated": (1,),
+        "truncated": (1,),
+    }
+    assert set(expected) <= set(experience)
+    for key, trailing in expected.items():
+        assert experience[key].shape == (*rows, *trailing), key
 
 
-def test_get_batch_from_buffer(buffer_state_fixture):
-    buffer_state, buffer, env_args, observation_shape, action_shape, batch_size = (
-        buffer_state_fixture
-    )
-
-    # Create a random key for sampling
-    key = jax.random.PRNGKey(0)
-
-    # Sample a batch from the buffer
+def test_get_batch_from_buffer(setup):
     obs, terminated, truncated, next_obs, reward, action, raw_obs, is_expert = (
-        get_batch_from_buffer(buffer, buffer_state, key)
+        get_batch_from_buffer(setup.buffer, setup.state, jax.random.PRNGKey(0))
     )
-
-    # Validate shapes of the sampled batch
-    assert obs.shape == (batch_size, *observation_shape)
-    assert terminated.shape == (batch_size, 1)
-    assert truncated.shape == (batch_size, 1)
-    assert next_obs.shape == (batch_size, *observation_shape)
-    assert reward.shape == (batch_size, 1)
-    assert action.shape == (batch_size, *action_shape)
-    assert raw_obs.shape == (batch_size, *observation_shape)
-    assert is_expert.shape == (batch_size, 1)
+    batch = setup.batch_size
+    for sample, trailing in (
+        (obs, setup.obs_shape),
+        (next_obs, setup.obs_shape),
+        (raw_obs, setup.obs_shape),
+        (action, setup.action_shape),
+        (terminated, (1,)),
+        (truncated, (1,)),
+        (reward, (1,)),
+        (is_expert, (1,)),
+    ):
+        assert sample.shape == (batch, *trailing)

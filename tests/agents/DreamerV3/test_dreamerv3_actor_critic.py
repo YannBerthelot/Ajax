@@ -60,11 +60,14 @@ from .common import (
     NUM_ACTIONS,
     OBS_DIM,
     TINY,
+    WORLD_MODEL_GROUPS,
     B,
     T,
     perturbed,
+    reached,
     replay_batch,
     tiny_model,
+    with_params,
 )
 
 #: The tiny learner, with a short imagination (the horizon only sets the
@@ -105,14 +108,10 @@ def tiny_learner(
     critic["out"] = _concentrated(critic["out"])
     slow["out"] = _concentrated(slow["out"])
 
-    def fresh(train_state, params, **extra):
-        opt_state = train_state.tx.init(params)
-        return train_state.replace(params=params, opt_state=opt_state, **extra)
-
     return state.replace(
-        world_model_state=fresh(state.world_model_state, wm_params),
-        actor_state=fresh(state.actor_state, actor),
-        critic_state=fresh(state.critic_state, critic, target_params=slow),
+        world_model_state=with_params(state.world_model_state, wm_params),
+        actor_state=with_params(state.actor_state, actor),
+        critic_state=with_params(state.critic_state, critic, slow),
     )
 
 
@@ -210,8 +209,7 @@ def test_actor_and_critic_heads(discrete):
     assert critic["out"]["kernel"].shape == (config.units, config.bins)
     assert not np.any(critic["out"]["kernel"]) and not np.any(critic["out"]["bias"])
     feat = 3 * jax.random.normal(_key(2), (64, config.feat_dim))
-    value = TWOHOT.decode(make_critic(config).apply({"params": critic}, feat))
-    assert np.all(np.asarray(value) == 0.0)
+    assert not np.any(make_critic(config).apply({"params": critic}, feat))
     policy = Actor(config, action_dim, discrete).apply({"params": actor}, feat)
     if discrete:
         np.testing.assert_allclose(np.exp(policy.logits), 1 / action_dim, rtol=0.05)
@@ -598,14 +596,13 @@ def test_imagine_rolls_out_the_rssm_with_the_policy():
 # ------------------------------------------------------------ the learner
 
 
+#: The learner's parameter groups: the world model's, and the actor and the
+#: critic.
 _GROUPS = {
-    "enc": lambda path: path[:2] == ("world_model", "enc"),
-    "core": lambda path: path[1] == "rssm" and path[2].startswith("dyn"),
-    "post": lambda path: path[1] == "rssm" and path[2] in ("obs", "obslogit"),
-    "prior": lambda path: path[1] == "rssm" and path[2] in ("prior", "priorlogit"),
-    "dec": lambda path: path[:2] == ("world_model", "dec"),
-    "rew": lambda path: path[:2] == ("world_model", "rew"),
-    "con": lambda path: path[:2] == ("world_model", "con"),
+    **{
+        name: lambda path, match=match: path[0] == "world_model" and match(path[1:])
+        for name, match in WORLD_MODEL_GROUPS.items()
+    },
     "actor": lambda path: path[0] == "actor",
     "critic": lambda path: path[0] == "critic",
 }
@@ -624,16 +621,6 @@ ROUTING = {
     "critic": {"critic"},
     "repval": {"enc", "core", "post", "critic"},
 }
-
-
-def _reached(grads: learner.Params) -> set[str]:
-    reached = set()
-    for path, leaf in jax.tree_util.tree_flatten_with_path(grads._asdict())[0]:
-        keys = tuple(k.key for k in path)
-        group = next(g for g, match in _GROUPS.items() if match(keys))
-        if np.any(np.asarray(leaf)):
-            reached.add(group)
-    return reached
 
 
 @pytest.mark.parametrize("discrete", [False, True])
@@ -658,7 +645,7 @@ def test_gradient_routing(discrete):
     jacobian = term_grads(learner.learner_params(state))
     for i, term in enumerate(learner.ALL_TERMS):
         grads = jax.tree.map(lambda g, i=i: g[i], jacobian)
-        assert _reached(grads) == ROUTING[term], term
+        assert reached(grads._asdict(), _GROUPS) == ROUTING[term], term
 
 
 @functools.lru_cache(maxsize=None)

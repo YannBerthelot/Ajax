@@ -26,27 +26,19 @@ from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents import loop
 from ajax.agents.TDMPC2 import core, train_TDMPC2
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
+from ajax.agents.TDMPC2.TDMPC2 import refuse_terminations
 from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_policy
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
 
+from .common import TINY_AGENT
 from .toy_envs import ConstantRewardEnv, TerminatingEnv
 
 # A tiny model and planner; everything else at the paper defaults. More
 # elites than policy-prior trajectories, so that the MPPI statistics (and
 # with them the warm start) shape the decisions of an untrained model.
-TINY = {
-    "enc_dim": 32,
-    "mlp_dim": 32,
-    "latent_dim": 16,
-    "num_q": 2,
-    "batch_size": 16,
-    "num_samples": 32,
-    "num_elites": 8,
-    "num_pi_trajs": 4,
-    "iterations": 2,
-}
+TINY = TINY_AGENT
 SEEDS = [0, 1]
 N_ENVS = 2
 # Pendulum: T = 200. S = 400 puts the seed tick on per-env step 200 (the
@@ -277,7 +269,6 @@ def test_every_hyperparameter_reaches_the_config():
 
 
 def test_playground_defaults_follow_the_paper_dmc_protocol():
-    pytest.importorskip("mujoco_playground")
     agent = TDMPC2("CartpoleBalance", episode_length=1000, action_repeat=2)
     assert agent.agent_episode_length == 500
     assert agent.gamma == pytest.approx(0.99)
@@ -521,7 +512,6 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
 
 
 def test_playground_cartpole_trains_and_logs(monkeypatch):
-    pytest.importorskip("mujoco_playground")
     logged = []
 
     def capture(metrics, index, run_ids):
@@ -632,16 +622,35 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "terminate_at",
-    [3, 10],
-    ids=["off-schedule", "on-the-last-step"],
-)
-def test_terminations_are_refused_after_the_run(terminate_at):
-    """A termination is refused wherever it happens, including on the
-    episode's scheduled last step (``is_terminal`` on the final row)."""
-    agent = TDMPC2(
-        TerminatingEnv(length=10, terminate_at=terminate_at), seed_steps=5, **TINY
-    )
+def test_terminations_are_refused_after_the_run():
+    """A termination on the episode's scheduled last step (``is_terminal`` on
+    the final row, which only the loop counts) is refused after the run."""
+    agent = TDMPC2(TerminatingEnv(length=10, terminate_at=10), seed_steps=5, **TINY)
     with pytest.raises(ValueError, match="terminations are not supported"):
         agent.train(seed=0, n_timesteps=30, num_episode_test=1)
+
+
+@pytest.mark.parametrize(
+    "offschedule,terminations",
+    [([0, 2], [0, 0]), ([0, 0], [1, 0])],
+    ids=["off-schedule", "on-the-last-step"],
+)
+def test_any_termination_of_any_seed_is_refused(offschedule, terminations):
+    """Off the schedule (an episode ended early: the collector's count,
+    tests/environments/test_row_collector.py) or on its last step, in any
+    seed; a run without either passes."""
+
+    def state(offschedule, terminations):
+        return SimpleNamespace(
+            collector_state=SimpleNamespace(
+                n_offschedule_dones=np.asarray(offschedule)
+            ),
+            n_terminations=np.asarray(terminations),
+        )
+
+    with pytest.raises(ValueError, match="terminations are not supported") as error:
+        refuse_terminations(state(offschedule, terminations), 10)
+    assert f"schedule {offschedule} times" in str(error.value)
+    assert f"last step {terminations} times" in str(error.value)
+    assert "T = 10-step" in str(error.value)
+    refuse_terminations(state([0, 0], [0, 0]), 10)

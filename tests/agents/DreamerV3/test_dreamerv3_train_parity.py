@@ -23,10 +23,8 @@ printed (``pytest -s``) and asserted below :data:`TOLERANCES`.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import json
-import pathlib
 from typing import Any, NamedTuple
 
 import jax
@@ -35,26 +33,27 @@ import numpy as np
 import pytest
 
 from ajax.agents.DreamerV3 import learner
-from ajax.agents.DreamerV3.networks import encode_action
 from ajax.agents.DreamerV3.state import DreamerV3Config
 from ajax.agents.DreamerV3.world_model import ReplayContextBatch
 
-from .common import B, T, reference_to_ajax
+from .common import (
+    FIXTURES,
+    OBS_DIM,
+    REFERENCE_TERMS,
+    B,
+    T,
+    cut,
+    fixture_batch,
+    fixture_config,
+    get_path,
+    parity_error,
+    reference_group_path,
+    reference_trees,
+    relative,
+    with_params,
+)
 
-FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 RUNS = ("continuous", "discrete")
-OBS_DIM = 5
-#: The reference's loss keys for Ajax's terms.
-REFERENCE_TERMS = {
-    "rec": "vector",
-    "rew": "reward",
-    "con": "cont",
-    "dyn": "dyn",
-    "rep": "rep",
-    "actor": "actor",
-    "critic": "critic",
-    "repval": "replay_critic",
-}
 #: Bounds on the achieved errors (see each test for its error measure; the
 #: achieved values on macOS ARM CPU are in the comments).
 TOLERANCES = {
@@ -72,18 +71,6 @@ TOLERANCES = {
     # below float32's range, so a float32 norm would be 0; 1.5e-6.
     "moments": 1e-5,
 }
-
-
-def _error(ours, theirs) -> float:
-    ours, theirs = np.asarray(ours, np.float64), np.asarray(theirs, np.float64)
-    return float(np.max(np.abs(ours - theirs)) / (1.0 + np.max(np.abs(theirs))))
-
-
-def _relative(ours, theirs) -> float:
-    """``max |ours - theirs| / max |theirs|`` (absolute where theirs is 0)."""
-    ours, theirs = np.asarray(ours, np.float64), np.asarray(theirs, np.float64)
-    scale = np.max(np.abs(theirs))
-    return float(np.max(np.abs(ours - theirs)) / (scale if scale else 1.0))
 
 
 def _report(run: str, what: str, errors: dict[str, float]) -> tuple[str, float]:
@@ -119,71 +106,16 @@ def _group(fixture_call: dict, prefix: str) -> dict[str, np.ndarray]:
     }
 
 
-def _ajax_path(name: str, discrete: bool) -> tuple[str, tuple[str, ...]]:
-    """``(group, path)`` of a reference parameter in Ajax's learner state:
-    group ``world_model``, ``actor``, ``critic`` or ``slowcritic``."""
-    path = reference_to_ajax(name, discrete)
-    if path[0] in ("actor", "critic", "slowcritic"):
-        return path[0], path[1:]
-    return "world_model", path
-
-
-def _get(tree: Any, path: tuple[str, ...]) -> Any:
-    for key in path:
-        tree = tree[key]
-    return tree
-
-
-def _cut(theirs: np.ndarray, width: int) -> np.ndarray:
-    """``theirs`` cut to Ajax's last-axis ``width``: the reference's two-hot
-    layers have a 256th logit that they drop (layout only: its parameters,
-    gradients and updates are all 0); other tensors are unchanged."""
-    assert not np.any(theirs[..., width:])
-    return theirs[..., :width]
-
-
-def _trees(flat: dict[str, np.ndarray], discrete: bool, bins: int) -> dict:
-    """Reference ``{name: array}`` -> ``{group: nested Ajax params}``."""
-    trees: dict = {}
-    for name, value in flat.items():
-        group, path = _ajax_path(name, discrete)
-        node = trees.setdefault(group, {})
-        for key in path[:-1]:
-            node = node.setdefault(key, {})
-        if path[-2] == "out" and value.shape[-1] == bins + 1:
-            value = _cut(value, bins)
-        node[path[-1]] = jnp.asarray(value)
-    return trees
-
-
 def _config(meta: dict) -> DreamerV3Config:
     """Ajax's defaults at the fixture's widths and learning-rate warmup."""
-    rssm = meta["rssm"]
-    return dataclasses.replace(
-        DreamerV3Config(),
-        units=meta["overrides"]["enc.simple.units"],
-        hidden=rssm["hidden"],
-        deter=rssm["deter"],
-        stoch=rssm["stoch"],
-        classes=rssm["classes"],
-        blocks=rssm["blocks"],
-        warmup=meta["opt"]["warmup"],
-    )
+    units = meta["overrides"]["enc.simple.units"]
+    return fixture_config(meta["rssm"], units, warmup=meta["opt"]["warmup"])
 
 
 def _batch(call: dict, discrete: bool, action_dim: int) -> ReplayContextBatch:
     raw = _group(call, "batch/")
     num_actions = action_dim if discrete else None
-    return ReplayContextBatch(
-        obs=jnp.asarray(raw["vector"]),
-        action=encode_action(jnp.asarray(raw["action"]), num_actions),
-        reward=jnp.asarray(raw["reward"]),
-        is_first=jnp.asarray(raw["is_first"]),
-        is_last=jnp.asarray(raw["is_last"]),
-        is_terminal=jnp.asarray(raw["is_terminal"]),
-        context_deter=jnp.asarray(raw["context_deter"]),
-        context_stoch=jnp.asarray(raw["context_stoch"]),
-    )
+    return fixture_batch(raw, num_actions, raw["context_deter"], raw["context_stoch"])
 
 
 def _noise(call: dict) -> learner.TrainNoise:
@@ -214,21 +146,14 @@ def _initial_state(fixture: dict, config: DreamerV3Config, discrete: bool):
     state = learner.init_learner(
         jax.random.PRNGKey(0), config, OBS_DIM, action_dim, discrete
     )
-    trees = _trees(fixture["init"], discrete, config.bins)
-
-    def load_params(train_state, params, target=None):
-        train_state = train_state.replace(
-            params=params, opt_state=train_state.tx.init(params)
-        )
-        if target is None:
-            return train_state
-        return train_state.replace(target_params=target)
-
+    trees = reference_trees(
+        fixture["init"], discrete, config.bins, dropped_must_be_zero=True
+    )
     lo, hi = fixture["meta"]["retnorm_init"]
     return state.replace(
-        world_model_state=load_params(state.world_model_state, trees["world_model"]),
-        actor_state=load_params(state.actor_state, trees["actor"]),
-        critic_state=load_params(
+        world_model_state=with_params(state.world_model_state, trees["world_model"]),
+        actor_state=with_params(state.actor_state, trees["actor"]),
+        critic_state=with_params(
             state.critic_state, trees["critic"], trees["slowcritic"]
         ),
         retnorm=state.retnorm.replace(lo=jnp.float32(lo), hi=jnp.float32(hi)),
@@ -349,7 +274,9 @@ def test_parameter_trees_match(run):
     fresh = learner.init_learner(
         jax.random.PRNGKey(0), config, OBS_DIM, action_dim, discrete
     )
-    trees = _trees(fixture["init"], discrete, config.bins)
+    trees = reference_trees(
+        fixture["init"], discrete, config.bins, dropped_must_be_zero=True
+    )
     ours = {
         "world_model": fresh.world_model_state.params,
         "actor": fresh.actor_state.params,
@@ -377,8 +304,8 @@ def test_draws_and_write_back_entries_match(run):
                 action.argmax(-1), theirs["tensor/act/action"]
             )
         else:
-            errors[f"c{k}/action"] = _error(action, theirs["tensor/act/action"])
-        errors[f"c{k}/deter"] = _error(ours.entries.deter, theirs["out/deter"])
+            errors[f"c{k}/action"] = parity_error(action, theirs["tensor/act/action"])
+        errors[f"c{k}/deter"] = parity_error(ours.entries.deter, theirs["out/deter"])
     worst, error = _report(run, "draws and entries", errors)
     assert error < TOLERANCES["values"], (worst, error)
 
@@ -394,8 +321,8 @@ def test_loss_terms_match(run):
         for term, name in REFERENCE_TERMS.items():
             scaled = ours.aux.losses[term] * np.float32(scales[term])
             assert scaled.shape == theirs[f"loss/{name}"].shape, term
-            errors[f"c{k}/{term}"] = _error(scaled, theirs[f"loss/{name}"])
-        errors[f"c{k}/total"] = _error(ours.total, theirs["loss/total"])
+            errors[f"c{k}/{term}"] = parity_error(scaled, theirs[f"loss/{name}"])
+        errors[f"c{k}/total"] = parity_error(ours.total, theirs["loss/total"])
     worst, error = _report(run, "losses", errors)
     assert error < TOLERANCES["values"], (worst, error)
 
@@ -426,7 +353,7 @@ def test_imagination_and_return_normaliser_match(run):
         }
         for name, (value, key) in pairs.items():
             assert np.shape(value) == theirs[key].shape, name
-            errors[f"c{k}/{name}"] = _error(value, theirs[key])
+            errors[f"c{k}/{name}"] = parity_error(value, theirs[key])
     worst, error = _report(run, "imagination", errors)
     assert error < TOLERANCES["values"], (worst, error)
 
@@ -434,9 +361,9 @@ def test_imagination_and_return_normaliser_match(run):
 def _per_tensor(fixture_call, prefix, ours_params, discrete, measure):
     errors = {}
     for name, theirs in _group(fixture_call, prefix).items():
-        group, path = _ajax_path(name, discrete)
-        ours = _get(getattr(ours_params, group), path)
-        errors[name] = measure(ours, _cut(theirs, np.shape(ours)[-1]))
+        group, path = reference_group_path(name, discrete)
+        ours = get_path(getattr(ours_params, group), path)
+        errors[name] = measure(ours, cut(theirs, np.shape(ours)[-1]))
     return errors
 
 
@@ -448,7 +375,7 @@ def test_gradients_match(run):
     fixture, _, discrete, results = ajax_run(run)
     errors = {}
     for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
-        tensors = _per_tensor(theirs, "grad/", ours.grads, discrete, _relative)
+        tensors = _per_tensor(theirs, "grad/", ours.grads, discrete, relative)
         assert len(tensors) == len(jax.tree.leaves(ours.grads))
         errors.update({f"c{k}/{n}": e for n, e in tensors.items()})
     worst, error = _report(run, "gradients", errors)
@@ -519,8 +446,8 @@ def test_optimizer_state_matches(run):
             for name, theirs_norm in zip(
                 keys, theirs[f"opt/{moment}_norm"], strict=False
             ):
-                group, path = _ajax_path(name, discrete)
-                ours = np.asarray(_get(getattr(tree, group), path), np.float64)
+                group, path = reference_group_path(name, discrete)
+                ours = np.asarray(get_path(getattr(tree, group), path), np.float64)
                 ours_norm = np.linalg.norm(ours)
                 scale = theirs_norm if theirs_norm else 1.0
                 errors[f"c{k}/{moment}/{name}"] = abs(ours_norm - theirs_norm) / scale
@@ -543,9 +470,9 @@ def test_slow_critic_matches(run):
     for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         slow = {"slowcritic": ours.state.critic_state.target_params}
         for name, value in _group(theirs, "slow/").items():
-            group, path = _ajax_path(name, discrete)
-            mine = _get(slow[group], path)
-            errors[f"c{k}/{name}"] = _error(mine, _cut(value, np.shape(mine)[-1]))
+            group, path = reference_group_path(name, discrete)
+            mine = get_path(slow[group], path)
+            errors[f"c{k}/{name}"] = parity_error(mine, cut(value, np.shape(mine)[-1]))
     worst, error = _report(run, "slow critic", errors)
     assert error < TOLERANCES["values"], (worst, error)
 
@@ -575,7 +502,7 @@ def test_metrics_match(run):
         for name, value in theirs.items():
             if name.startswith(_NOT_REPRODUCED):
                 continue
-            errors[f"c{k}/{name}"] = _error(
+            errors[f"c{k}/{name}"] = parity_error(
                 ours.metrics[_METRIC_NAMES.get(name, name)], value
             )
             compared += 1

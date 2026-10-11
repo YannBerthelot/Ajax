@@ -12,125 +12,66 @@ from ajax.agents.PPO.utils import (
 )
 from ajax.agents.SAC.utils import SquashedNormal
 
+G, L = 0.99, 0.95
+ONES, HALF = [1.0, 1.0, 1.0], [0.5, 0.5, 0.5]
+END = [0.0, 0.0, 1.0]
+
 
 @pytest.mark.parametrize(
-    (
-        "rewards, values, dones, gamma, gae_lambda, last_value, expected_advantages,"
-        " expected_returns"
-    ),
+    "rewards, values, next_values, terminateds, truncateds, advantages",
     [
+        # the last step ends the episode: no bootstrap, the trace stops there
         (
-            jnp.array([1.0, 1.0, 1.0]),  # rewards
-            jnp.array([0.5, 0.5, 0.5]),  # values
-            jnp.array([0.0, 0.0, 1.0]),  # dones
-            0.99,  # gamma
-            0.95,  # gae_lambda
-            jnp.array(0.0),  # last_value
-            jnp.array(
-                [
-                    (1.0 + 0.99 * 0.5 - 0.5)
-                    + 0.99 * 0.95 * ((1 + 0.99 * 0.5 - 0.5) + 0.99 * 0.95 * (1 - 0.5)),
-                    (1 + 0.99 * 0.5 - 0.5) + 0.99 * 0.95 * (1 - 0.5),
-                    0.5,
-                ]
-            ),  # expected_advantages = (reward + gamma * next_val - value) +  gamma * gae * gae
-            jnp.array(
-                [
-                    (1.0 + 0.99 * 0.5 - 0.5)
-                    + 0.99 * 0.95 * ((1 + 0.99 * 0.5 - 0.5) + 0.99 * 0.95 * (1 - 0.5))
-                    + 0.5,
-                    (1 + 0.99 * 0.5 - 0.5) + 0.99 * 0.95 * (1 - 0.5) + 0.5,
-                    1.0,
-                ]
-            ),  # expected_returns = expected_advantages + values
+            ONES,
+            HALF,
+            [0.5, 0.5, 0.0],
+            END,
+            END,
+            [
+                (1 + G * 0.5 - 0.5) + G * L * ((1 + G * 0.5 - 0.5) + G * L * 0.5),
+                (1 + G * 0.5 - 0.5) + G * L * 0.5,
+                0.5,
+            ],
         ),
+        ([0.0, 0.0, 1.0], [0.0] * 3, [0.0] * 3, END, END, [(G * L) ** 2, G * L, 1.0]),
+        ([0.0] * 5, [0.0] * 5, [0.0] * 5, [0.0] * 5, [0.0] * 5, [0.0] * 5),
+        # a termination in the middle cuts the bootstrap and the trace
         (
-            jnp.array([0.0, 0.0, 1.0]),  # rewards
-            jnp.array([0.0, 0.0, 0.0]),  # values
-            jnp.array([0.0, 0.0, 1.0]),  # dones
-            0.99,  # gamma
-            0.95,  # gae_lambda
-            jnp.array(0.0),  # last_value
-            jnp.array([(0.99 * 0.95) ** 2, 0.99 * 0.95, 1.0]),  # expected_advantages
-            jnp.array([(0.99 * 0.95) ** 2, 0.99 * 0.95, 1.0]),  # expected_returns
+            ONES,
+            HALF,
+            [0.5, 0.5, 0.0],
+            [0, 1, 0],
+            [0, 1, 0],
+            [(1 + G * 0.5 - 0.5) + G * L * 0.5, 0.5, 0.5],
+        ),
+        # a time limit in the middle bootstraps on the final observation's
+        # value (2.0) but still cuts the trace
+        (
+            ONES,
+            HALF,
+            [0.5, 2.0, 0.0],
+            [0, 0, 0],
+            [0, 1, 0],
+            [(1 + G * 0.5 - 0.5) + G * L * (1 + G * 2.0 - 0.5), 1 + G * 2.0 - 0.5, 0.5],
         ),
     ],
+    ids=["episode-end", "sparse-reward", "zeros", "terminated", "truncated"],
 )
-def test_compute_gae(
-    rewards,
-    values,
-    dones,
-    gamma,
-    gae_lambda,
-    last_value,
-    expected_advantages,
-    expected_returns,
-):
-    advantages, returns = _compute_gae(
-        rewards=rewards,
+def test_compute_gae(rewards, values, next_values, terminateds, truncateds, advantages):
+    """The advantages on hand-computed recursions; the returns are the
+    advantages plus the values."""
+    values = jnp.array(values)
+    got, returns = _compute_gae(
+        rewards=jnp.array(rewards),
         values=values,
-        next_values=jnp.concat(
-            (values[1:], jnp.expand_dims(last_value, axis=0)), axis=0
-        ),
-        terminateds=dones,
-        truncateds=dones,
-        gamma=gamma,
-        gae_lambda=gae_lambda,
+        next_values=jnp.array(next_values),
+        terminateds=jnp.array(terminateds, jnp.float32),
+        truncateds=jnp.array(truncateds, jnp.float32),
+        gamma=G,
+        gae_lambda=L,
     )
-
-    assert jnp.allclose(
-        advantages, expected_advantages, atol=1e-4
-    ), f"Advantages mismatch: {advantages} != {expected_advantages}"
-    assert jnp.allclose(
-        returns, expected_returns, atol=1e-4
-    ), f"Returns mismatch: {returns} != {expected_returns}"
-
-
-def test_compute_gae_with_zeros():
-    rewards = jnp.zeros(5)
-    values = jnp.zeros(5)
-    dones = jnp.zeros(5)
-    gamma = 0.99
-    gae_lambda = 0.95
-
-    advantages, returns = _compute_gae(
-        rewards=rewards,
-        values=values,
-        next_values=values,
-        terminateds=dones,
-        truncateds=dones,
-        gamma=gamma,
-        gae_lambda=gae_lambda,
-    )
-
-    assert jnp.allclose(advantages, jnp.zeros(5)), "Advantages should be all zeros."
-    assert jnp.allclose(returns, jnp.zeros(5)), "Returns should be all zeros."
-
-
-def test_compute_gae_with_terminal_state():
-    rewards = jnp.array([1.0, 1.0, 1.0])
-    values = jnp.array([0.5, 0.5, 0.5])
-    dones = jnp.array([0.0, 1.0, 0.0])  # Terminal state in the middle
-    gamma = 0.99
-    gae_lambda = 0.95
-    last_value = jnp.array(0.0)
-
-    advantages, returns = _compute_gae(
-        rewards=rewards,
-        values=values,
-        next_values=jnp.concat(
-            (values[1:], jnp.expand_dims(last_value, axis=0)), axis=0
-        ),
-        terminateds=dones,
-        truncateds=dones,
-        gamma=gamma,
-        gae_lambda=gae_lambda,
-    )
-
-    assert advantages.shape == rewards.shape, "Advantages shape mismatch."
-    assert returns.shape == rewards.shape, "Returns shape mismatch."
-    assert jnp.isfinite(advantages).all(), "Advantages contain invalid values."
-    assert jnp.isfinite(returns).all(), "Returns contain invalid values."
+    np.testing.assert_allclose(got, advantages, atol=1e-5)
+    np.testing.assert_allclose(returns, jnp.array(advantages) + values, atol=1e-5)
 
 
 @pytest.mark.parametrize(

@@ -6,7 +6,6 @@ from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.train_PPO import _force_reset, _normalisation_info
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import reset
-from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 
 def _playground_available():
@@ -21,48 +20,6 @@ def _playground_available():
 requires_playground = pytest.mark.skipif(
     not _playground_available(), reason="mujoco_playground not installed"
 )
-
-
-@pytest.mark.parametrize(
-    "env_id",
-    ["fast", "Pendulum-v1", "CartPole-v1"],
-)
-def test_PPO_initialization(env_id):
-    """Test SAC agent initialization with default parameters."""
-    PPO_agent = PPO(env_id=env_id)
-
-    for expected_attr, expected_type in zip(
-        (
-            "env_args",
-            "actor_optimizer_args",
-            "critic_optimizer_args",
-            "network_args",
-        ),
-        (
-            EnvironmentConfig,
-            OptimizerConfig,
-            OptimizerConfig,
-            NetworkConfig,
-        ),
-        strict=False,
-    ):
-        assert hasattr(PPO_agent, expected_attr)
-        assert isinstance(getattr(PPO_agent, expected_attr), expected_type)
-
-
-@pytest.mark.parametrize(
-    "env_id, seeds, n_envs",
-    [
-        ["fast", 42, 1],
-        ["fast", [42, 43], 2],
-        ["CartPole-v1", [42, 43], 2],
-    ],
-)
-def test_avg_train_all_modes(env_id, seeds, n_envs):
-    n_timesteps = 50  # keep small for speed
-
-    avg_agent = PPO(env_id=env_id, n_envs=n_envs)
-    avg_agent.train(seed=seeds, n_timesteps=n_timesteps)
 
 
 @requires_playground

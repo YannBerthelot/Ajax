@@ -1,18 +1,17 @@
 """Behaviour-equivalence tests for the SAC ``extensions=`` surface.
 
 For each migrated extension, configuring SAC via the new
-``extensions=[...]`` surface must produce a byte-identical
-:func:`_agent_fingerprint` to the pre-Phase-5 legacy-flag surface.
+``extensions=[...]`` surface must produce the :func:`_agent_fingerprint`
+the pre-Phase-5 legacy-flag surface produced.
 
 Phase 5 stripped the legacy back-compat shim (``_resolve_extension_stack``,
 ``_auto_append_*`` helpers, the ``_locals.get(...)`` rebinding block,
 and the matching ``SAC.__init__`` / ``make_train`` kwargs). The
 pre-Phase-5 tests compared ``SAC(**legacy_flags)`` against
-``SAC(extensions=[...])`` and asserted ``_assert_same(legacy_state,
-new_state)``. After Phase 5 the legacy-flag SAC is unconstructible, so
-each test now asserts the new (extension) surface against the
-pre-Phase-5 ``_agent_fingerprint`` checksum captured into
-``_sac_equivalence_goldens.json``.
+``SAC(extensions=[...])``. After Phase 5 the legacy-flag SAC is
+unconstructible, so each configuration in ``CASES`` is now checked
+against the fingerprint captured into ``_sac_equivalence_goldens.json``,
+keyed by the name of the test that captured it.
 
 The tests deliberately use a tiny config so they run in a few seconds on
 CPU; the checksum is a strong-enough fingerprint to catch any silent
@@ -59,17 +58,9 @@ import jax.numpy as jnp
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.extensions.expert import (
-    JSRLCurriculum,
-    OnlineBC,
-    ResidualPolicy,
-)
+from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
 from ajax.extensions.exploration import EDGEExploration
-from ajax.extensions.pretrain import (
-    BellmanPretrain,
-    MCPretrain,
-    PhiRefresh,
-)
+from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import (
     IBRL,
     CriticBlend,
@@ -78,15 +69,9 @@ from ajax.extensions.target_mods import (
     ValueBox,
 )
 
-# --------------------------------------------------------------------------
-# Test infrastructure
-# --------------------------------------------------------------------------
-
-# Annotated as ``dict[str, Any]`` so that ``**_TINY`` unpacks cleanly into
-# ``SAC.__init__``'s typed kwargs under mypy's incremental cache. Without
-# the explicit ``Any`` value type, mypy occasionally infers
-# ``dict[str, object]`` and rejects the ``**`` expansion against the strict
-# kwarg types.
+# ``dict[str, Any]`` so that ``**_TINY`` unpacks into ``SAC.__init__``'s
+# typed kwargs under mypy's incremental cache (it may infer
+# ``dict[str, object]`` otherwise).
 _TINY: dict[str, Any] = {
     "env_id": "Pendulum-v1",
     "n_envs": 1,
@@ -99,8 +84,7 @@ _TINY: dict[str, Any] = {
 _TIMESTEPS = 80
 _SEED = 0
 
-_GOLDENS_PATH = Path(__file__).parent / "_sac_equivalence_goldens.json"
-with _GOLDENS_PATH.open() as _fh:
+with (Path(__file__).parent / "_sac_equivalence_goldens.json").open() as _fh:
     _GOLDENS: dict[str, dict[str, float]] = json.load(_fh)
 
 
@@ -124,363 +108,111 @@ def _agent_fingerprint(state) -> dict:
     }
 
 
-def _assert_matches_golden(new_state, test_name: str, label: str):
-    """Assert ``_agent_fingerprint(new_state)`` matches the captured golden.
-
-    Goldens were captured pre-Phase-5 by running the (then-still-extant)
-    legacy-flag SAC side and writing the fingerprint dict to
-    ``_sac_equivalence_goldens.json``. This is the same byte-identical
-    equivalence contract the pre-Phase-5 ``_assert_same(legacy, new)``
-    expressed; the only change is that the legacy side is now a fixed
-    checksum instead of a freshly-trained legacy SAC.
-    """
-    golden = _GOLDENS[test_name]
-    new = _agent_fingerprint(new_state)
-    # Tolerance 1e-3: residual_policy hits 6.65e-4 on the CI runner
-    # despite being algorithmically equivalent to the captured golden.
-    # 1e-3 still catches real algorithmic divergence (would be O(1)
-    # for any actual logic bug) while tolerating expected CI-vs-local
-    # fp32 reduction-order drift. Re-capture goldens on the canonical
-    # CI runner if this needs tightening.
-    for key, lo in golden.items():
-        rel = abs(new[key] - lo) / max(abs(lo), 1.0)
-        assert rel < 1e-3, (
-            f"{label}: extension surface diverged from pre-Phase-5 golden for "
-            f"{key!r}: golden={lo!r}, new={new[key]!r}, rel error {rel:.2e}"
-        )
-
-
 class _NoiseExpert:
-    """A deterministic 'expert' for tests: ``tanh(sum(obs))`` action.
-
-    Defined as a class so it supplies both the stateless call
-    ``expert(obs)`` (used by the action pipeline, MC pretrain, IBRL
-    target modifier) AND the stateful call ``expert(state, obs)`` (used
-    by the eval loop), plus ``init_state(n_envs)``. The internal
-    "state" is just a unit pytree carried unchanged so its presence
-    does not perturb numerics.
-    """
-
-    def __init__(self, action_dim: int = 1):
-        self.action_dim = action_dim
+    """A deterministic expert, ``tanh(sum(obs))``, callable both stateless,
+    ``expert(obs)`` (the action pipeline, MC pretraining, the target
+    modifiers), and stateful, ``expert(state, obs)`` (the evaluation), with
+    ``init_state(n_envs)``. Its state is carried unchanged, so its presence
+    does not perturb numerics."""
 
     def __call__(self, *args):
-        if len(args) == 1:
-            obs = args[0]
-            return jnp.tanh(jnp.sum(obs, axis=-1, keepdims=True))
-        state, obs = args
-        return jnp.tanh(jnp.sum(obs, axis=-1, keepdims=True)), state
+        action = jnp.tanh(jnp.sum(args[-1], axis=-1, keepdims=True))
+        return action if len(args) == 1 else (action, args[0])
 
     def init_state(self, n_envs: int):
         return jnp.zeros((n_envs, 1), dtype=jnp.float32)
 
 
-def _noise_expert(seed: int = 0):
-    del seed
-    return _NoiseExpert()
-
-
-# --------------------------------------------------------------------------
-# Plain SAC: empty stack equals pre-Phase-5 legacy defaults
-# --------------------------------------------------------------------------
-def test_empty_stack_matches_legacy_plain_sac():
-    new = SAC(**_TINY, extensions=())
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new, "test_empty_stack_matches_legacy_plain_sac", "empty_stack"
-    )
-
-
-# --------------------------------------------------------------------------
-# SAC's expert policy alone (no extension) equals pre-Phase-5
-# ``expert_policy=``.
-# --------------------------------------------------------------------------
-def test_expert_policy_matches_legacy_expert_policy():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new, "test_expert_policy_matches_legacy_expert_policy", "expert_policy"
-    )
-
-
-# --------------------------------------------------------------------------
-# Online-BC equals pre-Phase-5 ``use_online_bc=True``
-# --------------------------------------------------------------------------
-def test_online_bc_matches_legacy_flag():
-    """OnlineBC behaves like the pre-Phase-5 ``use_online_bc=True`` flag.
-
-    BC is only active when ``expert_critic_params`` is populated (MC
-    pre-training). Without MC pre-training the BC term is silently
-    skipped — so this test exercises the extension wiring rather than the
-    BC term itself; the BC math is already covered by
-    ``tests/modules/test_expert.py``.
-    """
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(OnlineBC(bc_coef=0.5, critic_warmup_frac=0.5),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(s_new, "test_online_bc_matches_legacy_flag", "online_bc")
-
-
-# --------------------------------------------------------------------------
-# Residual policy
-# --------------------------------------------------------------------------
-def test_residual_policy_matches_legacy_use_residual_rl():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(ResidualPolicy(scale=0.5),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new, "test_residual_policy_matches_legacy_use_residual_rl", "residual_policy"
-    )
-
-
-# --------------------------------------------------------------------------
-# JSRL curriculum
-# --------------------------------------------------------------------------
-def test_jsrl_curriculum_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        # ``jsrl_curriculum`` on the SAC class still gates the per-env
-        # ``step_in_episode`` counter init inside :func:`init_SAC`.
-        jsrl_curriculum=True,
-        extensions=(JSRLCurriculum(episode_length=50, decay_frac=0.5),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new, "test_jsrl_curriculum_matches_legacy_flag", "jsrl_curriculum"
-    )
-
-
-# --------------------------------------------------------------------------
-# IBRL bootstrap
-# --------------------------------------------------------------------------
-def test_ibrl_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(IBRL(expert_policy=expert),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(s_new, "test_ibrl_matches_legacy_flag", "ibrl")
-
-
-# --------------------------------------------------------------------------
-# Expert-obs augmentation — sets augment_obs_with_expert_action=True
-# which changes the network input dim. Just verify it constructs and
-# trains (numerics covered by the legacy code path).
-# --------------------------------------------------------------------------
-def test_expert_obs_aug_constructs_and_trains():
-    expert = _noise_expert()
-    agent = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        # The flag changes the network input dim (init_SAC /
-        # collect_experience).
-        augment_obs_with_expert_action=True,
-    )
-    state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    assert state is not None
-
-
-# --------------------------------------------------------------------------
-# EDGE exploration — six gate variants. Each maps onto a different action-
-# pipeline gate function (see ajax.modules.exploration), so all six are
-# materially distinct code paths and worth pinning under the equivalence
-# contract.
-# --------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "gate", ["fixed", "argmax", "boltzmann", "lcb", "argmax_lcb", "thompson"]
+_EXPERT = _NoiseExpert()
+_WITH_EXPERT: dict[str, Any] = {"expert_policy": _EXPERT, "expert_buffer_n_steps": 0}
+# MC critic pretraining, small enough to stay fast.
+_MC = MCPretrain(
+    expert_policy=_EXPERT,
+    n_mc_steps=200,
+    n_mc_episodes=4,
+    n_steps=20,
+    online_light_steps=5,
 )
-def test_edge_exploration_matches_legacy_flags(gate: str):
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(EDGEExploration(gate=gate),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    # mypy occasionally fails to type-narrow the parametrised SAC(**dict)
-    # binding in this test when run in incremental mode against
-    # pretrain.py — the `has-type` cascade through tuple-unpacked variables
-    # is a known mypy quirk around ``**`` unpacking, not a real type error.
-    _assert_matches_golden(
-        s_new,  # type: ignore[has-type]
-        f"test_edge_exploration_matches_legacy_flags[{gate}]",
-        f"edge_{gate}",
-    )
+_GATES = ("fixed", "argmax", "boltzmann", "lcb", "argmax_lcb", "thompson")
 
 
-# --------------------------------------------------------------------------
-# LCB-gated bootstrap — target modifier that soft-blends policy/expert
-# next-actions by an LCB score.
-# --------------------------------------------------------------------------
-def test_lcb_gated_bootstrap_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(LCBGatedBootstrap(expert_policy=expert),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new,
-        "test_lcb_gated_bootstrap_matches_legacy_flag",
-        "lcb_gated_bootstrap",
-    )
+def _expert(*extensions: Any, **kwargs: Any) -> dict[str, Any]:
+    return {**_WITH_EXPERT, **kwargs, "extensions": extensions}
 
 
-# --------------------------------------------------------------------------
-# MC critic pre-training. Tiny config: small MC rollouts + few regression
-# steps + few online-light steps so the test stays fast.
-# --------------------------------------------------------------------------
-_MC_KW: dict[str, Any] = {
-    "n_mc_steps": 200,
-    "n_mc_episodes": 4,
-    "n_steps": 20,
-    "online_light_steps": 5,
+# The SAC configurations by the golden captured for each, in the stacks'
+# order. The comments say why a configuration is pinned.
+CASES: dict[str, dict[str, Any]] = {
+    # The empty stack equals pre-Phase-5 plain SAC.
+    "test_empty_stack_matches_legacy_plain_sac": {"extensions": ()},
+    # SAC's expert policy alone equals pre-Phase-5 ``expert_policy=``.
+    "test_expert_policy_matches_legacy_expert_policy": _expert(),
+    # OnlineBC is only active once MC pretraining populated
+    # ``expert_critic_params``; without it the BC term is skipped, so this
+    # pins the wiring (the BC math: tests/modules/test_expert.py).
+    "test_online_bc_matches_legacy_flag": _expert(
+        OnlineBC(bc_coef=0.5, critic_warmup_frac=0.5)
+    ),
+    "test_residual_policy_matches_legacy_use_residual_rl": _expert(
+        ResidualPolicy(scale=0.5)
+    ),
+    # ``jsrl_curriculum`` on SAC still gates the per-env ``step_in_episode``
+    # counter init in init_SAC.
+    "test_jsrl_curriculum_matches_legacy_flag": _expert(
+        JSRLCurriculum(episode_length=50, decay_frac=0.5), jsrl_curriculum=True
+    ),
+    "test_ibrl_matches_legacy_flag": _expert(IBRL(expert_policy=_EXPERT)),
+    # Each EDGE gate is a different action-pipeline gate function.
+    **{
+        f"test_edge_exploration_matches_legacy_flags[{gate}]": _expert(
+            EDGEExploration(gate=gate)
+        )
+        for gate in _GATES
+    },
+    # Soft-blends the policy's and the expert's next actions by an LCB score.
+    "test_lcb_gated_bootstrap_matches_legacy_flag": _expert(
+        LCBGatedBootstrap(expert_policy=_EXPERT)
+    ),
+    "test_mc_pretrain_matches_legacy_flag": _expert(_MC),
+    "test_bellman_pretrain_matches_legacy_flag": _expert(BellmanPretrain(n_steps=20)),
+    # CriticBlend reads the expert critic MC pretraining fits. The legacy
+    # default ``use_online_bc=True`` appended an OnlineBC whenever MC
+    # pretraining ran; the golden was captured under it.
+    "test_critic_blend_matches_legacy_flag": _expert(
+        _MC,
+        CriticBlend(expert_policy=_EXPERT, critic_warmup_frac=0.5),
+        OnlineBC(bc_coef=1.0, critic_warmup_frac=0.5),
+    ),
+    "test_mc_variance_correction_matches_legacy_flag": _expert(
+        _MC, MCVarianceCorrection(threshold=0.0)
+    ),
+    # ValueBox's v_min / v_max come from MC pretraining.
+    "test_value_box_matches_legacy_flag": _expert(_MC, ValueBox()),
+    # An interval short enough for the refresh to fire within 80 steps.
+    "test_phi_refresh_matches_legacy_flag": _expert(
+        _MC, PhiRefresh(expert_policy=_EXPERT, interval=30, steps=2)
+    ),
 }
 
 
-def test_mc_pretrain_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(MCPretrain(expert_policy=expert, **_MC_KW),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(s_new, "test_mc_pretrain_matches_legacy_flag", "mc_pretrain")
+def test_every_golden_has_a_configuration():
+    assert set(CASES) == set(_GOLDENS)
 
 
-# --------------------------------------------------------------------------
-# Bellman critic pre-training.
-# --------------------------------------------------------------------------
-def test_bellman_pretrain_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(BellmanPretrain(n_steps=20),),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new, "test_bellman_pretrain_matches_legacy_flag", "bellman_pretrain"
-    )
+@pytest.mark.parametrize("name", list(CASES), ids=lambda n: n.removeprefix("test_"))
+def test_configuration_matches_its_golden(name: str):
+    state, _ = SAC(**_TINY, **CASES[name]).train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    new = _agent_fingerprint(state)
+    # Relative 1e-3: residual_policy reads 6.65e-4 on the CI runner, a
+    # reduction-order drift; a wiring bug moves a fingerprint by O(1).
+    for key, golden in _GOLDENS[name].items():
+        rel = abs(new[key] - golden) / max(abs(golden), 1.0)
+        assert rel < 1e-3, f"{name} {key}: golden {golden!r}, new {new[key]!r}"
 
 
-# --------------------------------------------------------------------------
-# CriticBlend — warmup-decaying blend with the frozen expert critic value.
-# Requires MC pre-training (which populates ``expert_critic_params``).
-# --------------------------------------------------------------------------
-def test_critic_blend_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(
-            MCPretrain(expert_policy=expert, **_MC_KW),
-            CriticBlend(expert_policy=expert, critic_warmup_frac=0.5),
-            # The pre-Phase-5 legacy default ``use_online_bc=True`` ⇒
-            # auto-appended an :class:`OnlineBC` whenever MC pretraining
-            # ran. The golden was captured under that default, so add it
-            # explicitly here to match.
-            OnlineBC(bc_coef=1.0, critic_warmup_frac=0.5),
-        ),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new, "test_critic_blend_matches_legacy_flag", "critic_blend"
-    )
-
-
-# --------------------------------------------------------------------------
-# MCVarianceCorrection — replace high-variance Bellman targets with the
-# MC oracle when ensemble σ exceeds ``threshold``. Requires MC pre-training.
-# --------------------------------------------------------------------------
-def test_mc_variance_correction_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(
-            MCPretrain(expert_policy=expert, **_MC_KW),
-            MCVarianceCorrection(threshold=0.0),
-        ),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(
-        s_new,
-        "test_mc_variance_correction_matches_legacy_flag",
-        "mc_variance_correction",
-    )
-
-
-# --------------------------------------------------------------------------
-# ValueBox — collection-time override of the policy action with the
-# expert's whenever V_expert(s) exceeds a curriculum threshold. v_min/v_max
-# come from MC pre-training, so MCPretrain must be present in the stack.
-# --------------------------------------------------------------------------
-def test_value_box_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(
-            MCPretrain(expert_policy=expert, **_MC_KW),
-            ValueBox(),
-        ),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(s_new, "test_value_box_matches_legacy_flag", "value_box")
-
-
-# --------------------------------------------------------------------------
-# PhiRefresh — periodic self-consistent refresh of the frozen expert critic
-# during training. Requires MC pre-training (which creates the refreshable
-# φ*). Use a tiny interval so the refresh actually fires within
-# _TIMESTEPS=80.
-# --------------------------------------------------------------------------
-def test_phi_refresh_matches_legacy_flag():
-    expert = _noise_expert()
-    new = SAC(
-        **_TINY,
-        expert_policy=expert,
-        expert_buffer_n_steps=0,
-        extensions=(
-            MCPretrain(expert_policy=expert, **_MC_KW),
-            PhiRefresh(expert_policy=expert, interval=30, steps=2),
-        ),
-    )
-    s_new, _ = new.train(seed=_SEED, n_timesteps=_TIMESTEPS)
-    _assert_matches_golden(s_new, "test_phi_refresh_matches_legacy_flag", "phi_refresh")
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_expert_obs_aug_constructs_and_trains():
+    """Augmenting observations with the expert's action changes the
+    networks' input width (init_SAC, collect_experience): it trains."""
+    agent = SAC(**_TINY, **_WITH_EXPERT, augment_obs_with_expert_action=True)
+    state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)
+    assert state is not None

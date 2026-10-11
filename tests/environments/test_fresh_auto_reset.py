@@ -20,20 +20,6 @@ import pytest
 from ajax.environments.create import build_env_from_id
 from ajax.wrappers import FreshAutoResetWrapper, _call_if_any
 
-
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
-
 N_ENVS, EPISODE_LENGTH, N_STEPS, N_SEEDS = 2, 3, 9, 2  # 4 episode starts each
 
 
@@ -77,7 +63,6 @@ def _n_distinct(rows):
     return len(np.unique(np.round(rows, 6), axis=0))
 
 
-@requires_playground
 def test_opting_out_restores_the_cached_reset():
     """``fresh_reset=False`` keeps playground's cached semantics, the setting
     playground results produced before fresh resets became the default were
@@ -98,13 +83,19 @@ def test_opting_out_restores_the_cached_reset():
     assert _n_distinct(starts) == 1
 
 
-@requires_playground
-def test_default_starts_every_episode_from_a_new_state():
+@pytest.fixture(scope="module")
+def default_rollout():
+    """The default stack (fresh resets, gated) and its rollout, shared: each
+    rollout traces and compiles the MJX step anew."""
     env, _ = build_env_from_id(
         "CartpoleBalance", n_envs=N_ENVS, episode_length=EPISODE_LENGTH
     )
+    return env, _rollout(env, jnp.arange(N_SEEDS))
+
+
+def test_default_starts_every_episode_from_a_new_state(default_rollout):
+    env, (first_obs, out) = default_rollout
     assert isinstance(env.env, FreshAutoResetWrapper)
-    first_obs, out = _rollout(env, jnp.arange(N_SEEDS))
     for seed in range(N_SEEDS):
         for env_idx in range(N_ENVS):
             starts = _episode_starts(first_obs, out, seed, env_idx)
@@ -112,17 +103,13 @@ def test_default_starts_every_episode_from_a_new_state():
             assert _n_distinct(starts) == 4, (seed, env_idx, starts)
 
 
-@requires_playground
-def test_fresh_reset_keeps_the_transition_bookkeeping():
+def test_fresh_reset_keeps_the_transition_bookkeeping(default_rollout):
     """On a done step the new episode's state comes from the reset, but what
     describes the finished transition must survive it: ``truncation`` (else
     the time limit reads as a termination), ``final_obs`` (else V(s_T) is
     bootstrapped on the reset observation) and EpisodeWrapper's episode
     summary. The base env's own per-episode info (its ``rng``) is renewed."""
-    env, _ = build_env_from_id(
-        "CartpoleBalance", n_envs=N_ENVS, episode_length=EPISODE_LENGTH
-    )
-    _, out = _rollout(env, jnp.arange(N_SEEDS))
+    _, (_, out) = default_rollout
     done = out["done"] > 0
     assert done.sum() == N_SEEDS * N_ENVS * (N_STEPS // EPISODE_LENGTH)
     assert np.all(out["truncation"][done] == 1)
@@ -133,25 +120,25 @@ def test_fresh_reset_keeps_the_transition_bookkeeping():
     np.testing.assert_array_equal(out["rng_changed"], done)
 
 
-@requires_playground
-def test_fresh_reset_with_differentiable_reset_gives_the_same_rollout():
+def test_fresh_reset_with_differentiable_reset_gives_the_same_rollout(
+    default_rollout,
+):
     """``differentiable_reset=True`` evaluates the reset on every step (for
     reverse mode through it, see ``build_env_from_id``) with the same keys,
-    so the rollout is the same: exactly in its discrete parts, and up to
-    float rounding (the reset compiles differently outside the gate's
-    while_loop) in its states."""
-    rollouts = {}
-    for differentiable_reset in (False, True):
-        env, _ = build_env_from_id(
-            "CartpoleBalance",
-            n_envs=N_ENVS,
-            episode_length=EPISODE_LENGTH,
-            fresh_reset=True,
-            differentiable_reset=differentiable_reset,
-        )
-        assert env.env.differentiable_reset is differentiable_reset
-        rollouts[differentiable_reset] = _rollout(env, jnp.arange(N_SEEDS))
-    (first_gated, gated), (first_every, every) = rollouts[False], rollouts[True]
+    so the rollout is the same as the default's (gated): exactly in its
+    discrete parts, and up to float rounding (the reset compiles differently
+    outside the gate's while_loop) in its states."""
+    gated_env, (first_gated, gated) = default_rollout
+    assert gated_env.env.differentiable_reset is False
+    env, _ = build_env_from_id(
+        "CartpoleBalance",
+        n_envs=N_ENVS,
+        episode_length=EPISODE_LENGTH,
+        fresh_reset=True,
+        differentiable_reset=True,
+    )
+    assert env.env.differentiable_reset is True
+    first_every, every = _rollout(env, jnp.arange(N_SEEDS))
     np.testing.assert_allclose(first_gated, first_every, rtol=1e-5, atol=1e-5)
     for name in ("done", "truncation", "rng_changed"):
         np.testing.assert_array_equal(gated[name], every[name])
@@ -159,7 +146,6 @@ def test_fresh_reset_with_differentiable_reset_gives_the_same_rollout():
         np.testing.assert_allclose(gated[name], every[name], rtol=1e-5, atol=1e-5)
 
 
-@requires_playground
 def test_eval_rebuild_keeps_the_reset_semantics():
     from ajax.evaluate import setup_environment
 

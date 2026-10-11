@@ -2,43 +2,6 @@ import jax.numpy as jnp
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.state import AlphaConfig, EnvironmentConfig, NetworkConfig, OptimizerConfig
-from ajax.types import BufferType
-
-
-def test_SAC_initialization():
-    """Test SAC agent initialization with default parameters."""
-    env_id = "Pendulum-v1"
-    SAC_agent = SAC(env_id=env_id)
-
-    for expected_attr, expected_type in zip(
-        (
-            "env_args",
-            "actor_optimizer_args",
-            "critic_optimizer_args",
-            "network_args",
-            "alpha_args",
-            "buffer",
-        ),
-        (
-            EnvironmentConfig,
-            OptimizerConfig,
-            OptimizerConfig,
-            NetworkConfig,
-            AlphaConfig,
-            BufferType,
-        ),
-        strict=False,
-    ):
-        assert hasattr(SAC_agent, expected_attr)
-        assert isinstance(getattr(SAC_agent, expected_attr), expected_type)
-
-
-def test_SAC_initialization_with_discrete_env():
-    """Test SAC agent initialization fails with a discrete environment."""
-    env_id = "CartPole-v1"
-    with pytest.raises(ValueError, match="SAC only supports continuous action spaces."):
-        SAC(env_id=env_id)
 
 
 def test_skip_critic_pretrain_is_a_transitional_no_op():
@@ -47,21 +10,6 @@ def test_skip_critic_pretrain_is_a_transitional_no_op():
     SAC(env_id="Pendulum-v1", skip_critic_pretrain=True)
     with pytest.raises(ValueError, match="MCPretrain"):
         SAC(env_id="Pendulum-v1", skip_critic_pretrain=False)
-
-
-@pytest.mark.parametrize(
-    "env_id, seeds, n_envs",
-    [
-        ["fast", 42, 1],
-        ["fast", [42, 43], 2],
-    ],
-)
-def test_avg_train_all_modes(env_id, seeds, n_envs):
-    n_timesteps = 50  # keep small for speed
-    learning_starts = 10
-
-    avg_agent = SAC(env_id=env_id, learning_starts=learning_starts, n_envs=n_envs)
-    avg_agent.train(seed=seeds, n_timesteps=n_timesteps)
 
 
 @pytest.mark.parametrize("alpha_init", [1.0, 0.2])

@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.networks.memory import MemoryConfig, init_carry
+from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, init_carry
 from ajax.networks.networks import (
     Actor,
     Critic,
@@ -19,7 +19,7 @@ from ajax.networks.utils import get_adam_tx
 
 T, B, OBS_DIM, ACTION_DIM = 5, 3, 4, 2
 ARCH = ("16", "relu")
-KINDS = ["gru", "lstm", "transformer", "mamba"]
+KINDS = MEMORY_KINDS
 
 
 def _memory(kind):

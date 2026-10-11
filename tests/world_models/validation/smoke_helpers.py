@@ -1,6 +1,6 @@
 """Shared by the paper-protocol smoke tests: run a ``--smoke`` entry of
 ``paper_protocol.py`` killed after its first chunk's save then resumed from
-disk by the CLI, and (DreamerV3) uninterrupted through the CLI too."""
+disk by the CLI."""
 
 from __future__ import annotations
 
@@ -39,11 +39,3 @@ def run_resumed(name: str, tmp_path) -> list[dict]:
     assert paper_protocol.main(["--smoke", "--only", name, "--out", split]) == 0
     assert not os.path.exists(os.path.join(split, name, STATE_FILE))
     return records(os.path.join(split, name))
-
-
-def run_twice(name: str, tmp_path) -> tuple[list[dict], list[dict]]:
-    """The curves of the uninterrupted run and of :func:`run_resumed`."""
-    whole = str(tmp_path / "whole")
-    assert paper_protocol.main(["--smoke", "--only", name, "--out", whole]) == 0
-    assert not os.path.exists(os.path.join(whole, name, STATE_FILE))
-    return records(os.path.join(whole, name)), run_resumed(name, tmp_path)

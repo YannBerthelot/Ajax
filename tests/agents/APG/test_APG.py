@@ -1,10 +1,9 @@
 """End-to-end tests for the APG agent and its contextual-controller configuration."""
 
-from dataclasses import dataclass
-
 import jax
 import jax.numpy as jnp
 import pytest
+from extension_stubs import CounterExt
 from gymnax import make as make_gymnax_env
 
 from ajax import APG
@@ -14,14 +13,18 @@ from ajax.agents.APG import (
     PIDHeadConfig,
     train_curriculum,
 )
-from ajax.agents.APG.train_APG import evaluate_apg, init_APG, rollout_returns
+from ajax.agents.APG.train_APG import (
+    evaluate_apg,
+    init_APG,
+    reset_optimizer,
+    rollout_returns,
+)
 from ajax.environments.model_reference import (
     LinearReferenceModel,
     ModelReferenceWrapper,
     StepReference,
 )
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
-from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.wrappers import InitialStateWrapper
 
@@ -33,29 +36,16 @@ def angle(obs):
     return jnp.arctan2(obs[1], obs[0])
 
 
-def tracking_env(horizon=HORIZON, min_duration=4, max_duration=8, model_pole=None):
+def tracking_env():
     """Gravity-free pendulum (a double integrator, so angle references are
-    trackable with unit torque) under a model-reference tracking wrapper.
-
-    ``model_pole=None`` uses the paper's reference model; a pole closer
-    to 1 gives a slower, reachable desired trajectory at a 50 ms step.
-    """
+    trackable with unit torque) under the paper's model-reference tracking
+    wrapper."""
     env, params = make_gymnax_env("Pendulum-v1")
     params = params.replace(g=0.0)
     reference = StepReference(
-        horizon=horizon,
-        min_value=-0.5,
-        max_value=0.5,
-        min_duration=min_duration,
-        max_duration=max_duration,
+        horizon=HORIZON, min_value=-0.5, max_value=0.5, min_duration=4, max_duration=8
     )
-    model = (
-        LinearReferenceModel.first_order()
-        if model_pole is None
-        else LinearReferenceModel.first_order(
-            a=model_pole, b=1 - model_pole, c=1.0, d=0.0
-        )
-    )
+    model = LinearReferenceModel.first_order()
     wrapped = ModelReferenceWrapper(env, reference, model, output_fn=angle)
     return wrapped, params
 
@@ -228,10 +218,28 @@ def test_resume_keeps_params_and_resets_optimizer(env_and_class):
         reset_optimizer_on_resume=False,
     )
     assert int(state3.actor_state.step[0]) == 5
-    # parameters were carried over (not re-initialised)
-    fresh, _ = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
-    k3 = state3.actor_state.params["params"]["out"]["kernel"]
-    assert not jnp.allclose(k3, fresh.actor_state.params["params"]["out"]["kernel"])
+
+
+def test_reset_optimizer_keeps_the_parameters_and_restarts_adam(env_and_class):
+    """What resuming with ``reset_optimizer_on_resume`` (the default) does:
+    the same parameters, bit for bit, under a fresh optimizer (step 0, zero
+    moments). That a resume carries the parameters over is pinned by
+    ``tests/probing/test_p4_split_run.py`` (a split APG run equals an
+    unsplit one)."""
+    env, sc = env_and_class
+    agent = make_agent(env, sc)
+    args = (agent.env_args, agent.actor_optimizer_args, agent.network_args)
+    state = init_APG(jax.random.PRNGKey(0), *args, agent.pid, agent.squash)
+    actor = state.actor_state
+    grads = jax.tree.map(jnp.ones_like, actor.params)
+    state = state.replace(actor_state=actor.apply_gradients(grads=grads))
+    assert int(state.actor_state.step) == 1
+    reset = reset_optimizer(state, agent.actor_optimizer_args).actor_state
+    assert int(reset.step) == 0
+    same = jax.tree.map(jnp.array_equal, reset.params, state.actor_state.params)
+    assert jax.tree.all(same)
+    fresh = reset.tx.init(reset.params)
+    assert jax.tree.all(jax.tree.map(jnp.array_equal, reset.opt_state, fresh))
 
 
 def test_curriculum_chains_stages(env_and_class):
@@ -286,20 +294,9 @@ def test_evaluate_reports_m_rmse_on_fresh_systems(env_and_class):
     )
 
 
-@dataclass(frozen=True)
-class Counter(Extension):
-    name: str = "counter"
-
-    def init_state(self, agent_state, rng):
-        return jnp.asarray(0)
-
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 1
-
-
 def test_extensions_fold_post_update(env_and_class):
     env, sc = env_and_class
-    agent = make_agent(env, sc, extensions=[Counter()])
+    agent = make_agent(env, sc, extensions=[CounterExt()])
     state, _ = agent.train(seed=0, n_timesteps=4 * N_ENVS * HORIZON)
     assert int(state.ext_state[0][0]) == 4
 
@@ -330,7 +327,7 @@ def test_the_downstream_training_and_evaluation_contract(env_and_class):
         env_params=sc.nominal,
         controller_factory=factory,
         max_grad_norm=1.0,
-        extensions=[Counter()],
+        extensions=[CounterExt()],
     )
     state, aux = agent.train(seed=0, n_timesteps=3 * 2 * HORIZON)
     curve = jax.device_get(-aux.matching_loss[0] / HORIZON).tolist()

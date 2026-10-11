@@ -31,6 +31,11 @@ import os
 import subprocess
 import time
 
+# The standardized run: every agent trains for TIMESTEPS steps over N_ENVS
+# envs (the --n-envs and --timesteps defaults).
+N_ENVS = 4
+TIMESTEPS = 8000
+
 # TD-MPC2 at its paper defaults (a 5M-parameter model, batch 256, 512
 # planning candidates over 6 MPPI iterations per env step) would take
 # minutes per bench run on CPU: it makes one update per env step and plans
@@ -39,7 +44,7 @@ import time
 # Pendulum's T = 200) at a small size: the model_size=1 preset narrowed to
 # 64-unit layers and a 32-dim latent, batch 32, 64 candidates / 8 elites /
 # 4 prior trajectories, 2 MPPI iterations; seed_steps stays
-# max(1000, 5 T) = 1000. With the defaults below (--n-envs 4, --timesteps
+# max(1000, 5 T) = 1000. With N_ENVS and TIMESTEPS (--n-envs 4, --timesteps
 # 8000) a run is 2010 ticks (2000 env steps per env and 10 held ticks):
 # random actions up to the tick of per-env step 250, the first on which the
 # total env steps exceed 1000 (the n_envs > 1 rule, deviation T7 in
@@ -336,9 +341,9 @@ def main() -> None:
             os.path.dirname(os.path.abspath(__file__)), "agent_baseline.jsonl"
         ),
     )
-    ap.add_argument("--n-envs", type=int, default=4)
+    ap.add_argument("--n-envs", type=int, default=N_ENVS)
     ap.add_argument("--warmup", type=int, default=400)
-    ap.add_argument("--timesteps", type=int, default=8000)
+    ap.add_argument("--timesteps", type=int, default=TIMESTEPS)
     ap.add_argument("--trials", type=int, default=3)
     ap.add_argument(
         "--only", nargs="*", default=None, help="benchmark only these agents"

@@ -21,6 +21,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from extension_stubs import TargetTweak
 
 from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents import loop
@@ -88,14 +89,6 @@ class MetricExt(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
         return {"ext_smoke/x": jnp.asarray(1.0)}
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    name: str = "target-tweak"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
 
 
 def _scheduled_updates(schedule: Schedule, n_ticks: int) -> int:

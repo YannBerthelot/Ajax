@@ -23,6 +23,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from extension_stubs import TargetTweak
 from flax import struct
 
 from ajax import DreamerV3
@@ -84,16 +85,6 @@ class Metric(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {"ext/x": jnp.asarray(1.0)}
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    """A phase DreamerV3 does not fold."""
-
-    name: str = "target"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
 
 
 def cartpole_agent(**kwargs) -> DreamerV3:

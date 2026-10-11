@@ -20,10 +20,10 @@ from ajax.environments.utils import (
     ExpertInAgentUnits,
     agent_action_to_env,
     agent_episode_length,
-    check_env_is_gymnax,
     check_env_is_playground,
     check_if_environment_has_continuous_actions,
     env_action_repeat,
+    env_keys,
     get_env_type,
     get_raw_env,
 )
@@ -74,7 +74,7 @@ def setup_environment(
     )
 
     env, layers = strip_ajax_wrappers(env)
-    mode = "gymnax" if check_env_is_gymnax(env) else "brax"
+    mode = get_env_type(env)
     continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     if mode == "brax":
@@ -233,9 +233,7 @@ def step_environment(
             actor_hidden,
         ) = carry
         rng, step_key = jax.random.split(rng)
-        step_keys = (
-            jax.random.split(step_key, obs.shape[0]) if mode == "gymnax" else step_key
-        )
+        step_keys = env_keys(step_key, mode, obs.shape[0])
         # The expert acts on the environment's own observations, as in
         # collection: not normalised, without the training-fraction column.
         expert_obs = (
@@ -467,9 +465,7 @@ def _reset_eval_env(env, env_params, num_episodes, norm_info, rng, gamma=0.99):
         ),
     )
     key, reset_key = jax.random.split(rng, 2)
-    reset_keys = (
-        jax.random.split(reset_key, num_episodes) if mode == "gymnax" else reset_key
-    )
+    reset_keys = env_keys(reset_key, mode, num_episodes)
     obs, state = reset(reset_keys, env, mode, env_params)
     return env, mode, continuous, key, obs, state
 
@@ -736,18 +732,17 @@ def evaluate_policy(
     )
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
 
-    def env_keys(key):
-        return jax.random.split(key, num_episodes) if mode == "gymnax" else key
-
     key, reset_key = jax.random.split(key)
-    obs, env_state = reset(env_keys(reset_key), env, mode, env_params)
+    obs, env_state = reset(
+        env_keys(reset_key, mode, num_episodes), env, mode, env_params
+    )
 
     def body(carry, _):
         obs, env_state, policy_carry, is_first, done, ret, length, key = carry
         key, policy_key, step_key = jax.random.split(key, 3)
         action, policy_carry, _ = policy_fn(policy_carry, obs, is_first, policy_key)
         obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(step_key),
+            env_keys(step_key, mode, num_episodes),
             env_state,
             agent_action_to_env(action, env, env_params),
             env,

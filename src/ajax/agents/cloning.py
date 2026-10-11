@@ -15,7 +15,6 @@ from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
 from ajax.environments.utils import (
-    check_env_is_gymnax,
     get_state_action_shapes,
     raw_obs_columns,
 )
@@ -333,7 +332,7 @@ def pretrain_on_expert(
     fraction (0 before training)."""
     if cloning_args is None or cloning_args.pre_train_n_steps <= 0:
         return agent_state
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     return get_pre_trained_agent(
         agent_state,
         expert_policy,

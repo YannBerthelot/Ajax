@@ -17,6 +17,7 @@ from flax.training.train_state import TrainState
 from gymnax import EnvParams
 from jax.tree_util import Partial as partial
 
+from ajax.environments.utils import get_env_type
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvStateType, EnvType, InitializationFunction
 from ajax.wrappers import NormalizationInfo
@@ -84,6 +85,11 @@ class EnvironmentConfig:
     # (episode length in agent steps), never a traced value. Default 1, so
     # every existing construction is unchanged.
     action_repeat: int = struct.field(pytree_node=False, default=1)
+
+    @property
+    def mode(self) -> str:
+        """The backend: "gymnax", or "brax" for brax and playground envs."""
+        return get_env_type(self.env)
 
 
 @struct.dataclass

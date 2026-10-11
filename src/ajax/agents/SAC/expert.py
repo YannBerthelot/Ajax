@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 
 from ajax.environments.interaction import collect_experience_from_expert_policy
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType
 
@@ -28,7 +27,7 @@ def collect_and_store_expert_transitions(
     actions at s and s' as ``a_expert`` and ``next_a_expert``, and the
     collector's observation layout (the training fraction, 0 before
     training, then the expert's state)."""
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     transitions = collect_experience_from_expert_policy(
         expert_policy=expert_policy,
         rng=rng,

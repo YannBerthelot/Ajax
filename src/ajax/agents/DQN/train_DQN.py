@@ -34,7 +34,7 @@ from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import ActionPipelineResult, init_collector_state
-from ajax.environments.utils import check_env_is_gymnax, get_action_dim
+from ajax.environments.utils import get_action_dim
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
@@ -155,7 +155,7 @@ def init_DQN(
         n_actions=n_actions,
         q_network_cls=q_network_cls,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,

@@ -35,7 +35,6 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
 )
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
@@ -130,7 +129,7 @@ def init_TD3(
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
+        mode=env_args.mode,
         buffer=buffer,
         window_size=window_size,
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),

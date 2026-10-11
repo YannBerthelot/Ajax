@@ -1,11 +1,11 @@
 """EVarEst measurement / instrumentation as composable :class:`Extension`s.
 
-This module ports the measurement code from
-``/home/yberthel/EVAREST/evarest/rl/`` to the Ajax Extension surface so
-the same plasticity / decomposition diagnostics can be folded
-into any Ajax agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG
-on-policy) without touching the agent code. Each extension is a frozen
-dataclass carrying its own hyperparameters; the user opts in via
+This module ports the measurement code of EVAREST's ``evarest/rl/`` to
+the Ajax Extension surface so the same plasticity / decomposition
+diagnostics can be folded into any Ajax agent (SAC, DQN, REDQ, TD3
+off-policy; PPO, PQN, APO, AVG on-policy) without touching the agent
+code. Each extension is a frozen dataclass carrying its own
+hyperparameters; the user opts in via
 ``extensions=[ConditioningMetrics(), BiasVoreDecomposition(...), ...]``.
 
 Coverage
@@ -30,8 +30,7 @@ Each extension owns its own hyperparameters as frozen-dataclass fields
 (no per-extension agent-side kwargs). Empty / mis-shaped state ⇒ the
 extension emits an empty metrics dict so a misconfigured stack is
 loud-failure rather than a wrong-numbers silent failure where possible.
-The math is intentionally kept identical to the EVAREST sources so that
-Phase 4c (EVAREST integration) becomes a thin wiring change.
+The math is intentionally kept identical to the EVAREST sources.
 """
 
 from __future__ import annotations
@@ -621,8 +620,6 @@ class BiasVorePenalty(Extension):
     def _coeff(self) -> float:
         if self.coeff_override is not None:
             return float(self.coeff_override)
-        if self.alpha == 0.5:
-            return 0.0
         return evarest_coeff(self.alpha)
 
     def critic_loss(
@@ -639,16 +636,16 @@ class BiasVorePenalty(Extension):
 
         # Two batch-shape conventions the agents use:
         # - SAC critic loss fold passes 'critic_params', 'critic_state',
-        #   'observations', 'actions', 'target_q' (or similar) so we
-        #   can rebuild q_preds and residual. PPO fold passes
-        #   'critic_params', 'critic_state', 'observations', 'targets'.
+        #   'observations', 'actions', 'targets' so we can rebuild q_preds
+        #   and residual. PPO fold passes 'critic_params', 'critic_state',
+        #   'observations', 'targets'.
         # - DQN/PQN fold passes 'q_state', 'observations', 'actions',
         #   'targets'. Q-network case reconstructs q_taken via
         #   predict_q + gather.
         obs = batch.get("observations")
         if obs is None:
             return jnp.asarray(0.0)
-        target = batch.get("target_q", batch.get("targets"))
+        target = batch.get("targets")
         if target is None:
             return jnp.asarray(0.0)
 
@@ -674,10 +671,8 @@ class BiasVorePenalty(Extension):
         if q_state is not None and actions is not None:
             # Reuse the agent's predict_q -> gather to keep numerics aligned
             # with the agent's q_taken.
-            try:
-                from ajax.agents.DQN.networks import predict_q
-            except ImportError:
-                return jnp.asarray(0.0)
+            from ajax.agents.DQN.networks import predict_q
+
             q_all = predict_q(q_state, q_state.params, obs)
             # Match q_loss_fn's gather convention: actions may carry a
             # trailing 1-dim or not.

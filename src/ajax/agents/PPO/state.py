@@ -23,8 +23,6 @@ class PPOConfig(BaseAgentConfig):
     num_minibatches: int = 0
     # Critic loss = vf_coef * 0.5 * MSE. Brax PPO uses 0.5; Ajax legacy 1.0.
     vf_coef: float = 1.0
-    # Brax's V-trace-style GAE: zero delta at truncation, propagate vs.
-    use_vtrace_gae: bool = False
     # Brax-style joint global-norm clip across actor + critic grads.
     fused_grad_clip: bool = False
     # GAE-fragment length for the brax-faithful minibatcher. When set,

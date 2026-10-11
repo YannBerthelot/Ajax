@@ -47,8 +47,8 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.pid_terms import split_pid_terms
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.utils import parse_architecture
 
 GAIN_NAMES = ("kp", "ki", "kd")

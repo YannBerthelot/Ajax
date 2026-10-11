@@ -27,7 +27,6 @@ from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
 from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.UDRL.buffer import (
     add_segment,
     episode_stream,
@@ -50,6 +49,7 @@ from ajax.environments.utils import (
 )
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import (
     EnvironmentConfig,

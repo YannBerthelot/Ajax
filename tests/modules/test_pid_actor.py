@@ -9,13 +9,13 @@ import numpy as np
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.TD3.networks import (
     DeterministicPIDActor,
     get_initialized_td3_actor_critic,
 )
 from ajax.evaluate import evaluate
 from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig

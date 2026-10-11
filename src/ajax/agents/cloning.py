@@ -19,6 +19,7 @@ from ajax.environments.utils import (
     get_state_action_shapes,
     raw_obs_columns,
 )
+from ajax.networks.distributions import SquashedNormal
 
 
 @struct.dataclass
@@ -218,8 +219,6 @@ def pre_train(
             # NLL with log_std lower-clipped at bc_min_log_std (prevents
             # entropy collapse on saturated samples, where scale → 0 would
             # otherwise dominate the loss).
-            from ajax.agents.SAC.utils import SquashedNormal
-
             eps = bc_action_clip_eps
             if isinstance(pi, SquashedNormal):
                 # Clip the action into the squash domain so tanh^{-1}

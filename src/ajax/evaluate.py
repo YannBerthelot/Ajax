@@ -5,7 +5,6 @@ import jax.numpy as jnp
 from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     augment_obs,
     flatten_expert_state,
@@ -27,6 +26,7 @@ from ajax.environments.utils import (
     get_env_type,
     get_raw_env,
 )
+from ajax.networks.distributions import SquashedNormal
 from ajax.state import EnvironmentConfig
 from ajax.wrappers import NormalizationInfo
 

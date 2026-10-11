@@ -18,6 +18,7 @@ from ajax.environments.utils import (
     maybe_append_train_frac,
     raw_obs_columns,
 )
+from ajax.networks.distributions import SquashedNormal
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -502,8 +503,6 @@ def get_action_and_new_agent_state(
         done=done,
         recurrent=recurrent,
     )
-    from ajax.agents.SAC.utils import SquashedNormal
-
     if isinstance(pi, SquashedNormal):
         # Sample the base Normal manually so raw_action is exposed
         # (PPO/APO need it to recompute log_prob without arctanh).

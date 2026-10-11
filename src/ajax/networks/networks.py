@@ -10,9 +10,9 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import (
     MemoryCell,
     MemoryConfig,

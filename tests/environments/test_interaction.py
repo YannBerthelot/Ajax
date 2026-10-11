@@ -12,7 +12,6 @@ from gymnax.environments.classic_control.pendulum import EnvParams as PendulumPa
 
 import ajax.environments.interaction as step_module
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_buffer
 from ajax.environments.interaction import (
     collect_experience,
@@ -23,6 +22,7 @@ from ajax.environments.interaction import (
     reset,
     step,
 )
+from ajax.networks.distributions import SquashedNormal
 from ajax.state import (
     BaseAgentState,
     CollectorState,

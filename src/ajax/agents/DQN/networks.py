@@ -23,7 +23,7 @@ from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_state_action_shapes
-from ajax.networks.networks import Encoder, build_cnn_encoder, init_network_state
+from ajax.networks.networks import CNNEncoder, Encoder, init_network_state
 from ajax.networks.utils import get_adam_tx
 from ajax.state import (
     EnvironmentConfig,
@@ -88,7 +88,7 @@ def _build_q_encoder(module: nn.Module) -> nn.Module:
     `cnn_image_shape` is set (architecture from `cnn_spec`), else the
     legacy MLP `Encoder`."""
     if module.cnn_image_shape is not None:
-        return build_cnn_encoder(
+        return CNNEncoder(
             module.cnn_image_shape, module.cnn_extra_obs_dim, module.cnn_spec
         )
     return Encoder(

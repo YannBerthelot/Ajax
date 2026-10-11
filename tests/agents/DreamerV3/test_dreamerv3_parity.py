@@ -12,9 +12,10 @@ parameters, where the reward head is no longer zero, so that reward gradients
 reach its hidden layer, the RSSM and the encoder.
 
 Ajax runs with its own defaults at the fixture's widths, and
-:func:`test_default_hyperparameters_are_the_references` pins those defaults
-against the reference's. Each other test maps the reference's parameters onto
-Ajax's tree (:func:`reference_to_ajax`; dreamerv3_spec 2.17), runs
+:func:`test_default_hyperparameters_are_the_references` pins the world
+model's against the reference's (test_dreamerv3_train_parity.py pins the
+rest, and that the mapped parameter trees match Ajax's). Each other test
+maps the reference's parameters onto Ajax's tree (:func:`reference_to_ajax`; dreamerv3_spec 2.17), runs
 :func:`world_model_loss` with the Gumbel noise the reference drew, and
 compares the samples (exactly), the posterior entries, the loss terms, the
 KL and the gradient of the weighted world-model loss with respect to every
@@ -37,7 +38,6 @@ from ajax.agents.DreamerV3.networks import (
     POSTERIOR_LAYERS,
     PRIOR_LAYERS,
     WorldModel,
-    init_world_model,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config
 from ajax.agents.DreamerV3.world_model import LOSS_TERMS, world_model_loss
@@ -115,40 +115,25 @@ def _layers(params: dict[str, np.ndarray], module: str) -> int:
     return sum(bool(re.fullmatch(pattern, name)) for name in params)
 
 
-@pytest.mark.parametrize("run", RUNS)
-def test_default_hyperparameters_are_the_references(run):
-    """Ajax's defaults equal the reference's (2411f7d ``configs.yaml``; the
-    fixtures override widths only): latent unimix 1 %, free bits 1 nat,
-    ``horizon`` 333, the loss scales, the head depths and 255 bins."""
-    fixture = load(run)
+def test_default_hyperparameters_are_the_references():
+    """Ajax's world-model defaults equal the reference's (2411f7d
+    ``configs.yaml``; the fixtures override widths only): latent unimix
+    1 %, free bits 1 nat, the head depths and the RSSM's prior and
+    posterior layers. The defaults the whole training step shares (the
+    return horizon, the loss scales, 255 bins) are pinned by
+    test_dreamerv3_train_parity.py; they do not depend on the run."""
+    fixture = load("continuous_init")
     meta, params = fixture["meta"], fixture["param"]
     ours = DreamerV3Config()
     assert ours.unimix == meta["rssm"]["unimix"] == 0.01
     assert ours.free_nats == meta["free"] == 1.0
-    assert ours.return_horizon == meta["horizon"] == 333.0
-    scales = (ours.rec_scale, ours.rew_scale, ours.con_scale)
-    scales += (ours.dyn_scale, ours.rep_scale)
-    assert scales == tuple(meta["scales"][REFERENCE_TERMS[k]] for k in LOSS_TERMS)
     depths = (ours.enc_layers, ours.dec_layers, ours.rew_layers, ours.con_layers)
     assert depths == tuple(meta["layers"][k] for k in ("enc", "dec", "rew", "con"))
     assert depths == tuple(_layers(params, k) for k in ("enc", "dec", "rew", "con"))
-    assert ours.bins == meta["bins"] == 255
     assert (meta["rssm"]["imglayers"], meta["rssm"]["obslayers"]) == (
         PRIOR_LAYERS,
         POSTERIOR_LAYERS,
     )
-
-
-@pytest.mark.parametrize("run", RUNS)
-def test_parameter_trees_match(run):
-    """Every reference world-model parameter has an Ajax counterpart of the
-    same shape, and Ajax has no other parameter."""
-    fixture, config, model, params, _, _ = ajax_run(run)
-    action_dim = 3 if run.startswith("discrete") else 2
-    fresh = init_world_model(jax.random.PRNGKey(0), config, 5, action_dim)
-    assert jax.tree.structure(fresh) == jax.tree.structure(params)
-    shapes = jax.tree.map(lambda x: x.shape, fresh)
-    assert shapes == jax.tree.map(lambda x: x.shape, params)
 
 
 @pytest.mark.parametrize("run", RUNS)

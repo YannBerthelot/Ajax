@@ -1,91 +1,61 @@
+"""ASAC's episode-termination penalty on hand-computed values: the running
+penalty moves by ``tau`` towards ``p_0`` times the mean reward of the steps
+that did not terminate, and a terminated step's reward pays it."""
+
 import jax.numpy as jnp
+import numpy as np
+import pytest
 
 from ajax.agents.ASAC.utils import (
     compute_episode_termination_penalty,
     get_episode_termination_penalized_rewards,
 )
 
+R = [1.0, 2.0, 3.0]
+NONE = [0.0, 0.0, 0.0]
 
-def test_compute_episode_termination_penalty_basic():
-    episode_termination_penalty = jnp.array(0.5)
-    rewards = jnp.array([1.0, 2.0, 3.0])
-    terminated = jnp.array([0.0, 0.0, 0.0])
-    p_0 = 0.1
-    tau = 0.5
 
-    minibatch_size = rewards.shape[0]
-    p_bar = p_0 * (1 / minibatch_size) * jnp.sum(rewards)
-    expected = episode_termination_penalty * (1 - tau) + tau * p_bar
-
-    result = compute_episode_termination_penalty(
-        episode_termination_penalty, rewards, terminated, p_0, tau
+@pytest.mark.parametrize(
+    "rewards, terminated, p_0, tau, expected",
+    [
+        (R, NONE, 0.1, 0.5, 0.5 * 0.5 + 0.5 * 0.1 * 2.0),
+        (R, NONE, 0.1, 0.0, 0.5),  # tau = 0 keeps the penalty
+        (R, NONE, 0.2, 1.0, 0.2 * 2.0),  # tau = 1 jumps to p_0 * mean
+        # a terminated step's reward leaves the mean (still over 3 steps)
+        (R, [1.0, 0.0, 1.0], 0.1, 0.5, 0.5 * 0.5 + 0.5 * 0.1 * 2.0 / 3),
+        # a batch of minibatches: the mean over all of them, a scalar
+        ([R, [2.0, 4.0, 6.0]], [NONE, NONE], 0.1, 0.3, 0.5 * 0.7 + 0.3 * 0.1 * 3.0),
+    ],
+    ids=["basic", "tau-zero", "tau-one", "terminated", "batched"],
+)
+def test_the_penalty_moves_towards_p0_times_the_mean_reward(
+    rewards, terminated, p_0, tau, expected
+):
+    penalty = compute_episode_termination_penalty(
+        jnp.array(0.5), jnp.array(rewards), jnp.array(terminated), p_0, tau
     )
+    assert penalty.shape == ()
+    np.testing.assert_allclose(penalty, expected, rtol=1e-6)
 
-    assert jnp.allclose(result, expected), f"Expected {expected}, got {result}"
 
-
-def test_compute_episode_termination_penalty_tau_zero():
-    # tau = 0 should return the same penalty
-    penalty = jnp.array(0.5)
-    rewards = jnp.array([1.0, 2.0, 3.0])
-    terminated = jnp.array([0.0, 0.0, 0.0])
-    result = compute_episode_termination_penalty(
-        penalty, rewards, terminated, p_0=0.1, tau=0.0
+@pytest.mark.parametrize(
+    "penalty, rewards, terminated, expected",
+    [
+        (0.5, R, NONE, R),
+        (0.5, R, [1.0, 0.0, 1.0], [0.5, 2.0, 2.5]),
+        (
+            0.2,
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[1.0, 0.0], [0.0, 1.0]],
+            [[0.8, 2.0], [3.0, 3.8]],
+        ),
+    ],
+    ids=["no-termination", "termination", "2d"],
+)
+def test_a_terminated_step_pays_the_penalty(penalty, rewards, terminated, expected):
+    rewards = jnp.array(rewards)
+    out = get_episode_termination_penalized_rewards(
+        jnp.array(penalty), rewards, jnp.array(terminated)
     )
-    assert jnp.allclose(result, penalty)
-
-
-def test_compute_episode_termination_penalty_tau_one():
-    # tau = 1 should fully update to p_bar
-    penalty = jnp.array(0.5)
-    rewards = jnp.array([1.0, 2.0, 3.0])
-    terminated = jnp.array([0.0, 0.0, 0.0])
-    p_0 = 0.2
-    expected_pbar = p_0 * (1 / rewards.shape[0]) * jnp.sum(rewards)
-
-    result = compute_episode_termination_penalty(
-        penalty, rewards, terminated, p_0, tau=1.0
-    )
-    assert jnp.allclose(result, expected_pbar)
-
-
-def test_compute_episode_termination_penalty_batched():
-    # Works with batched minibatch rewards (e.g., shape [batch, n])
-    penalty = jnp.array(0.5)
-    rewards = jnp.array([[1.0, 2.0, 3.0], [2.0, 4.0, 6.0]])
-    terminated = jnp.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
-    p_0 = 0.1
-    tau = 0.3
-
-    result = compute_episode_termination_penalty(penalty, rewards, terminated, p_0, tau)
-    assert result.shape == (), "Should return scalar even with vector rewards"
-
-
-def test_get_episode_termination_penalized_rewards_no_termination():
-    rewards = jnp.array([1.0, 2.0, 3.0])
-    terminated = jnp.array([0.0, 0.0, 0.0])
-    penalty = jnp.array(0.5)
-
-    result = get_episode_termination_penalized_rewards(penalty, rewards, terminated)
-    assert jnp.allclose(result, rewards), "No termination → rewards unchanged"
-
-
-def test_get_episode_termination_penalized_rewards_with_termination():
-    rewards = jnp.array([1.0, 2.0, 3.0])
-    terminated = jnp.array([1.0, 0.0, 1.0])
-    penalty = jnp.array(0.5)
-
-    expected = rewards - penalty * terminated
-    result = get_episode_termination_penalized_rewards(penalty, rewards, terminated)
-
-    assert jnp.allclose(result, expected)
-
-
-def test_get_episode_termination_penalized_rewards_shape_consistency():
-    rewards = jnp.array([[1.0, 2.0], [3.0, 4.0]])
-    terminated = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-    penalty = jnp.array(0.2)
-
-    result = get_episode_termination_penalized_rewards(penalty, rewards, terminated)
-    assert result.shape == rewards.shape, "Output shape must match rewards shape"
-    assert result.dtype == rewards.dtype, "Output dtype must match rewards dtype"
+    assert out.shape == rewards.shape and out.dtype == rewards.dtype
+    np.testing.assert_allclose(out, expected, rtol=1e-6)

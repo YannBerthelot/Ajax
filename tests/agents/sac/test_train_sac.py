@@ -7,11 +7,10 @@ suite (``tests/agents/test_probing.py``) and the per-agent smoke tests
 (``test_sac.py``).
 """
 
-import gymnax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
-from brax.envs import create as create_brax_env
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
@@ -27,38 +26,10 @@ from ajax.buffers.utils import get_buffer
 from ajax.state import (
     AlphaConfig,
     BufferConfig,
-    EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
 )
 from ajax.utils import compare_frozen_dicts
-
-
-@pytest.fixture
-def fast_env_config():
-    env = create_brax_env("fast", batch_size=1)
-    return EnvironmentConfig(
-        env=env,
-        env_params=None,
-        n_envs=1,
-        continuous=True,
-    )
-
-
-@pytest.fixture
-def gymnax_env_config():
-    env, env_params = gymnax.make("Pendulum-v1")
-    return EnvironmentConfig(
-        env=env,
-        env_params=env_params,
-        n_envs=1,
-        continuous=True,
-    )
-
-
-@pytest.fixture(params=["fast_env_config", "gymnax_env_config"])
-def env_config(request, fast_env_config, gymnax_env_config):
-    return fast_env_config if request.param == "fast_env_config" else gymnax_env_config
 
 
 @pytest.fixture
@@ -106,57 +77,32 @@ def test_create_alpha_train_state():
 
 
 @pytest.mark.parametrize(
-    "log_alpha_init, target_entropy, log_probs",
+    "log_alpha, target_entropy, log_probs, grad",
     [
-        (0.0, -1.0, jnp.array([-0.5, -1.5, -1.0])),
-        (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
+        # grad = mean(-log_probs) - target_entropy: positive (alpha shrinks)
+        # while the entropy is above the target, negative below it
+        (0.0, -1.0, [-0.5, -1.5, -1.0], 1.0 + 1.0),
+        (-1.0, -2.0, [-1.0, -2.0, -1.5], 1.5 + 2.0),
+        (0.5, 1.0, [-0.1, -0.2], 0.15 - 1.0),
     ],
+    ids=["above-target", "above-target-2", "below-target"],
 )
-def test_temperature_loss_function(log_alpha_init, target_entropy, log_probs):
-    log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
-
-    loss, aux = temperature_loss_fn(
-        log_alpha_params=log_alpha_params,
-        log_probs=log_probs,
+def test_temperature_loss_function(log_alpha, target_entropy, log_probs, grad):
+    """``log_alpha * mean(-log_probs - target_entropy)``, the bracket held
+    constant: its gradient in ``log_alpha`` is the bracket."""
+    (loss, aux), grads = jax.value_and_grad(temperature_loss_fn, has_aux=True)(
+        FrozenDict({"log_alpha": jnp.array(log_alpha)}),
+        log_probs=jnp.array(log_probs),
         target_entropy=target_entropy,
     )
     aux = to_state_dict(aux)
-    assert jnp.isfinite(loss)
-    assert "alpha" in aux
-    assert "log_alpha" in aux
-    assert aux["alpha"] > 0
-
-
-@pytest.mark.parametrize(
-    "log_alpha_init, target_entropy, log_probs",
-    [
-        (0.0, -1.0, jnp.array([-0.5, -1.5, -1.0])),
-        (-1.0, -2.0, jnp.array([-1.0, -2.0, -1.5])),
-    ],
-)
-def test_temperature_loss_function_with_value_and_grad(
-    log_alpha_init, target_entropy, log_probs
-):
-    log_alpha_params = FrozenDict({"log_alpha": jnp.array(log_alpha_init)})
-
-    def loss_fn(log_alpha_params):
-        loss, _ = temperature_loss_fn(
-            log_alpha_params=log_alpha_params,
-            log_probs=log_probs,
-            target_entropy=target_entropy,
-        )
-        return loss
-
-    loss, grads = jax.value_and_grad(loss_fn)(log_alpha_params)
-
-    assert jnp.isfinite(loss)
     assert isinstance(grads, FrozenDict)
-    assert all(jnp.all(jnp.isfinite(g)) for g in jax.tree_util.tree_leaves(grads))
+    np.testing.assert_allclose(grads["log_alpha"], grad, rtol=1e-6)
+    np.testing.assert_allclose(loss, log_alpha * grad, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(aux["alpha"], np.exp(log_alpha), rtol=1e-6)
+    np.testing.assert_allclose(aux["log_alpha"], log_alpha)
 
 
-@pytest.mark.parametrize(
-    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
-)
 def test_update_temperature(env_config, SAC_state):
     log_probs = jnp.ones((env_config.n_envs, 1)) * -0.5
     target_entropy = jnp.array(-1.0)
@@ -174,9 +120,6 @@ def test_update_temperature(env_config, SAC_state):
     assert aux["alpha"] > 0
 
 
-@pytest.mark.parametrize(
-    "env_config", ["fast_env_config", "gymnax_env_config"], indirect=True
-)
 def test_update_target_networks(env_config, SAC_state):
     tau = 0.05
 

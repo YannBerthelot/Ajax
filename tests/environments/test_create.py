@@ -3,10 +3,13 @@ import jax.numpy as jnp
 import pytest
 from gymnax import make as make_gymnax_env
 
+import ajax.environments.create as create
 from ajax.environments.create import (
     add_ajax_wrappers,
     build_env_from_id,
     prepare_env,
+    register_brax_builder,
+    register_playground_builder,
     strip_ajax_wrappers,
 )
 from ajax.environments.utils import wrapper_chain
@@ -143,3 +146,24 @@ def test_env_params_given_with_a_string_id_are_kept():
     assert TDMPC2("Pendulum-v1", env_params=params).agent_episode_length == 10
     with pytest.raises(ValueError, match="env_params"):
         prepare_env("fast", env_params=params)
+
+
+@pytest.mark.parametrize(
+    "register", [register_brax_builder, register_playground_builder]
+)
+def test_a_registered_builder_builds_its_env_id(register, monkeypatch):
+    """An id registered with register_brax_builder or
+    register_playground_builder (as downstream projects do) is built by its
+    builder, called with the env count and the episode length, and takes
+    no env params."""
+    monkeypatch.setattr(create, "_BRAX_BUILDERS", {})
+    monkeypatch.setattr(create, "_PLAYGROUND_BUILDERS", {})
+    built, calls = object(), []
+
+    def builder(n_envs, episode_length):
+        calls.append((n_envs, episode_length))
+        return built
+
+    register("my-task", builder)
+    assert build_env_from_id("my-task", n_envs=3, episode_length=7) == (built, None)
+    assert calls == [(3, 7)]

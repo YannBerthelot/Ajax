@@ -5,12 +5,14 @@ from brax.envs import create as create_brax_env
 
 from ajax.environments.create import build_env_from_id
 from ajax.environments.utils import get_state_action_shapes
+from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import (
     Actor,
     Critic,
     Encoder,
     MultiCritic,
     get_initialized_actor_critic,
+    get_initialized_critic,
     predict_value,
 )
 from ajax.state import (
@@ -133,6 +135,25 @@ def test_get_initialized_actor_critic_continuous(fast_env_config):
     assert actor_output.stddev().shape == (n, *action_shape)
     critic_output = critic_state.apply_fn(critic_state.params, init_obs)
     assert critic_output.shape == (2, n, 1)
+
+
+def test_a_standalone_critic_is_feedforward_even_with_memory(real_env_config):
+    """``get_initialized_critic`` builds a feedforward MultiCritic, so its
+    state must not be initialised as recurrent when the config sets memory."""
+    critic_state = get_initialized_critic(
+        key=jax.random.PRNGKey(0),
+        env_config=real_env_config,
+        critic_optimizer_config=OptimizerConfig(learning_rate=0.001),
+        network_config=NetworkConfig(
+            actor_architecture=ARCH,
+            critic_architecture=ARCH,
+            memory=MemoryConfig(kind="gru", hidden_size=4),
+        ),
+    )
+    assert not critic_state.recurrent and critic_state.hidden_state is None
+    obs_shape, action_shape = get_state_action_shapes(real_env_config.env)
+    x = jnp.ones((3, obs_shape[-1] + action_shape[-1]))
+    assert predict_value(critic_state, critic_state.params, x).shape == (2, 3, 1)
 
 
 def test_encoder_penultimate_normalization():

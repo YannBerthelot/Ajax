@@ -646,7 +646,9 @@ def get_initialized_critic(
     extra_obs_dim: int = 0,
 ) -> LoadedTrainState:
     """Initialize a standalone critic network (no actor). Same architecture as
-    the online critic so predict_value can be called on its params directly."""
+    the online critic so predict_value can be called on its params directly.
+    Always feedforward: its one reader (MCPretrain's frozen expert critic)
+    only calls predict_value."""
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
@@ -672,7 +674,6 @@ def get_initialized_critic(
         network=critic,
         key=key,
         tx=critic_tx,
-        memory=parse_memory_config(network_config.memory),
         n_envs=env_config.n_envs,
     )
 

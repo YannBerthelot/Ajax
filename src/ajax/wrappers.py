@@ -3,7 +3,7 @@
 # ruff: noqa: C901
 import dataclasses
 from functools import cached_property, partial
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import chex
 import jax
@@ -13,8 +13,6 @@ from brax.envs import Env as BraxEnv
 from brax.envs.base import State
 from brax.envs.base import Wrapper as BraxWrapper
 from flax import struct
-from gymnasium import core
-from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
 from mujoco_playground._src.mjx_env import State as _PlaygroundState
 
@@ -126,69 +124,6 @@ class FlattenObservationWrapper(GymnaxWrapper):
     ) -> chex.Array:
         """Recompute the observation from state, flattened to match `reset`."""
         return jnp.reshape(self._env.get_obs(state, params), (-1,))
-
-
-@struct.dataclass
-class LogEnvState:
-    """Logging buffer"""
-
-    env_state: environment.EnvState
-    episode_returns: float
-    episode_lengths: int
-    returned_episode_returns: float
-    returned_episode_lengths: int
-    timestep: int
-
-
-class LogWrapper(GymnaxWrapper):
-    """Log the episode returns and lengths."""
-
-    @partial(jax.jit, static_argnums=(0,))
-    def reset(
-        self,
-        key: chex.PRNGKey,
-        params: Optional[environment.EnvParams] = None,
-    ) -> Tuple[chex.Array, environment.EnvState]:
-        """Reset the environment and log the state of the env"""
-        obs, env_state = self._env.reset(key, params)
-        state = LogEnvState(env_state, 0, 0, 0, 0, 0)  # type: ignore[call-arg]
-        return obs, state
-
-    @partial(jax.jit, static_argnums=(0,))
-    def step(
-        self,
-        key: chex.PRNGKey,
-        state: environment.EnvState,
-        action: float,
-        params: Optional[environment.EnvParams] = None,
-    ) -> StepReturn:
-        """Step the environment and log the env state, episode return, episode length and timestep"""
-        obs, env_state, reward, terminated, truncated, info = self._env.step(
-            key,
-            state.env_state,
-            action,
-            params,
-        )
-        # Episode bookkeeping closes on either terminal flag: a truncated
-        # episode is just as finished as a terminated one for logging.
-        done = jnp.logical_or(terminated, truncated)
-        new_episode_return = state.episode_returns + reward
-        new_episode_length = state.episode_lengths + 1
-        state = LogEnvState(  # type: ignore[call-arg]
-            env_state=env_state,
-            episode_returns=new_episode_return * (1 - done),
-            episode_lengths=new_episode_length * (1 - done),
-            returned_episode_returns=state.returned_episode_returns * (1 - done)
-            + new_episode_return * done,
-            returned_episode_lengths=state.returned_episode_lengths * (1 - done)
-            + new_episode_length * done,
-            timestep=state.timestep + 1,
-        )
-        info["returned_episode_returns"] = state.returned_episode_returns
-        info["returned_episode_lengths"] = state.returned_episode_lengths
-        info["timestep"] = state.timestep
-        info["returned_episode"] = done
-        return obs, state, reward, terminated, truncated, info
 
 
 class ClipAction(GymnaxWrapper):
@@ -657,89 +592,6 @@ def get_wrappers(mode: str = "gymnax"):
     return ClipActionBrax, NormalizeVecObservationBrax
 
 
-def check_wrapped_env_has_autoreset(wrapped_env: BraxWrapper):
-    if "AutoResetWrapper" in wrapped_env.__repr__():
-        return True
-    while "env" in dir(wrapped_env):
-        return check_wrapped_env_has_autoreset(wrapped_env.env)
-    return False
-
-
-class BraxToGymnasium(BraxWrapper):
-    def __init__(self, env: BraxEnv, seed: Optional[int] = None):
-        super().__init__(env)
-        assert not check_wrapped_env_has_autoreset(
-            env
-        ), "Environment should not autoreset"
-        self.env = env
-        env_name = str(env.unwrapped.__class__).split(".")[-1][:-2]
-        self.metadata = {
-            "name": env_name,
-            "render_modes": ["human", "rgb_array"] if hasattr(env, "render") else [],
-        }
-
-        self.rng: chex.PRNGKey = jax.random.PRNGKey(0)  # Placeholder
-        self._seed(seed)
-
-    @property
-    def action_space(self):
-        """Dynamically adjust action space depending on params."""
-        return gymnasium_spaces.Box(
-            low=-1,
-            high=1,
-            shape=(self.env.action_size,),
-        )
-
-    @property
-    def observation_space(self):
-        """Dynamically adjust state space depending on params."""
-        return gymnasium_spaces.Box(
-            low=-jnp.inf, high=jnp.inf, shape=(self.env.observation_size,)
-        )
-
-    def _seed(self, seed: Optional[int] = None):
-        """Set RNG seed (or use 0)."""
-        self.rng = jax.random.PRNGKey(seed or 0)
-
-    def step(
-        self, action: core.ActType
-    ) -> Tuple[core.ObsType, float, bool, bool, Dict[Any, Any]]:
-        """Step environment, follow new step API."""
-        self.env_state = self.env.step(self.env_state, action)  # type: ignore[has-type]
-        obsv, reward, done, info = (
-            self.env_state.obs,
-            self.env_state.reward,
-            self.env_state.done,
-            self.env_state.info,
-        )
-        return (
-            obsv,
-            float(reward.item()),
-            bool(done.item()),
-            bool(done.item()),
-            info,
-        )
-
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        # gymnasium's reset signature; neither applies to a jax env.
-        return_info: bool = False,  # noqa: ARG002
-        options: Optional[Any] = None,  # noqa: ARG002
-    ) -> Tuple[core.ObsType, Any]:  # dict]:
-        """Reset environment, update parameters and seed if provided."""
-        if seed is not None:
-            self._seed(seed)
-        self.rng, reset_key = jax.random.split(self.rng)
-        self.env_state = self.env.reset(reset_key)
-        return self.env_state.obs, {}
-
-    def render(self, mode="human") -> None:
-        """use underlying environment rendering if it exists, otherwise return None."""
-        raise NotImplementedError
-
-
 def split(x):
     return jax.random.split(x)[0]
 
@@ -830,54 +682,6 @@ class AutoResetWrapper(BraxWrapper):
         obs = where_done(first_obs, state.obs)
         info = state.info
         state = state.replace(pipeline_state=pipeline_state, obs=obs, info=info)
-        return state
-
-
-def add_gaussian_noise(x, key, scale: float):
-    return x + jax.random.normal(key, x.shape) * scale
-
-
-class NoiseWrapper(BraxWrapper):
-    """
-    Add gaussian noise to observations and rewards during transitions.
-    """
-
-    def __init__(self, env, scale: float = 1.0):
-        super().__init__(env)
-        self.scale = scale
-        self.n_envs = jax.eval_shape(env.reset, jax.random.PRNGKey(0)).obs.shape[0]
-        self.single_env = self.n_envs == 1
-
-    def step(self, state: State, action: jax.Array) -> State:
-        """Step environment, follow new step API."""
-        key = state.info["rng"][0]
-        state = self.env.step(state, action)  # type: ignore[has-type]
-        obsv, reward, _, _ = (
-            state.obs,
-            state.reward,
-            state.done,
-            state.info,
-        )
-
-        obs_key, reward_key = jax.random.split(key, 2)
-        noisy_obs = add_gaussian_noise(obsv, obs_key, scale=self.scale)
-        noisy_reward = add_gaussian_noise(reward, reward_key, scale=self.scale)
-        # TODO : find how to infer done from the noisy obs?
-        state = state.replace(obs=noisy_obs, reward=noisy_reward)
-        print("noising output")
-
-        return state
-
-    def reset(self, rng: jax.Array) -> State:
-        state = self.env.reset(rng)
-        state.info["rng"] = (
-            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
-        )
-        info = state.info
-        info["rng"] = (
-            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
-        )
-        state = state.replace(info=info)
         return state
 
 

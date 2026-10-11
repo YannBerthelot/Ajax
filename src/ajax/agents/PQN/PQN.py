@@ -85,10 +85,10 @@ class PQN(ActorCritic):
 
         if check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("PQN only supports discrete action spaces.")
-        if n_steps % num_minibatches != 0:
+        if n_steps * self.env_args.n_envs % num_minibatches != 0:
             raise ValueError(
-                f"n_steps ({n_steps}) must be divisible by num_minibatches "
-                f"({num_minibatches})."
+                f"the rollout's n_steps * n_envs ({n_steps} * {self.env_args.n_envs})"
+                f" rows must be divisible by num_minibatches ({num_minibatches})."
             )
 
         self.agent_config = PQNConfig(

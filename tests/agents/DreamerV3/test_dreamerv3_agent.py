@@ -272,6 +272,31 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
     np.testing.assert_array_equal(cartpole.state.train_metrics.count, [0, 0])
 
 
+def test_each_evaluation_draws_a_fresh_key(cartpole, monkeypatch):
+    """The evaluation index (``n_logs``) is folded into the evaluation key,
+    as TD-MPC2 does: the same index draws the same key, the next another."""
+    keys: list = []
+
+    def spy(env_args, policy, init_carry, num_episodes, key):
+        keys.append(np.asarray(key))
+        return jnp.zeros(()), jnp.zeros(())
+
+    monkeypatch.setattr(train_DreamerV3, "evaluate_policy", spy)
+    agent = cartpole.agent
+    state = jax.tree.map(lambda x: x[0], cartpole.state)
+    for n_logs in (0, 0, 1):
+        train_DreamerV3.evaluate_dreamer(
+            state.replace(n_logs=jnp.asarray(n_logs, jnp.int32)),
+            jax.random.PRNGKey(0),
+            env_args=agent.env_args,
+            config=agent.dreamer_config,
+            spec=train_DreamerV3.env_spec(agent.env_args),
+            num_episode_test=1,
+        )
+    np.testing.assert_array_equal(keys[0], keys[1])
+    assert not np.array_equal(keys[1], keys[2])
+
+
 def _per_update(records: list, n_updates: int) -> list:
     """Records of both seeds, grouped by update (two per update)."""
     assert len(records) == len(SEEDS) * n_updates

@@ -180,6 +180,16 @@ def test_cloning_pretrain_clones_the_expert_the_observations_carry(layout):
     assert ext.bind_to_agent(**context, expert_policy=abs).env_args == "env"
 
 
+def test_cloning_pretrain_comes_before_the_other_pretraining():
+    """Cloning seeds the statistics the critic reads: a critic pretrained
+    before it would be queried on other inputs, so binding raises."""
+    ext, other = CloningPretrain(expert_policy=abs), BellmanPretrain()
+    context = {"env_args": "env", "actor_optimizer_args": "adam"}
+    assert ext.bind_to_agent(**context, extensions=(ext, other)).env_args == "env"
+    with pytest.raises(ValueError, match="before the other pretraining"):
+        ext.bind_to_agent(**context, extensions=(other, ext))
+
+
 def test_cloning_pretrain_needs_the_agent_context():
     ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):

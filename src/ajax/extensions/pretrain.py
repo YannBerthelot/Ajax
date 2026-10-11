@@ -464,10 +464,22 @@ class CloningPretrain(Extension):
         observation layout (``augment_obs_with_expert_action``,
         ``augment_obs_with_expert_state``, ``use_train_frac``). Raises
         ``ValueError`` when the layout carries the agent's expert's action or
-        state and ``expert_policy`` is another expert."""
+        state and ``expert_policy`` is another expert, or when another
+        pretrain-phase extension comes before it in the stack."""
         optimizer = agent_context.get("actor_optimizer_args")
         if self.actor_optimizer_args is not None or optimizer is None:
             return self
+        # Cloning seeds the observation statistics the critic reads too: a
+        # critic pretrained before it (MCPretrain's nudge, BellmanPretrain)
+        # would then be queried on inputs it was not fitted on. The keywords
+        # cloned at init, before every extension's pretraining.
+        stack = agent_context.get("extensions", ())
+        ahead = next((stack[:i] for i, e in enumerate(stack) if e is self), ())
+        if any("pretrain" in e.implemented_phases() for e in ahead):
+            raise ValueError(
+                "CloningPretrain seeds the observation statistics the critic"
+                " reads: put it before the other pretraining extensions."
+            )
         augment_action = agent_context.get("augment_obs_with_expert_action", False)
         augment_state = agent_context.get("augment_obs_with_expert_state", False)
         agent_expert = agent_context.get("expert_policy")

@@ -13,6 +13,7 @@ the goldens without understanding why they moved.
 """
 
 import jax.numpy as jnp
+import pytest
 from optax.tree_utils import tree_norm
 
 from ajax.agents.SAC.SAC import SAC
@@ -73,9 +74,15 @@ def _run_plain_sac():
     return state
 
 
-def test_plain_sac_matches_golden_values():
+@pytest.fixture(scope="module")
+def plain_sac_state():
+    """One plain-SAC run, shared by the golden and determinism tests."""
+    return _run_plain_sac()
+
+
+def test_plain_sac_matches_golden_values(plain_sac_state):
     """Plain SAC (empty extension stack) reproduces the pre-refactor goldens."""
-    state = _run_plain_sac()
+    state = plain_sac_state
     measured = {
         "critic": tree_norm(state.critic_state.params, squared=True),
         "actor": tree_norm(state.actor_state.params, squared=True),
@@ -91,9 +98,9 @@ def test_plain_sac_matches_golden_values():
         )
 
 
-def test_plain_sac_is_deterministic():
-    """Two identical runs of plain SAC produce bit-identical agent states."""
-    s1 = _run_plain_sac()
+def test_plain_sac_is_deterministic(plain_sac_state):
+    """A second identical run of plain SAC reproduces the shared run."""
+    s1 = plain_sac_state
     s2 = _run_plain_sac()
     for name, getter in (
         ("critic", lambda s: s.critic_state.params),

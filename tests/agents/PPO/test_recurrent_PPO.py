@@ -28,6 +28,9 @@ def _train_smoke(memory, env_id="CartPole-v1", n_envs=2, n_steps=16):
 @pytest.mark.parametrize("kind", ["gru", "lstm", "transformer", "mamba"])
 def test_recurrent_ppo_trains_without_nans(kind):
     state = _train_smoke(MemoryConfig(kind=kind, hidden_size=8, window=8))
+    # The memory cell's weights are in the actor's tree, so the optimizer
+    # updates them (BPTT gradient flow itself: tests/networks/test_memory.py).
+    assert "memory_cell" in state.actor_state.params["params"]
     for leaf in jax.tree.leaves(state.actor_state.params):
         assert jnp.all(jnp.isfinite(leaf))
     for leaf in jax.tree.leaves(state.critic_state.params):
@@ -75,18 +78,6 @@ def test_recurrent_ppo_env_split_minibatching():
     assert any(
         jnp.any(leaf != 0) for leaf in jax.tree.leaves(state.actor_state.hidden_state)
     )
-
-
-def test_recurrent_ppo_actor_params_contain_memory_cell():
-    """The actor's param tree must include the memory cell's weights so the
-    optimizer updates them (BPTT gradient flow itself is covered by the
-    cell-level tests in tests/networks/test_memory.py)."""
-    from flax.traverse_util import flatten_dict
-
-    state = _train_smoke(MemoryConfig(kind="gru", hidden_size=8))
-    params = jax.tree.map(lambda x: x[0], state.actor_state.params)  # unvmap seed
-    paths = ["/".join(map(str, k)).lower() for k in flatten_dict(params).keys()]
-    assert any("memory_cell" in p or "gru" in p for p in paths), paths
 
 
 @pytest.mark.parametrize("kind", ["gru", "mamba"])

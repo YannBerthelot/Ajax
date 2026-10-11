@@ -9,7 +9,7 @@ from flax.core import FrozenDict
 from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
-from ajax.buffers.utils import init_buffer
+from ajax.buffers.utils import get_expert_fields_from_buffer, init_buffer
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
     get_state_action_shapes,
@@ -70,6 +70,20 @@ def augment_obs(
     own observation leading, as the observation normaliser reads it."""
     extra = [x for x in (expert_state, expert_action) if x is not None]
     return jnp.concatenate([obs, *map(jax.lax.stop_gradient, extra)], axis=-1)
+
+
+def augment_from_buffer(
+    buffer: Any, buffer_state: Any, key: jax.Array, obs: jax.Array, next_obs: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
+    """``obs`` and ``next_obs`` of the replay batch ``key`` samples, augmented
+    (:func:`augment_obs`) with the expert's actions collection stored for
+    them: ``a_expert`` and ``next_a_expert``, from raw observations and the
+    expert's state."""
+    a_expert, next_a_expert = get_expert_fields_from_buffer(buffer, buffer_state, key)
+    return (
+        augment_obs(obs, expert_action=a_expert),
+        augment_obs(next_obs, expert_action=next_a_expert),
+    )
 
 
 def expert_state_dim(expert_policy, n_envs_probe: int = 1) -> int:

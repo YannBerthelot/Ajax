@@ -350,6 +350,12 @@ def make_action_pipeline(
                     "expert_action": expert_action,
                     "env_action": env_action,
                     "total_timesteps": total_timesteps,
+                    # The actor's and critics' input, augmented when it is.
+                    "observations": (
+                        _augmented_obs
+                        if augment_obs_with_expert_action
+                        else agent_state.collector_state.last_obs
+                    ),
                 },
                 "env_action",
                 rng,

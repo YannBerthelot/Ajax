@@ -9,6 +9,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from flax import struct
 from gymnax.environments import environment, spaces
 
@@ -18,7 +19,8 @@ import ajax.evaluate
 import ajax.extensions.expert
 import ajax.extensions.pretrain
 from ajax import SAC
-from ajax.extensions.pretrain import MCPretrain
+from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
+from ajax.extensions.target_mods import ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
 
 LIMIT = 8  # the counter's episode length
@@ -189,3 +191,27 @@ def test_mc_pretraining_reads_the_experts_stored_actions():
     for seen in expert.seen:
         assert seen.shape[-1] == 3
         np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "stack",
+    [
+        lambda e: (_mc(e), ValueBox()),
+        lambda e: (_mc(e), PhiRefresh(expert_policy=e, interval=16, steps=2)),
+        lambda e: (BellmanPretrain(n_steps=4),),
+    ],
+    ids=["ValueBox", "PhiRefresh", "BellmanPretrain"],
+)
+def test_extensions_querying_critics_train_with_augmentation(stack):
+    """ValueBox (phi* at the acting observation), PhiRefresh (phi* on
+    replay) and BellmanPretrain (the critic on replay) give the critics
+    the augmented observation they were built for."""
+    expert = RecordingExpert(action=-0.9)
+    kw = {"expert_buffer_n_steps": 16} if "Bellman" in repr(stack(expert)) else {}
+    state = train(
+        expert_policy=expert,
+        augment_obs_with_expert_action=True,
+        extensions=stack(expert),
+        **kw,
+    )
+    assert np.isfinite(np.asarray(jax.tree.leaves(state.critic_state.params)[0])).all()

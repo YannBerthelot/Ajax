@@ -35,9 +35,10 @@ ANSWER_DIGEST = "99d0216e0c08"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
-# One extension per phase, under a name no agent whitelists. The phase
-# batches are undocumented and differ by agent, so the extensions branch on
-# the keys each agent passes; a documented schema should replace them.
+# One extension per phase, under a name no agent whitelists. The keys every
+# agent puts in a phase's batch are listed in ajax/extensions/base.py; where
+# they leave a choice (a V- or Q-critic, DQN's q_state, the done flags), the
+# extensions branch on the keys each agent passes.
 
 
 @dataclasses.dataclass(frozen=True)

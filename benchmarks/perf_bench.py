@@ -206,12 +206,10 @@ def _run_one_trial(
     jax.block_until_ready(out)
     measured_s = time.perf_counter() - t0
 
-    if has_mem_stats:
-        stats = device.memory_stats()
-        peak = int(stats.get("peak_bytes_in_use", 0))
-        in_use = int(stats.get("bytes_in_use", 0))
-    else:
-        peak, in_use = 0, 0
+    # A CPU device has memory_stats but returns None from it.
+    stats = (device.memory_stats() if has_mem_stats else None) or {}
+    peak = int(stats.get("peak_bytes_in_use", 0))
+    in_use = int(stats.get("bytes_in_use", 0))
 
     git = _git_state()
     return TrialResult(

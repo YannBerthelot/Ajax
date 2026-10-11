@@ -506,6 +506,17 @@ def test_construction_resolves_the_configuration():
         DreamerV3("CartPole-v1", model_size="3m")
 
 
+def test_constructor_defaults_are_the_reference_pinned_configs():
+    """The constructor's defaults are a second copy of the configs' (pinned
+    against the reference's ``configs.yaml`` by the parity tests): the two
+    must agree field by field."""
+    from ajax.agents.DreamerV3.state import DreamerV3AgentConfig, DreamerV3Config
+
+    agent = DreamerV3("CartPole-v1")
+    assert agent.dreamer_config == DreamerV3Config()
+    assert agent.agent_config == DreamerV3AgentConfig()
+
+
 def test_image_observations_are_refused_at_construction():
     """Rank 3 needs the CNN encoder, out of scope: a prebuilt MinAtar env
     (not flattened, unlike one built from its id) raises."""

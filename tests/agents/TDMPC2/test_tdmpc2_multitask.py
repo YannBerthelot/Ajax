@@ -18,17 +18,9 @@ from ajax.agents.TDMPC2.core import TASK_EMB
 from ajax.agents.TDMPC2.multitask import TaskSet
 from ajax.agents.TDMPC2.state import TDMPC2Config
 
-TINY = TDMPC2Config(
-    latent_dim=16,
-    enc_dim=32,
-    mlp_dim=32,
-    num_q=2,
-    num_samples=32,
-    num_elites=8,
-    num_pi_trajs=4,
-    iterations=2,
-    batch_size=8,
-)
+from .common import TINY_AGENT, random_heads, td_target_of
+
+TINY = TDMPC2Config(**{**TINY_AGENT, "batch_size": 8})
 # Three tasks of distinct obs / action dims and episode lengths; padded to 5
 # and 4. Task 1 has a single valid action dim.
 TASKS = TaskSet.create((3, 5, 2), (2, 1, 4), (100, 200, 500))
@@ -69,38 +61,6 @@ def _with_table(state, table):
     return state.replace(
         world_model_state=wm.replace(params=params, opt_state=wm.tx.init(params))
     )
-
-
-def _with_random_heads(wm_params, key=11, std=0.3):
-    """The reward and Q heads' final layers drawn ``N(0, std^2)``.
-
-    The paper zero-initialises them, so an untrained model's planning values
-    all tie and neither the discount nor the embedding can change a plan;
-    random heads (as the parity fixtures' ``HEAD_STD``) make them matter.
-    """
-    k_reward, k_q = jax.random.split(jax.random.PRNGKey(key))
-    reward, q = wm_params["reward"], wm_params["q"]
-    reward_out, q_out = reward["out"], q["members"]["out"]
-    return {
-        **wm_params,
-        "reward": {
-            **reward,
-            "out": {
-                **reward_out,
-                "kernel": std * jax.random.normal(k_reward, reward_out["kernel"].shape),
-            },
-        },
-        "q": {
-            **q,
-            "members": {
-                **q["members"],
-                "out": {
-                    **q_out,
-                    "kernel": std * jax.random.normal(k_q, q_out["kernel"].shape),
-                },
-            },
-        },
-    }
 
 
 def _rows_with_norms(norms, key=1):
@@ -471,7 +431,6 @@ def test_td_targets_use_each_samples_task_discount():
     update passes ``discount[task]`` (pinned by the multi-task parity
     fixture, whose batches mix tasks of distinct discounts)."""
     state = _state()
-    wm, pi = state.world_model_state, state.actor_state
     task = jnp.array([0, 1, 2, 0, 2, 1, 1, 0], jnp.int32)
     batch = _batch(task)
     noise = core.draw_update_noise(jax.random.PRNGKey(8), TINY, 8, TASKS.action_dim)
@@ -479,20 +438,8 @@ def test_td_targets_use_each_samples_task_discount():
 
     @jax.jit
     def target(gamma):
-        return core.td_target(
-            wm_apply=wm.apply_fn,
-            pi_apply=pi.apply_fn,
-            wm_params=wm.params,
-            target_q_params=wm.target_params,
-            pi_params=pi.params,
-            next_obs=batch.obs[1:],
-            reward=batch.reward,
-            gamma=gamma,
-            eps=noise.td_eps,
-            pair=noise.td_pair,
-            dropout_key=None,
-            config=TINY,
-            task=ctx,
+        return td_target_of(
+            state, batch, noise, TINY, gamma=gamma, dropout_key=None, task=ctx
         )[0]
 
     gamma = TASKS.discount(task)
@@ -513,7 +460,8 @@ def test_task_planner_policy_pads_observations_and_slices_actions(task):
     valid dims (``MultitaskWrapper``). Random reward and Q heads make the
     plan depend on the discount (checked)."""
     state = _state()
-    wm = _with_random_heads(state.world_model_state.params)
+    reward_key, q_key = jax.random.split(jax.random.PRNGKey(11))
+    wm = random_heads(state.world_model_state.params, reward_key, q_key, 0.3)
     pi = state.actor_state.params
     obs_dim, action_dim = TASKS.obs_dims[task], TASKS.action_dims[task]
     obs = jnp.linspace(-0.5, 0.5, 2 * obs_dim).reshape(2, obs_dim)
@@ -584,19 +532,14 @@ def test_gradients_reach_the_looked_up_rows_from_the_world_model_only():
 
     @jax.jit
     def gradients(wm_params):
-        td, next_z = core.td_target(
-            wm_apply=wm.apply_fn,
-            pi_apply=pi.apply_fn,
-            wm_params=wm_params,
-            target_q_params=wm.target_params,
-            pi_params=pi.params,
-            next_obs=batch.obs[1:],
-            reward=batch.reward,
+        td, next_z = td_target_of(
+            state,
+            batch,
+            noise,
+            TINY,
             gamma=TASKS.discount(task),
-            eps=noise.td_eps,
-            pair=noise.td_pair,
+            wm_params=wm_params,
             dropout_key=None,
-            config=TINY,
             task=ctx,
         )
         wm_grads, (_, zs) = jax.grad(core.world_model_loss, has_aux=True)(

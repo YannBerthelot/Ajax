@@ -72,26 +72,24 @@ def test_a_task_without_enough_data_is_not_judged():
         acc.judge_task("t", "w", [900.0] * 3, [np.nan])
 
 
-def _results(ajax_means, ref_means):
+def _judged(cases):
+    """``[(ajax seed mean, reference seeds)]`` -> task results (3 seeds)."""
     return [
-        acc.judge_task(f"t{i}", "w", [a] * 3, [r] * 3)
-        for i, (a, r) in enumerate(zip(ajax_means, ref_means, strict=False))
+        acc.judge_task(f"t{i}", "w", [a] * 3, ref) for i, (a, ref) in enumerate(cases)
     ]
 
 
 def test_the_aggregate_needs_median_mean_and_share():
-    ref = [800.0] * 10
+    good, bad = (800.0, [800.0] * 3), (0.0, [100.0] * 3)
     # Every task within tolerance: pass.
-    verdict = acc.judge_window("w", _results([760.0] * 10, ref))
+    verdict = acc.judge_window("w", _judged([(760.0, [800.0] * 3)] * 10))
     assert verdict.status == acc.PASS and verdict.share_passed == 1.0
     assert (verdict.ajax_median, verdict.reference_median) == (760.0, 800.0)
     # 8 of 10 pass (exactly the share), the median and mean hold: pass.
-    eight = [800.0] * 8 + [0.0] * 2
-    verdict = acc.judge_window("w", _results(eight, [800.0] * 8 + [100.0] * 2))
+    verdict = acc.judge_window("w", _judged([good] * 8 + [bad] * 2))
     assert verdict.share_passed == 0.8 and verdict.status == acc.PASS
     # 7 of 10: fail, although the median holds.
-    seven = [800.0] * 7 + [0.0] * 3
-    verdict = acc.judge_window("w", _results(seven, [800.0] * 7 + [100.0] * 3))
+    verdict = acc.judge_window("w", _judged([good] * 7 + [bad] * 3))
     assert verdict.status == acc.FAIL
     # Every task passes its own bar, but the mean falls short of the
     # reference's: high-variance references (low minimum) hide a shortfall.
@@ -101,13 +99,6 @@ def test_the_aggregate_needs_median_mean_and_share():
     ]
     verdict = acc.judge_window("w", wide)
     assert all(r.status == "pass" for r in wide) and verdict.status == acc.FAIL
-
-
-def _judged(cases):
-    """``[(ajax seed mean, reference seeds)]`` -> task results (3 seeds)."""
-    return [
-        acc.judge_task(f"t{i}", "w", [a] * 3, ref) for i, (a, ref) in enumerate(cases)
-    ]
 
 
 def test_the_median_clause_alone_can_fail_the_aggregate():
@@ -153,7 +144,7 @@ def test_the_aggregate_bars_are_inclusive():
 
 
 def test_the_aggregate_is_incomplete_while_a_task_is_not_judged():
-    results = _results([800.0] * 4, [800.0] * 4)
+    results = _judged([(800.0, [800.0] * 3)] * 4)
     results.append(acc.judge_task("late", "w", [800.0] * 3, [800.0] * 3, reached=False))
     verdict = acc.judge_window("w", results)
     assert verdict.status == acc.INCOMPLETE

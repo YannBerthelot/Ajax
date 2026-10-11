@@ -29,6 +29,7 @@ from ajax.agents.TDMPC2.state import TDMPC2Config
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
 
+from .common import TINY_AGENT
 from .toy_envs import TargetEnv
 
 # The module (the package exports the class under the same name).
@@ -38,18 +39,7 @@ T = 10
 # (obs dim, action dim) per task: padded to 5 and 4.
 DIMS = ((3, 2), (5, 1), (2, 4))
 NAMES = ("reach", "push", "turn")
-TINY = {
-    "enc_dim": 32,
-    "mlp_dim": 32,
-    "latent_dim": 16,
-    "num_q": 2,
-    "task_dim": 4,
-    "batch_size": 16,
-    "num_samples": 32,
-    "num_elites": 8,
-    "num_pi_trajs": 4,
-    "iterations": 2,
-}
+TINY = {**TINY_AGENT, "task_dim": 4}
 SEEDS = [0, 1]
 FIRST, RESUMED, EVERY = 20, 15, 10
 

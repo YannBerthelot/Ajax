@@ -54,26 +54,19 @@ from ajax.agents.TDMPC2 import planner
 from ajax.agents.TDMPC2.state import TDMPC2Config
 
 from .reference_params import (
+    VALUE_TOL,
     ErrorReport,
     Fixture,
     ajax_config,
     as_jnp,
+    check_decision,
     load_fixture,
+    recorded_plan_noise,
     reference_config,
     torch_to_ajax,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tdmpc2_plan.npz"
-# (rtol, atol), a few times the errors of the module docstring, which may
-# differ across platforms (macOS ARM / Linux x86). Values are O(1) to O(10);
-# the fixture's tie margins, 2e-4 * max(1, |V|), stay 3x or more above this
-# tolerance, so the elite sets can be compared exactly.
-VALUE_TOL = (2e-5, 4e-5)
-# Actions, means, stds in [-1, 1] / [0.05, 2].
-ACTION_TOL = (0.0, 5e-6)
-# Policy-prior samples: rounding amplified by |eps| exp(log_std) (docstring).
-PI_ACTION_TOL = (0.0, 2e-5)
-SCORE_TOL = (0.0, 1e-6)
 PLANNING_FIELDS = (
     "iterations",
     "num_samples",
@@ -116,21 +109,6 @@ def params(fx: Fixture, config: TDMPC2Config) -> tuple[Any, Any]:
 
 def n_decisions(fx: Fixture) -> int:
     return int(fx["meta/n_decisions"])
-
-
-def recorded_noise(fx: Fixture, d: int) -> planner.PlanNoise:
-    """Decision ``d``'s draws (dropout is 0 in the fixture: the keys are unused)."""
-    p = f"decision{d}/draws/"
-    iterations = fx[p + "q_pair"].shape[0]
-    return planner.PlanNoise(
-        pi_eps=jnp.asarray(fx[p + "pi_eps"]),
-        candidate_eps=jnp.asarray(fx[p + "candidate_eps"]),
-        terminal_eps=jnp.asarray(fx[p + "terminal_eps"]),
-        q_pair=jnp.asarray(fx[p + "q_pair"]),
-        q_dropout=jax.random.split(jax.random.PRNGKey(0), iterations),
-        elite_uniform=jnp.asarray(fx[p + "elite_uniform"], jnp.float32),
-        action_eps=jnp.asarray(fx[p + "action_eps"]),
-    )
 
 
 def reference_candidates(fx: Fixture, d: int, i: int) -> np.ndarray:
@@ -196,31 +174,9 @@ def test_plan_matches_reference_decisions(fx, config, gamma, params):
                 jnp.asarray(fx[p + "obs"]),
                 prev_mean,
                 jnp.asarray(fx[p + "t0"]),
-                recorded_noise(fx, d),
+                recorded_plan_noise(fx, d),
             )
-            report.check("init_mean", info.init_mean, fx[p + "init_mean"], ACTION_TOL)
-            report.check(
-                "pi_actions", info.pi_actions, fx[p + "pi_actions"], PI_ACTION_TOL
-            )
-            report.check("value", info.value, fx[p + "value"], VALUE_TOL)
-            np.testing.assert_array_equal(
-                np.sort(info.elite_idx, axis=-1), np.sort(fx[p + "elite_idx"], axis=-1)
-            )
-            report.check(
-                "elite_value", info.elite_value, fx[p + "elite_value"], VALUE_TOL
-            )
-            report.check(
-                "score",
-                -np.sort(-np.asarray(info.score), axis=-1),
-                -np.sort(-fx[p + "score"], axis=-1),
-                SCORE_TOL,
-            )
-            report.check("mean", info.mean, fx[p + "mean"], ACTION_TOL)
-            report.check("std", info.std, fx[p + "std"], ACTION_TOL)
-            rank, ref_rank = int(info.elite_rank), int(fx[p + "elite_rank"])
-            assert info.elite_idx[-1, rank] == fx[p + "elite_idx"][-1, ref_rank]
-            report.check("action", action, fx[p + "action"], ACTION_TOL)
-            report.check("prev_mean", prev_mean, fx[p + "prev_mean"], ACTION_TOL)
+            check_decision(report, fx, d, action, prev_mean, info)
     report.print()
 
 
@@ -234,7 +190,7 @@ def test_value_estimate_on_reference_candidates(fx, config, gamma, params):
     with jax.default_matmul_precision("highest"):
         for d in range(n_decisions(fx)):
             p = f"decision{d}/"
-            noise = recorded_noise(fx, d)
+            noise = recorded_plan_noise(fx, d)
             z = jnp.broadcast_to(
                 jnp.asarray(fx[p + "z"]), (config.num_samples, config.latent_dim)
             )

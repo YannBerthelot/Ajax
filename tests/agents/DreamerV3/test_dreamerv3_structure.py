@@ -28,7 +28,6 @@ from ajax.agents.DreamerV3.networks import (
     initial_state,
 )
 from ajax.agents.DreamerV3.state import MODEL_SIZES, DreamerV3Config
-from ajax.distributional import TwoHot
 
 from .common import OBS_DIM, TINY, reference_to_ajax
 
@@ -227,28 +226,21 @@ def test_initial_state_is_zero():
 
 def test_zero_initialised_reward_head_predicts_exactly_zero():
     """Reward output kernel and bias are 0 (outscale 0), so the logits are
-    uniform and the two-hot prediction is exactly 0, also under jit
-    (dreamerv3_spec 1.5, 1.9; paper p.6)."""
+    exactly 0: uniform, which the two-hot decodes to exactly 0, also under
+    jit (dreamerv3_spec 1.5, 1.9; paper p.6; tests/world_models'
+    test_distributional.py and test_blocks.py)."""
     params = init_world_model(jax.random.PRNGKey(0), TINY, OBS_DIM, 2)
     assert not np.any(params["rew"]["out"]["kernel"])
     assert not np.any(params["rew"]["out"]["bias"])
-    model = WorldModel(TINY, OBS_DIM)
     deter = 10 * jax.random.normal(jax.random.PRNGKey(1), (7, 3, TINY.deter))
     stoch = jax.nn.one_hot(
         jax.random.randint(jax.random.PRNGKey(2), (7, 3, TINY.stoch), 0, TINY.classes),
         TINY.classes,
     )
-
-    def predict(params):
-        logits = model.apply(
-            {"params": params},
-            features(deter, stoch),
-            method=WorldModel.reward_logits,
-        )
-        return TwoHot.dreamerv3(TINY.bins).decode(logits)
-
-    assert np.all(np.asarray(predict(params)) == 0.0)
-    assert np.all(np.asarray(jax.jit(predict)(params)) == 0.0)
+    logits = WorldModel(TINY, OBS_DIM).apply(
+        {"params": params}, features(deter, stoch), method=WorldModel.reward_logits
+    )
+    assert logits.shape == (7, 3, TINY.bins) and not np.any(logits)
 
 
 def test_output_layer_scales():

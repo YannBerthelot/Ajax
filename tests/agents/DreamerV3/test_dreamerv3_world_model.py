@@ -40,7 +40,16 @@ from ajax.agents.DreamerV3.world_model import (
 )
 from ajax.distributional import symlog
 
-from .common import TINY, B, T, replay_batch, tiny_model
+from .common import (
+    OBS_DIM,
+    TINY,
+    WORLD_MODEL_GROUPS,
+    B,
+    T,
+    reached,
+    replay_batch,
+    tiny_model,
+)
 
 S, C = TINY.stoch, TINY.classes
 EPS = float(np.finfo(np.float32).eps)
@@ -62,7 +71,7 @@ def _noise(seed: int) -> jax.Array:
 @functools.lru_cache(maxsize=None)
 def _loss_fn(config=TINY):
     """The model of ``config`` and its jitted ``loss(params, batch, noise)``."""
-    model = WorldModel(config, 5)
+    model = WorldModel(config, OBS_DIM)
     return model, jax.jit(functools.partial(world_model_loss, model))
 
 
@@ -426,59 +435,6 @@ def test_free_bits_act_per_step_in_the_loss():
         assert any(np.any(g) for g in jax.tree.leaves(grad(params, high)))
 
 
-_GROUPS = {
-    "enc": lambda path: path[0] == "enc",
-    "core": lambda path: path[0] == "rssm" and path[1].startswith("dyn"),
-    "post": lambda path: path[0] == "rssm" and path[1] in ("obs", "obslogit"),
-    "prior": lambda path: path[0] == "rssm" and path[1] in ("prior", "priorlogit"),
-    "dec": lambda path: path[0] == "dec",
-    "rew": lambda path: path[0] == "rew",
-    "con": lambda path: path[0] == "con",
-}
-#: Which parameter groups each term trains (dreamerv3_spec 2.14, 2.16). The
-#: heads read the posterior without a stop-gradient (reward_grad), so they
-#: train the encoder, the posterior and the core; dyn trains the prior and,
-#: through the non-stop-gradiented h_t, the core and everything upstream;
-#: rep never reaches the prior.
-ROUTING = {
-    "rec": {"enc", "core", "post", "dec"},
-    "rew": {"enc", "core", "post", "rew"},
-    "con": {"enc", "core", "post", "con"},
-    "dyn": {"enc", "core", "post", "prior"},
-    "rep": {"enc", "core", "post"},
-}
-
-
-def test_gradient_routing():
-    model, params, _ = tiny_model()
-    config = dataclasses.replace(TINY, free_nats=0.0)  # every KL carries gradient
-    _, loss_fn = _loss_fn(config)
-    batch, noise = replay_batch(3), _noise(4)
-
-    @jax.jit
-    def term_grads(params):
-        return {
-            term: jax.grad(lambda p, t=term: loss_fn(p, batch, noise).losses[t].mean())(
-                params
-            )
-            for term in LOSS_TERMS
-        }
-
-    for term, grads in term_grads(params).items():
-        assert _reached(grads) == ROUTING[term], term
-
-
-def _reached(grads) -> set[str]:
-    """The parameter groups of :data:`_GROUPS` with a non-zero gradient."""
-    reached = set()
-    for path, leaf in jax.tree_util.tree_flatten_with_path(grads)[0]:
-        keys = tuple(k.key for k in path)
-        group = next(g for g, match in _GROUPS.items() if match(keys))
-        if np.any(np.asarray(leaf)):
-            reached.add(group)
-    return reached
-
-
 def test_posterior_output_carries_gradient():
     """``WorldModelOutput.posterior`` is not stop-gradiented: the replay
     critic of the actor-critic reads ``concat(h_t, z_t)`` of these steps and
@@ -495,7 +451,8 @@ def test_posterior_output_carries_gradient():
         post = loss_fn(params, batch, noise).posterior
         return jnp.sum(weights * features(post.deter, post.stoch))
 
-    assert _reached(jax.grad(critic_like)(params)) == {"enc", "core", "post"}
+    grads = jax.grad(critic_like)(params)
+    assert reached(grads, WORLD_MODEL_GROUPS) == {"enc", "core", "post"}
 
 
 def test_replay_context_alignment():

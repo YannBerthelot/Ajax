@@ -104,7 +104,7 @@ def test_residual_action_transform_sum_inside_box():
 def test_compute_online_bc_loss_decays_after_warmup(critic_stub):
     critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 0.8))
     common = {
-        "pi_loc": jnp.zeros((3, 2)),
+        "pi_mean": jnp.zeros((3, 2)),
         "a_expert": jnp.ones((3, 2)),
         "critic_state": critic_state,
         "expert_critic_params": {"e": 0.0},

@@ -101,9 +101,12 @@ class REDQ(ActorCritic):
                 1.0 as in REDQ's official code, which learns ``log_alpha``
                 from 0 (watchernyu/REDQ@7b5d1bf,
                 ``redq/algos/redq_sac.py:59-61``). Its ``self.alpha = alpha``
-                at ``:80`` then sets the temperature the first update reads
-                to the unused ``alpha=0.2`` default, until its first
-                temperature step: a one-update transient not reproduced.
+                at ``:80`` then sets the temperature to the unused
+                ``alpha=0.2`` default until its first temperature step
+                (``:214-236``), on the last of the 20 critic updates
+                (``utd_ratio``) of the first env step that trains: those
+                updates' targets and the first actor loss read 0.2, a
+                transient not reproduced.
             target_entropy_per_dim (float): Target entropy per action dimension.
         """
         self.config = {**locals()}

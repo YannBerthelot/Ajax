@@ -1,0 +1,110 @@
+---
+hide:
+  - toc
+---
+
+# Ajax
+
+<p align="center">
+  <b>Reinforcement-learning agents in JAX, each one following its paper.</b><br/>
+  A whole training run, every seed, one compiled program.
+</p>
+
+Ajax has fourteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
+implements a published paper, and its page lists where it departs from it. The
+environment steps inside the same compiled program as the learning, so several
+seeds train side by side on one CPU or GPU. Research features (learning from an
+expert, exploration rules, diagnostics) are [extensions](guide/extensions.md),
+passed as `extensions=(...)` rather than added as new arguments to the agents;
+an agent refuses one that needs a training phase it does not run.
+
+```bash
+git clone https://github.com/YannBerthelot/Ajax.git
+cd Ajax
+uv sync
+```
+
+```python
+from ajax import PPO
+from ajax.logging.wandb_logging import LoggingConfig
+
+agent = PPO("CartPole-v1")  # 4 environments x 2048-step rollouts: one update per 8,192 steps
+# Evaluate after every update; use_wandb=False keeps the results in memory only.
+logging = LoggingConfig(config={}, log_frequency=8_192, use_wandb=False)
+state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
+
+print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
+```
+
+[Quickstart →](getting-started/quickstart.md){ .md-button .md-button--primary }
+[Choose an algorithm →](algorithms/index.md){ .md-button }
+
+## The agents
+
+| Kind | Agents |
+| --- | --- |
+| Off-policy actor-critic | [SAC](algorithms/sac.md), [ASAC](algorithms/asac.md) (average reward), [REDQ](algorithms/redq.md), [TD3](algorithms/td3.md) |
+| Incremental, no replay | [AVG](algorithms/avg.md) |
+| Value-based, discrete actions | [DQN](algorithms/dqn.md), [PQN](algorithms/pqn.md) |
+| On-policy | [PPO](algorithms/ppo.md), [APO](algorithms/apo.md) (average reward) |
+| Supervised, command-conditioned | [UDRL](algorithms/udrl.md) |
+| Differentiable simulation | [APG](algorithms/apg.md) |
+| World models | [DreamerV3](algorithms/dreamerv3.md), [TD-MPC2 and its multi-task variant](algorithms/tdmpc2.md) |
+
+## What else is in the box
+
+- [Extensions](guide/extensions.md): expert guidance, exploration, critic-target
+  changes, critic pre-training and diagnostics, each usable with the agents
+  that run the training phases it touches.
+- [Expert guidance](guide/expert-guidance.md): learn from an existing
+  controller; when the expert acts, it reads the environment's raw units.
+- [Memory](guide/memory.md): GRU, LSTM, transformer or Mamba blocks, with
+  R2D2-style sequence replay.
+- [PID policy](guide/networks.md): a PID controller as the actor, whose learned
+  gains deploy as a plain PID.
+- [Differentiable simulation](guide/differentiable-simulation.md): APG through
+  gymnax dynamics, across distributions of physical parameters.
+- [World models](guide/world-models.md): DreamerV3 and TD-MPC2, following the
+  paper-era official code.
+- [Environments](guide/environments.md): gymnax, Brax and MuJoCo Playground by
+  id, with wrappers for normalisation, reference tracking and more.
+- [Logging](guide/logging.md) and [checkpoints](guide/checkpoints.md):
+  evaluations as arrays, W&B or TensorBoard, resuming in another process.
+- [Performance](guide/performance.md): every seed in one program, a persistent
+  compile cache per host.
+
+## Documentation
+
+<div class="grid cards" markdown>
+
+- **Use it**
+
+    [Installation](getting-started/installation.md) ·
+    [Quickstart](getting-started/quickstart.md) ·
+    [Training an agent](guide/training.md) ·
+    [Algorithms](algorithms/index.md)
+
+- **Look it up**
+
+    [API reference](api/agents.md) ·
+    [Training loop](api/training-loop.md) ·
+    [Extensions API](api/extensions.md)
+
+- **Change it**
+
+    [Architecture](developer/architecture.md) ·
+    [Contributing](developer/contributing.md) ·
+    [Writing an extension](developer/writing-an-extension.md) ·
+    [Testing and probing](developer/testing.md) ·
+    [Performance checks](developer/performance.md)
+
+- **Check the world models**
+
+    [Design notes](world_models/README.md) ·
+    [Deviations](world_models/deviations.md) ·
+    [Validation](world_models/VALIDATION.md)
+
+</div>
+
+Ajax is MIT-licensed. [TargetGym](https://github.com/YannBerthelot/TargetGym),
+its sibling project, provides JAX environments for holding a setpoint.

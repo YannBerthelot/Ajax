@@ -329,11 +329,73 @@ def env_action_to_agent(
     return _to_agent_units(action, _action_bounds(env, env_params, action.shape[0]))
 
 
-def _to_agent_units(
-    action: jax.Array, bounds: Optional[tuple[jax.Array, jax.Array]]
-) -> jax.Array:
+def _to_agent_units(action: jax.Array, bounds: Optional[tuple[Any, Any]]) -> jax.Array:
     """``(action - centre) / half``, given :func:`_action_bounds`'s output."""
     if bounds is None:
         return action
     centre, half = (jnp.asarray(x, dtype=action.dtype) for x in bounds)
     return (action - centre) / half
+
+
+class ExpertInAgentUnits:
+    """An expert written in env units, read in agent units (``[-1, 1]``).
+
+    What the expert returns -- ``expert(obs)``, a stateful ``expert(state,
+    obs)``'s action, ``step_with_gains``'s action -- goes through
+    :func:`env_action_to_agent`'s map, unclipped. ``init_state``,
+    ``learnable_fields``, ``anchor_gains`` and ``step_with_gains`` exist
+    exactly when the expert's do (``hasattr`` still tells a stateful
+    expert). It hashes by identity, for jit's static arguments.
+
+    Its bounds are one ``(A,)`` box read from concrete params: a stateless
+    expert is also vmapped over single observations, where per-env bounds
+    would broadcast its action. Per-env boxes that differ raise.
+    """
+
+    __slots__ = ("expert", "_bounds")
+    _FORWARDED = frozenset({"init_state", "learnable_fields", "anchor_gains"})
+
+    def __init__(
+        self, expert: Any, env: EnvType, env_params: Optional[EnvParams] = None
+    ) -> None:
+        bounds = _action_bounds(env, env_params)
+        if bounds is not None:
+            bounds = tuple(np.asarray(x) for x in bounds)
+        if bounds is not None and env_params_is_batched(env_params):
+            if any(np.any(x != x[0]) for x in bounds):
+                raise ValueError(
+                    "The per-env params have different action bounds: an"
+                    " expert's actions cannot be read in agent units without"
+                    " the env each one comes from (a replayed row has none)."
+                )
+            bounds = tuple(x[0] for x in bounds)
+        self.expert = expert
+        self._bounds = bounds
+
+    @classmethod
+    def wrap(
+        cls, expert: Any, env: EnvType, env_params: Optional[EnvParams] = None
+    ) -> Any:
+        """``expert`` in agent units; None and a wrapped expert stay as they are."""
+        if expert is None or isinstance(expert, cls):
+            return expert
+        return cls(expert, env, env_params)
+
+    def __call__(self, *args: Any) -> Any:
+        out = self.expert(*args)
+        if hasattr(self.expert, "init_state"):  # (state, obs) -> (action, state)
+            return _to_agent_units(out[0], self._bounds), out[1]
+        return _to_agent_units(out, self._bounds)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in ExpertInAgentUnits._FORWARDED:
+            return getattr(self.expert, name)
+        if name == "step_with_gains":
+            step = self.expert.step_with_gains
+
+            def step_with_gains(state: Any, obs: Any, gains: Any) -> Any:
+                action, state = step(state, obs, gains)
+                return _to_agent_units(action, self._bounds), state
+
+            return step_with_gains
+        raise AttributeError(name)

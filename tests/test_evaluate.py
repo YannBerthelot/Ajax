@@ -247,9 +247,12 @@ class _RecordingExpert:
 
 
 @pytest.mark.parametrize("augment", [False, True], ids=["baseline", "augmented"])
-def test_the_expert_sees_raw_observations_in_collection_and_evaluation(augment):
-    """With observation normalisation on, collection and evaluation (the
-    expert's own rollout, and with augmentation the agent's) give the expert
+def test_the_expert_sees_raw_observations_in_collection_evaluation_and_update(
+    augment,
+):
+    """With observation normalisation on, collection, evaluation (the
+    expert's own rollout, and with augmentation the agent's) and the update
+    (augmenting its observations and next observations) give the expert
     Pendulum's raw observations: cos^2 + sin^2 = 1, which normalised ones
     break, and no training-fraction column."""
     from ajax import SAC
@@ -272,10 +275,9 @@ def test_the_expert_sees_raw_observations_in_collection_and_evaluation(augment):
     logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     agent.train(seed=0, n_timesteps=64, num_episode_test=3, logging_config=logged)
     jax.effects_barrier()
-    # By batch size: collection (2 envs) and evaluation (3 episodes); the
-    # update's calls (8 rows) are not under test.
-    seen_here = [seen for seen in _SEEN if seen.shape[0] in (2, 3)]
-    assert {seen.shape[0] for seen in seen_here} == {2, 3}
-    for seen in seen_here:
+    # By batch size: collection (2 envs), evaluation (3 episodes) and, with
+    # augmentation, the update (8 rows).
+    assert {seen.shape[0] for seen in _SEEN} == ({2, 3, 8} if augment else {2, 3})
+    for seen in _SEEN:
         assert seen.shape[-1] == 3
         np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)

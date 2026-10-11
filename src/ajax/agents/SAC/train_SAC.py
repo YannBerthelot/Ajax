@@ -26,6 +26,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import (
     augment_obs_if_needed,
     collect_and_store_expert_transitions,
+    insert_expert_action,
 )
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
@@ -588,12 +589,15 @@ def update_agent(
 
     # --- Obs augmentation: append a_expert to obs and next_obs ---
     # Must happen before any network call (critic, actor, policy loss).
-    # For next_obs we strip the last dim (train_frac).
+    # The expert is defined in the environment's units and acts on its raw
+    # observations, as in collection and evaluation. The buffer keeps the
+    # raw observation, not the raw next one; for s' it keeps the action
+    # collection computed on the raw next observation (next_a_expert, the
+    # final one where an episode ended, from the expert's post-step state).
     if augment_obs_with_expert_action and expert_policy is not None:
-        _raw_next = transition.next_obs[..., :-1]  # strip train_frac
         aug_obs = augment_obs_if_needed(transition.obs, _raw, expert_policy, True)
-        aug_next_obs = augment_obs_if_needed(
-            transition.next_obs, _raw_next, expert_policy, True
+        aug_next_obs = insert_expert_action(
+            transition.next_obs, transition.next_a_expert
         )
         transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
 

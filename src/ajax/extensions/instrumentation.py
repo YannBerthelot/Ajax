@@ -36,6 +36,7 @@ Phase 4c (EVAREST integration) becomes a thin wiring change.
 
 from __future__ import annotations
 
+import math
 import os
 import pickle
 from dataclasses import dataclass
@@ -125,9 +126,10 @@ def _sample_state_batch(
     """Return ``(obs, act)`` for a measurement batch.
 
     Off-policy: sample from the replay buffer via the public
-    ``get_batch_from_buffer`` seam. On-policy: read the fixed-size
-    subsample on ``agent_state.last_rollout`` and slice the first
-    ``on_policy_take`` rows. Raises ``ValueError`` if neither source is
+    ``get_batch_from_buffer`` seam. On-policy: flatten the ``(T, n_envs)``
+    steps of ``agent_state.last_rollout`` into rows and keep the first
+    ``on_policy_take``; srank and the dormant fraction need one feature
+    row per sample. Raises ``ValueError`` if neither source is
     populated — extensions need to fail loudly when their state-batch
     contract is broken.
     """
@@ -143,7 +145,9 @@ def _sample_state_batch(
         return batch[0], batch[5]
     if _has_last_rollout(agent_state):
         sub = agent_state.last_rollout
-        return sub.obs[:on_policy_take], sub.action[:on_policy_take]
+        n_steps = math.prod(sub.obs.shape[:-1])
+        obs = sub.obs.reshape(n_steps, -1)[:on_policy_take]
+        return obs, sub.action.reshape(n_steps, -1)[:on_policy_take]
     raise ValueError(
         "ConditioningMetrics / BiasVoreDecomposition need either a replay "
         "buffer (off-policy) or agent_state.last_rollout populated via "

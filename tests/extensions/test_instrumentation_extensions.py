@@ -18,7 +18,10 @@ docstring); these tests only pin the *integration contract*.
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
+import jax
+import jax.numpy as jnp
 import pytest
 
 from ajax.agents.PPO.PPO import PPO
@@ -29,6 +32,7 @@ from ajax.extensions.instrumentation import (
     BiasVorePenalty,
     ConditioningMetrics,
     DiagnosticSnapshots,
+    _sample_state_batch,
     evarest_coeff,
 )
 from ajax.logging.wandb_logging import LoggingConfig
@@ -60,6 +64,23 @@ def test_bias_vore_penalty_coeff_override_wins():
     assert ext._coeff() == 0.0
     ext = BiasVorePenalty(alpha=0.5, coeff_override=3.7)
     assert ext._coeff() == pytest.approx(3.7)
+
+
+# --------------------------------------------------------------------------
+# The measurement batch
+# --------------------------------------------------------------------------
+
+
+def test_a_rollout_batch_is_one_row_per_step():
+    """A ``(T, n_envs, ...)`` rollout gives ``(T * n_envs, ...)`` rows, cut
+    at ``on_policy_take``: srank and the dormant fraction read a 2-D
+    feature matrix, not one matrix per time step."""
+    obs = jnp.arange(4 * 2 * 3.0).reshape(4, 2, 3)
+    rollout = SimpleNamespace(obs=obs, action=jnp.ones((4, 2, 1)))
+    state = SimpleNamespace(collector_state=None, last_rollout=rollout)
+    rows, actions = _sample_state_batch(state, jax.random.PRNGKey(0), None, 5)
+    assert rows.shape == (5, 3) and actions.shape == (5, 1)
+    assert jnp.array_equal(rows, obs.reshape(8, 3)[:5])
 
 
 # --------------------------------------------------------------------------

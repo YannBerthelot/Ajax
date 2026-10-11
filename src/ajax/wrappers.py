@@ -410,23 +410,20 @@ def normalize_wrapper_factory(
             # freshest stats. Matches brax PPO's normalise-at-forward
             # pattern (single up-to-date normalizer per training step).
             self.apply_normalization = apply_normalization
-            rng = jax.random.PRNGKey(0)
-            dummy_obs = get_obs_from_state(
+            # The reset's shapes and state class, without running it.
+            reset = jax.eval_shape(
                 (
-                    env.reset(rng)
+                    env.reset
                     if self.mode == "brax"
-                    else env.reset(rng, params=env.default_params)
+                    else lambda key: env.reset(key, params=env.default_params)
                 ),
-                mode=self.mode,
+                jax.random.PRNGKey(0),
             )
-
-            self.batch_size = dummy_obs.shape[0] if jnp.ndim(dummy_obs) > 1 else 1
+            obs_shape = (reset.obs if self.mode == "brax" else reset[0]).shape
+            self.batch_size = obs_shape[0] if len(obs_shape) > 1 else 1
 
             if mode == "gymnax":
-                # if self.mode == "gymnax":
-                BaseState = env.reset(
-                    key=jax.random.PRNGKey(0), params=env.default_params
-                )[1].__class__
+                BaseState = type(reset[1])
                 self._raw_state = BaseState
 
                 @struct.dataclass
@@ -835,7 +832,7 @@ class AutoResetWrapper(BraxWrapper):
     def __init__(self, env: BraxWrapper, differentiable_reset: bool = False):
         super().__init__(env)
         self.differentiable_reset = differentiable_reset
-        self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
+        self.n_envs = jax.eval_shape(env.reset, jax.random.PRNGKey(0)).obs.shape[0]
         self.single_env = self.n_envs == 1
 
     def reset(self, rng: jax.Array) -> State:
@@ -916,7 +913,7 @@ class NoiseWrapper(BraxWrapper):
     def __init__(self, env, scale: float = 1.0):
         super().__init__(env)
         self.scale = scale
-        self.n_envs = env.reset(jax.random.PRNGKey(0)).obs.shape[0]
+        self.n_envs = jax.eval_shape(env.reset, jax.random.PRNGKey(0)).obs.shape[0]
         self.single_env = self.n_envs == 1
 
     def step(self, state: State, action: jax.Array) -> State:

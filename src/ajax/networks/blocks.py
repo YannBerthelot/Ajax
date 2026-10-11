@@ -99,7 +99,7 @@ class NormedMLP(nn.Module):
     layer: compose one with :func:`linear`. Use :meth:`dreamerv3` and
     :meth:`tdmpc2` for the papers' configurations.
 
-    Args:
+    Attributes:
         layers: number of hidden layers.
         units: width of every hidden layer.
         act: activation or activation name (see ``parse_activation``).

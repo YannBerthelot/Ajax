@@ -1,4 +1,4 @@
-"""Unit tests for REDQ's random-subset target computation.
+"""Unit tests for REDQ's critic step: the random-subset target and the loss.
 
 REDQ's defining mechanic is the min-over-random-subset target:
 given an ensemble of N critics, sample ``subset_size`` of them and take
@@ -9,9 +9,15 @@ exercises ``compute_redq_td_target`` directly at the boundary values
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from ajax.agents.REDQ.train_REDQ import compute_redq_td_target, init_REDQ
+from ajax.agents.recurrent import q_values
+from ajax.agents.REDQ.train_REDQ import (
+    compute_redq_td_target,
+    init_REDQ,
+    value_loss_function,
+)
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import AlphaConfig, NetworkConfig, OptimizerConfig
@@ -71,3 +77,24 @@ def test_the_whole_ensembles_target_is_finite_and_lowest(gymnax_env_config, REDQ
     assert jnp.all(jnp.isfinite(t_one)) and jnp.all(jnp.isfinite(t_full))
     assert jnp.all(t_full <= t_one)
     assert not jnp.allclose(t_one, t_full)
+
+
+def test_the_critic_loss_sums_each_critics_mean_squared_error(
+    gymnax_env_config, REDQ_state
+):
+    """REDQ's official ``mse_criterion(q_prediction_cat, y_q) * num_Q``
+    (watchernyu/REDQ ``redq/algos/redq_sac.py:207``): the sum over the ten
+    critics of each one's batch-mean squared error, with no other scale."""
+    obs_shape, action_shape = get_state_action_shapes(gymnax_env_config.env)
+    obs_key, action_key = jax.random.split(jax.random.PRNGKey(0))
+    obs = jax.random.normal(obs_key, (16, *obs_shape))
+    actions = jax.random.uniform(action_key, (16, *action_shape), minval=-1)
+    target = jnp.linspace(-1.0, 1.0, 16)[:, None]
+    critic = REDQ_state.critic_state
+    loss, _ = value_loss_function(
+        critic.params, critic, obs, actions, target, jnp.zeros((16, 1))
+    )
+    q = np.asarray(q_values(critic, critic.params, obs, actions, None))
+    assert q.shape == (10, 16, 1)
+    want = sum(np.mean((q[i] - np.asarray(target)) ** 2) for i in range(10))
+    np.testing.assert_allclose(loss, want, rtol=1e-6)

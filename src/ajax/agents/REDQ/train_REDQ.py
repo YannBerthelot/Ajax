@@ -176,11 +176,15 @@ def value_loss_function(
     next_log_probs: jax.Array,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """Every critic regresses on the one target."""
+    """Every critic regresses on the one target: the sum over the critics
+    of each one's mean squared error, as REDQ's official
+    ``mse_criterion(q_prediction_cat, y_q) * self.num_Q``
+    (watchernyu/REDQ@7b5d1bf, ``redq/algos/redq_sac.py:207``), whose
+    per-critic Adam optimizers (``:49-51``) each see their critic's own
+    error. A recurrent critic's error is its mean over time and batch."""
     q_preds = q_values(critic_states, critic_params, observations, actions, carries)
     loss = jnp.sum(
         jnp.mean((q_preds - target_q) ** 2, axis=tuple(range(1, q_preds.ndim)))
-        / q_preds.ndim
     )
     q_std, mean_pairwise_q_dist = q_ensemble_divergence(q_preds)
     return loss, ValueAuxiliaries(

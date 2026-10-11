@@ -133,7 +133,7 @@ extension), never on `self`: extensions are static arguments of the compiled
 program, so they stay hashable and unchanged. An extension that needs what
 the agent builds (environment, network config, buffer, discount) overrides
 `bind_to_agent(**agent_context)` to return a new instance holding it, as
-`MCPretrain` does; only SAC and DreamerV3 call it. The batch a
+`MCPretrain` does; SAC, TD3, REDQ, APO and DreamerV3 call it. The batch a
 phase receives is a dictionary: the keys every agent puts in it are listed in
 `ajax/extensions/base.py`; read the agent's fold call before relying on any
 other.

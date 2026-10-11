@@ -161,6 +161,7 @@ class IBRL(Extension):
 
     expert_policy: Callable
     name: str = "ibrl"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
 
     def on_target(
         self,
@@ -195,6 +196,7 @@ class LCBGatedBootstrap(Extension):
     lcb_beta_decay_k: float = 2.0
     lcb_temperature: float = 1.0
     name: str = "lcb_gated_bootstrap"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
 
     def on_target(
         self,
@@ -246,6 +248,7 @@ class CriticBlend(Extension):
     expert_policy: Callable
     critic_warmup_frac: float = 0.15
     name: str = "critic_blend"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
 
     def on_target(
         self,

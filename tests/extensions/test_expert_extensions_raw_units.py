@@ -89,3 +89,42 @@ def test_the_extensions_expert_reads_raw_observations(name):
     for seen in _seen(expert, *STACKS[name](expert), **kw):
         assert seen.shape[-1] == 3, seen.shape
         np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "name, stored",
+    [("IBRL", True), ("PhiRefresh", True), ("MCPretrain", False), ("metrics", False)],
+)
+def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
+    name, stored
+):
+    """raw_next_obs is allocated when an extension declares it reads it
+    (Extension.buffer_fields), not for one that merely carries an expert."""
+    from ajax.extensions.expert import ExpertValueMetrics
+
+    expert = _RecordingExpert()
+    stacks = {
+        "IBRL": (IBRL(expert_policy=expert),),
+        "PhiRefresh": (_mc(expert), PhiRefresh(expert_policy=expert)),
+        "MCPretrain": (_mc(expert),),
+        "metrics": (ExpertValueMetrics(),),
+    }
+    agent = SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        extensions=stacks[name],
+    )
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    experience = state.collector_state.buffer_state.experience
+    assert ("raw_next_obs" in experience) == stored
+
+
+def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():
+    from ajax import REDQ
+
+    with pytest.raises(ValueError, match="raw_next_obs"):
+        REDQ("Pendulum-v1", extensions=(IBRL(expert_policy=_RecordingExpert()),))

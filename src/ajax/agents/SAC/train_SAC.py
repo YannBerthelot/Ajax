@@ -880,13 +880,8 @@ def make_train(
             action_dim_override=action_dim_override,
             normalize_obs_running=normalize_obs_running,
             jsrl_curriculum=jsrl_curriculum,
-            # An extension carrying an expert of its own calls it (SAC's
-            # expert has its actions stored instead): the buffer keeps the
-            # raw next observation it reads, as it keeps the raw current one.
-            store_raw_next_obs=any(
-                getattr(ext, "expert_policy", None) is not None
-                for ext in stack.extensions
-            ),
+            # Kept only for an extension that declares it reads it.
+            store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
         )
         return pretrain_on_expert(
             agent_state,

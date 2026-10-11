@@ -18,7 +18,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -688,6 +688,7 @@ class PhiRefresh(Extension):
     reward_scale: Optional[float] = None
     augment_obs_with_expert_action: bool = False
     name: str = "phi_refresh"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.

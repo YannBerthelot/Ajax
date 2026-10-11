@@ -244,9 +244,8 @@ def test_reset_optimizer_keeps_the_parameters_and_restarts_adam(env_and_class):
 
 def test_curriculum_chains_stages(env_and_class):
     env, sc = env_and_class
-    _, params = tracking_env()
     stage1 = CurriculumStage(
-        make_agent(env, FixedSystem(params)), 2 * N_ENVS * HORIZON, "nominal"
+        make_agent(env, FixedSystem(sc.nominal)), 2 * N_ENVS * HORIZON, "nominal"
     )
     stage2 = CurriculumStage(make_agent(env, sc), 3 * N_ENVS * HORIZON, "class")
     results = train_curriculum([stage1, stage2], seed=0)

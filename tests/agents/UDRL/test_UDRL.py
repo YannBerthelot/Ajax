@@ -3,16 +3,27 @@
 import jax
 import jax.numpy as jnp
 
+from ajax.agents.UDRL.train_UDRL import init_UDRL
 from ajax.agents.UDRL.UDRL import UDRL
+from ajax.environments.utils import get_state_action_shapes
 
 
 def test_UDRL_train_updates_actor_params():
-    """A short training run should change actor parameters (sanity that gradients flow)."""
+    """A short run moves the actor's parameters from the run's own initial
+    ones (gradients flow), and the actor's observation carries the
+    (d_r, d_h) command after the env's own columns."""
     agent = UDRL(env_id="Pendulum-v1", n_envs=1, n_steps=8, batch_size=8)
     state, _ = agent.train(seed=42, n_timesteps=32)
-    # Compare to freshly-initialised params at the same seed.
-    fresh = UDRL(env_id="Pendulum-v1", n_envs=1, n_steps=8, batch_size=8)
-    fresh_state, _ = fresh.train(seed=42, n_timesteps=0)
+    # The run initialises on the first half of its seed's key (TrainLoop's
+    # fresh_state); train(n_timesteps=0) would still run one iteration.
+    initial = init_UDRL(
+        key=jax.random.split(jax.random.PRNGKey(42))[0],
+        env_args=agent.env_args,
+        actor_optimizer_args=agent.actor_optimizer_args,
+        critic_optimizer_args=agent.critic_optimizer_args,
+        network_args=agent.network_args,
+        agent_config=agent.agent_config,
+    )
 
     def any_diff(a, b):
         leaves_a = jax.tree_util.tree_leaves(a)
@@ -21,19 +32,9 @@ def test_UDRL_train_updates_actor_params():
             not jnp.allclose(la, lb) for la, lb in zip(leaves_a, leaves_b, strict=False)
         )
 
-    assert any_diff(state.actor_state.params, fresh_state.actor_state.params)
-
-
-def test_UDRL_obs_dim_is_augmented():
-    """Actor's last_obs in the collector should have width = env obs_dim + command_dim (=2)."""
-    from ajax.environments.utils import get_state_action_shapes
-
-    agent = UDRL(env_id="Pendulum-v1", n_envs=1, n_steps=4, batch_size=4)
-    state, _ = agent.train(seed=42, n_timesteps=0)
-
+    assert any_diff(state.actor_state.params, initial.actor_state.params)
     obs_shape, _ = get_state_action_shapes(agent.env_args.env)
-    raw_obs_dim = obs_shape[0]
-    assert state.collector_state.last_obs.shape[-1] == raw_obs_dim + 2
+    assert state.collector_state.last_obs.shape[-1] == obs_shape[0] + 2
 
 
 def test_UDRL_logs_its_training_metrics_without_a_backend():

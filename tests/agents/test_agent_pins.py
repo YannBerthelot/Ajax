@@ -316,24 +316,20 @@ _GOLDEN: dict[str, dict[str, float]] = {
         "critic": 158.7569122314453,
         "alpha": 0.9725564122200012,
     },
-    "SAC-gru": {
-        "actor": 87.06092834472656,
-        "critic": 173.4002227783203,
-        "alpha": 0.951093316078186,
-    },
 }
 # Recorded on macOS ARM CPU once TD3's critic dropped its encoder LayerNorm:
 # the critic tree lost the norm's scales (64 of the old 79.6) and the actor
 # moved 3.6%.
 _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
-# Recorded on macOS ARM CPU once a recurrent Q-critic's memory read the
-# previous action and its MLP, after the memory, the current one: new
-# critic parameters (+3.4% critic, -0.007% actor, +0.045% alpha).
+# Recorded on macOS ARM CPU once a recurrent Q-critic embedded the
+# observation and the previous action before its memory and read the
+# current one at a head after it: new critic parameters (against the
+# head-only critic before it: +42.9% critic, +0.17% actor, -0.045% alpha).
 _GOLDEN |= {
     "SAC-gru": {
-        "actor": 87.05471801757812,
-        "critic": 179.29702758789062,
-        "alpha": 0.951546311378479,
+        "actor": 87.20343017578125,
+        "critic": 256.14117431640625,
+        "alpha": 0.9511011838912964,
     },
 }
 # Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch

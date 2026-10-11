@@ -254,6 +254,38 @@ def _concrete(x) -> Optional[np.ndarray]:
     return np.asarray(x)
 
 
+def _action_bounds(
+    env: EnvType, env_params: Optional[EnvParams], n_envs: Optional[int] = None
+) -> Optional[tuple[Any, Any]]:
+    """The ``(low, high)`` bounds of ``env``'s continuous actions, or None
+    for discrete ones. brax / playground actions live in ``[-1, 1]``.
+    Per-env (batched) gymnax params (``ajax.environments.system_class``)
+    give each env its own bounds, ``[n_envs, *action_shape]``; ``n_envs``,
+    the number of actions they apply to, must match."""
+    if not check_if_environment_has_continuous_actions(env, env_params):
+        return None
+    if check_env_is_brax(env):
+        ones = np.ones(get_action_dim(env), dtype=np.float32)
+        return -ones, ones
+    if not env_params_is_batched(env_params):
+        space = env.action_space(env_params)
+        return space.low, space.high
+    if n_envs is not None and _n_param_envs(env_params) != n_envs:
+        raise ValueError(
+            f"Per-env params for {_n_param_envs(env_params)} envs, but"
+            f" actions for {n_envs}."
+        )
+
+    def bounds(params):
+        space = env.action_space(params)
+        return (
+            jnp.broadcast_to(space.low, space.shape),
+            jnp.broadcast_to(space.high, space.shape),
+        )
+
+    return jax.vmap(bounds)(env_params)
+
+
 def agent_action_to_env(
     action: jax.Array, env: EnvType, env_params: Optional[EnvParams] = None
 ) -> jax.Array:
@@ -272,30 +304,11 @@ def agent_action_to_env(
     ``e``'s action is mapped with its own system's bounds. Discrete actions
     pass through. Replay stores the agent's raw action, not this one.
     """
-    if not check_if_environment_has_continuous_actions(env, env_params):
+    bounds = _action_bounds(env, env_params, action.shape[0])
+    if bounds is None:
         return action
+    low, high = bounds
     clipped = jnp.clip(action, -1.0, 1.0)
-    if check_env_is_brax(env):
-        return clipped  # brax / playground actions live in [-1, 1]
-    if env_params_is_batched(env_params):
-        if _n_param_envs(env_params) != action.shape[0]:
-            raise ValueError(
-                f"Per-env params for {_n_param_envs(env_params)} envs, but"
-                f" actions for {action.shape[0]}."
-            )
-
-        def bounds(params):
-            space = env.action_space(params)
-            per_env_shape = action.shape[1:]
-            return (
-                jnp.broadcast_to(space.low, per_env_shape),
-                jnp.broadcast_to(space.high, per_env_shape),
-            )
-
-        low, high = jax.vmap(bounds)(env_params)  # [n_envs, *action_shape]
-    else:
-        space = env.action_space(env_params)
-        low, high = space.low, space.high
     concrete_low, concrete_high = _concrete(low), _concrete(high)
     if (
         concrete_low is not None

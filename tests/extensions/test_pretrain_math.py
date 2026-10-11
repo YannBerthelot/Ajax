@@ -1,4 +1,4 @@
-"""The MC pretraining helpers of :mod:`ajax.extensions.pretrain`.
+"""The pretraining helpers and extensions of :mod:`ajax.extensions.pretrain`.
 
 These are integration-style tests: they build real (tiny) flax TrainStates
 and drive the pretrain helpers end-to-end. Heavy helpers
@@ -16,7 +16,13 @@ import optax
 import pytest
 from flax import struct
 
-from ajax.extensions.pretrain import MCPretrainAux, pretrain_critic_online_light
+from ajax.agents.SAC.SAC import SAC
+from ajax.extensions.base import ExtensionContext
+from ajax.extensions.pretrain import (
+    BellmanPretrain,
+    MCPretrainAux,
+    pretrain_critic_online_light,
+)
 from ajax.state import LoadedTrainState
 
 OBS_DIM = 4
@@ -135,3 +141,34 @@ def test_pretrain_critic_online_light_zero_lr_is_no_op(rng, pretrain_batches):
         jax.tree_util.tree_leaves(out.critic_state.params),
     ):
         assert jnp.allclose(a, b)
+
+
+def test_bellman_pretrain_binds_the_agent_context():
+    """SAC's binding hands BellmanPretrain its buffer, discount, reward scale
+    and critic updates; an extension that is already bound keeps its own."""
+    ext = BellmanPretrain(n_steps=3)
+    context = {
+        "buffer": "buffer",
+        "gamma": 0.9,
+        "reward_scale": 2.0,
+        "recurrent": False,
+        "update_value_fn": len,
+        "update_target_fn": abs,
+        "expert_policy": abs,
+    }
+    bound = ext.bind_to_agent(**context)
+    assert (bound.buffer, bound.gamma, bound.reward_scale) == ("buffer", 0.9, 2.0)
+    assert (bound.update_value_fn, bound.update_target_fn) == (len, abs)
+    assert bound.bind_to_agent(**context | {"gamma": 0.5}) is bound
+    assert ext.bind_to_agent(env_args=None) is ext
+
+
+def test_bellman_pretrain_needs_the_agent_context_and_expert():
+    """Unbound, its pretrain phase raises; bound by an agent without an
+    expert (so no expert prefill to pre-train on), SAC's training raises."""
+    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    with pytest.raises(ValueError, match="did not bind"):
+        BellmanPretrain().pretrain(None, (), ctx)
+    agent = SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
+    with pytest.raises(ValueError, match="expert_policy"):
+        agent.train(seed=0, n_timesteps=10)

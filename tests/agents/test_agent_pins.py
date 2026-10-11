@@ -413,17 +413,25 @@ _GOLDEN |= {
         "world_model": 548.8908081054688,
         "drift": 0.23474201560020447,
     },
-    "TDMPC2-drift": {
-        "actor": 32.17240905761719,
-        "world_model": 160.75112915039062,
-        "drift": 0.3190682828426361,
-    },
     "TDMPC2MultiTask-drift": {
         "actor": 32.23477554321289,
         "world_model": 161.12486267089844,
         "drift": 0.2877737283706665,
     },
     "UDRL-nudge": {"actor": 23.97211456298828, "nudge": 0.3160724639892578},
+}
+# Recorded on macOS ARM CPU once prepare_env kept the env_params given with
+# an env id: TDMPC2-drift had run on Pendulum's default T = 200, so its 40
+# steps ended before the seed tick and it pinned no update (actor +0.11 %,
+# world model +1.0 %, drift -27 % on re-recording). With T = 10 it runs the
+# burst of 20 and 19 single updates.
+_GOLDEN |= {
+    "TDMPC2-drift": {
+        "actor": 32.20726776123047,
+        "world_model": 162.42007446289062,
+        "drift": 0.2332032173871994,
+        "n_updates": 39,
+    },
 }
 # Recorded on macOS ARM CPU once APG took TrainLoop's init and post_update
 # keys, before step 17 moved it onto the shared evaluation.
@@ -443,6 +451,8 @@ def fingerprint(name: str) -> dict[str, float]:
         out["world_model"] = float(_checksum(state.world_model_state.params))
     if getattr(state.actor_state, "target_params", None) is not None:
         out["target"] = float(_checksum(state.actor_state.target_params))
+    if getattr(state, "n_updates", None) is not None:
+        out["n_updates"] = float(jnp.asarray(state.n_updates).reshape(-1)[0])
     if hasattr(state, "alpha"):
         out["alpha"] = float(jnp.exp(state.alpha.params["log_alpha"]).reshape(-1)[0])
     for ext, ext_state in zip(kwargs.get("extensions", ()), state.ext_state):

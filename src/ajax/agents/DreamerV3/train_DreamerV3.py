@@ -629,7 +629,7 @@ def make_train(
         init,
         partial(update, **common),
         collect=partial(collect, env_args=env_args, **common),
-        n_updates=schedule.updates_in_tick,
+        n_updates=lambda tick, _: schedule.updates_in_tick(tick),
         evaluation=Evaluation(
             metrics=partial(train_metrics, action_repeat=env_args.action_repeat),
             every=loop.log_frequency and max(loop.log_frequency // n_envs, 1),

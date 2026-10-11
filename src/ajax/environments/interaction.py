@@ -11,7 +11,11 @@ from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import init_buffer
 from ajax.environments.system_class import env_params_is_batched
-from ajax.environments.utils import get_state_action_shapes, maybe_append_train_frac
+from ajax.environments.utils import (
+    get_state_action_shapes,
+    maybe_append_train_frac,
+    raw_obs_columns,
+)
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -768,6 +772,7 @@ def collect_experience(
         _, _new_obs_norm = update_obs_norm(
             agent_state.collector_state.last_obs,
             agent_state.collector_state.obs_norm_info,
+            raw_obs_columns(env_args.env),
         )
         agent_state = agent_state.replace(
             collector_state=agent_state.collector_state.replace(

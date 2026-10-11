@@ -35,7 +35,6 @@ from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import predict_value
 from ajax.state import (
     EnvironmentConfig,
@@ -138,7 +137,6 @@ def init_APO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> APOState:
     """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`),
     the reward rate and the value bias at 0."""
@@ -148,7 +146,6 @@ def init_APO(
         actor_optimizer_args,
         critic_optimizer_args,
         network_args,
-        pid_actor_config=pid_actor_config,
     )
     return APOState(**vars(state), average_reward=0.0, b=0.0)
 
@@ -357,7 +354,6 @@ def make_train(
     start_timestep: int = 0,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
     """APO's train function: an ``n_steps`` rollout per env, then one
@@ -379,7 +375,6 @@ def make_train(
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
-            pid_actor_config=pid_actor_config,
         )
         return pretrain_on_expert(
             agent_state,

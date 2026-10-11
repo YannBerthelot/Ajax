@@ -10,7 +10,6 @@ from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -64,7 +63,6 @@ class APO(ActorCritic):
         # Expert for the cloning pre-training and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
@@ -154,7 +152,6 @@ class APO(ActorCritic):
             pre_train_n_steps=pre_train_n_steps,
         )
         self.expert_policy = expert_policy
-        self.pid_actor_config = pid_actor_config
 
     def get_make_train(self) -> Callable:
         """
@@ -167,6 +164,5 @@ class APO(ActorCritic):
             make_train,
             cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
-            pid_actor_config=self.pid_actor_config,
             extensions=tuple(self.extension_stack.extensions),
         )

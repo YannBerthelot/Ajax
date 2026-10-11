@@ -4,8 +4,6 @@ The Extension framework (``extensions=``) is the surface for research
 features. A few ``Optional[Callable]`` hooks remain, each with a live user:
 TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants), PPO's
 ``reward_shaping_fn``, and the DQN / PQN variants (Double DQN, Huber).
-``pid_actor_config`` (a network option, not a callable) is checked
-alongside.
 
 These are API-contract tests: construct each agent with each hook (and
 ``None``) and confirm construction succeeds and the attribute is stored and
@@ -14,24 +12,14 @@ forwarded to ``make_train``. They do not run training.
 
 import pytest
 
-from ajax.agents.APO.APO import APO
-from ajax.agents.ASAC.ASAC import ASAC
-from ajax.agents.AVG.AVG import AVG
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
-from ajax.agents.REDQ.REDQ import REDQ
-from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 
 AGENT_HOOKS = {
-    SAC: ("pid_actor_config",),
-    TD3: ("pid_actor_config", "action_pipeline"),
-    REDQ: ("pid_actor_config",),
-    ASAC: ("pid_actor_config",),
-    AVG: ("pid_actor_config",),
-    PPO: ("pid_actor_config", "reward_shaping_fn"),
-    APO: ("pid_actor_config",),
+    TD3: ("action_pipeline",),
+    PPO: ("reward_shaping_fn",),
     # Variants (Double DQN, Huber) are exposed as Optional[Callable] hooks.
     DQN: ("td_target_fn", "td_loss_fn"),
     PQN: ("td_loss_fn",),
@@ -76,10 +64,10 @@ def _instantiate(agent_cls, **kwargs):
         "critic_architecture": ("32", "relu"),
     }
     # Off-policy agents take a buffer_size; on-policy don't accept it.
-    if agent_cls in (SAC, TD3, REDQ, ASAC):
+    if agent_cls is TD3:
         common["buffer_size"] = 1024
         common["batch_size"] = 32
-    if agent_cls in (PPO, APO):
+    if agent_cls is PPO:
         common["n_steps"] = 32
         common["batch_size"] = 32
         common["n_epochs"] = 1
@@ -100,9 +88,7 @@ def test_default_hooks_are_none(agent_cls):
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_hooks_are_stored(agent_cls):
     """Passed-in hooks are retained on the instance (for get_make_train)."""
-    hook_kwargs = {
-        h: _identity_hook for h in AGENT_HOOKS[agent_cls] if h != "pid_actor_config"
-    }
+    hook_kwargs = {h: _identity_hook for h in AGENT_HOOKS[agent_cls]}
     agent = _instantiate(agent_cls, **hook_kwargs)
     for h, fn in hook_kwargs.items():
         assert (
@@ -113,9 +99,7 @@ def test_hooks_are_stored(agent_cls):
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_get_make_train_forwards_hooks(agent_cls):
     """get_make_train wraps make_train in a partial that carries the hooks."""
-    hook_kwargs = {
-        h: _identity_hook for h in AGENT_HOOKS[agent_cls] if h != "pid_actor_config"
-    }
+    hook_kwargs = {h: _identity_hook for h in AGENT_HOOKS[agent_cls]}
     agent = _instantiate(agent_cls, **hook_kwargs)
     make_train_partial = agent.get_make_train()
     # functools.partial stores kwargs on .keywords

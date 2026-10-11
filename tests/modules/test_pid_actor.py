@@ -1,94 +1,217 @@
-"""Tests for ajax.modules.pid_actor — PIDActorNetwork and PIDActorConfig."""
+"""The PID policy option: its actors, its gains, and every agent taking it."""
 
+import importlib
+
+import distrax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.modules.pid_actor import PIDActorConfig, PIDActorNetwork
+from ajax.agents.TD3.networks import (
+    DeterministicPIDActor,
+    get_initialized_td3_actor_critic,
+)
+from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
+from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import get_initialized_actor_critic
+from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
+
+from . import setpoint_env
+
+# Two actions, two errors: obs = [e (2), I (2), D (2), raw (3)].
+GAINS = {
+    "kp": jnp.array([[1.0, 2.0], [3.0, 4.0]]),
+    "ki": jnp.array([[0.5, 0.0], [0.0, -0.5]]),
+    "kd": jnp.array([[0.0, 0.1], [-0.2, 0.0]]),
+}
+OBS = jax.random.normal(jax.random.PRNGKey(1), (5, 9))
 
 
-def _build_network(action_dim=2, derivative_idx=None, penultimate_normalization=False):
-    return PIDActorNetwork(
-        input_architecture=("16", "relu"),
-        action_dim=action_dim,
-        obs_current_idx=0,
-        obs_target_idx=1,
-        obs_derivative_idx=derivative_idx,
-        penultimate_normalization=penultimate_normalization,
+def _set_gains(params, gains):
+    return {"params": {**params["params"], "pid": dict(gains)}}
+
+
+def _by_hand(obs, gains):
+    e, i, d = obs[:, 0:2], obs[:, 2:4], obs[:, 4:6]
+    return e @ gains["kp"].T + i @ gains["ki"].T + d @ gains["kd"].T
+
+
+def test_the_fixed_actor_parameters_are_the_gains():
+    """No bias, no hidden layer: kp, ki, kd and the log-std are all there is,
+    and the mean is the PID law with them."""
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2)
+    params = actor.init(jax.random.PRNGKey(0), OBS)
+    shapes = jax.tree.map(jnp.shape, params["params"])
+    assert shapes == {"pid": {g: (2, 2) for g in GAINS}, "log_std": (2,)}
+    params = _set_gains(params, GAINS)
+    np.testing.assert_allclose(
+        actor.apply(params, OBS).mean(), _by_hand(OBS, GAINS), 1e-6
     )
+    for name, value in pid_gains(params).items():
+        np.testing.assert_array_equal(value, GAINS[name])
 
 
-@pytest.mark.parametrize("derivative_idx,expected_terms", [(None, 1), (2, 2)])
-def test_pid_actor_n_terms(derivative_idx, expected_terms):
-    net = _build_network(derivative_idx=derivative_idx)
-    assert net.n_terms == expected_terms
+def test_gains_start_at_zero_and_exploration_is_state_independent():
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, log_std_init=-0.5)
+    dist = actor.apply(actor.init(jax.random.PRNGKey(0), OBS), OBS)
+    assert isinstance(dist, distrax.Normal)
+    np.testing.assert_array_equal(dist.mean(), 0.0)
+    np.testing.assert_allclose(dist.stddev(), jnp.exp(-0.5))
 
 
-def test_pid_actor_returns_squashed_normal():
-    net = _build_network(derivative_idx=2)
-    obs = jnp.array([[0.1, 0.5, 0.0, 0.2]])
-    params = net.init(jax.random.PRNGKey(0), obs)
-    dist = net.apply(params, obs)
+def test_the_squashed_actor_squashes_the_pid_output():
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, squash=True)
+    params = _set_gains(actor.init(jax.random.PRNGKey(0), OBS), GAINS)
+    dist = actor.apply(params, OBS)
     assert isinstance(dist, SquashedNormal)
+    np.testing.assert_allclose(dist.distribution.loc, _by_hand(OBS, GAINS), 1e-6)
 
 
-def test_pid_actor_zero_init_gives_zero_mean():
-    # With zero-initialized gains, the pre-squash mean must be exactly zero
-    # regardless of the PID error terms.
-    net = _build_network(action_dim=3, derivative_idx=2)
-    obs = jnp.array([[0.1, 0.5, 0.3, 0.9]])
-    params = net.init(jax.random.PRNGKey(0), obs)
-    dist = net.apply(params, obs)
-    assert jnp.allclose(dist.distribution.loc, jnp.zeros((1, 3)))
+def test_observation_gains_with_a_constant_network_are_the_fixed_ones():
+    """Zero kernel, the fixed gains as bias: the same law, the same gains."""
+    policy = PIDPolicy(n_errors=2, gains="observation", architecture=("8", "relu"))
+    law = PIDLaw(policy, action_dim=2)
+    params = law.init(jax.random.PRNGKey(0), OBS)
+    head = params["params"]["head"]
+    stacked = jnp.stack([GAINS[g] for g in ("kp", "ki", "kd")])
+    head = {"kernel": jnp.zeros_like(head["kernel"]), "bias": stacked.reshape(-1)}
+    params = {"params": {**params["params"], "head": head}}
+    np.testing.assert_allclose(law.apply(params, OBS), _by_hand(OBS, GAINS), 1e-6)
+    gains = law.apply(params, OBS, method="gains")
+    np.testing.assert_allclose(gains, jnp.broadcast_to(stacked, (5, 3, 2, 2)))
+    with pytest.raises(ValueError, match="predicted from the observation"):
+        pid_gains({"params": {"pid": params["params"]}})
 
 
-def test_pid_actor_log_std_bounded_initially():
-    net = _build_network(action_dim=2)
-    obs = jnp.array([[0.1, 0.5]])
-    params = net.init(jax.random.PRNGKey(0), obs)
-    dist = net.apply(params, obs)
-    # log_std is zero-init + constant(-1.0) bias → std = exp(-1).
-    assert jnp.allclose(dist.distribution.scale, jnp.exp(jnp.array(-1.0)))
+def test_observation_gains_vary_with_the_observation():
+    policy = PIDPolicy(gains="observation", architecture=("8", "relu"))
+    law = PIDLaw(policy, action_dim=1)
+    params = law.init(jax.random.PRNGKey(0), OBS)
+    params = jax.tree.map(lambda x: jnp.ones_like(x) * 0.3, params)
+    gains = law.apply(params, OBS, method="gains")
+    assert gains.shape == (5, 3, 1, 1) and float(jnp.std(gains[:, 0])) > 0
 
 
-def test_pid_actor_handles_batched_input():
-    net = _build_network(action_dim=2, derivative_idx=2)
-    obs = jax.random.normal(jax.random.PRNGKey(1), (5, 4))
-    params = net.init(jax.random.PRNGKey(0), obs)
-    dist = net.apply(params, obs)
-    assert dist.distribution.loc.shape == (5, 2)
-    assert dist.distribution.scale.shape == (5, 2)
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"n_errors": 0}, {"gains": "scheduled"}, {"architecture": ("8", "relu")}],
+)
+def test_bad_policies_raise(kwargs):
+    with pytest.raises(ValueError):
+        PIDPolicy(**kwargs)
 
 
-def test_pid_actor_penultimate_normalization_runs():
-    net = _build_network(
-        action_dim=2, derivative_idx=None, penultimate_normalization=True
+def _build(memory=None, td3=False):
+    env, params = setpoint_env.make()
+    env_config = EnvironmentConfig(
+        env=env, env_params=params, n_envs=2, continuous=True
     )
-    obs = jnp.ones((1, 4))
-    params = net.init(jax.random.PRNGKey(0), obs)
-    dist = net.apply(params, obs)
-    assert dist.distribution.loc.shape == (1, 2)
+    net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=("8",))
+    net = net.replace(memory=memory)
+    opt = OptimizerConfig(learning_rate=1e-3)
+    if td3:
+        return get_initialized_td3_actor_critic(
+            jax.random.PRNGKey(0), env_config, opt, opt, net
+        )
+    return get_initialized_actor_critic(
+        jax.random.PRNGKey(0), env_config, opt, opt, net, continuous=True, squash=True
+    )
 
 
-def test_pid_actor_config_defaults():
-    cfg = PIDActorConfig(obs_current_idx=2, obs_target_idx=5)
-    assert cfg.obs_derivative_idx is None
-    assert cfg.obs_current_idx == 2
-    assert cfg.obs_target_idx == 5
+def test_the_factories_build_pid_actors():
+    obs = jnp.ones((3, 5))
+    actor, _ = _build()
+    assert isinstance(actor.apply_fn.__self__, PIDActor)
+    assert isinstance(actor.apply_fn(actor.params, obs), SquashedNormal)
+    actor, _ = _build(td3=True)
+    assert isinstance(actor.apply_fn.__self__, DeterministicPIDActor)
+    params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.2) for g in GAINS})
+    np.testing.assert_allclose(actor.apply_fn(params, obs).mean(), jnp.tanh(0.6))
 
 
-def test_pid_actor_gains_contribute_when_non_zero():
-    """After manually perturbing the gains, the mean responds to obs error."""
-    net = _build_network(action_dim=1, derivative_idx=None)
-    obs = jnp.array([[0.0, 2.0]])  # error = target - current = 2.0
-    params = net.init(jax.random.PRNGKey(0), obs)
-    mutable = jax.tree_util.tree_map(lambda x: x, params)
-    gains_params = mutable["params"]["gains"]
-    mutable["params"]["gains"] = {
-        "kernel": jnp.ones_like(gains_params["kernel"]),
-        "bias": jnp.ones_like(gains_params["bias"]),
-    }
-    dist_perturbed = net.apply(mutable, obs)
-    # Non-zero gains must yield a non-zero pre-squash mean.
-    assert not jnp.allclose(dist_perturbed.distribution.loc, 0.0)
+@pytest.mark.parametrize("td3", [False, True])
+def test_a_pid_actor_takes_no_memory(td3):
+    with pytest.raises(NotImplementedError, match="no memory"):
+        _build(memory=MemoryConfig("gru", 8), td3=td3)
+
+
+def test_a_pid_actor_needs_continuous_actions():
+    env, params = setpoint_env.make()
+    env_config = EnvironmentConfig(
+        env=env, env_params=params, n_envs=1, continuous=True
+    )
+    net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=("8",))
+    opt = OptimizerConfig(learning_rate=1e-3)
+    with pytest.raises(ValueError, match="continuous"):
+        get_initialized_actor_critic(
+            jax.random.PRNGKey(0), env_config, opt, opt, net, continuous=False
+        )
+
+
+def test_apg_refuses_a_pid_policy():
+    """APG's PID is its output head (PIDHeadConfig), not this option."""
+    from ajax.agents.APG.train_APG import build_controller
+
+    env, params = setpoint_env.make()
+    env_config = EnvironmentConfig(
+        env=env, env_params=params, n_envs=1, continuous=True
+    )
+    net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=())
+    with pytest.raises(TypeError, match="PIDHeadConfig"):
+        build_controller(env_config, net, pid=None, squash=True)
+
+
+_REPLAY = {"learning_starts": 16, "buffer_size": 256, "batch_size": 8}
+_ROLLOUT = {"n_steps": 16, "batch_size": 8, "n_epochs": 1}
+# id: (agent, overrides, steps); SAC updates its policy from step 2000 only.
+# AVG always normalises its observations (env-side); the -norm cases
+# normalise them agent-side.
+AGENTS = {
+    "SAC": ("SAC", _REPLAY, 2_100),
+    "SAC-norm": ("SAC", _REPLAY | {"normalize_obs_running": True}, 2_100),
+    "TD3": ("TD3", _REPLAY, 64),
+    "REDQ": ("REDQ", _REPLAY, 64),
+    "ASAC": ("ASAC", _REPLAY, 64),
+    "AVG": ("AVG", {}, 64),
+    "PPO": ("PPO", _ROLLOUT, 64),
+    "PPO-norm": ("PPO", _ROLLOUT | {"normalize_observations": True}, 64),
+    "APO": ("APO", _ROLLOUT, 64),
+}
+
+
+def _obs_statistics(state):
+    """The observation statistics the policy is queried with, if any."""
+    if state.actor_state.obs_norm_info is not None:
+        return state.actor_state.obs_norm_info
+    return getattr(state.collector_state.env_state, "normalization_info", None)
+
+
+@pytest.mark.parametrize("case", list(AGENTS))
+def test_every_continuous_agent_trains_a_pid_policy(case):
+    """A short run moves the gains off zero and the actor stays the PID.
+    Where observations are normalised, the terms' statistics stay pinned
+    (raw terms) and the plant's are learned."""
+    name, overrides, steps = AGENTS[case]
+    env, params = setpoint_env.make()
+    cls = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
+    agent = cls(
+        env,
+        env_params=params,
+        n_envs=1,
+        actor_architecture=PIDPolicy(),
+        critic_architecture=("8", "relu"),
+        **overrides,
+    )
+    state, _ = agent.train(seed=[0], n_timesteps=steps, num_episode_test=2)
+    gains = pid_gains(state.actor_state.params)
+    assert gains["kp"].shape == (1, 1, 1)
+    assert float(jnp.abs(jnp.stack(list(gains.values()))).sum()) > 0
+    stats = _obs_statistics(state)
+    assert (stats is not None) == (case in ("SAC-norm", "AVG", "PPO-norm"))
+    if stats is not None:
+        stats = getattr(stats, "obs", stats)
+        mean, var = np.asarray(stats.mean), np.asarray(stats.var)
+        assert np.all(mean[..., :3] == 0.0) and np.all(var[..., :3] == 1.0)
+        assert np.all(var[..., 3] != 1.0)

@@ -26,7 +26,7 @@ per-extension ``rng`` split (``stack._keys``) would otherwise diverge.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Tuple
+from typing import Any, ClassVar, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -294,9 +294,11 @@ class EDGEExploration(Extension):
     * ``lcb_temperature`` — softmax temperature of the LCB / Thompson gate.
     * ``lcb_asymmetric``  — LCB on the expert arm, UCB on the policy arm.
     * ``epsilon_floor``   — minimum policy-pick probability (Thompson).
+
+    The expert is SAC's ``expert_policy``: the gate compares the action it
+    gave the pipeline with the policy's.
     """
 
-    expert_policy: Callable
     gate: str = "fixed"
     decay_frac: float = 0.30
     tau: float = 1.0

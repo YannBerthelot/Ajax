@@ -613,7 +613,6 @@ def test_gradients_reach_the_looked_up_rows_from_the_world_model_only():
             return core.policy_loss(
                 pi.params,
                 pi_apply=pi.apply_fn,
-                wm_apply=wm.apply_fn,
                 wm_params=params,
                 zs=zs,
                 q_scale=state.q_scale,

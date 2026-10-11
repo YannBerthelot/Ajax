@@ -12,7 +12,7 @@ from jax.tree_util import Partial as partial
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
-from ajax.environments.utils import check_env_is_gymnax
+from ajax.environments.utils import check_env_is_gymnax, raw_obs_columns
 
 
 @struct.dataclass
@@ -118,6 +118,7 @@ def _reset_actor_heads(
         "reset_actor_head_after_bc",
         "augment_obs_with_expert_action",
         "bc_loss_type",
+        "raw_columns",
     ],
 )
 def pre_train(
@@ -143,11 +144,13 @@ def pre_train(
     bc_loss_type: str = "nll",
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
+    raw_columns: int = 0,
 ) -> Tuple[train_state.TrainState, Dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]:
     """Behaviour-clone the actor on a dataset of expert transitions.
 
     Returns the trained actor state, the per-epoch actor losses and the
-    observation mean and standard deviation the actor was trained on.
+    observation mean and standard deviation the actor was trained on (0
+    and 1 on the env's ``raw_columns``, which stay raw).
     """
     obs = dataset.obs
     actions = dataset.action
@@ -165,8 +168,8 @@ def pre_train(
     # obs_norm_info with these same stats so get_pi / predict_value
     # apply matching normalisation online.
     obs_flat = obs.reshape(-1, obs.shape[-1])
-    obs_mean = obs_flat.mean(axis=0)
-    obs_std = obs_flat.std(axis=0) + 1e-6
+    obs_mean = obs_flat.mean(axis=0).at[:raw_columns].set(0.0)
+    obs_std = (obs_flat.std(axis=0) + 1e-6).at[:raw_columns].set(1.0)
     obs = (obs - obs_mean) / obs_std
     metrics = {"actor_loss": jnp.zeros((actor_epochs,))}
 
@@ -338,6 +341,7 @@ def get_pre_trained_agent(
         bc_loss_type=cloning_args.bc_loss_type,
         bc_min_log_std=cloning_args.bc_min_log_std,
         bc_action_clip_eps=cloning_args.bc_action_clip_eps,
+        raw_columns=raw_obs_columns(env_args.env),
     )
     # The actor was just trained on inputs standardised with the dataset's
     # statistics: the agent's running observation statistics start from

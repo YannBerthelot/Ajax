@@ -92,7 +92,7 @@ print(evaluations["Cond/critic_srank"])
 
 | Module (`ajax.extensions.`) | Extensions | What for |
 | --- | --- | --- |
-| `expert` | `ExpertGuidance`, `ExpertObsAugmentation`, `OnlineBC`, `ImitationLoss`, `ResidualPolicy`, `JSRLCurriculum` | learning from a fixed expert policy |
+| `expert` | `OnlineBC`, `ImitationLoss`, `ResidualPolicy`, `JSRLCurriculum` | learning from a fixed expert policy |
 | `exploration` | `EDGEExploration` | letting the expert act during collection while it looks better |
 | `target_mods` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox` | using the expert in the critic's target (`ValueBox`: in the action) |
 | `pretrain` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` | pre-training a critic on expert data |

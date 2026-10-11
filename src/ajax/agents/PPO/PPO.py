@@ -9,7 +9,6 @@ from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType, InitializationFunction
 
@@ -79,7 +78,6 @@ class PPO(ActorCritic):
         encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # (agent_state, rollout) -> reward bonus added before GAE.
         reward_shaping_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
@@ -187,7 +185,6 @@ class PPO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        self.pid_actor_config = pid_actor_config
         self.reward_shaping_fn = reward_shaping_fn
 
     def get_make_train(self) -> Callable:
@@ -199,7 +196,6 @@ class PPO(ActorCritic):
         """
         return partial(
             make_train,
-            pid_actor_config=self.pid_actor_config,
             reward_shaping_fn=self.reward_shaping_fn,
             extensions=tuple(self.extension_stack.extensions),
         )

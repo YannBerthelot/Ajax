@@ -194,13 +194,15 @@ def test_episode_length_derived_defaults():
 def test_the_config_is_built_from_the_constructor_arguments():
     """``from_arguments`` takes ``model_size`` and the fields the arguments
     name, ignoring the others; both constructors name every field, so none
-    silently keeps its default (the multi-task agent has no replay)."""
+    silently keeps its default (the multi-task agent has no replay and no
+    episodic mode, which is single-task, T29)."""
     arguments = {"model_size": 1, "rho": 0.3, "enc_dim": None, "env_id": "x"}
     got = TDMPC2Config.from_arguments(arguments)
     assert got == TDMPC2Config.from_model_size(1, rho=0.3)
     fields = {f.name for f in dataclasses.fields(TDMPC2Config)}
     fields.discard("expose_recent_rollout")  # BaseAgentConfig's
-    for agent, unused in ((TDMPC2, set()), (TDMPC2MultiTask, {"buffer_size"})):
+    multitask = {"buffer_size", "episodic", "termination_coef"}
+    for agent, unused in ((TDMPC2, set()), (TDMPC2MultiTask, multitask)):
         parameters = set(inspect.signature(agent.__init__).parameters)
         assert fields - unused <= parameters, (agent, fields - unused - parameters)
 
@@ -233,6 +235,8 @@ def test_every_hyperparameter_reaches_the_config():
         "min_std": 0.1,
         "max_std": 1.5,
         "temperature": 0.7,
+        "episodic": True,
+        "termination_coef": 0.5,
     }
     agent = TDMPC2("Pendulum-v1", **overrides)
     for name, value in overrides.items():
@@ -248,6 +252,8 @@ def test_every_hyperparameter_reaches_the_config():
     )
     assert keywords["learning_rate"] is lr
     assert (keywords["enc_lr_scale"], keywords["pi_eps"]) == (0.5, 1e-6)
+    ratio = TDMPC2("Pendulum-v1", n_envs=4, updates_per_step=0.5).schedule
+    assert (ratio.updates_per_step, ratio.updates_per_tick) == (0.5, 2)
 
     config = TDMPC2("Pendulum-v1", model_size=1).config
     assert config["algo_name"] == "TDMPC2"
@@ -410,6 +416,19 @@ def test_adam_steps_equal_the_scheduled_updates(pendulum):
         state.ext_state[0]["updates"],  # post_update after every update
     ):
         np.testing.assert_array_equal(count, expected)
+
+
+def test_updates_per_step_sets_the_updates_of_a_run():
+    """The agent's schedule drives its loop: two updates per env step after
+    the burst of S = 5 (T = 10; the seed tick is per-env step 10, tick 11)."""
+    agent = TDMPC2(
+        ConstantRewardEnv(length=10), seed_steps=5, updates_per_step=2.0, **TINY
+    )
+    state, _ = agent.train(seed=0, n_timesteps=20, num_episode_test=1)
+    n_ticks = agent.schedule.num_ticks(20)
+    assert _scheduled_updates(agent.schedule, n_ticks) == 5 + 2 * 9
+    for count in (state.n_updates, state.world_model_state.step):
+        np.testing.assert_array_equal(count, 5 + 2 * 9)
 
 
 def test_extension_hooks_follow_the_schedule(pendulum):

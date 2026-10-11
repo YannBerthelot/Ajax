@@ -576,7 +576,7 @@ SCALAR = dataclasses.replace(SCALAR, obs_box=(0.0, float(L)), box=(-1.0, 1.0, 2)
 Q4_SAC: dict[str, Any] = {"n_envs": 2, "gamma": agents.GAMMA, "learning_starts": 10**9}
 Q4_SAC |= {"actor_architecture": ("16", "relu"), "critic_architecture": ("16", "relu")}
 Q4_SAC |= {"buffer_size": 32_064, "batch_size": 64, "expert_buffer_n_steps": 0}
-Q4_SAC |= {"expert_mix_fraction": 0.0, "expert_fraction": 0.7}
+Q4_SAC |= {"expert_fraction": 0.7}
 Q4_SAC |= {"augment_obs_with_expert_state": True}
 Q4_KEYS = ("obs", "action", "is_expert", "reward", "terminated", "truncated")
 CELLS = [(e, d) for e in range(2) for d in range(2)]

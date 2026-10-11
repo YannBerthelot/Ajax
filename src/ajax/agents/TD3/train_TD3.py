@@ -39,7 +39,6 @@ from ajax.environments.interaction import (
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -118,7 +117,6 @@ def init_TD3(
     num_critics: int = 2,
     window_size: int = 10,
     stored_state: bool = False,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     expert_policy: Optional[Callable] = None,
 ) -> TD3State:
     rng, init_key, collector_key = jax.random.split(key, num=3)
@@ -129,7 +127,6 @@ def init_TD3(
         critic_optimizer_config=critic_optimizer_args,
         network_config=network_args,
         num_critics=num_critics,
-        pid_actor_config=pid_actor_config,
     )
     collector_state = init_collector_state(
         collector_key,
@@ -380,7 +377,6 @@ def make_train(
     start_timestep: int = 0,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     action_pipeline: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
@@ -399,7 +395,6 @@ def make_train(
                 if cloning_args is not None and cloning_args.pre_train_n_steps > 0
                 else None
             ),
-            pid_actor_config=pid_actor_config,
         )
     loop = TrainLoop.create(
         env_args,
@@ -425,7 +420,6 @@ def make_train(
             buffer,
             num_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
-            pid_actor_config=pid_actor_config,
             expert_policy=expert_policy,
         )
         return pretrain_on_expert(

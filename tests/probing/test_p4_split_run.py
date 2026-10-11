@@ -24,7 +24,6 @@ import ajax.log
 from ajax.environments import model_reference as mr
 from ajax.environments.system_class import UniformPerturbation
 from ajax.extensions import target_mods
-from ajax.extensions.expert import ExpertGuidance
 from ajax.extensions.pretrain import MCPretrain
 
 from . import agents, envs, runs
@@ -255,7 +254,7 @@ def value_box_agent(records: list) -> Any:
     """SAC, MC pre-training and the recording ValueBox under a constant
     expert; the expert buffer off (with it on, the expert path crashes)."""
     e = ConstantExpert()
-    off: dict[str, Any] = {"expert_buffer_n_steps": 0, "expert_mix_fraction": 0.0}
+    off: dict[str, Any] = {"expert_buffer_n_steps": 0}
     mc: dict[str, Any] = {"n_mc_steps": 200, "n_mc_episodes": 4, "n_steps": 20}
     mc |= {"online_light_steps": 5}
 
@@ -263,9 +262,8 @@ def value_box_agent(records: list) -> Any:
         records.append(tuple(float(np.asarray(v).item()) for v in values))
 
     exts = (
-        ExpertGuidance(expert_policy=e, **off),
         MCPretrain(expert_policy=e, **mc),
-        RecordingValueBox(expert_policy=e, sink=sink),
+        RecordingValueBox(sink=sink),
     )
     kw: dict[str, Any] = {**SAC_KW, **dict.fromkeys(STARTS, 20), **off, "n_envs": 1}
     kw |= {"batch_size": 16, "gamma": agents.GAMMA, "expert_policy": e}

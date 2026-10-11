@@ -475,16 +475,23 @@ def test_raw_next_observations_are_each_rows_successor(monkeypatch):
     assert read.size and read.min() >= 1 and read.max() <= LIMIT
 
 
-class _ShiftedCountingExpert:
-    """Stateful, called only with its state (counting its calls): plays
-    t / LIMIT - 3 at observation t, outside the action box, so the critic
-    inputs it builds stand apart."""
+class _ShiftedIntegratingExpert:
+    """Stateful, called only with its state, its action reading it: an
+    integrator of the observations since the episode's start, playing
+    u / LIMIT - 3 - I / 200 at observation u with I its integral before the
+    call, outside the action box so the critic inputs it builds stand
+    apart. On the counter its action at u is shifted_integrated(u)."""
 
     def init_state(self, n_envs: int) -> jax.Array:
         return jnp.zeros((n_envs, 1))
 
     def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
-        return obs[..., :1] / LIMIT - 3.0, state + 1
+        u = obs[..., :1]
+        return u / LIMIT - 3.0 - state / 200.0, state + u
+
+
+def shifted_integrated(u: Any) -> Any:
+    return u / LIMIT - 3.0 - u * (u - 1) / 400.0
 
 
 @pytest.mark.parametrize(
@@ -492,8 +499,10 @@ class _ShiftedCountingExpert:
 )
 def test_an_extension_reads_a_stateful_agent_experts_stored_actions(monkeypatch, name):
     """An extension given the agent's stateful expert reads the actions
-    collection stored for it (from its state): its critic inputs at s' are
-    [s', s' / LIMIT - 3], without calling the expert statelessly."""
+    collection stored for it, from its tracked state: its critic inputs at
+    s' in the replay batches it reads (8 rows: the update's, PhiRefresh's
+    refresh) are [s', shifted_integrated(s')], which a zero, reset or
+    pre-call state breaks. Such inputs must exist (PhiRefresh refreshed)."""
     from ajax.extensions.target_mods import CriticBlend, LCBGatedBootstrap
 
     module = (
@@ -502,7 +511,7 @@ def test_an_extension_reads_a_stateful_agent_experts_stored_actions(monkeypatch,
         else ajax.extensions.target_mods
     )
     seen = _record(monkeypatch, module, "predict_value")
-    expert = _ShiftedCountingExpert()
+    expert = _ShiftedIntegratingExpert()
     stack = {
         "IBRL": (IBRL(expert_policy=expert),),
         "LCBGatedBootstrap": (LCBGatedBootstrap(expert_policy=expert),),
@@ -513,15 +522,19 @@ def test_an_extension_reads_a_stateful_agent_experts_stored_actions(monkeypatch,
         ),
     }[name]
     train(CounterEnv(), expert_policy=expert, extensions=stack)
-    rows = np.concatenate([x.reshape(-1, x.shape[-1]) for x in seen])
+    rows = np.concatenate([x for x in seen if len(x) == 8])  # replay batches
     expert_rows = rows[rows[:, -1] < -1.5]
     assert len(expert_rows) >= 8
-    np.testing.assert_allclose(expert_rows[:, -1], expert_rows[:, 0] / LIMIT - 3.0)
+    np.testing.assert_allclose(
+        expert_rows[:, -1], shifted_integrated(expert_rows[:, 0]), atol=1e-5
+    )
 
 
 def test_an_extension_refuses_a_stateful_expert_the_agent_does_not_track():
     with pytest.raises(ValueError, match="stateful"):
-        train(CounterEnv(), extensions=(IBRL(expert_policy=_ShiftedCountingExpert()),))
+        train(
+            CounterEnv(), extensions=(IBRL(expert_policy=_ShiftedIntegratingExpert()),)
+        )
 
 
 class _ShiftedExpert:

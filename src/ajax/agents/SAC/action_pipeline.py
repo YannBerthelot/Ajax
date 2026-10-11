@@ -22,6 +22,7 @@ from ajax.environments.interaction import (
     get_action_and_log_probs,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
+from ajax.networks.memory import tree_where_reset
 from ajax.networks.networks import phi_star_critic_state
 
 #: The pipeline's slots for an ``action`` extension: before the warmup
@@ -69,15 +70,7 @@ def _resolve_expert_state(expert_policy, collector_state, n_envs):
         if collector_state.expert_state is not None
         else expert_zero_batched
     )
-    return jax.tree.map(
-        lambda cur, zero: jnp.where(
-            last_done.reshape(last_done.shape + (1,) * (cur.ndim - last_done.ndim)),
-            zero,
-            cur,
-        ),
-        current_expert_state,
-        expert_zero_batched,
-    )
+    return tree_where_reset(last_done, expert_zero_batched, current_expert_state)
 
 
 def _gain_policy_step(

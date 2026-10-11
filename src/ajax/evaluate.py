@@ -27,6 +27,7 @@ from ajax.environments.utils import (
     get_env_type,
     get_raw_env,
 )
+from ajax.networks.memory import tree_where_reset
 from ajax.state import EnvironmentConfig
 from ajax.wrappers import NormalizationInfo
 
@@ -334,18 +335,8 @@ def step_environment(
         # Reset the expert's internal state per-env when the episode just ended
         # (autoreset produces the fresh first obs of the next episode).
         if expert_is_stateful:
-            zero_state = expert_policy.init_state(obs.shape[0])
-            reset_mask = jnp.logical_or(new_term, new_trunc).astype(jnp.bool_)
-            new_expert_state = jax.tree.map(
-                lambda cur, zero: jnp.where(
-                    reset_mask.reshape(
-                        reset_mask.shape + (1,) * (cur.ndim - reset_mask.ndim)
-                    ),
-                    zero,
-                    cur,
-                ),
-                new_expert_state,
-                zero_state,
+            new_expert_state = tree_where_reset(
+                new_done, expert_policy.init_state(obs.shape[0]), new_expert_state
             )
 
         return (

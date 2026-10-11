@@ -19,6 +19,7 @@ from ajax.environments.utils import (
     maybe_append_train_frac,
     raw_obs_columns,
 )
+from ajax.networks.memory import flatten_carry, tree_where_reset
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -37,31 +38,14 @@ from ajax.wrappers import (
 )
 
 
-def flatten_expert_state(expert_state) -> jnp.ndarray:
-    """Pack a stateful expert's pytree state into a flat (..., dim) array.
-
-    Used to augment obs with `expert_state` (the missing Markov component
-    when the expert has hidden state — e.g. PID integrator). All leaves
-    must have a leading batch axis; the function concatenates along the
-    last axis. Returns a zero-shape array if the state is None or empty,
-    so the caller can fall back gracefully for stateless experts.
-    """
-    if expert_state is None:
+def flatten_expert_state(expert_state: Any) -> Optional[jax.Array]:
+    """A stateful expert's state as one ``(n_envs, D)`` array
+    (:func:`~ajax.networks.memory.flatten_carry`): the Markov component an
+    observation augmented with it carries (a PID's integrator). None for a
+    stateless expert (no state, or an empty one)."""
+    if expert_state is None or not jax.tree.leaves(expert_state):
         return None
-    leaves = jax.tree_util.tree_leaves(expert_state)
-    if not leaves:
-        return None
-    cols = []
-    for leaf in leaves:
-        leaf = jnp.asarray(leaf)
-        if leaf.ndim == 0:
-            cols.append(leaf[None])
-        elif leaf.ndim == 1:
-            # (n_envs,) -> (n_envs, 1)
-            cols.append(leaf[..., None])
-        else:
-            cols.append(leaf)
-    return jnp.concatenate(cols, axis=-1)
+    return flatten_carry(expert_state)
 
 
 def augment_obs(
@@ -676,8 +660,6 @@ def collect_experience(
     # the hidden state valid for last_obs (the transition's obs). Snapshot
     # it now — the action selection below advances the live carry.
     if store_hidden:
-        from ajax.networks.memory import flatten_carry
-
         _pre_actor_carry_flat = jax.lax.stop_gradient(
             flatten_carry(agent_state.actor_state.hidden_state)
         )
@@ -1002,9 +984,10 @@ def collect_experience_from_expert_policy(
 
     def step_fn(carry, _):
         env_state, rng, last_obs, expert_state = carry
-        # Prepare RNGs for stepping
-        rng_step, new_rng = jax.random.split(rng)
-        rng_step = env_keys(rng_step, mode, env_args.n_envs)
+        # The step's key is also the one carried to the next step: the
+        # stream the goldens pin.
+        rng = jax.random.split(rng)[0]
+        rng_step = env_keys(rng, mode, env_args.n_envs)
 
         # Compute action using expert policy. Stateful experts get the
         # running PID/etc state and return an updated state; stateless
@@ -1051,16 +1034,10 @@ def collect_experience_from_expert_policy(
         # at the start of the next episode (autoreset has already produced
         # a fresh first obs in `obsv`).
         if expert_is_stateful:
-            zero_state = expert_policy.init_state(env_args.n_envs)
-            done = jnp.logical_or(terminated, truncated)
-            new_expert_state = jax.tree.map(
-                lambda cur, zero: jnp.where(
-                    done.reshape(done.shape + (1,) * (cur.ndim - done.ndim)),
-                    zero,
-                    cur,
-                ),
+            new_expert_state = tree_where_reset(
+                jnp.logical_or(terminated, truncated),
+                expert_policy.init_state(env_args.n_envs),
                 new_expert_state,
-                zero_state,
             )
 
         # The live collector's layout (augment_obs): the training fraction,
@@ -1087,8 +1064,7 @@ def collect_experience_from_expert_policy(
             raw_next_obs=raw_next_obs,
         )
 
-        new_rng, _ = jax.random.split(rng)
-        carry = (new_env_state, new_rng, obsv, new_expert_state)
+        carry = (new_env_state, rng, obsv, new_expert_state)
         return carry, transition
 
     # Run for n_timesteps and collect transitions

@@ -140,7 +140,7 @@ def fresh_state(init: Init, stack: ExtensionStack, total_steps: int, key: Any) -
 
 
 def fold_post_update(
-    stack: Optional[ExtensionStack], agent_state: Any, step: Any, total_steps: int
+    stack: ExtensionStack, agent_state: Any, step: Any, total_steps: int
 ) -> Any:
     """Fold the extensions' ``post_update`` at ``step`` on a fresh key split
     from ``agent_state.rng`` (no key is drawn without extensions)."""

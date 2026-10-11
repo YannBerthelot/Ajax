@@ -220,8 +220,8 @@ def update_value_functions(
     recurrent: bool,
     rewards: jax.Array,
     gamma: float,
+    extension_stack: ExtensionStack,
     reward_scale: float = 1.0,
-    extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
     next_action_transform: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
@@ -256,14 +256,7 @@ def update_value_functions(
     # the critic's predictions (``q_preds``: MCVarianceCorrection's
     # variance) from a pass of their own: the target comes before the
     # gradient-bearing pass inside critic_loss_fn.
-    has_target_mods = (
-        extension_stack is not None
-        and "on_target" in extension_stack.implemented_phases()
-    )
-    if has_target_mods:
-        # `has_target_mods` already asserts `extension_stack is not
-        # None` — assert it again for mypy.
-        assert extension_stack is not None
+    if "on_target" in extension_stack.implemented_phases():
         q_preds_for_var = predict_value(
             critic_state=agent_state.critic_state,
             critic_params=agent_state.critic_state.params,
@@ -302,21 +295,20 @@ def update_value_functions(
         loss, core_aux = core.critic_loss_fn(
             params, critic_state, observations, actions, target_q, carries=carries
         )
-        if extension_stack is not None:
-            loss_batch = {
-                "observations": observations,
-                "actions": actions,
-                "targets": target_q,
-                "critic_params": params,
-                "critic_state": critic_state,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                loss_batch,
-                agent_state.collector_state.timestep,
-                value_loss_key,
-                total_timesteps,
-            )
+        loss_batch = {
+            "observations": observations,
+            "actions": actions,
+            "targets": target_q,
+            "critic_params": params,
+            "critic_state": critic_state,
+        }
+        loss = loss + extension_stack.fold_critic_loss(
+            agent_state,
+            loss_batch,
+            agent_state.collector_state.timestep,
+            value_loss_key,
+            total_timesteps,
+        )
         return loss, core_aux
 
     (loss, core_aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
@@ -346,12 +338,12 @@ def policy_loss_function(
     observations: jax.Array,
     alpha: jax.Array,
     rng: jax.random.PRNGKey,
+    extension_stack: ExtensionStack,
     raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
     a_expert_precomputed: Optional[jax.Array] = None,
     policy_action_transform: Optional[Callable] = None,
     carries: Optional[RecurrentCarries] = None,
-    extension_stack: Optional[ExtensionStack] = None,
     agent_state: Any = None,
     total_timesteps: int = 1,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
@@ -397,8 +389,7 @@ def policy_loss_function(
     # 3. The actor-loss extensions' terms, which get the expert action
     # (OnlineBC's BC target) once phi* exists.
     needs_bc = (
-        extension_stack is not None
-        and "actor_loss" in extension_stack.implemented_phases()
+        "actor_loss" in extension_stack.implemented_phases()
         and expert_policy is not None
         and agent_state.expert_critic_params is not None
     )
@@ -450,10 +441,10 @@ def update_policy(
     agent_state: SACState,
     observations: jax.Array,
     raw_observations: jax.Array,
+    extension_stack: ExtensionStack,
     expert_policy: Optional[Callable] = None,
     a_expert_precomputed: Optional[jax.Array] = None,
     policy_action_transform: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
@@ -508,6 +499,7 @@ def update_agent(
     gamma: float,
     target_entropy: float,
     tau: float,
+    extension_stack: ExtensionStack,
     num_critic_updates: int = 1,
     reward_scale: float = 1.0,
     expert_policy: Optional[Callable] = None,
@@ -518,7 +510,6 @@ def update_agent(
     total_timesteps: int = 1,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
-    extension_stack: Optional[ExtensionStack] = None,
     policy_action_transform: Optional[Callable] = None,
     burn_in: int = 8,
     stored_state: bool = False,
@@ -611,10 +602,7 @@ def update_agent(
     a_expert_precomputed = None
     # The actor-loss extensions (OnlineBC) take the expert action from
     # here, phi* or not.
-    has_actor_loss = (
-        extension_stack is not None
-        and "actor_loss" in extension_stack.implemented_phases()
-    )
+    has_actor_loss = "actor_loss" in extension_stack.implemented_phases()
     needs_expert = expert_policy is not None and (
         policy_action_transform is not None or has_actor_loss
     )

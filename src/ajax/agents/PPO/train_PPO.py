@@ -218,7 +218,7 @@ def policy_loss_function(
 # Extension-stack loss terms
 # ---------------------------------------------------------------------------
 def _stack_critic_loss(
-    extension_stack: Optional[ExtensionStack],
+    extension_stack: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
     total_timesteps: int,
@@ -250,7 +250,7 @@ def _stack_critic_loss(
 
 
 def _stack_actor_loss(
-    extension_stack: Optional[ExtensionStack],
+    extension_stack: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
     total_timesteps: int,

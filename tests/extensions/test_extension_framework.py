@@ -305,7 +305,6 @@ def test_compose_eval_metrics_none_collapse():
     """No extension -> returns None (preserves zero-overhead branch)."""
     from ajax.log import compose_eval_metrics
 
-    assert compose_eval_metrics(None, 100) is None
     assert compose_eval_metrics(ExtensionStack(), 100) is None
 
 

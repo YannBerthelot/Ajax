@@ -316,7 +316,7 @@ def training_iteration(
     env_args: EnvironmentConfig,
     mode: str,
     agent_config: UDRLConfig,
-    extension_stack: Optional[ExtensionStack] = None,
+    extension_stack: ExtensionStack,
     total_timesteps: int = 1,
 ) -> Tuple[UDRLState, UDRLAuxiliaries]:
     # 1. Collect one rollout segment (Algorithm 4).

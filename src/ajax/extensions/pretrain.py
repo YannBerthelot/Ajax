@@ -36,7 +36,7 @@ from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
 from ajax.environments.utils import check_env_is_gymnax
-from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
@@ -594,6 +594,7 @@ def pretrain_critic_bellman(
                 next_observations,
             )
         dones = terminated
+        # The plain Bellman target: no extension's target or loss term.
         agent_state, _ = update_value_fn(
             observations=observations,
             actions=actions,
@@ -603,6 +604,7 @@ def pretrain_critic_bellman(
             agent_state=agent_state,
             recurrent=recurrent,
             gamma=gamma,
+            extension_stack=ExtensionStack(),
             reward_scale=reward_scale,
         )
         agent_state = update_target_fn(agent_state, tau=5e-4)

@@ -11,8 +11,6 @@ warmup choice, ``"post_warmup"`` ones (ValueBox) after it. They read and
 write a dict of the step's quantities passed as ``obs``.
 """
 
-from typing import Optional
-
 import jax
 import jax.numpy as jnp
 
@@ -154,7 +152,7 @@ def make_action_pipeline(
     expert_policy,
     recurrent,
     env_args,
-    extension_stack: Optional[ExtensionStack] = None,
+    extension_stack: ExtensionStack,
     # Action transforms: the stack's residual policy (ResidualPolicy), whose
     # ``transform_action`` makes the post-warmup action residual.
     residual=None,
@@ -205,7 +203,7 @@ def make_action_pipeline(
 
     # The extensions of each collection-time slot, classified at trace
     # time by their declared ``action_slot``.
-    extensions = extension_stack.extensions if extension_stack is not None else ()
+    extensions = extension_stack.extensions
 
     def _slot(name):
         return tuple(

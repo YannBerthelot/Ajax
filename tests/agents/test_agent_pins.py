@@ -376,11 +376,6 @@ _GOLDEN |= {
         "critic": 9.956274032592773,
         "alpha": 0.972590446472168,
     },
-    "REDQ": {
-        "actor": 4.491269588470459,
-        "critic": 23.677350997924805,
-        "alpha": 0.9729597568511963,
-    },
     "SAC-gru": {
         "actor": 57.405818939208984,
         "critic": 134.20553588867188,
@@ -405,6 +400,16 @@ _GOLDEN |= {
         "actor": 10.129926681518555,
         "target": 9.98266887664795,
         "nudge": 0.22634370625019073,
+    },
+}
+# Recorded on macOS ARM CPU once REDQ's critic loss summed each critic's
+# error, as REDQ's official code (no division by the prediction's ndim): the
+# critic +2.8e-5 (Adam's eps), the actor and alpha unchanged.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 4.491269588470459,
+        "critic": 23.67800521850586,
+        "alpha": 0.9729597568511963,
     },
 }
 # Recorded on macOS ARM CPU before step 17 moved the world models onto

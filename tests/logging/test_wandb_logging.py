@@ -2,9 +2,12 @@ import json
 import re
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import jax.numpy as jnp
+import numpy as np
 
+from ajax.logging import wandb_logging
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -26,6 +29,26 @@ def test_run_ids_have_wandb_format():
     ids = {new_run_id() for _ in range(100)}
     assert len(ids) == 100
     assert all(re.fullmatch("[a-z0-9]{8}", run_id) for run_id in ids)
+
+
+def test_vmap_log_queues_its_seeds_metrics_without_nan_as_numpy(monkeypatch):
+    """One event per call: the seed's run id, the timestep, and each metric
+    holding no NaN as a numpy array of its own dtype and shape."""
+    sent: list = []
+    monkeypatch.setattr(wandb_logging, "_log_queue", SimpleNamespace(put=sent.append))
+    metrics = {
+        "timestep": jnp.asarray(30, jnp.int32),
+        "done": jnp.asarray(True),
+        "loss": jnp.asarray([0.5, 1.5]),
+        "partial": jnp.asarray([1.0, jnp.nan]),
+    }
+    vmap_log(metrics, 1, run_ids=["a", "b"])
+    ((kind, run_id, got, step),) = sent
+    assert (kind, run_id, step) == ("log", "b", 30)
+    assert sorted(got) == ["done", "loss", "timestep"]
+    for name, value in got.items():
+        assert isinstance(value, np.ndarray) and value.dtype == metrics[name].dtype
+        np.testing.assert_array_equal(value, metrics[name])
 
 
 def test_async_tensorboard_logging_round_trip(tmp_path):

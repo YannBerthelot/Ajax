@@ -33,18 +33,23 @@ from ajax.types import EnvType, InitializationFunction
 
 def shared_counters(state: Any) -> dict[str, jax.Array]:
     """The counters of a resumed ``state`` (leading seed axis) its seeds
-    share, as unbatched scalars: the collector's timestep and the number of
-    evaluations logged (``{}`` for a state without them).
+    share, as unbatched scalars: the collector's timestep, the number of
+    evaluations logged and, when every seed has done as many, the number of
+    updates (``{}`` for a state without them).
 
-    They gate the evaluations (:func:`ajax.log.evaluate_and_log`). A fresh
-    run computes them from constants, unbatched under the seed vmap; left
-    batched, a resumed run's gate would turn ``lax.cond`` into a select that
-    evaluates on every iteration.
+    They gate the evaluations (:func:`ajax.log.evaluate_and_log`) and the
+    updates' schedules (TD3's policy delay, DQN's target refresh, PPO's
+    forced resets). A fresh run computes them from constants, unbatched
+    under the seed vmap; left batched, a resumed run's gate would turn
+    ``lax.cond`` into a select that runs both branches on every iteration.
+    The update counts may differ across seeds (TD-MPC2's wait on each
+    seed's episodes); they then stay batched.
     """
     collector = getattr(state, "collector_state", None)
     found = {
         "timestep": getattr(collector, "timestep", None),
         "n_logs": getattr(state, "n_logs", None),
+        "n_updates": getattr(state, "n_updates", None),
     }
     out = {}
     for name, value in found.items():
@@ -52,6 +57,8 @@ def shared_counters(state: Any) -> dict[str, jax.Array]:
             continue
         seeds = np.asarray(jax.device_get(value)).reshape(-1)
         if seeds.size == 0 or np.any(seeds != seeds[0]):
+            if name == "n_updates":
+                continue
             raise ValueError(
                 f"cannot resume: the seeds' {name} differ ({seeds.tolist()});"
                 " every seed of a resumed run must stand at the same point"
@@ -62,8 +69,9 @@ def shared_counters(state: Any) -> dict[str, jax.Array]:
 
 def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
     """``state`` with the counters of :func:`shared_counters`."""
-    if "n_logs" in counters:
-        state = state.replace(n_logs=counters["n_logs"])
+    for name in ("n_logs", "n_updates"):
+        if name in counters:
+            state = state.replace(**{name: counters[name]})
     if "timestep" in counters:
         collector = state.collector_state.replace(timestep=counters["timestep"])
         state = state.replace(collector_state=collector)

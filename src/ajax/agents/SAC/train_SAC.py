@@ -32,7 +32,7 @@ from ajax.buffers.utils import (
     get_raw_next_obs_from_buffer,
 )
 from ajax.environments.interaction import augment_obs
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
@@ -360,7 +360,7 @@ def policy_loss_function(
     Structure mirrors the critic side: core SAC loss + layered expert additions.
     1. Core: forward pass → sample → Q eval → α·log π - Q
     2. Modifier: policy_action_transform (residual RL before Q eval)
-    3. Modifier: extension_stack.actor_loss (e.g. OnlineBC term)
+    3. Modifier: extension_stack.fold_actor_loss (e.g. OnlineBC term)
     """
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
@@ -801,11 +801,6 @@ def make_train(
     recurrent = network_args.memory is not None
     # Bind the SAC-factory-only context onto every extension (see
     # :meth:`Extension.bind_to_agent`: each picks the kwargs it needs).
-    _resolved_action_dim = (
-        action_dim_override
-        if action_dim_override is not None
-        else get_action_dim(env_args.env, env_args.env_params)
-    )
     stack = ExtensionStack(extensions).bind_to_agent(
         env_args=env_args,
         network_args=network_args,
@@ -819,7 +814,6 @@ def make_train(
         expert_state_aug_dim=(
             expert_state_aug_dim if augment_obs_with_expert_state else 0
         ),
-        action_dim=_resolved_action_dim,
         extensions=tuple(extensions),
         expert_policy=expert_policy,
         recurrent=recurrent,

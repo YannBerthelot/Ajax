@@ -425,7 +425,7 @@ class EDGEExploration(Extension):
         # the substitution mask so the pipeline can fold it into
         # ``is_expert_flag``. Dict-write side effects are explicit at
         # the call site (the pipeline reads these keys after every
-        # ``stack.action`` call).
+        # ``action`` call).
         obs["gate_rng"] = gate_rng
         obs["_edge_use_expert"] = use_expert_edge.astype(jnp.bool_)
         return jnp.where(use_expert_edge, expert_action, post_warmup_action)

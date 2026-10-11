@@ -417,39 +417,6 @@ class ExtensionStack:
             total = total + ext.actor_loss(agent_state, ext_states[i], batch, ctx)
         return total
 
-    # -- action overrides (last non-None wins; None -> agent default) ----
-    def action(
-        self,
-        agent_state: Any,
-        ext_states: tuple,
-        obs: jax.Array,
-        rng: jax.Array,
-        ctx: ExtensionContext,
-    ) -> jax.Array | None:
-        keys = self._keys(rng)
-        chosen: jax.Array | None = None
-        for i, ext in enumerate(self.extensions):
-            proposed = ext.action(agent_state, ext_states[i], obs, keys[i], ctx)
-            if proposed is not None:
-                chosen = proposed
-        return chosen
-
-    def eval_action(
-        self,
-        agent_state: Any,
-        ext_states: tuple,
-        obs: jax.Array,
-        rng: jax.Array,
-        ctx: ExtensionContext,
-    ) -> jax.Array | None:
-        keys = self._keys(rng)
-        chosen: jax.Array | None = None
-        for i, ext in enumerate(self.extensions):
-            proposed = ext.eval_action(agent_state, ext_states[i], obs, keys[i], ctx)
-            if proposed is not None:
-                chosen = proposed
-        return chosen
-
     # -- state-threading + logging --------------------------------------
     def post_update(
         self, agent_state: Any, ext_states: tuple, ctx: ExtensionContext

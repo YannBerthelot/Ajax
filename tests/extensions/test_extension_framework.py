@@ -5,12 +5,14 @@ import importlib
 import pkgutil
 import typing
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 import ajax.extensions
+from ajax.agents.SAC.action_pipeline import _dispatch_actions
 from ajax.extensions.base import (
     PHASES,
     Extension,
@@ -102,7 +104,6 @@ def test_empty_stack_is_noop():
     assert stack.on_target(None, (), None, target, ctx) is target
     assert stack.critic_loss(None, (), None, ctx) == 0.0
     assert stack.actor_loss(None, (), None, ctx) == 0.0
-    assert stack.action(None, (), target, key, ctx) is None
     assert stack.eval_metrics(None, (), key, ctx) == {}
     assert stack.post_update("S", (), ctx) == ("S", ())
 
@@ -140,7 +141,11 @@ def test_eval_metrics_merge():
     assert set(out) == {"a/x", "b/y"}
 
 
-def test_action_last_non_none_wins():
+def test_sac_action_dispatch_takes_the_last_proposal():
+    """SAC folds the ``action`` phase itself (action_pipeline), in stack
+    order: each non-None proposal replaces the batch's action, so the last
+    wins; ``None`` defers to the agent's own action."""
+
     class FixedAction(Extension):
         def __init__(self, value):
             self.value = value
@@ -148,11 +153,18 @@ def test_action_last_non_none_wins():
         def action(self, agent_state, ext_state, obs, rng, ctx):
             return jnp.asarray(self.value)
 
-    obs, key = jnp.ones((3,)), jax.random.PRNGKey(0)
-    stack = ExtensionStack([FixedAction(1), Extension(), FixedAction(2)])
-    assert int(stack.action(None, ((),) * 3, obs, key, _ctx())) == 2
-    # no action-providing extension -> None (agent uses its own policy)
-    assert ExtensionStack([Extension()]).action(None, ((),), obs, key, _ctx()) is None
+    agent = SimpleNamespace(
+        collector_state=SimpleNamespace(timestep=jnp.asarray(0)), ext_state=((),) * 3
+    )
+    key = jax.random.PRNGKey(0)
+
+    def dispatched(*extensions):
+        batch = {"action": jnp.asarray(0)}
+        pairs = list(enumerate(extensions))
+        return int(_dispatch_actions(agent, pairs, batch, "action", key, 10)["action"])
+
+    assert dispatched(FixedAction(1), Extension(), FixedAction(2)) == 2
+    assert dispatched(Extension()) == 0
 
 
 # --------------------------------------------------------------------------

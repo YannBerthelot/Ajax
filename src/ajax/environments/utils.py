@@ -313,3 +313,27 @@ def agent_action_to_env(
         return action
     centre, half = (jnp.asarray(x, dtype=action.dtype) for x in bounds)
     return centre + half * jnp.clip(action, -1.0, 1.0)
+
+
+def env_action_to_agent(
+    action: jax.Array, env: EnvType, env_params: Optional[EnvParams] = None
+) -> jax.Array:
+    """Map an action in the env's bounds to agent units, ``[-1, 1]``.
+
+    The inverse of :func:`agent_action_to_env` on the env's box, ``(a - c)
+    / h``, with the same ``action`` layout and per-env bounds. It does not
+    clip: an action outside the box stays outside ``[-1, 1]``. It is the
+    identity on ``[-1, 1]`` boxes, on a dimension with an infinite bound
+    and on discrete actions.
+    """
+    return _to_agent_units(action, _action_bounds(env, env_params, action.shape[0]))
+
+
+def _to_agent_units(
+    action: jax.Array, bounds: Optional[tuple[jax.Array, jax.Array]]
+) -> jax.Array:
+    """``(action - centre) / half``, given :func:`_action_bounds`'s output."""
+    if bounds is None:
+        return action
+    centre, half = (jnp.asarray(x, dtype=action.dtype) for x in bounds)
+    return (action - centre) / half

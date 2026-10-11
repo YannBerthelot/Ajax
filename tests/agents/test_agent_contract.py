@@ -21,6 +21,8 @@ import pytest
 from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
 import ajax.log
+from ajax.agents.APG.APG import APG
+from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
@@ -31,6 +33,7 @@ from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.UDRL.UDRL import UDRL
+from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
 from ajax.extensions.base import Extension
 from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
@@ -46,6 +49,7 @@ from ajax.state import (
     OptimizerConfig,
 )
 from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
+from tests.environments import paid_action
 
 CONTINUOUS, DISCRETE = ("fast", "Pendulum-v1"), ("CartPole-v1",)
 NET = ("16", "relu")
@@ -335,3 +339,64 @@ def test_each_evaluation_draws_fresh_keys(
         keys = _EVAL_KEYS[kind]
         assert len(keys) == evaluations, (kind, len(keys))
         assert len(set(keys)) == evaluations, kind
+
+
+# --------------------------------------------------------------------------
+# Continuous agents act on the env's whole box
+# --------------------------------------------------------------------------
+#: Each continuous agent on a Box(-2, 2) env paying the action it receives:
+#: SAC's and TD3's first 64 steps warm up.
+ON_THE_BOX = ("APG", "APO", "ASAC", "AVG", "PPO", "REDQ", "SAC", "TD3", "UDRL")
+WARM_UP = {"learning_starts": 64, "buffer_size": 128}
+
+
+def _paid_rows(name: str, state: Any) -> tuple[np.ndarray, np.ndarray]:
+    """The stored agent actions and the rewards of every collected row."""
+    if name == "UDRL":  # its episode segments
+        rows = state.buffer.actions, state.buffer.rewards
+    elif CASES[name].buffer:
+        experience = state.collector_state.buffer_state.experience
+        rows = experience["action"], experience["reward"]
+    else:  # the exposed rollout
+        rows = state.last_rollout.action, state.last_rollout.reward
+    return tuple(np.asarray(x).reshape(-1) for x in rows)  # type: ignore[return-value]
+
+
+@pytest.mark.parametrize("name", ON_THE_BOX)
+def test_an_agent_acts_on_the_whole_box(name: str) -> None:
+    """Agent actions in [-1, 1] are mapped onto the env's bounds: every
+    collected row is paid 2 * clip(a, -1, 1) for its stored action a, and
+    evaluate() the deterministic action's (APG: its closed loop's). SAC's
+    and TD3's uniform warm-up covers the box (half their |paid| > 1)."""
+    env, params = paid_action.make()
+    if name == "APG":
+        agent = APG(env, env_params=params, n_envs=4, horizon=1, pid=None)
+        seeds, _ = agent.train(seed=0, n_timesteps=0)
+        state: Any = jax.tree.map(lambda x: x[0], seeds)
+        actor = state.actor_state
+        _, rollout = rollout_returns(
+            state, actor.params, jax.random.PRNGKey(1), agent.env_args, None, 1, 4
+        )
+        policy_step = make_policy_step(actor, actor.params, False)
+        own, _ = policy_step(None, rollout.obs[0], rollout.resets[0])
+        np.testing.assert_allclose(
+            rollout.reward[0], paid_action.mapped(own)[:, 0], rtol=1e-6
+        )
+        return
+    case = CASES[name]
+    exposed = {"expose_recent_rollout": True} if case.rollout is not None else {}
+    kwargs = case.kwargs | exposed | (WARM_UP if case.buffer else {})
+    agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)
+    state, _ = agent.train(seed=0, n_timesteps=96 if case.buffer else 128)
+    actions, rewards = _paid_rows(name, state)
+    assert np.abs(actions).max() > 0.01, "no action was collected"
+    np.testing.assert_allclose(rewards, paid_action.mapped(actions), rtol=1e-6)
+    if name in ("SAC", "TD3"):
+        assert (np.abs(rewards[:64]) > 1.0).mean() > 0.25
+    if not case.evaluates:
+        return
+    actor = jax.tree.map(lambda x: x[0], state.actor_state)
+    paid = evaluate(env, actor, 2, jax.random.PRNGKey(1), params)[0]
+    act = get_deterministic_action_and_entropy_fn(actor, False, True)
+    own, _, _ = act(paid_action.OBS[None], None, None)
+    np.testing.assert_allclose(paid, paid_action.mapped(own)[0, 0], rtol=1e-6)

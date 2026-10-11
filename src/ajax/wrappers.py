@@ -196,7 +196,10 @@ class ClipAction(GymnaxWrapper):
     """Clip a continuous action to the env's action space, or to ``[low,
     high]`` when given: gym's ``ClipAction``. PureJaxRL's, which this one
     descends from, clips to ``[-1, 1]`` and leaves reading the space as a
-    TODO; ``[-1, 1]`` would make the top of a ``Box(0, 2)`` unreachable."""
+    TODO; ``[-1, 1]`` would make the top of a ``Box(0, 2)`` unreachable.
+    Ajax's own steps map agent actions onto the box first
+    (:func:`ajax.environments.utils.agent_action_to_env`), so here it is a
+    guard for raw stepping (``interaction.step``)."""
 
     def __init__(self, env, low=None, high=None):
         super().__init__(env)

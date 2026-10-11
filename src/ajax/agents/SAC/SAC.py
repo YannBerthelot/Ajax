@@ -233,7 +233,7 @@ class SAC(ActorCritic):
             reset_log_std_after_bc=reset_log_std_after_bc,
             reset_actor_head_after_bc=reset_actor_head_after_bc,
         )
-        self.eval_expert_policy = eval_expert_policy
+        self.eval_expert_policy = self._in_agent_units(eval_expert_policy)
         self.jsrl_curriculum = jsrl_curriculum
         self.use_pid_policy = use_pid_policy
         self.fixed_alpha = fixed_alpha

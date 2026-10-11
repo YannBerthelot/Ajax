@@ -105,6 +105,8 @@ class PPO(ActorCritic):
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_layer_norm: bool = False,
+        # Squashed or not, the action is read in [-1, 1] and mapped onto the
+        # env's bounds (agent_action_to_env), clipped there first.
         squash: bool = False,
         episode_length: Optional[int] = None,
         # (agent_state, rollout) -> reward bonus added before GAE.

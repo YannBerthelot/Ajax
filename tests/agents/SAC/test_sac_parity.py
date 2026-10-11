@@ -59,11 +59,17 @@ _PARITY_TIMESTEPS = 200
 # (SAC's networks are plain MLPs, as in Haarnoja et al.): the trees lost
 # the norm's scales, 256 per encoder (critic 1042.7 -> 565.3, actor 518.2 ->
 # 267.3, target 1034.9 -> 524.0), alpha moved 0.04% (0.97270 -> 0.97225).
+#
+# Re-blessed once SAC's [-1, 1] action was mapped onto Pendulum's [-2, 2]
+# torque box (the policy and the uniform warm-up act at twice the torque):
+# critic -0.27%, actor -0.081%, target -0.0078%, alpha +0.0028%. Previous
+# goldens: critic 565.2509155273438, actor 267.29229736328125, target
+# 523.9547119140625, alpha 0.9722516536712646.
 _GOLDEN = {
-    "critic": 565.2509155273438,
-    "actor": 267.29229736328125,
-    "target": 523.9547119140625,
-    "alpha": 0.9722516536712646,
+    "critic": 563.753662109375,
+    "actor": 267.07598876953125,
+    "target": 523.9136352539062,
+    "alpha": 0.9722799062728882,
 }
 _TOL = 1e-4
 

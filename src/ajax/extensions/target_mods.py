@@ -165,6 +165,7 @@ class IBRL(Extension):
     expert_policy: Callable
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 
@@ -210,6 +211,7 @@ class LCBGatedBootstrap(Extension):
     lcb_temperature: float = 1.0
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 
@@ -272,6 +274,7 @@ class CriticBlend(Extension):
     critic_warmup_frac: float = 0.15
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 

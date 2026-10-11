@@ -20,6 +20,7 @@ from ajax.environments.utils import (
     agent_action_to_env,
     agent_episode_length,
     env_action_repeat,
+    env_action_to_agent,
 )
 from ajax.evaluate import setup_environment
 
@@ -244,6 +245,23 @@ def test_actions_map_to_pendulum_bounds():
     # also with params traced inside jit (bounds unknown at trace time)
     mapped = jax.jit(lambda p, a: agent_action_to_env(a, env, p))(params, a)
     np.testing.assert_allclose(mapped, expected)
+    # the inverse does not clip: 3.0 is out of the box
+    np.testing.assert_array_equal(
+        env_action_to_agent(jnp.array([[-2.0], [1.0], [3.0]]), env, params),
+        [[-1.0], [0.5], [1.5]],
+    )
+
+
+def test_the_round_trip_is_exact_on_pendulum():
+    env, params = gymnax.make("Pendulum-v1")
+    a = jnp.tanh(jax.random.normal(jax.random.PRNGKey(0), (256, 1)))
+    there_and_back = jax.jit(
+        lambda p, a: env_action_to_agent(agent_action_to_env(a, env, p), env, p)
+    )
+    np.testing.assert_array_equal(there_and_back(params, a), a)
+    torque = 2.0 * jax.random.uniform(jax.random.PRNGKey(1), (256, 1), minval=-1)
+    back = agent_action_to_env(env_action_to_agent(torque, env, params), env, params)
+    np.testing.assert_array_equal(back, torque)
 
 
 def test_unit_bounds_only_clip_and_discrete_actions_pass_through():
@@ -254,11 +272,14 @@ def test_unit_bounds_only_clip_and_discrete_actions_pass_through():
     clipped = np.array([[1.0], [-0.25], [-1.0]])
     env, params = gymnax.make("MountainCarContinuous-v0")
     np.testing.assert_array_equal(agent_action_to_env(a, env, params), clipped)
+    np.testing.assert_array_equal(env_action_to_agent(a, env, params), a)
     env, _ = build_env_from_id("fast")
     np.testing.assert_array_equal(agent_action_to_env(a, env, None), clipped)
+    np.testing.assert_array_equal(env_action_to_agent(a, env, None), a)
     env, params = gymnax.make("CartPole-v1")
     discrete = jnp.array([0, 1])
     assert agent_action_to_env(discrete, env, params) is discrete
+    assert env_action_to_agent(discrete, env, params) is discrete
 
 
 def test_per_env_params_map_actions_to_each_systems_bounds():
@@ -273,8 +294,36 @@ def test_per_env_params_map_actions_to_each_systems_bounds():
     np.testing.assert_allclose(agent_action_to_env(a, env, params), expected)
     mapped = jax.jit(lambda p, a: agent_action_to_env(a, env, p))(params, a)
     np.testing.assert_allclose(mapped, expected)
+    back = jax.jit(lambda p, e: env_action_to_agent(e, env, p))(params, mapped)
+    np.testing.assert_allclose(back, a)
     with pytest.raises(ValueError, match="Per-env params for 3 envs"):
         agent_action_to_env(a[:2], env, params)
+    with pytest.raises(ValueError, match="Per-env params for 3 envs"):
+        env_action_to_agent(a[:2], env, params)
+
+
+class _ArrayBoxEnv:
+    """A unit box declared with ``jnp.array`` bounds, as TargetGym's envs
+    do: inside jit they are tracers, unknown at trace time."""
+
+    def action_space(self, params=None):
+        return spaces.Box(low=-jnp.ones(2), high=jnp.array([1.0, 1.0]), shape=(2,))
+
+
+def test_unit_bounds_are_exactly_the_clip_even_when_traced():
+    a = jnp.array([[0.3, -0.7], [1e-3, 0.123456], [2.0, -0.999]])
+    clipped = np.asarray(jnp.clip(a, -1.0, 1.0))
+    env = _ArrayBoxEnv()
+    mapped = jax.jit(lambda a: agent_action_to_env(a, env, None))(a)
+    np.testing.assert_array_equal(mapped, clipped)
+    back = jax.jit(lambda a: env_action_to_agent(a, env, None))(a)
+    np.testing.assert_array_equal(back, a)
+    env, params = gymnax.make("MountainCarContinuous-v0")
+    params = broadcast_env_params(params, 3)  # per-env, all [-1, 1]
+    mapped = jax.jit(lambda p, a: agent_action_to_env(a, env, p))(params, a[:, :1])
+    np.testing.assert_array_equal(mapped, clipped[:, :1])
+    back = jax.jit(lambda p, a: env_action_to_agent(a, env, p))(params, a[:, :1])
+    np.testing.assert_array_equal(back, a[:, :1])
 
 
 class _HalfBoundedEnv:
@@ -290,3 +339,5 @@ def test_unbounded_action_dimensions_are_only_clipped():
     a = jnp.array([[0.5, 0.3], [-3.0, -7.0]])
     out = agent_action_to_env(a, _HalfBoundedEnv(), None)
     np.testing.assert_allclose(out, [[3.0, 0.3], [0.0, -1.0]])
+    back = env_action_to_agent(out, _HalfBoundedEnv(), None)
+    np.testing.assert_allclose(back, [[0.5, 0.3], [-1.0, -1.0]])

@@ -26,14 +26,15 @@ from ajax.agents.obs_norm import apply_obs_norm
 from ajax.agents.PPO.utils import _compute_gae
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.differentiable import with_transition_gradients
+from ajax.environments.utils import _action_bounds
 from ajax.networks.networks import predict_value
 
 from . import agents, envs, oracles, runs
 from . import readouts as R
-from .verdict import STAGE_1, Case, Query, check, params
+from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "5aef9b904928"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "a7db91749554"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -839,13 +840,16 @@ def _quadratic(a: jax.Array) -> jax.Array:
     return -jnp.sum((a.reshape(-1) - 0.5) ** 2)
 
 
+# The quadratic bandits' answers (sigma 1, mu 0.5) are for the Gaussian the
+# env executes: the agent's action maps onto the box (WIDE a), clipped at its
+# edges, so the box is wide enough (9.5 sigmas from mu) that the clip never
+# binds. The bonus is the agent-unit Gaussian's entropy, the env-unit one's
+# minus log WIDE: the same stationary point. sigma starts at WIDE e^-1.
+WIDE = 10.0
 BANDITS = {
     "a": _bandit(lambda a: jnp.where(a == 0, 1.0, 0.0), actions=2),
-    # The quadratic bandits' answers (sigma 1, mu 0.5) are for the raw Gaussian
-    # action: continuous actions are clipped to the action box, so the box is
-    # wide enough (+-10, ten sigmas) that the clip never binds.
-    "b": _bandit(_quadratic, bound=10.0),
-    "b2": _bandit(_quadratic, dim=2, bound=10.0),
+    "b": _bandit(_quadratic, bound=WIDE),
+    "b2": _bandit(_quadratic, dim=2, bound=WIDE),
     "c": _bandit(lambda a: jnp.float32(0.0)),
 }
 
@@ -858,7 +862,14 @@ def _q6_agent(agent: str, bandit: str, c: float, **kw: Any) -> Any:
     return agents.make(agent, *BANDITS[bandit].make(), **kw)
 
 
-def _q6_read(n: R.Nets) -> dict:
+def _executed(p: Any, env_args: Any) -> tuple[jax.Array, jax.Array]:
+    """The Gaussian ``p`` (agent units) as the env executes it, mean and std:
+    agent_action_to_env's centre + half-range x a, its clip unbound."""
+    centre, half = _action_bounds(env_args.env, env_args.env_params)
+    return centre + half * p.mean().reshape(-1), half * p.stddev().reshape(-1)
+
+
+def _q6_read(env_args: Any, n: R.Nets) -> dict:
     """The policy at the constant observation."""
     p = R.pi(n, 1.0)
     if isinstance(p, distrax.Categorical):
@@ -866,7 +877,7 @@ def _q6_read(n: R.Nets) -> dict:
     if hasattr(p, "unsquashed_stddev"):  # the tanh-Gaussian's latent
         mu_u, sigma_u = p.unsquashed_mean(), p.unsquashed_stddev()
         return {"mu_u": mu_u.reshape(()), "sigma_u": sigma_u.reshape(())}
-    mu, sigma = p.mean().reshape(-1), p.stddev().reshape(-1)
+    mu, sigma = _executed(p, env_args)
     if mu.shape[0] == 1:
         return {"mu": mu[0], "sigma": sigma[0]}
     return {"mu_1": mu[0], "mu_2": mu[1], "sigma_1": sigma[0], "sigma_2": sigma[1]}
@@ -885,7 +896,7 @@ PI_BEST, SIGMA_C = oracles.softmax_optimum(1.0), oracles.max_entropy_sigma()
 _PI_A = {"untrained": 0.5, DROPPED: 0.976, f"{P07}, better arm": 1.0}
 _PI_A[f"{P07}, worse arm"] = 0.0  # a flipped bonus collapses each seed on an arm
 _APO_A = {"untrained": 0.5, DROPPED: 0.990, "bonus sign flipped": 0.997}
-_AVERAGED = {"entropy averaged over the dimensions": math.sqrt(0.5)}
+_AVERAGED = {"entropy averaged over the dimensions": 0.739}  # sqrt(1/2) at rest
 _CLIP = "sign flipped (P07) or latent-Gaussian entropy (PPO/core.py): the log-std clip"
 _APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": apo_latent_sigma(80_000)}
 _APO_C["latent-Gaussian entropy, sign flipped"] = 1 / apo_latent_sigma(80_000)
@@ -894,11 +905,11 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "APO-a": (Query("pi(best)", PI_BEST, _APO_A),),
     # Both faults still shrink sigma at 160,000 steps; mu is a sanity check.
     "PPO-b": (
-        Query("sigma", 1.0, {"untrained": math.exp(-1.0), DROPPED: 0.130, P07: 0.067}),
+        Query("sigma", 1.0, {"untrained": WIDE / math.e, DROPPED: 0.431, P07: 0.05}),
         Query("mu", 0.5, {"untrained": 0.0}),
     ),
     "PPO-b2": tuple(
-        Query(f"sigma_{i}", 1.0, _AVERAGED | {"untrained": math.exp(-1.0)})
+        Query(f"sigma_{i}", 1.0, _AVERAGED | {"untrained": WIDE / math.e})
         for i in (1, 2)
     ),
     "PPO-c": (
@@ -910,8 +921,8 @@ Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
     # agent, bandit, c, budget, tolerances (32/32 of 3000-3031), overrides
     "PPO-a": ("PPO", "a", 1.0, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
     "APO-a": ("APO", "a", 1.0, 20_000, (0.023,), {}),
-    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.082, 0.086), {}),  # 80,000: 0.061
-    "PPO-b2": ("PPO", "b2", 2.0, 160_000, (), {}),
+    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.069, 0.246), {}),  # 120,000: 0.147
+    "PPO-b2": ("PPO", "b2", 2.0, 160_000, (0.065, 0.08), {}),  # 120,000: 0.155
     "PPO-c": (  # 40,000 failed: 0.382
         "PPO",
         "c",
@@ -922,11 +933,21 @@ Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
     ),
     "APO-c": ("APO", "c", 0.1, 80_000, (0.062,), {}),  # half the gap to 1.0
 }
+# PPO-b's mu, a sanity check, is WIDE times the agent-unit mean's jitter:
+# twice its pooled worst error is 0.20-0.25 on every rung from 60,000 steps
+# at 4e-5 (1e-5: 0.088 at 640,000, 1000-1031), so its tolerance is half its gap.
+Q6_CEILING = {"PPO-b": 0.25}
 for cell, (agent, bandit, c, steps, q6_tols, kw) in Q6_CELLS.items():
     build = functools.partial(_q6_agent, agent, bandit, c, **kw)
-    reads = runs.readings(build, lambda run: R.per_seed(_q6_read, R.nets(run.state)))
+    reads = runs.readings(
+        build,
+        lambda run: R.per_seed(
+            functools.partial(_q6_read, run.agent.env_args), R.nets(run.state)
+        ),
+    )
+    cid, slow, ceiling = f"q6-{cell}", cell != "PPO-a", Q6_CEILING.get(cell, CEILING)
     case = Case(
-        f"q6-{cell}", Q6_QUERIES[cell], reads, steps, q6_tols, slow=cell != "PPO-a"
+        cid, Q6_QUERIES[cell], reads, steps, q6_tols, slow=slow, ceiling=ceiling
     )
     CASES[case.id] = case
 

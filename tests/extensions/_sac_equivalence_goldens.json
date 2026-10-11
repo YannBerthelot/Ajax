@@ -1,116 +1,116 @@
 {
   "test_empty_stack_matches_legacy_plain_sac": {
-    "critic": 542.6725463867188,
-    "actor": 269.8208312988281,
-    "target": 522.5401000976562,
-    "alpha": 0.9811338186264038
+    "critic": 542.7413940429688,
+    "actor": 269.7391357421875,
+    "target": 522.5420532226562,
+    "alpha": 0.9811318516731262
   },
   "test_expert_policy_matches_legacy_expert_policy": {
-    "critic": 543.6828002929688,
-    "actor": 269.19287109375,
-    "target": 522.4954833984375,
-    "alpha": 0.9811173677444458
+    "critic": 543.6524658203125,
+    "actor": 268.8913879394531,
+    "target": 522.494384765625,
+    "alpha": 0.9811216592788696
   },
   "test_online_bc_matches_legacy_flag": {
-    "critic": 543.4259643554688,
-    "actor": 269.4771728515625,
-    "target": 522.4854736328125,
-    "alpha": 0.9812285900115967
+    "critic": 543.1892700195312,
+    "actor": 269.4734191894531,
+    "target": 522.4834594726562,
+    "alpha": 0.9812288880348206
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
-    "critic": 543.0684204101562,
-    "actor": 269.47076416015625,
-    "target": 522.5054931640625,
-    "alpha": 0.98127281665802
+    "critic": 542.5681762695312,
+    "actor": 269.46282958984375,
+    "target": 522.5075073242188,
+    "alpha": 0.9812745451927185
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
-    "critic": 543.3677978515625,
-    "actor": 268.9731140136719,
-    "target": 522.4713134765625,
-    "alpha": 0.9812308549880981
+    "critic": 543.2432250976562,
+    "actor": 268.98333740234375,
+    "target": 522.4752197265625,
+    "alpha": 0.9812317490577698
   },
   "test_ibrl_matches_legacy_flag": {
-    "critic": 543.4253540039062,
-    "actor": 269.47674560546875,
-    "target": 522.4854736328125,
-    "alpha": 0.9812285900115967
+    "critic": 543.1861572265625,
+    "actor": 269.47344970703125,
+    "target": 522.4833984375,
+    "alpha": 0.9812288880348206
   },
   "test_edge_exploration_matches_legacy_flags[fixed]": {
-    "critic": 544.0636596679688,
-    "actor": 270.7090759277344,
-    "target": 522.5205078125,
-    "alpha": 0.9812394380569458
+    "critic": 543.7710571289062,
+    "actor": 270.7605895996094,
+    "target": 522.521484375,
+    "alpha": 0.9812411665916443
   },
   "test_edge_exploration_matches_legacy_flags[argmax]": {
-    "critic": 543.4271850585938,
-    "actor": 268.80401611328125,
-    "target": 522.46728515625,
-    "alpha": 0.9812313914299011
-  },
-  "test_edge_exploration_matches_legacy_flags[boltzmann]": {
-    "critic": 544.0636596679688,
-    "actor": 270.7090759277344,
-    "target": 522.5205078125,
-    "alpha": 0.9812394380569458
-  },
-  "test_edge_exploration_matches_legacy_flags[lcb]": {
-    "critic": 544.6011352539062,
-    "actor": 268.7677917480469,
-    "target": 522.5010375976562,
-    "alpha": 0.9812885522842407
-  },
-  "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
-    "critic": 543.6237182617188,
-    "actor": 268.3297424316406,
-    "target": 522.462158203125,
-    "alpha": 0.9812295436859131
-  },
-  "test_edge_exploration_matches_legacy_flags[thompson]": {
-    "critic": 544.171142578125,
-    "actor": 270.1700744628906,
-    "target": 522.512939453125,
-    "alpha": 0.9812621474266052
-  },
-  "test_lcb_gated_bootstrap_matches_legacy_flag": {
-    "critic": 543.4334106445312,
-    "actor": 269.4773254394531,
-    "target": 522.485595703125,
-    "alpha": 0.9812285900115967
-  },
-  "test_mc_pretrain_matches_legacy_flag": {
-    "critic": 546.325439453125,
-    "actor": 269.4385986328125,
-    "target": 522.5718383789062,
-    "alpha": 0.9812284708023071
-  },
-  "test_bellman_pretrain_matches_legacy_flag": {
-    "critic": 552.5109252929688,
-    "actor": 270.71270751953125,
-    "target": 522.7378540039062,
-    "alpha": 0.9810642600059509
-  },
-  "test_critic_blend_matches_legacy_flag": {
-    "critic": 546.0523681640625,
-    "actor": 269.2841491699219,
-    "target": 522.5646362304688,
+    "critic": 543.44384765625,
+    "actor": 268.8388977050781,
+    "target": 522.476806640625,
     "alpha": 0.981232225894928
   },
+  "test_edge_exploration_matches_legacy_flags[boltzmann]": {
+    "critic": 543.7710571289062,
+    "actor": 270.7605895996094,
+    "target": 522.521484375,
+    "alpha": 0.9812411665916443
+  },
+  "test_edge_exploration_matches_legacy_flags[lcb]": {
+    "critic": 544.2550048828125,
+    "actor": 268.8761901855469,
+    "target": 522.5060424804688,
+    "alpha": 0.9812843799591064
+  },
+  "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
+    "critic": 543.5076904296875,
+    "actor": 268.3122253417969,
+    "target": 522.4710693359375,
+    "alpha": 0.9812289476394653
+  },
+  "test_edge_exploration_matches_legacy_flags[thompson]": {
+    "critic": 543.6046752929688,
+    "actor": 270.3092346191406,
+    "target": 522.5181274414062,
+    "alpha": 0.9812758564949036
+  },
+  "test_lcb_gated_bootstrap_matches_legacy_flag": {
+    "critic": 543.1900634765625,
+    "actor": 269.4734191894531,
+    "target": 522.4835205078125,
+    "alpha": 0.9812288880348206
+  },
+  "test_mc_pretrain_matches_legacy_flag": {
+    "critic": 546.186279296875,
+    "actor": 269.41632080078125,
+    "target": 522.5702514648438,
+    "alpha": 0.9812284111976624
+  },
+  "test_bellman_pretrain_matches_legacy_flag": {
+    "critic": 552.5021362304688,
+    "actor": 270.6169738769531,
+    "target": 522.7216186523438,
+    "alpha": 0.981067955493927
+  },
+  "test_critic_blend_matches_legacy_flag": {
+    "critic": 545.9740600585938,
+    "actor": 269.27947998046875,
+    "target": 522.5629272460938,
+    "alpha": 0.9812266230583191
+  },
   "test_mc_variance_correction_matches_legacy_flag": {
-    "critic": 525.4025268554688,
-    "actor": 269.76641845703125,
-    "target": 522.1605224609375,
-    "alpha": 0.9812397956848145
+    "critic": 525.289306640625,
+    "actor": 269.75555419921875,
+    "target": 522.1607666015625,
+    "alpha": 0.9812408685684204
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 546.11279296875,
-    "actor": 267.0212097167969,
-    "target": 522.5502319335938,
-    "alpha": 0.9812424182891846
+    "critic": 546.1936645507812,
+    "actor": 267.10888671875,
+    "target": 522.54443359375,
+    "alpha": 0.9812403321266174
   },
   "test_phi_refresh_matches_legacy_flag": {
-    "critic": 545.8676147460938,
-    "actor": 269.2311096191406,
-    "target": 522.5659790039062,
-    "alpha": 0.9811691045761108
+    "critic": 545.912841796875,
+    "actor": 268.71429443359375,
+    "target": 522.5595092773438,
+    "alpha": 0.9811710715293884
   }
 }

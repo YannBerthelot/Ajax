@@ -399,6 +399,7 @@ class MCPretrain(Extension):
     expert_state_aug_dim: int = 0
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
@@ -710,6 +711,7 @@ class PhiRefresh(Extension):
     augment_obs_with_expert_action: bool = False
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 

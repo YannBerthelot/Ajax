@@ -12,6 +12,8 @@ from jax.tree_util import Partial as partial
 from ajax.buffers.utils import get_expert_fields_from_buffer, init_buffer
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
+    ExpertInAgentUnits,
+    agent_action_to_env,
     get_state_action_shapes,
     maybe_append_train_frac,
     raw_obs_columns,
@@ -602,7 +604,6 @@ def get_action_and_log_probs(
     action_key: chex.PRNGKey,
     agent_state: BaseAgentState,
     recurrent: bool,
-    uniform: bool,
 ) -> Tuple[jax.Array, jax.Array, jax.Array, BaseAgentState]:
     """Sample an action from the policy.
 
@@ -613,7 +614,7 @@ def get_action_and_log_probs(
     would freeze the policy's memory at zero for the whole collection
     phase.
     """
-    action, log_probs, raw_action, agent_state = get_action_and_new_agent_state(
+    return get_action_and_new_agent_state(
         action_key,
         agent_state,
         agent_state.collector_state.last_obs,
@@ -622,15 +623,6 @@ def get_action_and_log_probs(
             agent_state.collector_state.last_truncated,
         ),
         recurrent=recurrent,
-    )
-    uniform_action = jax.random.uniform(
-        key=action_key, minval=-1, maxval=1, shape=action.shape
-    )  # TODO : add actual bounds
-    return (
-        uniform * uniform_action + (1 - uniform) * action,
-        log_probs,
-        raw_action,
-        agent_state,
     )
 
 
@@ -685,36 +677,6 @@ def identity(*args):
     return args
 
 
-def get_buffer_action_and_env_action(
-    rng: jax.Array,
-    expert_action: jax.Array,
-    policy_action: jax.Array,
-    is_warmup: jax.Array,
-    expert_fraction: float = 0.7,
-) -> tuple[jax.Array, jax.Array]:
-    """
-    During warmup: randomly choose between expert and uniform for BOTH
-    the environment step and the buffer write, so rewards are consistent.
-    After warmup: use the policy action for both.
-
-    Returns (env_action, buffer_action) — always the same during warmup,
-    always policy_action after warmup.
-    """
-    mix_key, _ = jax.random.split(rng)
-    uniform_action = jax.random.uniform(
-        mix_key, minval=-1.0, maxval=1.0, shape=expert_action.shape
-    )
-    use_expert = jax.random.uniform(mix_key) < expert_fraction
-    warmup_action = jnp.where(use_expert, expert_action, uniform_action)
-
-    env_action = jax.lax.cond(
-        is_warmup,
-        lambda: warmup_action,
-        lambda: policy_action,
-    )
-    return env_action, env_action  # buffer_action = env_action always
-
-
 class ActionPipelineResult(NamedTuple):
     """What an ``action_pipeline`` hands :func:`collect_experience`.
 
@@ -724,7 +686,9 @@ class ActionPipelineResult(NamedTuple):
     as the pipeline found it.
     """
 
-    env_action: jax.Array  # executed in the environment
+    # Executed in the environment once agent_action_to_env maps it onto the
+    # env's bounds: in agent units, [-1, 1], as every action below.
+    env_action: jax.Array
     policy_action: jax.Array  # the actor's action, stored in the transition
     log_probs: jax.Array
     is_expert_flag: jax.Array  # 1 where an expert acted (buffer bookkeeping)
@@ -873,11 +837,13 @@ def collect_experience(
             action_key=action_key,
             agent_state=agent_state,
             recurrent=recurrent,
-            uniform=False,
         )
         uniform_action = jax.random.uniform(
             mix_key, minval=-1.0, maxval=1.0, shape=action.shape
         )
+        # A discrete policy's action is stepped and stored as a float, the
+        # uniform draw's dtype, which the cond needs both branches to share.
+        action = action.astype(uniform_action.dtype)
         env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
         is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
         in_value_box = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
@@ -892,7 +858,7 @@ def collect_experience(
         step(
             rng_step,
             agent_state.collector_state.env_state,
-            env_action,
+            agent_action_to_env(env_action, env_args.env, env_args.env_params),
             env_args.env,
             mode,
             env_args.env_params,
@@ -1083,6 +1049,9 @@ def collect_experience_from_expert_policy(
     called as ``expert_policy(state, obs) -> (action, new_state)`` and the
     state is reset on episode termination so the integrator restarts each
     episode. Stateless experts are called as ``expert_policy(obs) -> action``.
+    The expert speaks env units (:class:`ExpertInAgentUnits` reads it in
+    agent units, as the transitions store it) and its action is mapped back
+    onto the env's bounds to step it.
 
     The observations are the live collector's: the training fraction
     ``train_frac`` appended when given, then, with
@@ -1092,6 +1061,9 @@ def collect_experience_from_expert_policy(
     Returns:
         transitions: A `Transition` object containing all collected transitions.
     """
+    expert_policy = ExpertInAgentUnits.wrap(
+        expert_policy, env_args.env, env_args.env_params
+    )
     # Split RNGs for environment reset and stepping
     reset_key, step_key, rng = jax.random.split(rng, 3)
 
@@ -1136,7 +1108,12 @@ def collect_experience_from_expert_policy(
         obsv, new_env_state, reward, terminated, truncated, info = (
             jax.lax.stop_gradient(
                 step(
-                    rng_step, env_state, action, env_args.env, mode, env_args.env_params
+                    rng_step,
+                    env_state,
+                    agent_action_to_env(action, env_args.env, env_args.env_params),
+                    env_args.env,
+                    mode,
+                    env_args.env_params,
                 )
             )
         )

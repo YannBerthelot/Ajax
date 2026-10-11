@@ -8,6 +8,7 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.environments.create import prepare_env
+from ajax.environments.utils import ExpertInAgentUnits
 from ajax.extensions.base import (
     Extension,
     ExtensionStack,
@@ -88,6 +89,8 @@ class ActorCritic:
     # state (a_expert, next_a_expert), which extensions may read
     # (check_extension_experts).
     stores_expert_actions: bool = False
+    # Set, before this initialiser, by the agents that take an expert.
+    expert_policy: Any
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -225,6 +228,27 @@ class ActorCritic:
         # `ajax.extensions.base`.
         self.extension_stack = ExtensionStack(extensions)
         self._check_extension_phases()
+        # The expert door: an expert speaks env units, the agent reads it in
+        # agent units, [-1, 1], as its own actions (checked raw above).
+        self._experts_in_agent_units: dict[int, tuple[Any, Any]] = {}
+        expert = getattr(self, "expert_policy", None)
+        if expert is not None:
+            self.expert_policy = self._in_agent_units(expert)
+        self.extension_stack = self.extension_stack.with_experts(self._in_agent_units)
+
+    def _in_agent_units(self, expert: Any) -> Any:
+        """``expert`` read in agent units (:class:`ExpertInAgentUnits`),
+        one wrapper per expert: an extension holding the agent's expert
+        keeps holding the same object (``reads_stored_expert_actions``)."""
+        if expert is None:
+            return None
+        if id(expert) not in self._experts_in_agent_units:
+            wrapped = ExpertInAgentUnits.wrap(
+                expert, self.env_args.env, self.env_args.env_params
+            )
+            # The raw expert is kept so its id is not reused.
+            self._experts_in_agent_units[id(expert)] = (expert, wrapped)
+        return self._experts_in_agent_units[id(expert)][1]
 
     def _check_extension_phases(self) -> None:
         """Reject extensions implementing phases this agent never folds, or

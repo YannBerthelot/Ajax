@@ -133,6 +133,8 @@ _PENDULUM: dict[str, Any] = {
     "critic_architecture": ("16", "tanh"),
 }
 _CARTPOLE: dict[str, Any] = {"env_id": "CartPole-v1", "architecture": ("16", "relu")}
+# A [-1, 1] action box: mapping agent actions onto the env's bounds leaves it.
+_MCC: dict[str, Any] = {"env_id": "MountainCarContinuous-v0"}
 _SPLIT: dict[str, Any] = {"n_envs": 4, "n_steps": 16, "num_minibatches": 2}
 _PQN: dict[str, Any] = {**_CARTPOLE, **_SPLIT, "n_epochs": 2}
 _DQN: dict[str, Any] = {**_CARTPOLE, **_REPLAY, "target_update_interval": 7}
@@ -182,6 +184,23 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "AVG": (AVG, {**_SMALL, "learning_starts": 20}, 200),
     "TD3": (TD3, {**_SMALL, **_REPLAY}, 200),
+    "SAC-mcc": (
+        SAC,
+        {
+            **_SMALL,
+            **_REPLAY,
+            **_MCC,
+            "policy_update_start": 40,
+            "alpha_update_start": 40,
+        },
+        200,
+    ),
+    "TD3-mcc": (TD3, {**_SMALL, **_REPLAY, **_MCC}, 200),
+    "PPO-mcc": (
+        PPO,
+        {**_PENDULUM, **_MCC, "n_envs": 2, "n_steps": 32, "batch_size": 8},
+        256,
+    ),
     "SAC-gru": (
         SAC,
         {
@@ -458,6 +477,74 @@ _GOLDEN |= {
 _GOLDEN |= {
     "APG-nudge": {"actor": 35.82789611816406, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.82305145263672, "nudge": 0.27262088656425476},
+}
+
+# Recorded on macOS ARM CPU once the action map took its centre/half-range
+# form, exact on a [-1, 1] box: on MountainCarContinuous's, mapping the
+# agents' actions onto the env's bounds must leave these unchanged.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 3.1000170707702637,
+        "critic": 8.203842163085938,
+        "alpha": 0.9754154682159424,
+    },
+    "TD3-mcc": {"actor": 2.397678852081299, "critic": 7.9359588623046875},
+    "PPO-mcc": {"actor": 3.6173574924468994, "critic": 3.1998236179351807},
+}
+# Re-recorded on macOS ARM CPU once get_action_and_log_probs lost its dead
+# uniform draw (0 * u + 1 * a): XLA compiles the GRU collector without it,
+# and the actor moved by float rounding alone (-1.4e-7; 53.321449279785156
+# before). Every other pin is bitwise unchanged.
+_GOLDEN |= {"PPO-gru": {"actor": 53.321441650390625, "critic": 52.78514099121094}}
+# Re-recorded on macOS ARM CPU once every continuous agent's [-1, 1] action
+# was mapped onto the env's box: on Pendulum's [-2, 2] the torque, the
+# uniform warm-up and TD3's noise double, PPO's Gaussian is read in
+# normalised units and APG's gradients scale by 2. Relative shifts (actor,
+# critic): AVG -2.63%, -2.39%; TD3 -0.61%, -0.36%; PPO-flat -0.52%,
+# -0.15%; PPO-env-split -0.52%, +0.08%; PPO-unroll -0.42%, -0.31%;
+# PPO-env-split-nudge +0.29%, +0.12%; PPO-gru +0.08%, -0.11%; ASAC -0.13%,
+# -0.04%; REDQ -0.10%, -0.15%; SAC-gru -0.05%, +0.13%; APO-nudge +0.003%,
+# +0.18%; APG-nudge and APG-pid-nudge actor +0.03%. Alphas and nudges move
+# under 1e-5. Every [-1, 1]-box and discrete pin (the -mcc ones, CartPole's,
+# the world models') is bitwise unchanged.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.686222076416016,
+        "critic": 18.646684646606445,
+        "alpha": 0.07000000029802322,
+    },
+    "TD3": {"actor": 3.9167749881744385, "critic": 11.465590476989746},
+    "PPO-flat": {"actor": 4.116726398468018, "critic": 4.499772548675537},
+    "PPO-env-split": {"actor": 3.0195863246917725, "critic": 4.1037750244140625},
+    "PPO-unroll": {"actor": 4.207005023956299, "critic": 4.5349884033203125},
+    "PPO-env-split-nudge": {
+        "actor": 3.753653049468994,
+        "critic": 4.229918479919434,
+        "nudge": 0.3099551498889923,
+    },
+    "PPO-gru": {"actor": 53.36158752441406, "critic": 52.72870635986328},
+    "ASAC": {
+        "actor": 4.495896339416504,
+        "critic": 9.951025009155273,
+        "alpha": 0.972956120967865,
+    },
+    "REDQ": {
+        "actor": 4.486619472503662,
+        "critic": 23.64264488220215,
+        "alpha": 0.9729592204093933,
+    },
+    "SAC-gru": {
+        "actor": 57.37752151489258,
+        "critic": 134.38070678710938,
+        "alpha": 0.95156329870224,
+    },
+    "APO-nudge": {
+        "actor": 3.852809429168701,
+        "critic": 4.166390419006348,
+        "nudge": 0.33622848987579346,
+    },
+    "APG-nudge": {"actor": 35.83795928955078, "nudge": 0.27262088656425476},
+    "APG-pid-nudge": {"actor": 36.834327697753906, "nudge": 0.27262088656425476},
 }
 
 

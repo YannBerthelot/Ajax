@@ -93,15 +93,13 @@ class EnvironmentConfig:
 
 
 @struct.dataclass
-class RollingMeanState:
-    buffer: jnp.ndarray  # shape (window_size,n_envs)
-    index: jnp.ndarray  # shape (1,n_envs)
-    count: jnp.ndarray  # shape (1,n_envs)
-    sum: jnp.ndarray  # shape (1,n_envs)
+class RollinEpisodicMeanRewardState:
+    """Each env's rolling window of its last episode returns."""
 
-
-@struct.dataclass
-class RollinEpisodicMeanRewardState(RollingMeanState):
+    buffer: jnp.ndarray  # (window_size, n_envs, 1)
+    index: jnp.ndarray  # (n_envs, 1): the next slot to write
+    count: jnp.ndarray  # (n_envs, 1): filled slots
+    sum: jnp.ndarray  # (n_envs, 1)
     last_return: jnp.ndarray
     cumulative_reward: jnp.ndarray
 

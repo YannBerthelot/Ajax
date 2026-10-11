@@ -29,7 +29,12 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
-from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_OBS_KEY, RAW_REWARD_KEY
+from ajax.wrappers import (
+    _FINAL_OBS_KEYS,
+    RAW_FINAL_OBS_KEY,
+    RAW_OBS_KEY,
+    RAW_REWARD_KEY,
+)
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -113,38 +118,6 @@ def init_rolling_mean(
         cumulative_reward=cumulative_reward,
         last_return=last_return,
     )
-
-
-def update_rolling_mean(
-    state: RollinEpisodicMeanRewardState, new_value: jax.Array
-) -> tuple[RollinEpisodicMeanRewardState, jax.Array]:
-    rows = state.index.flatten()  # [2, 3]
-    cols = jnp.arange(new_value.shape[0])  # column indices
-
-    old_value = state.buffer[rows, cols]
-
-    new_sum = state.sum - old_value + new_value  # remove oldest value to add new one
-    buffer = state.buffer.at[rows, cols].set(new_value)
-    new_index = (state.index + 1) % buffer.shape[0]
-    new_count = jnp.minimum(state.count + 1, buffer.shape[0])
-
-    new_state = RollinEpisodicMeanRewardState(
-        buffer=buffer,
-        index=new_index,
-        count=new_count,
-        sum=new_sum,
-        cumulative_reward=state.cumulative_reward,
-        last_return=state.last_return,
-    )
-    mean = new_sum / new_count
-    return new_state, mean
-
-
-# Keys under which the supported backends expose the pre-reset ("final")
-# observation of a transition. Ajax's brax/playground stack writes
-# ``final_obs`` (see :class:`ajax.wrappers.FinalObsWrapper`); gymnax >= 1.0
-# writes ``final_observation``.
-_FINAL_OBS_KEYS = ("final_obs", "final_observation")
 
 
 def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
@@ -532,53 +505,27 @@ def update_episodic_return(
     of each env's rolling mean (NaN until every env finished an episode),
     the house ``Train/episodic mean reward``.
     """
-    new_cumulative_reward = episodic_return_state.cumulative_reward + reward.reshape(
-        reward.shape[0], 1
-    )
-    last_return = jax.lax.select(
-        done.reshape(done.shape[0], 1),
-        new_cumulative_reward,
-        episodic_return_state.last_return,
-    )  # nan if no episode has finished yet
-    updated_episodic_return_state, updated_episodic_mean_return = update_rolling_mean(
-        episodic_return_state,
-        last_return,
-    )
-    previous_episodic_mean_return = (
-        episodic_return_state.sum / episodic_return_state.count
-    )
-
-    episodic_mean_return = jax.lax.select(
-        done.reshape(done.shape[0], 1),
-        updated_episodic_mean_return,
-        previous_episodic_mean_return,
-    )
-
-    def broadcast_and_select(done, new_val, old_val):
-        # Compute broadcastable shape
-        # `done` is (2,1) — reshape to [2, 1, 1, ..., 1] to match new_val.ndim
-        extra_dims = new_val.ndim - done.ndim
-        broadcast_shape = (1,) * extra_dims + done.shape
-        done_broadcasted = jnp.reshape(done, broadcast_shape)
-        # Broadcast done to new_val's shape (safely)
-        done_broadcasted = jnp.broadcast_to(done_broadcasted, new_val.shape)
-
-        return jax.lax.select(done_broadcasted, new_val, old_val)
-
-    new_episodic_return_state = jax.tree_util.tree_map(
-        lambda new_val, old_val: broadcast_and_select(
-            done.reshape(done.shape[0], 1), new_val, old_val
-        ),
-        updated_episodic_return_state,
-        episodic_return_state,
-    )
-
-    new_episodic_return_state = new_episodic_return_state.replace(
-        cumulative_reward=new_cumulative_reward * (1 - done.reshape(done.shape[0], 1)),
+    state = episodic_return_state
+    done = done.reshape(done.shape[0], 1)
+    new_cumulative_reward = state.cumulative_reward + reward.reshape(reward.shape[0], 1)
+    # NaN until the env's first episode ends.
+    last_return = jnp.where(done, new_cumulative_reward, state.last_return)
+    # A done env writes its return over its window's oldest one; the others
+    # leave their window, sum, count and index as they are.
+    rows, cols = state.index.flatten(), jnp.arange(done.shape[0])
+    oldest = state.buffer[rows, cols]
+    window = state.buffer.shape[0]
+    total = jnp.where(done, state.sum - oldest + last_return, state.sum)
+    count = jnp.where(done, jnp.minimum(state.count + 1, window), state.count)
+    new_state = state.replace(
+        buffer=state.buffer.at[rows, cols].set(jnp.where(done, last_return, oldest)),
+        index=jnp.where(done, (state.index + 1) % window, state.index),
+        count=count,
+        sum=total,
+        cumulative_reward=new_cumulative_reward * (1 - done),
         last_return=last_return,
     )
-
-    return new_episodic_return_state, jnp.mean(episodic_mean_return)
+    return new_state, jnp.mean(total / count)
 
 
 def get_action_and_log_probs(
@@ -1201,21 +1148,16 @@ def init_collector_state(
     if action_dim_override is not None:
         action_shape = (action_dim_override,)
 
-    if max_timesteps is not None:
-        _obs_shape = list(obs_shape)
-        _obs_shape[-1] += 1
-        obs_shape = tuple(
-            _obs_shape
-        )  # To account for the schedule observation for the agent
-        new_col = jnp.full((last_obs.shape[0], 1), 0)
-        last_obs = jnp.concatenate([last_obs, new_col], axis=-1)
-
+    # The training fraction's column (the schedule's observation), then the
+    # expert's state, as collection appends them (augment_obs).
+    add_train_frac = max_timesteps is not None
+    last_obs = maybe_append_train_frac(last_obs, 0.0 if add_train_frac else None)
     if expert_state_aug_dim > 0:
-        _obs_shape = list(obs_shape)
-        _obs_shape[-1] += expert_state_aug_dim
-        obs_shape = tuple(_obs_shape)
         zero_aug = jnp.zeros((last_obs.shape[0], expert_state_aug_dim))
         last_obs = augment_obs(last_obs, zero_aug)
+    extra = add_train_frac + expert_state_aug_dim
+    if extra:
+        obs_shape = (*obs_shape[:-1], obs_shape[-1] + extra)
 
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
@@ -1240,13 +1182,10 @@ def init_collector_state(
         last_return=jnp.nan * jnp.zeros((env_args.n_envs, 1)),
     )
 
-    add_train_frac = max_timesteps is not None
-
     buffer_state = (
         init_buffer(
             buffer,
             env_args,
-            max_timesteps,
             add_train_frac=add_train_frac,
             action_dim_override=action_dim_override,
             expert_state_aug_dim=expert_state_aug_dim,

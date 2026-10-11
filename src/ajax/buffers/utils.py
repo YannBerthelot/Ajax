@@ -54,8 +54,7 @@ def get_buffer(
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
-    max_timesteps: Optional[int] = None,
-    add_train_frac: Optional[bool] = None,
+    add_train_frac: bool = False,
     action_dim_override: Optional[int] = None,
     expert_state_aug_dim: int = 0,
     include_expert_fields: bool = False,
@@ -65,9 +64,10 @@ def init_buffer(
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
 
+    Observations are flat (``build_env_from_id`` flattens gymnax ones).
+
     add_train_frac: whether to append the train_time_fraction scalar as the
-      last observation dimension. If None (default), inferred from max_timesteps
-      for backward compatibility. Prefer passing explicitly.
+      last observation dimension.
     expert_state_aug_dim: extra trailing obs dims reserved for the
       flattened expert internal state when running with
       `augment_obs_with_expert_state=True`. 0 disables.
@@ -79,19 +79,9 @@ def init_buffer(
     if action_dim_override is not None:
         action_shape = (action_dim_override,)
     raw_observation_shape = observation_shape
-
-    # Determine whether to add the train_frac dimension
-    if add_train_frac is None:
-        add_train_frac = max_timesteps is not None
-
-    if add_train_frac:
-        observation_shape = (*observation_shape[:-1], observation_shape[-1] + 1)
-
-    if expert_state_aug_dim > 0:
-        observation_shape = (
-            *observation_shape[:-1],
-            observation_shape[-1] + expert_state_aug_dim,
-        )
+    extra = add_train_frac + expert_state_aug_dim
+    if extra:
+        observation_shape = (*observation_shape[:-1], observation_shape[-1] + extra)
 
     action = jnp.zeros(
         (action_shape[0],),
@@ -113,12 +103,7 @@ def init_buffer(
         "is_expert": jnp.zeros((1,), dtype=jnp.float32),
     }
     if include_expert_fields:
-        a_expert = jnp.zeros(
-            (action_shape[0],),
-            dtype=jnp.float32 if env_args.continuous else jnp.int32,
-        )
-        schema["a_expert"] = a_expert
-        schema["next_a_expert"] = a_expert
+        schema["a_expert"] = schema["next_a_expert"] = action
     if include_raw_next_obs:
         schema["raw_next_obs"] = raw_obsv
     if actor_carry_dim > 0:

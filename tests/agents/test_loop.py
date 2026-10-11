@@ -342,6 +342,17 @@ def test_repeat_update_folds_post_update_after_each_update() -> None:
     assert float(same.value) == 1.0 and int(same.ext_state[0]) == 0
 
 
+def test_a_per_seed_count_runs_each_seed_its_own_updates() -> None:
+    """A count read from the per-seed state (batched under the seed ``vmap``)
+    runs each seed exactly its own number of updates and ``post_update``s."""
+    loop = _loop(Count())
+    run = jax.vmap(lambda s, n: loop.repeat_update(s, n, _update))
+    states = jax.vmap(lambda v: _state(0, (jnp.asarray(0),)))(jnp.arange(3))
+    out = run(states, jnp.array([0, 2, 5]))
+    np.testing.assert_array_equal(out.value, [1.0, 3.0, 6.0])
+    np.testing.assert_array_equal(out.ext_state[0], [0, 2, 5])
+
+
 def test_a_tick_schedule_is_one_unbatched_while_under_the_seed_vmap() -> None:
     """A count from unbatched values (a train ratio of the tick) is one
     ``while`` whose predicate is not batched, though the states are per

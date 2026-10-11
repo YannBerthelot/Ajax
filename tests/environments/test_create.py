@@ -180,3 +180,22 @@ def test_an_agent_hands_the_reward_normaliser_its_discount():
     assert strip_ajax_wrappers(default.env_args.env)[1]["gamma"] is None
     with pytest.raises(ValueError, match="normalize_rewards=True"):
         DQN("CartPole-v1", reward_normalization_gamma=0.9)
+
+
+def test_env_params_given_with_a_string_id_are_kept():
+    """gymnax params passed next to an env id are the env's params (they
+    were silently replaced by the defaults); an agent built from the id
+    trains on them, and TD-MPC2 derives its episode length from them.
+    brax / playground ids take no params: passing some raises."""
+    from ajax import SAC, TDMPC2
+
+    _, default = make_gymnax_env("Pendulum-v1")
+    params = default.replace(max_steps_in_episode=10, max_torque=1.0)
+    _, kept, _, _ = prepare_env("Pendulum-v1", env_params=params)
+    assert kept == params
+    _, none, _, _ = prepare_env("Pendulum-v1")
+    assert none == default
+    assert SAC("Pendulum-v1", env_params=params).env_args.env_params == params
+    assert TDMPC2("Pendulum-v1", env_params=params).agent_episode_length == 10
+    with pytest.raises(ValueError, match="env_params"):
+        prepare_env("fast", env_params=params)

@@ -33,7 +33,9 @@ One decision (:func:`plan`, spec 3.3-3.21; ``DESIGN.md`` §4.3):
 Paper-era specifics (deviations.md §2): no RunningScale, no target network and
 no termination masking in planning; the Q ensemble's dropout is active in the
 terminal Q pass (5f6fade's ``combine_state_for_ensemble`` ensemble ignores
-``eval()``, spec §0.5 item 10), so every iteration takes a dropout key.
+``eval()``, spec §0.5 item 10), so every iteration takes a dropout key. The
+episodic mode (``config.episodic``, deviation T29) masks the value estimate
+with the termination head, as the latest code (:func:`estimate_value`).
 
 Randomness is an explicit input (``DESIGN.md`` §4.2): one decision consumes a
 :class:`PlanNoise` drawn by :func:`draw_plan_noise`, so a test can inject the
@@ -73,6 +75,7 @@ from ajax.agents.TDMPC2.core import (
     draw_q_pair,
     policy_sample,
     q_pair_logits,
+    reduce_q_pair,
     renorm_task_embedding,
     task_embedding,
 )
@@ -217,6 +220,13 @@ def estimate_value(
     network, no RunningScale, no termination masking (paper era). Multi-task:
     ``task`` conditions every network call and masks the terminal policy
     sample; ``gamma`` is the task's discount (``tdmpc2.py:102``).
+
+    Episodic mode (``config.episodic``; ``e9f5932:tdmpc2.py:113-125``, single
+    task): a candidate's trajectory has terminated once the termination head
+    predicts ``sigmoid(T(z_{t+1})) > 0.5`` at a predicted latent; the rewards
+    after it and the terminal Q are dropped. The reward ``R(z_t, a_t)`` of
+    the step that terminates still counts: the prediction reads ``z_{t+1}``.
+    ``alive`` is the latest code's ``1 - termination``.
     """
     action_dim = actions.shape[-1]
     wm_apply = make_world_model(config).apply
@@ -225,21 +235,27 @@ def estimate_value(
     emb = task_embedding(wm_params, task)
     mask = None if task is None else task.mask
     discount = _discount_powers(gamma, config.horizon)
+    if config.episodic and task is not None:
+        raise ValueError("the episodic mode is single-task")
     value: Any = 0.0  # G = 0, then G += gamma^t r_t (tdmpc2.py:97-101)
+    alive: Any = 1.0  # 0 or 1 (episodic mode): products by it are exact
     for t in range(config.horizon):
         reward = two_hot.decode(
             wm_apply({"params": wm_params}, z, actions[t], emb, method="reward_logits")
         )
         z = wm_apply({"params": wm_params}, z, actions[t], emb, method="next")
-        value = value + discount[t] * reward
+        value = value + discount[t] * alive * reward
+        if config.episodic:
+            end = wm_apply({"params": wm_params}, z, method="termination_logits")
+            alive = alive * (jax.nn.sigmoid(end) <= 0.5)
     terminal = policy_sample(
         pi_apply, pi_params, z, terminal_eps, config, emb, mask
     ).action
     logits = q_pair_logits(
         config, wm_params, z, terminal, q_pair, dropout_key=q_dropout, task_emb=emb
     )
-    q1, q2 = two_hot.decode(logits)  # world_model.py:171-172
-    return value + discount[config.horizon] * ((q1 + q2) / 2)
+    q = reduce_q_pair(logits, "avg", two_hot)  # world_model.py:171-172
+    return value + discount[config.horizon] * alive * q
 
 
 def policy_trajectories(

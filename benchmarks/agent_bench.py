@@ -63,22 +63,32 @@ _TDMPC2_PRESET = {
     "iterations": 2,
 }
 
+# SAC, TD3, REDQ and ASAC default to learning_starts=10_000, past the end of
+# the TIMESTEPS-step run: their rows timed collection alone. 1,000 is DQN's
+# default, so the replay agents share one warm-up: the updates start an
+# eighth into the run and cover the other seven eighths, past SAC's
+# policy_update_start and alpha_update_start (2,000), with more stored steps
+# than any of their batch sizes. tests/benchmarks/test_agent_bench.py checks
+# that every preset updates within the run.
+_WARMUP_INSIDE_RUN = {"learning_starts": 1000}
+
 # agent name -> (env_id, extra constructor kwargs). Discrete-action
 # agents train on CartPole-v1, continuous ones on Pendulum-v1. Only
-# env_id / n_envs / n_timesteps are pinned; every other hyperparameter
+# env_id / n_envs / n_timesteps are pinned, and a learning_starts that
+# would outlast the run (_WARMUP_INSIDE_RUN); every other hyperparameter
 # uses the agent default, so the benchmark tracks the agent's own code
 # path rather than a tuned config. Agents that cannot train on a plain env
 # id get a small documented preset in _CUSTOM_BUILDERS instead (env_id is
 # then a label).
 AGENTS: dict[str, tuple[str, dict]] = {
-    "SAC": ("Pendulum-v1", {}),
+    "SAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "PPO": ("CartPole-v1", {}),
     "DQN": ("CartPole-v1", {}),
     "PQN": ("CartPole-v1", {}),
-    "TD3": ("Pendulum-v1", {}),
-    "REDQ": ("Pendulum-v1", {}),
+    "TD3": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
+    "REDQ": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "APO": ("Pendulum-v1", {}),
-    "ASAC": ("Pendulum-v1", {}),
+    "ASAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "AVG": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
     # DreamerV3 preset: the 1m model (d = 64, deter 512, 4 classes) on 8

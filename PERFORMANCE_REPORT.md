@@ -836,6 +836,8 @@ beyond 10%. Median steps/s and compile (plus warm-up) seconds:
 | TD3 | 5317 | 6163 | +15.9% | 1.52 | 1.30 | -14% |
 | TDMPC2 | 247 | 243 | -1.3% | 6.65 | 7.25 | +9% |
 
+The SAC, TD3, REDQ and ASAC rows time collection only (see
+[the next section](#the-off-policy-bench-rows-timed-collection-only-2026-10-11)).
 SafeSAC, benchmarked before (4091 steps/s), was deleted in between
 (#77). The causes, where known:
 
@@ -850,6 +852,26 @@ SafeSAC, benchmarked before (4091 steps/s), was deleted in between
 - PQN, APO: the shared loop (#79) and the dead work removed (#71); not
   attributed further.
 - APG, TDMPC2, DreamerV3: within run-to-run spread; not attributed.
+
+## The off-policy bench rows timed collection only (2026-10-11)
+
+`benchmarks/agent_bench.py` ran SAC, TD3, REDQ and ASAC at their default
+`learning_starts=10_000`, past the end of its 8,000-step run. Their
+steps/s figures, in the table above and in every
+`benchmarks/agent_*.jsonl` file (the baseline included), measured
+collection alone, with no gradient update. Their presets now set
+`learning_starts=1000`, DQN's default, so the updates cover seven eighths
+of the run, and `tests/benchmarks/test_agent_bench.py` checks from the
+configs that every preset updates within the run. These four agents'
+figures will drop: do not compare them with the earlier rows. A new
+baseline is to be recorded on a quiet machine.
+
+The other presets already updated in the run: DQN from step 1,000, AVG
+from the first step, PQN 16 rollouts, APG 125, DreamerV3 496 updates and
+TD-MPC2 7,996. PPO and APO make one update: their default 2,048-step
+rollout over 4 envs is 8,192 steps, more than the run, and the loop
+always runs one rollout, so their steps/s count 8,000 of the 8,192 steps
+they take (2.4% low, the same in every row).
 
 ## Where to look for more
 

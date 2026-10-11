@@ -18,20 +18,6 @@ from ajax.wrappers import (
 )
 
 
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
-
-
 @pytest.mark.parametrize(
     "env_id,expected_params",
     [
@@ -45,9 +31,11 @@ def test_build_env_from_id(env_id, expected_params):
     assert env is not None
     assert (env_params is not None) == expected_params
 
-    if env_id == "fast":
-        with pytest.raises(ValueError):
-            build_env_from_id("unknown_env")
+
+@pytest.mark.parametrize("env_id", ["unknown_env", "NotARealPlaygroundEnv"])
+def test_unknown_env_id_raises(env_id):
+    with pytest.raises(ValueError):
+        build_env_from_id(env_id)
 
 
 @pytest.mark.parametrize(
@@ -69,9 +57,8 @@ def test_prepare_env(
         gamma=gamma if normalize_reward else None,
     )
     assert env is not None
-    if isinstance(env_input, str):
-        assert env_id_out == env_input
-        assert continuous == expected_continuous
+    assert env_id_out == env_input
+    assert continuous == expected_continuous
 
     # Test Gymnax environments
     if env_input in ["CartPole-v1", "Pendulum-v1"]:
@@ -98,24 +85,6 @@ def test_prepare_env(
             )
 
 
-@requires_playground
-def test_build_playground_env_preserves_final_obs():
-    """Playground path must expose info['final_obs'] so PPO/SAC bootstrap on
-    V(s_final), not V(s_reset), at truncation. Uses a tiny episode length so
-    truncation fires quickly."""
-    env, _ = build_env_from_id("HopperHop", n_envs=2, episode_length=5)
-    state = jax.jit(env.reset)(jax.random.PRNGKey(0))
-    assert "final_obs" in state.info
-    step_fn = jax.jit(env.step)
-    for _ in range(5):
-        state = step_fn(state, jnp.zeros((2, env.action_size)))
-    assert bool(jnp.all(state.done == 1.0))
-    assert bool(jnp.all(state.info["truncation"] == 1.0))
-    # At truncation, obs is reset obs but final_obs is the real pre-reset obs.
-    diff = jnp.abs(state.obs - state.info["final_obs"]).sum()
-    assert float(diff) > 1e-3
-
-
 def test_build_brax_env_preserves_final_obs():
     env, _ = build_env_from_id("inverted_pendulum", n_envs=2, episode_length=5)
     state = jax.jit(env.reset)(jax.random.PRNGKey(0))
@@ -124,12 +93,6 @@ def test_build_brax_env_preserves_final_obs():
     for _ in range(5):
         state = step_fn(state, jnp.zeros((2, env.action_size)))
     assert "truncation" in state.info
-
-
-@requires_playground
-def test_playground_unknown_env_raises():
-    with pytest.raises(ValueError):
-        build_env_from_id("NotARealPlaygroundEnv")
 
 
 def test_strip_ajax_wrappers_reads_back_the_layers_prepare_env_added():

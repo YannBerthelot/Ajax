@@ -83,8 +83,9 @@ agent's default, which is the paper-era value (`deviations.md`).
 through the agents' own resume path (`initial_state=`), which continues every
 schedule from the absolute tick and resizes the replay for the run so far
 (`DESIGN.md` §5.5-5.6): a chunked run computes what the uninterrupted run
-computes (pinned by the agents' resume tests and, for the scripts, by the smoke
-tests). The state is saved with `ajax.checkpoint` at most every 900 s (DreamerV3's
+computes (pinned by the agents' resume tests, which restore a checkpoint into a
+new agent's skeleton as the scripts do; the smoke tests check the scripts'
+resumed records). The state is saved with `ajax.checkpoint` at most every 900 s (DreamerV3's
 own `run.save_every`, `configs.yaml:48`) and restored into the agent's
 `n_timesteps=0` skeleton. Rerunning the same command resumes from the last save
 (the records written after it are dropped and recomputed); a finished run is
@@ -263,7 +264,9 @@ jobs): `paper_protocol.py --smoke` took 160 s for DreamerV3 (2 chunks of 168 row
 and 190 s for TD-MPC2 (2 chunks of 40 steps), dominated by compilation. The CI
 smoke tests took, at that load: DreamerV3 (uninterrupted + killed and resumed from
 disk + report) 261 s, TD-MPC2 (killed and resumed) 170 s, the multi-task pipeline
-(2 tasks, then a second invocation) 206 s; a quiet CI runner should be faster. For
+(2 tasks, then a second invocation) 206 s; a quiet CI runner should be faster. The
+DreamerV3 smoke test has since dropped its uninterrupted run (killed and resumed +
+report only): 70 s against 116 s before, measured back to back at load ~10. For
 scale, the CPU learning checks (`PERFORMANCE_REPORT.md`) took about 0.4 s per
 update for DreamerV3 at `1m` and 0.1 s per agent step for TD-MPC2 at size 1:
 the paper sizes are not runnable on CPU.

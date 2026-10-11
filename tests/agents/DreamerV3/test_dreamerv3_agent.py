@@ -31,6 +31,7 @@ from ajax.agents.DreamerV3 import train_DreamerV3
 from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
 from ajax.agents.DreamerV3.state import MODEL_SIZES
 from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
+from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
 
@@ -343,22 +344,32 @@ def test_extensions_count_every_update(cartpole):
     assert state.ext_state[1] == ()
 
 
-def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(cartpole):
-    """Half the rows, then the other half from the returned state: the
-    absolute tick continues (the training-start gate is not re-applied, the
-    queue and ratio go on), and the first half's ring -- sized by its own
-    60 rows per env -- grows to the 100 rows of the whole run's, so the
-    updates, the replay, the parameters and the extensions' states are those
-    of one run of all the rows, with the same extensions (whose
-    ``post_update`` keys come from the agent's stream; the logging of the
-    uninterrupted run does not touch the training state)."""
+def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
+    cartpole, tmp_path
+):
+    """Half the rows, saved to disk, then the other half by a new agent from
+    the checkpoint restored into its 0-tick skeleton (``ajax.checkpoint``'s
+    flow, the paper-protocol CLI's): the absolute tick continues (the
+    training-start gate is not re-applied, the queue and ratio go on), and
+    the first half's ring -- sized by its own 60 rows per env -- grows to
+    the 100 rows of the whole run's, so the updates, the replay, the
+    parameters and the extensions' states are those of one run of all the
+    rows, with the same extensions (whose ``post_update`` keys come from the
+    agent's stream; the logging of the uninterrupted run does not touch the
+    training state)."""
     agent = cartpole_agent(extensions=[Counter(), Metric()])
     half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
-    state, _ = agent.train(seed=SEEDS, n_timesteps=ROWS // 2, initial_state=half)
+    path = str(tmp_path / "half.pkl")
+    save_checkpoint(half, path)
+    resumer = cartpole_agent(extensions=[Counter(), Metric()])
+    skeleton = resumer.train(seed=SEEDS, n_timesteps=0)
+    state, _ = resumer.train(
+        seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restore_into(skeleton, path)
+    )
     full = cartpole.state
-    assert agent.replay_rows_per_env == 100
+    assert resumer.replay_rows_per_env == 100
     np.testing.assert_array_equal(state.n_updates, full.n_updates)
     np.testing.assert_array_equal(state.world_model_state.step, full.n_updates)
     np.testing.assert_array_equal(state.collector_state.rows, full.collector_state.rows)
@@ -373,7 +384,7 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(cartpole
     np.testing.assert_array_equal(state.replay_state.obs, full.replay_state.obs)
     np.testing.assert_allclose(state.replay_state.deter, full.replay_state.deter)
     # A checkpoint skeleton (a 0-tick run) gets the latest run's ring.
-    assert agent._resolve_replay(0, None) == (100, None)
+    assert resumer._resolve_replay(0, None) == (100, None)
 
 
 @struct.dataclass

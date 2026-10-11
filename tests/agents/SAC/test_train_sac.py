@@ -25,20 +25,18 @@ from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.buffers.utils import get_buffer
 from ajax.state import (
     AlphaConfig,
-    BufferConfig,
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.utils import compare_frozen_dicts
+
+
+def _allclose(a, b) -> bool:
+    return jax.tree.all(jax.tree.map(jnp.allclose, a, b))
 
 
 @pytest.fixture
 def buffer(env_config):
-    return get_buffer(
-        **to_state_dict(
-            BufferConfig(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
-        )
-    )
+    return get_buffer(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
 
 
 @pytest.fixture
@@ -115,7 +113,7 @@ def test_update_temperature(env_config, SAC_state):
         target_entropy=target_entropy,
     )
     aux = to_state_dict(aux)
-    assert not compare_frozen_dicts(updated_state.alpha.params, original_alpha_params)
+    assert not _allclose(updated_state.alpha.params, original_alpha_params)
     assert "alpha" in aux
     assert aux["alpha"] > 0
 
@@ -135,23 +133,12 @@ def test_update_target_networks(env_config, SAC_state):
 
     updated_state = update_target_networks(SAC_state, tau=tau)
 
-    assert compare_frozen_dicts(updated_state.critic_state.params, original_params)
-    assert not compare_frozen_dicts(
-        updated_state.critic_state.target_params, original_target_params
+    new_target = updated_state.critic_state.target_params
+    expected_target = jax.tree.map(
+        lambda old, cur: tau * cur + (1 - tau) * old,
+        original_target_params,
+        original_params,
     )
-
-    def validate_soft_update(old_target, new_target, current, tau):
-        expected_target = jax.tree_util.tree_map(
-            lambda old, cur: tau * cur + (1 - tau) * old,
-            old_target,
-            current,
-        )
-        return compare_frozen_dicts(new_target, expected_target)
-
-    for key in original_target_params.keys():
-        old_target = original_target_params[key]
-        new_target = updated_state.critic_state.target_params[key]
-        current = original_params[key]
-        assert validate_soft_update(
-            old_target, new_target, current, tau
-        ), f"Soft update computation is incorrect for key: {key}"
+    assert _allclose(updated_state.critic_state.params, original_params)
+    assert not _allclose(new_target, original_target_params)
+    assert _allclose(new_target, expected_target)

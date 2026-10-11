@@ -116,10 +116,6 @@ class LinearReferenceModel:
         return cls(A=a * eye, B=b * eye, C=c * eye, D=d * eye)
 
     @property
-    def n_states(self) -> int:
-        return self.A.shape[0]
-
-    @property
     def n_outputs(self) -> int:
         return self.C.shape[0]
 

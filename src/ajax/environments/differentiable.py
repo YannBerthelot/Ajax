@@ -32,7 +32,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.environments.interaction import reset, step
-from ajax.environments.system_class import env_params_is_batched
+from ajax.environments.system_class import env_params_is_batched, n_systems
 
 # (carry, obs (B, obs_dim), resets (B,) bool) -> (action (B, act_dim), new_carry)
 PolicyStepFn = Callable[[Any, jax.Array, jax.Array], Tuple[jax.Array, Any]]
@@ -115,7 +115,7 @@ def closed_loop_rollout(
         ``(rollout, final_carry)``; ``rollout`` leaves are ``(horizon, B, ...)``.
     """
     if env_params_is_batched(env_params):
-        batch = int(jax.tree.leaves(env_params)[0].shape[0])
+        batch = n_systems(env_params)
         if n_envs is not None and n_envs != batch:
             raise ValueError(
                 f"n_envs={n_envs} but env_params carry a batch of {batch} systems"

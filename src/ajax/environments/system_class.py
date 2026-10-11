@@ -40,8 +40,14 @@ def env_params_is_batched(params: EnvParamsT) -> bool:
     leaves = jax.tree.leaves(params)
     if not leaves or any(jnp.ndim(leaf) == 0 for leaf in leaves):
         return False
-    first = jnp.shape(leaves[0])[0]
+    first = n_systems(params)
     return all(jnp.shape(leaf)[0] == first for leaf in leaves)
+
+
+def n_systems(params: EnvParamsT) -> int:
+    """The number of systems a batched ``params`` carries: its leaves'
+    leading axis."""
+    return int(jnp.shape(jax.tree.leaves(params)[0])[0])
 
 
 def broadcast_env_params(params: EnvParamsT, n: int) -> EnvParamsT:
@@ -60,11 +66,6 @@ def broadcast_env_params(params: EnvParamsT, n: int) -> EnvParamsT:
         return jnp.broadcast_to(arr, (n, *arr.shape))
 
     return jax.tree.map(_tile, params)
-
-
-def select_env_params(params: EnvParamsT, index: int | jax.Array) -> EnvParamsT:
-    """Pick one system out of a batched ``params`` (inverse of broadcasting)."""
-    return jax.tree.map(lambda leaf: jnp.asarray(leaf)[index], params)
 
 
 class SystemClass:
@@ -157,5 +158,5 @@ __all__ = [
     "UniformPerturbation",
     "broadcast_env_params",
     "env_params_is_batched",
-    "select_env_params",
+    "n_systems",
 ]

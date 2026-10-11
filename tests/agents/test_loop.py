@@ -16,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import pytest
 from flax import struct
 from flax.training.train_state import TrainState
 
@@ -344,10 +345,12 @@ def _expert_rows(normalize_observations: bool) -> tuple[Any, Any, np.ndarray]:
     return agent, state, np.asarray(rows["Eval/episodic mean expert reward"])
 
 
-def test_the_expert_return_is_computed_once_per_call() -> None:
+@pytest.mark.parametrize("normalize", [False, True], ids=["raw", "normalised"])
+def test_the_expert_return_is_computed_once_per_call(normalize: bool) -> None:
     """One key on one env: every evaluation reports the return the expert's
-    rollout in ``evaluate`` earns."""
-    agent, state, rows = _expert_rows(normalize_observations=False)
+    rollout in ``evaluate`` earns, an observation normaliser or not (the
+    expert acts on the environment's own observations)."""
+    agent, state, rows = _expert_rows(normalize_observations=normalize)
     for seed in range(len(SEEDS)):
         expert_return = evaluate(
             agent.env_args.env,
@@ -358,13 +361,6 @@ def test_the_expert_return_is_computed_once_per_call() -> None:
             expert_policy=agent.expert_policy,
         )[-1]
         np.testing.assert_allclose(rows[seed, :4], float(expert_return), rtol=1e-6)
-
-
-def test_the_expert_sees_the_normaliser_of_each_evaluation() -> None:
-    """With an observation normaliser the expert sees its statistics of the
-    moment: its return is evaluated each time, and moves."""
-    _, _, rows = _expert_rows(normalize_observations=True)
-    assert np.all(np.ptp(rows[:, :4], axis=1) > 0)
 
 
 # --- Agents acting, training and evaluating their own way --------------------

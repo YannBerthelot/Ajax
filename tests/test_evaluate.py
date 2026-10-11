@@ -3,6 +3,7 @@ import dataclasses
 import gymnax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from brax.envs import create as create_brax_env
 from flax.serialization import to_state_dict
@@ -223,3 +224,58 @@ def test_setup_environment_accepts_prebuilt_gymnax_env_without_params():
     env, mode, continuous = setup_environment(CartPole(), None, 2, None, 0.99)
     assert mode == "gymnax" and not continuous
     assert env.observation_space(env.default_params).shape == (4,)
+
+
+_SEEN: list = []  # (batch size, observations) of every expert call
+
+
+@dataclasses.dataclass(frozen=True)
+class _RecordingExpert:
+    """An expert recording what it is given; its action depends on the
+    observation's scale (the angular velocity, raw in [-8, 8]). Stateful
+    (``expert(state, obs)``), and callable as ``expert(obs)`` too, as SAC's
+    update calls it to augment observations."""
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, *args):
+        obs = args[-1]
+        jax.debug.callback(lambda o: _SEEN.append(np.asarray(o)), obs)
+        action = jnp.clip(-obs[..., 2:3] / 8.0, -1.0, 1.0)
+        return (action, args[0]) if len(args) == 2 else action
+
+
+@pytest.mark.parametrize("augment", [False, True], ids=["baseline", "augmented"])
+def test_the_expert_sees_raw_observations_in_collection_and_evaluation(augment):
+    """With observation normalisation on, collection and evaluation (the
+    expert's own rollout, and with augmentation the agent's) give the expert
+    Pendulum's raw observations: cos^2 + sin^2 = 1, which normalised ones
+    break, and no training-fraction column."""
+    from ajax import SAC
+    from ajax.logging.wandb_logging import LoggingConfig
+
+    _SEEN.clear()
+    agent = SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        learning_starts=16,
+        batch_size=8,
+        expert_policy=_RecordingExpert(),
+        expert_buffer_n_steps=0,
+        normalize_observations=True,
+        augment_obs_with_expert_action=augment,
+        use_train_frac=augment,
+    )
+    logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    agent.train(seed=0, n_timesteps=64, num_episode_test=3, logging_config=logged)
+    jax.effects_barrier()
+    # By batch size: collection (2 envs) and evaluation (3 episodes); the
+    # update's calls (8 rows) are not under test.
+    seen_here = [seen for seen in _SEEN if seen.shape[0] in (2, 3)]
+    assert {seen.shape[0] for seen in seen_here} == {2, 3}
+    for seen in seen_here:
+        assert seen.shape[-1] == 3
+        np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)

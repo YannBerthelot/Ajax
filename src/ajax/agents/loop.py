@@ -58,7 +58,6 @@ from ajax.evaluate import evaluate_expert
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.log import (
     compose_eval_metrics,
-    eval_norm_info,
     evaluate_and_log,
     maybe_eval_and_log,
     unevaluated,
@@ -487,16 +486,14 @@ class TrainLoop:
         with an expert (``eval_kwargs["expert_policy"]``): the expert's
         return (:func:`ajax.evaluate.evaluate_expert`), the same at every
         evaluation of a call (one key, ``eval_rng``, on one env), computed
-        once. Not when the evaluation env normalises observations: the
-        expert then sees them normalised with the statistics of the moment.
+        once. An evaluation env's observation normaliser does not change it:
+        the expert acts on the environment's own observations.
         """
         expert = (eval_kwargs or {}).get("expert_policy")
         if expert is None:
             return None
 
         def prepare(agent_state: Any) -> dict:
-            if eval_norm_info(agent_state, self.mode) is not None:
-                return {}
             env_args = self.env_args
             expert_return = evaluate_expert(
                 env_args.env,

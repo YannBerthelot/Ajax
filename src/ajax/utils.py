@@ -1,5 +1,5 @@
 from dataclasses import fields
-from typing import Optional
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
@@ -85,6 +85,19 @@ def online_normalize(
         mean,
         mean_2,
         variance,
+    )
+
+
+def online_denormalize(
+    x_norm: jax.Array, count: Any, mean: Any, mean_2: Any, eps: float = 1e-8
+) -> jax.Array:
+    """``online_normalize``'s input from its output and the statistics it
+    returned (rows along the second-to-last axis, as it averages them).
+    Raw columns, pinned at mean 0 and variance 1, return unchanged to
+    within ``eps``."""
+    std = jnp.clip(jnp.sqrt(mean_2 / count + eps), 1e-6, 1e6)
+    return x_norm * jnp.mean(std, axis=-2, keepdims=True) + jnp.mean(
+        mean, axis=-2, keepdims=True
     )
 
 

@@ -133,6 +133,8 @@ _PENDULUM: dict[str, Any] = {
     "critic_architecture": ("16", "tanh"),
 }
 _CARTPOLE: dict[str, Any] = {"env_id": "CartPole-v1", "architecture": ("16", "relu")}
+# A [-1, 1] action box: mapping agent actions onto the env's bounds leaves it.
+_MCC: dict[str, Any] = {"env_id": "MountainCarContinuous-v0"}
 _SPLIT: dict[str, Any] = {"n_envs": 4, "n_steps": 16, "num_minibatches": 2}
 _PQN: dict[str, Any] = {**_CARTPOLE, **_SPLIT, "n_epochs": 2}
 _DQN: dict[str, Any] = {**_CARTPOLE, **_REPLAY, "target_update_interval": 7}
@@ -182,6 +184,23 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "AVG": (AVG, {**_SMALL, "learning_starts": 20}, 200),
     "TD3": (TD3, {**_SMALL, **_REPLAY}, 200),
+    "SAC-mcc": (
+        SAC,
+        {
+            **_SMALL,
+            **_REPLAY,
+            **_MCC,
+            "policy_update_start": 40,
+            "alpha_update_start": 40,
+        },
+        200,
+    ),
+    "TD3-mcc": (TD3, {**_SMALL, **_REPLAY, **_MCC}, 200),
+    "PPO-mcc": (
+        PPO,
+        {**_PENDULUM, **_MCC, "n_envs": 2, "n_steps": 32, "batch_size": 8},
+        256,
+    ),
     "SAC-gru": (
         SAC,
         {
@@ -458,6 +477,19 @@ _GOLDEN |= {
 _GOLDEN |= {
     "APG-nudge": {"actor": 35.82789611816406, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.82305145263672, "nudge": 0.27262088656425476},
+}
+
+# Recorded on macOS ARM CPU once the action map took its centre/half-range
+# form, exact on a [-1, 1] box: on MountainCarContinuous's, mapping the
+# agents' actions onto the env's bounds must leave these unchanged.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 3.1000170707702637,
+        "critic": 8.203842163085938,
+        "alpha": 0.9754154682159424,
+    },
+    "TD3-mcc": {"actor": 2.397678852081299, "critic": 7.9359588623046875},
+    "PPO-mcc": {"actor": 3.6173574924468994, "critic": 3.1998236179351807},
 }
 
 

@@ -494,10 +494,14 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
     out = evaluate(state, key)
     assert float(out["Eval/mean episodic length"]) == 200
     assert -2000 < float(out["Eval/episodic mean reward"]) < 0
-    # Deterministic per state and key (fresh keys per evaluation:
-    # tests/logging/test_maybe_eval_and_log.py).
+    # Deterministic per state and key; another key (the next evaluation's:
+    # tests/logging/test_maybe_eval_and_log.py) starts other episodes.
     again = evaluate(state, key)
     assert float(again["Eval/episodic mean reward"]) == float(
+        out["Eval/episodic mean reward"]
+    )
+    other = evaluate(state, jax.random.fold_in(key, 1))
+    assert float(other["Eval/episodic mean reward"]) != float(
         out["Eval/episodic mean reward"]
     )
 

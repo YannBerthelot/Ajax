@@ -479,6 +479,11 @@ def evaluate_dreamer(
     The reference's policy samples in every mode (dreamerv3_spec 7.3);
     :func:`ajax.evaluate.evaluate_policy` runs one episode in each of
     ``num_episode_test`` freshly reset envs with the training action repeat.
+    ``key`` is the same at every evaluation of a seed (split from the fixed
+    ``eval_rng`` by :func:`ajax.log.maybe_eval_and_log`): each evaluation
+    draws the same initial states and action noise (common random numbers,
+    as the model-free agents' evaluations do), where TD-MPC2 folds in
+    ``n_logs``.
     """
     mean_return, mean_length = evaluate_policy(
         env_args,

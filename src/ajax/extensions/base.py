@@ -38,6 +38,29 @@ Phases
 ``eval_action``  override the evaluation-time action (same rule)
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
+
+Phase batches
+-------------
+The ``batch`` dict of a phase holds these keys on every agent that folds
+it; an agent may add its own (read its fold call), and an extension
+raises on a key it needs and does not find, rather than return a no-op.
+
+``on_target``    ``observations``, ``next_observations``, ``rewards`` and
+                 ``gamma`` (``None`` for an average-reward agent); the
+                 replay agents add ``actions``, ``dones`` (where the
+                 target cut the bootstrap) and ``reward_scale``, PQN
+                 ``actions``, ``terminated``, ``truncated`` and
+                 ``reward_scale``, PPO and APO ``terminated``,
+                 ``truncated``, ``gae`` and ``values``
+``critic_loss``  ``observations`` and ``targets`` (the target, held
+                 constant), with the critic at the differentiated
+                 parameters: ``critic_params`` and ``critic_state`` (and
+                 ``actions`` for a Q-critic), or DQN's and PQN's
+                 ``q_state`` and ``actions``
+``actor_loss``   ``actor_params`` (differentiated) and ``actor_state``,
+                 but on APG (its ``rollout``, ``returns`` and
+                 ``actor_params``) and SAC (``observations``, ``pi_loc``
+                 and the expert's operands of :class:`OnlineBC`)
 """
 
 from __future__ import annotations

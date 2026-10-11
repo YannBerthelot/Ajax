@@ -47,20 +47,20 @@ raises on a key it needs and does not find, rather than return a no-op.
 
 ``on_target``    ``observations``, ``next_observations``, ``rewards`` and
                  ``gamma`` (``None`` for an average-reward agent); the
-                 replay agents add ``actions``, ``dones`` (where the
-                 target cut the bootstrap) and ``reward_scale``, PQN
-                 ``actions``, ``terminated``, ``truncated`` and
-                 ``reward_scale``, PPO and APO ``terminated``,
-                 ``truncated``, ``gae`` and ``values``
+                 replay agents and PQN add ``actions``, ``dones`` (where
+                 the target cut the bootstrap) and ``reward_scale``, PQN
+                 also ``terminated`` and ``truncated``, PPO and APO
+                 ``terminated``, ``truncated``, ``gae`` and ``values``
 ``critic_loss``  ``observations`` and ``targets`` (the target, held
                  constant), with the critic at the differentiated
                  parameters: ``critic_params`` and ``critic_state`` (and
                  ``actions`` for a Q-critic), or DQN's and PQN's
                  ``q_state`` and ``actions``
 ``actor_loss``   ``actor_params`` (differentiated) and ``actor_state``,
-                 but on APG (its ``rollout``, ``returns`` and
-                 ``actor_params``) and SAC (``observations``, ``pi_loc``
-                 and the expert's operands of :class:`OnlineBC`)
+                 plus ``observations``, ``raw_observations`` and
+                 ``pi_mean`` on SAC, ASAC, REDQ, TD3 and APO (SAC adds
+                 the expert's action ``a_expert``), but on APG (its
+                 ``rollout``, ``returns`` and ``actor_params``)
 """
 
 from __future__ import annotations

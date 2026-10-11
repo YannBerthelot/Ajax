@@ -12,23 +12,18 @@ import numpy as np
 from brax.envs import Env as BraxEnv
 from brax.envs.base import State
 from brax.envs.base import Wrapper as BraxWrapper
-
-try:
-    from mujoco_playground._src.mjx_env import State as _PlaygroundState
-
-    _StateClasses: tuple = (State, _PlaygroundState)
-except ImportError:
-    _PlaygroundState = None
-    _StateClasses = (State,)
 from flax import struct
 from flax.serialization import to_state_dict
 from gymnasium import core
 from gymnasium import spaces as gymnasium_spaces
 from gymnax.environments import environment, spaces
+from mujoco_playground._src.mjx_env import State as _PlaygroundState
 
 from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
+
+_StateClasses = (State, _PlaygroundState)
 
 # Return signature of ``Environment.step`` since gymnax 1.0: the single
 # pre-1.0 ``done`` flag was split into Gymnasium-style ``terminated`` (the

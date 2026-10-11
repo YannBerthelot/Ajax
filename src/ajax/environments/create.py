@@ -310,20 +310,17 @@ def build_env_from_id(
             action_repeat=action_repeat,
         ), None
 
-    try:
-        from mujoco_playground import registry as mp_registry
+    from mujoco_playground import registry as mp_registry
 
-        if env_id in mp_registry.ALL_ENVS:
-            return _build_playground_env(
-                env_id,
-                n_envs=n_envs,
-                episode_length=episode_length,
-                action_repeat=action_repeat,
-                fresh_reset=fresh_reset,
-                differentiable_reset=differentiable_reset,
-            ), None
-    except ImportError:
-        pass
+    if env_id in mp_registry.ALL_ENVS:
+        return _build_playground_env(
+            env_id,
+            n_envs=n_envs,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
+            fresh_reset=fresh_reset,
+            differentiable_reset=differentiable_reset,
+        ), None
 
     if env_id in _BRAX_BUILDERS or env_id in list(brax.envs._envs.keys()):
         return _build_brax_env(

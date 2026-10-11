@@ -8,21 +8,6 @@ from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import reset
 
 
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
-
-
-@requires_playground
 def test_PPO_train_playground_smoke():
     """Smoke test: PPO trains briefly on a playground env (covers playground
     code path end-to-end including seed vmap and eval)."""

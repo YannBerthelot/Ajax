@@ -37,7 +37,7 @@ def test_positive_weight_decay_shrinks_params_with_zero_grad():
 
 
 def test_weight_decay_composes_with_clipping_and_rejects_negative():
-    tx = get_adam_tx(1e-2, max_grad_norm=0.5, clipped=True, weight_decay=0.1)
+    tx = get_adam_tx(1e-2, max_grad_norm=0.5, weight_decay=0.1)
     params = {"w": jnp.ones(3)}
     new = _one_step(tx, params, {"w": jnp.full(3, 100.0)})
     assert jnp.all(new["w"] < 1.0) and jnp.all(jnp.isfinite(new["w"]))
@@ -52,12 +52,15 @@ def test_optimizer_config_round_trips_into_get_adam_tx():
     assert jnp.allclose(new["w"], 1.0 - 1e-3 * 0.05)
 
 
-def test_get_adam_tx_clipping_without_norm():
-    """Test get_adam_tx raises ValueError when clipping is requested without max_grad_norm."""
-    with pytest.raises(
-        ValueError, match="Gradient clipping requested but no norm provided."
-    ):
-        get_adam_tx(learning_rate=0.001, max_grad_norm=None, clipped=True)
+def test_get_adam_tx_clips_iff_given_a_norm():
+    """Adam's first step is ``lr * g / (|g| + eps)``: clipping a 1e-4 gradient
+    to norm 1e-6 shrinks it from 1e-4 / (1e-4 + eps) to 1e-6 / (1e-6 + eps)
+    (eps 1e-5)."""
+    params, grads = {"w": jnp.zeros(1)}, {"w": jnp.full(1, 1e-4)}
+    plain = _one_step(get_adam_tx(1.0), params, grads)["w"]
+    clipped = _one_step(get_adam_tx(1.0, max_grad_norm=1e-6), params, grads)["w"]
+    np.testing.assert_allclose(plain, -1e-4 / (1e-4 + 1e-5), rtol=1e-4)
+    np.testing.assert_allclose(clipped, -1e-6 / (1e-6 + 1e-5), rtol=1e-4)
 
 
 # ------------------------

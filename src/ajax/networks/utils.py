@@ -22,12 +22,12 @@ def get_adam_tx(
     learning_rate: Union[float, Callable[[int], float]] = 1e-3,
     max_grad_norm: Optional[float] = None,
     eps: float = 1e-5,
-    clipped: bool = False,
     beta_1: float = 0.9,
     beta_2: float = 0.999,
     weight_decay: float = 0.0,
 ) -> GradientTransformationExtraArgs:
-    """Return an Adam(W) optimizer with optional global-norm gradient clipping.
+    """Return an Adam(W) optimizer, clipping the gradients' global norm to
+    ``max_grad_norm`` when one is given.
 
     Unclipped by default. Global-norm clipping is a PPO-family convention
     (PPO / APO pass ``max_grad_norm=0.5``); the off-policy agents and the
@@ -35,9 +35,10 @@ def get_adam_tx(
 
     Args:
         learning_rate (Union[float, Callable[[int], float]]): Learning rate for the optimizer.
-        max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
+        max_grad_norm (Optional[float]): Maximum gradient norm; None does not clip.
         eps (float): Epsilon value for numerical stability.
-        clipped (bool): Whether to apply gradient clipping.
+        beta_1, beta_2 (float): Adam's decay rates of the first and second
+            moment estimates.
         weight_decay (float): Decoupled weight decay; ``> 0`` selects
             ``optax.adamw`` (used by the APG family), ``0`` keeps plain Adam.
 
@@ -57,9 +58,7 @@ def get_adam_tx(
         )
     else:
         adam = optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2)
-    if clipped:
-        if max_grad_norm is None:
-            raise ValueError("Gradient clipping requested but no norm provided.")
+    if max_grad_norm is not None:
         return optax.chain(optax.clip_by_global_norm(max_grad_norm), adam)
     return adam
 

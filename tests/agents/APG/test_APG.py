@@ -87,9 +87,9 @@ def default_run():
 
 def test_gradient_clipping_is_on_by_default_and_can_be_disabled(env_and_class):
     env, sc = env_and_class
-    assert make_agent(env, sc).actor_optimizer_args.clipped
+    assert make_agent(env, sc).actor_optimizer_args.max_grad_norm is not None
     off = make_agent(env, sc, max_grad_norm=None)
-    assert not off.actor_optimizer_args.clipped
+    assert off.actor_optimizer_args.max_grad_norm is None
 
 
 def test_rejects_non_differentiable_env():
@@ -183,7 +183,6 @@ def test_contextual_controller_configuration(env_and_class):
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
     assert agent.lr_schedule == "warmup_cosine"
-    assert agent.actor_optimizer_args.clipped
     assert agent.actor_optimizer_args.max_grad_norm == 1.0
     assert agent.actor_optimizer_args.weight_decay == 0.01
     state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8)

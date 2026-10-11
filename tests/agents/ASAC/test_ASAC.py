@@ -1,7 +1,9 @@
 import jax.numpy as jnp
 import pytest
 
+from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.SAC import core
 
 
 @pytest.mark.parametrize(
@@ -27,3 +29,31 @@ def test_alpha_tracks_target_entropy(target_entropy_per_dim, expected_sign):
     log_alpha = float(jnp.asarray(state.alpha.params["log_alpha"]).ravel()[0])
     assert log_alpha != 0.0, "alpha never moved from alpha_init"
     assert jnp.sign(log_alpha) == expected_sign
+
+
+def test_temperature_and_theta_read_one_sample_of_the_policy(monkeypatch):
+    """One sample of the updated policy feeds both the temperature and the
+    reward-rate (theta) steps: the actor runs once for the two."""
+    seen = []
+    temperature, theta = core.update_temperature, train_ASAC.update_theta
+
+    def temperature_spy(*args):
+        seen.append(args[1])  # the log-probabilities
+        return temperature(*args)
+
+    def theta_spy(*args):
+        seen.append(args[3])
+        return theta(*args)
+
+    monkeypatch.setattr(core, "update_temperature", temperature_spy)
+    monkeypatch.setattr(train_ASAC, "update_theta", theta_spy)
+    net = ("8", "relu")
+    agent = ASAC(
+        "Pendulum-v1",
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=4,
+        batch_size=4,
+    )
+    agent.train(seed=0, n_timesteps=8)
+    assert len(seen) == 2 and seen[0] is seen[1]

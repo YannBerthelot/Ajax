@@ -40,7 +40,7 @@ dev = [
 ]
 render = ["imageio[ffmpeg]>=2.37.0,<3"]
 wandb = ["wandb>=0.19.9,<0.20"]
-# The Plane3DCircle scenarios of benchmarks/perf_bench.py need target_gym;
+# The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
 # the framework does not. Opt in with `uv sync --group plane`.
 plane = ["target-gym>=0.6.1,<0.7"]
 

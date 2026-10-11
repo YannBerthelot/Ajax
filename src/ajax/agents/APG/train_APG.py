@@ -9,10 +9,11 @@ tracking task (:mod:`ajax.environments.model_reference`) that objective
 is exactly the closed-loop matching cost of Busetto et al. 2024, eq. (9),
 and ``sqrt(loss / horizon)`` is their M-RMSE.
 
-Evaluation re-samples ``num_episode_test`` fresh systems (and, through
-the env's reset, fresh references and initial conditions) and reports the
-deterministic closed-loop return and M-RMSE, i.e. the paper's validation
-metric, at the logging frequency.
+Evaluation draws ``num_episode_test`` systems (and, through the env's
+reset, references and initial conditions) from the evaluation key, fresh
+at each evaluation (:func:`ajax.log.evaluation_keys`) and apart from the
+training draws, and reports the deterministic closed-loop return and
+M-RMSE, i.e. the paper's validation metric, at the logging frequency.
 """
 
 from collections.abc import Sequence
@@ -107,7 +108,7 @@ def init_APG(
     squash: bool,
     controller_factory: Optional[ControllerFactory] = None,
 ) -> APGState:
-    rng, params_key, carry_key, collector_key = jax.random.split(key, 4)
+    rng, params_key, carry_key, collector_key, eval_rng = jax.random.split(key, 5)
     controller = build_controller(
         env_args, network_args, pid, squash, factory=controller_factory
     )
@@ -134,7 +135,7 @@ def init_APG(
     )
     return APGState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=None,
         collector_state=collector_state,

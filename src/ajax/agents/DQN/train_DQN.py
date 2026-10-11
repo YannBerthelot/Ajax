@@ -145,7 +145,7 @@ def init_DQN(
 ) -> Any:
     """The Q-network and the collector (writing to ``buffer``, if any) in a
     ``state_cls``: DQN's, or a descendant's (PQN: no buffer)."""
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     q_state = get_initialized_q_network(
         key=init_key,
@@ -166,7 +166,7 @@ def init_DQN(
     # works); critic_state mirrors it at init and is never updated.
     return state_cls(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=q_state,
         critic_state=q_state,
         collector_state=collector_state,

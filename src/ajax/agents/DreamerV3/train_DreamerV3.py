@@ -478,7 +478,9 @@ def evaluate_dreamer(
 
     The reference's policy samples in every mode (dreamerv3_spec 7.3);
     :func:`ajax.evaluate.evaluate_policy` runs one episode in each of
-    ``num_episode_test`` freshly reset envs with the training action repeat.
+    ``num_episode_test`` freshly reset envs with the training action repeat,
+    from ``key``: fresh at each evaluation (:func:`ajax.log.evaluation_keys`),
+    so each draws new initial states and action noise.
     """
     mean_return, mean_length = evaluate_policy(
         env_args,

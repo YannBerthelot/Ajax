@@ -137,27 +137,35 @@ def test_disabled_logging_does_not_even_trace_the_evaluation():
     assert metrics is None and int(state.n_logs) == 0
 
 
-def test_eval_and_extra_metrics_get_the_two_halves_of_the_eval_key():
-    """``eval_key, extra_key = split(eval_rng)``: APG's order, pinned."""
+def test_each_evaluation_draws_fresh_keys_from_its_count():
+    """``eval_key, extra_key = split(fold_in(eval_rng, n_logs))`` (APG's
+    order): the evaluation and the extensions' metrics draw new keys at
+    each evaluation."""
     state = State(
         eval_rng=jax.random.PRNGKey(5), n_logs=jnp.int32(0), value=jnp.float32(0.0)
     )
-    _, metrics = maybe_eval_and_log(
-        state,
-        jnp.int32(1),
-        0,
-        jnp.int32(0),
-        metrics_fn=metrics_fn,
-        evaluate_fn=lambda state, key: {"Eval/key": jax.random.uniform(key)},
-        extra_eval_metrics=lambda state, key: {"Eval/extra": jax.random.uniform(key)},
-        log=True,
-        log_fn=lambda metrics, index: None,
-        every=1,
-    )
-    jax.effects_barrier()
-    eval_key, extra_key = jax.random.split(state.eval_rng)
-    np.testing.assert_array_equal(metrics["Eval/key"], jax.random.uniform(eval_key))
-    np.testing.assert_array_equal(metrics["Eval/extra"], jax.random.uniform(extra_key))
+    draws = []
+    for iteration in range(2):
+        state, metrics = maybe_eval_and_log(
+            state,
+            jnp.int32(1),
+            0,
+            jnp.int32(iteration),
+            metrics_fn=metrics_fn,
+            evaluate_fn=lambda state, key: {"Eval/key": jax.random.uniform(key)},
+            extra_eval_metrics=lambda state, key: {
+                "Eval/extra": jax.random.uniform(key)
+            },
+            log=True,
+            log_fn=lambda metrics, index: None,
+            every=1,
+        )
+        keys = jax.random.split(jax.random.fold_in(jax.random.PRNGKey(5), iteration))
+        eval_draw, extra_draw = (jax.random.uniform(key) for key in keys)
+        np.testing.assert_array_equal(metrics["Eval/key"], eval_draw)
+        np.testing.assert_array_equal(metrics["Eval/extra"], extra_draw)
+        draws.append((float(eval_draw), float(extra_draw)))
+    assert draws[0][0] != draws[1][0] and draws[0][1] != draws[1][1]
 
 
 def test_the_evaluation_stays_a_real_cond_under_the_seed_vmap():

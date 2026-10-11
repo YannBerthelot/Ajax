@@ -78,11 +78,7 @@ def init_PPO(
     network_args: NetworkConfig,
 ) -> PPOState:
     """The initial actor, critic and collector."""
-    (
-        rng,
-        init_key,
-        collector_key,
-    ) = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     continuous = check_if_environment_has_continuous_actions(
         env_args.env, env_params=env_args.env_params
@@ -112,7 +108,7 @@ def init_PPO(
 
     return PPOState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         collector_state=collector_state,
@@ -479,7 +475,9 @@ def _force_reset(
     normalises it, is normalised with them instead. Gymnax keeps one
     normaliser per env (each restarts from its own observation), brax one
     for the batch. The cut episodes are abandoned, not finished: the next
-    return starts from zero.
+    return starts from zero, and they are flagged truncated, so a recurrent
+    actor and critic restart their memory on the reset observation, as at
+    any episode start.
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
@@ -504,8 +502,12 @@ def _force_reset(
     returns = returns.replace(
         cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
     )
-    new_collector = agent_state.collector_state.replace(
-        _env_state=new_env_state, last_obs=new_obs, episodic_return_state=returns
+    collector = agent_state.collector_state
+    new_collector = collector.replace(
+        _env_state=new_env_state,
+        last_obs=new_obs,
+        episodic_return_state=returns,
+        last_truncated=jnp.ones_like(collector.last_truncated),
     )
     return agent_state.replace(collector_state=new_collector, rng=new_rng)
 

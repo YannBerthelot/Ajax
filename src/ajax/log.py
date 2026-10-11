@@ -66,6 +66,18 @@ def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -
     jax.debug.callback(_gated, flag, metrics, index)
 
 
+def evaluation_keys(agent_state: Any) -> tuple[jax.Array, jax.Array]:
+    """``(eval_key, extra_key)``: the keys of the policy's evaluation and of
+    the extensions' ``eval_metrics`` at the evaluation ``agent_state.n_logs``
+    counts up to, ``split(fold_in(eval_rng, n_logs))``. Each evaluation
+    draws fresh initial states and noise, deterministically per seed and
+    apart from training (``eval_rng`` is split apart from ``rng``)."""
+    eval_key, extra_key = jax.random.split(
+        jax.random.fold_in(agent_state.eval_rng, agent_state.n_logs)
+    )
+    return eval_key, extra_key
+
+
 def maybe_eval_and_log(
     agent_state: Any,
     aux: Any,
@@ -93,8 +105,8 @@ def maybe_eval_and_log(
     On a logging iteration the metrics are ``metrics_fn(agent_state, aux)``
     (the agent's training metrics, e.g. ``timestep`` and losses) updated
     with ``evaluate_fn(agent_state, eval_key)`` and, when given,
-    ``extra_eval_metrics(agent_state, extra_key)``, where ``eval_key,
-    extra_key = split(agent_state.eval_rng)``; they are sent to ``log_fn``
+    ``extra_eval_metrics(agent_state, extra_key)`` (:func:`evaluation_keys`:
+    fresh at each evaluation); they are sent to ``log_fn``
     through :func:`gated_log_callback` and ``agent_state.n_logs`` is
     incremented. Otherwise the same structure is returned filled with NaN
     (``-1`` for integer leaves) and ``n_logs`` is unchanged; never so
@@ -110,7 +122,7 @@ def maybe_eval_and_log(
     flag = jnp.logical_and(enabled, (iteration + 1) % (every or 1) == 0)
 
     def run(agent_state, aux, index):
-        eval_key, extra_key = jax.random.split(agent_state.eval_rng)
+        eval_key, extra_key = evaluation_keys(agent_state)
         metrics = dict(metrics_fn(agent_state, aux))
         metrics.update(evaluate_fn(agent_state, eval_key))
         if extra_eval_metrics is not None:
@@ -246,15 +258,14 @@ def evaluate_and_log(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
-    expert_return: Optional[jax.Array] = None,
 ) -> tuple[BaseAgentState, Optional[dict]]:
-    """Evaluate and log every ``log_frequency`` collected steps; returns the
+    """Evaluate and log every ``log_frequency`` collected steps, each
+    evaluation from fresh keys (:func:`evaluation_keys`); returns the
     state (one more ``n_logs`` per evaluation) and the logged metrics, or
     the same structure filled with NaN (``-1``: the timestep) between
     evaluations. Without logging (``log`` false) the evaluation is not even
     traced (tracing alone rebuilds the evaluation env) and the metrics are
-    ``None``. ``expert_return``: the expert's evaluation return when already
-    known (:func:`ajax.evaluate.evaluate_expert`), else evaluated each time."""
+    ``None``."""
     if not log:
         return agent_state, None
     timestep = agent_state.collector_state.timestep
@@ -276,10 +287,7 @@ def evaluate_and_log(
     def run_and_log(
         agent_state: BaseAgentState, aux: AuxiliaryLogsProtocol, index: int
     ):
-        # Deterministic evaluation: eval_rng is fixed at init_PPO and never
-        # advanced across iterations, so each eval uses identical initial
-        # conditions (per-seed).
-        eval_key = agent_state.eval_rng
+        eval_key, extra_key = evaluation_keys(agent_state)
         (
             eval_rewards,
             eval_entropy,
@@ -306,7 +314,6 @@ def evaluate_and_log(
             pid_gain_policy=pid_gain_policy,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
-            expert_return=expert_return,
         )
         metrics_to_log = {
             "timestep": timestep,
@@ -325,7 +332,6 @@ def evaluate_and_log(
         metrics_to_log.update(flatten_dict(to_state_dict(aux)))
 
         if extra_eval_metrics is not None:
-            extra_key, _ = jax.random.split(eval_key)
             extras = extra_eval_metrics(agent_state, extra_key)
             metrics_to_log.update(extras)
 

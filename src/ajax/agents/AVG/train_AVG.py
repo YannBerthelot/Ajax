@@ -69,7 +69,7 @@ def init_AVG(
     num_critics: int = 1,
     window_size: int = 10,
 ) -> AVGState:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
         init_key,
         collector_key,
@@ -90,7 +90,7 @@ def init_AVG(
     )
     return AVGState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),

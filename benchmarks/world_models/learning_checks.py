@@ -16,10 +16,10 @@ entries; the CLI is shared.
 
 Usage::
 
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py --list
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py \\
+    JAX_PLATFORMS=cpu python benchmarks/world_models/learning_checks.py --list
+    JAX_PLATFORMS=cpu python benchmarks/world_models/learning_checks.py \\
         --only dreamerv3-cartpole --seeds 0 1 --out results.jsonl
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py --smoke  # plumbing
+    JAX_PLATFORMS=cpu python benchmarks/world_models/learning_checks.py --smoke  # plumbing
 
 ``--smoke`` runs each check's tiny variant (:data:`SMOKE`) to check the
 script itself; it says nothing about learning and gives no verdict. Each
@@ -95,7 +95,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @dataclasses.dataclass(frozen=True)

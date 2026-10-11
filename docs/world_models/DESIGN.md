@@ -546,7 +546,7 @@ agents. APG and both new agents get bench entries with a small documented preset
 - **Agent.** Module-scoped tiny-config fixtures (train once, assert smoke / metrics /
   resume / extensions on the same run); ≤ 3 min of CI per agent test module; regression
   goldens labelled as such.
-- **Learning checks** (`benchmarks/learning_checks.py`, outside CI, run before merging
+- **Learning checks** (`benchmarks/world_models/learning_checks.py`, outside CI, run before merging
   each agent PR): TD-MPC2 Pendulum-v1 (Pendulum's [−2, 2] bounds mapped), playground
   CartpoleBalance (repeat 2); DreamerV3 CartPole-v1 and Pendulum-v1 at small presets.
   Results recorded in the PR and `PERFORMANCE_REPORT.md`.

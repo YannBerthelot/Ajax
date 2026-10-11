@@ -161,14 +161,14 @@ def test_cloning_pretraining_leaves_jax_caches_alone():
 
     double = jax.jit(lambda x: 2 * x)
     double(jnp.ones(2))
+    expert = _HalfTorqueExpert()
     agent = SAC(
         "Pendulum-v1",
         n_envs=2,
         actor_architecture=("8", "relu"),
         critic_architecture=("8", "relu"),
-        expert_policy=_HalfTorqueExpert(),
-        pre_train_n_steps=64,
-        actor_cloning_epochs=1,
+        expert_policy=expert,
+        extensions=(CloningPretrain(expert, n_steps=64, epochs=1),),
         expert_buffer_n_steps=0,
         learning_starts=8,
         batch_size=8,
@@ -200,6 +200,18 @@ def _half_torque(obs):
     return jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0)
 
 
+@pytest.mark.parametrize("agent_name", ["APO", "REDQ", "SAC", "TD3"])
+def test_the_cloning_keywords_are_deprecated(agent_name):
+    """Passing a cloning keyword warns, even one that clones nothing (it
+    will be removed all the same); leaving them out stays quiet."""
+    agent_cls = _agent_class(agent_name)
+    with pytest.warns(FutureWarning, match="CloningPretrain"):
+        agent_cls("Pendulum-v1", pre_train_n_steps=0, actor_cloning_epochs=3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        assert agent_cls("Pendulum-v1").cloning is None
+
+
 def test_the_cloning_keywords_build_a_cloning_pretrain():
     """The cloning keywords set the fields of the CloningPretrain the agent
     runs; 0 steps clone nothing; without an expert, or with a
@@ -214,14 +226,14 @@ def test_the_cloning_keywords_build_a_cloning_pretrain():
         "reset_log_std_after_bc": True,
         "reset_actor_head_after_bc": True,
     }
-    agent = SAC("Pendulum-v1", expert_policy=_half_torque, **keywords)
+    with pytest.warns(FutureWarning, match="pre_train_n_steps"):
+        agent = SAC("Pendulum-v1", expert_policy=_half_torque, **keywords)
     fields = {"n_steps": 5, "epochs": 3, "batch_size": 7, "skip_actor": True}
     fields |= {"reset_log_std": True, "reset_actor_head": True}
     assert agent.cloning == CloningPretrain(agent.expert_policy, **fields)
-    assert SAC("Pendulum-v1", expert_policy=_half_torque).cloning is None
-    with pytest.raises(ValueError, match="expert_policy"):
+    with pytest.raises(ValueError, match="expert_policy"), pytest.warns(FutureWarning):
         SAC("Pendulum-v1", pre_train_n_steps=5)
-    with pytest.raises(ValueError, match="extension only"):
+    with pytest.raises(ValueError, match="extension only"), pytest.warns(FutureWarning):
         SAC(
             "Pendulum-v1",
             expert_policy=_half_torque,
@@ -271,14 +283,15 @@ def test_cloning_pretrain_clones_as_the_cloning_keywords(agent_name):
     kw = {"n_envs": 2, "actor_architecture": tiny, "critic_architecture": tiny}
     kw |= {"expert_policy": _half_torque, **_LAYOUT.get(agent_name, {})}
     agent_cls = _agent_class(agent_name)
-    by_keywords = agent_cls(
-        "Pendulum-v1",
-        pre_train_n_steps=16,
-        actor_cloning_epochs=2,
-        actor_cloning_batch_size=8,
-        extensions=(_Inert(),),
-        **kw,
-    )
+    with pytest.warns(FutureWarning):
+        by_keywords = agent_cls(
+            "Pendulum-v1",
+            pre_train_n_steps=16,
+            actor_cloning_epochs=2,
+            actor_cloning_batch_size=8,
+            extensions=(_Inert(),),
+            **kw,
+        )
     cloning = _OnTheKeywordsKey(_half_torque, n_steps=16, epochs=2, batch_size=8)
     by_extension = agent_cls("Pendulum-v1", extensions=(cloning,), **kw)
     states = [

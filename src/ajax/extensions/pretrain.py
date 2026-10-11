@@ -19,6 +19,7 @@ refreshes MCPretrain's critic during training.
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable, ClassVar, Optional, Sequence, Tuple
@@ -424,18 +425,30 @@ class CloningPretrain(Extension):
         **kwargs: Any,
     ) -> Optional["CloningPretrain"]:
         """The CloningPretrain of an agent's cloning keywords
-        (:data:`DEPRECATED_CLONING_KWARGS`) and ``expert_policy``; None when
-        ``pre_train_n_steps`` is 0, which turns cloning off.
+        (:data:`DEPRECATED_CLONING_KWARGS`, None when not passed) and
+        ``expert_policy``; None when ``pre_train_n_steps`` is unset or 0,
+        which turns cloning off. Passing any keyword warns.
 
         Deliberate transitional shim (CLAUDE.md rule 10, expand then
-        contract): AjaxExperiments still passes ``pre_train_n_steps``. The
-        agent runs this one at initialisation, on the pretrain key, where
-        the keywords always cloned, so their runs are unchanged; one in
-        ``extensions`` runs in the pretrain phase. Raises ``ValueError``
-        when both clone, or when there is no expert to clone.
+        contract): AjaxExperiments still passes ``pre_train_n_steps``; the
+        keywords go once it passes the extension. The agent runs this one at
+        initialisation, on the pretrain key, where the keywords always
+        cloned, so their runs are unchanged; one in ``extensions`` runs in
+        the pretrain phase. Raises ``ValueError`` when both clone, or when
+        there is no expert to clone.
         """
-        fields = {DEPRECATED_CLONING_KWARGS[k]: v for k, v in kwargs.items()}
-        if fields["n_steps"] <= 0:
+        passed = {k: v for k, v in kwargs.items() if v is not None}
+        if not passed:
+            return None
+        fields = {DEPRECATED_CLONING_KWARGS[k]: v for k, v in passed.items()}
+        warnings.warn(
+            f"{', '.join(passed)}: deprecated, pass extensions=(CloningPretrain("
+            f"expert_policy, {', '.join(f'{f}=...' for f in fields)}),) instead"
+            " (ajax.extensions.pretrain). The keywords will be removed.",
+            FutureWarning,
+            stacklevel=3,
+        )
+        if fields.get("n_steps", 0) <= 0:
             return None
         if expert_policy is None:
             raise ValueError("pre_train_n_steps clones the agent's expert_policy.")

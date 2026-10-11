@@ -92,11 +92,11 @@ class SAC(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # Cloning keywords: CloningPretrain.from_deprecated_kwargs.
-        actor_cloning_epochs: int = 10,
+        # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
+        actor_cloning_epochs: Optional[int] = None,
         actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        actor_cloning_batch_size: int = 64,
-        pre_train_n_steps: int = 0,
+        actor_cloning_batch_size: Optional[int] = None,
+        pre_train_n_steps: Optional[int] = None,
         # Expert objects: still used by collection / cloning / a fair
         # number of action-pipeline call sites. ``expert_policy=`` is
         # also accepted by individual Extensions and SHOULD be supplied
@@ -147,15 +147,15 @@ class SAC(ActorCritic):
         # ``temperature_loss_function``).
         target_entropy_initial_per_dim: Optional[float] = None,
         target_entropy_ramp_frac: float = 0.5,
-        # Cloning keywords too.
-        skip_actor_pretrain: bool = False,
+        # Deprecated cloning keywords too.
+        skip_actor_pretrain: Optional[bool] = None,
         # Deliberate transitional shim (CLAUDE.md rule 10, expand then
         # contract): the critic pretraining this switched off is gone, so
         # True is a no-op and False cannot be honoured. AjaxExperiments
         # still passes it; remove it once AjaxExperiments stops.
         skip_critic_pretrain: bool = True,
-        reset_log_std_after_bc: bool = False,
-        reset_actor_head_after_bc: bool = False,
+        reset_log_std_after_bc: Optional[bool] = None,
+        reset_actor_head_after_bc: Optional[bool] = None,
         # --- Composable research features ---
         extensions: Sequence[Extension] = (),
     ) -> None:

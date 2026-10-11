@@ -72,13 +72,13 @@ class TD3(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # --- Cloning pretraining (mirrors REDQ); online BC is the
-        # ImitationLoss extension ---
-        actor_cloning_epochs: int = 10,
+        # --- Deprecated cloning keywords: extensions=(CloningPretrain(...),);
+        # online BC is the ImitationLoss extension ---
+        actor_cloning_epochs: Optional[int] = None,
         actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        skip_actor_pretrain: bool = False,
-        actor_cloning_batch_size: int = 64,
-        pre_train_n_steps: int = 0,
+        skip_actor_pretrain: Optional[bool] = None,
+        actor_cloning_batch_size: Optional[int] = None,
+        pre_train_n_steps: Optional[int] = None,
         expert_policy: Optional[Callable] = None,
         # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,

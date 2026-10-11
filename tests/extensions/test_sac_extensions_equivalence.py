@@ -53,9 +53,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-import jax
 import jax.numpy as jnp
 import pytest
+from optax.tree_utils import tree_norm
 
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
@@ -88,22 +88,11 @@ with (Path(__file__).parent / "_sac_equivalence_goldens.json").open() as _fh:
     _GOLDENS: dict[str, dict[str, float]] = json.load(_fh)
 
 
-def _checksum(tree) -> float:
-    leaves = jax.tree_util.tree_leaves(tree)
-    return float(
-        sum(
-            jnp.sum(leaf.astype(jnp.float32) ** 2)
-            for leaf in leaves
-            if jnp.issubdtype(leaf.dtype, jnp.floating)
-        )
-    )
-
-
 def _agent_fingerprint(state) -> dict:
     return {
-        "critic": _checksum(state.critic_state.params),
-        "actor": _checksum(state.actor_state.params),
-        "target": _checksum(state.critic_state.target_params),
+        "critic": float(tree_norm(state.critic_state.params, squared=True)),
+        "actor": float(tree_norm(state.actor_state.params, squared=True)),
+        "target": float(tree_norm(state.critic_state.target_params, squared=True)),
         "alpha": float(jnp.exp(state.alpha.params["log_alpha"]).reshape(-1)[0]),
     }
 

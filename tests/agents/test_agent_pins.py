@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from optax.tree_utils import tree_norm
 
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
@@ -42,10 +43,6 @@ from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 
 
-def _checksum(tree: Any) -> jax.Array:
-    return sum(jnp.sum(jnp.square(leaf)) for leaf in jax.tree.leaves(tree))
-
-
 @dataclass(frozen=True)
 class Nudge(Extension):
     """Touches every phase the on-policy agents fold, its state drawn from
@@ -61,11 +58,11 @@ class Nudge(Extension):
 
     def critic_loss(self, agent_state, ext_state, batch, ctx):
         params = batch.get("critic_params")
-        return 0.0 if params is None else 1e-3 * _checksum(params)
+        return 0.0 if params is None else 1e-3 * tree_norm(params, squared=True)
 
     def actor_loss(self, agent_state, ext_state, batch, ctx):
         params = batch.get("actor_params")
-        return 0.0 if params is None else 1e-3 * _checksum(params)
+        return 0.0 if params is None else 1e-3 * tree_norm(params, squared=True)
 
     def post_update(self, agent_state, ext_state, ctx):
         return agent_state, ext_state + 0.01 * jax.random.normal(ctx.rng)
@@ -449,13 +446,15 @@ _GOLDEN |= {
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
     state, _ = agent_cls(**kwargs).train(seed=0, n_timesteps=steps)
-    out = {"actor": float(_checksum(state.actor_state.params))}
+    out = {"actor": float(tree_norm(state.actor_state.params, squared=True))}
     if state.critic_state is not None:
-        out["critic"] = float(_checksum(state.critic_state.params))
+        out["critic"] = float(tree_norm(state.critic_state.params, squared=True))
     if getattr(state, "world_model_state", None) is not None:
-        out["world_model"] = float(_checksum(state.world_model_state.params))
+        out["world_model"] = float(
+            tree_norm(state.world_model_state.params, squared=True)
+        )
     if getattr(state.actor_state, "target_params", None) is not None:
-        out["target"] = float(_checksum(state.actor_state.target_params))
+        out["target"] = float(tree_norm(state.actor_state.target_params, squared=True))
     if getattr(state, "n_updates", None) is not None:
         out["n_updates"] = float(jnp.asarray(state.n_updates).reshape(-1)[0])
     if hasattr(state, "alpha"):

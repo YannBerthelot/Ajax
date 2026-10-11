@@ -25,15 +25,15 @@ ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 
 ci-test:  ## Tests not marked slow (deselects probing) + coverage >= 70
 	uv run coverage erase
-	$(CPU_ENV) uv run coverage run -m pytest -m "not slow" --deselect tests/agents/test_probing.py --ignore=tests/probing
+	$(CPU_ENV) uv run coverage run -m pytest -m "not slow" --ignore=tests/probing
 	uv run coverage combine
 	uv run coverage report --fail-under=70
 
 ci-slow:  ## Tests marked slow (deselects probing), without coverage
-	$(CPU_ENV) uv run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing
+	$(CPU_ENV) uv run pytest -m slow --ignore=tests/probing
 
-ci-probe:  ## Cross-agent probing tests (old checks and the known-answer probes)
-	$(CPU_ENV) uv run pytest tests/agents/test_probing.py tests/probing
+ci-probe:  ## Cross-agent probing tests (the known-answer probes)
+	$(CPU_ENV) uv run pytest tests/probing
 
 # ---------------------------------------------------------------------------
 # Convenience: fast CPU-only test runs that skip the coverage gate.
@@ -43,4 +43,4 @@ test-cpu:  ## Run tests on CPU only (no coverage gate)
 	$(CPU_ENV) uv run pytest --tb=short --disable-warnings
 
 probe-cpu:  ## Run probing on CPU only
-	$(CPU_ENV) uv run pytest tests/agents/test_probing.py tests/probing -v
+	$(CPU_ENV) uv run pytest tests/probing -v

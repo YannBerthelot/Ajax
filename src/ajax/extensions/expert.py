@@ -100,18 +100,10 @@ def reads_stored_expert_actions(ext: Any, agent_context: dict) -> bool:
     LCBGatedBootstrap, CriticBlend, PhiRefresh) reads that expert's actions
     as collection stored them (``next_a_expert``): when it is the agent's
     ``expert_policy``, whose state collection tracks along each trajectory.
-
     Another expert is called on the raw observations the extension is
-    given, without a state: a stateful one is refused, since no state of
-    it exists at a replayed row."""
-    stored = ext.expert_policy is agent_context.get("expert_policy")
-    if not stored and hasattr(ext.expert_policy, "init_state"):
-        raise ValueError(
-            f"{type(ext).__name__}'s expert is stateful: its state is tracked"
-            " along the trajectories only as the agent's expert_policy. Give"
-            " the agent the same expert."
-        )
-    return stored
+    given, without a state (a stateful one is refused at construction,
+    ``check_extension_experts``)."""
+    return ext.expert_policy is agent_context.get("expert_policy")
 
 
 def expert_next_actions(ext: Any, raw_next: Any, stored_next: Any) -> jax.Array:
@@ -209,6 +201,9 @@ class ImitationLoss(Extension):
     expert_policy: Callable
     coef: float = 1.0
     name: str = "imitation_loss"
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)  # called on each batch, without a state
 
     def actor_loss(
         self,

@@ -166,6 +166,10 @@ class IBRL(Extension):
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
 
     def bind_to_agent(self, **agent_context: Any) -> "IBRL":
         """Read the expert's stored actions when it is the agent's."""
@@ -207,6 +211,10 @@ class LCBGatedBootstrap(Extension):
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
 
     def bind_to_agent(self, **agent_context: Any) -> "LCBGatedBootstrap":
         """Read the expert's stored actions when it is the agent's."""
@@ -265,6 +273,10 @@ class CriticBlend(Extension):
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
 
     def bind_to_agent(self, **agent_context: Any) -> "CriticBlend":
         """Read the expert's stored actions when it is the agent's."""

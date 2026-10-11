@@ -93,6 +93,8 @@ class APO(ActorCritic):
         self.config = {**locals()}
         self.config.update({"algo_name": "APO"})
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -157,7 +159,6 @@ class APO(ActorCritic):
             actor_batch_size=actor_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
         )
-        self.expert_policy = expert_policy
 
     def get_make_train(self) -> Callable:
         """

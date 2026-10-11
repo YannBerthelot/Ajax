@@ -530,11 +530,56 @@ def test_an_extension_reads_a_stateful_agent_experts_stored_actions(monkeypatch,
     )
 
 
-def test_an_extension_refuses_a_stateful_expert_the_agent_does_not_track():
-    with pytest.raises(ValueError, match="stateful"):
-        train(
-            CounterEnv(), extensions=(IBRL(expert_policy=_ShiftedIntegratingExpert()),)
-        )
+SETTINGS = "expert_buffer_n_steps=0 .no expert prefill. and expert_fraction=0.0"
+
+
+@pytest.mark.parametrize("agent", ["SAC", "TD3"])
+def test_an_extension_refuses_a_stateful_expert_without_its_state(agent):
+    """IBRL on SAC without that expert, and ImitationLoss on TD3 (which
+    stores no expert action), would call a stateful expert without its
+    state: refused at construction, naming the settings that keep only the
+    extension's use of the expert. A stateless expert stays allowed."""
+    from ajax.agents.TD3.TD3 import TD3
+    from ajax.extensions.expert import ImitationLoss
+
+    stateful, stateless = _ShiftedIntegratingExpert(), _ShiftedExpert()
+    with pytest.raises(ValueError, match=SETTINGS):
+        if agent == "SAC":
+            SAC("Pendulum-v1", extensions=(IBRL(expert_policy=stateful),))
+        else:
+            TD3("Pendulum-v1", extensions=(ImitationLoss(expert_policy=stateful),))
+    if agent == "SAC":
+        SAC("Pendulum-v1", extensions=(IBRL(expert_policy=stateless),))
+    else:
+        TD3("Pendulum-v1", extensions=(ImitationLoss(expert_policy=stateless),))
+
+
+def test_the_named_settings_keep_only_the_extensions_use_of_the_expert():
+    """Following the refusal (the stateful expert given to SAC with no
+    prefill and no warm-up mixing) trains exactly as the extension using
+    the same expert statelessly, with SAC holding no expert."""
+
+    def act(obs: jax.Array) -> jax.Array:
+        return jnp.tanh(jnp.sum(obs, axis=-1, keepdims=True))
+
+    class Stateful:
+        def init_state(self, n_envs: int) -> jax.Array:
+            return jnp.zeros((n_envs, 1))
+
+        def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+            return act(obs), state
+
+    alone = train(extensions=(IBRL(expert_policy=act),))
+    expert = Stateful()
+    stored = train(
+        expert_policy=expert,
+        expert_fraction=0.0,
+        extensions=(IBRL(expert_policy=expert),),
+    )  # train() sets expert_buffer_n_steps=0
+    for name in ("actor_state", "critic_state"):
+        a, b = (jax.tree.leaves(getattr(s, name).params) for s in (alone, stored))
+        for x, y in zip(a, b, strict=True):
+            np.testing.assert_array_equal(x, y)
 
 
 class _ShiftedExpert:

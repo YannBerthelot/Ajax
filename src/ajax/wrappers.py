@@ -54,6 +54,10 @@ class GymnaxWrapper:
         return self._env.unwrapped
 
 
+# Keys under which the supported backends expose the pre-reset ("final")
+# observation of a transition. Ajax's brax/playground stack writes
+# ``final_obs`` (see :class:`FinalObsWrapper`); gymnax >= 1.0 writes
+# ``final_observation``.
 _FINAL_OBS_KEYS = ("final_obs", "final_observation")
 # Where an observation normaliser keeps the pre-reset observation in the
 # env's own units once it has normalised the final-observation keys.

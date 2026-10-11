@@ -23,13 +23,15 @@ from ajax.agents.SAC.core import (
     update_target_networks,
     update_temperature,
 )
-from ajax.agents.SAC.expert import (
-    augment_obs_if_needed,
-    collect_and_store_expert_transitions,
-)
+from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.buffers.utils import get_batch_from_buffer, get_expert_fields_from_buffer
+from ajax.buffers.utils import (
+    get_batch_from_buffer,
+    get_expert_fields_from_buffer,
+    get_raw_next_obs_from_buffer,
+)
+from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
@@ -107,6 +109,7 @@ def init_SAC(
     action_dim_override: Optional[int] = None,
     normalize_obs_running: bool = False,
     jsrl_curriculum: bool = False,
+    store_raw_next_obs: bool = False,
 ) -> SACState:
     rng, init_key, collector_key, expert_key = jax.random.split(key, num=4)
 
@@ -147,6 +150,7 @@ def init_SAC(
             ),
             "normalize_obs_running": normalize_obs_running,
             "include_expert_fields": expert_policy is not None,
+            "include_raw_next_obs": store_raw_next_obs,
         },
     )
     if collector_state.obs_norm_info is not None:
@@ -217,10 +221,10 @@ def update_value_functions(
     reward_scale: float = 1.0,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
-    augment_obs_with_expert_action: bool = False,
     next_action_transform: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
     carries: Optional[RecurrentCarries] = None,
+    raw_next_observations: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
@@ -272,7 +276,7 @@ def update_value_functions(
             "rng_key": value_loss_key,
             "q_preds": q_preds_for_var,
             "gamma": gamma,
-            "augment_obs_with_expert_action": augment_obs_with_expert_action,
+            "raw_next_observations": raw_next_observations,
             "recurrent": recurrent,
         }
         target_q = extension_stack.fold_on_target(
@@ -542,6 +546,7 @@ def update_agent(
             agent_state, buffer, sample_key, burn_in, stored_state=stored_state
         )
         expert_frac_in_buffer = jnp.zeros(())
+        raw_next_observations = None
     else:
         (
             observations,
@@ -564,6 +569,14 @@ def update_agent(
         else:
             a_expert_buf, next_a_expert_buf = None, None
         expert_frac_in_buffer = is_expert.mean()
+        # The raw next observations, kept for extensions that call an
+        # expert of their own (init_SAC's store_raw_next_obs).
+        buffer_state = agent_state.collector_state.buffer_state
+        raw_next_observations = (
+            get_raw_next_obs_from_buffer(buffer, buffer_state, sample_key)
+            if buffer_state is not None and "raw_next_obs" in buffer_state.experience
+            else None
+        )
         transition = Transition(
             observations,
             actions,
@@ -586,14 +599,17 @@ def update_agent(
         else transition.obs[..., :-1]
     )
 
-    # --- Obs augmentation: append a_expert to obs and next_obs ---
+    # --- Obs augmentation (interaction.augment_obs's layout) ---
     # Must happen before any network call (critic, actor, policy loss).
-    # For next_obs we strip the last dim (train_frac).
+    # The expert's actions as collection computed them, on the raw
+    # observations (an expert is defined in the environment's units) and
+    # from the expert's state, which the update does not have: a_expert at
+    # s, next_a_expert at s' (the final observation where an episode ended,
+    # from the expert's post-step state).
     if augment_obs_with_expert_action and expert_policy is not None:
-        _raw_next = transition.next_obs[..., :-1]  # strip train_frac
-        aug_obs = augment_obs_if_needed(transition.obs, _raw, expert_policy, True)
-        aug_next_obs = augment_obs_if_needed(
-            transition.next_obs, _raw_next, expert_policy, True
+        aug_obs = augment_obs(transition.obs, expert_action=transition.a_expert)
+        aug_next_obs = augment_obs(
+            transition.next_obs, expert_action=transition.next_a_expert
         )
         transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
 
@@ -646,10 +662,10 @@ def update_agent(
             reward_scale=reward_scale,
             extension_stack=extension_stack,
             total_timesteps=total_timesteps,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
             next_action_transform=policy_action_transform,
             next_a_expert=_next_a_expert_for_target,
             carries=carries,
+            raw_next_observations=raw_next_observations,
         )
 
     agent_state, aux_value = final_aux_scan(
@@ -864,6 +880,8 @@ def make_train(
             action_dim_override=action_dim_override,
             normalize_obs_running=normalize_obs_running,
             jsrl_curriculum=jsrl_curriculum,
+            # Kept only for an extension that declares it reads it.
+            store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
         )
         return pretrain_on_expert(
             agent_state,
@@ -951,9 +969,11 @@ def make_train(
         eval_kwargs={
             # Evaluate only in the last 20% of training (HPO phases).
             "sweep": logging_config is not None and logging_config.sweep,
-            "expert_policy": (
-                eval_expert_policy if eval_expert_policy is not None else expert_policy
-            ),
+            # The training expert builds the actor's input (augmentation,
+            # the residual's base, PID gains); eval_expert_policy, when
+            # given, only the expert's baseline return.
+            "expert_policy": expert_policy,
+            "eval_expert_policy": eval_expert_policy,
             "eval_action_transform": eval_action_transform,
             "pid_gain_policy": use_pid_policy,
             "augment_obs_with_expert_action": augment_obs_with_expert_action,

@@ -4,8 +4,6 @@ from typing import (
     Callable,
     Optional,
     Tuple,
-    Type,
-    TypeVar,
     Union,
 )
 
@@ -52,6 +50,9 @@ class Transition:
     # on (clip(a_expert + scale * a_pi, -1, 1)). Without this the target
     # is OOD for the critic and training diverges.
     next_a_expert: Optional[jnp.ndarray] = None
+    # The environment's own observation at s_{t+1} (the final one where an
+    # episode ended), as raw_obs is at s_t: what an expert reads there.
+    raw_next_obs: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1
@@ -99,70 +100,6 @@ class RollinEpisodicMeanRewardState(RollingMeanState):
     cumulative_reward: jnp.ndarray
 
 
-T = TypeVar("T")
-
-
-def linear_schedule(train_time_fraction: float) -> float:
-    return 1 - train_time_fraction
-
-
-def exponential_schedule(train_time_fraction: float, p: float = 5) -> float:
-    return jnp.exp(-p * train_time_fraction)
-
-
-def polynomial_schedule(train_time_fraction: float, p: int = 2) -> float:
-    return jnp.abs(train_time_fraction - 1) ** p
-
-
-class LoadedStateMixin:
-    train_time_fraction: float = flax.struct.field(pytree_node=False)
-
-    def __getattr__(self, name):
-        return getattr(self._state, name)
-
-    @property
-    def linear_schedule(self) -> float:
-        return linear_schedule(self.train_time_fraction)
-
-    @property
-    def exponential_schedule(self) -> float:
-        return exponential_schedule(self.train_time_fraction)
-
-    @property
-    def polynomial_schedule(self) -> float:
-        return polynomial_schedule(self.train_time_fraction)
-
-
-def make_loaded_state_class(base_cls: Type[T]) -> Type[T]:
-    @partial(struct.dataclass, kw_only=True)
-    class LoadedEnvState(base_cls, LoadedStateMixin):  # type: ignore[valid-type,misc]
-        train_time_fraction: float = flax.struct.field(pytree_node=False)
-
-        @property
-        def linear_schedule(self) -> float:
-            return linear_schedule(self.train_time_fraction)
-
-        @property
-        def exponential_schedule(self) -> float:
-            return exponential_schedule(self.train_time_fraction)
-
-        @property
-        def polynomial_schedule(self) -> float:
-            return polynomial_schedule(self.train_time_fraction)
-
-    return LoadedEnvState
-
-
-def load_state(state, train_time_fraction: float):
-    LoadedCls = make_loaded_state_class(type(state))
-    state_dict = dict(state.__dict__)
-    state_dict.pop("train_time_fraction", None)
-    return LoadedCls(
-        **state_dict,
-        train_time_fraction=train_time_fraction,
-    )
-
-
 @struct.dataclass
 class CollectorState:
     """The variables necessary to interact with the environment and collect the transitions"""
@@ -205,12 +142,10 @@ class CollectorState:
         return self.timestep / self.max_timesteps
 
     @property
-    def env_state(
-        self,
-    ) -> LoadedStateMixin:
-        if self.train_time_fraction is None:
-            return self._env_state
-        return load_state(self._env_state, train_time_fraction=self.train_time_fraction)
+    def env_state(self) -> EnvStateType:
+        """The environment's own state, what it is stepped and reset with;
+        the training fraction is the collector's (``train_time_fraction``)."""
+        return self._env_state
 
     @env_state.setter
     def env_state(self, value) -> None:

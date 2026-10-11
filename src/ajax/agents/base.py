@@ -80,6 +80,10 @@ class ActorCritic:
     # the shared loop: ajax.agents.loop.LOOP_PHASES plus its update's); the
     # default accepts none.
     supported_extension_phases: frozenset = frozenset()
+    # Replay-buffer fields beyond its own this agent stores on an
+    # extension's declaration (Extension.buffer_fields); any other is
+    # rejected at construction.
+    supported_buffer_fields: frozenset = frozenset()
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -224,9 +228,13 @@ class ActorCritic:
         self._check_extension_phases()
 
     def _check_extension_phases(self) -> None:
-        """Reject extensions implementing phases this agent never folds."""
+        """Reject extensions implementing phases this agent never folds, or
+        reading buffer fields it does not store."""
         check_extension_phases(
-            type(self).__name__, self.extension_stack, self.supported_extension_phases
+            type(self).__name__,
+            self.extension_stack,
+            self.supported_extension_phases,
+            self.supported_buffer_fields,
         )
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:

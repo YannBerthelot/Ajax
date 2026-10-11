@@ -43,7 +43,7 @@ Phases
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -79,15 +79,27 @@ PHASES: tuple[str, ...] = (
 
 
 def check_extension_phases(
-    agent_name: str, stack: Iterable["Extension"], supported: frozenset
+    agent_name: str,
+    stack: Iterable["Extension"],
+    supported: frozenset,
+    supported_fields: frozenset = frozenset(),
 ) -> None:
     """Reject the extensions of ``stack`` that implement phases outside
-    ``supported`` (the phases ``agent_name``'s training loop folds).
+    ``supported`` (the phases ``agent_name``'s training loop folds), or read
+    buffer fields outside ``supported_fields`` (those the agent stores on
+    an extension's declaration, ``Extension.buffer_fields``).
 
     Raises ``ValueError`` naming every offending extension and phase: an
     extension whose phase an agent never folds would otherwise be silently
     ignored. Agents call it at construction (``ActorCritic.__init__``).
     """
+    stack = tuple(stack)
+    missing = frozenset().union(*(e.buffer_fields for e in stack)) - supported_fields
+    if missing:
+        raise ValueError(
+            f"{agent_name} does not store the buffer fields {sorted(missing)}"
+            " its extensions read."
+        )
     unsupported = [(ext, sorted(ext.implemented_phases() - supported)) for ext in stack]
     details = "; ".join(
         f"extension {ext.name!r} ({type(ext).__name__}) implements {phases}"
@@ -111,6 +123,11 @@ class Extension:
 
     #: Human-readable label, used in logs and the applicability check.
     name: str = "extension"
+    #: Replay-buffer fields beyond the agent's own that this extension reads
+    #: from the batches it is given (``raw_next_obs``: the environment's own
+    #: next observation). An agent stores a field only when an extension of
+    #: its stack declares it, and rejects one it cannot provide.
+    buffer_fields: ClassVar[frozenset[str]] = frozenset()
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -264,6 +281,10 @@ class ExtensionStack:
     def implemented_phases(self) -> frozenset[str]:
         """The phases at least one extension of the stack implements."""
         return frozenset().union(*(e.implemented_phases() for e in self.extensions))
+
+    def buffer_fields(self) -> frozenset[str]:
+        """The replay-buffer fields the stack's extensions declare they read."""
+        return frozenset().union(*(e.buffer_fields for e in self.extensions))
 
     def _keys(self, rng: jax.Array) -> tuple[jax.Array, ...]:
         """One sub-key per extension (≥1 split so an empty stack is safe)."""

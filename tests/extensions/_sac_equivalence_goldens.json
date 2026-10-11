@@ -90,9 +90,9 @@
     "alpha": 0.9810642600059509
   },
   "test_critic_blend_matches_legacy_flag": {
-    "critic": 546.0702514648438,
-    "actor": 269.2839660644531,
-    "target": 522.565185546875,
+    "critic": 546.0523681640625,
+    "actor": 269.2841491699219,
+    "target": 522.5646362304688,
     "alpha": 0.981232225894928
   },
   "test_mc_variance_correction_matches_legacy_flag": {

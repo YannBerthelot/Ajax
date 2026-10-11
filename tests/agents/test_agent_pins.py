@@ -491,6 +491,11 @@ _GOLDEN |= {
     "TD3-mcc": {"actor": 2.397678852081299, "critic": 7.9359588623046875},
     "PPO-mcc": {"actor": 3.6173574924468994, "critic": 3.1998236179351807},
 }
+# Re-recorded on macOS ARM CPU once get_action_and_log_probs lost its dead
+# uniform draw (0 * u + 1 * a): XLA compiles the GRU collector without it,
+# and the actor moved by float rounding alone (-1.4e-7; 53.321449279785156
+# before). Every other pin is bitwise unchanged.
+_GOLDEN |= {"PPO-gru": {"actor": 53.321441650390625, "critic": 52.78514099121094}}
 
 
 def fingerprint(name: str) -> dict[str, float]:

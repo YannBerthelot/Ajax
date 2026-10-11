@@ -49,7 +49,7 @@ class REDQ(ActorCritic):
         learning_starts: int = int(1e4),
         tau: float = 0.005,
         reward_scale: float = 1.0,
-        alpha_init: float = 1.0,  # FIXME: check value
+        alpha_init: float = 1.0,
         target_entropy_per_dim: float = -1.0,
         num_critic_updates: int = 20,
         num_critics: int = 10,
@@ -98,6 +98,12 @@ class REDQ(ActorCritic):
             tau (float): Soft update coefficient for target networks.
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
+                1.0 as in REDQ's official code, which learns ``log_alpha``
+                from 0 (watchernyu/REDQ@7b5d1bf,
+                ``redq/algos/redq_sac.py:59-61``). Its ``self.alpha = alpha``
+                at ``:80`` then sets the temperature the first update reads
+                to the unused ``alpha=0.2`` default, until its first
+                temperature step: a one-update transient not reproduced.
             target_entropy_per_dim (float): Target entropy per action dimension.
         """
         self.config = {**locals()}

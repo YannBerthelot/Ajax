@@ -31,9 +31,10 @@ def test_loaded_train_state_initialization():
 
 
 def test_loaded_train_state_soft_update():
-    """Polyak averaging: tau of the params, 1 - tau of the target."""
+    """Polyak averaging: tau of the params, 1 - tau of the target (tau is
+    not 0.5, so swapping the two would show)."""
     state = LoadedTrainState.create(
         apply_fn=lambda x: x, params=PARAMS, tx=TX, target_params=TARGET_PARAMS
     )
-    updated_state = state.soft_update(tau=0.5)
-    assert jnp.allclose(updated_state.target_params["weights"], jnp.array([0.9, 1.9]))
+    updated_state = state.soft_update(tau=0.25)
+    assert jnp.allclose(updated_state.target_params["weights"], jnp.array([0.85, 1.85]))

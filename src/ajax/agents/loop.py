@@ -29,7 +29,8 @@ runs them in the same order (:meth:`TrainLoop.off_policy`)::
 The result is :func:`ajax.perf_utils.build_resumable_train`'s jitted
 ``train(key, index, initial_state, resume_from_state)``, which
 :meth:`ajax.agents.base.ActorCritic.train` vmaps over seeds. It returns
-``(state, None)`` without a logging config. With one it evaluates every
+``(state, None)`` without a logging config, the evaluation not even traced
+(tracing alone rebuilds the evaluation env). With one it evaluates every
 ``log_frequency`` steps, whether or not a backend (W&B, TensorBoard) records
 the logs, and returns ``(state, evaluations)``: every logged key's values at
 the evaluations, in order, padded to the most a call makes with -1 (integer
@@ -90,8 +91,8 @@ Collect = Callable[[Any, Any], tuple[Any, Any]]
 #: ``iteration(agent_state, index, tick) -> (agent_state, metrics)``: one
 #: scan iteration, ``tick`` the absolute, unbatched scan index (offset on
 #: resume by ``ActorCritic.resume_iteration_offset``); ``metrics`` are what
-#: it logged (the sentinel when it did not).
-Iteration = Callable[[Any, Any, Any], tuple[Any, dict]]
+#: it logged (the sentinel when it did not; ``None`` without logging).
+Iteration = Callable[[Any, Any, Any], tuple[Any, Optional[dict]]]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -348,10 +349,11 @@ class TrainLoop:
         index: Any,
         recurrent: bool = False,
         **kwargs: Any,
-    ) -> tuple[Any, dict]:
+    ) -> tuple[Any, Optional[dict]]:
         """Evaluate and log every ``log_frequency`` steps
         (:func:`ajax.log.evaluate_and_log`), the extensions' eval metrics
-        included; returns the state and the metrics."""
+        included; returns the state and the metrics (``None`` without
+        logging)."""
         return evaluate_and_log(
             agent_state,
             aux,
@@ -370,11 +372,11 @@ class TrainLoop:
 
     def evaluate_every(
         self, agent_state: Any, aux: Any, index: Any, tick: Any, evaluation: Evaluation
-    ) -> tuple[Any, dict]:
+    ) -> tuple[Any, Optional[dict]]:
         """An agent's own evaluation and logs on the ticks ``t`` with ``(t +
         1) % evaluation.every == 0`` (:func:`ajax.log.maybe_eval_and_log`,
         the extensions' eval metrics included); returns the state and the
-        metrics."""
+        metrics (``None`` without logging)."""
         logs = agent_state.n_logs
         agent_state, metrics = maybe_eval_and_log(
             agent_state,
@@ -441,6 +443,7 @@ class TrainLoop:
             def body(carry: Any, tick: Any) -> tuple[Any, None]:
                 agent_state, (rows, count) = carry
                 agent_state, metrics = iteration(agent_state, index, tick)
+                assert metrics is not None  # logging: always the metrics
                 return (agent_state, record(rows, count, metrics)), None
 
             return body
@@ -520,7 +523,9 @@ class TrainLoop:
                 agent_state = after_collect(agent_state, transition)
             return agent_state, transition
 
-        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, dict]:
+        def iteration(
+            agent_state: Any, index: Any, tick: Any
+        ) -> tuple[Any, Optional[dict]]:
             agent_state, experience = collect_step(agent_state, tick)
 
             def step(agent_state: Any) -> tuple[Any, Any]:
@@ -573,7 +578,7 @@ class TrainLoop:
         """
         collect = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 
-        def iteration(start: Any, index: Any, tick: Any) -> tuple[Any, dict]:
+        def iteration(start: Any, index: Any, tick: Any) -> tuple[Any, Optional[dict]]:
             del tick
             agent_state, rollout = jax.lax.scan(
                 partial(collect_experience, **collect),

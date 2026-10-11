@@ -78,11 +78,37 @@ def test_covered_seconds_counts_overlapping_spans_once():
     assert agent_bench.covered_seconds([]) == 0.0
 
 
-def test_a_measured_run_reports_its_execution_without_tracing():
-    """A fresh agent retraces in every trial: exec_s leaves that out."""
+def test_a_tiny_two_seed_run_reports_its_execution_without_tracing(monkeypatch):
+    """A fresh agent retraces in every trial: exec_s leaves that out. The
+    seeds train at once, and steps/s count every seed's steps."""
+    seeds = []
+    build = agent_bench._build
+
+    def recording_build(*args):
+        agent = build(*args)
+        train = agent.train
+
+        def recording_train(seed, **kwargs):
+            seeds.append(seed)
+            return train(seed=seed, **kwargs)
+
+        agent.train = recording_train
+        return agent
+
+    monkeypatch.setattr(agent_bench, "_build", recording_build)
     (row,) = agent_bench._time_agent(
-        "DQN", "CartPole-v1", {}, n_envs=2, warmup=32, timesteps=64, trials=1
+        "DQN",
+        "CartPole-v1",
+        {},
+        n_envs=2,
+        n_seeds=2,
+        warmup=32,
+        timesteps=64,
+        trials=1,
     )
+    assert seeds == [[0, 1], [1, 2]]  # the warmup's, then the trial's
+    assert row["n_seeds"] == 2
+    assert row["steps_per_s"] == pytest.approx(128 / row["measured_s"], rel=0.01)
     assert 0 < row["exec_s"] < row["measured_s"]
     assert row["exec_steps_per_s"] > row["steps_per_s"]
 

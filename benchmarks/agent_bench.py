@@ -25,6 +25,8 @@ program again, and compiles it unless the persistent cache holds it.
 ``exec_steps_per_s`` leave out the spans JAX reports for tracing, lowering
 and compiling (:func:`compile_spans`). ``--compare`` judges
 ``exec_steps_per_s`` when both files have it, else ``steps_per_s``.
+``--n-seeds N`` trains N seeds at once, the vmapped program experiments
+run; steps/s then count every seed's steps.
 """
 
 from __future__ import annotations
@@ -227,18 +229,19 @@ def _time_agent(
     kw: dict,
     *,
     n_envs: int,
+    n_seeds: int,
     warmup: int,
     timesteps: int,
     trials: int,
 ) -> list[dict]:
-    """Warm the JIT cache, then time `trials` measured runs of `timesteps`."""
+    """Warm the JIT cache, then time `trials` measured runs of `timesteps`,
+    each training `n_seeds` seeds at once (one vmapped program)."""
     import jax
 
     rows: list[dict] = []
-    # Warmup: compile for this exact (shapes, n_seeds) signature.
     t0 = time.perf_counter()
     agent = _build(name, env_id, kw, n_envs)
-    out = agent.train(seed=0, n_timesteps=warmup)
+    out = agent.train(seed=list(range(n_seeds)), n_timesteps=warmup)
     jax.block_until_ready(out)
     compile_s = time.perf_counter() - t0
     del agent, out
@@ -249,24 +252,25 @@ def _time_agent(
         agent = _build(name, env_id, kw, n_envs)
         spans.clear()
         t0 = time.perf_counter()
-        out = agent.train(seed=1 + trial, n_timesteps=timesteps)
+        seeds = [1 + trial * n_seeds + i for i in range(n_seeds)]
+        out = agent.train(seed=seeds, n_timesteps=timesteps)
         jax.block_until_ready(out)
         measured_s = time.perf_counter() - t0
         exec_s = measured_s - covered_seconds(spans)
+        env_steps = timesteps * n_seeds  # every seed's
         rows.append(
             {
                 "agent": name,
                 "env": env_id,
                 "trial": trial,
                 "n_envs": n_envs,
+                "n_seeds": n_seeds,
                 "timesteps": timesteps,
                 "compile_s": round(compile_s, 3),
                 "measured_s": round(measured_s, 3),
-                "steps_per_s": round(timesteps / measured_s, 1)
-                if measured_s > 0
-                else 0.0,
+                "steps_per_s": round(env_steps / measured_s, 1),
                 "exec_s": round(exec_s, 3),
-                "exec_steps_per_s": round(timesteps / exec_s, 1),
+                "exec_steps_per_s": round(env_steps / exec_s, 1),
             }
         )
         del agent, out
@@ -279,6 +283,7 @@ def capture(
     out_path: str,
     *,
     n_envs: int,
+    n_seeds: int,
     warmup: int,
     timesteps: int,
     trials: int,
@@ -301,6 +306,7 @@ def capture(
                 env_id,
                 kw,
                 n_envs=n_envs,
+                n_seeds=n_seeds,
                 warmup=warmup,
                 timesteps=timesteps,
                 trials=trials,
@@ -389,6 +395,12 @@ def main(argv: list[str] | None = None) -> None:
     # `--only SAC` check replace the whole baseline with SAC's rows.
     ap.add_argument("--out", help="result file to write (required to capture)")
     ap.add_argument("--n-envs", type=int, default=N_ENVS)
+    ap.add_argument(
+        "--n-seeds",
+        type=int,
+        default=1,
+        help="seeds trained at once (vmapped); steps/s count every seed's",
+    )
     ap.add_argument("--warmup", type=int, default=400)
     ap.add_argument("--timesteps", type=int, default=TIMESTEPS)
     ap.add_argument("--trials", type=int, default=3)
@@ -418,6 +430,7 @@ def main(argv: list[str] | None = None) -> None:
         args.tag,
         args.out,
         n_envs=args.n_envs,
+        n_seeds=args.n_seeds,
         warmup=args.warmup,
         timesteps=args.timesteps,
         trials=args.trials,

@@ -587,7 +587,7 @@ class AutoResetWrapper(BraxWrapper):
         return state
 
 
-class BatchRngWrapper:
+class BatchRngWrapper(BraxWrapper):
     """Splits an unbatched PRNG key into n_envs keys on reset.
 
     Playground's `BraxAutoResetWrapper.reset` (and `FreshAutoResetWrapper.reset`)
@@ -597,28 +597,16 @@ class BatchRngWrapper:
     """
 
     def __init__(self, env, n_envs: int):
-        self.env = env
+        super().__init__(env)
         self.n_envs = n_envs
-
-    def __getattr__(self, name):
-        if name == "__setstate__":
-            raise AttributeError(name)
-        return getattr(self.env, name)
-
-    @property
-    def unwrapped(self):
-        return getattr(self.env, "unwrapped", self.env)
 
     def reset(self, rng):
         if rng.ndim == 1:
             rng = jax.random.split(rng, self.n_envs)
         return self.env.reset(rng)
 
-    def step(self, state, action):
-        return self.env.step(state, action)
 
-
-class FinalObsWrapper:
+class FinalObsWrapper(BraxWrapper):
     """Stashes state.obs in state.info['final_obs'] on every reset/step.
 
     Place this directly below an auto-reset wrapper in the stack. The auto-reset
@@ -631,18 +619,6 @@ class FinalObsWrapper:
     Backend-agnostic: duck-typed passthrough that works for both brax State
     and mujoco_playground State (both expose `.obs` and `.info`).
     """
-
-    def __init__(self, env):
-        self.env = env
-
-    def __getattr__(self, name):
-        if name == "__setstate__":
-            raise AttributeError(name)
-        return getattr(self.env, name)
-
-    @property
-    def unwrapped(self):
-        return getattr(self.env, "unwrapped", self.env)
 
     def reset(self, rng):
         state = self.env.reset(rng)
@@ -705,7 +681,7 @@ def _call_if_any(
     return out
 
 
-class FreshAutoResetWrapper:
+class FreshAutoResetWrapper(BraxWrapper):
     """Auto-resets a batched mujoco_playground env to a *fresh* initial state.
 
     Drop-in replacement for playground's ``BraxAutoResetWrapper`` in Ajax's
@@ -742,17 +718,8 @@ class FreshAutoResetWrapper:
     _RNG_KEY = "fresh_auto_reset_rng"
 
     def __init__(self, env, differentiable_reset: bool = False):
-        self.env = env
+        super().__init__(env)
         self.differentiable_reset = differentiable_reset
-
-    def __getattr__(self, name):
-        if name == "__setstate__":
-            raise AttributeError(name)
-        return getattr(self.env, name)
-
-    @property
-    def unwrapped(self):
-        return getattr(self.env, "unwrapped", self.env)
 
     @cached_property
     def _episode_info_keys(self) -> Tuple[str, ...]:

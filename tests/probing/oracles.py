@@ -87,9 +87,7 @@ def fixed_point(
 
 def stack(streams: Sequence) -> dict:
     """Weighted rollouts, (weight, rows), of equal length as arrays."""
-    cols = np.array(
-        [list(zip(*rows, strict=False)) for _, rows in streams]
-    )  # (B, 6, T)
+    cols = np.array([list(zip(*r, strict=False)) for _, r in streams])  # (B, 6, T)
     ro = {f: cols[:, i].astype(float if i == 1 else int) for i, f in enumerate(FIELDS)}
     return ro | {"weight": np.array([w for w, _ in streams], float)}
 

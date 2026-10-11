@@ -409,8 +409,7 @@ _GOLDEN |= {
 }
 # Recorded on macOS ARM CPU before step 17 moved the world models onto
 # TrainLoop and tidied APG and UDRL (the world models once they took
-# TrainLoop's init and post_update keys). UDRL's critic and its actor's
-# target are never-updated copies: not pinned.
+# TrainLoop's init and post_update keys).
 _GOLDEN |= {
     "DreamerV3-drift": {
         "actor": 92.46167755126953,
@@ -423,8 +422,11 @@ _GOLDEN |= {
         "world_model": 161.12486267089844,
         "drift": 0.2877737283706665,
     },
-    "UDRL-nudge": {"actor": 23.97211456298828, "nudge": 0.3160724639892578},
 }
+# Recorded on macOS ARM CPU once UDRL's sampler drew intervals across
+# segment boundaries (actor -1.3e-4; the nudge unchanged). UDRL's critic
+# and its actor's target are never-updated copies: not pinned.
+_GOLDEN |= {"UDRL-nudge": {"actor": 23.968936920166016, "nudge": 0.3160724639892578}}
 # Recorded on macOS ARM CPU once prepare_env kept the env_params given with
 # an env id: TDMPC2-drift had run on Pendulum's default T = 200, so its 40
 # steps ended before the seed tick and it pinned no update (actor +0.11 %,

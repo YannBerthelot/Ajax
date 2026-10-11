@@ -60,9 +60,8 @@ class ValueAuxiliaries:
 
 @struct.dataclass
 class AuxiliaryLogs:
-    # Nested one level deep on purpose: ajax.log.flatten_dict only
-    # collapses (1,)-shaped leaves to scalars for nested aux dataclasses,
-    # which is what ajax.log._make_no_op fills the skipped branch with.
+    # Nested one level deep so ajax.log.flatten_dict names the metrics
+    # ``value/<field>``, as the other agents' auxiliaries are named.
     value: ValueAuxiliaries
 
 

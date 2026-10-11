@@ -1,8 +1,9 @@
 """Per-process micro-benchmark for SAC training in Ajax.
 
-Runs a fixed-shape SAC training scenario, splitting compile vs steady-state
-wall-clock and recording peak GPU memory. One process per measurement so
-memory stats and JIT cache are fresh.
+Runs a fixed-shape SAC training scenario, timing a short warmup run and a
+measured run (which traces and compiles its own program: see
+``_run_one_trial``) and recording peak GPU memory. One process per
+measurement so memory stats and JIT cache are fresh.
 
 Usage:
     python benchmarks/perf_bench.py \
@@ -178,8 +179,7 @@ def _run_one_trial(
         except Exception:
             pass
 
-    # Warmup: triggers JIT compile for this exact (shape, n_seeds)
-    # signature, plus a few real training steps so the cache is hot.
+    # Warmup: a short run, its compile included (compile_plus_warmup_s).
     agent = _build_agent(
         scenario, n_envs=n_envs, learning_starts=min(50, warmup_timesteps // 2)
     )
@@ -188,8 +188,11 @@ def _run_one_trial(
     jax.block_until_ready(out)
     compile_plus_warmup_s = time.perf_counter() - t0
 
-    # Measured run: rebuild the agent so seed / buffer state is clean,
-    # but the JIT cache from the warmup carries over (same shapes).
+    # Measured run: a fresh agent, so seed and buffer state are clean. The
+    # warmup's compile does not carry over: train jits a new closure, and
+    # the scan length (n_timesteps // n_envs) is static, so measured_s also
+    # holds tracing, lowering and compiling, the last one unless the
+    # persistent compile cache holds this program.
     del agent, out
     gc.collect()
     if has_mem_stats:

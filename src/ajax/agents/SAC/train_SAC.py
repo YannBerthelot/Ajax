@@ -250,29 +250,24 @@ def update_value_functions(
         carries=carries,
     )
 
-    # 2. Q predictions for expert-path diagnostics. Only computed when a
-    # consumer exists (the target-mod ExtensionStack feeds them in via the
-    # ``q_preds`` batch entry for MCVarianceCorrection, or expert_q is set
-    # so q_gap can be reported). The gradient-bearing pass inside
-    # critic_loss_fn already exposes var_preds via core_aux.
+    # 2. The extensions' target modifiers (IBRL, LCBGatedBootstrap,
+    # CriticBlend, MCVarianceCorrection, ...) fold in stack order. They get
+    # the critic's predictions (``q_preds``: MCVarianceCorrection's
+    # variance) from a pass of their own: the target comes before the
+    # gradient-bearing pass inside critic_loss_fn.
     has_target_mods = (
         extension_stack is not None
         and "on_target" in extension_stack.implemented_phases()
     )
-    needs_expert_q_preds = has_target_mods or expert_q is not None
-    if needs_expert_q_preds:
+    if has_target_mods:
+        # `has_target_mods` already asserts `extension_stack is not
+        # None` — assert it again for mypy.
+        assert extension_stack is not None
         q_preds_for_var = predict_value(
             critic_state=agent_state.critic_state,
             critic_params=agent_state.critic_state.params,
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         )
-
-    # 3. The extensions' target modifiers (IBRL, LCBGatedBootstrap,
-    # CriticBlend, MCVarianceCorrection, ...) fold in stack order.
-    if has_target_mods:
-        # `has_target_mods` already asserts `extension_stack is not
-        # None` — assert it again for mypy.
-        assert extension_stack is not None
         batch = {
             "observations": observations,
             "actions": actions,
@@ -295,7 +290,7 @@ def update_value_functions(
             total_timesteps,
         )
 
-    # 4. Core critic loss (MSE against the composed target) plus the
+    # 3. Core critic loss (MSE against the composed target) plus the
     #    extensions' critic-loss terms, inside the same value_and_grad so
     #    the one Adam step sees the combined gradient.
     critic_state = agent_state.critic_state
@@ -325,12 +320,12 @@ def update_value_functions(
         critic_state.params
     )
 
-    # 5. Assemble full ValueAuxiliaries with expert diagnostics.
-    # q_pred_min_full only feeds q_gap, which is itself gated on expert_q.
+    # 4. Assemble full ValueAuxiliaries with expert diagnostics. The mean
+    # is linear, so q_gap = mean(expert_q - min_k Q_k) is q_expert_mean
+    # minus the loss pass's q_pred_min: no critic pass of its own.
     if expert_q is not None:
-        q_pred_min_full = jnp.min(q_preds_for_var, axis=0)
         q_expert_mean = expert_q.mean().flatten()
-        q_gap = (expert_q - q_pred_min_full).mean().flatten()
+        q_gap = q_expert_mean - core_aux.q_pred_min
     else:
         q_expert_mean = jnp.zeros(1)
         q_gap = jnp.zeros(1)

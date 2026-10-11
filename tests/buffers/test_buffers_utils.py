@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 import jax
+import jax.numpy as jnp
 import pytest
+from gymnax import make as make_gymnax_env
 
 from ajax.buffers.utils import get_batch_from_buffer, get_buffer, init_buffer
 from ajax.environments.create import build_env_from_id
@@ -70,3 +72,49 @@ def test_get_batch_from_buffer(setup):
         (is_expert, (1,)),
     ):
         assert sample.shape == (batch, *trailing)
+
+
+@pytest.mark.parametrize(
+    "env_id, action_dtype", [("Pendulum-v1", jnp.float32), ("CartPole-v1", jnp.int32)]
+)
+def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
+    """A row holds the transition and its raw observation; each option adds
+    its fields or widens the stored observations (never the raw ones)."""
+    env, params = make_gymnax_env(env_id)
+    env_args = EnvironmentConfig(
+        env=env, env_params=params, n_envs=1, continuous=env_id == "Pendulum-v1"
+    )
+    obs_dim = env.observation_space(params).shape[0]
+    buffer = get_buffer(buffer_size=8, batch_size=2)
+
+    def row(**options):
+        rows = init_buffer(buffer, env_args, **options).experience
+        return {k: (v.shape[2:], v.dtype) for k, v in rows.items()}
+
+    plain = row()
+    assert set(plain) == {
+        "obs",
+        "action",
+        "reward",
+        "terminated",
+        "truncated",
+        "next_obs",
+        "raw_obs",
+        "is_expert",
+    }
+    assert plain["obs"] == plain["next_obs"] == plain["raw_obs"]
+    assert plain["obs"] == ((obs_dim,), jnp.float32)
+    assert plain["action"] == ((1,), action_dtype)
+    full = row(
+        add_train_frac=True,
+        expert_state_aug_dim=2,
+        include_expert_fields=True,
+        actor_carry_dim=5,
+        include_raw_next_obs=True,
+    )
+    added = {"a_expert", "next_a_expert", "raw_next_obs", "actor_carry"}
+    assert set(full) == set(plain) | added
+    assert full["obs"] == full["next_obs"] == ((obs_dim + 1 + 2,), jnp.float32)
+    assert full["raw_obs"] == full["raw_next_obs"] == plain["raw_obs"]
+    assert full["a_expert"] == full["next_a_expert"] == plain["action"]
+    assert full["actor_carry"] == ((5,), jnp.float32)

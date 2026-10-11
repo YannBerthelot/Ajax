@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 
 from ajax.agents.AVG.state import RunningMoments
+from ajax.deprecation import moved_names
 from ajax.utils import online_normalize
 
 
@@ -36,3 +37,7 @@ def compute_td_error_scaling(
     scaling = jnp.sqrt(variance_reward + G_return.mean * variance_gamma)
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
     return td_error_scaling, reward, gamma, G_return
+
+
+# The old name was importable from here too (the tests imported it here).
+__getattr__ = moved_names(__name__, NormalizationInfo=RunningMoments)

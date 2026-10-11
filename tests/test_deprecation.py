@@ -11,6 +11,7 @@ from ajax.networks.distributions import SquashedNormal
 
 MOVED = {
     ("ajax.agents.AVG.state", "NormalizationInfo"): RunningMoments,
+    ("ajax.agents.AVG.utils", "NormalizationInfo"): RunningMoments,
     ("ajax.agents.SAC.utils", "SquashedNormal"): SquashedNormal,
     **{
         ("ajax.agents.obs_norm", name): getattr(obs_norm, name)

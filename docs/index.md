@@ -6,17 +6,38 @@ hide:
 # Ajax
 
 <p align="center">
-  <b>Reinforcement-learning agents in JAX, each one following its paper.</b><br/>
-  A whole training run, every seed, one compiled program.
+  <b>Reinforcement-learning agents in JAX, compiled end to end with the environment,<br/>
+  including average-reward, expert-guided and world-model agents.</b><br/>
+  A whole training run, environment and every seed included, one compiled program.
 </p>
 
+Compared with [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3)
+and its JAX version [SBX](https://github.com/araffin/sbx), Ajax differs in
+four ways:
+
+- **[End to end on the accelerator](guide/performance.md)**: the environment
+  and the training loop compile into one JAX program, as in
+  [PureJaxRL](https://github.com/luchris429/purejaxrl), with no Python step
+  between them, on a CPU or a GPU.
+- **Average-reward agents**: [ASAC](algorithms/asac.md) and
+  [APO](algorithms/apo.md) maximise the reward per step, with no discount, for
+  tasks that never end.
+- **[Expert-guided agents](guide/expert-guidance.md)**: learn from a
+  controller you already have, by cloning, imitation, residual policies or
+  hand-over.
+- **[World models](guide/world-models.md)**: DreamerV3 and TD-MPC2, following
+  the code behind their papers' results.
+
+[Why Ajax](getting-started/why-ajax.md) shows each with an example and
+compares Ajax with SB3, SBX and PureJaxRL, including when to use them instead.
+
 Ajax has fourteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
-implements a published paper, and its page lists where it departs from it. The
-environment steps inside the same compiled program as the learning, so several
-seeds train side by side on one CPU or GPU. Research features (learning from an
-expert, exploration rules, diagnostics) are [extensions](guide/extensions.md),
-passed as `extensions=(...)` rather than added as new arguments to the agents;
-an agent refuses one that needs a training phase it does not run.
+implements a published paper, and its page lists where it departs from it.
+Several seeds train side by side in one program, on a CPU or a GPU. Research
+features (learning from an expert, exploration rules, diagnostics) are
+[extensions](guide/extensions.md), passed as `extensions=(...)` rather than
+added as new arguments to the agents; an agent refuses one that needs a
+training phase it does not run.
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
@@ -37,6 +58,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 ```
 
 [Quickstart →](getting-started/quickstart.md){ .md-button .md-button--primary }
+[Why Ajax →](getting-started/why-ajax.md){ .md-button }
 [Choose an algorithm →](algorithms/index.md){ .md-button }
 
 ## The agents
@@ -81,6 +103,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 
     [Installation](getting-started/installation.md) ·
     [Quickstart](getting-started/quickstart.md) ·
+    [Why Ajax](getting-started/why-ajax.md) ·
     [Training an agent](guide/training.md) ·
     [Algorithms](algorithms/index.md)
 

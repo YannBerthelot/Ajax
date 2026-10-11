@@ -1,11 +1,11 @@
 <h1 align="center">Ajax</h1>
 
 <h3 align="center">
-  Reinforcement-learning agents in JAX,<br/>
-  each one following its paper.
+  Reinforcement-learning agents in JAX, compiled end to end with the environment,<br/>
+  including average-reward, expert-guided and world-model agents.
 </h3>
 
-<p align="center"><i>A whole training run, every seed, one compiled program.</i></p>
+<p align="center"><i>A whole training run, environment and every seed included, one compiled program.</i></p>
 
 <p align="center">
   <a href="https://yannberthelot.github.io/Ajax/"><img alt="Documentation" src="https://img.shields.io/badge/docs-yannberthelot.github.io%2FAjax-blue"></a>
@@ -16,11 +16,30 @@
 </p>
 
 Ajax is a library of reinforcement-learning agents written in
-[JAX](https://github.com/jax-ml/jax): fourteen agents, from SAC and PPO to
-DreamerV3 and TD-MPC2, each implementing a published paper, with the places
-where it departs from that paper written down. A training run, environment
-included, compiles into one program, so several seeds train side by side on one
-CPU or GPU. Research features (learning from an expert, exploration rules,
+[JAX](https://github.com/jax-ml/jax). Compared with
+[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and its JAX
+version [SBX](https://github.com/araffin/sbx), it differs in four ways:
+
+- **[End to end on the accelerator](docs/guide/performance.md)**: the
+  environment and the training loop compile into one JAX program, as in
+  [PureJaxRL](https://github.com/luchris429/purejaxrl), with no Python step
+  between them, on a CPU or a GPU.
+- **Average-reward agents**: [ASAC](docs/algorithms/asac.md) and
+  [APO](docs/algorithms/apo.md) maximise the reward per step, with no
+  discount, for tasks that never end.
+- **[Expert-guided agents](docs/guide/expert-guidance.md)**: learn from a
+  controller you already have, by cloning, imitation, residual policies or
+  hand-over.
+- **[World models](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2,
+  following the code behind their papers' results.
+
+[Why Ajax](docs/getting-started/why-ajax.md) shows each with an example and
+compares Ajax with SB3, SBX and PureJaxRL, including when to use them instead.
+
+It has fourteen agents, from SAC and PPO to DreamerV3 and TD-MPC2, each
+implementing a published paper, with the places where it departs from that
+paper written down. Several seeds train side by side in one program, on a CPU
+or a GPU. Research features (learning from an expert, exploration rules,
 diagnostics) are *extensions*, passed as `extensions=(...)` rather than added
 as new arguments to the agents; an agent refuses one that needs a training
 phase it does not run.

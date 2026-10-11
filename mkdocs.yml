@@ -117,6 +117,7 @@ nav:
   - Getting started:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
+      - Why Ajax: getting-started/why-ajax.md
   - User guide:
       - Training an agent: guide/training.md
       - Environments: guide/environments.md

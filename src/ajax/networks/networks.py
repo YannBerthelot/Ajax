@@ -484,10 +484,12 @@ def get_initialized_actor_critic(
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     action_dim_override: Optional[int] = None,
+    actor: Optional[nn.Module] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
     Create actor and critic networks, their initializers and log-std head
-    as ``network_config`` sets them.
+    as ``network_config`` sets them; a prebuilt ``actor`` (TD3's
+    deterministic one) replaces the :class:`Actor` built here.
 
     extra_obs_dim: extra dimensions appended to obs at runtime before the
     network forward pass. Set to action_dim (2 for the plane) when
@@ -520,8 +522,9 @@ def get_initialized_actor_critic(
     obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
     cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
-    actor: nn.Module
-    if isinstance(network_config.actor_architecture, PIDPolicy):
+    if actor is not None:
+        pass
+    elif isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(continuous, memory)
         actor = PIDActor(
             policy=network_config.actor_architecture,

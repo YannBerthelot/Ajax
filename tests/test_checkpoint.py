@@ -264,3 +264,29 @@ def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_n
         pickle.dump(old, fh)
     restored = restore_into(state, path)
     assert restored.collector_state.rollout.raw_next_obs is None
+
+
+def test_a_state_without_a_collector_restores(tmp_path):
+    """TDMPC2MultiTask trains offline: its state holds no collector
+    (collector_state None). It restores, as does a checkpoint whose root is
+    not a mapping (an array)."""
+    from ajax import TDMPC2MultiTask
+    from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
+
+    rng, length = np.random.default_rng(0), 10
+    action = rng.uniform(-1, 1, (2, length + 1, 1)).astype(np.float32)
+    reward = rng.uniform(0, 1, (2, length + 1)).astype(np.float32)
+    action[:, -1], reward[:, 0] = 0.0, 0.0
+    obs = rng.normal(size=(2, length + 1, 2)).astype(np.float32)
+    data = pool_tasks([TaskEpisodes(obs, action, reward, length, "task")])
+    tiny = {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16, "num_q": 2}
+    tiny |= {"task_dim": 4, "batch_size": 16, "num_samples": 32, "num_elites": 8}
+    agent = TDMPC2MultiTask(data, num_pi_trajs=4, iterations=2, **tiny)
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    assert state.collector_state is None
+    path = str(tmp_path / "offline.pkl")
+    save_checkpoint(state, path)
+    restore_into(state, path)
+    path = str(tmp_path / "array.pkl")
+    save_checkpoint(jnp.arange(3.0), path)
+    np.testing.assert_array_equal(restore_into(jnp.zeros(3), path), [0.0, 1.0, 2.0])

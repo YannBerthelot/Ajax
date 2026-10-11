@@ -92,10 +92,11 @@ def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
     is no flax-serialisable node), hence the attribute access.
     """
     buffer = getattr(getattr(skeleton, "collector_state", None), "buffer_state", None)
-    wanted = getattr(buffer, "experience", {})
-    saved = state_dict.get("collector_state", {}).get("buffer_state")
-    missing = [k for k in _REPLAY_SUCCESSORS if k in wanted]
-    missing = [k for k in missing if k not in getattr(saved, "experience", {k: 0})]
+    wanted = [k for k in _REPLAY_SUCCESSORS if k in getattr(buffer, "experience", {})]
+    if not wanted:  # no replay buffer (no collector, or an on-policy one)
+        return state_dict
+    saved = state_dict["collector_state"]["buffer_state"]
+    missing = [k for k in wanted if k not in saved.experience]
     if not missing:
         return state_dict
     # Rows run along the second-to-last axis, the ring wrapping round.

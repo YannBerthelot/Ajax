@@ -81,7 +81,8 @@ _TDMPC2_PRESET = {
 _WARMUP_INSIDE_RUN = {"learning_starts": 1000}
 
 # agent name -> (env_id, extra constructor kwargs). Discrete-action
-# agents train on CartPole-v1, continuous ones on Pendulum-v1. Only
+# agents train on CartPole-v1, continuous ones on Pendulum-v1; an agent's
+# second scenario is named <agent>/<env>. Only
 # env_id / n_envs / n_timesteps are pinned, and a learning_starts that
 # would outlast the run (_WARMUP_INSIDE_RUN); every other hyperparameter
 # uses the agent default, so the benchmark tracks the agent's own code
@@ -99,6 +100,13 @@ AGENTS: dict[str, tuple[str, dict]] = {
     "ASAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "AVG": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
+    "UDRL": ("Pendulum-v1", {}),
+    # Pendulum's episodes end on the time limit only. Brax's
+    # inverted_pendulum ends them when the pole passes 0.2 rad, within tens
+    # of steps for an untrained policy: the auto-reset and the terminal
+    # targets of a state-terminating continuous task, on the off-policy
+    # flagship.
+    "SAC/inverted_pendulum": ("inverted_pendulum", _WARMUP_INSIDE_RUN),
     # DreamerV3 preset: the 1m model (d = 64, deter 512, 4 classes) on 8
     # windows of 16 + 1 rows, train ratio 8 (one update per 16 rows after
     # the training start: ~500 updates in 8000 rows), every other
@@ -182,7 +190,8 @@ def _build(name: str, env_id: str, kw: dict, n_envs: int):
 
     if name in _CUSTOM_BUILDERS:
         return _CUSTOM_BUILDERS[name](n_envs, **kw)
-    return getattr(ajax, name)(env_id=env_id, n_envs=n_envs, **kw)
+    agent = getattr(ajax, name.split("/")[0])
+    return agent(env_id=env_id, n_envs=n_envs, **kw)
 
 
 # The JAX events whose spans are tracing, lowering and compiling; a load

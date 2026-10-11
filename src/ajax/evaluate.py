@@ -6,7 +6,14 @@ from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.environments.interaction import get_pi, get_raw_obs, reset, step
+from ajax.environments.interaction import (
+    augment_obs,
+    flatten_expert_state,
+    get_pi,
+    get_raw_obs,
+    reset,
+    step,
+)
 from ajax.environments.row_collector import PolicyFn, check_unnormalized_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
@@ -251,30 +258,22 @@ def step_environment(
             else:
                 _aug_expert_action = expert_policy(expert_obs)
                 _aug_new_expert_state = expert_state
-            if augment_obs_with_expert_action:
-                obs_for_actor = jnp.concatenate(
-                    [obs, jax.lax.stop_gradient(_aug_expert_action)], axis=-1
-                )
-            else:
-                obs_for_actor = obs
         else:
-            obs_for_actor = obs
-            _aug_new_expert_state = None
+            _aug_expert_action, _aug_new_expert_state = None, None
 
-        # Augment obs with the expert's flattened internal state
-        # (PID integrator etc.) so the actor's input matches the
-        # training-time augmented obs format. The state attached is
-        # the BEFORE-expert state at this step, mirroring how the
-        # collector stores it: collector_state.expert_state at obs t
-        # is the state that has NOT yet seen obs t.
-        if augment_obs_with_expert_state and expert_is_stateful:
-            from ajax.environments.interaction import flatten_expert_state
-
-            _es_flat = flatten_expert_state(expert_state)
-            if _es_flat is not None:
-                obs_for_actor = jnp.concatenate(
-                    [obs_for_actor, jax.lax.stop_gradient(_es_flat)], axis=-1
-                )
+        # The actor's input in the training layout (augment_obs): the
+        # expert's flattened internal state (PID integrator etc.) BEFORE
+        # this step's call, as the collector stores it (its expert_state at
+        # obs t has not yet seen obs t), then the expert's action.
+        obs_for_actor = augment_obs(
+            obs,
+            (
+                flatten_expert_state(expert_state)
+                if augment_obs_with_expert_state and expert_is_stateful
+                else None
+            ),
+            _aug_expert_action if augment_obs_with_expert_action else None,
+        )
 
         raw_actions, entropy, new_actor_hidden = (
             get_deterministic_action_and_entropy_fn(
@@ -546,6 +545,7 @@ def evaluate_expert(
         "pid_gain_policy",
         "augment_obs_with_expert_action",
         "augment_obs_with_expert_state",
+        "eval_expert_policy",
     ],
 )
 def evaluate(
@@ -568,11 +568,13 @@ def evaluate(
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
     expert_return: Optional[jax.Array] = None,
+    eval_expert_policy: Optional[Callable] = None,
 ) -> jax.Array:
     """Evaluate the actor's deterministic policy on ``num_episodes``
-    episodes; with ``expert_policy`` the expert's return too, rolled out
-    here unless already known (``expert_return``, from
-    :func:`evaluate_expert`)."""
+    episodes; with ``expert_policy`` (the training expert, which builds the
+    actor's input) the expert's return too, that of ``eval_expert_policy``
+    when given, rolled out here unless already known (``expert_return``,
+    from :func:`evaluate_expert`)."""
     env, mode, continuous, key, obs, state = _reset_eval_env(
         env, env_params, num_episodes, norm_info, rng, gamma
     )
@@ -664,12 +666,12 @@ def evaluate(
     expert_reward = jnp.nan
     if expert_return is not None:
         expert_reward = expert_return
-    elif expert_policy is not None:
+    elif expert_policy is not None or eval_expert_policy is not None:
         expert_reward = _expert_return(
             mode,
             env,
             env_params,
-            expert_policy,
+            eval_expert_policy or expert_policy,
             key,
             obs,
             state,

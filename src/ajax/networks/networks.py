@@ -512,7 +512,7 @@ def get_initialized_actor_critic(
     extra_obs_dim: extra dimensions appended to obs at runtime before the
     network forward pass. Set to action_dim (2 for the plane) when
     augment_obs_with_expert_action=True, so the network is initialised with
-    the correct input size matching what augment_obs_if_needed produces.
+    the correct input size matching what interaction.augment_obs produces.
 
     A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
     actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).
@@ -736,15 +736,11 @@ def init_network_state(
 
 def _apply_critic_obs_norm(critic_state: LoadedTrainState, x: jax.Array) -> jax.Array:
     """Normalise the obs slice of a critic input (obs or concat(obs, action));
-    the action slice stays raw. No-op when normalisation is disabled."""
-    obs_norm_info = getattr(critic_state, "obs_norm_info", None)
-    if obs_norm_info is None or obs_norm_info.var is None:
-        return x
+    the action slice stays raw (``apply_obs_norm``). No-op when
+    normalisation is disabled."""
     from ajax.agents.obs_norm import apply_obs_norm
 
-    obs_dim = obs_norm_info.mean.shape[-1]
-    obs_part = apply_obs_norm(x[..., :obs_dim], obs_norm_info)
-    return jnp.concatenate([obs_part, x[..., obs_dim:]], axis=-1)
+    return apply_obs_norm(x, getattr(critic_state, "obs_norm_info", None))
 
 
 def predict_value_sequence(
@@ -778,17 +774,7 @@ def predict_value(
     critic_params: FrozenDict,
     x: jax.Array,
 ) -> jax.Array:
-    # Agent-side obs normalisation: x = concat([obs, action]); we slice
-    # the leading obs_dim, normalise it, and recombine. The action stays
-    # raw (already in [-1, 1]). Stats live on critic_state.obs_norm_info,
-    # synced from CollectorState after every online collection step.
-    obs_norm_info = getattr(critic_state, "obs_norm_info", None)
-    if obs_norm_info is not None and obs_norm_info.var is not None:
-        from ajax.agents.obs_norm import apply_obs_norm
-
-        obs_dim = obs_norm_info.mean.shape[-1]
-        obs_part = x[..., :obs_dim]
-        act_part = x[..., obs_dim:]
-        obs_part = apply_obs_norm(obs_part, obs_norm_info)
-        x = jnp.concatenate([obs_part, act_part], axis=-1)
+    # Agent-side obs normalisation (stats on critic_state.obs_norm_info,
+    # synced from CollectorState after every online collection step).
+    x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(critic_params, x)

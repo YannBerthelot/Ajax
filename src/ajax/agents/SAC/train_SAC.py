@@ -23,13 +23,11 @@ from ajax.agents.SAC.core import (
     update_target_networks,
     update_temperature,
 )
-from ajax.agents.SAC.expert import (
-    augment_obs_if_needed,
-    collect_and_store_expert_transitions,
-)
+from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_batch_from_buffer, get_expert_fields_from_buffer
+from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
@@ -586,14 +584,17 @@ def update_agent(
         else transition.obs[..., :-1]
     )
 
-    # --- Obs augmentation: append a_expert to obs and next_obs ---
+    # --- Obs augmentation (interaction.augment_obs's layout) ---
     # Must happen before any network call (critic, actor, policy loss).
-    # For next_obs we strip the last dim (train_frac).
+    # The expert's actions as collection computed them, on the raw
+    # observations (an expert is defined in the environment's units) and
+    # from the expert's state, which the update does not have: a_expert at
+    # s, next_a_expert at s' (the final observation where an episode ended,
+    # from the expert's post-step state).
     if augment_obs_with_expert_action and expert_policy is not None:
-        _raw_next = transition.next_obs[..., :-1]  # strip train_frac
-        aug_obs = augment_obs_if_needed(transition.obs, _raw, expert_policy, True)
-        aug_next_obs = augment_obs_if_needed(
-            transition.next_obs, _raw_next, expert_policy, True
+        aug_obs = augment_obs(transition.obs, expert_action=transition.a_expert)
+        aug_next_obs = augment_obs(
+            transition.next_obs, expert_action=transition.next_a_expert
         )
         transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
 
@@ -951,9 +952,11 @@ def make_train(
         eval_kwargs={
             # Evaluate only in the last 20% of training (HPO phases).
             "sweep": logging_config is not None and logging_config.sweep,
-            "expert_policy": (
-                eval_expert_policy if eval_expert_policy is not None else expert_policy
-            ),
+            # The training expert builds the actor's input (augmentation,
+            # the residual's base, PID gains); eval_expert_policy, when
+            # given, only the expert's baseline return.
+            "expert_policy": expert_policy,
+            "eval_expert_policy": eval_expert_policy,
             "eval_action_transform": eval_action_transform,
             "pid_gain_policy": use_pid_policy,
             "augment_obs_with_expert_action": augment_obs_with_expert_action,

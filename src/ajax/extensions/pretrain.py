@@ -26,7 +26,11 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import collect_experience_from_expert_policy
+from ajax.environments.interaction import (
+    augment_from_buffer,
+    augment_obs,
+    collect_experience_from_expert_policy,
+)
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import predict_value
@@ -124,7 +128,6 @@ def pretrain_critic_mc(
     obs_flat = all_transitions.obs.reshape(T * n_envs, -1)
     action_flat = all_transitions.action.reshape(T * n_envs, -1)
     mc_flat = mc_returns.reshape(T * n_envs, 1)
-    raw_obs_flat = obs_flat
 
     # Append train_frac=0.0 if max_timesteps was set
     if max_timesteps is not None:
@@ -132,15 +135,11 @@ def pretrain_critic_mc(
             [obs_flat, jnp.zeros((obs_flat.shape[0], 1))], axis=-1
         )
 
-    # Augment obs with expert action if enabled
+    # Augment obs with the expert's actions as its rollout took them (on raw
+    # observations, from its state), as collection stores a_expert.
     if augment_obs_with_expert_action:
-        a_expert_flat = jax.lax.stop_gradient(expert_policy(raw_obs_flat))
-        if max_timesteps is not None:
-            obs_flat = jnp.concatenate(
-                [obs_flat[..., :-1], a_expert_flat, obs_flat[..., -1:]], axis=-1
-            )
-        else:
-            obs_flat = jnp.concatenate([obs_flat, a_expert_flat], axis=-1)
+        a_expert_flat = all_transitions.a_expert.reshape(T * n_envs, -1)
+        obs_flat = augment_obs(obs_flat, expert_action=a_expert_flat)
 
     # Batch into fixed-size chunks for regression
     n_total = obs_flat.shape[0]
@@ -283,8 +282,10 @@ def refresh_phi_star(
     gamma: float,
     reward_scale: float,
     expert_policy: Callable,
+    augment: bool = False,
 ) -> Any:
     """Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
+    ``augment``: φ* reads observations augmented with SAC's expert actions.
 
     Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
     Non-expert transitions are masked out, so the gradient comes only from
@@ -311,6 +312,10 @@ def refresh_phi_star(
         dones = terminated.astype(jnp.float32)
 
         a_expert_next = jax.lax.stop_gradient(expert_policy(next_obs))
+        if augment:
+            obs, next_obs = augment_from_buffer(
+                buffer, buffer_state, sample_key, obs, next_obs
+            )
         q_next = predict_value(
             critic_state=expert_critic_state,
             critic_params=expert_critic_state.target_params,
@@ -516,6 +521,7 @@ class MCPretrain(Extension):
         "buffer",
         "update_value_fn",
         "update_target_fn",
+        "augment",
     ],
 )
 def pretrain_critic_bellman(
@@ -527,9 +533,12 @@ def pretrain_critic_bellman(
     n_steps: int,
     update_value_fn: Callable,
     update_target_fn: Callable,
+    augment: bool = False,
 ):
     """``n_steps`` Bellman critic updates (the agent's ``update_value_fn``)
-    on replay batches, each followed by a target update at tau 5e-4."""
+    on replay batches, each followed by a target update at tau 5e-4;
+    ``augment``: the critic reads observations augmented with the expert's
+    stored actions, as in SAC's update."""
 
     def critic_pretrain_step(carry, _):
         agent_state = carry
@@ -547,6 +556,14 @@ def pretrain_critic_bellman(
         ) = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, sample_key
         )
+        if augment:
+            observations, next_observations = augment_from_buffer(
+                buffer,
+                agent_state.collector_state.buffer_state,
+                sample_key,
+                observations,
+                next_observations,
+            )
         dones = terminated
         agent_state, _ = update_value_fn(
             observations=observations,
@@ -589,6 +606,7 @@ class BellmanPretrain(Extension):
     recurrent: bool = False
     update_value_fn: Optional[Callable] = None
     update_target_fn: Optional[Callable] = None
+    augment_obs_with_expert_action: bool = False
     name: str = "bellman_pretrain"
 
     def bind_to_agent(self, **agent_context: Any) -> "BellmanPretrain":
@@ -611,6 +629,9 @@ class BellmanPretrain(Extension):
             recurrent=agent_context["recurrent"],
             update_value_fn=agent_context["update_value_fn"],
             update_target_fn=agent_context["update_target_fn"],
+            augment_obs_with_expert_action=agent_context.get(
+                "augment_obs_with_expert_action", False
+            ),
         )
 
     def pretrain(
@@ -632,6 +653,7 @@ class BellmanPretrain(Extension):
             n_steps=self.n_steps,
             update_value_fn=self.update_value_fn,
             update_target_fn=self.update_target_fn,
+            augment=self.augment_obs_with_expert_action,
         )
         jax.debug.print("[Bellman pretrain] done ({n} steps)", n=self.n_steps)
         return agent_state, ext_state
@@ -662,6 +684,7 @@ class PhiRefresh(Extension):
     buffer: Any = None
     gamma: Optional[float] = None
     reward_scale: Optional[float] = None
+    augment_obs_with_expert_action: bool = False
     name: str = "phi_refresh"
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
@@ -679,8 +702,13 @@ class PhiRefresh(Extension):
         reward_scale = agent_context.get("reward_scale", None)
         if self.buffer is not None or buffer is None:
             return self
+        augment = agent_context.get("augment_obs_with_expert_action", False)
         return dataclasses.replace(
-            self, buffer=buffer, gamma=gamma, reward_scale=reward_scale
+            self,
+            buffer=buffer,
+            gamma=gamma,
+            reward_scale=reward_scale,
+            augment_obs_with_expert_action=augment,
         )
 
     def post_update(
@@ -708,7 +736,13 @@ class PhiRefresh(Extension):
 
         def _do_refresh(s: Any) -> Any:
             return refresh_phi_star(
-                s, buffer, steps, gamma, reward_scale, expert_policy
+                s,
+                buffer,
+                steps,
+                gamma,
+                reward_scale,
+                expert_policy,
+                self.augment_obs_with_expert_action,
             )
 
         new_state = jax.lax.cond(
@@ -720,4 +754,4 @@ class PhiRefresh(Extension):
         return new_state, ext_state
 
 
-__all__ = ["MCPretrain", "BellmanPretrain", "PhiRefresh"]
+__all__ = ["BellmanPretrain", "MCPretrain", "PhiRefresh"]

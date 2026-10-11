@@ -1,5 +1,5 @@
-"""SAC's expert plumbing outside the Extension phases: observation
-augmentation and the expert replay prefill."""
+"""SAC's expert plumbing outside the Extension phases: the expert replay
+prefill (observations are augmented by ``interaction.augment_obs``)."""
 
 from typing import Any, Callable
 
@@ -10,21 +10,6 @@ from ajax.environments.interaction import collect_experience_from_expert_policy
 from ajax.environments.utils import check_env_is_gymnax, maybe_append_train_frac
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType
-
-
-def augment_obs_if_needed(
-    observations: jax.Array,
-    raw_observations: jax.Array,
-    expert_policy,
-    augment: bool,
-) -> jax.Array:
-    """Append expert action to obs at runtime. Layout: [env_obs | a_expert | train_frac]."""
-    if not augment or expert_policy is None:
-        return observations
-    a_expert = jax.lax.stop_gradient(expert_policy(raw_observations))
-    return jnp.concatenate(
-        [observations[..., :-1], a_expert, observations[..., -1:]], axis=-1
-    )
 
 
 def collect_and_store_expert_transitions(

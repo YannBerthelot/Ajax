@@ -367,21 +367,19 @@ class ExpertValueMetrics(Extension):
     def eval_metrics(
         self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
     ) -> dict:
-        from ajax.agents.SAC.expert import augment_obs_if_needed
         from ajax.buffers.utils import (
             get_batch_from_buffer,
             get_expert_fields_from_buffer,
         )
+        from ajax.environments.interaction import augment_obs
 
         del ext_state, ctx
         buffer_state = agent_state.collector_state.buffer_state
-        obs, *_, actions, raw_obs, _ = get_batch_from_buffer(
-            self.buffer, buffer_state, rng
-        )
+        obs, *_, actions, _, _ = get_batch_from_buffer(self.buffer, buffer_state, rng)
+        # The expert's actions as collection stored them (from its state).
         a_expert, _ = get_expert_fields_from_buffer(self.buffer, buffer_state, rng)
-        obs = augment_obs_if_needed(
-            obs, raw_obs, self.expert_policy, self.augment_obs_with_expert_action
-        )
+        if self.augment_obs_with_expert_action:
+            obs = augment_obs(obs, expert_action=a_expert)
         critic = agent_state.critic_state
 
         def q_min(params: Any, a: jax.Array) -> jax.Array:

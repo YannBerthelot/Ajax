@@ -210,6 +210,7 @@ def _make_no_op(extra_eval_metrics=None):
         "total_timesteps",
         "avg_reward_mode",
         "expert_policy",
+        "eval_expert_policy",
         "sweep",
         "eval_action_transform",
         "extra_eval_metrics",
@@ -232,6 +233,7 @@ def evaluate_and_log(
     total_timesteps: int,
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
+    eval_expert_policy: Optional[Callable] = None,
     sweep: bool = False,
     eval_action_transform: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
@@ -289,6 +291,7 @@ def evaluate_and_log(
             norm_info=eval_norm_info(agent_state, mode),
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
+            eval_expert_policy=eval_expert_policy,
             # The training-fraction column the collector appends (None
             # unless the agent conditions on it).
             train_frac=agent_state.collector_state.train_time_fraction,

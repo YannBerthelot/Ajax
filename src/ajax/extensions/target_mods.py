@@ -346,8 +346,9 @@ class ValueBox(Extension):
 
     The :meth:`action` phase owns the override math. It reads the
     pre-computed per-step quantities off the SAC action pipeline's batch
-    dict (``env_action`` and ``expert_action``, the action of SAC's
-    ``expert_policy``, at which it also measures the expert's value), the
+    dict (``env_action``, ``expert_action``, the action of SAC's
+    ``expert_policy``, at which it also measures the expert's value, and
+    ``observations``, the critics' input, augmented when it is), the
     box bounds off the agent state (so a resumed run keeps them) and
     writes ``in_value_box`` / ``entry_bonus``
     back into the dict so the pipeline can record them on the
@@ -388,7 +389,7 @@ class ValueBox(Extension):
             agent_state.expert_v_min, agent_state.expert_v_max, train_frac
         )
         in_value_box, entry_bonus, _ = box_compute_state(
-            agent_state.collector_state.last_obs,
+            obs["observations"],
             expert_action,
             agent_state.critic_state,
             agent_state.expert_critic_params,

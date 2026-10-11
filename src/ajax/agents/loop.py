@@ -483,13 +483,15 @@ class TrainLoop:
         self, eval_kwargs: Optional[dict]
     ) -> Optional[Callable[[Any], dict]]:
         """:meth:`train`'s ``prepare`` for an evaluation comparing the agent
-        with an expert (``eval_kwargs["expert_policy"]``): the expert's
+        with an expert (``eval_kwargs["eval_expert_policy"]``, else
+        ``["expert_policy"]``): the expert's
         return (:func:`ajax.evaluate.evaluate_expert`), the same at every
         evaluation of a call (one key, ``eval_rng``, on one env), computed
         once. An evaluation env's observation normaliser does not change it:
         the expert acts on the environment's own observations.
         """
-        expert = (eval_kwargs or {}).get("expert_policy")
+        kwargs = eval_kwargs or {}
+        expert = kwargs.get("eval_expert_policy") or kwargs.get("expert_policy")
         if expert is None:
             return None
 

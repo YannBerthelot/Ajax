@@ -1,5 +1,6 @@
 """The persistent JAX compile cache keeps one subdirectory per host
-fingerprint and never deletes anything (see ``ajax/_compile_cache.py``).
+fingerprint and never deletes anything on import; ``prune`` trims it when
+called (see ``ajax/_compile_cache.py``).
 
 The fingerprint must change with the CPU and the Python/JAX/jaxlib
 versions, so an entry built elsewhere is never loaded here, and must not
@@ -122,3 +123,21 @@ def test_importing_ajax_points_jax_at_the_fingerprint_subdirectory(tmp_path):
     assert result.stdout.splitlines()[-1] == _compile_cache.cache_dir_for(
         str(tmp_path), _compile_cache.host_fingerprint()
     )
+
+
+def write_entry(directory, name: str, written: float, read: float = 0.0) -> None:
+    path = directory / name
+    path.write_bytes(b"x" * 100)
+    os.utime(path, (read, written))  # (atime, mtime)
+
+
+def test_prune_deletes_the_least_recently_used_down_to_the_bound(tmp_path):
+    subdirectory = tmp_path / "0123456789abcdef"
+    subdirectory.mkdir()
+    write_entry(subdirectory, "a-cache", written=1000)
+    write_entry(subdirectory, "b-cache", written=2000)
+    write_entry(subdirectory, "c-cache", written=500, read=3000)  # read lately
+
+    assert _compile_cache.prune(str(tmp_path), max_bytes=250) == 100
+    assert sorted(p.name for p in subdirectory.iterdir()) == ["b-cache", "c-cache"]
+    assert _compile_cache.prune(str(tmp_path), max_bytes=250) == 0

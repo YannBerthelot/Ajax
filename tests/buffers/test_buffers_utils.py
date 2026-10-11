@@ -34,7 +34,6 @@ def buffer_state_fixture(buffer_fixture):
     return buffer_state, buffer, env_args, observation_shape, action_shape, batch_size
 
 
-@pytest.mark.dependency()
 def test_get_buffer(buffer_fixture):
     buffer, buffer_size, batch_size, n_envs = buffer_fixture
 
@@ -45,7 +44,6 @@ def test_get_buffer(buffer_fixture):
     )
 
 
-@pytest.mark.dependency(depends=["test_get_buffer"])
 def test_init_buffer(buffer_fixture, buffer_state_fixture):
     buffer, buffer_size, batch_size, n_envs = buffer_fixture
     buffer_state, buffer, env_args, observation_shape, action_shape, _ = (
@@ -87,7 +85,6 @@ def test_init_buffer(buffer_fixture, buffer_state_fixture):
     )
 
 
-@pytest.mark.dependency(depends=["test_init_buffer"])
 def test_get_batch_from_buffer(buffer_state_fixture):
     buffer_state, buffer, env_args, observation_shape, action_shape, batch_size = (
         buffer_state_fixture

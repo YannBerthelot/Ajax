@@ -113,7 +113,9 @@ def test_is_first_resets_the_carry(discrete):
     first = jnp.ones(n, bool)
     from_zero = act(TINY, discrete, zero, obs, first, key)
     from_noisy = act(TINY, discrete, noisy, obs, first, key)
-    for ours, theirs in zip(jax.tree.leaves(from_noisy), jax.tree.leaves(from_zero)):
+    for ours, theirs in zip(
+        jax.tree.leaves(from_noisy), jax.tree.leaves(from_zero), strict=False
+    ):
         np.testing.assert_allclose(ours, theirs, rtol=0, atol=1e-6)
     # Without is_first the carry is used.
     carried = act(TINY, discrete, noisy, obs, jnp.zeros(n, bool), key)

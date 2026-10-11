@@ -101,7 +101,7 @@ def test_an_interrupted_run_resumes_from_its_last_save(tmp_path):
     assert calls == [2, 1] and probe.starts == [4]
     assert records == [
         {**r, "wall_s": s["wall_s"], "provenance": s["provenance"]}
-        for r, s in zip(full, records)
+        for r, s in zip(full, records, strict=False)
     ]
     assert float(state.total) == float(final.total)
     with open(tmp_path / "split" / CURVE_FILE) as f:

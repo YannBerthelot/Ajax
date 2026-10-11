@@ -146,7 +146,9 @@ def test_online_queue_pops_match_the_reference_replay(n_envs):
             ours.append(
                 [
                     (int(e), int(s)) if bool(o) else None
-                    for e, s, o in zip(index.env, index.start, index.online)
+                    for e, s, o in zip(
+                        index.env, index.start, index.online, strict=False
+                    )
                 ]
             )
     assert len(ours) == len(reference)

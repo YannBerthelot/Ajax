@@ -195,7 +195,11 @@ def _apg() -> Any:
 
 CASES["q11-APG"] = Case(
     "q11-APG",
-    tuple(q for pair in zip(_grad_queries(1.0), _grad_queries(-1.0)) for q in pair),
+    tuple(
+        q
+        for pair in zip(_grad_queries(1.0), _grad_queries(-1.0), strict=False)
+        for q in pair
+    ),
     runs.readings(_apg, _apg_read),
     16_000,
     (0.02, 0.073, 0.02, 0.02),

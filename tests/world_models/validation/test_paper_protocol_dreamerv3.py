@@ -23,7 +23,7 @@ def test_smoke_run_resumes_from_disk_and_reports(tmp_path):
     # training episodes per env per chunk, on the reference's clock.
     assert [r["progress"] for r in whole] == [168, 336]
     assert [r["env_frames"] for r in whole] == [336, 672]
-    for ours, theirs in zip(split, whole):
+    for ours, theirs in zip(split, whole, strict=False):
         assert ours["episodes"] == theirs["episodes"] == [8, 8]
         assert ours["n_updates"] == theirs["n_updates"]
         assert ours["metric"] == "train_episode_return"

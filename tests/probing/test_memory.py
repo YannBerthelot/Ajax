@@ -86,8 +86,8 @@ def _p0b_read(agent: str) -> Callable:
         a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS), -1.0, 1.0)
         x = CUE_OBS if agent == "PPO" else _q_input(CUE_OBS, a, STARTS)
         a, v = a[-1, :, 0], R.critic_sequence(n, x, STARTS)[-1]
-        out = dict(zip([q.name for q in P0B[:2]], a[:2]))
-        out |= dict(zip([q.name for q in P0B[2:6]], v))
+        out = dict(zip([q.name for q in P0B[:2]], a[:2], strict=False))
+        out |= dict(zip([q.name for q in P0B[2:6]], v, strict=False))
         return out | {P0B[6].name: a[2] - a[3]}
 
     return lambda run: R.per_seed(read, R.nets(run.state))
@@ -128,7 +128,7 @@ def test_p0b_env_pays_the_cue_at_the_last_step() -> None:
         for _ in range(3):
             obs, st, r, done, _ = env.step_env(R.KEY, st, jnp.array([3.0]), params)
             steps.append((obs, float(r), bool(done)))
-        seen, paid, ends = zip(*steps)
+        seen, paid, ends = zip(*steps, strict=False)
         assert paid[1:] == (0.0, 0.0, cue) and ends[1:] == (False, False, True)
         want = _sign(jnp.array([cue, 0.0, 0.0, 0.0]))
         np.testing.assert_array_equal(jnp.stack(seen), want)

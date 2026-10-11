@@ -187,9 +187,11 @@ def main(argv=None):
         d = out / f"s{seed}"
         d.mkdir()
         prev = 0
-        with open(d / "evals.jsonl", "w") as fe, open(
-            d / "train_metrics.jsonl", "w"
-        ) as ft, open(d / "records.jsonl", "w") as fr:
+        with (
+            open(d / "evals.jsonl", "w") as fe,
+            open(d / "train_metrics.jsonl", "w") as ft,
+            open(d / "records.jsonl", "w") as fr,
+        ):
             for j in range(len(ticks)):
                 rows = int(dump["timestep"][si, j])
                 upd = int(dump["Train/n_updates"][si, j])

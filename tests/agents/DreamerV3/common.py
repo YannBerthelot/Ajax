@@ -35,7 +35,7 @@ def perturbed(params: dict, seed: int, scale: float = 1.0) -> dict:
     leaves, treedef = jax.tree_util.tree_flatten_with_path(params)
     keys = jax.random.split(jax.random.PRNGKey(seed), len(leaves))
     out = []
-    for (path, leaf), key in zip(leaves, keys):
+    for (path, leaf), key in zip(leaves, keys, strict=False):
         name = jax.tree_util.keystr(path)
         if name.endswith("['kernel']"):
             std = 0.6 / np.sqrt(np.prod(leaf.shape[:-1]))

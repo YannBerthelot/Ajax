@@ -268,6 +268,7 @@ class ConditioningMetrics(Extension):
                     jnp.linalg.norm(feats, axis=-1).mean(),
                     _global_l2(self._critic_params(agent_state)),
                 ),
+                strict=False,
             )
         )
 
@@ -289,6 +290,7 @@ def _bias_vore_decomposition_dict(residual: jax.Array) -> dict:
                 jnp.mean(residual**2),
                 jnp.abs(bias),
             ),
+            strict=False,
         )
     )
 

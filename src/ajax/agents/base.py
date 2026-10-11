@@ -278,7 +278,7 @@ class ActorCritic:
         if logging_config is not None:
             logging_config.config.update(self.config)
             self.run_ids = [new_run_id() for _ in range(len(seed))]
-            for run_id, run_seed in zip(self.run_ids, seed):
+            for run_id, run_seed in zip(self.run_ids, seed, strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))
 
         else:

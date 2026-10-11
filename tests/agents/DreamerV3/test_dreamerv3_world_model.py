@@ -84,7 +84,7 @@ def test_observe_scan_equals_step_by_step():
         carry, feat = step(
             carry, tokens[:, t], actions[:, t], is_first[:, t], noise[:, t]
         )
-        for ours, theirs in zip(feat, feats):
+        for ours, theirs in zip(feat, feats, strict=False):
             np.testing.assert_allclose(ours, theirs[:, t], rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(carry.deter, final.deter, rtol=1e-6, atol=1e-6)
     np.testing.assert_array_equal(carry.stoch, final.stoch)
@@ -399,7 +399,9 @@ def test_world_model_loss_terms(discrete):
         out.losses["con"], bernoulli_loss(cont_logit, target), rtol=1e-6
     )
     scales = (1.0, 1.0, 1.0, 1.0, 0.1)
-    weighted = sum(s * np.mean(out.losses[k]) for s, k in zip(scales, LOSS_TERMS))
+    weighted = sum(
+        s * np.mean(out.losses[k]) for s, k in zip(scales, LOSS_TERMS, strict=False)
+    )
     np.testing.assert_allclose(out.weighted, weighted, rtol=1e-6)
 
 

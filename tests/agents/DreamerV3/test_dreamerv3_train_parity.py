@@ -256,7 +256,7 @@ def ajax_run(run: str) -> tuple[dict, DreamerV3Config, bool, list[CallResult]]:
         updates = learner.Params(
             *(
                 ts.tx.update(g, ts.opt_state, ts.params)[0]
-                for ts, g in zip(train_states, grads)
+                for ts, g in zip(train_states, grads, strict=False)
             )
         )
         new_state, entries, metrics = learner.train_step(
@@ -367,7 +367,7 @@ def test_draws_and_write_back_entries_match(run):
     latents and the actions at every imagined state (discrete: exactly)."""
     fixture, _, discrete, results = ajax_run(run)
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
+    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         np.testing.assert_array_equal(ours.entries.stoch, theirs["out/stoch"])
         prior = np.asarray(ours.aux.prior_stoch).argmax(-1)
         np.testing.assert_array_equal(prior, theirs["draw/prior"])
@@ -390,7 +390,7 @@ def test_loss_terms_match(run):
     fixture, config, _, results = ajax_run(run)
     scales = config.loss_scales
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
+    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         for term, name in REFERENCE_TERMS.items():
             scaled = ours.aux.losses[term] * np.float32(scales[term])
             assert scaled.shape == theirs[f"loss/{name}"].shape, term
@@ -407,7 +407,7 @@ def test_imagination_and_return_normaliser_match(run):
     returns, and the return normaliser's state and scale after each call."""
     fixture, _, _, results = ajax_run(run)
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
+    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         imag = ours.aux.imagination
         lo, hi = ours.state.retnorm.lo, ours.state.retnorm.hi
         pairs = {
@@ -447,7 +447,7 @@ def test_gradients_match(run):
     reference's dropped 256th two-hot logit gets no gradient)."""
     fixture, _, discrete, results = ajax_run(run)
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
+    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         tensors = _per_tensor(theirs, "grad/", ours.grads, discrete, _relative)
         assert len(tensors) == len(jax.tree.leaves(ours.grads))
         errors.update({f"c{k}/{n}": e for n, e in tensors.items()})
@@ -465,10 +465,11 @@ def test_optimizer_updates_match(run):
     reference)."""
     fixture, config, discrete, results = ajax_run(run)
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
+    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         after = learner.learner_params(ours.state)
         for leaf_before, leaf_update, leaf_after in zip(
-            *(jax.tree.leaves(t) for t in (ours.before, ours.updates, after))
+            *(jax.tree.leaves(t) for t in (ours.before, ours.updates, after)),
+            strict=False,
         ):
             ulp = np.spacing(np.maximum(np.abs(leaf_after), np.abs(leaf_update)))
             error = np.abs(leaf_after - (leaf_before + leaf_update).astype(np.float32))
@@ -498,7 +499,7 @@ def test_optimizer_state_matches(run):
     fixture, _, discrete, results = ajax_run(run)
     keys = fixture["meta"]["opt_keys"]
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
+    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         train_states = (
             ours.state.world_model_state,
             ours.state.actor_state,
@@ -515,7 +516,9 @@ def test_optimizer_state_matches(run):
             "mu": learner.Params(*(ts.opt_state[2].ema for ts in train_states)),
         }
         for moment, tree in moments.items():
-            for name, theirs_norm in zip(keys, theirs[f"opt/{moment}_norm"]):
+            for name, theirs_norm in zip(
+                keys, theirs[f"opt/{moment}_norm"], strict=False
+            ):
                 group, path = _ajax_path(name, discrete)
                 ours = np.asarray(_get(getattr(tree, group), path), np.float64)
                 ours_norm = np.linalg.norm(ours)
@@ -533,11 +536,11 @@ def test_slow_critic_matches(run):
     fixture, _, discrete, results = ajax_run(run)
     first = results[0].state.critic_state
     for ours, copy in zip(
-        *(jax.tree.leaves(t) for t in (first.target_params, first.params))
+        *(jax.tree.leaves(t) for t in (first.target_params, first.params)), strict=False
     ):
         np.testing.assert_array_equal(ours, copy)
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results)):
+    for k, (theirs, ours) in enumerate(zip(fixture["calls"], results, strict=False)):
         slow = {"slowcritic": ours.state.critic_state.target_params}
         for name, value in _group(theirs, "slow/").items():
             group, path = _ajax_path(name, discrete)
@@ -565,7 +568,9 @@ def test_metrics_match(run):
     optimizer's loss, norms and step count."""
     fixture, _, _, results = ajax_run(run)
     errors = {}
-    for k, (theirs, ours) in enumerate(zip(fixture["meta"]["metrics"], results)):
+    for k, (theirs, ours) in enumerate(
+        zip(fixture["meta"]["metrics"], results, strict=False)
+    ):
         compared = 0
         for name, value in theirs.items():
             if name.startswith(_NOT_REPRODUCED):

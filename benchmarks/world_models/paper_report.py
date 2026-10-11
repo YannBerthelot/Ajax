@@ -302,7 +302,7 @@ def plot(agent: str, reference: dict, runs: dict, path: str) -> None:
     fig, axes = plt.subplots(
         rows, cols, figsize=(3.0 * cols, 2.3 * rows), squeeze=False, sharey=True
     )
-    for ax, task in zip(axes.flat, tasks):
+    for ax, task in zip(axes.flat, tasks, strict=False):
         budget = reference_budget(agent, reference, task)
         for window in WINDOWS[agent]:
             lo, hi = window.bounds(budget)

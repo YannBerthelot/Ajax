@@ -87,7 +87,9 @@ def fixed_point(
 
 def stack(streams: Sequence) -> dict:
     """Weighted rollouts, (weight, rows), of equal length as arrays."""
-    cols = np.array([list(zip(*rows)) for _, rows in streams])  # (B, 6, T)
+    cols = np.array(
+        [list(zip(*rows, strict=False)) for _, rows in streams]
+    )  # (B, 6, T)
     ro = {f: cols[:, i].astype(float if i == 1 else int) for i, f in enumerate(FIELDS)}
     return ro | {"weight": np.array([w for w, _ in streams], float)}
 
@@ -110,7 +112,7 @@ def simulate(step: Callable[[Any], tuple], state: Any, n_steps: int) -> dict:
     for _ in range(n_steps):
         state, *row = step(state)
         rows.append(row)
-    obs, reward, term, final = (np.array(c) for c in zip(*rows))
+    obs, reward, term, final = (np.array(c) for c in zip(*rows, strict=False))
     cols = {"obs": obs[:-1], "reward": reward[:-1], "final": final[:-1]}
     cols |= {"reset": obs[1:], "terminated": term[:-1]}
     return cols | {"truncated": np.zeros_like(term[:-1])}

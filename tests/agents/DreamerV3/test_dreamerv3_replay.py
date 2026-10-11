@@ -121,7 +121,7 @@ def test_sampled_windows_never_cross_the_write_head(rows):
     oldest = max(0, rows - CAPACITY)
     assert start.min() >= oldest and start.max() <= rows - (LENGTH + 1)
     items = {(e, s) for e in range(N_ENVS) for s in range(oldest, rows - LENGTH)}
-    assert set(zip(env.tolist(), start.tolist())) == items
+    assert set(zip(env.tolist(), start.tolist(), strict=False)) == items
     window = jax.vmap(lambda i: replay.gather(state, i, None))(index)
     expected = tag(
         np.asarray(index.env)[..., None],

@@ -888,6 +888,7 @@ def plot(path, rows, seeds, stats, title):
         axes,
         ["eval", "S2_curve"],
         ["Evaluation return (10 episodes)", "S2: training-episode rolling mean"],
+        strict=False,
     ):
         for side in ("ref", "ajax"):
             for i, s in enumerate(seeds):

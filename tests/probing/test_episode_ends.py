@@ -185,7 +185,9 @@ def _twin_run(name: str, backend: str) -> Any:
                     raise RuntimeError(f"seeds at different timesteps {steps}")
                 phases.append(int(steps[0]) % T)
         if cycle:
-            rows = _row_counts(*(np.concatenate(z, 1) for z in zip(*rollouts)))
+            rows = _row_counts(
+                *(np.concatenate(z, 1) for z in zip(*rollouts, strict=False))
+            )
         else:
             replay = R.replay_rows(run.state, ("obs", "terminated", "truncated"))
             rows = _row_counts(*replay.values())
@@ -264,7 +266,9 @@ def test_p6_twin_ends_every_episode_on_step_T_with_its_backends_flags(
         kind = np.asarray(obs).reshape(n, 3).argmax(-1)
         rows.append((kind, np.asarray(term) > 0.5, np.asarray(trunc) > 0.5))
         obs = nxt
-    kind, term, trunc = (np.stack(z).reshape(2 * T, n) for z in zip(*rows))
+    kind, term, trunc = (
+        np.stack(z).reshape(2 * T, n) for z in zip(*rows, strict=False)
+    )
     first, last = (np.arange(2 * T) % T == i for i in (0, T - 1))
     assert (kind[first] == 0).all() and (kind[~first] > 0).all()
     assert (term | trunc)[last].all() and not (term | trunc)[~last].any()
@@ -454,7 +458,10 @@ class Trace(Extension):
                 f"the trace saw {counts.min()} updates, not {self.length}"
             )
         rolled = np.stack(
-            [np.roll(v, -(c % self.length), -1) for v, c in zip(values, counts)]
+            [
+                np.roll(v, -(c % self.length), -1)
+                for v, c in zip(values, counts, strict=False)
+            ]
         )
         return {f: rolled[:, i] for i, f in enumerate(self.fields)}
 

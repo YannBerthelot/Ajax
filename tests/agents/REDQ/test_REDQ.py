@@ -27,6 +27,7 @@ def test_REDQ_initialization():
             AlphaConfig,
             BufferType,
         ),
+        strict=False,
     ):
         assert hasattr(REDQ_agent, expected_attr)
         assert isinstance(getattr(REDQ_agent, expected_attr), expected_type)

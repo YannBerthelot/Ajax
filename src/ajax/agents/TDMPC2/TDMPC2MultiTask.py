@@ -478,7 +478,7 @@ class TDMPC2MultiTask:
         if logging_config is not None:
             logging_config.config.update(self.config)
             self.run_ids = [new_run_id() for _ in range(seeds.shape[0])]
-            for run_id, run_seed in zip(self.run_ids, seeds.tolist()):
+            for run_id, run_seed in zip(self.run_ids, seeds.tolist(), strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))
             if logging_config.backend:  # else the logs are only returned
                 start_async_logging()

@@ -212,6 +212,31 @@ def test_the_expert_rollout_calls_an_expert_in_its_own_convention():
     assert stateless == pytest.approx(stateful)
 
 
+def _full_torque(obs):
+    return jnp.ones(obs.shape[:-1] + (1,))
+
+
+def test_the_baseline_return_is_the_evaluation_experts():
+    """Without a precomputed expert_return, evaluate rolls out
+    eval_expert_policy for the baseline, expert_policy building only the
+    actor's input."""
+    env, env_params, state = _eval_pendulum()
+    kwargs = {
+        "env": env,
+        "actor_state": state.actor_state,
+        "num_episodes": 2,
+        "rng": jax.random.PRNGKey(3),
+        "env_params": env_params,
+    }
+    zero = float(evaluate(expert_policy=_zero_torque, **kwargs)[-1])
+    full = float(evaluate(expert_policy=_full_torque, **kwargs)[-1])
+    both = evaluate(
+        expert_policy=_zero_torque, eval_expert_policy=_full_torque, **kwargs
+    )
+    assert zero != pytest.approx(full)
+    assert float(both[-1]) == pytest.approx(full)
+
+
 def test_setup_environment_accepts_prebuilt_gymnax_env_without_params():
     """Regression: a prebuilt gymnax env carries env_params=None (prepare_env)
     and the flattening check must fall back to the env's default params

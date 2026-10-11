@@ -1,3 +1,4 @@
+import inspect
 from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 
 import chex
@@ -19,11 +20,15 @@ from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
     ExpertInAgentUnits,
     agent_action_to_env,
+    check_env_is_playground,
+    check_if_environment_has_continuous_actions,
+    get_raw_env,
     get_state_action_shapes,
     maybe_append_train_frac,
     raw_obs_columns,
 )
 from ajax.networks.distributions import SquashedNormal
+from ajax.networks.memory import flatten_carry
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -265,10 +270,6 @@ def step(
         # indexer, so restore the integer dtype at the env boundary. Envs
         # whose dynamics only compare the action (classic control) accepted
         # the float silently, which is why this stayed hidden.
-        from ajax.environments.utils import (
-            check_if_environment_has_continuous_actions,
-        )
-
         if not check_if_environment_has_continuous_actions(env, env_params):
             action = action.astype(jnp.int32)
 
@@ -631,8 +632,6 @@ def maybe_vmap(f, vmap_on, **kwargs):
 
 
 def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
-    from ajax.environments.utils import check_env_is_playground, get_raw_env
-
     vmap_on = (
         max(jax.tree_util.tree_leaves(jax.tree.map(lambda x: x.ndim, env_state))) > 0
     )
@@ -660,8 +659,6 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
     # Some brax envs (e.g. humanoid) have `_get_obs(pipeline_state, action)`
     # and cannot be recomputed without the action; env_state.obs already
     # holds the correct pre-normalization observation -> trust it.
-    import inspect
-
     try:
         n_obs_params = len(inspect.signature(raw_env._get_obs).parameters)
     except (TypeError, ValueError):
@@ -752,8 +749,6 @@ def collect_experience(
     # the hidden state valid for last_obs (the transition's obs). Snapshot
     # it now — the action selection below advances the live carry.
     if store_hidden:
-        from ajax.networks.memory import flatten_carry
-
         _pre_actor_carry_flat = jax.lax.stop_gradient(
             flatten_carry(agent_state.actor_state.hidden_state)
         )

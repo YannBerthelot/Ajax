@@ -141,6 +141,18 @@ def check_extension_phases(
         )
 
 
+def holds_expert(agent_expert: Any, stack: Iterable["Extension"]) -> bool:
+    """Whether a run has an expert: the agent's ``expert_policy``, or one an
+    extension holds (its ``expert_fields``). Replay keeps the raw
+    observations and the expert flags, which only experts read, for such
+    a run (init_buffer's include_raw_obs, include_is_expert)."""
+    return agent_expert is not None or any(
+        getattr(ext, field, None) is not None
+        for ext in stack
+        for field in ext.expert_fields
+    )
+
+
 def check_extension_experts(
     agent_name: str,
     stack: Sequence["Extension"],

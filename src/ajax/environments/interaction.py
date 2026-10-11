@@ -844,7 +844,7 @@ def collect_experience(
         final_obs = maybe_append_train_frac(final_obs, train_frac=train_frac)
         if augmented:
             final_obs = augment_obs(final_obs, _next_state_aug)
-        _transition = {
+        row = {
             "obs": agent_state.collector_state.last_obs,
             "action": buffer_action,
             "reward": reward[:, None],
@@ -853,15 +853,18 @@ def collect_experience(
             "next_obs": bootstrap_obs(new_last_obs, final_obs, terminated, truncated),
             "raw_obs": raw_obs,
             "is_expert": is_expert_flag,
+            "a_expert": _a_expert_for_buf,
+            "next_a_expert": _next_a_expert_for_buf,
+            "raw_next_obs": raw_final_obs.astype(jnp.float32),
         }
-        if next_expert_fn is not None:
-            _transition["a_expert"] = _a_expert_for_buf
-            _transition["next_a_expert"] = _next_a_expert_for_buf
-        if "raw_next_obs" in buffer_state.experience:
-            _transition["raw_next_obs"] = raw_final_obs.astype(jnp.float32)
         if store_hidden:
-            _transition["actor_carry"] = _pre_actor_carry_flat
-        buffer_state = buffer.add(buffer_state, _transition)
+            row["actor_carry"] = _pre_actor_carry_flat
+        # The fields the buffer holds: those a reader asked for
+        # (init_buffer), or all a checkpoint from before kept.
+        schema = buffer_state.experience
+        buffer_state = buffer.add(
+            buffer_state, {k: v for k, v in row.items() if k in schema}
+        )
 
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
@@ -1106,6 +1109,8 @@ def init_collector_state(
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
+    include_raw_obs: bool = False,
+    include_is_expert: bool = False,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -1165,6 +1170,8 @@ def init_collector_state(
             include_expert_fields=include_expert_fields,
             actor_carry_dim=actor_carry_dim,
             include_raw_next_obs=include_raw_next_obs,
+            include_raw_obs=include_raw_obs,
+            include_is_expert=include_is_expert,
         )
         if buffer is not None
         else None

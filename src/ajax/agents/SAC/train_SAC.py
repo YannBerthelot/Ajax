@@ -29,7 +29,7 @@ from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
 from ajax.perf_utils import final_aux_scan
@@ -106,6 +106,7 @@ def init_SAC(
     normalize_obs_running: bool = False,
     jsrl_curriculum: bool = False,
     store_raw_next_obs: bool = False,
+    store_expert_data: bool = False,
 ) -> SACState:
     rng, init_key, collector_key, expert_key, eval_rng = jax.random.split(key, 5)
 
@@ -147,6 +148,8 @@ def init_SAC(
             "normalize_obs_running": normalize_obs_running,
             "include_expert_fields": expert_policy is not None,
             "include_raw_next_obs": store_raw_next_obs,
+            "include_raw_obs": store_expert_data,
+            "include_is_expert": store_expert_data,
         },
     )
     if collector_state.obs_norm_info is not None:
@@ -539,7 +542,10 @@ def update_agent(
         batch = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, sample_key
         )
-        expert_frac_in_buffer = batch.is_expert.mean()
+        # No expert, no stored flags: none acted.
+        expert_frac_in_buffer = (
+            jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
+        )
         # The raw next observations, kept for extensions that call an
         # expert of their own (init_SAC's store_raw_next_obs).
         raw_next_observations = batch.raw_next_obs
@@ -852,6 +858,7 @@ def make_train(
             jsrl_curriculum=jsrl_curriculum,
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
+            store_expert_data=holds_expert(expert_policy, stack),
         )
         return pretrain_on_expert(
             agent_state,

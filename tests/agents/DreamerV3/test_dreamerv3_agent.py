@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
+import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -509,6 +510,14 @@ def test_construction_resolves_the_configuration():
         DreamerV3("CartPole-v1", n_envs=2, replay_capacity=100)
     with pytest.raises(ValueError, match="model_size"):
         DreamerV3("CartPole-v1", model_size="3m")
+
+
+def test_image_observations_are_refused_at_construction():
+    """Rank 3 needs the CNN encoder, out of scope: a prebuilt MinAtar env
+    (not flattened, unlike one built from its id) raises."""
+    env, params = gymnax.make("Breakout-MinAtar")
+    with pytest.raises(ValueError, match="CNN encoder"):
+        DreamerV3(env, env_params=params, n_envs=2, model_size="1m")
 
 
 def test_resume_offset_needs_one_tick_for_all_seeds():

@@ -31,6 +31,11 @@ import os
 import subprocess
 import time
 
+# The standardized run: every agent trains for TIMESTEPS steps over N_ENVS
+# envs (the --n-envs and --timesteps defaults).
+N_ENVS = 4
+TIMESTEPS = 8000
+
 # TD-MPC2 at its paper defaults (a 5M-parameter model, batch 256, 512
 # planning candidates over 6 MPPI iterations per env step) would take
 # minutes per bench run on CPU: it makes one update per env step and plans
@@ -39,7 +44,7 @@ import time
 # Pendulum's T = 200) at a small size: the model_size=1 preset narrowed to
 # 64-unit layers and a 32-dim latent, batch 32, 64 candidates / 8 elites /
 # 4 prior trajectories, 2 MPPI iterations; seed_steps stays
-# max(1000, 5 T) = 1000. With the defaults below (--n-envs 4, --timesteps
+# max(1000, 5 T) = 1000. With N_ENVS and TIMESTEPS (--n-envs 4, --timesteps
 # 8000) a run is 2010 ticks (2000 env steps per env and 10 held ticks):
 # random actions up to the tick of per-env step 250, the first on which the
 # total env steps exceed 1000 (the n_envs > 1 rule, deviation T7 in
@@ -58,22 +63,32 @@ _TDMPC2_PRESET = {
     "iterations": 2,
 }
 
+# SAC, TD3, REDQ and ASAC default to learning_starts=10_000, past the end of
+# the TIMESTEPS-step run: their rows timed collection alone. 1,000 is DQN's
+# default, so the replay agents share one warm-up: the updates start an
+# eighth into the run and cover the other seven eighths, past SAC's
+# policy_update_start and alpha_update_start (2,000), with more stored steps
+# than any of their batch sizes. tests/benchmarks/test_agent_bench.py checks
+# that every preset updates within the run.
+_WARMUP_INSIDE_RUN = {"learning_starts": 1000}
+
 # agent name -> (env_id, extra constructor kwargs). Discrete-action
 # agents train on CartPole-v1, continuous ones on Pendulum-v1. Only
-# env_id / n_envs / n_timesteps are pinned; every other hyperparameter
+# env_id / n_envs / n_timesteps are pinned, and a learning_starts that
+# would outlast the run (_WARMUP_INSIDE_RUN); every other hyperparameter
 # uses the agent default, so the benchmark tracks the agent's own code
 # path rather than a tuned config. Agents that cannot train on a plain env
 # id get a small documented preset in _CUSTOM_BUILDERS instead (env_id is
 # then a label).
 AGENTS: dict[str, tuple[str, dict]] = {
-    "SAC": ("Pendulum-v1", {}),
+    "SAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "PPO": ("CartPole-v1", {}),
     "DQN": ("CartPole-v1", {}),
     "PQN": ("CartPole-v1", {}),
-    "TD3": ("Pendulum-v1", {}),
-    "REDQ": ("Pendulum-v1", {}),
+    "TD3": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
+    "REDQ": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "APO": ("Pendulum-v1", {}),
-    "ASAC": ("Pendulum-v1", {}),
+    "ASAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "AVG": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
     # DreamerV3 preset: the 1m model (d = 64, deter 512, 4 classes) on 8
@@ -336,9 +351,9 @@ def main() -> None:
             os.path.dirname(os.path.abspath(__file__)), "agent_baseline.jsonl"
         ),
     )
-    ap.add_argument("--n-envs", type=int, default=4)
+    ap.add_argument("--n-envs", type=int, default=N_ENVS)
     ap.add_argument("--warmup", type=int, default=400)
-    ap.add_argument("--timesteps", type=int, default=8000)
+    ap.add_argument("--timesteps", type=int, default=TIMESTEPS)
     ap.add_argument("--trials", type=int, default=3)
     ap.add_argument(
         "--only", nargs="*", default=None, help="benchmark only these agents"

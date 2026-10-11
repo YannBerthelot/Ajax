@@ -7,13 +7,13 @@ change must pass and the refactoring rules; this guide does not repeat them.
 
 ## Development setup
 
-Install as the [README](README.md#install) says, then run
+Install as the [README](README.md#installation) says, then run
 `uv run pre-commit install` once, so ruff and mypy check every commit. Prefix
 commands with `uv run`, or activate `.venv`.
 
 ## Where things live
 
-The README's [project layout](README.md#project-layout) gives the overview.
+[Architecture](docs/developer/architecture.md#the-package) gives the overview.
 These are the pieces every agent shares:
 
 ```
@@ -88,8 +88,9 @@ every update's metrics instead. `initial_state=state` continues a run.
 An extension is a research feature (an expert to learn from, an exploration
 rule, an extra loss term, a measurement) that plugs into any agent without
 changing it, so an agent's surface stays its algorithm's hyperparameters plus
-`extensions=()` (see CLAUDE.md, "Extensions are self-contained"). The README
-[lists the extensions](README.md#extensions) Ajax ships.
+`extensions=()` (see CLAUDE.md, "Extensions are self-contained"). The
+[extensions guide](docs/guide/extensions.md#catalogue) lists the ones Ajax
+ships.
 
 An extension is a frozen dataclass subclassing `Extension`. It holds its own
 settings and overrides only the *phases* it touches; the other phases keep

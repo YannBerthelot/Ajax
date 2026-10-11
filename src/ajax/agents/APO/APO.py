@@ -7,7 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import CloningConfig
+from ajax.agents.cloning import CloningConfig, warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
 from ajax.types import EnvType, InitializationFunction
@@ -57,7 +57,7 @@ class APO(ActorCritic):
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
         actor_cloning_epochs: int = 10,
-        actor_cloning_lr: float = 1e-3,
+        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
         actor_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         # Expert for the cloning pre-training and the eval expert-bias
@@ -151,9 +151,9 @@ class APO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
+        warn_actor_cloning_lr(actor_cloning_lr)
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
-            actor_lr=actor_cloning_lr,
             actor_batch_size=actor_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
         )

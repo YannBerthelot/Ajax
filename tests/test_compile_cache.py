@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import platform
+import subprocess
+import sys
 
 import jax
 import pytest
@@ -105,3 +107,18 @@ def test_no_compile_cache_env_var_leaves_disk_and_config_alone(cache_root, monke
 
     assert not cache_root.exists()
     assert jax.config.jax_compilation_cache_dir == before
+
+
+def test_importing_ajax_points_jax_at_the_fingerprint_subdirectory(tmp_path):
+    """``ajax/__init__`` configures the cache before importing the agents.
+    In a fresh interpreter: this session imported ajax long ago."""
+    env = {**os.environ, "AJAX_JAX_COMPILE_CACHE_DIR": str(tmp_path)}
+    env.pop("AJAX_NO_COMPILE_CACHE", None)
+    code = "import ajax, jax; print(jax.config.jax_compilation_cache_dir)"
+    result = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == _compile_cache.cache_dir_for(
+        str(tmp_path), _compile_cache.host_fingerprint()
+    )

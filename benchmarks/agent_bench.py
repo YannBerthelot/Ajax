@@ -125,19 +125,6 @@ def _git_sha() -> str:
         return "unknown"
 
 
-def _agent_class(name: str):
-    """Resolve an agent class — exported on `ajax`, else from its module."""
-    import ajax
-
-    cls = getattr(ajax, name, None)
-    if cls is None:
-        import importlib
-
-        mod = importlib.import_module(f"ajax.agents.{name}.{name}")
-        cls = getattr(mod, name)
-    return cls
-
-
 def _apg_tracking(n_envs: int):
     """APG preset: the tests/agents/APG tracking task. APG differentiates
     through the env, so it needs a model-reference task rather than a reward
@@ -186,9 +173,11 @@ _CUSTOM_BUILDERS = {"APG": _apg_tracking}
 
 
 def _build(name: str, env_id: str, kw: dict, n_envs: int):
+    import ajax
+
     if name in _CUSTOM_BUILDERS:
         return _CUSTOM_BUILDERS[name](n_envs, **kw)
-    return _agent_class(name)(env_id=env_id, n_envs=n_envs, **kw)
+    return getattr(ajax, name)(env_id=env_id, n_envs=n_envs, **kw)
 
 
 def _time_agent(

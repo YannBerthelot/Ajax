@@ -10,7 +10,11 @@ import pytest
 from ajax.agents.DQN.networks import get_initialized_q_network
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.environments.create import build_env_from_id
-from ajax.networks.networks import CNNSpec, get_initialized_actor_critic
+from ajax.networks.networks import (
+    CNNEncoder,
+    CNNSpec,
+    get_initialized_actor_critic,
+)
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 ARCH = ("8", "relu")
@@ -70,6 +74,14 @@ def test_actor_and_state_value_critic_read_the_same_layout(
     assert logits.shape == (BATCH, 2) and jnp.all(jnp.isfinite(logits))
     values = critic_state.apply_fn(critic_state.params, obs)
     assert values.shape == (1, BATCH, 1) and jnp.all(jnp.isfinite(values))
+
+
+def test_cnn_encoder_rejects_a_miscounted_input_width():
+    """With trailing dims the encoder slices the image off the front: a
+    miscounted width must raise rather than read the wrong columns."""
+    encoder = CNNEncoder(image_shape=(1, 3, 1), extra_obs_dim=2, channels=(4,))
+    with pytest.raises(ValueError, match="trailing dims"):
+        encoder.init(jax.random.PRNGKey(0), jnp.ones((BATCH, 4)))
 
 
 def test_a_q_network_reads_the_env_trailing_dims(cartpole):

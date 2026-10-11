@@ -23,6 +23,6 @@ class PQNConfig(BaseAgentConfig):
     q_lambda: float = 0.65
     n_steps: int = 128
     n_epochs: int = 4
-    # Minibatches per epoch; must divide n_steps.
+    # Minibatches per epoch; must divide the rollout's n_steps * n_envs rows.
     num_minibatches: int = 4
     reward_scale: float = 1.0

@@ -141,6 +141,12 @@ class APO(ActorCritic):
             nu=nu,
             expose_recent_rollout=expose_recent_rollout,
         )
+        if num_minibatches <= 0 and max(n_steps, batch_size) % min(n_steps, batch_size):
+            raise ValueError(
+                f"n_steps ({n_steps}) and batch_size ({batch_size}) must divide"
+                " one another: the rollout splits into max // min minibatches"
+                " (or set num_minibatches)."
+            )
 
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)

@@ -295,7 +295,17 @@ class EnvSpec(NamedTuple):
 
 
 def env_spec(env_args: EnvironmentConfig) -> EnvSpec:
+    """The env's sizes for the model. Observations of rank 1 or 2 are
+    flattened, as the reference's vector encoder concatenates its keys'
+    features (DictConcat, dreamerv3_spec.md 2.9); images (rank 3) need the
+    reference's CNN encoder, out of scope here (DESIGN.md), and raise."""
     obs_shape, _ = get_state_action_shapes(env_args.env)
+    if len(obs_shape) > 2:
+        raise ValueError(
+            f"DreamerV3 takes vector observations (rank 1 or 2), got shape"
+            f" {tuple(obs_shape)}: image observations need the CNN encoder,"
+            " which is out of scope (docs/world_models/DESIGN.md)."
+        )
     return EnvSpec(
         obs_dim=int(np.prod(obs_shape)),
         action_dim=int(get_action_dim(env_args.env, env_args.env_params)),

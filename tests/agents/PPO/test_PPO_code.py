@@ -22,6 +22,7 @@ import pytest
 from ajax import PPO
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import Geometry, minibatch_geometry
+from ajax.networks.memory import MemoryConfig
 
 # Small CartPole config sized so one training iteration's rollout
 # exactly equals n_envs * n_steps, with num_minibatches > 1 so the
@@ -164,3 +165,32 @@ def test_the_rollout_geometry(config, n_envs, recurrent, geometry):
     agent_config = PPOConfig(n_steps=32, **config)
     got = minibatch_geometry(agent_config, 32, n_envs, recurrent)
     assert got == Geometry(*geometry)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"unroll_length": 5},  # does not divide n_steps
+        {"unroll_length": 16, "n_envs": 1},  # 2 fragments, 4 minibatches
+        {"unroll_length": 8, "num_minibatches": 1},  # one minibatch
+        {"unroll_length": 8, "memory": MemoryConfig(kind="gru", hidden_size=4)},
+    ],
+    ids=["indivisible", "too-few-fragments", "one-minibatch", "recurrent"],
+)
+def test_an_unusable_unroll_length_is_refused(config):
+    """The update would fall back to whole rollouts: refused at construction."""
+    kw = {"env_id": "Pendulum-v1", "n_steps": 32, "n_envs": 2, "num_minibatches": 4}
+    with pytest.raises(ValueError, match="unroll_length"):
+        PPO(**kw | config)
+
+
+def test_a_recurrent_rollout_too_small_to_split_warns():
+    """One env's whole rollout cannot make 2 minibatches: one, and a warning."""
+    with pytest.warns(UserWarning, match="trains on one"):
+        PPO(
+            "Pendulum-v1",
+            n_envs=1,
+            n_steps=32,
+            num_minibatches=2,
+            memory=MemoryConfig(kind="gru", hidden_size=4),
+        )

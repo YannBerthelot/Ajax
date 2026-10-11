@@ -17,14 +17,20 @@ Compare (exit code 1 if any agent regressed past --tol)::
     python benchmarks/agent_bench.py --compare \
         benchmarks/agent_baseline.jsonl benchmarks/agent_rework.jsonl
 
-One process, one agent at a time; the JIT cache is warmed once per agent
-then a fresh agent is timed (buffer/seed state clean, cache hot) — the
-same compile/measured split as ``perf_bench.py``.
+One process, one agent at a time: a short warmup run (``compile_s``), then
+``--trials`` runs of a fresh agent (clean buffer and seed state). A fresh
+agent jits a new closure, so every measured run traces and lowers its
+program again, and compiles it unless the persistent cache holds it.
+``measured_s`` and ``steps_per_s`` include that time; ``exec_s`` and
+``exec_steps_per_s`` leave out the spans JAX reports for tracing, lowering
+and compiling (:func:`compile_spans`). ``--compare`` judges
+``exec_steps_per_s`` when both files have it, else ``steps_per_s``.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import gc
 import json
 import os
@@ -95,12 +101,9 @@ AGENTS: dict[str, tuple[str, dict]] = {
     # windows of 16 + 1 rows, train ratio 8 (one update per 16 rows after
     # the training start: ~500 updates in 8000 rows), every other
     # hyperparameter at its paper-era default (the replay ring is the whole
-    # run: min(capacity / n_envs, rows per env)). The warmup does not compile
-    # the measured program (the scan length, n_timesteps // n_envs, is
-    # static, as for every agent here): a measured trial also traces and
-    # lowers, ~15-20% of it at this preset, and the first one compiles
-    # unless the persistent cache holds the program -- compare medians of
-    # the default 3 trials.
+    # run: min(capacity / n_envs, rows per env)). Tracing and lowering take
+    # ~15-20% of a measured trial at this preset: exec_steps_per_s leaves
+    # them out.
     "DreamerV3": (
         "CartPole-v1",
         {
@@ -180,6 +183,44 @@ def _build(name: str, env_id: str, kw: dict, n_envs: int):
     return getattr(ajax, name)(env_id=env_id, n_envs=n_envs, **kw)
 
 
+# The JAX events whose spans are tracing, lowering and compiling; a load
+# from the persistent cache happens inside the compile span.
+_COMPILE_EVENTS = frozenset(
+    {
+        "/jax/core/compile/jaxpr_trace_duration",
+        "/jax/core/compile/jaxpr_to_mlir_module_duration",
+        "/jax/core/compile/backend_compile_duration",
+    }
+)
+
+
+@functools.cache
+def compile_spans() -> list[tuple[float, float]]:
+    """The ``(start, end)`` of every trace, lowering and compile since the
+    list was last cleared, appended by a JAX listener registered once."""
+    import jax
+
+    spans: list[tuple[float, float]] = []
+
+    def listen(event: str, start: float, end: float, **_: object) -> None:
+        if event in _COMPILE_EVENTS:
+            spans.append((start, end))
+
+    jax.monitoring.register_event_time_span_listener(listen)
+    return spans
+
+
+def covered_seconds(spans: list[tuple[float, float]]) -> float:
+    """The length of the union of ``spans``: nested spans (a jit traced
+    inside another's trace) count once."""
+    total, reach = 0.0, float("-inf")
+    for start, end in sorted(spans):
+        if end > reach:
+            total += end - max(start, reach)
+            reach = end
+    return total
+
+
 def _time_agent(
     name: str,
     env_id: str,
@@ -203,12 +244,15 @@ def _time_agent(
     del agent, out
     gc.collect()
 
+    spans = compile_spans()
     for trial in range(trials):
         agent = _build(name, env_id, kw, n_envs)
+        spans.clear()
         t0 = time.perf_counter()
         out = agent.train(seed=1 + trial, n_timesteps=timesteps)
         jax.block_until_ready(out)
         measured_s = time.perf_counter() - t0
+        exec_s = measured_s - covered_seconds(spans)
         rows.append(
             {
                 "agent": name,
@@ -221,6 +265,8 @@ def _time_agent(
                 "steps_per_s": round(timesteps / measured_s, 1)
                 if measured_s > 0
                 else 0.0,
+                "exec_s": round(exec_s, 3),
+                "exec_steps_per_s": round(timesteps / exec_s, 1),
             }
         )
         del agent, out
@@ -274,9 +320,10 @@ def capture(
             )
             continue
         med = sorted(r["steps_per_s"] for r in rows)[len(rows) // 2]
+        exec_med = sorted(r["exec_steps_per_s"] for r in rows)[len(rows) // 2]
         print(
             f"  {name:9s} compile={rows[0]['compile_s']:7.2f}s  "
-            f"steps/s(median)={med:9.1f}",
+            f"steps/s(median)={med:9.1f}  exec steps/s(median)={exec_med:9.1f}",
             flush=True,
         )
         for r in rows:
@@ -293,19 +340,23 @@ def capture(
     )
 
 
-def _median_steps(path: str) -> dict[str, float]:
+def _medians(path: str, metric: str) -> dict[str, float]:
     per: dict[str, list[float]] = {}
     with open(path) as f:
         for line in f:
             r = json.loads(line)
-            if "steps_per_s" in r:
-                per.setdefault(r["agent"], []).append(r["steps_per_s"])
+            if metric in r:
+                per.setdefault(r["agent"], []).append(r[metric])
     return {a: sorted(v)[len(v) // 2] for a, v in per.items() if v}
 
 
 def compare(baseline_path: str, new_path: str, tol: float) -> int:
-    base = _median_steps(baseline_path)
-    new = _median_steps(new_path)
+    metric = "exec_steps_per_s"
+    base, new = _medians(baseline_path, metric), _medians(new_path, metric)
+    if not base or not new:  # rows recorded before exec_s existed
+        metric = "steps_per_s"
+        base, new = _medians(baseline_path, metric), _medians(new_path, metric)
+    print(f"median {metric}")
     print(f"{'agent':10s} {'baseline':>12s} {'new':>12s} {'delta':>9s}")
     regressed = []
     for agent in sorted(base):

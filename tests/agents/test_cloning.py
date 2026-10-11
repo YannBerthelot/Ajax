@@ -1,15 +1,19 @@
 import importlib
 import warnings
+from dataclasses import dataclass
 
 import distrax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import pytest
 from flax import linen as nn
 from flax.training import train_state
 
 from ajax.agents.cloning import pre_train
+from ajax.extensions.base import Extension
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.state import Transition
 
 
@@ -185,3 +189,102 @@ def test_actor_cloning_lr_is_deprecated(agent_name):
     with warnings.catch_warnings():
         warnings.simplefilter("error", FutureWarning)
         agent_cls("Pendulum-v1")
+
+
+def _agent_class(agent_name):
+    module = importlib.import_module(f"ajax.agents.{agent_name}.{agent_name}")
+    return getattr(module, agent_name)
+
+
+def _half_torque(obs):
+    return jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0)
+
+
+def test_the_cloning_keywords_build_a_cloning_pretrain():
+    """The cloning keywords set the fields of the CloningPretrain the agent
+    runs; 0 steps clone nothing; without an expert, or with a
+    CloningPretrain extension (cloning twice), they raise."""
+    from ajax import SAC
+
+    keywords = {
+        "pre_train_n_steps": 5,
+        "actor_cloning_epochs": 3,
+        "actor_cloning_batch_size": 7,
+        "skip_actor_pretrain": True,
+        "reset_log_std_after_bc": True,
+        "reset_actor_head_after_bc": True,
+    }
+    agent = SAC("Pendulum-v1", expert_policy=_half_torque, **keywords)
+    fields = {"n_steps": 5, "epochs": 3, "batch_size": 7, "skip_actor": True}
+    fields |= {"reset_log_std": True, "reset_actor_head": True}
+    assert agent.cloning == CloningPretrain(agent.expert_policy, **fields)
+    assert SAC("Pendulum-v1", expert_policy=_half_torque).cloning is None
+    with pytest.raises(ValueError, match="expert_policy"):
+        SAC("Pendulum-v1", pre_train_n_steps=5)
+    with pytest.raises(ValueError, match="extension only"):
+        SAC(
+            "Pendulum-v1",
+            expert_policy=_half_torque,
+            pre_train_n_steps=5,
+            extensions=(CloningPretrain(_half_torque),),
+        )
+
+
+@dataclass(frozen=True)
+class _OnTheKeywordsKey(CloningPretrain):
+    """Clones on the key the cloning keywords clone on: the pretrain key the
+    loop splits from the seed's, of which the pretrain phase gets a split."""
+
+    seed: int = 0
+
+    def pretrain(self, agent_state, ext_state, ctx):
+        del ctx
+        key = jax.random.split(jax.random.PRNGKey(self.seed))[1]
+        return self.clone(agent_state, key), ext_state
+
+
+@dataclass(frozen=True)
+class _Inert(Extension):
+    """No phase: a stack as long as the extension's, so that both agents
+    draw the same keys after init (APO updates once even at 0 steps)."""
+
+
+# SAC clones with its observation layout: the expert's action and the
+# training fraction appended (its expert prefill off, for speed).
+_LAYOUT = {
+    "SAC": {
+        "augment_obs_with_expert_action": True,
+        "use_train_frac": True,
+        "expert_buffer_n_steps": 0,
+    },
+    "APO": {"n_steps": 8, "batch_size": 8},
+}
+
+
+@pytest.mark.parametrize("agent_name", ["APO", "REDQ", "SAC", "TD3"])
+def test_cloning_pretrain_clones_as_the_cloning_keywords(agent_name):
+    """The cloning keywords clone at init on the pretrain key, a
+    CloningPretrain extension in the pretrain phase: on the same key they
+    give the same state (its observation statistics seeded), up to the
+    rounding of the two places of the compiled program (an ulp on SAC)."""
+    tiny = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": tiny, "critic_architecture": tiny}
+    kw |= {"expert_policy": _half_torque, **_LAYOUT.get(agent_name, {})}
+    agent_cls = _agent_class(agent_name)
+    by_keywords = agent_cls(
+        "Pendulum-v1",
+        pre_train_n_steps=16,
+        actor_cloning_epochs=2,
+        actor_cloning_batch_size=8,
+        extensions=(_Inert(),),
+        **kw,
+    )
+    cloning = _OnTheKeywordsKey(_half_torque, n_steps=16, epochs=2, batch_size=8)
+    by_extension = agent_cls("Pendulum-v1", extensions=(cloning,), **kw)
+    states = [
+        agent.train(seed=0, n_timesteps=0)[0] for agent in (by_keywords, by_extension)
+    ]
+    assert states[1].actor_state.obs_norm_info is not None
+    leaves = [jax.tree.leaves(state) for state in states]
+    for a, b in zip(*leaves, strict=True):
+        np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-8)

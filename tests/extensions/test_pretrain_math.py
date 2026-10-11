@@ -21,6 +21,7 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.pretrain import (
     BellmanPretrain,
+    CloningPretrain,
     PhiRefresh,
     pretrain_critic_online_light,
 )
@@ -144,6 +145,45 @@ def test_bellman_pretrain_needs_the_agent_context_and_expert():
     agent = SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
     with pytest.raises(ValueError, match="expert_policy"):
         agent.train(seed=0, n_timesteps=10)
+
+
+def test_cloning_pretrain_binds_the_agent_context():
+    """An agent hands CloningPretrain its env, actor optimizer and
+    observation layout; an extension already bound keeps its own, and an
+    agent without an actor optimizer leaves it unbound."""
+    ext = CloningPretrain(expert_policy=abs, n_steps=8)
+    context = {
+        "env_args": "env",
+        "actor_optimizer_args": "adam",
+        "expert_policy": abs,
+        "augment_obs_with_expert_action": True,
+        "use_train_frac": True,
+    }
+    bound = ext.bind_to_agent(**context)
+    assert (bound.env_args, bound.actor_optimizer_args) == ("env", "adam")
+    assert bound.augment_obs_with_expert_action and bound.use_train_frac
+    assert not bound.augment_obs_with_expert_state
+    assert bound.bind_to_agent(**context | {"env_args": "other"}) is bound
+    assert ext.bind_to_agent(env_args="env") is ext
+
+
+@pytest.mark.parametrize(
+    "layout", ["augment_obs_with_expert_action", "augment_obs_with_expert_state"]
+)
+def test_cloning_pretrain_clones_the_expert_the_observations_carry(layout):
+    """Observations carrying the agent's expert's action or state would hold
+    another expert's in the cloning dataset: binding raises."""
+    ext = CloningPretrain(expert_policy=abs)
+    context = {"env_args": "env", "actor_optimizer_args": "adam", layout: True}
+    with pytest.raises(ValueError, match="agent's expert_policy"):
+        ext.bind_to_agent(**context, expert_policy=len)
+    assert ext.bind_to_agent(**context, expert_policy=abs).env_args == "env"
+
+
+def test_cloning_pretrain_needs_the_agent_context():
+    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    with pytest.raises(ValueError, match="did not bind"):
+        CloningPretrain(expert_policy=abs).pretrain(None, (), ctx)
 
 
 def test_phi_refresh_needs_the_agent_context():

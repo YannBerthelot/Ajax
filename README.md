@@ -94,7 +94,7 @@ print(evaluations["Cond/critic_srank"])
 | `expert` | `OnlineBC`, `ImitationLoss`, `ResidualPolicy`, `JSRLCurriculum` | learning from a fixed expert policy |
 | `exploration` | `EDGEExploration` | letting the expert act during collection while it looks better |
 | `target_mods` | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox` | using the expert in the critic's target (`ValueBox`: in the action) |
-| `pretrain` | `MCPretrain`, `BellmanPretrain`, `PhiRefresh` | pre-training a critic on expert data |
+| `pretrain` | `CloningPretrain`, `MCPretrain`, `BellmanPretrain`, `PhiRefresh` | behaviour-cloning the actor, or pre-training a critic, on expert data |
 | `ensemble` | `KernelRepulsion` | keeping an ensemble's critics apart |
 | `instrumentation` | `ConditioningMetrics`, `BiasVoreDecomposition`, `DiagnosticSnapshots`, `BiasVorePenalty` | measuring the critic (and one critic-loss term) |
 

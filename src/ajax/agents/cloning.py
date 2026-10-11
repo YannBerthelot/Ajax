@@ -5,44 +5,11 @@ import distrax
 import jax
 import jax.numpy as jnp
 import optax
-from flax import struct
 from flax.linen.initializers import orthogonal
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
-from ajax.environments.interaction import (
-    augment_obs,
-    collect_experience_from_expert_policy,
-)
-from ajax.environments.utils import (
-    check_env_is_gymnax,
-    get_state_action_shapes,
-    raw_obs_columns,
-)
-
-
-@struct.dataclass
-class CloningConfig:
-    actor_epochs: int = 10
-    actor_batch_size: int = 64
-    pre_train_n_steps: int = int(1e5)
-    skip_actor_pretrain: bool = False
-    # When True, reset only the log_std head after BC training (preserves
-    # the BC'd mean, restores entropy). See pre_train docstring.
-    reset_log_std_after_bc: bool = False
-    # When True, reset BOTH mean and log_std heads after BC, keeping only
-    # the encoder BC-warmed. See pre_train docstring.
-    reset_actor_head_after_bc: bool = False
-    # BC actor loss: "mse" (legacy: MSE on unsquashed mean targeting
-    # atanh(clipped expert)) or "nll" (NLL on SquashedNormal with action
-    # clipped to (-1+eps, 1-eps) and log_std lower-clipped). NLL is the
-    # principled choice; MSE was a numerical-stability fallback that
-    # collapses on heavily-saturated PID experts (mu drifts toward
-    # majority-sign atanh(±0.999) ≈ ±3.8 and minority samples never
-    # recover, see diag_bc_quality_v2 results 2026-04-26).
-    bc_loss_type: str = "nll"
-    bc_min_log_std: float = -1.0
-    bc_action_clip_eps: float = 1e-3
+from ajax.environments.interaction import augment_obs
 
 
 def warn_actor_cloning_lr(actor_cloning_lr: Optional[float]) -> None:
@@ -234,9 +201,11 @@ def pre_train(
             scale = jnp.maximum(pi.scale, jnp.exp(bc_min_log_std))
             pi_clipped = distrax.Normal(loc, scale)
             return -pi_clipped.log_prob(batch_actions).sum(-1, keepdims=True).mean()
-        # Legacy MSE on unsquashed mean targeting atanh(clipped expert).
-        # Collapses on heavily-saturated PID experts (see CloningConfig
-        # docstring). Kept as a fallback.
+        # Legacy MSE on unsquashed mean targeting atanh(clipped expert), a
+        # numerical-stability fallback. It collapses on heavily-saturated PID
+        # experts: mu drifts toward the majority sign's atanh(±0.999) ≈ ±3.8
+        # and the minority samples never recover (diag_bc_quality_v2,
+        # 2026-04-26).
         target = jnp.arctanh(jnp.clip(batch_actions, -0.999, 0.999))
         if hasattr(pi, "unsquashed_mean"):
             mu = pi.unsquashed_mean()
@@ -314,109 +283,3 @@ def bc_statistics(
         mean = mean.at[train_frac_column].set(0.0)
         std = std.at[train_frac_column].set(1.0)
     return mean, std
-
-
-def pretrain_on_expert(
-    agent_state,
-    key,
-    cloning_args,
-    expert_policy,
-    env_args,
-    actor_optimizer_args,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
-    with_train_frac: bool = False,
-):
-    """Behaviour-clone ``expert_policy`` when ``cloning_args`` asks for
-    pre-training steps (:func:`get_pre_trained_agent`); else the state as is.
-    ``with_train_frac``: the agent's observations end with the training
-    fraction (0 before training)."""
-    if cloning_args is None or cloning_args.pre_train_n_steps <= 0:
-        return agent_state
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
-    return get_pre_trained_agent(
-        agent_state,
-        expert_policy,
-        key,
-        env_args,
-        cloning_args,
-        mode,
-        actor_optimizer_args,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        augment_obs_with_expert_state=augment_obs_with_expert_state,
-        with_train_frac=with_train_frac,
-    )
-
-
-def get_pre_trained_agent(
-    agent_state,
-    expert_policy,
-    expert_key,
-    env_args,
-    cloning_args,
-    mode,
-    actor_optimizer_args,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
-    with_train_frac: bool = False,
-):
-    # The expert's transitions in the agent's layout (the collector's).
-    dataset = collect_experience_from_expert_policy(
-        expert_policy,
-        rng=expert_key,
-        env_args=env_args,
-        mode=mode,
-        n_timesteps=cloning_args.pre_train_n_steps,
-        augment_obs_with_expert_state=augment_obs_with_expert_state,
-        train_frac=0.0 if with_train_frac else None,
-    )
-    env_obs_dim = get_state_action_shapes(env_args.env)[0][-1]
-    actor_state, _metrics, obs_mean, obs_std = pre_train(
-        rng=expert_key,
-        actor_state=agent_state.actor_state,
-        dataset=dataset,
-        actor_lr=actor_optimizer_args.learning_rate,
-        actor_epochs=cloning_args.actor_epochs,
-        actor_batch_size=cloning_args.actor_batch_size,
-        skip_actor=cloning_args.skip_actor_pretrain,
-        reset_log_std_after_bc=cloning_args.reset_log_std_after_bc,
-        reset_actor_head_after_bc=cloning_args.reset_actor_head_after_bc,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        bc_loss_type=cloning_args.bc_loss_type,
-        bc_min_log_std=cloning_args.bc_min_log_std,
-        bc_action_clip_eps=cloning_args.bc_action_clip_eps,
-        raw_columns=raw_obs_columns(env_args.env),
-        train_frac_column=env_obs_dim if with_train_frac else None,
-    )
-    # The actor was just trained on inputs standardised with the dataset's
-    # statistics: the agent's running observation statistics start from
-    # them, so that get_pi / predict_value standardise its inputs online
-    # as cloning did. An agent without running statistics gets them here
-    # (online collection then updates them from this baseline); without
-    # them the cloned actor would be queried on raw observations.
-    new_state = agent_state.replace(actor_state=actor_state)
-    if (
-        cloning_args.skip_actor_pretrain
-        and agent_state.collector_state.obs_norm_info is None
-    ):
-        return new_state  # no actor cloned: nothing to keep consistent
-    from ajax.wrappers import NormalizationInfo
-
-    # Agent-side stats live with leading axis size 1 (see
-    # init_agent_obs_norm); broadcast obs_mean / var to (1, obs_dim).
-    n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
-    var = obs_std**2
-    mean_1 = obs_mean.reshape(1, -1)
-    var_1 = var.reshape(1, -1)
-    seeded = NormalizationInfo(
-        count=jnp.full((1, 1), n_samples),
-        mean=mean_1,
-        mean_2=var_1 * n_samples,
-        var=var_1,
-        returns=None,
-    )
-    return new_state.replace(
-        collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
-        actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
-        critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
-    )

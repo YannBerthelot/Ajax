@@ -21,7 +21,7 @@ src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
 ├── agents/loop.py       TrainLoop, the shared loop; critic_step and gradient_step
 ├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
-├── agents/cloning.py    behaviour-cloning pre-training from an expert
+├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain's)
 ├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
 ├── environments/interaction.py  collect_experience: act, step and store
 ├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan
@@ -45,8 +45,8 @@ The agents share one loop, `TrainLoop`, so collecting experience, waiting for
 work the same way everywhere and are fixed in one place. An agent supplies
 only its algorithm:
 
-- `init(key, pretrain_key) -> agent_state`: a fresh state; one-shot
-  pre-training (behaviour cloning) draws on `pretrain_key`.
+- `init(key, pretrain_key) -> agent_state`: a fresh state; the deprecated
+  cloning keywords' behaviour cloning draws on `pretrain_key`.
 - `update(...) -> (agent_state, aux)`: one update. `aux` holds the metrics as
   flax dataclasses nested exactly one level, as TD3's
   `AuxiliaryLogs(policy=..., value=...)`, logged as `value/critic_loss`; the

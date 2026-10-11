@@ -18,6 +18,7 @@ from flax.linen.initializers import constant
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.memory import MemoryCell, MemoryConfig
 from ajax.networks.networks import (
     MultiCritic,
@@ -116,6 +117,24 @@ class DeterministicActor(nn.Module):
         return Deterministic(jnp.tanh(self.head(h)))
 
 
+class DeterministicPIDActor(nn.Module):
+    """TD3's actor as a PID: ``tanh`` of the PID output, as
+    :class:`DeterministicActor` squashes its head (see
+    :mod:`ajax.modules.pid_actor`)."""
+
+    policy: PIDPolicy
+    action_dim: int
+
+    def setup(self):
+        self.pid = PIDLaw(self.policy, self.action_dim)
+
+    def gains(self, obs: jax.Array) -> jax.Array:
+        return self.pid.gains(obs)
+
+    def __call__(self, obs: jax.Array) -> Deterministic:
+        return Deterministic(jnp.tanh(self.pid(obs)))
+
+
 def get_initialized_td3_actor_critic(
     key: jax.Array,
     env_config: EnvironmentConfig,
@@ -123,30 +142,19 @@ def get_initialized_td3_actor_critic(
     critic_optimizer_config: OptimizerConfig,
     network_config: NetworkConfig,
     num_critics: int = 2,
-    pid_actor_config: Optional[object] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """TD3-specific init: deterministic actor + standard MultiCritic ensemble
-    (its encoder's output LayerNorm per ``network_config``; TD3 turns it off).
-
-    Falls back to PIDActor when pid_actor_config is provided (the PID actor
-    already returns a deterministic action via its `.mean()`).
+    (a plain MLP, as Fujimoto's critic -- sfujim/TD3, TD3.py, Critic: Linear
+    -> ReLU -> Linear -> ReLU -> Linear -- unless ``network_config`` opts
+    into the encoder's LayerNorm). A :class:`PIDPolicy` architecture makes
+    the actor a :class:`DeterministicPIDActor`.
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
     memory = network_config.memory
-    if memory is not None and pid_actor_config is not None:
-        raise NotImplementedError("PIDActorNetwork does not support memory yet.")
-
-    if pid_actor_config is not None:
-        from ajax.modules.pid_actor import PIDActorNetwork
-
-        actor = PIDActorNetwork(
-            input_architecture=network_config.actor_architecture,
-            action_dim=action_dim,
-            obs_current_idx=pid_actor_config.obs_current_idx,
-            obs_target_idx=pid_actor_config.obs_target_idx,
-            obs_derivative_idx=pid_actor_config.obs_derivative_idx,
-            penultimate_normalization=network_config.penultimate_normalization,
-        )
+    actor: nn.Module
+    if isinstance(network_config.actor_architecture, PIDPolicy):
+        check_pid_actor(True, memory)
+        actor = DeterministicPIDActor(network_config.actor_architecture, action_dim)
     else:
         actor = DeterministicActor(
             input_architecture=network_config.actor_architecture,
@@ -161,7 +169,7 @@ def get_initialized_td3_actor_critic(
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_bias_init=network_config.encoder_bias_init,
-        disable_encoder_output_norm=network_config.disable_encoder_output_norm,
+        encoder_layer_norm=network_config.encoder_layer_norm,
         memory=memory,
         query_dim=action_dim if memory is not None else 0,
     )

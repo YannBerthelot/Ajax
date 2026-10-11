@@ -12,7 +12,7 @@ from jax.tree_util import Partial as partial
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
 )
-from ajax.environments.utils import check_env_is_gymnax
+from ajax.environments.utils import check_env_is_gymnax, raw_obs_columns
 
 
 @struct.dataclass
@@ -118,6 +118,7 @@ def _reset_actor_heads(
         "reset_actor_head_after_bc",
         "augment_obs_with_expert_action",
         "bc_loss_type",
+        "raw_columns",
     ],
 )
 def pre_train(
@@ -143,11 +144,13 @@ def pre_train(
     bc_loss_type: str = "nll",
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
+    raw_columns: int = 0,
 ) -> Tuple[train_state.TrainState, Dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]:
     """Behaviour-clone the actor on a dataset of expert transitions.
 
     Returns the trained actor state, the per-epoch actor losses and the
-    observation mean and standard deviation the actor was trained on.
+    observation mean and standard deviation the actor was trained on (0
+    and 1 on the env's ``raw_columns``, which stay raw).
     """
     obs = dataset.obs
     actions = dataset.action
@@ -165,8 +168,8 @@ def pre_train(
     # obs_norm_info with these same stats so get_pi / predict_value
     # apply matching normalisation online.
     obs_flat = obs.reshape(-1, obs.shape[-1])
-    obs_mean = obs_flat.mean(axis=0)
-    obs_std = obs_flat.std(axis=0) + 1e-6
+    obs_mean = obs_flat.mean(axis=0).at[:raw_columns].set(0.0)
+    obs_std = (obs_flat.std(axis=0) + 1e-6).at[:raw_columns].set(1.0)
     obs = (obs - obs_mean) / obs_std
     metrics = {"actor_loss": jnp.zeros((actor_epochs,))}
 
@@ -181,6 +184,13 @@ def pre_train(
 
     def actor_loss_fn(params, batch_obs, batch_actions):
         pi = bc_actor_state.apply_fn(params, batch_obs)
+        from ajax.agents.TD3.networks import Deterministic
+
+        if isinstance(pi, Deterministic):
+            # A deterministic actor (TD3's) has no distribution to fit, nor
+            # a pre-tanh mean: either loss regresses its action on the
+            # expert's (its log_prob is minus the squared error).
+            return -pi.log_prob(batch_actions).sum(-1, keepdims=True).mean()
         if bc_loss_type == "nll":
             # NLL with log_std lower-clipped at bc_min_log_std (prevents
             # entropy collapse on saturated samples, where scale → 0 would
@@ -331,33 +341,37 @@ def get_pre_trained_agent(
         bc_loss_type=cloning_args.bc_loss_type,
         bc_min_log_std=cloning_args.bc_min_log_std,
         bc_action_clip_eps=cloning_args.bc_action_clip_eps,
+        raw_columns=raw_obs_columns(env_args.env),
     )
-    # Seed the agent's running obs_norm_info with the BC dataset stats.
-    # The actor / critic params have just been trained on standardised
-    # inputs; the runtime get_pi / predict_value will apply the same
-    # standardisation via obs_norm_info, so the actor sees a consistent
-    # input distribution across BC and online. Online collection then
-    # continues to update these stats from this seeded baseline.
+    # The actor was just trained on inputs standardised with the dataset's
+    # statistics: the agent's running observation statistics start from
+    # them, so that get_pi / predict_value standardise its inputs online
+    # as cloning did. An agent without running statistics gets them here
+    # (online collection then updates them from this baseline); without
+    # them the cloned actor would be queried on raw observations.
     new_state = agent_state.replace(actor_state=actor_state)
-    if agent_state.collector_state.obs_norm_info is not None:
-        from ajax.wrappers import NormalizationInfo
+    if (
+        cloning_args.skip_actor_pretrain
+        and agent_state.collector_state.obs_norm_info is None
+    ):
+        return new_state  # no actor cloned: nothing to keep consistent
+    from ajax.wrappers import NormalizationInfo
 
-        # Agent-side stats live with leading axis size 1 (see
-        # init_agent_obs_norm); broadcast obs_mean / var to (1, obs_dim).
-        n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
-        var = obs_std**2
-        mean_1 = obs_mean.reshape(1, -1)
-        var_1 = var.reshape(1, -1)
-        seeded = NormalizationInfo(
-            count=jnp.full((1, 1), n_samples),
-            mean=mean_1,
-            mean_2=var_1 * n_samples,
-            var=var_1,
-            returns=None,
-        )
-        new_state = new_state.replace(
-            collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
-            actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
-            critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
-        )
-    return new_state
+    # Agent-side stats live with leading axis size 1 (see
+    # init_agent_obs_norm); broadcast obs_mean / var to (1, obs_dim).
+    n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
+    var = obs_std**2
+    mean_1 = obs_mean.reshape(1, -1)
+    var_1 = var.reshape(1, -1)
+    seeded = NormalizationInfo(
+        count=jnp.full((1, 1), n_samples),
+        mean=mean_1,
+        mean_2=var_1 * n_samples,
+        var=var_1,
+        returns=None,
+    )
+    return new_state.replace(
+        collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
+        actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
+        critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
+    )

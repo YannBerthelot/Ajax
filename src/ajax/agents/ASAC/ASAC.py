@@ -7,13 +7,13 @@ from gymnax import EnvParams
 from ajax.agents.ASAC.state import ASACConfig
 from ajax.agents.ASAC.train_ASAC import make_train
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -23,6 +23,11 @@ class ASAC(ActorCritic):
     """Average-Reward Soft Actor-Critic (ASAC) from Adamczyk et al. 2025. See https://arxiv.org/abs/2501.09080v2"""
 
     name: str = "ASAC"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
     supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913
@@ -59,7 +64,7 @@ class ASAC(ActorCritic):
         stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
-        pid_actor_config: Optional[PIDActorConfig] = None,
+        reward_normalization_gamma: Optional[float] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -98,6 +103,7 @@ class ASAC(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
             extensions=extensions,
         )
@@ -124,8 +130,6 @@ class ASAC(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
 
-        self.pid_actor_config = pid_actor_config
-
     def get_make_train(self) -> Callable:
         """
         Create a training function for the ASAC agent.
@@ -137,6 +141,5 @@ class ASAC(ActorCritic):
             make_train,
             buffer=self.buffer,
             alpha_args=self.alpha_args,
-            pid_actor_config=self.pid_actor_config,
             extensions=tuple(self.extension_stack.extensions),
         )

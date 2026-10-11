@@ -8,8 +8,8 @@ from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -20,6 +20,11 @@ class APO(ActorCritic):
     """
 
     name: str = "APO"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -44,6 +49,7 @@ class APO(ActorCritic):
         normalize_advantage: bool = True,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -57,7 +63,6 @@ class APO(ActorCritic):
         # Expert for the cloning pre-training and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
@@ -99,6 +104,7 @@ class APO(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
             critic_kernel_init=critic_kernel_init,
@@ -113,13 +119,12 @@ class APO(ActorCritic):
             # 3.5 times the exploration of Ajax's state-dependent log-std
             # at std 0.37); a lecun_uniform mean head, whose moderate
             # initial actions keep evaluation close to training (orthogonal
-            # 0.01 makes the deterministic action essentially zero); no
-            # LayerNorm at the encoder's output, which brax's MLP lacks.
+            # 0.01 makes the deterministic action essentially zero). Like
+            # brax's MLP, the encoder has no output LayerNorm (the default).
             squash=True,
             log_std_state_independent=True,
             log_std_init=0.0,
             mean_kernel_init="lecun_uniform",
-            disable_encoder_output_norm=True,
             extensions=extensions,
         )
 
@@ -147,7 +152,6 @@ class APO(ActorCritic):
             pre_train_n_steps=pre_train_n_steps,
         )
         self.expert_policy = expert_policy
-        self.pid_actor_config = pid_actor_config
 
     def get_make_train(self) -> Callable:
         """
@@ -160,6 +164,5 @@ class APO(ActorCritic):
             make_train,
             cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
-            pid_actor_config=self.pid_actor_config,
             extensions=tuple(self.extension_stack.extensions),
         )

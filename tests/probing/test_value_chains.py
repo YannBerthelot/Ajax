@@ -33,7 +33,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "3093646a89a6"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "5aef9b904928"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -360,7 +360,8 @@ def test_q9_rollouts_hold_whole_episodes(cell: str) -> None:
 
 # --- pilot: the package's known-answer probes -------------------------------
 # Every probe an agent's action space fits, gamma 0.62; the continuous policy
-# probes declared and clipped to [-1, 1], the coupling one paying clip(a) s.
+# probes declared and clipped to [-1, 1], the coupling one paying clip(a) s;
+# the value and discrete advantage probes observed at 1 (envs.package).
 # Max-entropy agents settle below the reward bound (SAC near 0.91): policy
 # readings are margins. A query's name is its reading: V(x), a(x) (the
 # clipped mean action), Q(x, a=i) or a difference of two. Ladder on seeds
@@ -382,7 +383,7 @@ def _pilot(pkg: Any) -> Probes:
     late = {"done mask ignored": 1 / (1 - G**2)}
     backprop = (Query("V(0)", 0.0, BLIND), Query("V(1)", 1.0, BLIND))
     return {
-        "value": (pkg.ValueLossOrOptimizerEnv, (Query("V(0)", 1.0, done),)),
+        "value": (pkg.ValueLossOrOptimizerEnv, (Query("V(1)", 1.0, done),)),
         "backprop": (pkg.ValueBackpropEnv, backprop),
         "discounting": (
             pkg.RewardDiscountingEnv,
@@ -408,8 +409,8 @@ PILOT["continuous"]["coupling"] = (
 PILOT["discrete"]["advantage"] = (
     pe.AdvantagePolicyLossPolicyUpdateEnv,
     (
-        Query("Q(0, a=0)", 1.0, {"actions swapped": 0.0}),
-        Query("Q(0, a=0) - Q(0, a=1)", 1.0, NONE | {"actions swapped": -1.0}, True),
+        Query("Q(1, a=0)", 1.0, {"actions swapped": 0.0}),
+        Query("Q(1, a=0) - Q(1, a=1)", 1.0, NONE | {"actions swapped": -1.0}, True),
     ),
 )
 PILOT["discrete"]["coupling"] = (
@@ -591,9 +592,6 @@ def p1_readings(cell: str, seeds: tuple, budget: int) -> dict[str, np.ndarray]:
     return out | {"eval": run.logged("Eval/episodic mean reward")}
 
 
-_A = "(a) every stored next_obs is raw: gymnax writes the raw pre-reset obs in info['final_observation'] on every step, the normaliser passes it through (src/ajax/wrappers.py:443-447) and get_final_obs prefers it (src/ajax/environments/interaction.py:113-125, 874)"
-_B = "(b) PPO normalises twice in evaluation: the env normaliser does not apply in training (src/ajax/agents/PPO/PPO.py:166) but setup_environment rebuilds it applying (src/ajax/evaluate.py:150-158) and get_pi normalises again (interaction.py:347-350)"
-_C = "(c) ClipAction(-1, 1) wraps every normalised env whatever its action space (src/ajax/environments/create.py:375-388) after the index is cast to int32 (interaction.py:204-205): action 2 reaches the env as 1.0"
 CLIP = "(c) training clip sends action 2 as 1"
 RAW = "(a) raw next obs: s0 bootstraps on s0"
 _D, _ALONE = (
@@ -632,19 +630,9 @@ P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "APO-discrete-c": ("APO-discrete", (EVAL_D,), ()),
     "AVG-a": ("AVG", (Q_SOFT,), ()),
 }
-P1_LIVE = {
-    "DQN-c": f"{_C}; right answer eval 2.0, Q(s0,0) 1.62, Q(s1,2) 1.0; today 1.3, 1.186, 0.00",
-    "PQN-c": f"{_C}; right answer eval 2.0, Q(s1,2) 1.0; today 1.3, 0.00",
-    "PQN-a": f"{_A} (bootstrap at src/ajax/agents/PQN/train_PQN.py:162-166); right answer Q(s0,0) 1.62, today 2.631 (1.186 once (a) alone is fixed)",
-    "PPO-continuous-b": f"{_B}; right answer eval 2.0, today 0.63-1.06",
-    "PPO-discrete-bc": f"{_B} and {_C}; right answer eval 2.0, today 1.3",
-    "APO-discrete-c": f"{_C}; right answer eval 2.0, today 1.3",
-    "AVG-a": f"{_A} (target at src/ajax/agents/AVG/train_AVG.py:162-176); right answer Q(s0,-0.5) - oracle 0, today +0.93 to +1.02",
-}
 for label, (cell, p1_queries, p1_tols) in P1_CASES.items():
     reads, steps = functools.partial(p1_readings, cell), P1_CELLS[cell][2]
-    why = P1_LIVE.get(label, "")
-    CASES[f"p1-{label}"] = Case(f"p1-{label}", p1_queries, reads, steps, p1_tols, why)
+    CASES[f"p1-{label}"] = Case(f"p1-{label}", p1_queries, reads, steps, p1_tols)
 
 
 @pytest.mark.parametrize("cell", list(P1_CELLS))
@@ -819,22 +807,27 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 
 
 # --- Q6: the fixed entropy bonus (ent_coef) of PPO and APO -------------------
-# One-step bandits at the constant observation 1 (at 0, PPO's LayerNorm
-# amplifies the first updates): the policy settles where E[r] + c H peaks.
+# One-step bandits at the constant observation 1 (at 0, PPO's then-default
+# LayerNorm amplified the first updates): the policy settles where E[r] + c H peaks.
 # a: Discrete(2) paying 1 for action 0, c = 1: pi(0) = sigmoid(1 / c). b: r =
 # -(a - 0.5)^2, unclipped, c = 2: mu 0.5, sigma sqrt(c / 2) (b2: per dimension
 # of the joint action). c: r = 0, c = 0.1, squashed: sigma_u 0.8744, the
 # max-entropy tanh-Gaussian (PPO starts at e^0.5: no fault crosses it). Off:
 # advantage normalisation and gradient clipping (both move the stationary
 # point); APO's gae_lambda 0 (advantage r - rho). 8 envs; learning rates set
-# the spread, not the answer. Measured wrong answers: medians, 1000-1031.
+# the spread, not the answer. PPO takes 4 full-batch Adam steps a 256-step
+# rollout, each moving a weight by about the rate: its plain MLP needs four
+# times the updates its LayerNorm one did at 1e-5 (pi(best) 0.668 after
+# 160,000 steps), hence 4e-5. Measured wrong answers: medians, 1000-1031.
 
 
-def _bandit(reward: Callable, actions: int = 0, dim: int = 1) -> envs.Spec:
+def _bandit(
+    reward: Callable, actions: int = 0, dim: int = 1, bound: float = 1.0
+) -> envs.Spec:
     def step(st: envs.State, a: jax.Array, key: Any) -> tuple:
         return st.replace(s=st.s + 1), reward(a), True
 
-    one, box = (lambda st: jnp.ones(1)), (-1.0, 1.0, dim)
+    one, box = (lambda st: jnp.ones(1)), (-bound, bound, dim)
     return envs.Spec("bandit", step, one, obs_box=(0.0, 2.0), actions=actions, box=box)
 
 
@@ -844,14 +837,17 @@ def _quadratic(a: jax.Array) -> jax.Array:
 
 BANDITS = {
     "a": _bandit(lambda a: jnp.where(a == 0, 1.0, 0.0), actions=2),
-    "b": _bandit(_quadratic),
-    "b2": _bandit(_quadratic, dim=2),
+    # The quadratic bandits' answers (sigma 1, mu 0.5) are for the raw Gaussian
+    # action: continuous actions are clipped to the action box, so the box is
+    # wide enough (+-10, ten sigmas) that the clip never binds.
+    "b": _bandit(_quadratic, bound=10.0),
+    "b2": _bandit(_quadratic, dim=2, bound=10.0),
     "c": _bandit(lambda a: jnp.float32(0.0)),
 }
 
 
 def _q6_agent(agent: str, bandit: str, c: float, **kw: Any) -> Any:
-    lr = {"PPO": 1e-5, "APO": 3e-4}[agent]
+    lr = {"PPO": 4e-5, "APO": 3e-4}[agent]
     kw |= {"gae_lambda": 0.0} if agent == "APO" else {}
     kw |= {"normalize_advantage": False, "max_grad_norm": None, "ent_coef": c}
     kw |= {"n_envs": 8, "actor_learning_rate": lr, "critic_learning_rate": lr}
@@ -873,9 +869,9 @@ def _q6_read(n: R.Nets) -> dict:
 
 
 def apo_latent_sigma(budget: int) -> float:
-    """APO's sigma_u today: on the flat bandit its advantage is exactly 0, so
-    Adam raises the log-std by the learning rate at each of 4 steps per 8 x 32
-    rollout until the clip at 2."""
+    """APO's sigma_u under the latent Gaussian's entropy bonus: on the flat
+    bandit its advantage is exactly 0, so Adam raises the log-std by the
+    learning rate at each of 4 steps per 8 x 32 rollout until the clip at 2."""
     return math.exp(min(2.0, 3e-4 * 4 * (budget // (8 * 32) + 1)))
 
 
@@ -885,9 +881,9 @@ PI_BEST, SIGMA_C = oracles.softmax_optimum(1.0), oracles.max_entropy_sigma()
 _PI_A = {"untrained": 0.5, DROPPED: 0.976, f"{P07}, better arm": 1.0}
 _PI_A[f"{P07}, worse arm"] = 0.0  # a flipped bonus collapses each seed on an arm
 _APO_A = {"untrained": 0.5, DROPPED: 0.990, "bonus sign flipped": 0.997}
-_AVERAGED = {"entropy averaged over the dimensions (today)": math.sqrt(0.5)}
-_CLIP = "sign flipped (P07) or latent-Gaussian entropy (train_PPO.py:343-344): the log-std clip"
-_APO_C = {DROPPED: 1.0, "latent-Gaussian entropy (today)": apo_latent_sigma(80_000)}
+_AVERAGED = {"entropy averaged over the dimensions": math.sqrt(0.5)}
+_CLIP = "sign flipped (P07) or latent-Gaussian entropy (PPO/core.py): the log-std clip"
+_APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": apo_latent_sigma(80_000)}
 _APO_C["latent-Gaussian entropy, sign flipped"] = 1 / apo_latent_sigma(80_000)
 Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "PPO-a": (Query("pi(best)", PI_BEST, _PI_A),),
@@ -908,29 +904,26 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
 }
 Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
     # agent, bandit, c, budget, tolerances (32/32 of 3000-3031), overrides
-    "PPO-a": ("PPO", "a", 1.0, 80_000, (0.02,), {}),  # 40,000 failed: 0.106
+    "PPO-a": ("PPO", "a", 1.0, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
     "APO-a": ("APO", "a", 1.0, 20_000, (0.023,), {}),
-    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.054, 0.048), {}),  # 80,000: 0.251
+    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.082, 0.086), {}),  # 80,000: 0.061
     "PPO-b2": ("PPO", "b2", 2.0, 160_000, (), {}),
-    "PPO-c": (
+    "PPO-c": (  # 40,000 failed: 0.382
         "PPO",
         "c",
         0.1,
-        160_000,
-        (0.023,),
+        80_000,
+        (0.053,),
         {"squash": True, "log_std_init": 0.5},
     ),
     "APO-c": ("APO", "c", 0.1, 80_000, (0.062,), {}),  # half the gap to 1.0
 }
-Q6_LIVE = {
-    "PPO-b2": "(convention, pending the owner's choice) PPO's unsquashed bonus averages the entropy over the action dimensions (pi.entropy().mean(), train_PPO.py:346), so ent_coef acts as c / d, while its squashed path sums them (SAC/utils.py:62, 68); right answer sigma_i 1.0 (joint entropy), today 0.707",
-    "APO-c": "APO's squashed bonus maximises the latent Gaussian's entropy (pi.unsquashed_entropy(), train_APO.py:80-84), which grows without bound in sigma, not the executed action's entropy as PPO does (train_PPO.py:341-342); right answer sigma_u 0.874, today exp(min(2, lr x Adam steps)) = 1.456 at 80,000 steps",
-}
 for cell, (agent, bandit, c, steps, q6_tols, kw) in Q6_CELLS.items():
     build = functools.partial(_q6_agent, agent, bandit, c, **kw)
     reads = runs.readings(build, lambda run: R.per_seed(_q6_read, R.nets(run.state)))
-    why, slow = Q6_LIVE.get(cell, ""), cell != "PPO-a"
-    case = Case(f"q6-{cell}", Q6_QUERIES[cell], reads, steps, q6_tols, why, slow=slow)
+    case = Case(
+        f"q6-{cell}", Q6_QUERIES[cell], reads, steps, q6_tols, slow=cell != "PPO-a"
+    )
     CASES[case.id] = case
 
 

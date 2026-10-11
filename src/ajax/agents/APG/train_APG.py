@@ -33,6 +33,7 @@ from ajax.environments.interaction import init_collector_state
 from ajax.environments.system_class import FixedSystem, SystemClass
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import zeros_carry_like
 from ajax.networks.utils import get_adam_tx
 from ajax.perf_utils import build_resumable_train
@@ -82,8 +83,14 @@ def build_controller(
             pid=pid,
             squash=squash,
         )
+    architecture = network_args.actor_architecture
+    if isinstance(architecture, PIDPolicy):
+        raise TypeError(
+            "APG's controller takes hidden layers, not a PIDPolicy: its PID is"
+            " the output head, pid=PIDHeadConfig(...)."
+        )
     return Controller(
-        input_architecture=tuple(network_args.actor_architecture),
+        input_architecture=tuple(architecture),
         action_dim=action_dim,
         memory=network_args.memory,
         pid=pid,
@@ -338,6 +345,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     system_class: Optional[SystemClass] = None,
     pid: Optional[PIDHeadConfig] = None,
     squash: bool = True,
@@ -355,7 +363,10 @@ def make_train(
     for one). ``train`` returns every update's :class:`APGAuxiliaries`."""
     del critic_optimizer_args  # no critic
     per_update = env_args.n_envs * agent_config.horizon
-    num_updates = max(total_timesteps // per_update, 1)
+    # The call's budget (TrainLoop.budget). A call is a curriculum stage: its
+    # learning-rate schedule spans its own updates (the optimizer restarts
+    # on resume by default).
+    num_updates = max((total_timesteps - start_timestep) // per_update, 1)
     if lr_schedule == "warmup_cosine":
         peak = actor_optimizer_args.learning_rate
         if not isinstance(peak, (int, float)):
@@ -373,7 +384,13 @@ def make_train(
         raise ValueError(f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'")
 
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
     evaluation = Evaluation(
         metrics=_train_metrics,

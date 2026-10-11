@@ -931,3 +931,100 @@ def test_initial_state_wrapper_overrides_reset_state():
         keys[0], jax.tree.map(lambda x: x[0], states), jnp.zeros(1), params
     )
     assert obs2.shape == (3,) and jnp.isfinite(r)
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "fast"])
+def test_normaliser_presents_the_final_observation_normalised(env_id):
+    """Off an episode end the pre-reset observation is the step's own: the
+    normaliser presents it as it presents the observation (it is the
+    transition's next observation) and keeps the raw one."""
+    import numpy as np
+
+    from ajax.environments.create import prepare_env
+    from ajax.environments.interaction import (
+        get_final_obs,
+        get_raw_final_obs,
+        reset,
+        step,
+    )
+    from ajax.environments.utils import get_env_type
+
+    env, params, *_ = prepare_env(env_id, normalize_obs=True)
+    mode = get_env_type(env)
+    key = jax.random.PRNGKey(0)
+    keys = jax.random.split(key, 1) if mode == "gymnax" else key
+    _, state = reset(keys, env, mode, params)
+    obs, *_, info = step(keys, state, jnp.full((1, 1), 0.5), env, mode, params)
+    np.testing.assert_allclose(get_final_obs(info, None), obs, rtol=1e-6)
+    assert not np.allclose(get_raw_final_obs(info, None), obs)
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "fast"])
+def test_reward_normaliser_keeps_the_raw_reward(env_id):
+    """The normaliser hands the reward divided by its running std and keeps
+    the env's own in info (a brax state carries it from the reset on, so its
+    info keeps one structure through a scan)."""
+    import numpy as np
+
+    from ajax.environments.create import prepare_env
+    from ajax.environments.interaction import reset, step
+    from ajax.environments.utils import get_env_type
+    from ajax.wrappers import RAW_REWARD_KEY
+
+    env, params, *_ = prepare_env(env_id, normalize_reward=True)
+    mode = get_env_type(env)
+    key = jax.random.PRNGKey(0)
+    keys = jax.random.split(key, 1) if mode == "gymnax" else key
+    _, state = reset(keys, env, mode, params)
+    action = jnp.full((1, 1), 0.5)
+
+    def one(state, _):
+        _, state, reward, *_, info = step(keys, state, action, env, mode, params)
+        return state, (reward, info[RAW_REWARD_KEY])
+
+    state, (normed, raw) = jax.lax.scan(one, state, length=3)
+    norm = (
+        state.info["normalization_info"] if mode == "brax" else state.normalization_info
+    )
+    std = np.sqrt(np.asarray(norm.reward.var).mean() + 1e-8)
+    np.testing.assert_allclose(normed[-1], raw[-1] / std, rtol=1e-5)
+    assert not np.allclose(normed, raw)
+
+
+@pytest.mark.parametrize("gamma", [None, 0.9])
+def test_reward_normaliser_divides_by_the_chosen_statistics(gamma):
+    """By default the running std of the single-step reward; with ``gamma``,
+    of SB3's discounted return of the episode so far, restarted after the
+    episode's end. Replayed in numpy on CartPole under random actions."""
+    import numpy as np
+
+    from ajax.environments.create import prepare_env
+    from ajax.environments.interaction import reset, step
+    from ajax.wrappers import RAW_REWARD_KEY
+
+    env, params, *_ = prepare_env("CartPole-v1", normalize_reward=True, gamma=gamma)
+    key = jax.random.PRNGKey(0)
+    _, state = reset(jax.random.split(key, 1), env, "gymnax", params)
+
+    def one(state, key):
+        action = jax.random.randint(key, (1,), 0, 2)
+        out = step(jax.random.split(key, 1), state, action, env, "gymnax", params)
+        _, state, normed, terminated, truncated, info = out
+        done = jnp.logical_or(terminated, truncated)
+        kept = state.normalization_info.reward.returns.reshape(-1)
+        return state, (normed, info[RAW_REWARD_KEY], done, kept)
+
+    keys = jax.random.split(key, 100)
+    _, (normed, raw, done, kept) = jax.lax.scan(one, state, keys)
+    ret, count, mean, m2 = 0.0, 0, 0.0, 0.0
+    for t in range(100):
+        ret = float(raw[t, 0]) + (gamma or 0.0) * ret
+        count, delta = count + 1, ret - mean
+        mean += delta / count
+        m2 += delta * (ret - mean)
+        std = np.clip(np.sqrt(m2 / count + 1e-8), 1e-6, 1e6)
+        np.testing.assert_allclose(normed[t, 0], raw[t, 0] / std, rtol=1e-4)
+        ret *= 1.0 - float(done[t, 0])
+        if gamma is not None:
+            np.testing.assert_allclose(kept[t, 0], ret, rtol=1e-5)
+    assert done.sum() >= 2

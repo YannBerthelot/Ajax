@@ -1,4 +1,13 @@
-from typing import Any, Callable, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import flashbax as fbx
 import flax
@@ -13,6 +22,9 @@ from jax.tree_util import Partial as partial
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvStateType, EnvType, InitializationFunction
 from ajax.wrappers import NormalizationInfo
+
+if TYPE_CHECKING:
+    from ajax.modules.pid_actor import PIDPolicy
 
 
 @struct.dataclass
@@ -305,7 +317,9 @@ class BaseAgentConfig:
 
 @struct.dataclass
 class NetworkConfig:
-    actor_architecture: Tuple[str]
+    # Hidden layers, or a PIDPolicy: the actor is then a PID controller
+    # (ajax.modules.pid_actor).
+    actor_architecture: Union[Tuple[str, ...], "PIDPolicy"]
     critic_architecture: Tuple[str]
     # Pluggable memory block (encoder -> memory -> heads); None keeps the
     # network feedforward. Static (hashable) so trace-time branching on it
@@ -334,12 +348,16 @@ class NetworkConfig:
     # Actor head knobs (Actor in networks.py). Default = legacy Ajax.
     # Set per-env to match brax/playground convention for envs that
     # need it (e.g. mujoco_playground manip uses scalar state-indep
-    # log_std at init=1.0, lecun_uniform mean head, no encoder-output
-    # LayerNorm).
+    # log_std at init=1.0 and a lecun_uniform mean head).
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    disable_encoder_output_norm: bool = False
+    # Opt-in LayerNorm on the shared encoder's output (Encoder in
+    # networks.py), for every network built from this config. Off by
+    # default: the SAC, TD3, PPO and DQN papers use plain MLPs. Agents
+    # without a constructor argument for it take it through
+    # ``agent.network_args.replace(encoder_layer_norm=True)``.
+    encoder_layer_norm: bool = False
     squash: bool = False
 
 

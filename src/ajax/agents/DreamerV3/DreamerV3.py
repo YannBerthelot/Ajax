@@ -28,6 +28,7 @@ from ajax.agents.DreamerV3.state import (
     LearningRate,
 )
 from ajax.agents.DreamerV3.train_DreamerV3 import TrainRatio, env_spec, make_train
+from ajax.agents.loop import LOOP_PHASES
 from ajax.environments.row_collector import resume_tick
 from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
@@ -138,9 +139,7 @@ class DreamerV3(ActorCritic):
     """
 
     name: str = "DreamerV3"
-    supported_extension_phases: frozenset = frozenset(
-        {"pretrain", "post_update", "eval_metrics"}
-    )
+    supported_extension_phases: frozenset = LOOP_PHASES
 
     def __init__(
         self,

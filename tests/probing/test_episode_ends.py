@@ -30,10 +30,10 @@ from ajax.networks.networks import predict_value
 from . import agents, envs, oracles, runs
 from . import readouts as R
 from .oracles import RIGHT, Rule
-from .verdict import STAGE_1, Case, Query, check, params, xparam
+from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "7d3835420718"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "d2d0b8159e97"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -303,13 +303,14 @@ def test_p6_evaluation_runs_the_training_time_limit(case: Case) -> None:
 
 
 # --- P5: reward scale and the average-reward estimators -----------------------
-# Every cell at reward_scale s = 2. (i) The 1-step value probe: Q(0) = s,
-# no bootstrap. (ii) Every on_target batch carrying rewards states the
-# scale. (iii) TwoStepCoin: obs 0, two-step episodes ending by termination,
-# each step paying 2 Bernoulli(1/2), actions ignored. A moving average of
-# independent draws steps by ``ema_step_rms``; a trace of the last updates
-# reads each step as log2 of its ratio to that (a swapped weight: +3.6 or
-# more; never updated: -inf), which the converged levels cannot see.
+# Every cell at reward_scale s = 2. (i) The 1-step value probe, observed at
+# 1 (envs.package): Q(1) = s, no bootstrap. (ii) Every on_target batch
+# carrying rewards states the scale. (iii) TwoStepCoin: obs 0, two-step
+# episodes ending by termination, each step paying 2 Bernoulli(1/2),
+# actions ignored. A moving average of independent draws steps by
+# ``ema_step_rms``; a trace of the last updates reads each step as log2 of
+# its ratio to that (a swapped weight: +3.6 or more; never updated: -inf),
+# which the converged levels cannot see.
 
 S5, G5 = 2.0, agents.GAMMA
 
@@ -340,7 +341,7 @@ def _scaled(cell: str, extensions: tuple = ()) -> Any:
 
 
 VALUE_Q = Query(
-    "Q(0)",
+    "Q(1)",
     S5,
     {
         "reward_scale ignored (wrapper default 1.0)": 1.0,
@@ -354,13 +355,19 @@ VALUE_Q = Query(
 # at 5000: one seed read 0.90 at 1250); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
 P5_VALUE |= {"AVG": 5000, "DQN": 1250, "PQN": 160_000}
-for cell, budget in P5_VALUE.items():
+
+
+def _p5_read(cell: str, run: runs.Run) -> dict:
+    """Q(1) through the env-side normaliser (AVG's): at observation 0 the
+    raw and the normalised input coincided."""
     read = functools.partial(R.value, cell.removesuffix("+on_target"))
+    n = R.nets(run.state, stats=R.env_stats(run))
+    return R.per_seed(lambda n: {"Q(1)": read(n, 1.0)}, n)
+
+
+for cell, budget in P5_VALUE.items():
     reads = runs.readings(
-        functools.partial(_scaled, cell),
-        lambda run, read=read: R.per_seed(
-            lambda n: {"Q(0)": read(n, 0.0)}, R.nets(run.state)
-        ),
+        functools.partial(_scaled, cell), functools.partial(_p5_read, cell)
     )
     tol5 = (0.062 if cell == "AVG" else 0.02,)
     CASES[f"p5-value-{cell}"] = Case(
@@ -386,18 +393,12 @@ class RecordTargetBatch(Extension):
 
 @pytest.mark.parametrize(
     "cell",
-    [
-        *("DQN", "TD3", "REDQ", "AVG", "ASAC"),
-        xparam(
-            "PQN",
-            "PQN's on_target batch carries raw rewards and no reward_scale (train_PQN.py:182-190) while its target scales them (:169); right reward_scale 2 in the batch, today absent (an extension rebuilding the target from batch['rewards'] reads 1, not 2)",
-        ),
-    ],
+    ["SAC", "DQN", "PQN", "TD3", "REDQ", "AVG", "ASAC"],
 )
 def test_p5_on_target_batch_states_its_reward_scale(cell: str) -> None:
     """Rewards reach every on_target batch unscaled, so the batch states the
-    scale the target applies (2); traced on one seed, never run. SAC's batch
-    carries no rewards (train_SAC.py:370-403); PPO and APO have no scale."""
+    scale the target applies (2); traced on one seed, never run. PPO and APO
+    have no scale."""
     label = f"{cell}-{len(SEEN)}"
     ext = (RecordTargetBatch(label),)
     agent = _asac(ext) if cell == "ASAC" else _scaled(cell, ext)
@@ -483,14 +484,13 @@ LEVELS = {  # p_0 falls back to ASACConfig's 10 / no penalty, or B06 / sign flip
 THETA = Query(
     "theta - alpha*H",
     S5 * R_PEN,
-    LEVELS
-    | {"theta averages unscaled rewards (today)": R_PEN, "theta never updated": 0.0},
+    LEVELS | {"theta averages unscaled rewards": R_PEN, "theta never updated": 0.0},
 )
 ORIGIN = Query(
     "Q(0,0)",
     0.0,
     {
-        "theta in unscaled units (today)": (S5 - 1.0) * R_PEN,
+        "theta in unscaled units": (S5 - 1.0) * R_PEN,
         "theta never updated": S5 * R_PEN,
         "theta sign flipped in the target (A01)": (S5 + 1.0) * R_PEN,
     },
@@ -549,27 +549,21 @@ def _asac_read(run: runs.Run) -> dict:
     )
 
 
-# Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified on 3000-3031;
-# the two xfails with the units fix planted (update_theta fed rewards *
-# reward_scale, train_ASAC.py:455), which turns them XPASS. The tolerances
-# are half the gap, not 0.1: levels of size 8 carry buffer and critic noise.
-# theta's step holds both units (today -0.65 to -0.41; fixed +0.34 to +0.58);
-# at 4500 steps today's reads -1, so the budget must not move.
-UNITS = "ASAC's target scales the rewards (train_ASAC.py:153) but update_theta averages them unscaled (:392, called at :455)"
+# Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified on 3000-3031,
+# theta and the origin with update_theta fed rewards * reward_scale (the
+# units fix since made). The tolerances are half the gap, not 0.1: levels of
+# size 8 carry buffer and critic noise. theta's step holds both units
+# (unscaled -0.65 to -0.41; scaled +0.34 to +0.58); at 4500 steps the
+# unscaled theta reads -1, so the budget must not move.
 ASAC_RUN = runs.readings(lambda: _asac((ASAC_TRACE,)), _asac_read)
-for part, queries, tols, why in (
-    ("theta", (THETA,), (1.08,), f"{UNITS}; right theta - alpha*H = -8, today -4"),
-    (
-        "origin",
-        (ORIGIN,),
-        (0.91,),
-        f"{UNITS}, so the critic's origin settles at (s - 1) E[r_pen]; right Q(0,0) = 0, today -4",
-    ),
-    ("levels", (PENALTY, CRITIC), (0.074, 1.44), ""),
-    ("steps", (THETA_STEP, PEN_STEP), (1.29, 0.178), ""),
+for part, queries, tols in (
+    ("theta", (THETA,), (1.08,)),
+    ("origin", (ORIGIN,), (0.91,)),
+    ("levels", (PENALTY, CRITIC), (0.074, 1.44)),
+    ("steps", (THETA_STEP, PEN_STEP), (1.29, 0.178)),
 ):
     CASES[f"p5-ASAC-{part}"] = Case(
-        f"p5-ASAC-{part}", queries, ASAC_RUN, 3000, tols, why, ceiling=math.inf
+        f"p5-ASAC-{part}", queries, ASAC_RUN, 3000, tols, ceiling=math.inf
     )
 
 # APO (alpha 0.1, 32-step rollouts): average_reward 1, stepping by 0.0181
@@ -660,8 +654,8 @@ P9_CELLS: dict[str, tuple] = {
         ("gae", 4096, 0.5),
         {"A": (0.0, 1.0), "B": (1.102, 1.940), "C": (1.028, 2.066), "P10": (0.0, 1.663)}
         | D0,
-        160_000,
-        (0.047, 0.066),
+        320_000,  # 160,000 failed: 0.128
+        (0.04, 0.056),
         {"n_steps": 4096, "num_minibatches": 2, "gae_lambda": 0.5, "batch_size": 64},
     ),
     "PQN": (

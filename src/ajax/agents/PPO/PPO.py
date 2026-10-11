@@ -5,10 +5,10 @@ from typing import Callable, Optional, Union
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType, InitializationFunction
 
@@ -18,6 +18,11 @@ class PPO(ActorCritic):
     continuous action spaces."""
 
     name: str = "PPO"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
     supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913
@@ -58,6 +63,7 @@ class PPO(ActorCritic):
         bptt_length: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -69,10 +75,9 @@ class PPO(ActorCritic):
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        disable_encoder_output_norm: bool = False,
+        encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # (agent_state, rollout) -> reward bonus added before GAE.
         reward_shaping_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
@@ -123,6 +128,7 @@ class PPO(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
             critic_kernel_init=critic_kernel_init,
@@ -135,21 +141,13 @@ class PPO(ActorCritic):
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
             mean_kernel_init=mean_kernel_init,
-            disable_encoder_output_norm=disable_encoder_output_norm,
+            encoder_layer_norm=encoder_layer_norm,
             squash=squash,
             episode_length=episode_length,
-            # Brax-faithful normalise-at-forward: env wrapper is told
-            # NOT to apply normalisation to ``state.obs`` (transition
-            # obs stays raw). PPO uses Ajax's existing AGENT-side
-            # running normaliser (``collector_state.obs_norm_info``
-            # synced into ``actor_state.obs_norm_info`` /
-            # ``critic_state.obs_norm_info`` at every collect step) so
-            # ``get_pi`` / ``predict_value`` apply ``apply_obs_norm``
-            # consistently at both COLLECT and LOSS forward calls. The
-            # env wrapper is left in place when normalize_observations
-            # is True only so that ClipAction wraps the env -- the
-            # actual normalisation is fully agent-side.
-            apply_obs_normalization=not normalize_observations,
+            # The env's normaliser hands every observation normalised
+            # with the statistics of its step, and the rollout keeps it
+            # so: the loss sees what the policy acted on (the ratio is 1
+            # at the first epoch), as in SB3's VecNormalize and CleanRL.
             extensions=extensions,
         )
 
@@ -187,17 +185,7 @@ class PPO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        self.pid_actor_config = pid_actor_config
         self.reward_shaping_fn = reward_shaping_fn
-        # Brax-faithful normalise-at-forward: when the user opted into
-        # ``normalize_observations``, route it through the AGENT-side
-        # running stats (collector_state.obs_norm_info, applied inside
-        # get_pi / predict_value via apply_obs_norm) instead of the env
-        # wrapper. The wrapper still needs the flag plumbed (so we know
-        # the obs in transition is raw, not pre-normalised by the env)
-        # -- that's handled inside ``super().__init__`` by toggling
-        # ``apply_obs_normalization=False`` below.
-        self._normalize_obs_running = bool(normalize_observations)
 
     def get_make_train(self) -> Callable:
         """
@@ -208,8 +196,6 @@ class PPO(ActorCritic):
         """
         return partial(
             make_train,
-            pid_actor_config=self.pid_actor_config,
-            normalize_obs_running=self._normalize_obs_running,
             reward_shaping_fn=self.reward_shaping_fn,
             extensions=tuple(self.extension_stack.extensions),
         )

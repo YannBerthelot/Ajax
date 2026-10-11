@@ -17,6 +17,7 @@ from typing import Any, Callable
 import brax.envs
 import jax
 import jax.numpy as jnp
+import probing_environments.gymnax_envs as discrete
 from brax.envs.base import Env as BraxEnv
 from brax.envs.base import State as BraxState
 from flax import struct
@@ -174,10 +175,27 @@ def register_brax(spec: Spec, env_id: str) -> str:
     return env_id
 
 
+# The package probes whose every observation is 0: a ReLU network with zero
+# initial biases then learns through its output bias alone, so the probe
+# tests one parameter, not the network. ``package`` shows them 1 instead:
+# the Ajax-side half of a pending ProbingEnvironments change (its own PR).
+CONSTANT_ZERO: tuple[type, ...] = (discrete.AdvantagePolicyLossPolicyUpdateEnv,)
+CONSTANT_ZERO += (discrete.ValueLossOrOptimizerEnv, continuous.ValueLossOrOptimizerEnv)
+
+
+def _observe_one(env_cls: type) -> type:
+    class ObserveOne(env_cls):  # type: ignore[misc, valid-type]
+        def get_obs(self, state: Any, params: Any = None, key: Any = None) -> Any:
+            return jnp.ones_like(super().get_obs(state, params, key))
+
+    ObserveOne.__name__ = env_cls.__name__
+    return ObserveOne
+
+
 def package(env_cls: type) -> tuple[Any, Any]:
     """A package probe env, the time-limit clause kept out (every episode
-    ends by termination)."""
-    env = env_cls()
+    ends by termination); one observing only 0 observes only 1."""
+    env = (_observe_one(env_cls) if issubclass(env_cls, CONSTANT_ZERO) else env_cls)()
     return env, env.default_params.replace(max_steps_in_episode=10_000)
 
 

@@ -482,6 +482,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     extensions: Sequence = (),
 ):
@@ -496,10 +497,16 @@ def make_train(
     """
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
     per_iter = env_args.n_envs * agent_config.n_steps
-    num_iterations = max(total_timesteps // per_iter, 1)
+    num_iterations = max(loop.budget // per_iter, 1)
     evaluation = Evaluation(
         metrics=train_metrics,
         every=loop.log_frequency and max(loop.log_frequency // per_iter, 1),

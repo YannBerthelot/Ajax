@@ -6,8 +6,8 @@ skipped on resume); PhiRefresh refreshes its critic during training.
 * :class:`MCPretrain`          — ``use_mc_critic_pretrain``: regress a
   frozen expert critic on Monte-Carlo returns, then (optionally) lightly
   nudge the online critic toward it.
-* :class:`BellmanPretrain`     — ``use_bellman_critic_pretrain``: the
-  legacy Bellman-bootstrapped critic pre-training on the expert buffer.
+* :class:`BellmanPretrain`     — the legacy Bellman-bootstrapped critic
+  pre-training on the expert buffer (the ``pretrain`` phase).
 * :class:`PhiRefresh`          — ``use_phi_refresh``: periodic
   self-consistent refresh of the frozen expert critic during training
   (the ``post_update`` phase).
@@ -195,11 +195,15 @@ def pretrain_critic_mc(
 
     frozen_expert_params = jax.lax.stop_gradient(expert_critic_state.params)
 
-    # Q-value diagnostics on the last batch
+    # The value range (OnlineBC's weight, ValueBox's threshold) and the
+    # diagnostics over every regression row: one batch may hold a few
+    # timesteps only (envs in lockstep).
     q_preds_final = predict_value(
         critic_state=expert_critic_state,
         critic_params=frozen_expert_params,
-        x=jnp.concatenate([obs_batched[-1], action_batched[-1]], axis=-1),
+        x=jnp.concatenate([obs_batched, action_batched], axis=-1).reshape(
+            n_batches * batch_size, -1
+        ),
     )
     q_for_stats = jnp.min(q_preds_final, axis=0)
     v_min = q_for_stats.min()
@@ -502,18 +506,135 @@ class MCPretrain(Extension):
         return agent_state, ext_state
 
 
+@partial(
+    jax.jit,
+    static_argnames=[
+        "recurrent",
+        "gamma",
+        "reward_scale",
+        "n_steps",
+        "buffer",
+        "update_value_fn",
+        "update_target_fn",
+    ],
+)
+def pretrain_critic_bellman(
+    agent_state,
+    recurrent: bool,
+    gamma: float,
+    reward_scale: float,
+    buffer: BufferType,
+    n_steps: int,
+    update_value_fn: Callable,
+    update_target_fn: Callable,
+):
+    """``n_steps`` Bellman critic updates (the agent's ``update_value_fn``)
+    on replay batches, each followed by a target update at tau 5e-4."""
+
+    def critic_pretrain_step(carry, _):
+        agent_state = carry
+        sample_key, rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng)
+        (
+            observations,
+            terminated,
+            _,
+            next_observations,
+            rewards,
+            actions,
+            raw_observations,
+            _,
+        ) = get_batch_from_buffer(
+            buffer, agent_state.collector_state.buffer_state, sample_key
+        )
+        dones = terminated
+        agent_state, _ = update_value_fn(
+            observations=observations,
+            actions=actions,
+            next_observations=next_observations,
+            rewards=rewards,
+            dones=dones,
+            agent_state=agent_state,
+            recurrent=recurrent,
+            gamma=gamma,
+            reward_scale=reward_scale,
+        )
+        agent_state = update_target_fn(agent_state, tau=5e-4)
+        return agent_state, None
+
+    agent_state, _ = jax.lax.scan(
+        critic_pretrain_step, agent_state, None, length=n_steps
+    )
+    return agent_state
+
+
 @dataclass(frozen=True)
 class BellmanPretrain(Extension):
     """Legacy Bellman-bootstrapped critic pre-training.
 
-    Equivalent to ``use_bellman_critic_pretrain`` — mutually exclusive
-    with :class:`MCPretrain`. Bootstraps from an untrained critic, so the
-    pre-trained values are biased; kept for ablation parity.
+    ``n_steps`` critic updates on the replay buffer before training, which
+    then holds the agent's expert prefill. Bootstraps from an untrained
+    critic, so the pre-trained values are biased (:class:`MCPretrain`
+    regresses unbiased returns instead); kept for ablation parity.
+
+    The fields after ``n_steps`` are the agent's context, filled by
+    :meth:`bind_to_agent` (only SAC does).
     """
 
-    expert_policy: Callable
     n_steps: int = 5_000
+    # Agent context, bound by bind_to_agent.
+    buffer: Any = None
+    gamma: Optional[float] = None
+    reward_scale: Optional[float] = None
+    recurrent: bool = False
+    update_value_fn: Optional[Callable] = None
+    update_target_fn: Optional[Callable] = None
     name: str = "bellman_pretrain"
+
+    def bind_to_agent(self, **agent_context: Any) -> "BellmanPretrain":
+        """Copy the agent's buffer, ``gamma``, ``reward_scale``, ``recurrent``
+        and critic updates (``update_value_fn``, ``update_target_fn``).
+        Raises ``ValueError`` when the agent has no ``expert_policy``: its
+        buffer then holds no expert prefill to pre-train on."""
+        if self.update_value_fn is not None or "update_value_fn" not in agent_context:
+            return self
+        if agent_context.get("expert_policy") is None:
+            raise ValueError(
+                "BellmanPretrain pre-trains the critic on the agent's expert"
+                " prefill; give the agent an expert_policy."
+            )
+        return dataclasses.replace(
+            self,
+            buffer=agent_context["buffer"],
+            gamma=agent_context["gamma"],
+            reward_scale=agent_context["reward_scale"],
+            recurrent=agent_context["recurrent"],
+            update_value_fn=agent_context["update_value_fn"],
+            update_target_fn=agent_context["update_target_fn"],
+        )
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+    ) -> tuple[Any, Any]:
+        """Pre-train the critic; raises ``ValueError`` when unbound."""
+        del ctx
+        if self.update_value_fn is None:
+            raise ValueError(
+                "BellmanPretrain needs the agent's buffer and critic updates;"
+                " the agent did not bind them (only SAC supports BellmanPretrain)."
+            )
+        agent_state = pretrain_critic_bellman(
+            agent_state,
+            recurrent=self.recurrent,
+            gamma=self.gamma,
+            reward_scale=self.reward_scale,
+            buffer=self.buffer,
+            n_steps=self.n_steps,
+            update_value_fn=self.update_value_fn,
+            update_target_fn=self.update_target_fn,
+        )
+        jax.debug.print("[Bellman pretrain] done ({n} steps)", n=self.n_steps)
+        return agent_state, ext_state
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,7 @@ from jax.tree_util import Partial as partial
 
 @partial(
     jax.jit,
-    static_argnames=["train", "eps", "shift", "nan_safe"],
+    static_argnames=["train", "eps", "shift", "nan_safe", "raw_columns"],
 )
 def online_normalize(
     x: jnp.array,
@@ -21,6 +21,7 @@ def online_normalize(
     shift: bool = True,
     returns: Optional[jax.Array] = None,
     nan_safe: bool = True,
+    raw_columns: int = 0,
 ) -> tuple[jnp.array, int, float, float, float]:
     """Welford-style running mean / var update.
 
@@ -30,6 +31,11 @@ def online_normalize(
     ``G_return`` ([agents/AVG/utils.py:41-55](src/ajax/agents/AVG/utils.py#L41-L55)).
     Set to False at call sites that pass guaranteed-clean data (e.g. the
     agent-side obs normalizer) to drop the per-reduction mask cost.
+
+    ``raw_columns`` (static): the leading feature columns an env declares
+    raw (:func:`ajax.environments.utils.raw_obs_columns`) come out
+    unchanged, and their statistics are pinned at mean 0, variance 1 so
+    every other reader of them (``apply_obs_norm``) leaves them raw too.
     """
     input_x = x
     _mean = jnp.nanmean if nan_safe else jnp.mean
@@ -53,6 +59,10 @@ def online_normalize(
         )
         count = total_count
 
+    if raw_columns:
+        raw = jnp.arange(jnp.shape(mean_2)[-1]) < raw_columns
+        mean = jnp.where(raw, 0.0, mean)
+        mean_2 = jnp.where(raw, count, mean_2)
     variance = mean_2 / count
     std = jnp.sqrt(variance + eps)
     # Match brax acme.running_statistics: clip std to [1e-6, 1e6] so
@@ -61,6 +71,10 @@ def online_normalize(
     x_norm = (input_x - _mean(mean, axis=0) * shift) / _mean(std, axis=0)
 
     x_norm = x_norm.reshape(input_x.shape)  # Ensure output shape matches input shape
+    if raw_columns:
+        # Set, not computed: a compiler free to fuse the division by the
+        # averaged std may otherwise move them by an ulp.
+        x_norm = x_norm.at[..., :raw_columns].set(input_x[..., :raw_columns])
     assert (
         x_norm.shape == input_x.shape
     ), f"x_norm shape {x_norm.shape} does not match input_x shape {input_x.shape}"

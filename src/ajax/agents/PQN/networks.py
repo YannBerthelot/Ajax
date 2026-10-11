@@ -36,8 +36,9 @@ class PQNNetwork(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     n_actions: int
     # Accepted for constructor parity with QNetwork (get_initialized_q_network
-    # passes it); PQN always applies LayerNorm, so this flag is unused.
+    # passes them); PQN always applies LayerNorm, so these flags are unused.
     penultimate_normalization: bool = False
+    encoder_layer_norm: bool = False
     # Optional CNN front-end for image obs (see `NetworkConfig.cnn_image_shape`).
     # When set, a `CNNEncoder` maps the flat image obs to features, and the
     # LayerNorm-MLP stack below runs on those features.

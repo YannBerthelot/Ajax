@@ -321,3 +321,84 @@ def test_encoder_penultimate_normalization_gradients():
     assert all(
         jnp.any(jnp.abs(g) > 0) for g in jax.tree_util.tree_leaves(grads["params"])
     ), "Some gradients are zero, indicating no flow through _l2_normalize."
+
+
+def _soft_nets(agent_cls, init, **n_critics):
+    def build(a, key):
+        state = init(
+            key,
+            a.env_args,
+            a.actor_optimizer_args,
+            a.critic_optimizer_args,
+            a.network_args,
+            a.alpha_args,
+            a.buffer,
+            **n_critics,
+        )
+        return state.actor_state.params, state.critic_state.params
+
+    agent = agent_cls("Pendulum-v1", buffer_size=64, batch_size=8, learning_starts=8)
+    return agent, build
+
+
+def _sac_nets():
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.agents.SAC.train_SAC import init_SAC
+
+    return _soft_nets(SAC, init_SAC, num_critics=2)
+
+
+def _redq_nets():
+    from ajax.agents.REDQ.REDQ import REDQ
+    from ajax.agents.REDQ.train_REDQ import init_REDQ
+
+    return _soft_nets(REDQ, init_REDQ, number_of_critics=10)
+
+
+def _ppo_nets():
+    from ajax.agents.PPO.PPO import PPO
+    from ajax.agents.PPO.train_PPO import init_PPO
+
+    def build(a, key):
+        state = init_PPO(
+            key,
+            a.env_args,
+            a.actor_optimizer_args,
+            a.critic_optimizer_args,
+            a.network_args,
+        )
+        return state.actor_state.params, state.critic_state.params
+
+    return PPO("Pendulum-v1"), build
+
+
+def _dqn_nets():
+    from ajax.agents.DQN.DQN import DQN
+    from ajax.agents.DQN.train_DQN import init_DQN
+
+    def build(a, key):
+        state = init_DQN(key, a.env_args, a.critic_optimizer_args, a.network_args, 2)
+        return state.actor_state.params
+
+    return DQN("CartPole-v1"), build
+
+
+@pytest.mark.parametrize("nets", [_sac_nets, _redq_nets, _ppo_nets, _dqn_nets])
+def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
+    """SAC, REDQ, PPO and DQN use plain MLPs in their papers: by default
+    their networks hold Dense kernels and biases only; the network option
+    ``encoder_layer_norm`` adds the encoder's output LayerNorm."""
+    agent, build = nets()
+
+    def leaf_names():
+        params = build(agent, jax.random.PRNGKey(0))
+        paths = jax.tree_util.tree_flatten_with_path(params)[0]
+        return {"/".join(str(getattr(k, "key", k)) for k in p) for p, _ in paths}
+
+    plain = leaf_names()
+    assert {name.rsplit("/", 1)[-1] for name in plain} == {"kernel", "bias"}, plain
+    assert not any("norm" in name for name in plain), plain
+
+    agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
+    normed = leaf_names()
+    assert plain < normed and all("/norm/" in n for n in normed - plain), normed

@@ -88,7 +88,6 @@ def init_soft_actor_critic(
     num_critics: int,
     window_size: int = 10,
     stored_state: bool = False,
-    pid_actor_config: Any = None,
     network_extras: Optional[dict] = None,
     collector_extras: Optional[dict] = None,
 ) -> Tuple[Any, Any, Any]:
@@ -105,7 +104,6 @@ def init_soft_actor_critic(
         action_value=True,
         squash=True,
         num_critics=num_critics,
-        pid_actor_config=pid_actor_config,
         **(network_extras or {}),
     )
     collector_state = init_collector_state(

@@ -19,7 +19,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import CloningConfig, pretrain_on_expert
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop, critic_step, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -38,7 +38,6 @@ from ajax.environments.interaction import (
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -117,7 +116,6 @@ def init_TD3(
     num_critics: int = 2,
     window_size: int = 10,
     stored_state: bool = False,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     expert_policy: Optional[Callable] = None,
 ) -> TD3State:
     rng, init_key, collector_key = jax.random.split(key, num=3)
@@ -128,7 +126,6 @@ def init_TD3(
         critic_optimizer_config=critic_optimizer_args,
         network_config=network_args,
         num_critics=num_critics,
-        pid_actor_config=pid_actor_config,
     )
     collector_state = init_collector_state(
         collector_key,
@@ -235,7 +232,6 @@ def update_value_functions(
 ) -> Tuple[TD3State, ValueAuxiliaries]:
     """The critic step on the smoothed, clipped double-Q target."""
     key, rng = jax.random.split(agent_state.rng)
-    step = agent_state.collector_state.timestep
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
     target_q = compute_td3_td_target(
@@ -251,39 +247,25 @@ def update_value_functions(
         agent_config.reward_scale,
         carries,
     )
-    target_batch = {
-        "observations": batch.obs,
-        "actions": batch.action,
-        "next_observations": batch.next_obs,
-        "rewards": batch.reward,
-        "dones": dones,
-        "gamma": agent_config.gamma,
-        "reward_scale": agent_config.reward_scale,
-    }
-    target_q = jax.lax.stop_gradient(
-        extension_stack.fold_on_target(
-            agent_state, target_batch, target_q, step, key, total_timesteps
+
+    def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
+        return value_loss_function(
+            params, agent_state.critic_state, batch.obs, batch.action, target_q, carries
         )
+
+    critic_state, aux = critic_step(
+        agent_state,
+        batch,
+        target_q,
+        value_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        rewards=batch.reward,
+        dones=dones,
+        gamma=agent_config.gamma,
+        reward_scale=agent_config.reward_scale,
     )
-    critic_state = agent_state.critic_state
-
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
-        loss, aux = value_loss_function(
-            params, critic_state, batch.obs, batch.action, target_q, carries
-        )
-        loss_batch = {
-            "observations": batch.obs,
-            "actions": batch.action,
-            "targets": target_q,
-            "critic_params": params,
-            "critic_state": critic_state,
-        }
-        extra = extension_stack.fold_critic_loss(
-            agent_state, loss_batch, step, key, total_timesteps
-        )
-        return loss + extra, aux
-
-    critic_state, aux = gradient_step(critic_state, loss_fn)
     return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 
@@ -392,9 +374,9 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     action_pipeline: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
@@ -413,10 +395,15 @@ def make_train(
                 if cloning_args is not None and cloning_args.pre_train_n_steps > 0
                 else None
             ),
-            pid_actor_config=pid_actor_config,
         )
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
     if action_pipeline is None:
         action_pipeline = make_default_action_pipeline(
@@ -433,7 +420,6 @@ def make_train(
             buffer,
             num_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
-            pid_actor_config=pid_actor_config,
             expert_policy=expert_policy,
         )
         return pretrain_on_expert(

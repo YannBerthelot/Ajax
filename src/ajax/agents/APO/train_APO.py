@@ -35,7 +35,6 @@ from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.networks import predict_value
 from ajax.state import (
     EnvironmentConfig,
@@ -56,13 +55,15 @@ def policy_loss_function(
     clip_coef: float,
     ent_coef: float,
     raw_actions: Optional[jax.Array] = None,
+    entropy_key: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
-    """PPO's clipped surrogate with the latent entropy bonus; also returns
-    the policy mean for extensions (``None`` for a discrete policy, which
-    has no mean action)."""
+    """PPO's clipped surrogate with PPO's entropy bonus (a squashed policy's
+    executed action's, sampled with ``entropy_key``); also returns the
+    policy mean for extensions (``None`` for a discrete policy, which has no
+    mean action)."""
     pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
-    entropy = policy_entropy(pi)
+    entropy = policy_entropy(pi, entropy_key)
     ratio = jnp.exp(new_log_probs - log_probs)
     assert (
         ratio.shape[0] == gae.shape[0]
@@ -92,6 +93,7 @@ def update_policy(
     total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
     raw_actions: Optional[jax.Array] = None,
+    entropy_key: Optional[jax.Array] = None,
 ) -> Tuple[APOState, PolicyAuxiliaries]:
     """The clipped-surrogate actor step on one minibatch."""
     actor_state = agent_state.actor_state
@@ -107,6 +109,7 @@ def update_policy(
             clip_coef=clip_coef,
             ent_coef=ent_coef,
             raw_actions=raw_actions,  # m4: pre-tanh for SquashedNormal recompute
+            entropy_key=entropy_key,
         )
         actor_batch = {
             "observations": observations,
@@ -134,7 +137,6 @@ def init_APO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> APOState:
     """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`),
     the reward rate and the value bias at 0."""
@@ -144,7 +146,6 @@ def init_APO(
         actor_optimizer_args,
         critic_optimizer_args,
         network_args,
-        pid_actor_config=pid_actor_config,
     )
     return APOState(**vars(state), average_reward=0.0, b=0.0)
 
@@ -300,8 +301,12 @@ def update_agent(
     num_minibatches = resolve_num_minibatches(agent_config)
 
     def minibatches(key: jax.Array) -> dict:
-        """One epoch's partition of the rollout."""
-        return get_minibatches_from_batch(batch, key, num_minibatches)
+        """One epoch's partition of the rollout, each minibatch with a key
+        for its entropy sample, derived from the epoch's key so the agent's
+        own key stream is drawn as before."""
+        parts = get_minibatches_from_batch(batch, key, num_minibatches)
+        keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
+        return parts | {"entropy_key": keys}
 
     def step(agent_state: APOState, mb: dict) -> Tuple[APOState, AuxiliaryLogs]:
         """A critic, then an actor step on one minibatch."""
@@ -326,6 +331,7 @@ def update_agent(
             total_timesteps,
             raw_observations=mb["raw_obs"],
             raw_actions=mb["raw_actions"],
+            entropy_key=mb["entropy_key"],
         )
         return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
 
@@ -345,15 +351,21 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
     """APO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, pretrain_key: jax.Array) -> APOState:
@@ -363,7 +375,6 @@ def make_train(
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
-            pid_actor_config=pid_actor_config,
         )
         return pretrain_on_expert(
             agent_state,

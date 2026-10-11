@@ -6,12 +6,12 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType
 
@@ -30,6 +30,11 @@ class TD3(ActorCritic):
     """
 
     name: str = "TD3"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
     supports_memory: bool = True
 
     def __init__(
@@ -65,6 +70,7 @@ class TD3(ActorCritic):
         stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         # --- Cloning pretraining (mirrors REDQ); online BC is the
         # ImitationLoss extension ---
         actor_cloning_epochs: int = 10,
@@ -73,8 +79,6 @@ class TD3(ActorCritic):
         actor_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         expert_policy: Optional[Callable] = None,
-        # PID actor: actor predicts PID gains instead of raw actions.
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
@@ -95,11 +99,8 @@ class TD3(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
-            # Fujimoto's critic is a plain MLP (sfujim/TD3, TD3.py, Critic:
-            # Linear -> ReLU -> Linear -> ReLU -> Linear): no LayerNorm on
-            # the shared encoder's output.
-            disable_encoder_output_norm=True,
             extensions=extensions,
         )
 
@@ -131,7 +132,6 @@ class TD3(ActorCritic):
             skip_actor_pretrain=skip_actor_pretrain,
         )
         self.expert_policy = expert_policy
-        self.pid_actor_config = pid_actor_config
         self.action_pipeline = action_pipeline
 
     def get_make_train(self) -> Callable:
@@ -140,7 +140,6 @@ class TD3(ActorCritic):
             buffer=self.buffer,
             cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
-            pid_actor_config=self.pid_actor_config,
             action_pipeline=self.action_pipeline,
             extensions=tuple(self.extension_stack.extensions),
         )

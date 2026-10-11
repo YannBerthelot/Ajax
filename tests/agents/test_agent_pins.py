@@ -48,8 +48,8 @@ def _checksum(tree: Any) -> jax.Array:
 
 @dataclass(frozen=True)
 class Nudge(Extension):
-    """Touches every phase the on-policy and value agents fold, its state
-    drawn from the keys they hand it."""
+    """Touches every phase the on-policy agents fold, its state drawn from
+    the keys they hand it (agents reject the phases they do not fold)."""
 
     name: str = "nudge"
 
@@ -72,6 +72,22 @@ class Nudge(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {"nudge": ext_state}
+
+
+@dataclass(frozen=True)
+class ValueNudge(Nudge):
+    """Nudge on the value agents (DQN, PQN), which fold no actor loss."""
+
+    actor_loss = Extension.actor_loss
+
+
+@dataclass(frozen=True)
+class ActorNudge(Nudge):
+    """Nudge on the agents training an actor alone (UDRL, APG), which fold
+    no target and no critic loss."""
+
+    on_target = Extension.on_target
+    critic_loss = Extension.critic_loss
 
 
 @dataclass(frozen=True)
@@ -158,7 +174,7 @@ _APG: dict[str, Any] = {
     "n_envs": 2,
     "horizon": 8,
     "actor_architecture": ("16", "relu"),
-    "extensions": (Nudge(),),
+    "extensions": (ActorNudge(),),
 }
 _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "ASAC": (ASAC, {**_SMALL, **_REPLAY}, 200),
@@ -258,11 +274,11 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         256,
     ),
     "PQN": (PQN, _PQN, 512),
-    "PQN-nudge": (PQN, {**_PQN, "extensions": (Nudge(),)}, 512),
+    "PQN-nudge": (PQN, {**_PQN, "extensions": (ValueNudge(),)}, 512),
     "DQN": (DQN, _DQN, 200),
     "DQN-dueling-nudge": (
         DQN,
-        {**_DQN, "q_network_cls": DuelingQNetwork, "extensions": (Nudge(),)},
+        {**_DQN, "q_network_cls": DuelingQNetwork, "extensions": (ValueNudge(),)},
         200,
     ),
     # 40 ticks of 2 rows; the first update after tick 9, one per row after.
@@ -291,7 +307,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "batch_size": 16,
             "buffer_capacity": 8,
             "n_updates_per_iter": 4,
-            "extensions": (Nudge(),),
+            "extensions": (ActorNudge(),),
         },
         128,
     ),
@@ -299,22 +315,15 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "APG-pid-nudge": (APG, {**_APG, "pid": PIDHeadConfig()}, 80),
 }
 _TOL = 1e-3
+# AVG (final observation normalised) and PPO-env-split (PPO trains on
+# observations as normalised at collection, on the plain-MLP default)
+# re-recorded once batch/env-eval-logging met main: -0.6%/+0.7%, +0.3%/+0.5%.
 # Recorded on macOS ARM CPU at the parent of the step-16 lineage commit.
 _GOLDEN: dict[str, dict[str, float]] = {
-    "ASAC": {
-        "actor": 37.438865661621094,
-        "critic": 74.46932983398438,
-        "alpha": 0.9724646210670471,
-    },
     "AVG": {
-        "actor": 5.874258518218994,
-        "critic": 18.981433868408203,
+        "actor": 5.839523792266846,
+        "critic": 19.103961944580078,
         "alpha": 0.07000000029802322,
-    },
-    "REDQ": {
-        "actor": 37.609249114990234,
-        "critic": 158.7569122314453,
-        "alpha": 0.9725564122200012,
     },
 }
 # Recorded on macOS ARM CPU once TD3's critic dropped its encoder LayerNorm:
@@ -325,13 +334,7 @@ _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
 # observation and the previous action before its memory and read the
 # current one at a head after it: new critic parameters (against the
 # head-only critic before it: +42.9% critic, +0.17% actor, -0.045% alpha).
-_GOLDEN |= {
-    "SAC-gru": {
-        "actor": 87.20343017578125,
-        "critic": 256.14117431640625,
-        "alpha": 0.9511011838912964,
-    },
-}
+_GOLDEN |= {}
 # Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
@@ -361,10 +364,46 @@ _GOLDEN |= {
 _GOLDEN |= {
     "PQN": {"actor": 25.90884017944336},
     "PQN-nudge": {"actor": 25.898910522460938, "nudge": 0.33566388487815857},
-    "DQN": {"actor": 28.83551025390625, "target": 28.488685607910156},
+}
+# Recorded on macOS ARM CPU once the shared encoder's output LayerNorm became
+# opt-in (SAC, REDQ, ASAC, PPO and DQN build plain MLPs, as in their papers):
+# each tree lost the norm's scales, one per hidden unit (16 or 32 per encoder).
+# PPO's entries re-recorded once this met the per-epoch reshuffle (#81):
+# 0.05-2.6% on the actors, under 0.4% on the critics.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 4.500450611114502,
+        "critic": 9.956274032592773,
+        "alpha": 0.972590446472168,
+    },
+    "REDQ": {
+        "actor": 4.491269588470459,
+        "critic": 23.677350997924805,
+        "alpha": 0.9729597568511963,
+    },
+    "SAC-gru": {
+        "actor": 57.405818939208984,
+        "critic": 134.20553588867188,
+        "alpha": 0.9515719413757324,
+    },
+    "PPO-flat": {"actor": 4.138375282287598, "critic": 4.506361961364746},
+    "PPO-env-split": {"actor": 3.0352354049682617, "critic": 4.100451469421387},
+    "PPO-unroll": {"actor": 4.224678993225098, "critic": 4.548887729644775},
+    "PPO-gru": {"actor": 53.321449279785156, "critic": 52.78514099121094},
+    "PPO-discrete-nudge": {
+        "actor": 5.820460796356201,
+        "critic": 5.029939651489258,
+        "nudge": 0.29222556948661804,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 3.742928981781006,
+        "critic": 4.225018501281738,
+        "nudge": 0.3099551498889923,
+    },
+    "DQN": {"actor": 9.462096214294434, "target": 9.303977966308594},
     "DQN-dueling-nudge": {
-        "actor": 25.996488571166992,
-        "target": 25.84494400024414,
+        "actor": 10.129926681518555,
+        "target": 9.98266887664795,
         "nudge": 0.22634370625019073,
     },
 }
@@ -379,17 +418,25 @@ _GOLDEN |= {
         "world_model": 548.8908081054688,
         "drift": 0.23474201560020447,
     },
-    "TDMPC2-drift": {
-        "actor": 32.17240905761719,
-        "world_model": 160.75112915039062,
-        "drift": 0.3190682828426361,
-    },
     "TDMPC2MultiTask-drift": {
         "actor": 32.23477554321289,
         "world_model": 161.12486267089844,
         "drift": 0.2877737283706665,
     },
     "UDRL-nudge": {"actor": 23.97211456298828, "nudge": 0.3160724639892578},
+}
+# Recorded on macOS ARM CPU once prepare_env kept the env_params given with
+# an env id: TDMPC2-drift had run on Pendulum's default T = 200, so its 40
+# steps ended before the seed tick and it pinned no update (actor +0.11 %,
+# world model +1.0 %, drift -27 % on re-recording). With T = 10 it runs the
+# burst of 20 and 19 single updates.
+_GOLDEN |= {
+    "TDMPC2-drift": {
+        "actor": 32.20726776123047,
+        "world_model": 162.42007446289062,
+        "drift": 0.2332032173871994,
+        "n_updates": 39,
+    },
 }
 # Recorded on macOS ARM CPU once APG took TrainLoop's init and post_update
 # keys, before step 17 moved it onto the shared evaluation.
@@ -409,6 +456,8 @@ def fingerprint(name: str) -> dict[str, float]:
         out["world_model"] = float(_checksum(state.world_model_state.params))
     if getattr(state.actor_state, "target_params", None) is not None:
         out["target"] = float(_checksum(state.actor_state.target_params))
+    if getattr(state, "n_updates", None) is not None:
+        out["n_updates"] = float(jnp.asarray(state.n_updates).reshape(-1)[0])
     if hasattr(state, "alpha"):
         out["alpha"] = float(jnp.exp(state.alpha.params["log_alpha"]).reshape(-1)[0])
     for ext, ext_state in zip(kwargs.get("extensions", ()), state.ext_state):

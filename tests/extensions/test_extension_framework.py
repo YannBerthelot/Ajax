@@ -31,8 +31,6 @@ def test_extension_defaults_are_noops():
     key = jax.random.PRNGKey(0)
 
     assert ext.init_state(None, key) == ()
-    assert ext.on_obs(obs, (), ctx) is obs
-    assert ext.on_batch("batch", (), ctx) == "batch"
     assert ext.on_target(None, (), None, target, ctx) is target
     assert ext.critic_loss(None, (), None, ctx) == 0.0
     assert ext.actor_loss(None, (), None, ctx) == 0.0
@@ -78,7 +76,6 @@ def test_empty_stack_is_noop():
     assert len(stack) == 0 and not stack
     assert stack.init_states(None, key) == ()
     assert stack.pretrain("S", (), ctx) == ("S", ())
-    assert stack.on_obs(target, (), ctx) is target
     assert stack.on_target(None, (), None, target, ctx) is target
     assert stack.critic_loss(None, (), None, ctx) == 0.0
     assert stack.actor_loss(None, (), None, ctx) == 0.0

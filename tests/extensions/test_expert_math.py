@@ -3,14 +3,12 @@ helpers and SAC's expert plumbing."""
 
 from types import SimpleNamespace
 
-import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.SAC.expert import augment_obs_if_needed, compute_expert_diagnostics
+from ajax.agents.SAC.expert import augment_obs_if_needed
 from ajax.extensions.expert import (
     compute_online_bc_loss,
-    detach_obs_expert_dims,
     residual_action_transform,
 )
 from ajax.extensions.target_mods import blend_modify_target, mc_correction_modify_target
@@ -124,29 +122,6 @@ def test_augment_obs_inserts_expert_action_before_train_frac():
     assert jnp.allclose(out[0, 3:5], jnp.array([10.0, 20.0]))
 
 
-def test_detach_obs_expert_dims_is_identity_in_value():
-    action_dim = 2
-    obs = jnp.array([[1.0, 2.0, 3.0, 10.0, 20.0, 0.5]])
-    out = detach_obs_expert_dims(obs, action_dim)
-    assert jnp.allclose(out, obs)
-
-
-def test_detach_obs_expert_dims_blocks_gradients_on_expert_slice():
-    """Grad w.r.t. the expert-action slice must be zero."""
-    action_dim = 2
-
-    def loss(obs):
-        augmented = detach_obs_expert_dims(obs, action_dim)
-        return jnp.sum(augmented**2)
-
-    obs = jnp.array([[1.0, 2.0, 3.0, 10.0, 20.0, 0.5]])
-    grads = jax.grad(loss)(obs)
-    # Gradient on the expert-action slice [-(action_dim+1):-1] must be zero.
-    assert jnp.allclose(grads[..., -(action_dim + 1) : -1], 0.0)
-    # Other slices still carry gradient.
-    assert not jnp.allclose(grads[..., : -(action_dim + 1)], 0.0)
-
-
 # ---------------------------------------------------------------------------
 # Residual action transform
 # ---------------------------------------------------------------------------
@@ -166,29 +141,6 @@ def test_residual_action_transform_sum_inside_box():
     a_expert = jnp.array([[0.3, 0.4]])
     out = residual_action_transform(actions, a_expert)
     assert jnp.allclose(out, jnp.array([[0.4, 0.2]]))
-
-
-# ---------------------------------------------------------------------------
-# Diagnostics
-# ---------------------------------------------------------------------------
-
-
-def test_compute_expert_diagnostics_shapes():
-    def apply_fn(params, x):
-        batch = jnp.ones((x.shape[0], 1)) * 0.5
-        return jnp.stack([batch], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
-    q_mean, l2_mean, above_frac = compute_expert_diagnostics(
-        critic_state,
-        observations=jnp.zeros((4, 3)),
-        q_min=jnp.ones((4, 1)),  # q_min > q_expert=0.5 → above = 1.0
-        a_expert=jnp.zeros((4, 2)),
-        pi_loc=jnp.zeros((4, 2)),
-    )
-    assert q_mean.shape == ()
-    assert l2_mean.shape == ()
-    assert float(above_frac) == pytest.approx(1.0)
 
 
 def test_compute_online_bc_loss_decays_after_warmup():

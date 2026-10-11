@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import make_train
 from ajax.extensions.base import Extension
@@ -21,6 +22,7 @@ class UDRL(ActorCritic):
     policy learning. No critic, no replay buffer."""
 
     name: str = "UDRL"
+    supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
 
     def __init__(
         self,
@@ -49,6 +51,7 @@ class UDRL(ActorCritic):
         bc_loss_type: str = "nll",
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         # If set, use a CNN encoder. Image is assumed to be packed as
         # ``(*batch, H*W*C + 2)`` flat — the last 2 dims are the UDRL
         # command, which is concatenated to the CNN embedding after the
@@ -71,6 +74,10 @@ class UDRL(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
+            # Kept from Ajax's earlier networks: a LayerNorm on the policy
+            # encoder's output (the shared default is now a plain MLP).
+            encoder_layer_norm=True,
             extensions=extensions,
         )
 

@@ -26,7 +26,6 @@ from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -69,7 +68,6 @@ def init_AVG(
     alpha_args: AlphaConfig,
     num_critics: int = 1,
     window_size: int = 10,
-    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> AVGState:
     rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -81,7 +79,6 @@ def init_AVG(
         network_args,
         num_critics=num_critics,
         window_size=window_size,
-        pid_actor_config=pid_actor_config,
     )
     # One running statistic per scalar (reward, discount, return), shared
     # by every env.
@@ -366,14 +363,20 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     expert_policy: Optional[Callable] = None,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     extensions: Sequence = (),
 ):
     """AVG's train function: one step per env, the TD-error statistics, then
     (from ``learning_starts``) one update on that step, per iteration."""
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, _pretrain_key: jax.Array) -> AVGState:
@@ -385,7 +388,6 @@ def make_train(
             network_args,
             alpha_args,
             num_critics=agent_config.num_critics,
-            pid_actor_config=pid_actor_config,
         )
 
     def after_collect(agent_state: AVGState, transition: Transition) -> AVGState:

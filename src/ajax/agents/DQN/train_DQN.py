@@ -292,7 +292,9 @@ def q_gradient_step(
                 "observations": observations,
                 "actions": actions,
                 "targets": targets,
-                "q_state": q_state,
+                # At the parameters being differentiated, so the term has a
+                # gradient.
+                "q_state": q_state.replace(params=params),
             }
             loss = loss + extension_stack.fold_critic_loss(
                 agent_state,
@@ -434,6 +436,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
+    start_timestep: int = 0,
     epsilon_start: float = 1.0,
     epsilon_end: float = 0.05,
     epsilon_decay_frac: float = 0.5,
@@ -445,7 +448,13 @@ def make_train(
     """DQN's train function: one step per env, then (from ``learning_starts``)
     ``n_gradient_steps`` updates, per iteration."""
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     # Resolve composable hooks to their vanilla-DQN defaults when unset.

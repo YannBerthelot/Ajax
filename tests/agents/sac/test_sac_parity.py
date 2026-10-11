@@ -53,11 +53,16 @@ _PARITY_TIMESTEPS = 200
 # critic clip was a PPO convention with no counterpart in reference SAC.
 # Previous goldens: critic 1046.9158935546875, actor 517.13427734375,
 # target 1035.4898681640625, alpha 0.973069429397583.
+#
+# Re-blessed again when the shared encoder's output LayerNorm became opt-in
+# (SAC's networks are plain MLPs, as in Haarnoja et al.): the trees lost
+# the norm's scales, 256 per encoder (critic 1042.7 -> 565.3, actor 518.2 ->
+# 267.3, target 1034.9 -> 524.0), alpha moved 0.04% (0.97270 -> 0.97225).
 _GOLDEN = {
-    "critic": 1042.69140625,
-    "actor": 518.2075805664062,
-    "target": 1034.949951171875,
-    "alpha": 0.9726979732513428,
+    "critic": 565.2509155273438,
+    "actor": 267.29229736328125,
+    "target": 523.9547119140625,
+    "alpha": 0.9722516536712646,
 }
 _TOL = 1e-4
 

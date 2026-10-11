@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import PAPER_TASK_DIM, TaskSet
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2MultiTaskState
@@ -123,9 +124,7 @@ class TDMPC2MultiTask:
     """
 
     name: str = "TDMPC2MultiTask"
-    supported_extension_phases: frozenset = frozenset(
-        {"pretrain", "post_update", "eval_metrics"}
-    )
+    supported_extension_phases: frozenset = LOOP_PHASES
 
     def __init__(
         self,

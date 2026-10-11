@@ -33,7 +33,6 @@ from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import zeros_carry_like
 from ajax.networks.networks import (
     action_value_input,
@@ -91,7 +90,6 @@ def init_ASAC(
     buffer: BufferType,
     window_size: int = 10,
     stored_state: bool = False,
-    pid_actor_config: Optional[PIDActorConfig] = None,
 ) -> ASACState:
     rng, init_key, collector_key = jax.random.split(key, num=3)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -105,7 +103,6 @@ def init_ASAC(
         num_critics=2,
         window_size=window_size,
         stored_state=stored_state,
-        pid_actor_config=pid_actor_config,
     )
     return ASACState(
         rng=rng,
@@ -372,7 +369,11 @@ def update_agent(
         target_entropy=agent_config.target_entropy,
         carries=carries,
     )
-    agent_state = update_theta(agent_state, tau, rewards, transition.obs, carries)
+    # In the target's units: the reward rate theta is subtracted from the
+    # scaled rewards there.
+    agent_state = update_theta(
+        agent_state, tau, rewards * agent_config.reward_scale, transition.obs, carries
+    )
     agent_state = core.update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(
         temperature=aux_temperature,
@@ -398,7 +399,7 @@ def make_train(
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
-    pid_actor_config: Optional[PIDActorConfig] = None,
+    start_timestep: int = 0,
     extensions: Sequence = (),
 ):
     """ASAC's train function: one step per env, then (from
@@ -407,7 +408,13 @@ def make_train(
     if recurrent and extensions:
         raise NotImplementedError("Recurrent ASAC does not support extensions yet.")
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args,
+        total_timesteps,
+        num_episode_test,
+        run_ids,
+        logging_config,
+        extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key: jax.Array, _pretrain_key: jax.Array) -> ASACState:
@@ -420,7 +427,6 @@ def make_train(
             alpha_args,
             buffer,
             stored_state=agent_config.stored_state,
-            pid_actor_config=pid_actor_config,
         )
 
     def update(agent_state: ASACState, _transition: Transition) -> Any:

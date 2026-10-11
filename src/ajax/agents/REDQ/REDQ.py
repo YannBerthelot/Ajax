@@ -6,6 +6,7 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
@@ -14,7 +15,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.modules.pid_actor import PIDActorConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -25,6 +25,11 @@ class REDQ(ActorCritic):
     action spaces."""
 
     name: str = "REDQ"
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+    }
     supports_memory: bool = True
 
     def __init__(  # pylint: disable=W0102, R0913
@@ -61,6 +66,7 @@ class REDQ(ActorCritic):
         stored_state: bool = False,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         actor_cloning_epochs: int = 10,
         actor_cloning_lr: float = 1e-3,
         actor_cloning_batch_size: int = 64,
@@ -68,7 +74,6 @@ class REDQ(ActorCritic):
         # Expert for the cloning pre-training and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        pid_actor_config: Optional[PIDActorConfig] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -107,6 +112,7 @@ class REDQ(ActorCritic):
             memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
             extensions=extensions,
         )
@@ -143,7 +149,6 @@ class REDQ(ActorCritic):
             pre_train_n_steps=pre_train_n_steps,
         )
         self.expert_policy = expert_policy
-        self.pid_actor_config = pid_actor_config
 
     def get_make_train(self) -> Callable:
         """
@@ -158,6 +163,5 @@ class REDQ(ActorCritic):
             alpha_args=self.alpha_args,
             cloning_args=self.cloning_config,
             expert_policy=self.expert_policy,
-            pid_actor_config=self.pid_actor_config,
             extensions=tuple(self.extension_stack.extensions),
         )

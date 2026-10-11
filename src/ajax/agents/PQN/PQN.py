@@ -5,6 +5,7 @@ from typing import Callable, Optional
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
@@ -22,6 +23,7 @@ class PQN(ActorCritic):
     """
 
     name: str = "PQN"
+    supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
 
     def __init__(
         self,
@@ -44,6 +46,7 @@ class PQN(ActorCritic):
         epsilon_decay_frac: float = 0.5,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         # TD loss: None -> MSE. Pass make_huber_td_loss(delta) for Huber.
         td_loss_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
@@ -73,6 +76,7 @@ class PQN(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,

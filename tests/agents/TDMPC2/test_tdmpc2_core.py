@@ -158,22 +158,22 @@ def test_reduce_q_pair_on_decoded_values():
     two_hot = TINY.two_hot
     logits = jax.random.normal(jax.random.PRNGKey(0), (5, 3, 101)) * 3.0
     decoded = two_hot.decode(logits)
-    pair = jnp.array([4, 1], jnp.int32)
+    pair = logits[jnp.array([4, 1])]
     np.testing.assert_array_equal(
-        core.reduce_q_pair(logits, pair, "min", two_hot),
-        jnp.minimum(decoded[4], decoded[1]),
+        core.reduce_q_pair(pair, "min", two_hot), jnp.minimum(decoded[4], decoded[1])
     )
     np.testing.assert_array_equal(
-        core.reduce_q_pair(logits, pair, "avg", two_hot), (decoded[4] + decoded[1]) / 2
+        core.reduce_q_pair(pair, "avg", two_hot), (decoded[4] + decoded[1]) / 2
     )
     with pytest.raises(ValueError, match="kind"):
-        core.reduce_q_pair(logits, pair, "max", two_hot)  # type: ignore[arg-type]
+        core.reduce_q_pair(pair, "max", two_hot)  # type: ignore[arg-type]
 
 
 def test_q_pair_logits_evaluates_only_the_pair(state):
     """Without dropout, the full ensemble's rows ``pair`` in the pair's order
-    (traced pair included); with a dropout key, deterministic per key and an
-    independent mask per member (a member paired with itself differs)."""
+    (traced pair included; the online heads or ``q_params``, the target
+    heads); with a dropout key, deterministic per key and an independent mask
+    per member (a member paired with itself differs)."""
     wm = state.world_model_state
     k1, k2, k3, k4 = jax.random.split(jax.random.PRNGKey(4), 4)
     z = jax.random.normal(k1, (B, TINY.latent_dim))
@@ -189,6 +189,13 @@ def test_q_pair_logits_evaluates_only_the_pair(state):
     np.testing.assert_allclose(
         traced(jnp.array([3, 0])), full[jnp.array([3, 0])], **tol
     )
+    target = core.q_logits(wm.apply_fn, wm.params, z, action, q_params=wm.target_params)
+    idx = jnp.array([2, 4])
+    pair_target = core.q_pair_logits(
+        TINY, wm.params, z, action, idx, q_params=wm.target_params
+    )
+    np.testing.assert_allclose(pair_target, target[idx], **tol)
+    assert not np.allclose(pair_target, full[idx])
 
     config = TINY.replace(dropout=0.3)
 
@@ -347,7 +354,6 @@ def test_policy_loss_reaches_only_the_policy_through_the_action(
         value, _ = core.policy_loss(
             pi_params,
             pi_apply=pi.apply_fn,
-            wm_apply=wm.apply_fn,
             wm_params=wm_params,
             zs=latents,
             q_scale=state.q_scale,
@@ -372,7 +378,6 @@ def test_policy_loss_updates_the_scale_before_dividing(state, noise):
     _, (new_scale, aux) = core.policy_loss(
         pi.params,
         pi_apply=pi.apply_fn,
-        wm_apply=wm.apply_fn,
         wm_params=wm.params,
         zs=zs,
         q_scale=scale,
@@ -383,7 +388,7 @@ def test_policy_loss_updates_the_scale_before_dividing(state, noise):
     )
     action = core.policy_sample(pi.apply_fn, pi.params, zs, noise.pi_eps, TINY).action
     logits = core.q_logits(wm.apply_fn, wm.params, zs, action)
-    q0 = core.reduce_q_pair(logits, noise.pi_pair, "avg", TINY.two_hot)[0]
+    q0 = core.reduce_q_pair(logits[noise.pi_pair], "avg", TINY.two_hot)[0]
     expected = scale.update(q0)
     np.testing.assert_allclose(new_scale.value, expected.value, rtol=1e-6)
     assert float(new_scale.value) > 1.0  # the random heads spread Q beyond 1

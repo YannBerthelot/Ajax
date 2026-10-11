@@ -22,6 +22,34 @@ from ajax.environments.interaction import (
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 
+#: The pipeline's slots for an ``action`` extension: before the warmup
+#: choice (EDGEExploration, JSRLCurriculum) and after it (ValueBox).
+ACTION_SLOTS = ("pre_warmup", "post_warmup")
+
+
+def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -> None:
+    """Reject the ``action`` extensions the pipeline never dispatches: one
+    without an ``action_slot`` of :data:`ACTION_SLOTS`, or any, or a residual
+    policy (an extension with ``build_policy_transform``), when the pipeline
+    does not dispatch (``dispatched`` False: no expert policy, or the
+    gain-policy short-circuit). SAC calls it at construction."""
+    acting = [e for e in extension_stack if "action" in e.implemented_phases()]
+    unslotted = [
+        e.name for e in acting if getattr(e, "action_slot", None) not in ACTION_SLOTS
+    ]
+    if unslotted:
+        raise ValueError(
+            f"SAC dispatches the action phase only to extensions declaring an"
+            f" action_slot in {ACTION_SLOTS}; {unslotted} declare none."
+        )
+    residual = [e for e in extension_stack if hasattr(e, "build_policy_transform")]
+    if (acting or residual) and not dispatched:
+        raise ValueError(
+            "SAC dispatches the action phase only with an expert_policy and"
+            f" without use_pid_policy; {[e.name for e in acting + residual]}"
+            " would be ignored."
+        )
+
 
 def _resolve_expert_state(expert_policy, collector_state, n_envs):
     """Return the stateful expert's per-step input state.
@@ -126,9 +154,9 @@ def make_action_pipeline(
     recurrent,
     env_args,
     extension_stack: Optional[ExtensionStack] = None,
-    # Action transforms
-    use_residual_rl=False,
-    residual_scale=1.0,
+    # Action transforms: the stack's residual policy (ResidualPolicy), whose
+    # ``transform_action`` makes the post-warmup action residual.
+    residual=None,
     use_pid_policy=False,
     # Obs augmentation
     augment_obs_with_expert_action=False,
@@ -185,7 +213,7 @@ def make_action_pipeline(
             if getattr(e, "action_slot", None) == name
         )
 
-    _pre_warmup_exts, _post_warmup_exts = _slot("pre_warmup"), _slot("post_warmup")
+    _pre_warmup_exts, _post_warmup_exts = map(_slot, ACTION_SLOTS)
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
         collector_state = agent_state.collector_state
@@ -253,10 +281,8 @@ def make_action_pipeline(
         )
 
         # --- Post-warmup action (default) ---
-        if use_residual_rl:
-            post_warmup_action = jnp.clip(
-                expert_action + residual_scale * action, -1.0, 1.0
-            )
+        if residual is not None:
+            post_warmup_action = residual.transform_action(action, expert_action)
         else:
             post_warmup_action = action
 
@@ -293,11 +319,14 @@ def make_action_pipeline(
             post_warmup_action, rng = pre["post_warmup_action"], pre["gate_rng"]
 
         # --- Warmup action ---
-        if use_residual_rl:
+        if residual is not None:
             warmup_action = uniform_action
             use_expert_this_step = jnp.zeros((), dtype=jnp.bool_)
         else:
-            use_expert_this_step = jax.random.uniform(mix_key) < expert_fraction
+            # Its own key: on mix_key the decision would be the uniform
+            # action's first draw (env 0, dim 0), and select on it.
+            decision_key = jax.random.fold_in(mix_key, 1)
+            use_expert_this_step = jax.random.uniform(decision_key) < expert_fraction
             warmup_action = jnp.where(
                 use_expert_this_step, expert_action, uniform_action
             )
@@ -319,7 +348,6 @@ def make_action_pipeline(
                 {
                     "expert_action": expert_action,
                     "env_action": env_action,
-                    "raw_obs": raw_obs,
                     "total_timesteps": total_timesteps,
                 },
                 "env_action",

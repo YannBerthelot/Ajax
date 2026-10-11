@@ -13,7 +13,7 @@ from flax.serialization import to_state_dict
 
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.modules.pid_actor import PIDActorConfig, PIDActorNetwork
+from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
 from ajax.networks.memory import (
     MemoryCell,
     MemoryConfig,
@@ -39,27 +39,26 @@ class Encoder(nn.Module):
     penultimate_normalization: bool = False
     kernel_init: Optional[str] = None
     bias_init: Optional[str] = None
-    # When True, skip both LayerNorm and L2 normalization at the encoder
-    # output. Required for identity-pass-through to be learnable, e.g.
-    # when the actor input includes the expert action and BC must be
-    # able to copy it to the output. Default False preserves the
-    # existing LayerNorm behaviour for all other call sites.
-    disable_output_norm: bool = False
+    # Opt-in LayerNorm on the output features. Off by default: the SAC,
+    # TD3, PPO and DQN papers use plain MLPs. Ignored under
+    # penultimate_normalization, which takes precedence.
+    layer_norm: bool = False
 
     def setup(self):
         layers = parse_architecture(
             self.input_architecture, self.kernel_init, self.bias_init
         )
         self.network = nn.Sequential(layers)
-        self.norm = nn.LayerNorm()
+        if self.layer_norm:
+            self.norm = nn.LayerNorm()
 
     def __call__(self, x):
         features = self.network(x)
-        if self.disable_output_norm:
-            return features
         if self.penultimate_normalization:
             return _l2_normalize(features, axis=1)
-        return self.norm(features)
+        if self.layer_norm:
+            return self.norm(features)
+        return features
 
 
 class CNNEncoder(nn.Module):
@@ -183,13 +182,8 @@ class Actor(nn.Module):
     # move; combined with the wide std=1 exploration noise this produces
     # the "train_reward >> eval_reward" pathology on continuous control.
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    # When True, skip the LayerNorm at the encoder output. Ajax's
-    # Encoder applies ``nn.LayerNorm()`` to the final hidden features
-    # before the policy/value heads; brax PPO's MLP does not. The
-    # LayerNorm silently rescales the encoder output to ~N(0,1) PRE
-    # the heads, which interacts badly with brax-tuned lecun_uniform
-    # head init (the heads expect un-normalised inputs).
-    disable_encoder_output_norm: bool = False
+    # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
+    encoder_layer_norm: bool = False
     # Optional CNN encoder. When `cnn_image_shape` is provided, the encoder
     # treats obs as `(*batch, H*W*C + cnn_extra_obs_dim)` flat: the image
     # portion is reshaped to NHWC, run through a small conv stack, then
@@ -217,7 +211,7 @@ class Actor(nn.Module):
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
                 bias_init=self.encoder_bias_init,
-                disable_output_norm=self.disable_encoder_output_norm,
+                layer_norm=self.encoder_layer_norm,
             )
         if self.kernel_init is None:
             kernel_init = orthogonal(1.0)
@@ -317,9 +311,8 @@ class Critic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
-    # See Actor.disable_encoder_output_norm for rationale; same field
-    # for the critic so PPO can disable LayerNorm on both heads.
-    disable_encoder_output_norm: bool = False
+    # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
+    encoder_layer_norm: bool = False
     # When set, the encoder is a `CNNEncoder` over flat image obs rather
     # than the MLP `Encoder`. See `NetworkConfig.cnn_image_shape`. Valid
     # only for state-value critics (obs-only input); an action-value
@@ -349,7 +342,7 @@ class Critic(nn.Module):
                     input_architecture=self.input_architecture,
                     kernel_init=self.encoder_kernel_init,
                     bias_init=self.encoder_bias_init,
-                    disable_output_norm=self.disable_encoder_output_norm,
+                    layer_norm=self.encoder_layer_norm,
                 )
         if self.cnn_image_shape is not None:
             self.encoder = build_cnn_encoder(
@@ -361,7 +354,7 @@ class Critic(nn.Module):
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
                 bias_init=self.encoder_bias_init,
-                disable_output_norm=self.disable_encoder_output_norm,
+                layer_norm=self.encoder_layer_norm,
             )
         kernel_init = (
             orthogonal(1.0)
@@ -417,7 +410,7 @@ class MultiCritic(nn.Module):
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
-    disable_encoder_output_norm: bool = False
+    encoder_layer_norm: bool = False
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
@@ -449,7 +442,7 @@ class MultiCritic(nn.Module):
             bias_init=self.bias_init,
             encoder_kernel_init=self.encoder_kernel_init,
             encoder_bias_init=self.encoder_bias_init,
-            disable_encoder_output_norm=self.disable_encoder_output_norm,
+            encoder_layer_norm=self.encoder_layer_norm,
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
@@ -505,13 +498,11 @@ def get_initialized_actor_critic(
     encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
-    pid_actor_config: Optional[PIDActorConfig] = None,
     action_dim_override: Optional[int] = None,
     cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     log_std_state_independent: bool = False,
     log_std_init: float = -1.0,
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    disable_encoder_output_norm: bool = False,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
     Create actor and critic networks.
@@ -521,10 +512,8 @@ def get_initialized_actor_critic(
     augment_obs_with_expert_action=True, so the network is initialised with
     the correct input size matching what augment_obs_if_needed produces.
 
-    pid_actor_config: when set, uses PIDActorNetwork instead of Actor. The
-    network predicts PID gains from the full observation; the policy mean is
-    then computed as gains @ pid_terms (error and optionally derivative).
-    Fully compatible with residual RL.
+    A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
+    actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).
 
     All other expert-guidance is handled at the loss level (value
     constraint, online BC) so the architecture is always a plain Actor/MultiCritic.
@@ -537,8 +526,6 @@ def get_initialized_actor_critic(
 
     memory = parse_memory_config(network_config.memory)
     if memory is not None:
-        if pid_actor_config is not None:
-            raise NotImplementedError("PIDActorNetwork does not support memory yet.")
         if network_config.penultimate_normalization:
             # The encoder's l2-normalization is hardcoded to axis=1, which
             # is the batch axis on time-major (T, B, F) inputs.
@@ -555,14 +542,14 @@ def get_initialized_actor_critic(
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
 
-    if pid_actor_config is not None:
-        actor = PIDActorNetwork(
-            input_architecture=network_config.actor_architecture,
+    actor: nn.Module
+    if isinstance(network_config.actor_architecture, PIDPolicy):
+        check_pid_actor(continuous, memory)
+        actor = PIDActor(
+            policy=network_config.actor_architecture,
             action_dim=action_dim,
-            obs_current_idx=pid_actor_config.obs_current_idx,
-            obs_target_idx=pid_actor_config.obs_target_idx,
-            obs_derivative_idx=pid_actor_config.obs_derivative_idx,
-            penultimate_normalization=network_config.penultimate_normalization,
+            squash=squash,
+            log_std_init=log_std_init,
         )
     else:
         actor = Actor(
@@ -581,7 +568,7 @@ def get_initialized_actor_critic(
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
             mean_kernel_init=mean_kernel_init,
-            disable_encoder_output_norm=disable_encoder_output_norm,
+            encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
         )
     critic = MultiCritic(
@@ -592,7 +579,7 @@ def get_initialized_actor_critic(
         bias_init=critic_bias_init,
         encoder_kernel_init=encoder_kernel_init,
         encoder_bias_init=encoder_bias_init,
-        disable_encoder_output_norm=disable_encoder_output_norm,
+        encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=critic_cnn_image_shape,
         cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
@@ -661,6 +648,7 @@ def get_initialized_critic(
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
+        encoder_layer_norm=network_config.encoder_layer_norm,
         num=num_critics,
     )
 

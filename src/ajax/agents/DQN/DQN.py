@@ -7,6 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.base import ActorCritic
 from ajax.agents.DQN.state import DQNConfig
 from ajax.agents.DQN.train_DQN import make_train
+from ajax.agents.loop import LOOP_PHASES
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
@@ -22,6 +23,7 @@ class DQN(ActorCritic):
     """
 
     name: str = "DQN"
+    supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
 
     def __init__(
         self,
@@ -46,6 +48,7 @@ class DQN(ActorCritic):
         epsilon_decay_frac: float = 0.5,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
+        reward_normalization_gamma: Optional[float] = None,
         # --- DQN variants ---
         # TD target: None -> vanilla DQN. Pass compute_double_dqn_td_target
         # (from train_DQN) for Double DQN.
@@ -79,6 +82,7 @@ class DQN(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
+            reward_normalization_gamma=reward_normalization_gamma,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,

@@ -64,15 +64,20 @@ def recompute_log_prob(
 
 
 def policy_entropy(pi: Any, rng: Optional[jax.Array] = None) -> jax.Array:
-    """The per-sample entropy bonus. A squashed policy's is, with ``rng``,
-    brax's one-sample estimate of the executed action's entropy (the latent
-    Gaussian's plus the tanh log-det-Jacobian at a sample, so its gradient
-    reaches the mean); without, the latent Gaussian's."""
+    """The per-sample entropy bonus: the joint action's entropy, summed over
+    the action dimensions as CleanRL's ``ppo_continuous_action.py`` and
+    baselines' ppo2 sum it (a mean would scale ``ent_coef`` by 1 / d). A
+    squashed policy's is brax's one-sample estimate of the executed action's
+    entropy, the latent Gaussian's plus the tanh log-det-Jacobian at a
+    sample drawn with ``rng`` (so its gradient reaches the mean): the latent
+    Gaussian's alone grows without bound in its scale."""
     if isinstance(pi, SquashedNormal):
-        if rng is not None:
-            return pi.effective_entropy(rng, num_samples=1)
-        return pi.unsquashed_entropy()
-    return pi.entropy()
+        if rng is None:
+            raise ValueError("a squashed policy's entropy needs a key to sample")
+        return pi.effective_entropy(rng, num_samples=1)
+    if isinstance(pi, distrax.Categorical):
+        return pi.entropy()
+    return pi.entropy().sum(-1)
 
 
 def clipped_surrogate(

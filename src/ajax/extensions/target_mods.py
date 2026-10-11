@@ -9,7 +9,7 @@ These reshape the SAC Bellman target before it enters the critic loss
 * :class:`LCBGatedBootstrap`  — ``lcb_gated_bootstrap``: soft-blend the
   policy and expert TD targets by an LCB-scored sigmoid gate.
 * :class:`CriticBlend`        — ``use_critic_blend``: warmup-decaying
-  blend of the Bellman target with the frozen-expert value estimate.
+  blend of the Bellman target with the frozen expert critic's.
 * :class:`MCVarianceCorrection` — ``mc_variance_threshold``: replace
   high-ensemble-variance Bellman targets with the MC-pretrained oracle.
 * :class:`ValueBox`           — ``use_box``: value-threshold expert
@@ -17,8 +17,9 @@ These reshape the SAC Bellman target before it enters the critic loss
 
 The ``batch`` argument to ``on_target`` is the dict SAC's
 ``update_value_functions`` builds: ``observations``, ``actions``,
-``next_observations``, ``dones``, ``rng_key``, ``q_preds``, ``gamma``,
-``augment_obs_with_expert_action``, ``recurrent``.
+``next_observations``, ``rewards`` (unscaled), ``reward_scale``, ``dones``,
+``rng_key``, ``q_preds``, ``gamma``, ``augment_obs_with_expert_action``,
+``recurrent``.
 """
 
 from __future__ import annotations
@@ -37,11 +38,11 @@ from ajax.networks.networks import predict_value
 
 def blend_modify_target(
     target_q: jax.Array,
-    v_expert_next: jax.Array,
+    expert_target: jax.Array,
     alpha_blend: jax.Array,
 ) -> jax.Array:
-    """Blended Bellman: (1-alpha)*y_bellman + alpha*V*(s')."""
-    return (1.0 - alpha_blend) * target_q + alpha_blend * v_expert_next
+    """Blended Bellman: (1-alpha)*y_bellman + alpha*y_expert."""
+    return (1.0 - alpha_blend) * target_q + alpha_blend * expert_target
 
 
 def mc_correction_modify_target(
@@ -81,18 +82,17 @@ def box_compute_threshold(
 
 def box_compute_state(
     obs: jax.Array,
-    raw_obs: jax.Array,
-    expert_policy,
+    a_exp: jax.Array,
     critic_state,
     expert_critic_params,
     threshold: jax.Array,
     last_in_box: Optional[jax.Array],
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
-    """Compute box membership and entry bonus.
+    """Compute box membership and entry bonus, the expert's value
+    ``V(s) = min Q_phi*(s, a_exp)`` at its action ``a_exp``.
 
     Returns (in_box, entry_bonus, v_box).
     """
-    a_exp = jax.lax.stop_gradient(expert_policy(raw_obs))
     v_box = jnp.min(
         predict_value(
             critic_state=critic_state,
@@ -239,11 +239,14 @@ class LCBGatedBootstrap(Extension):
 
 @dataclass(frozen=True)
 class CriticBlend(Extension):
-    """Warmup-decaying blend of the Bellman target with V_expert.
+    """Warmup-decaying blend of the Bellman target with the expert's.
 
-    Equivalent to ``use_critic_blend``: ``(1-α)·y_bellman + α·V_expert(s')``
-    with ``α`` decaying linearly to 0 over ``critic_warmup_frac`` of
-    training. Requires a frozen expert critic (MC pre-training).
+    ``(1-α)·y_bellman + α·y_expert`` with ``y_expert = r + γ(1-d)·V_E(s')``,
+    the one-step target on the frozen expert critic ``V_E(s') = φ*(s',
+    a_E(s'))``, so the blend stays a Bellman target (``use_critic_blend``
+    blended ``V_E(s')`` alone: no reward, discount or terminal mask). ``α``
+    decays linearly to 0 over ``critic_warmup_frac`` of training. Requires a
+    frozen expert critic (MC pre-training).
     """
 
     expert_policy: Callable
@@ -281,10 +284,14 @@ class CriticBlend(Extension):
                 axis=0,
             )
         )
+        rewards = batch["reward_scale"] * batch["rewards"]
+        expert_target = (
+            rewards + batch["gamma"] * (1.0 - batch["dones"]) * v_expert_next
+        )
         total_timesteps = max(int(ctx.total_steps), 1)
         train_frac = agent_state.collector_state.timestep / total_timesteps
         alpha_blend_val = jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
-        target_new = blend_modify_target(target, v_expert_next, alpha_blend_val)
+        target_new = blend_modify_target(target, expert_target, alpha_blend_val)
         return jax.lax.stop_gradient(target_new)
 
 
@@ -339,9 +346,10 @@ class ValueBox(Extension):
 
     The :meth:`action` phase owns the override math. It reads the
     pre-computed per-step quantities off the SAC action pipeline's batch
-    dict (``policy_action``, ``expert_action``, the running
-    ``post_warmup_action``), the box bounds off the agent state (so a
-    resumed run keeps them) and writes ``in_value_box`` / ``entry_bonus``
+    dict (``env_action`` and ``expert_action``, the action of SAC's
+    ``expert_policy``, at which it also measures the expert's value), the
+    box bounds off the agent state (so a resumed run keeps them) and
+    writes ``in_value_box`` / ``entry_bonus``
     back into the dict so the pipeline can record them on the
     transition. The substitution itself is
     ``box_action_override`` above and is
@@ -349,7 +357,6 @@ class ValueBox(Extension):
     ``make_action_pipeline`` ordering byte-for-byte.
     """
 
-    expert_policy: Callable
     name: str = "value_box"
     action_slot: ClassVar[str] = "post_warmup"
 
@@ -380,13 +387,9 @@ class ValueBox(Extension):
         threshold = box_compute_threshold(
             agent_state.expert_v_min, agent_state.expert_v_max, train_frac
         )
-        last_obs = agent_state.collector_state.last_obs
-        raw_obs = obs.get("raw_obs", None)
-        raw_for_box = raw_obs if raw_obs is not None else last_obs[..., :-1]
         in_value_box, entry_bonus, _ = box_compute_state(
-            last_obs,
-            raw_for_box,
-            self.expert_policy,
+            agent_state.collector_state.last_obs,
+            expert_action,
             agent_state.critic_state,
             agent_state.expert_critic_params,
             threshold,

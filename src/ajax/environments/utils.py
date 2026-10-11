@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -80,6 +80,23 @@ def get_raw_env(env: EnvType) -> EnvType:
     return env
 
 
+def wrapper_chain(env: Any):
+    """``env`` and every env it wraps, outermost first.
+
+    Follows the attribute each wrapper stores its inner env in (``_env`` for
+    gymnax wrappers, ``env`` for brax / Ajax brax-stack wrappers), read from
+    the instance dict so attribute forwarding (``__getattr__``) is never
+    mistaken for a wrapped env.
+    """
+    seen: set = set()
+    layer = env
+    while layer is not None and id(layer) not in seen:
+        seen.add(id(layer))
+        yield layer
+        attrs = getattr(layer, "__dict__", {})
+        layer = attrs.get("_env", attrs.get("env"))
+
+
 def check_env_is_playground(env) -> bool:
     env = get_raw_env(env)
     if "mujoco_playground" in str(type(env)).lower():
@@ -106,6 +123,13 @@ def check_env_is_brax(env) -> bool:
     # wrap_for_brax_training stack. The only difference is state.data vs
     # state.pipeline_state, handled where accessed.
     return check_env_is_playground(raw)
+
+
+def raw_obs_columns(env: EnvType) -> int:
+    """How many leading observation columns ``env`` declares raw (its
+    ``raw_obs_columns``, 0 when undeclared): every observation normaliser
+    leaves them in the env's own units."""
+    return int(getattr(env, "raw_obs_columns", 0))
 
 
 def check_env_is_gymnax(env) -> bool:

@@ -266,7 +266,7 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
             pi_apply, pi_params, zs, noise.pi_eps, config, emb, ctx.mask
         )
         logits = core.q_logits(wm_apply, post, zs, sample.action, task_emb=emb)
-        q = core.reduce_q_pair(logits, noise.pi_pair, "avg", config.two_hot)
+        q = core.reduce_q_pair(logits[noise.pi_pair], "avg", config.two_hot)
         return sample.action, sample.log_pi, q
 
     report = ErrorReport("TD-MPC2 multi-task update parity")

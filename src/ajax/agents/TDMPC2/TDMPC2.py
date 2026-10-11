@@ -21,10 +21,11 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.TDMPC2.buffer import EpisodeBuffer, replay_capacity
+from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodicBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
 from ajax.agents.TDMPC2.state import TDMPC2Config
-from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, make_train
+from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule, Schedule, make_train
 from ajax.environments.row_collector import resume_tick
 from ajax.environments.utils import (
     agent_episode_length,
@@ -107,15 +108,20 @@ class TDMPC2(ActorCritic):
     (deviation T10). Observations and rewards are the
     env's raw values (no normalisation, as in the reference).
 
+    ``episodic=True`` takes terminating tasks instead (the latest code's
+    episodic mode, ``nicklashansen/tdmpc2@eece801``; deviation T29): a
+    termination head, ``1 - terminated`` in the targets and the planner,
+    the variable-length replay of ``ceil(buffer_size / n_envs)`` rows per
+    env, and ``n_timesteps`` counting rows (env steps plus one per finished
+    episode). ``T`` is then the time limit, still bootstrapped.
+
     Extensions: ``pretrain``, ``post_update`` (folded after every update,
     ``step`` = env steps) and ``eval_metrics`` (with ``init_state``); the
     other phases are rejected at construction.
     """
 
     name: str = "TDMPC2"
-    supported_extension_phases: frozenset = frozenset(
-        {"pretrain", "post_update", "eval_metrics"}
-    )
+    supported_extension_phases: frozenset = LOOP_PHASES
 
     def __init__(
         self,
@@ -147,6 +153,7 @@ class TDMPC2(ActorCritic):
         batch_size: int = 256,
         buffer_size: int = 1_000_000,
         seed_steps: Optional[int] = None,
+        updates_per_step: float = 1.0,
         gamma: Optional[float] = None,
         discount_denom: float = 5,
         discount_min: float = 0.95,
@@ -158,6 +165,8 @@ class TDMPC2(ActorCritic):
         min_std: float = 0.05,
         max_std: float = 2.0,
         temperature: float = 0.5,
+        episodic: bool = False,
+        termination_coef: float = 1.0,
         episode_length: int = 1000,
         action_repeat: int = 1,
         env_params: Optional[EnvParams] = None,
@@ -169,6 +178,13 @@ class TDMPC2(ActorCritic):
                 gymnax env.
             n_envs: lockstep envs; each stepping tick runs ``n_envs``
                 updates (UTD 1 per env step; deviation T7 for ``> 1``).
+            updates_per_step: updates per env step after the seed-phase
+                burst, ``max(1, round(n_envs * updates_per_step))`` per
+                stepping tick (static); the default 1 is the reference's
+                UTD, which ``config.yaml`` does not expose (deviation T28).
+                The burst stays ``seed_steps`` updates. Episodic mode:
+                ``max(1, round(stepped * updates_per_step))`` on a tick that
+                stepped ``stepped > 0`` envs.
             episode_length: simulator steps per episode on brax /
                 playground (ignored on gymnax, which uses its params'
                 ``max_steps_in_episode``).
@@ -234,10 +250,16 @@ class TDMPC2(ActorCritic):
             if seed_steps is None
             else int(seed_steps)
         )
-        self.schedule = Schedule(
-            n_envs=n_envs,
-            episode_length=self.agent_episode_length,
-            seed_steps=self.seed_steps,
+        schedule = {
+            "n_envs": n_envs,
+            "episode_length": self.agent_episode_length,
+            "seed_steps": self.seed_steps,
+        }
+        ratio = float(updates_per_step)
+        self.schedule: Schedule | EpisodicSchedule = (
+            EpisodicSchedule(**schedule, updates_per_step=ratio)
+            if episodic
+            else Schedule(**schedule, updates_per_step=ratio)
         )
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)
@@ -272,17 +294,28 @@ class TDMPC2(ActorCritic):
         (:func:`~ajax.environments.row_collector.resume_tick`)."""
         return resume_tick(initial_state.collector_state, self.env_args.n_envs)
 
-    def _replay_buffer(self, total_timesteps: int) -> EpisodeBuffer:
+    def _replay_buffer(self, total_timesteps: int) -> EpisodeBuffer | EpisodicBuffer:
         """The ring of a call that ends after ``total_timesteps`` env steps of
-        the run; records its capacity and size (class docstring)."""
-        capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
-        buffer = EpisodeBuffer.create(
-            capacity=capacity,
-            n_envs=self.env_args.n_envs,
-            episode_length=self.agent_episode_length,
-            obs_dim=self.obs_dim,
-            action_dim=self.action_dim,
-        )
+        the run (the episodic mode's rings ignore it); records its capacity
+        and size (class docstring)."""
+        buffer: EpisodeBuffer | EpisodicBuffer
+        if self.agent_config.episodic:
+            capacity = self.agent_config.buffer_size
+            buffer = EpisodicBuffer.create(
+                buffer_size=capacity,
+                n_envs=self.env_args.n_envs,
+                obs_dim=self.obs_dim,
+                action_dim=self.action_dim,
+            )
+        else:
+            capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
+            buffer = EpisodeBuffer.create(
+                capacity=capacity,
+                n_envs=self.env_args.n_envs,
+                episode_length=self.agent_episode_length,
+                obs_dim=self.obs_dim,
+                action_dim=self.action_dim,
+            )
         self.replay_capacity = capacity
         self.replay_bytes_per_seed = buffer.nbytes
         self.config.update(
@@ -315,7 +348,7 @@ class TDMPC2(ActorCritic):
         (nothing is evaluated or logged). Raises ``ValueError``
         after the run if any env terminated (deviation T10): the paper-era
         TD-MPC2 bootstraps through every episode end, so a terminating task
-        would train on wrong targets.
+        would train on wrong targets. The episodic mode takes terminations.
         """
         if isinstance(initial_state, tuple) and len(initial_state) == 2:
             initial_state = initial_state[0]  # (state, metrics) from train()
@@ -325,14 +358,21 @@ class TDMPC2(ActorCritic):
         start_tick = (
             0 if initial_state is None else self.resume_iteration_offset(initial_state)
         )
-        end_tick = start_tick + self.schedule.num_ticks(n_timesteps, start_tick)
-        buffer = self._replay_buffer(
-            self.schedule.steps_before(end_tick) * self.env_args.n_envs
-        )
-        if initial_state is not None:
-            initial_state = initial_state.replace(
-                buffer_state=buffer.adopt(initial_state.buffer_state, start_tick)
+        buffer: EpisodeBuffer | EpisodicBuffer
+        if isinstance(self.schedule, EpisodicSchedule):
+            buffer = self._replay_buffer(0)  # not sized for the run
+            if initial_state is not None:
+                buffer.check_layout(initial_state.buffer_state)
+        else:
+            end_tick = start_tick + self.schedule.num_ticks(n_timesteps, start_tick)
+            buffer = self._replay_buffer(
+                self.schedule.steps_before(end_tick) * self.env_args.n_envs
             )
+            assert isinstance(buffer, EpisodeBuffer)
+            if initial_state is not None:
+                initial_state = initial_state.replace(
+                    buffer_state=buffer.adopt(initial_state.buffer_state, start_tick)
+                )
         result: Any = super().train(
             seed=seed,
             n_timesteps=n_timesteps,
@@ -345,6 +385,8 @@ class TDMPC2(ActorCritic):
             **kwargs,
         )
         state = result[0]
+        if self.agent_config.episodic:
+            return result
         offschedule = np.asarray(
             jax.device_get(state.collector_state.n_offschedule_dones)
         ).reshape(-1)

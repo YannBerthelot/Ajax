@@ -26,10 +26,10 @@ from ajax.wrappers import InitialStateWrapper
 
 from . import agents, envs, runs
 from . import readouts as R
-from .verdict import STAGE_1, Case, Query, check, params, xfail, xparam
+from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a8c5ecad49aa"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "23895d40fb8e"  # verdict.digest(CASES): every answer, pinned
 L = 7
 
 
@@ -218,20 +218,16 @@ def test_p2_avg_with_parallel_envs(part: str) -> None:
     assert not [e for e in found if AVG_PARTS[part](e[0])], found
 
 
-@xfail(
-    "with normalize_rewards=True the Train return is logged in normalised units: no gamma reaches the normaliser (base.py:128-137, create.py:385), a constant reward has std sqrt(1e-8) (utils.py:24-29), and get_raw_reward's dir() check misses the outer ClipAction (interaction.py:554-566); right Train 7, today 70000 (Eval reads 7)"
-)
 @pytest.mark.parametrize("agent", ["SAC", "PPO", "DQN", "PQN"])
 def test_p2_train_return_in_raw_units_with_normalized_rewards(agent: str) -> None:
+    """The Train return sums what the env paid (7), not the normalised reward
+    (a constant reward's std is sqrt(1e-8): 70000)."""
     r = p2_run(agent, 1, normalize_rewards=True)
     keys = (TRAIN, EVAL, "mean return", "returns")
     wrong = {k: set(r[k].round(4)) for k in keys if not np.allclose(r[k], L, 1e-5, 0)}
     assert not wrong, wrong
 
 
-@xfail(
-    "PPO's _force_reset replaces the env state, last_obs and rng but not episodic_return_state.cumulative_reward (train_PPO.py:1282-1323): the cut episode's 32 mod 7 = 4 steps carry over; right every return 7, today 16 of 80 are 11 (mean 7.8)"
-)
 def test_p2_ppo_forced_reset_starts_each_return_at_zero() -> None:
     """A reset after every 32-step rollout (num_evals 45: reset_every 1)."""
     r = p2_run("PPO", 1, num_resets_per_eval=1, num_evals=45)
@@ -239,9 +235,6 @@ def test_p2_ppo_forced_reset_starts_each_return_at_zero() -> None:
     assert exact, Counter(r["returns"].tolist())
 
 
-@xfail(
-    "prepare_env wraps discrete envs in ClipAction(-1, 1) whenever it normalises (create.py:375-386), after the int32 cast (interaction.py:204-205): action 2 runs as 1; right each action on 1/3 of the uniform steps, today action 2 on 0.0 and action 1 on 0.654"
-)
 @pytest.mark.parametrize("agent", ["DQN", "PQN"])
 def test_p2_discrete_actions_are_executed_as_chosen(agent: str) -> None:
     """Uniform exploration on Discrete(3), observations normalised: each
@@ -315,9 +308,6 @@ def episodes(done: np.ndarray) -> list[tuple[int, int]]:
     return [(int(e) - EP + 1, int(e)) for e in np.flatnonzero(done > 0) if e >= EP - 1]
 
 
-@xfail(
-    "UDRL's top-K command statistics restart their running sums at every segment (UDRL/buffer.py:194), so each 8-step episode counts as its last 4-step fragment; right command_target_horizon 8.0, today 4.0"
-)
 def test_p7_command_target_describes_whole_episodes() -> None:
     """32 segments into 16 slots, top 4 of 8 episodes: target horizon 8, target
     return the top-4 whole-episode mean, every start commanded horizon 8."""
@@ -465,8 +455,6 @@ def test_q14_actor_sees_the_same_command_when_acting_and_training(
 # flag: every episode of the task returns 14 in 7 steps (APG: 32 per 16-step
 # rollout) whatever the policy; 7 is the bare env. Two seeds, exact.
 
-STRIP = "setup_environment peels the stack with env.unwrapped (evaluate.py:130) and re-adds only flatten/clip/normaliser, so evaluation runs the bare env; right 14 per episode, today 7"
-
 
 def _raise_flag(key: Any, state: envs.State, params: Any) -> envs.State:
     return state.replace(flag=jnp.ones_like(state.flag))
@@ -526,7 +514,6 @@ def test_q3_auto_reset_starts_the_next_episode_from_the_wrapper() -> None:
     assert returns == [2.0 * L] * 3, f"episode returns {returns}"
 
 
-@xfail(STRIP)
 def test_q3_the_evaluation_env_is_the_task() -> None:
     """The evaluation env built from the task as every evaluation builds it:
     one episode in each of 4 envs returns 14 and terminates on step 7."""
@@ -557,7 +544,7 @@ def test_q3_training_episodes_run_the_wrapped_task(agent: str) -> None:
 
 @pytest.mark.parametrize(
     "agent",
-    [xparam(a, "" if a == "APG" else STRIP) for a in Q3_AGENTS if a != "UDRL"],
+    [xparam(a) for a in Q3_AGENTS if a != "UDRL"],
 )
 def test_q3_evaluation_runs_the_wrapped_task(agent: str) -> None:
     """Every logged evaluation returns 14 in 7 steps (APG evaluates its own
@@ -589,7 +576,7 @@ SCALAR = dataclasses.replace(SCALAR, obs_box=(0.0, float(L)), box=(-1.0, 1.0, 2)
 Q4_SAC: dict[str, Any] = {"n_envs": 2, "gamma": agents.GAMMA, "learning_starts": 10**9}
 Q4_SAC |= {"actor_architecture": ("16", "relu"), "critic_architecture": ("16", "relu")}
 Q4_SAC |= {"buffer_size": 32_064, "batch_size": 64, "expert_buffer_n_steps": 0}
-Q4_SAC |= {"expert_mix_fraction": 0.0, "expert_fraction": 0.7}
+Q4_SAC |= {"expert_fraction": 0.7}
 Q4_SAC |= {"augment_obs_with_expert_state": True}
 Q4_KEYS = ("obs", "action", "is_expert", "reward", "terminated", "truncated")
 CELLS = [(e, d) for e in range(2) for d in range(2)]
@@ -620,7 +607,7 @@ def _q4_read(run: runs.Run) -> dict:
 
 
 Q4_READ, Q4_BUDGET = runs.readings(_q4_sac, _q4_read), 32_000
-SAME = "the decision's draw reused for this cell (today: env 0, dim 0)"
+SAME = "the decision's draw reused for this cell (on mix_key: env 0, dim 0)"
 Q4_UNIFORM: list[Query] = []
 for _e, _d in CELLS:
     Q4_UNIFORM += [Query(f"mean a[env {_e}, dim {_d}]", 0.0, {SAME: 0.7})]
@@ -630,7 +617,6 @@ CASES["q4-SAC-uniform"] = Case(
     tuple(Q4_UNIFORM),
     Q4_READ,
     Q4_BUDGET,
-    defect="one mix_key draws both the warm-up decision and the uniform action (agents/SAC/action_pipeline.py); right env 0 dim 0 mean 0 and share below 0.4 = 0.7, today 0.70 and 0.0",
 )
 ONE, SHARE_WRONG = {"one draw shared by the two cells": 1.0}, {"expert never used": 0.0}
 CASES["q4-SAC-independence"] = Case(
@@ -705,7 +691,6 @@ W |= {"collector maps to the box, training clip stays +-1": 0.5}
 UNIT = Query("share outside [-1, 1], cell A minus cell B", 0.0, W)
 W = {"training clip made bounds-aware, collector unmapped": 0.5}
 BOX = Query("share outside [0, 2], cell A minus cell B", 0.0, W)
-CLIPPED = "ClipAction(-1, 1) wraps the env only when a normalisation flag is set (environments/create.py:375-388) and PPO is unsquashed (PPO.py:78); right the same share of executed actions outside [-1, 1] with and without normalize_rewards (A - B = 0 +- 0.1), today A ~0.32 and B 0"
 
 
 def _outside(x: np.ndarray) -> dict:
@@ -725,13 +710,10 @@ def _q5_flag(agent: str) -> Callable:
 
 
 for _a in ("PPO", "SAC", "TD3"):
-    _tol, _why = ((), CLIPPED) if _a == "PPO" else ((0.02, 0.02), "")
-    CASES[f"q5-{_a}"] = Case(f"q5-{_a}", (UNIT, BOX), _q5_flag(_a), 64, _tol, _why)
+    _tol = () if _a == "PPO" else (0.02, 0.02)
+    CASES[f"q5-{_a}"] = Case(f"q5-{_a}", (UNIT, BOX), _q5_flag(_a), 64, _tol)
 
 
-@xfail(
-    "evaluate() always wraps a continuous gymnax env in ClipAction(-1, 1) (evaluate.py:147-148, from log.py:324) while PPO's training env is clipped only under a normalisation flag (environments/create.py:375-388); right the same action in training and evaluation, today 1.5 and 1.0"
-)
 def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:
     """A constant PPO policy sending 1.5 (in the box, outside [-1, 1]) has
     the same action executed in training and in evaluate() (the env pays it)."""
@@ -795,10 +777,7 @@ def q8_run(cell: str) -> runs.Run:
     return runs.train(model, STAGE_1, 10 * per, per)
 
 
-NORMALIZED = pytest.mark.skip(
-    reason="right answer awaits an owner decision: PPO's agent-side observation statistics move at every collection step (interaction.py:742-755) but the loss normalises with the end-of-rollout statistics (clip_fraction 0.56 in the first rollout, 0 from about the 13th)"
-)
-Q8_MARKS = {"PPO-squash": [], "PPO-normalized": [NORMALIZED]}
+Q8_MARKS: dict[str, list] = {"PPO-squash": []}
 
 
 @pytest.mark.parametrize(

@@ -3,8 +3,19 @@ import jax.numpy as jnp
 import pytest
 from gymnax import make as make_gymnax_env
 
-from ajax.environments.create import build_env_from_id, prepare_env
-from ajax.wrappers import NormalizeVecObservationBrax, NormalizeVecObservationGymnax
+from ajax.environments.create import (
+    add_ajax_wrappers,
+    build_env_from_id,
+    prepare_env,
+    strip_ajax_wrappers,
+)
+from ajax.environments.utils import wrapper_chain
+from ajax.wrappers import (
+    ClipAction,
+    InitialStateWrapper,
+    NormalizeVecObservationBrax,
+    NormalizeVecObservationGymnax,
+)
 
 
 def _playground_available():
@@ -119,3 +130,72 @@ def test_build_brax_env_preserves_final_obs():
 def test_playground_unknown_env_raises():
     with pytest.raises(ValueError):
         build_env_from_id("NotARealPlaygroundEnv")
+
+
+def test_strip_ajax_wrappers_reads_back_the_layers_prepare_env_added():
+    """The evaluation rebuild's two halves: the task under prepare_env's
+    layers (a user's wrapper kept) and the keywords that rebuild them."""
+    env, _ = make_gymnax_env("Pendulum-v1")
+    task = InitialStateWrapper(env, lambda key, state, params: state)
+    trained, *_ = prepare_env(task, normalize_obs=True, apply_obs_normalization=False)
+    stripped, layers = strip_ajax_wrappers(trained)
+    assert stripped is task and strip_ajax_wrappers(task) == (task, {})
+    assert layers == {
+        "normalize_obs": True,
+        "normalize_reward": False,
+        "gamma": None,
+        "apply_obs_normalization": False,
+    }
+    rebuilt = add_ajax_wrappers(stripped, **layers)
+    assert list(map(type, wrapper_chain(rebuilt))) == list(
+        map(type, wrapper_chain(trained))
+    )
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_prepare_env_clips_continuous_actions_to_their_space(normalize):
+    """Whatever the normalisation flags: a discrete env is never clipped, a
+    continuous one always, to its own bounds (Pendulum's torque is 2)."""
+    env, *_ = prepare_env("CartPole-v1", normalize_obs=normalize)
+    assert not any(isinstance(layer, ClipAction) for layer in wrapper_chain(env))
+    env, params, *_ = prepare_env("Pendulum-v1", normalize_obs=normalize)
+    assert isinstance(env, ClipAction)
+    key = jax.random.PRNGKey(0)
+    _, state = env.reset(key, params)
+
+    def reward(a: float) -> float:
+        return float(env.step(key, state, jnp.array([a]), params)[2])
+
+    assert reward(3.0) == reward(2.0) != reward(1.0)
+
+
+def test_an_agent_hands_the_reward_normaliser_its_discount():
+    """reward_normalization_gamma reaches the normaliser (the discounted-return
+    variant); it means nothing without normalize_rewards, so that raises."""
+    from ajax.agents.DQN.DQN import DQN
+
+    agent = DQN("CartPole-v1", normalize_rewards=True, reward_normalization_gamma=0.9)
+    assert strip_ajax_wrappers(agent.env_args.env)[1]["gamma"] == 0.9
+    default = DQN("CartPole-v1", normalize_rewards=True)
+    assert strip_ajax_wrappers(default.env_args.env)[1]["gamma"] is None
+    with pytest.raises(ValueError, match="normalize_rewards=True"):
+        DQN("CartPole-v1", reward_normalization_gamma=0.9)
+
+
+def test_env_params_given_with_a_string_id_are_kept():
+    """gymnax params passed next to an env id are the env's params (they
+    were silently replaced by the defaults); an agent built from the id
+    trains on them, and TD-MPC2 derives its episode length from them.
+    brax / playground ids take no params: passing some raises."""
+    from ajax import SAC, TDMPC2
+
+    _, default = make_gymnax_env("Pendulum-v1")
+    params = default.replace(max_steps_in_episode=10, max_torque=1.0)
+    _, kept, _, _ = prepare_env("Pendulum-v1", env_params=params)
+    assert kept == params
+    _, none, _, _ = prepare_env("Pendulum-v1")
+    assert none == default
+    assert SAC("Pendulum-v1", env_params=params).env_args.env_params == params
+    assert TDMPC2("Pendulum-v1", env_params=params).agent_episode_length == 10
+    with pytest.raises(ValueError, match="env_params"):
+        prepare_env("fast", env_params=params)

@@ -15,14 +15,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.recurrent import previous_actions
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig
+from ajax.networks.networks import action_value_input
 
 from . import agents, envs, oracles, runs
 from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "80b1fbb6d47b"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "1ded4d712a32"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -74,10 +76,15 @@ P0B = (
 )
 
 
+def _q_input(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
+    """A recurrent Q-critic's input over (T, B) steps that took ``a``."""
+    return action_value_input(obs, a, previous_actions(a, starts))
+
+
 def _p0b_read(agent: str) -> Callable:
     def read(n: R.Nets) -> dict:
         a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS), -1.0, 1.0)
-        x = CUE_OBS if agent == "PPO" else jnp.concatenate([CUE_OBS, a], -1)
+        x = CUE_OBS if agent == "PPO" else _q_input(CUE_OBS, a, STARTS)
         a, v = a[-1, :, 0], R.critic_sequence(n, x, STARTS)[-1]
         out = dict(zip([q.name for q in P0B[:2]], a[:2]))
         out |= dict(zip([q.name for q in P0B[2:6]], v))
@@ -138,11 +145,14 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 # fresh carry flagged as an episode start, as windows present o0: the slope
 # Q(o0, 0.5) - Q(o0, -0.5) = 2 gamma (ASAC 2: undiscounted; TD3's curvature
 # gamma 10 0.3^2) and, at a pinned alpha of 1, the max-entropy actor's
-# tanh(mu(o0)) = 0.515. Windows of L = 16 (the default) and 2 pin two live
-# defects; L = 1 removes both and is the control. Every cell trains 64
-# positions per update (64 // L windows); the actor is judged for SAC and
-# REDQ only: ASAC's double count (2/16 + 2 15/16) equals its right slope, 2,
-# and both defects only scale TD3's quadratic, so its a0 is 0.5 either way.
+# tanh(mu(o0)) = 0.515. Windows of L = 16 (the default) and 2 catch two
+# faults: a target critic whose carry is fed the policy's samples after the
+# window's first row reads 1/L of the slope, and an actor loss feeding its
+# own fresh actions to the critic's carry credits a0 again through the next
+# Q; L = 1 hides both and is the control. Every cell trains 64 positions per
+# update (64 // L windows); the actor is judged for SAC and REDQ only:
+# ASAC's double count (2/16 + 2 15/16) equals its right slope, 2, and both
+# faults only scale TD3's quadratic, so its a0 is 0.5 either way.
 # The controls break the rule's 0.1 ceiling, pending the maintainer: the
 # critic's per-seed spread is a few % of its answer whatever the budget,
 # learning rate or kind. Each tolerance is twice the worst error on seeds
@@ -186,31 +196,32 @@ def _truth(agent: str) -> float:
 
 
 def _critic(agent: str, length: int) -> Query:
-    """The slope (TD3: curvature) in a0; today 1/L of it."""
+    """The slope (TD3: curvature) in a0; 1/L of it when the target carry
+    is fed the policy's samples."""
     wrong = {BLIND: 0.0}
     if length > 1:
-        today = "target history counterfactual after the first position (today)"
-        wrong[today] = _truth(agent) / length
+        fed = "target history counterfactual after the first position"
+        wrong[fed] = _truth(agent) / length
     return Query(CURVATURE if agent == "TD3" else SLOPE, _truth(agent), wrong)
 
 
 def _actor(length: int) -> Query:
     """Where the actor's slope in a0 puts tanh(mu(o0)): the critic's, plus
     2 (L - 1) / L when its loss credits a0 again through the next Q."""
-    right, today = 2 * agents.GAMMA, 2 * agents.GAMMA / length
+    right, fed = 2 * agents.GAMMA, 2 * agents.GAMMA / length
     twice, wrong = 2 * (length - 1) / length, {BLIND: _act(0.0)}
     if length > 1:
-        both = _act(today + twice)
-        wrong["today: counterfactual target and double-counting actor"] = both
-        wrong["target fixed, actor still double counts"] = _act(right + twice)
-        wrong["actor fixed, target still counterfactual"] = _act(today)
+        wrong["counterfactual target and double-counting actor"] = _act(fed + twice)
+        wrong["actor double counts"] = _act(right + twice)
+        wrong["target counterfactual"] = _act(fed)
     return Query(A0, _act(right), wrong)
 
 
 def _q0(n: R.Nets, acts: jax.Array) -> jax.Array:
     """Q(o0, a) for each action, each from a fresh carry flagged as a start."""
-    x = jnp.concatenate([jnp.broadcast_to(O0, (len(acts), 2)), acts[:, None]], -1)
-    return R.critic_sequence(n, x[None], jnp.ones((1, len(acts)), bool))[0]
+    starts = jnp.ones((1, len(acts)), bool)
+    obs = jnp.broadcast_to(O0, (1, len(acts), 2))
+    return R.critic_sequence(n, _q_input(obs, acts[None, :, None], starts), starts)[0]
 
 
 def _a0(n: R.Nets) -> jax.Array:
@@ -250,8 +261,6 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)
 
 
-TARGET = "the recurrent target critic sees the action taken only at the window's first training position and policy samples after it (recurrent.py:140-146 with SAC/core.py:146-154, recurrent.q_values with train_TD3.py:182-189, train_REDQ.py:204-211, train_ASAC.py:160-167); right 2*gamma = 1.24 (ASAC 2.0, TD3 curvature 0.558), today 1/L of it (L = 16: 0.078, ASAC 0.125, TD3 0.035; L = 2: 0.62, 1.0, 0.279). Calibrate with the fix: at the controls' spread, fixed TD3 and ASAC cells would pass 0.1 only about 73% and 54% of the time"
-ACTOR = "the actor loss runs the critic over its own fresh actions as one sequence, so each first action is credited again by the next step's Q through the critic's memory (SAC/train_SAC.py:563-575, REDQ/train_REDQ.py:268-271), on top of the target defect; right tanh(mu(o0)) = 0.515, today 0.670 (L = 16; 0.609 at L = 2). Calibrate with the fix"
 CONTROL = {  # tolerances (critic, actor); certification on seeds 3000-3031
     ("SAC", "gru"): ((0.183, 0.124), "cert 32/32, worst 0.089 / 0.062"),
     ("SAC", "lstm"): ((0.224, 0.13), "cert 32/32, worst 0.076 / 0.057"),
@@ -280,18 +289,18 @@ def _q2_case(
 
 for agent in BUDGET:
     for kind, length in [(k, L) for k in MEMORY_KINDS] + [("gru", 2)]:
-        _q2_case("target", agent, kind, length, _critic(agent, length), defect=TARGET)
+        _q2_case("target", agent, kind, length, _critic(agent, length))
         if agent in ("SAC", "REDQ"):
-            _q2_case("actor", agent, kind, length, _actor(length), defect=ACTOR)
+            _q2_case("actor", agent, kind, length, _actor(length))
 for (agent, kind), (tol, note) in CONTROL.items():
     queries = (_critic(agent, 1), _actor(1))[: len(tol)]
     _q2_case("control", agent, kind, 1, *queries, tol=tol, ceiling=0.5, note=note)
 
 
 def test_q2_oracle_reproduces_the_verified_answers() -> None:
-    """At alpha 1 and L = 16: 0.515 at the right slope 1.24, blind 0, today
-    0.670 (1.24 / 16 + 2 15/16 = 1.9525), the target alone fixed 0.794, the
-    actor alone 0.039; critic answers 1.24, 1.24, 2.0, 0.558."""
+    """At alpha 1 and L = 16: 0.515 at the right slope 1.24, blind 0, both
+    faults 0.670 (1.24 / 16 + 2 15/16 = 1.9525), the actor's alone 0.794,
+    the target's alone 0.039; critic answers 1.24, 1.24, 2.0, 0.558."""
     actor = _actor(L)
     got = [actor.truth, *actor.wrong.values()]
     np.testing.assert_allclose(got, [0.5153, 0.0, 0.670, 0.794, 0.039], atol=5e-4)
@@ -310,11 +319,14 @@ def test_q2_readout_matches_an_episode_start_inside_a_window(kind: str) -> None:
         jnp.array([0.7, -0.3, -0.9, 0.4, 0.2, 0.8]),
     )
     resets, starts = jnp.array([0, 0, 1, 0, 1, 0], bool)[:, None], np.array([0, 2, 4])
-    x = jnp.concatenate([obs, acts[:, None]], -1)[:, None]
+    x = _q_input(obs[:, None], acts[:, None, None], resets)
     q = R.critic_sequence(n, x, resets)[:, 0]
     np.testing.assert_allclose(q[starts], _q0(n, acts[starts]), atol=1e-5)
-    fresh = R.critic_sequence(n, x[1:2], jnp.ones((1, 1), bool))[0, 0]
-    assert abs(q[1] - fresh) > 1e-4
+    one = jnp.ones((1, 1), bool)
+    fresh = R.critic_sequence(
+        n, _q_input(obs[1:2, None], acts[1:2, None, None], one), one
+    )
+    assert abs(q[1] - fresh[0, 0]) > 1e-4
     a = jnp.clip(R.actor_sequence(n, obs[:, None], resets).mean().reshape(-1), -1, 1)
     np.testing.assert_allclose(a[starts], _a0(n), atol=1e-5)
 

@@ -23,7 +23,6 @@ from ajax.agents.loop import TrainLoop, critic_step, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
-    bootstrap_cuts,
     q_values,
     sample_replay,
     stored_actor_carry_dim,
@@ -233,7 +232,8 @@ def update_value_functions(
 ) -> Tuple[TD3State, ValueAuxiliaries]:
     """The critic step on the smoothed, clipped double-Q target."""
     key, rng = jax.random.split(agent_state.rng)
-    dones = bootstrap_cuts(batch, carries)
+    # A truncated row bootstraps on its final observation (bootstrap_obs).
+    dones = batch.terminated
     target_q = compute_td3_td_target(
         agent_state.actor_state,
         agent_state.critic_state,

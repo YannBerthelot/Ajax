@@ -330,6 +330,11 @@ _GOLDEN: dict[str, dict[str, float]] = {
 # the critic tree lost the norm's scales (64 of the old 79.6) and the actor
 # moved 3.6%.
 _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
+# Recorded on macOS ARM CPU once a recurrent Q-critic embedded the
+# observation and the previous action before its memory and read the
+# current one at a head after it: new critic parameters (against the
+# head-only critic before it: +42.9% critic, +0.17% actor, -0.045% alpha).
+_GOLDEN |= {}
 # Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
@@ -377,9 +382,9 @@ _GOLDEN |= {
         "alpha": 0.9729597568511963,
     },
     "SAC-gru": {
-        "actor": 57.4627571105957,
-        "critic": 109.36508178710938,
-        "alpha": 0.9514929056167603,
+        "actor": 57.405818939208984,
+        "critic": 134.20553588867188,
+        "alpha": 0.9515719413757324,
     },
     "PPO-flat": {"actor": 4.138375282287598, "critic": 4.506361961364746},
     "PPO-env-split": {"actor": 3.0352354049682617, "critic": 4.100451469421387},

@@ -325,10 +325,25 @@ class Critic(nn.Module):
     # time-major (T, B, features) plus (hidden_state, done) and returns
     # (values, new_hidden_state).
     memory: Optional[MemoryConfig] = None
+    # A recurrent Q-critic's current action: the input's last ``query_dim``
+    # features skip the encoder and the memory, which read the rest (the
+    # observation and the previous action, :func:`action_value_input`), and
+    # join the memory's output at a head of the encoder's architecture. A
+    # queried action never feeds the carry (Ni et al. 2022's recurrent
+    # critic, embedders before the memory, the action at the head after it;
+    # cited from memory, unverified).
+    query_dim: int = 0
 
     def setup(self):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
+            if self.query_dim:
+                self.head = Encoder(
+                    input_architecture=self.input_architecture,
+                    kernel_init=self.encoder_kernel_init,
+                    bias_init=self.encoder_bias_init,
+                    layer_norm=self.encoder_layer_norm,
+                )
         if self.cnn_image_shape is not None:
             self.encoder = build_cnn_encoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
@@ -358,15 +373,17 @@ class Critic(nn.Module):
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
-        feat = self.encoder(x)
-        if self.memory is not None:
-            if hidden_state is None or done is None:
-                raise ValueError(
-                    "Recurrent Critic requires hidden_state and done flags."
-                )
-            hidden_state, feat = self.memory_cell(hidden_state, feat, done)
-            return self.model(feat), hidden_state
-        return self.model(feat)
+        if self.memory is None:
+            return self.model(self.encoder(x))
+        if hidden_state is None or done is None:
+            raise ValueError("Recurrent Critic requires hidden_state and done flags.")
+        query = None
+        if self.query_dim:
+            x, query = x[..., : -self.query_dim], x[..., -self.query_dim :]
+        hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
+        if query is not None:
+            feat = self.head(jnp.concatenate([feat, query], axis=-1))
+        return self.model(feat), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
         """Expose the encoder's features alone, without the value head.
@@ -400,6 +417,7 @@ class MultiCritic(nn.Module):
     # Optional memory block; each ensemble member owns its carry, stacked
     # on a leading axis: hidden_state leaves are (num, batch, hidden).
     memory: Optional[MemoryConfig] = None
+    query_dim: int = 0  # see Critic.query_dim
 
     def setup(self):
         # x (and done) are broadcast across the ensemble; the carry is
@@ -429,6 +447,7 @@ class MultiCritic(nn.Module):
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
             memory=self.memory,
+            query_dim=self.query_dim,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -447,6 +466,18 @@ class MultiCritic(nn.Module):
         identical inputs and only diverges via its init RNG.
         """
         return self.ensemble.apply_encoder(x)
+
+
+def action_value_input(
+    obs: jax.Array, action: jax.Array, previous_action: Optional[jax.Array] = None
+) -> jax.Array:
+    """A Q-critic's input: ``(obs, action)``, or, given the previous
+    action, the recurrent critic's ``(obs, previous_action, action)``: its
+    memory reads the observation and the previous action, the current
+    action joins at its head (``Critic.query_dim``)."""
+    if previous_action is None:
+        return jnp.concatenate([obs, action], axis=-1)
+    return jnp.concatenate([obs, previous_action, action], axis=-1)
 
 
 def get_initialized_actor_critic(
@@ -553,6 +584,7 @@ def get_initialized_actor_critic(
         cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
         memory=memory,
+        query_dim=action_dim if action_value and memory is not None else 0,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -586,7 +618,13 @@ def get_initialized_actor_critic(
         n_envs=env_config.n_envs,
     )
     critic_state = init_network_state(
-        init_x=jnp.hstack([init_obs, init_action]) if action_value else init_obs,
+        init_x=(
+            action_value_input(
+                init_obs, init_action, None if memory is None else init_action
+            )
+            if action_value
+            else init_obs
+        ),
         network=critic,
         key=critic_key,
         tx=critic_tx,

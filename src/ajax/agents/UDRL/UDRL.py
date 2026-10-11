@@ -52,10 +52,10 @@ class UDRL(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # If set, use a CNN encoder. Image is assumed to be packed as
-        # ``(*batch, H*W*C + 2)`` flat — the last 2 dims are the UDRL
-        # command, which is concatenated to the CNN embedding after the
-        # convolutions. None keeps the legacy MLP encoder.
+        # If set, use a CNN encoder (NetworkConfig.cnn_image_shape) on the
+        # env's flat (H*W*C,) image; the (d_r, d_h) command UDRL appends
+        # joins the CNN embedding after the convolutions. None keeps the
+        # MLP encoder.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
@@ -78,6 +78,7 @@ class UDRL(ActorCritic):
             # Kept from Ajax's earlier networks: a LayerNorm on the policy
             # encoder's output (the shared default is now a plain MLP).
             encoder_layer_norm=True,
+            cnn_image_shape=cnn_image_shape,
             extensions=extensions,
         )
 
@@ -96,11 +97,6 @@ class UDRL(ActorCritic):
             n_updates_per_iter=n_updates_per_iter,
             bc_loss_type=bc_loss_type,
         )
-        self.cnn_image_shape = cnn_image_shape
 
     def get_make_train(self):
-        return partial(
-            make_train,
-            cnn_image_shape=self.cnn_image_shape,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        return partial(make_train, extensions=tuple(self.extension_stack.extensions))

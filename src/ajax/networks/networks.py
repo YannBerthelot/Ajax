@@ -506,7 +506,6 @@ def get_initialized_actor_critic(
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     action_dim_override: Optional[int] = None,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     log_std_state_independent: bool = False,
     log_std_init: float = -1.0,
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -540,12 +539,9 @@ def get_initialized_actor_critic(
                 "penultimate_normalization is incompatible with memory."
             )
 
-    # Resolve the CNN encoder spec: an explicit arg (UDRL passes one)
-    # takes precedence, else fall back to the NetworkConfig field (the
-    # path SAC/PPO use). A CNN critic is only valid for state-value
-    # critics; an action-value critic (SAC's Q(s,a)) keeps the MLP.
-    if cnn_image_shape is None:
-        cnn_image_shape = network_config.cnn_image_shape
+    # A CNN critic is only valid for state-value critics; an action-value
+    # critic (SAC's Q(s,a)) keeps the MLP.
+    cnn_image_shape = network_config.cnn_image_shape
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
     # Dims appended to the env's observation at run time: the train

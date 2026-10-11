@@ -407,6 +407,16 @@ _GOLDEN |= {
         "nudge": 0.22634370625019073,
     },
 }
+# Recorded on macOS ARM CPU once ASAC's temperature and theta steps read one
+# sample of the updated policy (one actor pass fewer, one key fewer per
+# update): actor +0.034%, critic -0.015%, alpha +0.037%.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 4.501960754394531,
+        "critic": 9.954827308654785,
+        "alpha": 0.9729517102241516,
+    },
+}
 # Recorded on macOS ARM CPU before step 17 moved the world models onto
 # TrainLoop and tidied APG and UDRL (the world models once they took
 # TrainLoop's init and post_update keys). UDRL's critic and its actor's

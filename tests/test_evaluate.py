@@ -337,9 +337,6 @@ def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
         expert_buffer_n_steps=0,
         augment_obs_with_expert_action=True,
         use_train_frac=True,
-        # Without it, evaluating an agent on the training fraction recurses
-        # in log.py (getattr on the env state), a separate defect.
-        normalize_observations=True,
         **kwargs,
     )
     logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)

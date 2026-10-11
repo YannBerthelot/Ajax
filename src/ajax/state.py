@@ -115,10 +115,10 @@ def polynomial_schedule(train_time_fraction: float, p: int = 2) -> float:
 
 
 class LoadedStateMixin:
-    train_time_fraction: float = flax.struct.field(pytree_node=False)
+    """A state's view with the training fraction: ``make_loaded_state_class``
+    subclasses the state's class, so its fields are the view's own."""
 
-    def __getattr__(self, name):
-        return getattr(self._state, name)
+    train_time_fraction: float = flax.struct.field(pytree_node=False)
 
     @property
     def linear_schedule(self) -> float:

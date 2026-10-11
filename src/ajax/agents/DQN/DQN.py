@@ -7,6 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.base import ActorCritic
 from ajax.agents.DQN.state import DQNConfig
 from ajax.agents.DQN.train_DQN import make_train
+from ajax.agents.loop import LOOP_PHASES
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
@@ -22,6 +23,7 @@ class DQN(ActorCritic):
     """
 
     name: str = "DQN"
+    supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
 
     def __init__(
         self,

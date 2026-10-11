@@ -68,7 +68,7 @@ We are not in a rush; do things as cleanly as possible.
    each paper's algorithm and performance. Exact-output pins are change
    detectors, not truth; a behaviour-neutral change that shifts them only
    by floating-point drift re-records them in the same PR.
-3. **Small steps**, each PR green in CI before merging, and bisectable.
+3. **Small steps**, each green in CI before reaching main, and bisectable.
 4. **One source of truth per piece of knowledge.** Descendants import
    the parent's maths. Merge only what is truly the same; abstract on the
    third occurrence, not the second.
@@ -84,7 +84,14 @@ We are not in a rush; do things as cleanly as possible.
 10. **Expand, then contract** for public names, checkpoints and config
     keys: add the new form, migrate the downstream projects, then remove
     the old.
-11. **One concern per PR**, small enough to read.
+11. **One concern per branch, one CI run per batch.** Each concern is its
+    own branch and commits, small enough to read. Related concerns are
+    merged (with merge commits, no CI) into a `batch/<theme>` branch of
+    about 4-8 concerns, and one PR from the batch to main runs the full
+    CI; it merges with a merge commit so each concern stays revertible.
+    A large behaviour change gets its own PR to main. A red batch is
+    fixed on the batch branch, or the culprit's merge is reverted and it
+    ships in the next batch.
 
 ### Extensions are self-contained
 

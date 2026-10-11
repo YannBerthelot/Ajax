@@ -20,7 +20,6 @@ except ImportError:
 
 from ajax.environments.create import prepare_env
 from ajax.extensions.base import (
-    PHASES,
     Extension,
     ExtensionStack,
     check_extension_phases,
@@ -87,13 +86,10 @@ class ActorCritic:
     supports_memory: bool = False
     # Extension phases this agent's training loop folds; an extension that
     # implements any other phase is rejected at construction instead of
-    # being silently ignored. The check is opt-in per agent: the default
-    # (every phase) checks nothing, and the existing agents keep it, so an
-    # extension implementing a phase one of them does not fold (e.g.
-    # `critic_loss` on APG) is still ignored there. Agents that own their
-    # training loop (e.g. the world-model agents) declare the phases they
-    # fold.
-    supported_extension_phases: frozenset = frozenset(PHASES)
+    # being silently ignored. Each agent declares the phases it folds (on
+    # the shared loop: ajax.agents.loop.LOOP_PHASES plus its update's); the
+    # default accepts none.
+    supported_extension_phases: frozenset = frozenset()
 
     def __init__(  # pylint: disable=W0102, R0913
         self,

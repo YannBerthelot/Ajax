@@ -181,6 +181,13 @@ def pre_train(
 
     def actor_loss_fn(params, batch_obs, batch_actions):
         pi = bc_actor_state.apply_fn(params, batch_obs)
+        from ajax.agents.TD3.networks import Deterministic
+
+        if isinstance(pi, Deterministic):
+            # A deterministic actor (TD3's) has no distribution to fit, nor
+            # a pre-tanh mean: either loss regresses its action on the
+            # expert's (its log_prob is minus the squared error).
+            return -pi.log_prob(batch_actions).sum(-1, keepdims=True).mean()
         if bc_loss_type == "nll":
             # NLL with log_std lower-clipped at bc_min_log_std (prevents
             # entropy collapse on saturated samples, where scale → 0 would

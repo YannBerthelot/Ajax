@@ -36,6 +36,12 @@ Re-captured when the shared encoder's output LayerNorm became opt-in (SAC's
 networks are plain MLPs): every fingerprint lost the norm's scales, 256 per
 encoder (critic about 1038 -> 525..552, actor 517 -> 267..271, target 1034
 -> 522), alpha moved by at most 0.04%.
+
+Re-captured when, on those plain MLPs, SAC drew its warm-up decision and
+its uniform action from separate keys and CriticBlend kept reward, discount
+and done mask in its target: the stacks that warm up through an expert moved
+by 1.1e-3..4.5e-3, the empty stack, ValueBox and the residual policy not at
+all (2e-7 at most).
 """
 
 from __future__ import annotations
@@ -51,7 +57,6 @@ import pytest
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import (
     ExpertGuidance,
-    ExpertObsAugmentation,
     JSRLCurriculum,
     OnlineBC,
     ResidualPolicy,
@@ -341,10 +346,8 @@ def test_expert_obs_aug_constructs_and_trains():
         expert_policy=expert,
         expert_buffer_n_steps=0,
         expert_mix_fraction=0.0,
-        # The ``augment_obs_with_expert_action`` flag is still required on
-        # the SAC class because it changes the network input dim (init_SAC
-        # / collect_experience). The :class:`ExpertObsAugmentation`
-        # extension carries the runtime ``detach`` stop-gradient.
+        # The flag changes the network input dim (init_SAC /
+        # collect_experience).
         augment_obs_with_expert_action=True,
         extensions=(
             ExpertGuidance(
@@ -352,7 +355,6 @@ def test_expert_obs_aug_constructs_and_trains():
                 expert_buffer_n_steps=0,
                 expert_mix_fraction=0.0,
             ),
-            ExpertObsAugmentation(expert_policy=expert, detach=False),
         ),
     )
     state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)

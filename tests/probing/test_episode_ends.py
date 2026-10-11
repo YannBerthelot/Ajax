@@ -30,10 +30,10 @@ from ajax.networks.networks import predict_value
 from . import agents, envs, oracles, runs
 from . import readouts as R
 from .oracles import RIGHT, Rule
-from .verdict import STAGE_1, Case, Query, check, params, xparam
+from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "67a787ddb67b"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "d2d0b8159e97"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -393,18 +393,12 @@ class RecordTargetBatch(Extension):
 
 @pytest.mark.parametrize(
     "cell",
-    [
-        *("DQN", "TD3", "REDQ", "AVG", "ASAC"),
-        xparam(
-            "PQN",
-            "PQN's on_target batch carries raw rewards and no reward_scale (train_PQN.py:182-190) while its target scales them (:169); right reward_scale 2 in the batch, today absent (an extension rebuilding the target from batch['rewards'] reads 1, not 2)",
-        ),
-    ],
+    ["SAC", "DQN", "PQN", "TD3", "REDQ", "AVG", "ASAC"],
 )
 def test_p5_on_target_batch_states_its_reward_scale(cell: str) -> None:
     """Rewards reach every on_target batch unscaled, so the batch states the
-    scale the target applies (2); traced on one seed, never run. SAC's batch
-    carries no rewards (train_SAC.py:370-403); PPO and APO have no scale."""
+    scale the target applies (2); traced on one seed, never run. PPO and APO
+    have no scale."""
     label = f"{cell}-{len(SEEN)}"
     ext = (RecordTargetBatch(label),)
     agent = _asac(ext) if cell == "ASAC" else _scaled(cell, ext)
@@ -490,14 +484,13 @@ LEVELS = {  # p_0 falls back to ASACConfig's 10 / no penalty, or B06 / sign flip
 THETA = Query(
     "theta - alpha*H",
     S5 * R_PEN,
-    LEVELS
-    | {"theta averages unscaled rewards (today)": R_PEN, "theta never updated": 0.0},
+    LEVELS | {"theta averages unscaled rewards": R_PEN, "theta never updated": 0.0},
 )
 ORIGIN = Query(
     "Q(0,0)",
     0.0,
     {
-        "theta in unscaled units (today)": (S5 - 1.0) * R_PEN,
+        "theta in unscaled units": (S5 - 1.0) * R_PEN,
         "theta never updated": S5 * R_PEN,
         "theta sign flipped in the target (A01)": (S5 + 1.0) * R_PEN,
     },
@@ -556,27 +549,21 @@ def _asac_read(run: runs.Run) -> dict:
     )
 
 
-# Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified on 3000-3031;
-# the two xfails with the units fix planted (update_theta fed rewards *
-# reward_scale, train_ASAC.py:455), which turns them XPASS. The tolerances
-# are half the gap, not 0.1: levels of size 8 carry buffer and critic noise.
-# theta's step holds both units (today -0.65 to -0.41; fixed +0.34 to +0.58);
-# at 4500 steps today's reads -1, so the budget must not move.
-UNITS = "ASAC's target scales the rewards (train_ASAC.py:153) but update_theta averages them unscaled (:392, called at :455)"
+# Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified on 3000-3031,
+# theta and the origin with update_theta fed rewards * reward_scale (the
+# units fix since made). The tolerances are half the gap, not 0.1: levels of
+# size 8 carry buffer and critic noise. theta's step holds both units
+# (unscaled -0.65 to -0.41; scaled +0.34 to +0.58); at 4500 steps the
+# unscaled theta reads -1, so the budget must not move.
 ASAC_RUN = runs.readings(lambda: _asac((ASAC_TRACE,)), _asac_read)
-for part, queries, tols, why in (
-    ("theta", (THETA,), (1.08,), f"{UNITS}; right theta - alpha*H = -8, today -4"),
-    (
-        "origin",
-        (ORIGIN,),
-        (0.91,),
-        f"{UNITS}, so the critic's origin settles at (s - 1) E[r_pen]; right Q(0,0) = 0, today -4",
-    ),
-    ("levels", (PENALTY, CRITIC), (0.074, 1.44), ""),
-    ("steps", (THETA_STEP, PEN_STEP), (1.29, 0.178), ""),
+for part, queries, tols in (
+    ("theta", (THETA,), (1.08,)),
+    ("origin", (ORIGIN,), (0.91,)),
+    ("levels", (PENALTY, CRITIC), (0.074, 1.44)),
+    ("steps", (THETA_STEP, PEN_STEP), (1.29, 0.178)),
 ):
     CASES[f"p5-ASAC-{part}"] = Case(
-        f"p5-ASAC-{part}", queries, ASAC_RUN, 3000, tols, why, ceiling=math.inf
+        f"p5-ASAC-{part}", queries, ASAC_RUN, 3000, tols, ceiling=math.inf
     )
 
 # APO (alpha 0.1, 32-step rollouts): average_reward 1, stepping by 0.0181

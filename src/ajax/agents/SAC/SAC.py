@@ -6,7 +6,9 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.cloning import CloningConfig
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
+from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.environments.utils import (
@@ -45,6 +47,14 @@ class SAC(ActorCritic):
 
     name: str = "SAC"
     supports_memory: bool = True
+    # ``action`` reaches only the action pipeline's slots, with an expert
+    # policy (check_action_extensions).
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target",
+        "critic_loss",
+        "actor_loss",
+        "action",
+    }
 
     def __init__(
         self,
@@ -126,8 +136,7 @@ class SAC(ActorCritic):
         # own the equivalent for the MC path via ``n_steps``.
         mc_pretrain_n_steps: int = 5_000,
         # Obs augmentation: changes init_SAC / collect_experience
-        # network input dim. The runtime stop-gradient on the augmented
-        # dims lives on :meth:`ExpertObsAugmentation.on_obs`.
+        # network input dim.
         augment_obs_with_expert_action: bool = False,
         use_bellman_critic_pretrain: bool = False,
         # Train-fraction conditioning: append timestep/total_timesteps
@@ -194,6 +203,10 @@ class SAC(ActorCritic):
         )
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("SAC only supports continuous action spaces.")
+        check_action_extensions(
+            self.extension_stack,
+            dispatched=expert_policy is not None and not use_pid_policy,
+        )
 
         # Gain-policy mode: actor outputs PID gains (see make_action_pipeline).
         # Critic / buffer / target_entropy then operate in gain-space.

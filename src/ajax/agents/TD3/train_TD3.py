@@ -19,7 +19,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import CloningConfig, pretrain_on_expert
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop, critic_step, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -236,7 +236,6 @@ def update_value_functions(
 ) -> Tuple[TD3State, ValueAuxiliaries]:
     """The critic step on the smoothed, clipped double-Q target."""
     key, rng = jax.random.split(agent_state.rng)
-    step = agent_state.collector_state.timestep
     dones = bootstrap_cuts(batch, carries)
     target_q = compute_td3_td_target(
         agent_state.actor_state,
@@ -251,39 +250,25 @@ def update_value_functions(
         agent_config.reward_scale,
         carries,
     )
-    target_batch = {
-        "observations": batch.obs,
-        "actions": batch.action,
-        "next_observations": batch.next_obs,
-        "rewards": batch.reward,
-        "dones": dones,
-        "gamma": agent_config.gamma,
-        "reward_scale": agent_config.reward_scale,
-    }
-    target_q = jax.lax.stop_gradient(
-        extension_stack.fold_on_target(
-            agent_state, target_batch, target_q, step, key, total_timesteps
+
+    def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
+        return value_loss_function(
+            params, agent_state.critic_state, batch.obs, batch.action, target_q, carries
         )
+
+    critic_state, aux = critic_step(
+        agent_state,
+        batch,
+        target_q,
+        value_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        rewards=batch.reward,
+        dones=dones,
+        gamma=agent_config.gamma,
+        reward_scale=agent_config.reward_scale,
     )
-    critic_state = agent_state.critic_state
-
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
-        loss, aux = value_loss_function(
-            params, critic_state, batch.obs, batch.action, target_q, carries
-        )
-        loss_batch = {
-            "observations": batch.obs,
-            "actions": batch.action,
-            "targets": target_q,
-            "critic_params": params,
-            "critic_state": critic_state,
-        }
-        extra = extension_stack.fold_critic_loss(
-            agent_state, loss_batch, step, key, total_timesteps
-        )
-        return loss + extra, aux
-
-    critic_state, aux = gradient_step(critic_state, loss_fn)
     return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 

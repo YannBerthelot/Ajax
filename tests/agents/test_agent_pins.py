@@ -48,8 +48,8 @@ def _checksum(tree: Any) -> jax.Array:
 
 @dataclass(frozen=True)
 class Nudge(Extension):
-    """Touches every phase the on-policy and value agents fold, its state
-    drawn from the keys they hand it."""
+    """Touches every phase the on-policy agents fold, its state drawn from
+    the keys they hand it (agents reject the phases they do not fold)."""
 
     name: str = "nudge"
 
@@ -72,6 +72,22 @@ class Nudge(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {"nudge": ext_state}
+
+
+@dataclass(frozen=True)
+class ValueNudge(Nudge):
+    """Nudge on the value agents (DQN, PQN), which fold no actor loss."""
+
+    actor_loss = Extension.actor_loss
+
+
+@dataclass(frozen=True)
+class ActorNudge(Nudge):
+    """Nudge on the agents training an actor alone (UDRL, APG), which fold
+    no target and no critic loss."""
+
+    on_target = Extension.on_target
+    critic_loss = Extension.critic_loss
 
 
 @dataclass(frozen=True)
@@ -158,7 +174,7 @@ _APG: dict[str, Any] = {
     "n_envs": 2,
     "horizon": 8,
     "actor_architecture": ("16", "relu"),
-    "extensions": (Nudge(),),
+    "extensions": (ActorNudge(),),
 }
 _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "ASAC": (ASAC, {**_SMALL, **_REPLAY}, 200),
@@ -258,11 +274,11 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         256,
     ),
     "PQN": (PQN, _PQN, 512),
-    "PQN-nudge": (PQN, {**_PQN, "extensions": (Nudge(),)}, 512),
+    "PQN-nudge": (PQN, {**_PQN, "extensions": (ValueNudge(),)}, 512),
     "DQN": (DQN, _DQN, 200),
     "DQN-dueling-nudge": (
         DQN,
-        {**_DQN, "q_network_cls": DuelingQNetwork, "extensions": (Nudge(),)},
+        {**_DQN, "q_network_cls": DuelingQNetwork, "extensions": (ValueNudge(),)},
         200,
     ),
     # 40 ticks of 2 rows; the first update after tick 9, one per row after.
@@ -291,7 +307,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "batch_size": 16,
             "buffer_capacity": 8,
             "n_updates_per_iter": 4,
-            "extensions": (Nudge(),),
+            "extensions": (ActorNudge(),),
         },
         128,
     ),

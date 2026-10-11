@@ -332,7 +332,7 @@ class EDGEExploration(Extension):
         phases). The pipeline pre-computes every operand the six gate
         variants share: ``policy_action``, ``expert_action``,
         ``obs_for_edge`` (already augmented with the expert-action dims
-        when ``ExpertObsAugmentation`` is active), ``edge_critic_params``
+        under ``augment_obs_with_expert_action``), ``edge_critic_params``
         (the frozen expert critic if MC pretraining ran, else the live
         critic params), the running ``post_warmup_action``, and the
         gate's mutable rng (``gate_rng``) — updated in-place so the

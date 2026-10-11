@@ -105,13 +105,11 @@ extensions traces nothing extra and never guards a fold.
 | --- | --- | --- |
 | `init_state(agent_state, rng)` | returns the extension's state (`()`: none) | every agent, fresh runs only |
 | `pretrain(agent_state, ext_state, ctx)` | one-shot step before training | every agent, fresh runs only |
-| `on_obs(obs, ext_state, ctx)` | transforms an observation | SAC, in its actor loss only |
-| `on_batch(batch, ext_state, ctx)` | transforms a sampled batch | no agent yet |
 | `on_target(agent_state, ext_state, batch, target, ctx)` | transforms the TD or value target | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
 | `critic_loss(agent_state, ext_state, batch, ctx)` | adds a term to the critic loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO; DQN (without gradient) |
 | `actor_loss(agent_state, ext_state, batch, ctx)` | adds a term to the actor loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, ctx)` | overrides the collection action (`None` defers) | SAC with an `expert_policy`, for extensions with an `action_slot` |
-| `eval_action(agent_state, ext_state, obs, rng, ctx)` | overrides the evaluation action | no agent generically (SAC wires `ResidualPolicy` itself) |
+| `eval_action(agent_state, ext_state, obs, rng, ctx)` | overrides the evaluation action | no agent yet |
 | `post_update(agent_state, ext_state, ctx)` | runs after each update | every agent |
 | `eval_metrics(agent_state, ext_state, rng, ctx)` | adds metrics to each evaluation | every agent |
 
@@ -119,17 +117,18 @@ extensions traces nothing extra and never guards a fold.
 test-only extensions of known effect, and keeps each gap above visible as a
 strict xfail naming it.
 
-An agent may list the phases it folds in `supported_extension_phases`, so an
-extension implementing another phase is rejected when the agent is built
-instead of being silently ignored. DreamerV3, TDMPC2 and TDMPC2MultiTask do;
-the others keep the default (every phase), so they still ignore such phases.
+Every agent lists the phases it folds in `supported_extension_phases`: the
+shared loop's `LOOP_PHASES` (`pretrain`, `post_update`, `eval_metrics`, in
+`ajax.agents.loop`) plus those its update folds; the base class's default is
+empty. An extension implementing any other phase is rejected when the agent
+is built instead of being silently ignored.
 
 What changes during training lives in `agent_state.ext_state` (one entry per
 extension), never on `self`: extensions are static arguments of the compiled
 program, so they stay hashable and unchanged. An extension that needs what
 the agent builds (environment, network config, buffer, discount) overrides
 `bind_to_agent(**agent_context)` to return a new instance holding it, as
-`ExpertObsAugmentation` does; only SAC and DreamerV3 call it. The batch a
+`MCPretrain` does; only SAC and DreamerV3 call it. The batch a
 phase receives is a dictionary whose keys differ by agent: read the agent's
 fold call before relying on one.
 
@@ -217,9 +216,9 @@ class FOO(ActorCritic):
 
     name: str = "FOO"
     # The phases the loop folds, plus those FOO's update folds.
-    supported_extension_phases: frozenset = frozenset(
-        {"pretrain", "post_update", "eval_metrics", "on_target", "critic_loss", "actor_loss"}
-    )
+    supported_extension_phases: frozenset = LOOP_PHASES | {
+        "on_target", "critic_loss", "actor_loss"
+    }
 
     def __init__(
         self, env_id: str | EnvType, n_envs: int = 1, gamma: float = 0.99,

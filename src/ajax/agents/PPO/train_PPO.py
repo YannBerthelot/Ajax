@@ -484,6 +484,8 @@ def _force_reset(
     normalises it, is normalised with them instead. Gymnax keeps one
     normaliser per env (each restarts from its own observation), brax one
     for the batch.
+    The cut episodes are abandoned, not finished: the next return starts
+    from zero.
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
@@ -504,8 +506,12 @@ def _force_reset(
             new_env_state = new_env_state.replace(obs=new_obs, info=info)
         else:
             new_env_state = new_env_state.replace(normalization_info=saved)
+    returns = agent_state.collector_state.episodic_return_state
+    returns = returns.replace(
+        cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
+    )
     new_collector = agent_state.collector_state.replace(
-        _env_state=new_env_state, last_obs=new_obs
+        _env_state=new_env_state, last_obs=new_obs, episodic_return_state=returns
     )
     return agent_state.replace(collector_state=new_collector, rng=new_rng)
 

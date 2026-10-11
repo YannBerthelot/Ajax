@@ -21,6 +21,7 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
 from ajax.agents.TDMPC2.state import TDMPC2Config
@@ -113,9 +114,7 @@ class TDMPC2(ActorCritic):
     """
 
     name: str = "TDMPC2"
-    supported_extension_phases: frozenset = frozenset(
-        {"pretrain", "post_update", "eval_metrics"}
-    )
+    supported_extension_phases: frozenset = LOOP_PHASES
 
     def __init__(
         self,

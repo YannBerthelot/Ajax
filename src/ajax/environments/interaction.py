@@ -1092,6 +1092,16 @@ def collect_experience_from_expert_policy(
             )
         )
 
+        # Build transition — prefer the env's final observation so truncation
+        # bootstraps on V(s_final), not V(s_reset).
+        next_obs = get_final_obs(info, obsv)
+        # The expert's action there, on its state after this step (the live
+        # collector's next_a_expert), before an episode end resets the state.
+        if expert_is_stateful:
+            next_action, _ = expert_policy(new_expert_state, next_obs)
+        else:
+            next_action = jax.vmap(expert_policy, in_axes=0)(next_obs)
+
         # Reset expert state on episode end so the integrator restarts
         # at the start of the next episode (autoreset has already produced
         # a fresh first obs in `obsv`).
@@ -1107,10 +1117,6 @@ def collect_experience_from_expert_policy(
                 new_expert_state,
                 zero_state,
             )
-
-        # Build transition — prefer the env's final observation so truncation
-        # bootstraps on V(s_final), not V(s_reset).
-        next_obs = get_final_obs(info, obsv)
 
         # When augment_obs_with_expert_state is on, mirror the live
         # collector: append the BEFORE-expert state to obs, and the
@@ -1136,6 +1142,9 @@ def collect_experience_from_expert_policy(
             terminated=terminated[:, None],
             truncated=truncated[:, None],
             next_obs=next_obs_aug,
+            raw_obs=raw_obs,
+            a_expert=action,
+            next_a_expert=next_action,
         )
 
         new_rng, _ = jax.random.split(rng)

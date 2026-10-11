@@ -26,10 +26,10 @@ from ajax.wrappers import InitialStateWrapper
 
 from . import agents, envs, runs
 from . import readouts as R
-from .verdict import STAGE_1, Case, Query, check, params, xfail, xparam
+from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a8c5ecad49aa"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "23895d40fb8e"  # verdict.digest(CASES): every answer, pinned
 L = 7
 
 
@@ -228,9 +228,6 @@ def test_p2_train_return_in_raw_units_with_normalized_rewards(agent: str) -> Non
     assert not wrong, wrong
 
 
-@xfail(
-    "PPO's _force_reset replaces the env state, last_obs and rng but not episodic_return_state.cumulative_reward (train_PPO.py:1282-1323): the cut episode's 32 mod 7 = 4 steps carry over; right every return 7, today 16 of 80 are 11 (mean 7.8)"
-)
 def test_p2_ppo_forced_reset_starts_each_return_at_zero() -> None:
     """A reset after every 32-step rollout (num_evals 45: reset_every 1)."""
     r = p2_run("PPO", 1, num_resets_per_eval=1, num_evals=45)
@@ -311,9 +308,6 @@ def episodes(done: np.ndarray) -> list[tuple[int, int]]:
     return [(int(e) - EP + 1, int(e)) for e in np.flatnonzero(done > 0) if e >= EP - 1]
 
 
-@xfail(
-    "UDRL's top-K command statistics restart their running sums at every segment (UDRL/buffer.py:194), so each 8-step episode counts as its last 4-step fragment; right command_target_horizon 8.0, today 4.0"
-)
 def test_p7_command_target_describes_whole_episodes() -> None:
     """32 segments into 16 slots, top 4 of 8 episodes: target horizon 8, target
     return the top-4 whole-episode mean, every start commanded horizon 8."""
@@ -613,7 +607,7 @@ def _q4_read(run: runs.Run) -> dict:
 
 
 Q4_READ, Q4_BUDGET = runs.readings(_q4_sac, _q4_read), 32_000
-SAME = "the decision's draw reused for this cell (today: env 0, dim 0)"
+SAME = "the decision's draw reused for this cell (on mix_key: env 0, dim 0)"
 Q4_UNIFORM: list[Query] = []
 for _e, _d in CELLS:
     Q4_UNIFORM += [Query(f"mean a[env {_e}, dim {_d}]", 0.0, {SAME: 0.7})]
@@ -623,7 +617,6 @@ CASES["q4-SAC-uniform"] = Case(
     tuple(Q4_UNIFORM),
     Q4_READ,
     Q4_BUDGET,
-    defect="one mix_key draws both the warm-up decision and the uniform action (agents/SAC/action_pipeline.py); right env 0 dim 0 mean 0 and share below 0.4 = 0.7, today 0.70 and 0.0",
 )
 ONE, SHARE_WRONG = {"one draw shared by the two cells": 1.0}, {"expert never used": 0.0}
 CASES["q4-SAC-independence"] = Case(

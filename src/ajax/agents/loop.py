@@ -65,6 +65,12 @@ from ajax.perf_utils import build_resumable_train
 from ajax.state import EnvironmentConfig
 from ajax.utils import fill_with_nan
 
+#: The extension phases the loop folds for every agent: a fresh run's
+#: one-shot ``pretrain``, ``post_update`` after each update and
+#: ``eval_metrics`` at each evaluation. An agent adds the phases its own
+#: update folds (``ActorCritic.supported_extension_phases``).
+LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics"})
+
 #: ``init(key, pretrain_key) -> agent_state``: a fresh agent state. Any
 #: one-shot pretraining (behaviour cloning) draws on ``pretrain_key``, from
 #: which the loop also derives the extensions' keys.
@@ -588,6 +594,7 @@ class TrainLoop:
 
 
 __all__ = [
+    "LOOP_PHASES",
     "Evaluation",
     "TrainLoop",
     "critic_step",

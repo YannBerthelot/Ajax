@@ -5,6 +5,7 @@ from typing import Callable, Optional
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
+from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
@@ -22,6 +23,7 @@ class PQN(ActorCritic):
     """
 
     name: str = "PQN"
+    supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
 
     def __init__(
         self,

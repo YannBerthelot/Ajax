@@ -18,8 +18,9 @@ These reshape the SAC Bellman target before it enters the critic loss
 The ``batch`` argument to ``on_target`` is the dict SAC's
 ``update_value_functions`` builds: ``observations``, ``actions``,
 ``next_observations``, ``rewards`` (unscaled), ``reward_scale``, ``dones``,
-``rng_key``, ``q_preds``, ``gamma``, ``augment_obs_with_expert_action``,
-``recurrent``.
+``rng_key``, ``q_preds``, ``gamma``, ``raw_next_observations`` (the
+environment's own next observations, which an extension's expert reads:
+SAC keeps them when an extension carries an expert) and ``recurrent``.
 """
 
 from __future__ import annotations
@@ -123,14 +124,6 @@ def box_action_override(
     return jnp.where(in_box, expert_action, action)
 
 
-def _next_raw(batch: dict) -> jax.Array:
-    """Strip the trailing expert-action dims if obs is augmented."""
-    next_obs = batch["next_observations"]
-    if batch.get("augment_obs_with_expert_action", False):
-        return next_obs[..., :-1]
-    return next_obs
-
-
 def _next_target_q(
     expert_policy: Callable, agent_state: Any, batch: dict
 ) -> tuple[jax.Array, jax.Array]:
@@ -143,7 +136,8 @@ def _next_target_q(
         x = jnp.concatenate((next_observations, actions), axis=-1)
         return predict_value(critic_state, critic_state.target_params, x)
 
-    next_expert_actions = jax.lax.stop_gradient(expert_policy(_next_raw(batch)))
+    raw_next = batch["raw_next_observations"]
+    next_expert_actions = jax.lax.stop_gradient(expert_policy(raw_next))
     next_pi, _ = get_pi(
         actor_state=agent_state.actor_state,
         actor_params=agent_state.actor_state.params,
@@ -269,7 +263,8 @@ class CriticBlend(Extension):
             return target
 
         next_observations = batch["next_observations"]
-        a_expert_next = jax.lax.stop_gradient(self.expert_policy(_next_raw(batch)))
+        raw_next = batch["raw_next_observations"]
+        a_expert_next = jax.lax.stop_gradient(self.expert_policy(raw_next))
         v_expert_next = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(

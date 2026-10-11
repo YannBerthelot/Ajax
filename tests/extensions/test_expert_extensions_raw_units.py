@@ -6,10 +6,11 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from ajax import SAC
-from ajax.extensions.pretrain import MCPretrain
-from ajax.extensions.target_mods import CriticBlend
+from ajax.extensions.pretrain import MCPretrain, PhiRefresh
+from ajax.extensions.target_mods import IBRL, CriticBlend, LCBGatedBootstrap
 
 
 class _RecordingExpert:
@@ -67,3 +68,24 @@ def test_critic_blend_gives_its_expert_every_observation_column():
     expert = _RecordingExpert()
     for seen in _seen(expert, _mc(expert), CriticBlend(expert_policy=expert)):
         assert seen.shape[-1] == 3, seen.shape
+
+
+STACKS = {  # each extension, MC pretraining first where it reads phi*
+    "IBRL": lambda e: (IBRL(expert_policy=e),),
+    "LCBGatedBootstrap": lambda e: (LCBGatedBootstrap(expert_policy=e),),
+    "CriticBlend": lambda e: (_mc(e), CriticBlend(expert_policy=e)),
+    "PhiRefresh": lambda e: (_mc(e), PhiRefresh(expert_policy=e, interval=16, steps=2)),
+}
+
+
+@pytest.mark.parametrize("name", list(STACKS))
+def test_the_extensions_expert_reads_raw_observations(name):
+    """With the environment normalising observations and the agent
+    conditioning on the training fraction, every observation batch the
+    extension's expert is given, current or next, is Pendulum's own: three
+    columns with cos^2 + sin^2 = 1, which normalised ones break."""
+    expert = _RecordingExpert()
+    kw = {"normalize_observations": True, "use_train_frac": True}
+    for seen in _seen(expert, *STACKS[name](expert), **kw):
+        assert seen.shape[-1] == 3, seen.shape
+        np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)

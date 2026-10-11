@@ -94,12 +94,17 @@ def test_atomic_save_tmp_cleanup(tmp_path):
     assert not os.path.exists(path + ".tmp")
 
 
-def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
-    tmp_path,
+@pytest.mark.parametrize(
+    "field, source", [("next_obs", "obs"), ("raw_next_obs", "raw_obs")]
+)
+def test_a_replay_buffer_saved_without_a_next_field_restores_with_the_next_rows(
+    tmp_path, field, source
 ):
-    """A checkpoint from before the replay buffer stored ``next_obs`` resumes
-    with each row's successor there, what its replay bootstrapped on then."""
+    """A checkpoint from before the replay buffer stored ``next_obs`` (or
+    ``raw_next_obs``, kept when an extension carries its own expert)
+    resumes with each row's successor there, what its replay read then."""
     from ajax.agents.SAC.SAC import SAC
+    from ajax.extensions.target_mods import IBRL
 
     net = ("8", "relu")
     agent = SAC(
@@ -110,17 +115,18 @@ def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
         learning_starts=100,
         batch_size=4,
         buffer_size=40,
+        extensions=(IBRL(expert_policy=lambda obs: obs[..., :1]),),
     )
     state, _ = agent.train(seed=0, n_timesteps=10)
     buffer = state.collector_state.buffer_state
-    rows = {k: v for k, v in buffer.experience.items() if k != "next_obs"}
+    rows = {k: v for k, v in buffer.experience.items() if k != field}
     old = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
     path = str(tmp_path / "old.pkl")
     save_checkpoint(state.replace(collector_state=old), path)
     got = restore_into(state, path).collector_state.buffer_state.experience
-    obs = np.asarray(rows["obs"])
-    np.testing.assert_array_equal(got["next_obs"][..., :-1, :], obs[..., 1:, :])
-    np.testing.assert_array_equal(got["next_obs"][..., -1, :], obs[..., 0, :])
+    obs = np.asarray(rows[source])
+    np.testing.assert_array_equal(got[field][..., :-1, :], obs[..., 1:, :])
+    np.testing.assert_array_equal(got[field][..., -1, :], obs[..., 0, :])
 
 
 def test_agent_train_returns_tuple_shape():

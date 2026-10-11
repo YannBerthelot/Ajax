@@ -52,6 +52,8 @@ def collect_and_store_expert_transitions(
             "a_expert": step.a_expert,
             "next_a_expert": step.next_a_expert,
         }
+        if "raw_next_obs" in schema:
+            row["raw_next_obs"] = step.raw_next_obs
         row = {k: v.astype(schema[k].dtype) for k, v in row.items()}
         return buffer.add(buffer_state, row), None
 

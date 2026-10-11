@@ -52,6 +52,9 @@ class Transition:
     # on (clip(a_expert + scale * a_pi, -1, 1)). Without this the target
     # is OOD for the critic and training diverges.
     next_a_expert: Optional[jnp.ndarray] = None
+    # The environment's own observation at s_{t+1} (the final one where an
+    # episode ended), as raw_obs is at s_t: what an expert reads there.
+    raw_next_obs: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

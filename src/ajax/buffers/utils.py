@@ -60,6 +60,7 @@ def init_buffer(
     expert_state_aug_dim: int = 0,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
+    include_raw_next_obs: bool = False,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
@@ -70,6 +71,9 @@ def init_buffer(
     expert_state_aug_dim: extra trailing obs dims reserved for the
       flattened expert internal state when running with
       `augment_obs_with_expert_state=True`. 0 disables.
+    include_raw_next_obs: also keep the environment's own next observation
+      (the final one where an episode ended), ``raw_next_obs``, as
+      ``raw_obs`` keeps the current one, for an expert to read.
     """
     observation_shape, action_shape = get_state_action_shapes(env_args.env)
     if action_dim_override is not None:
@@ -115,6 +119,8 @@ def init_buffer(
         )
         schema["a_expert"] = a_expert
         schema["next_a_expert"] = a_expert
+    if include_raw_next_obs:
+        schema["raw_next_obs"] = raw_obsv
     if actor_carry_dim > 0:
         # R2D2-style stored-state replay: the actor's flattened carry at
         # each step (see ajax.networks.memory.flatten_carry).
@@ -162,6 +168,13 @@ def get_sequence_batch_from_buffer(
     """
     batch = buffer.sample(buffer_state, key).experience  # (B, L, ...)
     return jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), batch)
+
+
+@partial(jax.jit, static_argnames=["buffer"])
+def get_raw_next_obs_from_buffer(buffer: BufferType, buffer_state, key):
+    """The environment's own next observations of the batch ``key`` samples
+    (the key of the matching :func:`get_batch_from_buffer` call)."""
+    return buffer.sample(buffer_state, key).experience.first["raw_next_obs"]
 
 
 @partial(jax.jit, static_argnames=["buffer"])

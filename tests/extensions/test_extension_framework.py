@@ -20,6 +20,22 @@ def _ctx(step: int = 0) -> ExtensionContext:
     )
 
 
+class AddTarget(Extension):
+    def __init__(self, delta):
+        self.delta = delta
+
+    def on_target(self, agent_state, ext_state, batch, target, ctx):
+        return target + self.delta
+
+
+class Counter(Extension):
+    def init_state(self, agent_state, rng):
+        return jnp.asarray(0)
+
+    def post_update(self, agent_state, ext_state, ctx):
+        return agent_state, ext_state + 1
+
+
 # --------------------------------------------------------------------------
 # Extension base class — every phase defaults to a no-op
 # --------------------------------------------------------------------------
@@ -88,13 +104,6 @@ def test_empty_stack_is_noop():
 # ExtensionStack — folds extensions in list order
 # --------------------------------------------------------------------------
 def test_stack_folds_transforms_and_sums_losses():
-    class AddTarget(Extension):
-        def __init__(self, delta):
-            self.delta = delta
-
-        def on_target(self, agent_state, ext_state, batch, target, ctx):
-            return target + self.delta
-
     class ConstCriticLoss(Extension):
         def __init__(self, value):
             self.value = value
@@ -143,13 +152,6 @@ def test_action_last_non_none_wins():
 # Stateful extension — init_state + post_update threaded through a scan
 # --------------------------------------------------------------------------
 def test_stateful_extension_through_scan():
-    class Counter(Extension):
-        def init_state(self, agent_state, rng):
-            return jnp.asarray(0)
-
-        def post_update(self, agent_state, ext_state, ctx):
-            return agent_state, ext_state + 1
-
     stack = ExtensionStack([Counter()])
     ext_states = stack.init_states(None, jax.random.PRNGKey(0))
     assert int(ext_states[0]) == 0
@@ -179,11 +181,11 @@ def test_stack_hashable_and_jit_static():
 
 
 def test_extension_context_is_pytree():
-    ctx = _ctx(step=7)
-    # step / rng are traced leaves; total_steps is static metadata.
-    leaves = jax.tree_util.tree_leaves(ctx)
-    assert len(leaves) >= 2
-    assert ctx.total_steps == 1000
+    # step / rng are traced leaves; total_steps is static metadata, carried
+    # by the treedef.
+    leaves, treedef = jax.tree_util.tree_flatten(_ctx(step=7))
+    assert len(leaves) == 2
+    assert jax.tree_util.tree_unflatten(treedef, [None, None]).total_steps == 1000
 
 
 # --------------------------------------------------------------------------
@@ -225,20 +227,6 @@ def test_fold_helpers_empty_stack_zero_cost():
 
 def test_fold_helpers_route_through_phase():
     """Non-empty stack: fold helpers thread agent_state.ext_state correctly."""
-
-    class AddTarget(Extension):
-        def __init__(self, delta):
-            self.delta = delta
-
-        def on_target(self, agent_state, ext_state, batch, target, ctx):
-            return target + self.delta
-
-    class Counter(Extension):
-        def init_state(self, agent_state, rng):
-            return jnp.asarray(0)
-
-        def post_update(self, agent_state, ext_state, ctx):
-            return agent_state, ext_state + 1
 
     class ConstActorLoss(Extension):
         def actor_loss(self, agent_state, ext_state, batch, ctx):

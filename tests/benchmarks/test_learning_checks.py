@@ -1,29 +1,11 @@
 """The judged statistic and the registry of ``benchmarks/learning_checks.py``.
 
-The script is not a package module; it is loaded from its path. Training is
-not run here (the checks take an hour or more on CPU).
+Training is not run here (the checks take an hour or more on CPU).
 """
 
-import importlib.util
-import os
-import sys
-
+import learning_checks
 import numpy as np
 import pytest
-
-_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "benchmarks",
-    "learning_checks.py",
-)
-_SPEC = importlib.util.spec_from_file_location("learning_checks", _PATH)
-assert _SPEC is not None and _SPEC.loader is not None
-learning_checks = importlib.util.module_from_spec(_SPEC)
-# Registered before execution: dataclasses resolves its classes' module there.
-sys.modules["learning_checks"] = learning_checks
-_SPEC.loader.exec_module(learning_checks)
 
 CURVE = np.array([[10.0, 20.0, 30.0, 40.0], [1.0, 2.0, 3.0, 400.0]])
 TIMESTEPS = np.array([100, 200, 300, 400])

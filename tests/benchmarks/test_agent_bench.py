@@ -1,32 +1,13 @@
 """The presets of ``benchmarks/agent_bench.py`` time training, not only
 collection: each one updates within the bench's run. Read from the agents'
 configs; the bench itself is not run here (its timings need a quiet
-machine).
+machine)."""
 
-The script is not a package module; it is loaded from its path.
-"""
-
-import importlib.util
-import os
-import sys
-
+import agent_bench
 import jax.numpy as jnp
 import pytest
 
 from ajax.agents.loop import TrainLoop
-
-_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "benchmarks",
-    "agent_bench.py",
-)
-_SPEC = importlib.util.spec_from_file_location("agent_bench", _PATH)
-assert _SPEC is not None and _SPEC.loader is not None
-agent_bench = importlib.util.module_from_spec(_SPEC)
-sys.modules["agent_bench"] = agent_bench
-_SPEC.loader.exec_module(agent_bench)
 
 
 def updates_in_run(agent, n_envs: int, timesteps: int) -> int:

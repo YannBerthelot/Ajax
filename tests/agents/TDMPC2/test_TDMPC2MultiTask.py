@@ -28,6 +28,7 @@ from ajax.agents.TDMPC2.dataset import MultiTaskDataset, TaskEpisodes, pool_task
 from ajax.agents.TDMPC2.state import TDMPC2Config
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.extension_stubs import TargetTweak
 
 from .common import TINY_AGENT
 from .toy_envs import TargetEnv
@@ -105,14 +106,6 @@ class MetricExt(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
         return {"ext_smoke/updates": jnp.asarray(ctx.step, jnp.float32)}
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    name: str = "target-tweak"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
 
 
 @pytest.fixture(scope="module")

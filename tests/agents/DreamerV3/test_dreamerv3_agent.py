@@ -14,7 +14,6 @@ posterior written back.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
@@ -32,9 +31,8 @@ from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
 from ajax.agents.DreamerV3.state import MODEL_SIZES
 from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
 from ajax.checkpoint import restore_into, save_checkpoint
-from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
-from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
+from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, TargetTweak
 
 from .reference_loop import reference_train_loop
 
@@ -62,16 +60,6 @@ ROWS = 480  # 120 ticks
 CAPACITY = N_ENVS * 100
 TRAIN_RATIO = 32  # 1 update per transition with 4 x 8 batches: 4 per tick
 LOG_EVERY = N_ENVS * 30  # rows
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    """A phase DreamerV3 does not fold."""
-
-    name: str = "target"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
 
 
 def cartpole_agent(**kwargs) -> DreamerV3:
@@ -359,8 +347,14 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
         strict=False,
     ):
         np.testing.assert_allclose(ours, theirs, rtol=1e-5, atol=1e-6)
+    # Exact: CartPole's observations depend on the networks only through the
+    # discrete actions, and a flipped action would break the params check too.
     np.testing.assert_array_equal(state.replay_state.obs, full.replay_state.obs)
-    np.testing.assert_allclose(state.replay_state.deter, full.replay_state.deter)
+    # The policy's deter, like the params, comes from two differently
+    # compiled programs: equal to float32 rounding, not to the last ulp.
+    np.testing.assert_allclose(
+        state.replay_state.deter, full.replay_state.deter, rtol=1e-5, atol=1e-6
+    )
     # A checkpoint skeleton (a 0-tick run) gets the latest run's ring.
     assert resumer._resolve_replay(0, None) == (100, None)
 

@@ -204,13 +204,13 @@ def ajax_run(run: str) -> tuple[dict, DreamerV3Config, bool, list[CallResult]]:
 # --------------------------------------------------------------------- tests
 
 
-@pytest.mark.parametrize("run", RUNS)
-def test_default_hyperparameters_are_the_references(run):
-    """Ajax's actor-critic and optimizer defaults equal the reference's
-    (2411f7d ``configs.yaml``; the fixtures override widths and the
-    warmup only), and the reference ran with the paper-era switches that
-    Ajax hardcodes."""
-    meta = load(run)["meta"]
+def test_default_hyperparameters_are_the_references():
+    """Ajax's actor-critic and optimizer defaults, and the loss scales,
+    return horizon and bins it shares with the world model, equal the
+    reference's (2411f7d ``configs.yaml``; the fixtures override widths and
+    the warmup only), and the reference ran with the paper-era switches
+    that Ajax hardcodes. None of them depends on the run."""
+    meta = load("continuous")["meta"]
     ours = DreamerV3Config()
     actor, critic, opt = meta["actor"], meta["critic"], meta["opt"]
     assert (ours.actor_layers, ours.critic_layers) == (

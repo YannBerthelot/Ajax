@@ -17,7 +17,7 @@ import os
 import multitask_validation as mt
 import numpy as np
 import pytest
-from wm_runs import CURVE_FILE, RUN_FILE, jsonable
+from wm_runs import RUN_FILE
 
 from ajax.agents.TDMPC2.dataset import (
     TaskEpisodes,
@@ -25,6 +25,8 @@ from ajax.agents.TDMPC2.dataset import (
     pool_tasks,
     save_dataset,
 )
+
+from .smoke_helpers import write_run_dir
 
 
 @pytest.mark.slow
@@ -65,14 +67,6 @@ def test_smoke_pipeline_end_to_end(tmp_path, capsys):
     assert "[train]" not in printed
 
 
-def _write(directory, spec, records) -> None:
-    os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, RUN_FILE), "w") as f:
-        json.dump({"spec": jsonable(spec)}, f)
-    with open(os.path.join(directory, CURVE_FILE), "w") as f:
-        f.writelines(json.dumps(r) + "\n" for r in records)
-
-
 def _episodes(task: str, seed: int) -> TaskEpisodes:
     rng = np.random.default_rng(seed)
     return TaskEpisodes(
@@ -95,7 +89,7 @@ def _pipeline(tmp_path, protocol=mt.SMOKE) -> str:
         dataset = json.load(f)
     finals = {"reacher-easy": [300.0, 500.0], "pendulum-swingup": [200.0, 200.0]}
     for task in protocol.tasks:
-        _write(
+        write_run_dir(
             os.path.join(out, "sources", task),
             {"run": dataclasses.asdict(mt.source_spec(protocol, task))},
             [
@@ -103,7 +97,7 @@ def _pipeline(tmp_path, protocol=mt.SMOKE) -> str:
                 {"progress": protocol.source_budget, "value": finals[task]},
             ],
         )
-    _write(
+    write_run_dir(
         os.path.join(out, "offline"),
         {"protocol": dataclasses.asdict(protocol), "dataset": dataset},
         [

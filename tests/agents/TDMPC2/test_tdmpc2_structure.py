@@ -68,8 +68,12 @@ def test_parameter_counts_match_the_paper_at_5m(
     obs_dim, action_dim, task_dim, expected
 ):
     config = TDMPC2Config.from_model_size(5)
-    state = create_update_state(
-        jax.random.PRNGKey(0), config, obs_dim, action_dim, task_dim=task_dim
+    # Shapes only: no 5M parameters are initialised.
+    state = jax.eval_shape(
+        lambda key: create_update_state(
+            key, config, obs_dim, action_dim, task_dim=task_dim
+        ),
+        jax.random.PRNGKey(0),
     )
     wm = state.world_model_state.params
     counts = {name: _count(wm[name]) for name in ("encoder", "dynamics", "reward", "q")}

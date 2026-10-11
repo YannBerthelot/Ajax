@@ -827,6 +827,9 @@ def make_train(
         reward_scale=agent_config.reward_scale,
         use_train_frac=use_train_frac,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
+        expert_state_aug_dim=(
+            expert_state_aug_dim if augment_obs_with_expert_state else 0
+        ),
         action_dim=_resolved_action_dim,
         extensions=tuple(extensions),
         expert_policy=expert_policy,

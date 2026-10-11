@@ -65,6 +65,7 @@ class MCPretrainAux:
         "max_timesteps",
         "batch_size",
         "augment_obs_with_expert_action",
+        "augment_obs_with_expert_state",
     ],
 )
 def pretrain_critic_mc(
@@ -81,6 +82,7 @@ def pretrain_critic_mc(
     batch_size: int = 256,
     max_timesteps: Optional[int] = None,
     augment_obs_with_expert_action: bool = False,
+    augment_obs_with_expert_state: bool = False,
 ) -> Tuple[Any, FrozenDict, jax.Array, jax.Array, MCPretrainAux, LoadedTrainState]:
     """Pre-train critic using Monte Carlo returns from expert trajectories.
 
@@ -105,6 +107,10 @@ def pretrain_critic_mc(
         mode=mode,
         env_args=env_args,
         n_timesteps=n_total_steps,
+        # The online critic's layout: the training fraction (0 before
+        # training), then the expert's state.
+        augment_obs_with_expert_state=augment_obs_with_expert_state,
+        train_frac=0.0 if max_timesteps is not None else None,
     )
 
     rewards = all_transitions.reward * reward_scale
@@ -128,12 +134,6 @@ def pretrain_critic_mc(
     obs_flat = all_transitions.obs.reshape(T * n_envs, -1)
     action_flat = all_transitions.action.reshape(T * n_envs, -1)
     mc_flat = mc_returns.reshape(T * n_envs, 1)
-
-    # Append train_frac=0.0 if max_timesteps was set
-    if max_timesteps is not None:
-        obs_flat = jnp.concatenate(
-            [obs_flat, jnp.zeros((obs_flat.shape[0], 1))], axis=-1
-        )
 
     # Augment obs with the expert's actions as its rollout took them (on raw
     # observations, from its state), as collection stores a_expert.
@@ -384,6 +384,7 @@ class MCPretrain(Extension):
     reward_scale: Optional[float] = None
     use_train_frac: bool = False
     augment_obs_with_expert_action: bool = False
+    expert_state_aug_dim: int = 0
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
 
@@ -391,7 +392,8 @@ class MCPretrain(Extension):
         """Copy the agent's context (``env_args``, ``network_args``,
         ``critic_optimizer_args``, ``num_critics``, ``gamma``,
         ``reward_scale``, ``use_train_frac``,
-        ``augment_obs_with_expert_action``) onto a new instance, and keep
+        ``augment_obs_with_expert_action``, ``expert_state_aug_dim``) onto a
+        new instance, and keep
         ``φ*``'s optimiser when the stack (``extensions``) holds a
         :class:`PhiRefresh`."""
         env_args = agent_context.get("env_args", None)
@@ -410,6 +412,7 @@ class MCPretrain(Extension):
                 "augment_obs_with_expert_action",
                 self.augment_obs_with_expert_action,
             ),
+            expert_state_aug_dim=agent_context.get("expert_state_aug_dim", 0),
             use_phi_refresh=any(
                 isinstance(e, PhiRefresh) for e in agent_context.get("extensions", ())
             ),
@@ -452,7 +455,9 @@ class MCPretrain(Extension):
             network_config=self.network_args,
             num_critics=self.num_critics,
             max_timesteps=max_timesteps,
-            extra_obs_dim=(
+            # The online critic's extra columns: the expert's state and action.
+            extra_obs_dim=self.expert_state_aug_dim
+            + (
                 get_action_dim(self.env_args.env, self.env_args.env_params)
                 if self.augment_obs_with_expert_action
                 else 0
@@ -478,6 +483,7 @@ class MCPretrain(Extension):
             n_steps=self.n_steps,
             max_timesteps=max_timesteps,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
+            augment_obs_with_expert_state=self.expert_state_aug_dim > 0,
         )
         agent_state = agent_state.replace(
             expert_critic_params=frozen_expert_params,

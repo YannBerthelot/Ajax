@@ -491,3 +491,25 @@ def test_stored_expert_actions_come_from_the_experts_tracked_state():
     np.testing.assert_allclose(
         a_next[written], integrated_action(s[written] + 1), atol=1e-6
     )
+
+
+def test_mc_pretraining_fits_phi_star_with_the_experts_state_columns(monkeypatch):
+    """With augment_obs_with_expert_state (and the action, and ValueBox
+    querying phi* at acting time), phi*'s inputs are the online critic's:
+    [t, 0 (the fraction), the expert's state t, a_E(t), action]."""
+    seen = _record(monkeypatch, ajax.extensions.pretrain, "predict_value")
+    expert = CountingExpert()
+    train(
+        CounterEnv(),
+        expert_policy=expert,
+        augment_obs_with_expert_state=True,
+        augment_obs_with_expert_action=True,
+        use_train_frac=True,
+        extensions=(_mc(expert), ValueBox()),
+    )
+    assert seen
+    for x in seen:
+        assert x.shape[-1] == 5
+        np.testing.assert_allclose(x[..., 1], 0.0)
+        np.testing.assert_allclose(x[..., 2], x[..., 0])
+        np.testing.assert_allclose(x[..., 3], x[..., 0] / LIMIT)

@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from ajax.agents.SAC.utils import SquashedNormal
+from ajax.networks.distributions import SquashedNormal
 from ajax.state import Transition
 
 

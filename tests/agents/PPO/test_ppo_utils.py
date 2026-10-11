@@ -10,7 +10,7 @@ from ajax.agents.PPO.utils import (
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
 )
-from ajax.agents.SAC.utils import SquashedNormal
+from ajax.networks.distributions import SquashedNormal
 
 G, L = 0.99, 0.95
 ONES, HALF = [1.0, 1.0, 1.0], [0.5, 0.5, 0.5]

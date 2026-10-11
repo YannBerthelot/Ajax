@@ -10,9 +10,10 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
-from ajax.agents.SAC.utils import SquashedNormal
+from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import (
     MemoryCell,
     MemoryConfig,
@@ -742,8 +743,6 @@ def _apply_critic_obs_norm(critic_state: LoadedTrainState, x: jax.Array) -> jax.
     """Normalise the obs slice of a critic input (obs or concat(obs, action));
     the action slice stays raw (``apply_obs_norm``). No-op when
     normalisation is disabled."""
-    from ajax.agents.obs_norm import apply_obs_norm
-
     return apply_obs_norm(x, getattr(critic_state, "obs_norm_info", None))
 
 

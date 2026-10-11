@@ -404,26 +404,23 @@ def policy_loss_function(
 
     # Additive actor-loss terms, on core.soft_actor_step's batch plus the
     # expert's action (OnlineBC's target; None before phi* exists).
-    if extension_stack:
-        ext_batch = {
-            "observations": observations,
-            "raw_observations": _raw_obs,
-            "pi_mean": pi.mean(),
-            "actor_params": actor_params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-        }
-        bc_term = jnp.asarray(
-            extension_stack.fold_actor_loss(
-                agent_state,
-                ext_batch,
-                agent_state.collector_state.timestep,
-                rng,
-                total_timesteps,
-            )
+    ext_batch = {
+        "observations": observations,
+        "raw_observations": _raw_obs,
+        "pi_mean": pi.mean(),
+        "actor_params": actor_params,
+        "actor_state": actor_state,
+        "a_expert": a_expert,
+    }
+    bc_term = jnp.asarray(
+        extension_stack.fold_actor_loss(
+            agent_state,
+            ext_batch,
+            agent_state.collector_state.timestep,
+            rng,
+            total_timesteps,
         )
-    else:
-        bc_term = jnp.zeros(())
+    )
 
     total_loss = loss_actor.mean() + bc_term
 

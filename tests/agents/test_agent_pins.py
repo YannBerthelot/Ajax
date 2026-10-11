@@ -403,13 +403,14 @@ _GOLDEN |= {
     },
 }
 # Recorded on macOS ARM CPU once REDQ's critic loss summed each critic's
-# error, as REDQ's official code (no division by the prediction's ndim): the
-# critic +2.8e-5 (Adam's eps), the actor and alpha unchanged.
+# error and its actor read the critics from before their last update, both
+# as REDQ's official code. The second moved the actor -7.1e-6, the critic
+# -4.0e-7 and alpha +6.1e-8 (relative).
 _GOLDEN |= {
     "REDQ": {
-        "actor": 4.491269588470459,
-        "critic": 23.67800521850586,
-        "alpha": 0.9729597568511963,
+        "actor": 4.491237640380859,
+        "critic": 23.677995681762695,
+        "alpha": 0.9729598164558411,
     },
 }
 # Recorded on macOS ARM CPU before step 17 moved the world models onto

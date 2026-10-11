@@ -54,10 +54,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - id: jax-cache
-        uses: ./.github/actions/compile-cache
-        with:
-          job: tests-${{ matrix.shard }}
       - name: Run the shard under coverage
         run: |
           case "${{ matrix.shard }}" in
@@ -67,12 +63,6 @@ jobs:
           esac
           uv run coverage run -m pytest $paths -m "not slow" \
             --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
-      - name: Save the JAX compile cache
-        if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.cache/ajax/jax_compile_cache
-          key: ${{ steps.jax-cache.outputs.key }}
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.shard }}
@@ -105,17 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - id: jax-cache
-        uses: ./.github/actions/compile-cache
-        with:
-          job: slow
       - run: uv run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
-      - name: Save the JAX compile cache
-        if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.cache/ajax/jax_compile_cache
-          key: ${{ steps.jax-cache.outputs.key }}
 
   # The agent-level learning checks, in their own job so adding probes does
   # not lengthen the other jobs, split across runners by the per-node times
@@ -139,10 +119,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      - id: jax-cache
-        uses: ./.github/actions/compile-cache
-        with:
-          job: probing-${{ matrix.shard }}
       - name: Run the shard
         run: |
           run() { uv run pytest "$@" -v --durations=30; }
@@ -155,12 +131,6 @@ jobs:
                  $(printf -- '--ignore=%s ' $MEMORY $SHARD_2 $SHARD_3 $SHARD_4) \
                && run $MEMORY -k "not gru and not mamba and not lstm and not transformer" ;;
           esac
-      - name: Save the JAX compile cache
-        if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.cache/ajax/jax_compile_cache
-          key: ${{ steps.jax-cache.outputs.key }}
 
   # The one check branch protection requires: it passes only when every job
   # above passed.

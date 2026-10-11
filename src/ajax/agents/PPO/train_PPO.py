@@ -93,15 +93,6 @@ def init_PPO(
         action_value=False,
         squash=network_args.squash,
         num_critics=1,
-        log_std_state_independent=network_args.log_std_state_independent,
-        log_std_init=network_args.log_std_init,
-        mean_kernel_init=network_args.mean_kernel_init,
-        actor_kernel_init=network_args.actor_kernel_init,
-        actor_bias_init=network_args.actor_bias_init,
-        critic_kernel_init=network_args.critic_kernel_init,
-        critic_bias_init=network_args.critic_bias_init,
-        encoder_kernel_init=network_args.encoder_kernel_init,
-        encoder_bias_init=network_args.encoder_bias_init,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)

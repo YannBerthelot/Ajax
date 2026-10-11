@@ -481,21 +481,13 @@ def get_initialized_actor_critic(
     action_value: bool = False,
     squash: bool = False,
     num_critics: int = 4,
-    actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     action_dim_override: Optional[int] = None,
-    log_std_state_independent: bool = False,
-    log_std_init: float = -1.0,
-    mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
-    Create actor and critic networks.
+    Create actor and critic networks, their initializers and log-std head
+    as ``network_config`` sets them.
 
     extra_obs_dim: extra dimensions appended to obs at runtime before the
     network forward pass. Set to action_dim (2 for the plane) when
@@ -535,7 +527,7 @@ def get_initialized_actor_critic(
             policy=network_config.actor_architecture,
             action_dim=action_dim,
             squash=squash,
-            log_std_init=log_std_init,
+            log_std_init=network_config.log_std_init,
         )
     else:
         actor = Actor(
@@ -544,16 +536,16 @@ def get_initialized_actor_critic(
             continuous=continuous,
             squash=squash,
             penultimate_normalization=network_config.penultimate_normalization,
-            kernel_init=actor_kernel_init,
-            bias_init=actor_bias_init,
-            encoder_kernel_init=encoder_kernel_init,
-            encoder_bias_init=encoder_bias_init,
+            kernel_init=network_config.actor_kernel_init,
+            bias_init=network_config.actor_bias_init,
+            encoder_kernel_init=network_config.encoder_kernel_init,
+            encoder_bias_init=network_config.encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
-            log_std_state_independent=log_std_state_independent,
-            log_std_init=log_std_init,
-            mean_kernel_init=mean_kernel_init,
+            log_std_state_independent=network_config.log_std_state_independent,
+            log_std_init=network_config.log_std_init,
+            mean_kernel_init=network_config.mean_kernel_init,
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
         )
@@ -561,10 +553,10 @@ def get_initialized_actor_critic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
         num=num_critics,
-        kernel_init=critic_kernel_init,
-        bias_init=critic_bias_init,
-        encoder_kernel_init=encoder_kernel_init,
-        encoder_bias_init=encoder_bias_init,
+        kernel_init=network_config.critic_kernel_init,
+        bias_init=network_config.critic_bias_init,
+        encoder_kernel_init=network_config.encoder_kernel_init,
+        encoder_bias_init=network_config.encoder_bias_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=critic_cnn_image_shape,
         cnn_extra_obs_dim=cnn_extra_obs_dim,

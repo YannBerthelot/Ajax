@@ -126,6 +126,38 @@ def test_get_initialized_actor_critic(real_env_config):
     assert not jnp.allclose(predicted[0], predicted[1]), "The critics are identical."
 
 
+def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
+    """The initializers and the log-std head set on NetworkConfig reach the
+    actor and the critic (PPO's, SAC's and UDRL's build through here)."""
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
+    network_config = NetworkConfig(
+        actor_architecture=ARCH,
+        critic_architecture=ARCH,
+        encoder_kernel_init="zeros",
+        actor_bias_init="0.25",
+        mean_kernel_init="zeros",
+        critic_bias_init="0.5",
+        log_std_state_independent=True,
+        log_std_init=0.3,
+    )
+    actor_state, critic_state = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        fast_env_config,
+        optimizer_config,
+        optimizer_config,
+        network_config,
+        continuous=True,
+        num_critics=1,
+    )
+    actor, critic = actor_state.params["params"], critic_state.params["params"]
+    for encoder in (actor["encoder"], critic["ensemble"]["encoder"]):
+        assert not jnp.any(encoder["network"]["layers_0"]["kernel"])
+    assert not jnp.any(actor["mean"]["kernel"])
+    np.testing.assert_allclose(actor["mean"]["bias"], 0.25)
+    np.testing.assert_allclose(actor["log_std_param"], 0.3)
+    np.testing.assert_allclose(critic["ensemble"]["model"]["bias"], 0.5)
+
+
 def test_get_initialized_actor_critic_continuous(fast_env_config):
     actor_state, critic_state, (obs_shape, action_shape) = _init_ac(
         fast_env_config, continuous=True, action_value=False, key=1

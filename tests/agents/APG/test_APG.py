@@ -50,10 +50,14 @@ def tracking_env():
     return wrapped, params
 
 
+def tracking_class(params):
+    return UniformPerturbation(params, fields=("m", "l"), scale=0.1)
+
+
 @pytest.fixture
 def env_and_class():
     env, params = tracking_env()
-    return env, UniformPerturbation(params, fields=("m", "l"), scale=0.1)
+    return env, tracking_class(params)
 
 
 def make_agent(env, system_class, **kwargs):
@@ -69,6 +73,17 @@ def make_agent(env, system_class, **kwargs):
     return APG(env, **defaults)
 
 
+@pytest.fixture(scope="module")
+def default_run():
+    """The default agent's one-update run, shared by the tests that only
+    read it: ``(agent, system_class, state, aux)``."""
+    env, params = tracking_env()
+    sc = tracking_class(params)
+    agent = make_agent(env, sc)
+    state, aux = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
+    return agent, sc, state, aux
+
+
 def test_gradient_clipping_is_on_by_default_and_can_be_disabled(env_and_class):
     env, sc = env_and_class
     assert make_agent(env, sc).actor_optimizer_args.clipped
@@ -81,11 +96,9 @@ def test_rejects_non_differentiable_env():
         APG("CartPole-v1")
 
 
-def test_initial_state_has_no_critic_and_flows_through_env(env_and_class):
-    env, sc = env_and_class
-    agent = make_agent(env, sc)
+def test_initial_state_has_no_critic_and_flows_through_env(default_run):
+    agent, _, state, aux = default_run
     assert agent.env_args.env._env.transition_gradients_enabled
-    state, aux = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
     assert state.critic_state is None
     assert not state.actor_state.recurrent
     assert aux.loss.shape == (1, 1)
@@ -193,10 +206,19 @@ def test_warmup_cosine_schedule_is_wired_and_validated(env_and_class):
     assert jnp.isfinite(aux.loss).all()
     with pytest.raises(ValueError, match="lr_schedule"):
         make_agent(env, sc, lr_schedule="linear").train(seed=0, n_timesteps=64)
-    # a warmup longer than the run is clamped, leaving one decay step
+    # A warmup longer than the run is clamped, leaving one decay step:
+    # warmup_cosine_schedule rejects warmup_steps >= total_steps when the
+    # train function is built, before anything is traced.
     short = make_agent(env, sc, lr_schedule="warmup_cosine", warmup_steps=50)
-    _, aux = short.train(seed=0, n_timesteps=2 * N_ENVS * HORIZON)
-    assert jnp.isfinite(aux.loss).all()
+    short.get_make_train()(
+        env_args=short.env_args,
+        actor_optimizer_args=short.actor_optimizer_args,
+        critic_optimizer_args=short.critic_optimizer_args,
+        network_args=short.network_args,
+        agent_config=short.agent_config,
+        total_timesteps=2 * N_ENVS * HORIZON,
+        num_episode_test=1,
+    )
 
 
 def test_resume_keeps_params_and_resets_optimizer(env_and_class):
@@ -278,10 +300,8 @@ def test_curriculum_rejects_incompatible_stages(env_and_class):
         train_curriculum([])
 
 
-def test_evaluate_reports_m_rmse_on_fresh_systems(env_and_class):
-    env, sc = env_and_class
-    agent = make_agent(env, sc)
-    state, _ = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
+def test_evaluate_reports_m_rmse_on_fresh_systems(default_run):
+    agent, sc, state, _ = default_run
     single = jax.tree.map(lambda x: x[0], state)
     metrics = evaluate_apg(
         single, jax.random.PRNGKey(0), agent.env_args, sc, HORIZON, 5

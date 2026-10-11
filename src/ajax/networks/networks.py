@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
-from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
 from ajax.agents.SAC.utils import SquashedNormal
@@ -55,7 +54,12 @@ class Encoder(nn.Module):
     def __call__(self, x):
         features = self.network(x)
         if self.penultimate_normalization:
-            return _l2_normalize(features, axis=1)
+            # Each feature vector (last axis) to unit L2 norm, whatever the
+            # leading batch or time axes: flax's _l2_normalize formula and
+            # eps, bitwise equal to its axis=1 on (B, F) inputs.
+            return features * jax.lax.rsqrt(
+                (features * features).sum(axis=-1, keepdims=True) + 1e-12
+            )
         if self.layer_norm:
             return self.norm(features)
         return features
@@ -527,13 +531,6 @@ def get_initialized_actor_critic(
     )
 
     memory = parse_memory_config(network_config.memory)
-    if memory is not None:
-        if network_config.penultimate_normalization:
-            # The encoder's l2-normalization is hardcoded to axis=1, which
-            # is the batch axis on time-major (T, B, F) inputs.
-            raise NotImplementedError(
-                "penultimate_normalization is incompatible with memory."
-            )
 
     # Resolve the CNN encoder spec: an explicit arg (UDRL passes one)
     # takes precedence, else fall back to the NetworkConfig field (the

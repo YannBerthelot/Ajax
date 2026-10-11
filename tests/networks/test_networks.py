@@ -5,7 +5,7 @@ from brax.envs import create as create_brax_env
 
 from ajax.environments.create import build_env_from_id
 from ajax.environments.utils import get_state_action_shapes
-from ajax.networks.memory import MemoryConfig
+from ajax.networks.memory import MemoryConfig, init_carry
 from ajax.networks.networks import (
     Actor,
     Critic,
@@ -195,7 +195,43 @@ def test_encoder_penultimate_normalization_gradients():
     assert "params" in grads, "Gradients for parameters are missing."
     assert all(
         jnp.any(jnp.abs(g) > 0) for g in jax.tree_util.tree_leaves(grads["params"])
-    ), "Some gradients are zero, indicating no flow through _l2_normalize."
+    ), "Some gradients are zero: none flow through the L2 normalisation."
+
+
+def test_penultimate_normalization_with_memory_keeps_envs_apart(real_env_config):
+    """With memory the encoder sees time-major (T, B, F) features. Each
+    env's are normalised on their own, so an env's output does not depend
+    on which other envs share its batch."""
+    memory = MemoryConfig(kind="gru", hidden_size=4)
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
+    actor_state, _ = get_initialized_actor_critic(
+        key=jax.random.PRNGKey(0),
+        env_config=real_env_config,
+        actor_optimizer_config=optimizer_config,
+        critic_optimizer_config=optimizer_config,
+        network_config=NetworkConfig(
+            actor_architecture=ARCH,
+            critic_architecture=ARCH,
+            memory=memory,
+            penultimate_normalization=True,
+        ),
+        continuous=False,
+        action_value=False,
+    )
+    obs_shape, _ = get_state_action_shapes(real_env_config.env)
+    obs = jax.random.normal(jax.random.PRNGKey(1), (3, 2, *obs_shape))
+
+    def logits(obs):
+        batch = obs.shape[1]
+        dist, _ = actor_state.apply_fn(
+            actor_state.params,
+            obs,
+            hidden_state=init_carry(memory, jax.random.PRNGKey(2), batch),
+            done=jnp.zeros((3, batch), dtype=bool),
+        )
+        return dist.logits
+
+    assert jnp.allclose(logits(obs)[:, :1], logits(obs[:, :1]), atol=1e-6)
 
 
 def _soft_nets(agent_cls, init, **n_critics):

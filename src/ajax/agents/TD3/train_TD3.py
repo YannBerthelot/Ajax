@@ -28,6 +28,7 @@ from ajax.agents.recurrent import (
     stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
+from ajax.agents.SAC.core import critic_loss_fn
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.environments.interaction import (
@@ -188,24 +189,6 @@ def compute_td3_td_target(
     return jax.lax.stop_gradient(target)
 
 
-def value_loss_function(
-    critic_params: FrozenDict,
-    critic_state: LoadedTrainState,
-    observations: jax.Array,
-    actions: jax.Array,
-    target_q: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """Both critics regress on the one target: ``sum_i (Q_i(s, a) - y)^2``."""
-    q_preds = q_values(critic_state, critic_params, observations, actions, carries)
-    loss = jnp.mean((q_preds - target_q) ** 2)
-    return loss, ValueAuxiliaries(
-        critic_loss=loss,
-        target_q=target_q.mean().flatten(),
-        q_pred_min=jnp.min(q_preds, axis=0).mean().flatten(),
-    )
-
-
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
@@ -249,8 +232,14 @@ def update_value_functions(
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        return value_loss_function(
+        """Both critics regress on the one target (SAC's critic loss)."""
+        loss, aux = critic_loss_fn(
             params, agent_state.critic_state, batch.obs, batch.action, target_q, carries
+        )
+        return loss, ValueAuxiliaries(
+            critic_loss=loss,
+            target_q=target_q.mean().flatten(),
+            q_pred_min=aux.q_pred_min,
         )
 
     critic_state, aux = critic_step(

@@ -314,7 +314,7 @@ def training_iteration(
     env_args: EnvironmentConfig,
     mode: str,
     agent_config: UDRLConfig,
-    extension_stack: Optional[ExtensionStack] = None,
+    extension_stack: ExtensionStack,
     total_timesteps: int = 1,
 ) -> Tuple[UDRLState, UDRLAuxiliaries]:
     # 1. Collect one rollout segment (Algorithm 4).
@@ -376,21 +376,19 @@ def training_iteration(
             loss = actor_loss_fn(
                 params, a_state.actor_state, obs_b, act_b, agent_config.bc_loss_type
             )
-            if extension_stack:
-                _al_batch = {
-                    "observations": obs_b,
-                    "actions": act_b,
-                    "actor_params": params,
-                    "actor_state": a_state.actor_state,
-                }
-                loss = loss + extension_stack.fold_actor_loss(
-                    a_state,
-                    _al_batch,
-                    a_state.collector_state.timestep,
-                    key,
-                    total_timesteps,
-                )
-            return loss
+            _al_batch = {
+                "observations": obs_b,
+                "actions": act_b,
+                "actor_params": params,
+                "actor_state": a_state.actor_state,
+            }
+            return loss + extension_stack.fold_actor_loss(
+                a_state,
+                _al_batch,
+                a_state.collector_state.timestep,
+                key,
+                total_timesteps,
+            )
 
         loss, grads = jax.value_and_grad(_loss)(a_state.actor_state.params)
         new_actor_state = a_state.actor_state.apply_gradients(grads=grads)

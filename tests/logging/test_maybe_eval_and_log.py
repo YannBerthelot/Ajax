@@ -97,7 +97,32 @@ def test_disabled_logging_evaluates_nothing():
     state, outputs, calls = run(range(4), log=False)
     assert calls == []
     np.testing.assert_array_equal(state.n_logs, [0, 0])
-    assert all(np.isnan(o["Eval/episodic mean reward"]).all() for o in outputs)
+    assert outputs == [None] * 4
+
+
+def test_disabled_logging_does_not_even_trace_the_evaluation():
+    def traced(*_):
+        raise AssertionError("traced without logging")
+
+    state = State(
+        eval_rng=jax.random.PRNGKey(0), n_logs=jnp.int32(0), value=jnp.float32(0.0)
+    )
+    step = jax.jit(
+        lambda state, iteration: maybe_eval_and_log(
+            state,
+            None,
+            0,
+            iteration,
+            metrics_fn=traced,
+            evaluate_fn=traced,
+            extra_eval_metrics=traced,
+            log=False,
+            log_fn=traced,
+            every=1,
+        )
+    )
+    state, metrics = step(state, jnp.int32(0))
+    assert metrics is None and int(state.n_logs) == 0
 
 
 def test_eval_and_extra_metrics_get_the_two_halves_of_the_eval_key():

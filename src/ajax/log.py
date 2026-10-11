@@ -78,7 +78,7 @@ def maybe_eval_and_log(
     log: bool,
     log_fn: Callable,
     every: Optional[int],
-) -> tuple[Any, dict]:
+) -> tuple[Any, Optional[dict]]:
     """Evaluate + log every ``every`` scan iterations, gated on the scan index.
 
     For agents with their own evaluation
@@ -97,12 +97,16 @@ def maybe_eval_and_log(
     extra_key = split(agent_state.eval_rng)``; they are sent to ``log_fn``
     through :func:`gated_log_callback` and ``agent_state.n_logs`` is
     incremented. Otherwise the same structure is returned filled with NaN
-    (``-1`` for integer leaves) and ``n_logs`` is unchanged. When logging is
-    disabled (``log`` false or no ``every``) nothing is evaluated.
+    (``-1`` for integer leaves) and ``n_logs`` is unchanged; never so
+    without ``every``. Without logging (``log`` false) the evaluation is not
+    even traced (tracing alone rebuilds the evaluation env) and the metrics
+    are ``None``.
 
     Returns ``(agent_state, metrics)``.
     """
-    enabled = log and bool(every)
+    if not log:
+        return agent_state, None
+    enabled = bool(every)
     flag = jnp.logical_and(enabled, (iteration + 1) % (every or 1) == 0)
 
     def run(agent_state, aux, index):
@@ -111,9 +115,8 @@ def maybe_eval_and_log(
         metrics.update(evaluate_fn(agent_state, eval_key))
         if extra_eval_metrics is not None:
             metrics.update(extra_eval_metrics(agent_state, extra_key))
-        if log:
-            # gated inside the callback: see gated_log_callback
-            gated_log_callback(log_fn, flag, metrics, index)
+        # gated inside the callback: see gated_log_callback
+        gated_log_callback(log_fn, flag, metrics, index)
         return metrics
 
     def skip(agent_state, aux, index):
@@ -220,14 +223,18 @@ def evaluate_and_log(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
-):
+) -> tuple[BaseAgentState, Optional[dict]]:
+    """Evaluate and log every ``log_frequency`` collected steps; returns the
+    state (one more ``n_logs`` per evaluation) and the logged metrics, or
+    the same structure filled with NaN (``-1``: the timestep) between
+    evaluations. Without logging (``log`` false) the evaluation is not even
+    traced (tracing alone rebuilds the evaluation env) and the metrics are
+    ``None``."""
+    if not log:
+        return agent_state, None
     timestep = agent_state.collector_state.timestep
 
-    log_flag = (
-        timestep - (agent_state.n_logs * log_frequency) >= log_frequency
-        if log
-        else False
-    )
+    log_flag = timestep - (agent_state.n_logs * log_frequency) >= log_frequency
     not_finished_flag = timestep <= total_timesteps if log_frequency else False
 
     if sweep:
@@ -318,8 +325,7 @@ def evaluate_and_log(
             extras = extra_eval_metrics(agent_state, extra_key)
             metrics_to_log.update(extras)
 
-        if log:
-            gated_log_callback(log_fn, flag, metrics_to_log, index)
+        gated_log_callback(log_fn, flag, metrics_to_log, index)
 
         return metrics_to_log
 

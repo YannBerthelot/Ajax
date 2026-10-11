@@ -127,7 +127,6 @@ def pretrain_critic_mc(
     obs_flat = all_transitions.obs.reshape(T * n_envs, -1)
     action_flat = all_transitions.action.reshape(T * n_envs, -1)
     mc_flat = mc_returns.reshape(T * n_envs, 1)
-    raw_obs_flat = obs_flat
 
     # Append train_frac=0.0 if max_timesteps was set
     if max_timesteps is not None:
@@ -135,9 +134,10 @@ def pretrain_critic_mc(
             [obs_flat, jnp.zeros((obs_flat.shape[0], 1))], axis=-1
         )
 
-    # Augment obs with expert action if enabled
+    # Augment obs with the expert's actions as its rollout took them (on raw
+    # observations, from its state), as collection stores a_expert.
     if augment_obs_with_expert_action:
-        a_expert_flat = expert_policy(raw_obs_flat)
+        a_expert_flat = all_transitions.a_expert.reshape(T * n_envs, -1)
         obs_flat = augment_obs(obs_flat, expert_action=a_expert_flat)
 
     # Batch into fixed-size chunks for regression

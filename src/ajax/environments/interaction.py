@@ -1116,12 +1116,14 @@ def collect_experience_from_expert_policy(
         # Build transition — prefer the env's final observation so truncation
         # bootstraps on V(s_final), not V(s_reset).
         next_obs = get_final_obs(info, obsv)
-        # The expert's action there, on its state after this step (the live
-        # collector's next_a_expert), before an episode end resets the state.
+        # The expert's action there, on the observation in the environment's
+        # units and its state after this step (the live collector's
+        # next_a_expert), before an episode end resets the state.
+        raw_next_obs = get_raw_final_obs(info, next_obs).astype(jnp.float32)
         if expert_is_stateful:
-            next_action, _ = expert_policy(new_expert_state, next_obs)
+            next_action, _ = expert_policy(new_expert_state, raw_next_obs)
         else:
-            next_action = jax.vmap(expert_policy, in_axes=0)(next_obs)
+            next_action = jax.vmap(expert_policy, in_axes=0)(raw_next_obs)
 
         # Reset expert state on episode end so the integrator restarts
         # at the start of the next episode (autoreset has already produced

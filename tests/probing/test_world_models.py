@@ -1,6 +1,7 @@
 """World models: tiny MDPs answered only through a learned model (Q10 task
 twins for multi-task TD-MPC2, Q12 payback past TD-MPC2's horizon, Q13
-risky-safe for DreamerV3's imagination); the last test judges every case.
+risky-safe for DreamerV3's imagination, and DreamerV3 on the package's
+discounting and continuous advantage probes); the last test judges every case.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from probing_environments.gymnax_envs import continuous_actions as continuous
 
 from ajax.agents.DreamerV3 import networks as dreamer
 from ajax.agents.TDMPC2 import core
@@ -25,7 +27,7 @@ from . import agents, envs, runs
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "6956060745f9"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "b8dc107f7896"  # verdict.digest(CASES): every answer, pinned
 KEY, RET = jax.random.PRNGKey(0), "episodic mean reward"
 
 
@@ -363,6 +365,81 @@ Q13_READ = runs.readings(_q13_agent, _p_safe)
 CASES["q13-DreamerV3"] = Case(
     "q13-DreamerV3", (SAFE,), Q13_READ, 8000, (0.052,), slow=True, note="cert 32/32"
 )
+
+
+# --- pilot: DreamerV3 on the package's known-answer probes ----------------------
+# test_value_chains' pilot through the learned model: the discounting probe
+# (observation t at step t, 1 paid on the 2nd and last) at the posterior
+# filtered from is_first over its observations, V(0) = gamma (the continue
+# head's discount, 1 - 1 / return_horizon) and V(1) = 1; the continuous
+# advantage probe (in [-1, 1], paying a) at the policy's mode. The filter feeds
+# the prior's mode as noise and the policy's mode as each previous action.
+# Q13 imagines one step and ranks two actions: a discount or reward scale off
+# by a factor, or the continuous actor, reach only these readings.
+
+G = agents.GAMMA
+_V0 = {"gamma squared": G**2, "1 - gamma": 1 - G, "no discount": 1.0}
+_V0["done flag one step late"] = 0.0
+DREAMER_PILOT = {  # probe: env, queries, budget, tolerances, calibration
+    "discounting": (
+        envs.package(continuous.RewardDiscountingEnv),
+        (
+            Query("V(0)", G, _V0),
+            Query("V(1)", 1.0, {"done mask ignored": 1 / (1 - G**2)}),
+        ),
+        16_000,
+        (0.09, 0.025),
+        "V(0) worst errors 0.105, 0.198, 0.148 at 4000-12,000; cert 32/32",
+    ),
+    "advantage": (
+        envs.package(envs.symmetric(continuous.AdvantagePolicyLossPolicyUpdateEnv)),
+        (Query("a(1)", 1.0, {"no learning": 0.0, "gradient reversed": -1.0}, True),),
+        4000,
+        (0.463,),
+        "2000: weakest a(1) 0.175; cert 32/32",
+    ),
+}
+
+
+def _filtered(c: Any, wm: dict, pi: dict, xs: tuple[float, ...]) -> tuple:
+    """Features and the policy's mode after observing ``xs``."""
+    model, rssm = dreamer.WorldModel(c, 1), dreamer.RSSM(c)
+    h, a = dreamer.initial_state(c, (1,)), jnp.zeros((1, 1))
+    for i, x in enumerate(xs):
+        token = model.apply({"params": wm}, jnp.full((1, 1), x), method="encode")
+        noise = jnp.zeros((1, c.stoch, c.classes))
+        step = (h, token, a, jnp.asarray([i == 0]), noise)
+        h = rssm.apply({"params": wm["rssm"]}, *step, method="observe_step")[0]
+        feat = dreamer.features(h.deter, h.stoch)
+        a = dreamer.Actor(c, 1, False).apply({"params": pi}, feat).mean
+    return feat, a[0, 0]
+
+
+def _dreamer_pilot_read(run: runs.Run) -> dict:
+    c, s = run.agent.dreamer_config, run.state
+    critic = dreamer.make_critic(c)
+
+    def one(wm: dict, pi: dict, q: dict) -> dict:
+        def value(xs: tuple[float, ...]) -> jax.Array:
+            feat = _filtered(c, wm, pi, xs)[0]
+            return c.two_hot.decode(critic.apply({"params": q}, feat))[0]
+
+        a = _filtered(c, wm, pi, (1.0,))[1]
+        return {"V(0)": value((0.0,)), "V(1)": value((0.0, 1.0)), "a(1)": a}
+
+    wm, pi = s.world_model_state.params, s.actor_state.params
+    return jax.vmap(one)(wm, pi, s.critic_state.params)
+
+
+for probe, (env, dq, steps, dtol, why) in DREAMER_PILOT.items():
+    build = functools.partial(
+        agents.make, "DreamerV3", *env, preset="tiny", return_horizon=1 / (1 - G)
+    )
+    dreads = runs.readings(build, _dreamer_pilot_read)
+    case = Case(
+        f"pilot-DreamerV3-{probe}", dq, dreads, steps, dtol, slow=True, note=why
+    )
+    CASES[case.id] = case
 
 
 # --- every judged case ---------------------------------------------------------

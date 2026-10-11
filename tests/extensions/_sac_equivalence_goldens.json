@@ -5,7 +5,7 @@
     "target": 522.5401000976562,
     "alpha": 0.9811338186264038
   },
-  "test_expert_guidance_matches_legacy_expert_policy": {
+  "test_expert_policy_matches_legacy_expert_policy": {
     "critic": 543.4259643554688,
     "actor": 269.4771728515625,
     "target": 522.4854736328125,

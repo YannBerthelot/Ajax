@@ -59,6 +59,15 @@ class TrialResult:
     python: str
 
 
+SCENARIOS = (
+    "pure_sac",
+    "obs_norm_sac",
+    "stress_sac",
+    "stress_sac_utd",
+    "p3dcircle_sac",
+)
+
+
 def _git_state() -> Dict[str, Any]:
     try:
         sha = subprocess.check_output(
@@ -139,107 +148,6 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
             batch_size=256,
             buffer_size=20_000,
             num_critics=2,
-        )
-    if scenario == "p3dcircle_edge_qa_hpo":
-        # Mirrors AjaxExperiments' P1 sac_quality_aware HPO config more
-        # closely: arch_width=512, num_critics=4. This is the
-        # configuration where the 20-vs-50 seed regression appears in
-        # real HPO data.
-        import jax.numpy as _jnp
-        from target_gym import Plane3DCircle
-
-        action_dim, state_dim = 3, 3
-
-        class _ZeroExpert:
-            _zero_state = _jnp.zeros((state_dim,))
-            _params = None
-
-            def init_state(self, num_envs: int):
-                return _jnp.zeros((num_envs, state_dim))
-
-            def __call__(self, *args):
-                if len(args) == 2:
-                    state, obs = args
-                    return _jnp.zeros(obs.shape[:-1] + (action_dim,)), state
-                (obs,) = args
-                return _jnp.zeros(obs.shape[:-1] + (action_dim,))
-
-            def __hash__(self):
-                return id(self)
-
-            def __eq__(self, other):
-                return self is other
-
-        return SAC(
-            env_id=Plane3DCircle(),
-            n_envs=n_envs,
-            learning_starts=learning_starts,
-            actor_architecture=("512", "relu", "512", "relu"),
-            critic_architecture=("512", "relu", "512", "relu"),
-            batch_size=256,
-            buffer_size=20_000,
-            num_critics=4,
-            expert_policy=_ZeroExpert(),
-            use_expert_guided_exploration=True,
-            exploration_lcb=True,
-            lcb_beta_init=1.0,
-            lcb_temperature=1.0,
-            augment_obs_with_expert_state=True,
-            normalize_obs_running=True,
-            num_critic_updates=1,
-            expert_buffer_n_steps=0,
-        )
-    if scenario == "p3dcircle_edge_qa":
-        # Mirrors AjaxExperiments' `sac_quality_aware` config on
-        # Plane3DCircle (LCB-gated SAC + obs+state aug + obs norm), with
-        # a stub zero-action expert so the LCB / expert paths trace and
-        # compile but the expert returns trivial actions. Used to bench
-        # whether seed scaling differs from plain SAC on the same env.
-        import jax.numpy as _jnp
-        from target_gym import Plane3DCircle
-
-        action_dim = 3
-        state_dim = 3  # mimics PID integrator; only shape matters for bench
-
-        class _ZeroExpert:
-            _zero_state = _jnp.zeros((state_dim,))
-            _params = None
-
-            def init_state(self, num_envs: int):
-                return _jnp.zeros((num_envs, state_dim))
-
-            def __call__(self, *args):
-                if len(args) == 2:
-                    state, obs = args
-                    return _jnp.zeros(obs.shape[:-1] + (action_dim,)), state
-                (obs,) = args
-                return _jnp.zeros(obs.shape[:-1] + (action_dim,))
-
-            def __hash__(self):  # SAC hashes the expert into static args
-                return id(self)
-
-            def __eq__(self, other):
-                return self is other
-
-        expert = _ZeroExpert()
-        return SAC(
-            env_id=Plane3DCircle(),
-            n_envs=n_envs,
-            learning_starts=learning_starts,
-            actor_architecture=("256", "relu", "256", "relu"),
-            critic_architecture=("256", "relu", "256", "relu"),
-            batch_size=256,
-            buffer_size=20_000,
-            num_critics=2,
-            expert_policy=expert,
-            use_expert_guided_exploration=True,
-            exploration_lcb=True,
-            lcb_beta_init=1.0,
-            lcb_temperature=1.0,
-            augment_obs_with_expert_state=True,
-            normalize_obs_running=True,
-            num_critic_updates=1,
-            expert_buffer_n_steps=0,
         )
     raise ValueError(f"unknown scenario: {scenario}")
 
@@ -344,15 +252,7 @@ def main():
     p.add_argument(
         "--scenario",
         default="pure_sac",
-        choices=[
-            "pure_sac",
-            "obs_norm_sac",
-            "stress_sac",
-            "stress_sac_utd",
-            "p3dcircle_sac",
-            "p3dcircle_edge_qa",
-            "p3dcircle_edge_qa_hpo",
-        ],
+        choices=SCENARIOS,
     )
     p.add_argument("--timesteps", type=int, default=4000)
     p.add_argument("--warmup-timesteps", type=int, default=200)

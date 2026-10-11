@@ -563,7 +563,9 @@ existing runs are byte-identical.
 To check whether the LCB-gating + expert-call overhead changes the
 shape of the scaling curve, swept the `p3dcircle_edge_qa` scenario
 (SAC + symmetric LCB + obs/state aug + obs norm + zero-action stub
-expert) at the same N values used for vanilla SAC. 1 trial per N,
+expert; deleted from `perf_bench.py` since, as it passed SAC options
+that Phase 5 moved into extensions) at the same N values used for
+vanilla SAC. 1 trial per N,
 500 measured timesteps.
 
 |   N | wall (s) | throughput vs N=1 | time/seed (s) | peak (MB) | mem/seed (MB) |

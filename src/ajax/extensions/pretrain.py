@@ -35,7 +35,6 @@ from ajax.environments.interaction import (
     augment_obs,
     collect_experience_from_expert_policy,
 )
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
@@ -495,7 +494,7 @@ class MCPretrain(Extension):
             agent_state=agent_state,
             expert_critic_state=expert_critic_state,
             expert_policy=self.expert_policy,
-            mode="gymnax" if check_env_is_gymnax(self.env_args.env) else "brax",
+            mode=self.env_args.mode,
             env_args=self.env_args,
             gamma=self.gamma,
             reward_scale=self.reward_scale,

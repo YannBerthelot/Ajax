@@ -13,7 +13,11 @@ from brax.envs.base import Wrapper as BraxWrapper
 from flax import struct
 from gymnax.environments import environment, spaces
 
-from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
+from ajax.environments.utils import (
+    get_state_action_shapes,
+    per_env,
+    raw_obs_columns,
+)
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
@@ -564,10 +568,7 @@ class AutoResetWrapper(BraxWrapper):
         state.info["rng"] = jnp.tile(new_rng, (self.n_envs, 1))
 
         def where_done(x, y):
-            done = state.done
-            if done.shape:
-                done = jnp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))  # type: ignore
-            return jnp.where(done, x, y)
+            return jnp.where(per_env(state.done, x), x, y)
 
         pipeline_state = jax.tree.map(
             where_done, first_pipeline_state, state.pipeline_state
@@ -739,8 +740,7 @@ class FreshAutoResetWrapper(BraxWrapper):
             fresh = _call_if_any(done, self.env.reset, key)
 
         def where_done(new, old):
-            mask = jnp.reshape(done, done.shape + (1,) * (old.ndim - done.ndim))
-            return jnp.where(mask, new, old)
+            return jnp.where(per_env(done, old), new, old)
 
         info = dict(state.info)
         for name in self._episode_info_keys:

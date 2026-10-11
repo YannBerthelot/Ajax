@@ -53,7 +53,6 @@ from ajax.environments.interaction import (
     preallocate_last_rollout,
     should_use_uniform_sampling,
 )
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.log import (
     compose_eval_metrics,
@@ -268,7 +267,7 @@ class TrainLoop:
 
     @property
     def mode(self) -> str:
-        return "gymnax" if check_env_is_gymnax(self.env_args.env) else "brax"
+        return self.env_args.mode
 
     @property
     def budget(self) -> int:

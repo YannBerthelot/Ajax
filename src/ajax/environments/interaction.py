@@ -14,6 +14,7 @@ from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
     ExpertInAgentUnits,
     agent_action_to_env,
+    env_keys,
     get_state_action_shapes,
     maybe_append_train_frac,
     raw_obs_columns,
@@ -722,9 +723,7 @@ def collect_experience(
     """
     rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
 
-    rng_step = (
-        jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
-    )
+    rng_step = env_keys(step_key, mode, env_args.n_envs)
 
     # R2D2-style stored-state replay: the actor's carry BEFORE this step is
     # the hidden state valid for last_obs (the transition's obs). Snapshot
@@ -1044,9 +1043,7 @@ def collect_experience_from_expert_policy(
     reset_key, step_key, rng = jax.random.split(rng, 3)
 
     # Reset environment
-    reset_keys = (
-        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
-    )
+    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
 
     expert_is_stateful = hasattr(expert_policy, "init_state")
@@ -1060,11 +1057,7 @@ def collect_experience_from_expert_policy(
         env_state, rng, last_obs, expert_state = carry
         # Prepare RNGs for stepping
         rng_step, new_rng = jax.random.split(rng)
-        rng_step = (
-            jax.random.split(rng_step, env_args.n_envs)
-            if mode == "gymnax"
-            else rng_step
-        )
+        rng_step = env_keys(rng_step, mode, env_args.n_envs)
 
         # Compute action using expert policy. Stateful experts get the
         # running PID/etc state and return an updated state; stateless
@@ -1202,9 +1195,7 @@ def init_collector_state(
     last_done = jnp.zeros(env_args.n_envs)
 
     reset_key, rng = jax.random.split(rng)
-    reset_keys = (
-        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
-    )
+    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
     if action_dim_override is not None:

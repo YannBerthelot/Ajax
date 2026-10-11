@@ -78,15 +78,6 @@ def traced_observation_size(env: BraxEnv) -> Any:
     return size[0]
 
 
-def get_raw_env(env: EnvType) -> EnvType:
-    """Get the raw environment from the given environment."""
-    if hasattr(env, "_env"):
-        return get_raw_env(env._env)
-    if hasattr(env, "env"):
-        return get_raw_env(env.env)
-    return env
-
-
 def wrapper_chain(env: Any):
     """``env`` and every env it wraps, outermost first.
 
@@ -104,21 +95,30 @@ def wrapper_chain(env: Any):
         layer = attrs.get("_env", attrs.get("env"))
 
 
+def get_raw_env(env: EnvType) -> EnvType:
+    """The env under every wrapper of ``env``."""
+    *_, raw = wrapper_chain(env)
+    return raw
+
+
+def env_keys(key: jax.Array, mode: str, n_envs: int) -> jax.Array:
+    """One key per env on gymnax (vmapped), a single key on brax / playground."""
+    return jax.random.split(key, n_envs) if mode == "gymnax" else key
+
+
+def per_env(mask: jax.Array, like: jax.Array) -> jax.Array:
+    """Reshape an ``[n_envs]`` mask to broadcast against ``like``."""
+    return mask.reshape(mask.shape + (1,) * (jnp.ndim(like) - mask.ndim))
+
+
 def check_env_is_playground(env) -> bool:
-    env = get_raw_env(env)
-    if "mujoco_playground" in str(type(env)).lower():
-        return True
     # Catch external subclasses of mujoco_playground's MjxEnv that live
     # outside the mujoco_playground package (e.g. SafetyExperiments'
     # AntMjx) by walking the MRO and looking for any class declared in the
     # mujoco_playground namespace.
-    try:
-        for cls in type(env).__mro__:
-            if "mujoco_playground" in cls.__module__:
-                return True
-    except AttributeError:
-        pass
-    return False
+    return any(
+        "mujoco_playground" in cls.__module__ for cls in type(get_raw_env(env)).__mro__
+    )
 
 
 def check_env_is_brax(env) -> bool:

@@ -4,6 +4,8 @@ from typing import Callable, Optional, Tuple, Union
 import brax
 import brax.envs
 import gymnax
+import jax
+from brax.envs.wrappers import training as brax_training
 from gymnax import EnvParams
 
 from ajax.environments.utils import (
@@ -17,10 +19,12 @@ from ajax.environments.utils import (
 from ajax.types import EnvNormalizationInfo
 from ajax.wrappers import (
     AutoResetWrapper,
+    BatchRngWrapper,
     ClipAction,
     ClipActionBrax,
     FinalObsWrapper,
     FlattenObservationWrapper,
+    FreshAutoResetWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
     get_wrappers,
@@ -168,14 +172,10 @@ def _build_playground_env(
             action_repeat,
         )
 
-    import jax as _jax
-    from brax.envs.wrappers import training as brax_training
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
-    from ajax.wrappers import BatchRngWrapper, FreshAutoResetWrapper
-
-    _overrides = {"impl": "jax"} if _jax.default_backend() == "cpu" else None
+    _overrides = {"impl": "jax"} if jax.default_backend() == "cpu" else None
     env = registry.load(env_id, config_overrides=_overrides)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
@@ -223,8 +223,6 @@ def _build_brax_env(
             action_repeat,
         )
 
-    from brax.envs.wrappers import training as brax_training
-
     env = brax.envs._envs[env_id]()
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env, batch_size=n_envs)
@@ -239,9 +237,9 @@ def build_env_from_id(
     n_envs: int = 1,
     fresh_reset: bool = True,
     *,
+    episode_length: int = 1000,
     action_repeat: int = 1,
     differentiable_reset: bool = False,
-    **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
 
@@ -295,23 +293,13 @@ def build_env_from_id(
             env = FlattenObservationWrapper(env)
         return env, env_params  # TODO : see how to have env_params not mess up the rest
 
-    episode_length = kwargs.get("episode_length", 1000)
+    from mujoco_playground import registry as mp_registry
 
     # External callers (e.g. SafetyExperiments) may register a playground
     # builder for an env id that is not part of `mp_registry.ALL_ENVS`
-    # (e.g. a custom MJX env composed from our own MJCF). Honour the
-    # builder registry before falling through to the upstream registry.
-    if env_id in _PLAYGROUND_BUILDERS:
-        return _build_playground_env(
-            env_id,
-            n_envs=n_envs,
-            episode_length=episode_length,
-            action_repeat=action_repeat,
-        ), None
-
-    from mujoco_playground import registry as mp_registry
-
-    if env_id in mp_registry.ALL_ENVS:
+    # (e.g. a custom MJX env composed from our own MJCF); a registered
+    # builder owns its stack and ignores the auto-reset flags.
+    if env_id in _PLAYGROUND_BUILDERS or env_id in mp_registry.ALL_ENVS:
         return _build_playground_env(
             env_id,
             n_envs=n_envs,
@@ -321,7 +309,7 @@ def build_env_from_id(
             differentiable_reset=differentiable_reset,
         ), None
 
-    if env_id in _BRAX_BUILDERS or env_id in list(brax.envs._envs.keys()):
+    if env_id in _BRAX_BUILDERS or env_id in brax.envs._envs:
         return _build_brax_env(
             env_id,
             n_envs=n_envs,

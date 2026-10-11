@@ -372,8 +372,14 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
         strict=False,
     ):
         np.testing.assert_allclose(ours, theirs, rtol=1e-5, atol=1e-6)
+    # Exact: CartPole's observations depend on the networks only through the
+    # discrete actions, and a flipped action would break the params check too.
     np.testing.assert_array_equal(state.replay_state.obs, full.replay_state.obs)
-    np.testing.assert_allclose(state.replay_state.deter, full.replay_state.deter)
+    # The policy's deter, like the params, comes from two differently
+    # compiled programs: equal to float32 rounding, not to the last ulp.
+    np.testing.assert_allclose(
+        state.replay_state.deter, full.replay_state.deter, rtol=1e-5, atol=1e-6
+    )
     # A checkpoint skeleton (a 0-tick run) gets the latest run's ring.
     assert resumer._resolve_replay(0, None) == (100, None)
 

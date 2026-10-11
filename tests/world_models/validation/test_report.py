@@ -13,7 +13,6 @@ exits 1.
 from __future__ import annotations
 
 import dataclasses
-import json
 import os
 
 import numpy as np
@@ -21,7 +20,9 @@ import paper_report
 import pytest
 import wm_acceptance as acc
 from paper_protocol import paper_runs, smoke_runs
-from wm_runs import CURVE_FILE, RUN_FILE, jsonable, load_reference
+from wm_runs import CURVE_FILE, load_reference
+
+from .smoke_helpers import write_run_dir
 
 DREAMER = load_reference("dreamerv3_dmc_proprio")
 TDMPC2 = load_reference("tdmpc2_dmc")
@@ -32,13 +33,11 @@ def write_run(root, name, records, spec=None, **changes) -> None:
     """A run directory: the registry's specification of ``name`` (with
     ``changes``) and ``records``."""
     spec = spec or dataclasses.replace(paper_runs()[name], **changes)
-    directory = os.path.join(root, name)
-    os.makedirs(directory)
-    with open(os.path.join(directory, RUN_FILE), "w") as f:
-        json.dump({"spec": {"run": jsonable(dataclasses.asdict(spec))}}, f)
-    with open(os.path.join(directory, CURVE_FILE), "w") as f:
-        for record in records:
-            f.write(json.dumps({"provenance": PROVENANCE, **record}) + "\n")
+    write_run_dir(
+        os.path.join(root, name),
+        {"run": dataclasses.asdict(spec)},
+        [{"provenance": PROVENANCE, **record} for record in records],
+    )
 
 
 def _value_at(seed: dict, x: int) -> float:

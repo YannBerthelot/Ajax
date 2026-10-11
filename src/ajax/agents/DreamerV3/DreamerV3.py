@@ -77,33 +77,62 @@ class DreamerV3(ActorCritic):
             ``'400m'``: model dimension ``d`` with ``units = hidden = d``,
             ``deter = 8 d``, ``classes = d / 16``
             (:data:`~ajax.agents.DreamerV3.state.MODEL_SIZES`).
-        units, deter, hidden, classes: explicit widths, overriding the
+        units: explicit MLP width ``d``, overriding the preset's.
+        deter: explicit width of the deterministic state, overriding the
             preset's.
-        stoch, blocks, enc_layers, dec_layers, rew_layers, con_layers,
-        actor_layers, critic_layers, bins: the remaining network sizes
-            (:class:`~ajax.agents.DreamerV3.state.DreamerV3Config`).
-        free_nats, unimix, actor_unimix: world-model free bits and the
-            latents' and discrete actor's uniform mixtures.
-        dyn_scale, rep_scale, rec_scale, rew_scale, con_scale, actor_scale,
-        critic_scale, repval_scale: loss scales (Table 4).
+        hidden: explicit width of the RSSM's hidden layers, overriding the
+            preset's.
+        classes: explicit classes per latent, overriding the preset's.
+        stoch: number of categorical latents. This and the network sizes
+            below are detailed in
+            :class:`~ajax.agents.DreamerV3.state.DreamerV3Config`.
+        blocks: number of GRU blocks.
+        enc_layers: hidden layers of the vector encoder.
+        dec_layers: hidden layers of the vector decoder.
+        rew_layers: hidden layers of the reward head.
+        con_layers: hidden layers of the continue head.
+        actor_layers: hidden layers of the actor.
+        critic_layers: hidden layers of the critic.
+        bins: two-hot bins of the reward head and the critic.
+        free_nats: world-model free bits.
+        unimix: uniform mixture of the latents.
+        actor_unimix: uniform mixture of the discrete actor.
+        dyn_scale: dynamics loss scale (Table 4, as the scales below).
+        rep_scale: representation loss scale.
+        rec_scale: reconstruction loss scale.
+        rew_scale: reward loss scale.
+        con_scale: continue loss scale.
+        actor_scale: actor loss scale.
+        critic_scale: critic loss scale.
+        repval_scale: replay critic loss scale.
         train_ratio: replayed steps trained per collected row (an update
             every ``batch_size * batch_length / train_ratio`` rows after the
             training start; dreamerv3_spec 6.1-6.2).
-        batch_size, batch_length: ``B`` windows of ``T`` trained rows (each
-            window has one more row, the replay context; spec 5.8).
+        batch_size: ``B``, the windows of a batch.
+        batch_length: ``T``, the trained rows of a window (each window has
+            one more row, the replay context; spec 5.8).
         imag_horizon: imagined steps ``H``.
         return_horizon: ``1 / (1 - gamma)``, the reference's ``horizon``
             (333): ``gamma = 1 - 1 / return_horizon`` scales the continue
             target and discounts the replay critic.
-        lam, repval_lam: lambda of the imagination and replay returns.
-        actent, slowreg, slow_rate: actor entropy scale, slow-critic
-            regulariser weight and EMA rate.
-        retnorm_rate, retnorm_limit: return-normaliser EMA rate and floor.
-        minstd, maxstd: range of the continuous actor's standard deviation.
+        lam: lambda of the imagination return.
+        repval_lam: lambda of the replay return.
+        actent: actor entropy scale.
+        slowreg: slow-critic regulariser weight.
+        slow_rate: slow-critic EMA rate.
+        retnorm_rate: return-normaliser EMA rate.
+        retnorm_limit: return-normaliser floor.
+        minstd: lower bound of the continuous actor's standard deviation.
+        maxstd: upper bound of the continuous actor's standard deviation.
         learning_rate: a float or a schedule of the update count (the
             1000-update linear warmup multiplies it).
-        agc, agc_pmin, beta1, beta2, eps, warmup: LaProp with adaptive
-            gradient clipping (dreamerv3_spec 4.3-4.8).
+        agc: adaptive gradient clipping threshold (the optimizer is LaProp
+            with adaptive gradient clipping, dreamerv3_spec 4.3-4.8).
+        agc_pmin: parameter norm floor of the clipping.
+        beta1: LaProp momentum decay.
+        beta2: LaProp RMS decay.
+        eps: LaProp epsilon, added after the square root.
+        warmup: updates of linear learning-rate warmup from 0.
         replay_capacity: rows kept, over all envs (Table 4: 5e6); see
             "Replay memory" below.
         episode_length: simulator steps per episode of brax /

@@ -19,10 +19,11 @@ of gains:
   (gain scheduling); with a constant network it is the fixed policy.
 
 Each agent's own output rules apply to ``u`` as to any actor's mean: SAC,
-REDQ, ASAC and AVG squash it with ``tanh``, TD3 too (deterministic), PPO
-and APO sample around it unsquashed and the env clips. The deployed
-controller is that saturated PID. The stochastic agents explore with a
-learned, state-independent log-std. Gains start at zero (no control).
+REDQ, ASAC, AVG and APO squash it with ``tanh``, TD3 too (deterministic),
+PPO samples around it unsquashed (unless ``squash=True``) and the env
+clips. The deployed controller is that saturated PID. The stochastic
+agents explore with a learned, state-independent log-std. Gains start at
+zero (no control).
 Observation normalisation (env- or agent-side) leaves the terms raw, as
 the wrapper declares them, so the gains stay a PID's in the env's units;
 the gain network of ``gains="observation"`` reads the rest normalised.

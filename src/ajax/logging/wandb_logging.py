@@ -310,7 +310,7 @@ def vmap_log(
 def iter_tfrecord(path):
     """
     Iterate raw record data from a TFRecord-style TensorBoard event file.
-    (Each record = [length][crc_len][data][crc_data])
+    (Each record = ``[length][crc_len][data][crc_data]``)
     """
     with open(path, "rb") as f:
         while True:

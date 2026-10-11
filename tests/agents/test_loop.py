@@ -345,15 +345,21 @@ def test_each_evaluation_reports_the_experts_return_on_its_episodes(
     observations)."""
     agent, state, rows = _expert_rows(normalize_observations=normalize)
     for seed in range(len(SEEDS)):
-        expert_return = evaluate(
-            agent.env_args.env,
-            jax.tree.map(lambda x, s=seed: x[s], state.actor_state),
-            2,
-            state.eval_rng[seed],
-            agent.env_args.env_params,
-            expert_policy=agent.expert_policy,
-        )[-1]
-        np.testing.assert_allclose(rows[seed, :4], float(expert_return), rtol=1e-6)
+        actor_state = jax.tree.map(lambda x, s=seed: x[s], state.actor_state)
+        for n_logs in range(4):
+            key = jax.random.fold_in(state.eval_rng[seed], n_logs)
+            expert_return = evaluate(
+                agent.env_args.env,
+                actor_state,
+                2,
+                jax.random.split(key)[0],
+                agent.env_args.env_params,
+                expert_policy=agent.expert_policy,
+            )[-1]
+            np.testing.assert_allclose(
+                rows[seed, n_logs], float(expert_return), rtol=1e-6
+            )
+    assert len(set(rows[0, :4])) == 4  # fresh episodes at each evaluation
 
 
 # --- Agents acting, training and evaluating their own way --------------------

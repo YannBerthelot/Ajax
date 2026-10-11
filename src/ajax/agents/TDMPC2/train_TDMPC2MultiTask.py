@@ -240,11 +240,12 @@ def evaluate_task(
     task's own env (``env_args``, its training action repeat and episode
     length) with the planner in ``eval_mode``, ``t0`` on each episode's
     first step and a zero warm start (:func:`multitask.task_planner_policy`:
-    padded observations, the task's prefix of the padded action). The
-    episodes start from fresh initial states, ``key`` being folded with the
-    number of evaluations so far and the task id.
+    padded observations, the task's prefix of the padded action). ``key``,
+    fresh at each evaluation (:func:`ajax.log.evaluation_keys`), is folded
+    with the task id: each task's episodes start from their own initial
+    states.
     """
-    key = jax.random.fold_in(jax.random.fold_in(key, agent_state.n_logs), task)
+    key = jax.random.fold_in(key, task)
     policy = partial(
         multitask.task_planner_policy,
         wm_params=agent_state.world_model_state.params,

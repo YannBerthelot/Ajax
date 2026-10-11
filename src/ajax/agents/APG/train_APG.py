@@ -9,9 +9,9 @@ tracking task (:mod:`ajax.environments.model_reference`) that objective
 is exactly the closed-loop matching cost of Busetto et al. 2024, eq. (9),
 and ``sqrt(loss / horizon)`` is their M-RMSE.
 
-Evaluation runs a fixed validation set: ``num_episode_test`` systems (and,
-through the env's reset, references and initial conditions) drawn from the
-evaluation key, the same at every evaluation of a seed and apart from the
+Evaluation draws ``num_episode_test`` systems (and, through the env's
+reset, references and initial conditions) from the evaluation key, fresh
+at each evaluation (:func:`ajax.log.evaluation_keys`) and apart from the
 training draws, and reports the deterministic closed-loop return and
 M-RMSE, i.e. the paper's validation metric, at the logging frequency.
 """

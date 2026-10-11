@@ -222,7 +222,7 @@ def test_resume_keeps_params_and_resets_optimizer(env_and_class):
 
 def test_the_validation_set_is_drawn_apart_from_training(env_and_class):
     """``eval_rng`` is split from the init key apart from ``rng``, which
-    every training draw descends from: the fixed validation systems are not
+    every training draw descends from: the validation systems are not
     training ones."""
     env, sc = env_and_class
     agent = make_agent(env, sc)

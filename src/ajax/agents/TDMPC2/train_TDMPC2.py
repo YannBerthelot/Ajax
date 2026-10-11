@@ -399,9 +399,9 @@ def evaluate_tdmpc2(
     final exploration noise, everything else stochastic as in the reference
     (``online_trainer.py:27-48``, tdmpc2_spec 4.21). The planner carry starts
     at zeros, separate from the training one (deviation T9). ``key`` is
-    folded with the number of evaluations so far (``agent_state.n_logs``):
-    each evaluation starts from fresh initial states, as the reference's
-    resets of its running env do, deterministically per seed.
+    fresh at each evaluation (:func:`ajax.log.evaluation_keys`): each starts
+    from new initial states, as the reference's resets of its running env
+    do.
     """
     action_dim = get_action_dim(env_args.env, env_args.env_params)
     ret, length = evaluate_policy(
@@ -409,7 +409,7 @@ def evaluate_tdmpc2(
         _policy(agent_state, config, gamma, eval_mode=True),
         lambda m: jnp.zeros((m, config.horizon, action_dim)),
         num_episodes,
-        jax.random.fold_in(key, agent_state.n_logs),
+        key,
     )
     return {"Eval/episodic mean reward": ret, "Eval/mean episodic length": length}
 

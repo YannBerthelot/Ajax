@@ -14,12 +14,14 @@ agent acts in both. The maths of each agent is tested in its own directory.
 from dataclasses import dataclass, field
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from extension_stubs import METRIC, CounterExt, MetricExt
 from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
+import ajax.log
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
@@ -30,6 +32,7 @@ from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.UDRL.UDRL import UDRL
+from ajax.extensions.base import Extension
 from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
     EVAREST_DECOMP_KEYS,
@@ -72,6 +75,8 @@ class Case:
     alpha: bool = False  # has a temperature (alpha_args)
     buffer: bool = False  # has a replay buffer
     critic: bool = True  # has a value or action-value network
+    # Evaluates its policy (UDRL: no command to evaluate it with).
+    evaluates: bool = True
     n_timesteps: int = 64
     # Overrides for the extensions' run only.
     extended: dict[str, Any] = field(default_factory=dict)
@@ -138,6 +143,7 @@ CASES = {
         CONTINUOUS + DISCRETE,
         n_timesteps=128,
         critic=False,
+        evaluates=False,
     ),
 }
 AGENTS = pytest.mark.parametrize("name", sorted(CASES))
@@ -260,8 +266,6 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
     """The initial state's ``eval_rng`` is split from the run's key apart
     from ``rng``, which every training draw descends from: an evaluation
     repeats none of them."""
-    import jax
-
     import ajax.agents.loop as loop
 
     seen, fresh_state = [], loop.fresh_state
@@ -277,3 +281,57 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
     case.cls(env_id=case.envs[0], n_envs=1, **case.kwargs).train(seed=0, n_timesteps=0)
     (rng, eval_rng), *_ = seen
     assert not np.array_equal(rng, eval_rng)
+
+
+#: The keys the evaluations of one run hand the policy's evaluation and the
+#: extensions' ``eval_metrics``, in order.
+_EVAL_KEYS: dict[str, list] = {"policy": [], "extensions": []}
+
+
+def _record(kind: str) -> Any:
+    return lambda key: _EVAL_KEYS[kind].append(np.asarray(key).tobytes())
+
+
+@dataclass(frozen=True)
+class _KeyExt(Extension):
+    """Records the key its ``eval_metrics`` is handed."""
+
+    name: str = "key"
+
+    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+        jax.debug.callback(_record("extensions"), rng)
+        return {}
+
+
+@AGENTS
+def test_each_evaluation_draws_fresh_keys(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The policy's evaluation and the extensions' ``eval_metrics`` draw new
+    keys at each evaluation of a run (``eval_rng`` folded with the count of
+    evaluations so far): fresh initial states and noise every time."""
+    evaluate = ajax.log.evaluate
+
+    def recording(*args: Any, rng: Any, **kwargs: Any) -> Any:
+        jax.debug.callback(_record("policy"), rng)
+        return evaluate(*args, rng=rng, **kwargs)
+
+    monkeypatch.setattr(ajax.log, "evaluate", recording)
+    for keys in _EVAL_KEYS.values():
+        keys.clear()
+    case = CASES[name]
+    agent = case.cls(
+        env_id=case.envs[0], n_envs=1, extensions=[_KeyExt()], **case.kwargs
+    )
+    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    _, out = agent.train(
+        seed=0, n_timesteps=case.n_timesteps, num_episode_test=1, logging_config=logging
+    )
+    jax.effects_barrier()
+    evaluations = int((np.asarray(out["timestep"]) >= 0).sum())
+    assert evaluations >= 2
+    kinds = ("policy", "extensions") if case.evaluates else ("extensions",)
+    for kind in kinds:
+        keys = _EVAL_KEYS[kind]
+        assert len(keys) == evaluations, (kind, len(keys))
+        assert len(set(keys)) == evaluations, kind

@@ -39,6 +39,7 @@ from ajax.environments.utils import (
     get_state_action_shapes,
 )
 from ajax.extensions.base import Extension, ExtensionStack, check_extension_phases
+from ajax.log import evaluation_keys
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -372,7 +373,7 @@ class TDMPC2MultiTask:
                 num_episodes=num_episodes,
             )
             self._eval_fns[cache_key] = jax.jit(
-                jax.vmap(lambda state: evaluate(state, state.eval_rng))
+                jax.vmap(lambda state: evaluate(state, evaluation_keys(state)[0]))
             )
         return self._eval_fns[cache_key]
 
@@ -386,7 +387,7 @@ class TDMPC2MultiTask:
         reward`` and ``Eval/<name>/mean episodic length``, their means over
         tasks and ``Eval/normalized score`` (class docstring). It does not
         advance ``state.n_logs``: :meth:`train` does after logging, so the
-        next evaluation starts from new initial states.
+        next evaluation draws fresh keys (:func:`ajax.log.evaluation_keys`).
         """
         if self.eval_env_args is None:
             raise ValueError("no eval_envs were given: nothing to evaluate on")
@@ -429,7 +430,7 @@ class TDMPC2MultiTask:
             stack = self.extension_stack
 
             def extra(s: TDMPC2MultiTaskState) -> dict:
-                key = jax.random.fold_in(jax.random.split(s.eval_rng)[1], s.n_logs)
+                key = evaluation_keys(s)[1]
                 return stack.fold_eval_metrics(s, s.n_updates, key, total)
 
             self._extra_eval_fns[total] = jax.jit(jax.vmap(extra))

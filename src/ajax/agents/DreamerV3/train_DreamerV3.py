@@ -478,19 +478,16 @@ def evaluate_dreamer(
 
     The reference's policy samples in every mode (dreamerv3_spec 7.3);
     :func:`ajax.evaluate.evaluate_policy` runs one episode in each of
-    ``num_episode_test`` freshly reset envs with the training action repeat.
-    ``key`` (split from the fixed ``eval_rng`` by
-    :func:`ajax.log.maybe_eval_and_log`) is folded with the number of
-    evaluations so far (``agent_state.n_logs``), as TD-MPC2's: each
-    evaluation draws fresh initial states and action noise, deterministically
-    per seed.
+    ``num_episode_test`` freshly reset envs with the training action repeat,
+    from ``key``: fresh at each evaluation (:func:`ajax.log.evaluation_keys`),
+    so each draws new initial states and action noise.
     """
     mean_return, mean_length = evaluate_policy(
         env_args,
         bind_policy(agent_state, config, spec.action_dim, spec.discrete),
         lambda n: initial_policy_carry(config, n, spec.action_dim, spec.discrete),
         num_episode_test,
-        jax.random.fold_in(key, agent_state.n_logs),
+        key,
     )
     return {
         "Eval/episodic mean reward": mean_return,

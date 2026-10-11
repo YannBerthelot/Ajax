@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import flashbax as fbx
 import jax
@@ -113,24 +113,44 @@ def init_buffer(
     return buffer.init(schema)
 
 
+class ReplayBatch(NamedTuple):
+    """One replay sample: its rows' fields, the optional ones None where
+    the buffer does not store them (:func:`init_buffer`)."""
+
+    obs: jax.Array
+    terminated: jax.Array
+    truncated: jax.Array
+    next_obs: jax.Array
+    reward: jax.Array
+    action: jax.Array
+    raw_obs: Optional[jax.Array] = None
+    is_expert: Optional[jax.Array] = None
+    # The expert's action at s and s' (include_expert_fields).
+    a_expert: Optional[jax.Array] = None
+    next_a_expert: Optional[jax.Array] = None
+    # The env's own next observation (include_raw_next_obs).
+    raw_next_obs: Optional[jax.Array] = None
+
+
 @partial(jax.jit, static_argnames=["buffer"])
-def get_batch_from_buffer(
-    buffer: BufferType,
-    buffer_state,
-    key,
-):
+def get_batch_from_buffer(buffer: BufferType, buffer_state, key) -> ReplayBatch:
     batch = buffer.sample(buffer_state, key).experience
-    obs = batch.first["obs"]
-    act = batch.first["action"]
-    rew = batch.first["reward"]
-    # Not the next row's obs: after a time limit that is the reset one,
-    # and the target bootstraps on the final one (interaction.bootstrap_obs).
-    next_obs = batch.first["next_obs"]
-    terminated = batch.first["terminated"]
-    truncated = batch.first["truncated"]
-    raw_observations = batch.first["raw_obs"]
-    is_expert = batch.first["is_expert"]
-    return obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert
+    first = batch.first
+    return ReplayBatch(
+        obs=first["obs"],
+        # Not the next row's obs: after a time limit that is the reset one,
+        # and the target bootstraps on the final one (interaction.bootstrap_obs).
+        next_obs=first["next_obs"],
+        terminated=first["terminated"],
+        truncated=first["truncated"],
+        reward=first["reward"],
+        action=first["action"],
+        raw_obs=first.get("raw_obs"),
+        is_expert=first.get("is_expert"),
+        a_expert=first.get("a_expert"),
+        next_a_expert=first.get("next_a_expert"),
+        raw_next_obs=first.get("raw_next_obs"),
+    )
 
 
 @partial(jax.jit, static_argnames=["buffer"])
@@ -147,27 +167,3 @@ def get_sequence_batch_from_buffer(
     """
     batch = buffer.sample(buffer_state, key).experience  # (B, L, ...)
     return jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), batch)
-
-
-@partial(jax.jit, static_argnames=["buffer"])
-def get_raw_next_obs_from_buffer(buffer: BufferType, buffer_state, key):
-    """The environment's own next observations of the batch ``key`` samples
-    (the key of the matching :func:`get_batch_from_buffer` call)."""
-    return buffer.sample(buffer_state, key).experience.first["raw_next_obs"]
-
-
-@partial(jax.jit, static_argnames=["buffer"])
-def get_expert_fields_from_buffer(
-    buffer: BufferType,
-    buffer_state,
-    key,
-):
-    """Sample (a_expert, next_a_expert) for one batch from the buffer.
-
-    Caller must use the SAME ``key`` as the matching
-    get_batch_from_buffer call to get aligned slices. Buffers without
-    these fields raise KeyError; SAC initialises the buffer with
-    ``include_expert_fields=True`` when expert_policy is provided.
-    """
-    batch = buffer.sample(buffer_state, key).experience
-    return batch.first["a_expert"], batch.first["next_a_expert"]

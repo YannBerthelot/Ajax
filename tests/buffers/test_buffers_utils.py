@@ -57,21 +57,20 @@ def test_init_buffer(setup):
 
 
 def test_get_batch_from_buffer(setup):
-    obs, terminated, truncated, next_obs, reward, action, raw_obs, is_expert = (
-        get_batch_from_buffer(setup.buffer, setup.state, jax.random.PRNGKey(0))
-    )
-    batch = setup.batch_size
+    b = get_batch_from_buffer(setup.buffer, setup.state, jax.random.PRNGKey(0))
     for sample, trailing in (
-        (obs, setup.obs_shape),
-        (next_obs, setup.obs_shape),
-        (raw_obs, setup.obs_shape),
-        (action, setup.action_shape),
-        (terminated, (1,)),
-        (truncated, (1,)),
-        (reward, (1,)),
-        (is_expert, (1,)),
+        (b.obs, setup.obs_shape),
+        (b.next_obs, setup.obs_shape),
+        (b.raw_obs, setup.obs_shape),
+        (b.action, setup.action_shape),
+        (b.terminated, (1,)),
+        (b.truncated, (1,)),
+        (b.reward, (1,)),
+        (b.is_expert, (1,)),
     ):
-        assert sample.shape == (batch, *trailing)
+        assert sample.shape == (setup.batch_size, *trailing)
+    # Fields the buffer does not store come back None.
+    assert b.a_expert is None and b.next_a_expert is None and b.raw_next_obs is None
 
 
 @pytest.mark.parametrize(

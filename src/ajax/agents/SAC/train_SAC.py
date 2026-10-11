@@ -26,11 +26,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.buffers.utils import (
-    get_batch_from_buffer,
-    get_expert_fields_from_buffer,
-    get_raw_next_obs_from_buffer,
-)
+from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
@@ -540,45 +536,25 @@ def update_agent(
         expert_frac_in_buffer = jnp.zeros(())
         raw_next_observations = None
     else:
-        (
-            observations,
-            terminated,
-            truncated,
-            next_observations,
-            rewards,
-            actions,
-            raw_observations,
-            is_expert,
-        ) = get_batch_from_buffer(
+        batch = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, sample_key
         )
-        # Aligned a_expert / next_a_expert (same sample_key, same
-        # slices) when the buffer was initialised with expert fields.
-        if expert_policy is not None:
-            a_expert_buf, next_a_expert_buf = get_expert_fields_from_buffer(
-                buffer, agent_state.collector_state.buffer_state, sample_key
-            )
-        else:
-            a_expert_buf, next_a_expert_buf = None, None
-        expert_frac_in_buffer = is_expert.mean()
+        expert_frac_in_buffer = batch.is_expert.mean()
         # The raw next observations, kept for extensions that call an
         # expert of their own (init_SAC's store_raw_next_obs).
-        buffer_state = agent_state.collector_state.buffer_state
-        raw_next_observations = (
-            get_raw_next_obs_from_buffer(buffer, buffer_state, sample_key)
-            if buffer_state is not None and "raw_next_obs" in buffer_state.experience
-            else None
-        )
+        raw_next_observations = batch.raw_next_obs
+        # The expert's actions are stored with an expert policy
+        # (init_SAC's include_expert_fields), None without one.
         transition = Transition(
-            observations,
-            actions,
-            rewards,
-            terminated,
-            truncated,
-            next_observations,
-            raw_obs=raw_observations,
-            a_expert=a_expert_buf,
-            next_a_expert=next_a_expert_buf,
+            batch.obs,
+            batch.action,
+            batch.reward,
+            batch.terminated,
+            batch.truncated,
+            batch.next_obs,
+            raw_obs=batch.raw_obs,
+            a_expert=batch.a_expert,
+            next_a_expert=batch.next_a_expert,
         )
 
     # A truncated row bootstraps on its final observation (bootstrap_obs).

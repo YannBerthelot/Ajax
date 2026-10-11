@@ -24,6 +24,7 @@ own (MJX) gradient story.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Callable, Optional, Tuple
 
 import jax
@@ -68,12 +69,8 @@ def with_transition_gradients(env: Any) -> Any:
     """
     inner = getattr(env, "_env", None)
     if inner is not None:
-        # Shallow-copy by hand: ``copy.copy`` probes ``__setstate__`` on the
-        # half-built copy, which ``GymnaxWrapper.__getattr__`` forwards to
-        # a not-yet-set ``_env`` and recurses forever.
-        rewrapped = object.__new__(type(env))
-        rewrapped.__dict__.update(env.__dict__)
-        rewrapped.__dict__["_env"] = with_transition_gradients(inner)
+        rewrapped = copy.copy(env)
+        rewrapped._env = with_transition_gradients(inner)
         return rewrapped
     if not getattr(env, "supports_transition_gradients", False):
         raise ValueError(

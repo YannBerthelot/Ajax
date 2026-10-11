@@ -60,7 +60,9 @@ raises on a key it needs and does not find, rather than return a no-op.
                  plus ``observations``, ``raw_observations`` and
                  ``pi_mean`` on SAC, ASAC, REDQ, TD3 and APO (SAC adds
                  the expert's action ``a_expert``), but on APG (its
-                 ``rollout``, ``returns`` and ``actor_params``)
+                 ``rollout``, ``returns`` and ``actor_params``). The
+                 replay agents' ``raw_observations`` is None in a run
+                 without an expert, whose replay does not keep them
 """
 
 from __future__ import annotations

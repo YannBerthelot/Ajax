@@ -415,7 +415,9 @@ def policy_loss_function(
     if extension_stack:
         ext_batch = {
             "observations": observations,
-            "raw_observations": _raw_obs,
+            # The replay keeps them only for a run with an expert: None
+            # without one, never the observations passed off as raw.
+            "raw_observations": raw_observations,
             "pi_mean": pi.mean(),
             "actor_params": actor_params,
             "actor_state": actor_state,

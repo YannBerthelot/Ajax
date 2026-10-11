@@ -1,5 +1,6 @@
 """What the agents hand the extensions' phases: a key of their own for every
-loss term, and PQN's target the cuts it bootstrapped on."""
+loss term, PQN's target the cuts it bootstrapped on, and no raw observations
+the replay does not keep."""
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import jax
 import numpy as np
 import pytest
 
+import ajax
 from ajax import APO, DQN, PPO, PQN
 from ajax.extensions.base import Extension
 
@@ -93,3 +95,33 @@ def test_pqn_hands_its_target_extensions_the_dones() -> None:
     assert rows
     for dones, terminated in rows:
         np.testing.assert_array_equal(dones, terminated)
+
+
+RAW: list = []  # the actor-loss batch's raw_observations, at trace time
+
+
+@dataclass(frozen=True)
+class RawObservationsSeen(Extension):
+    name: str = "raw_observations_seen"
+
+    def actor_loss(self, agent_state, ext_state, batch, ctx):
+        RAW.append(batch["raw_observations"])
+        return 0.0
+
+
+@pytest.mark.parametrize("agent", ["SAC", "TD3", "REDQ", "ASAC"])
+def test_without_an_expert_the_actor_loss_gets_no_raw_observations(agent: str) -> None:
+    """The replay keeps the env's own observations only for a run with an
+    expert (init_buffer's include_raw_obs): without one, the actor-loss
+    batch's raw_observations is None, not observations passed off as raw."""
+    RAW.clear()
+    getattr(ajax, agent)(
+        "Pendulum-v1",
+        n_envs=2,
+        learning_starts=8,
+        batch_size=8,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        extensions=(RawObservationsSeen(),),
+    ).train(seed=0, n_timesteps=16)
+    assert RAW and all(raw is None for raw in RAW)

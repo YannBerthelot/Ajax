@@ -20,22 +20,7 @@ back in.
 import pytest
 
 
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
-
-
 @pytest.mark.slow
-@requires_playground
 def test_sac_trains_on_playground_env_smoke():
     """Build CheetahRun via ``build_env_from_id`` and run a few SAC training
     steps. The assertion is simply "does not raise" — covering the vmap-rank
@@ -51,7 +36,6 @@ def test_sac_trains_on_playground_env_smoke():
     assert result is not None
 
 
-@requires_playground
 def test_playground_env_has_ajax_wrapper_stack():
     """``build_env_from_id`` must return a fully-wrapped env. Missing any
     wrapper in the stack manifests as cryptic vmap/rank errors deep inside
@@ -69,7 +53,6 @@ def test_playground_env_has_ajax_wrapper_stack():
 
 
 @pytest.mark.slow
-@requires_playground
 def test_sac_trains_from_fresh_initial_states():
     """The episodes SAC stores in its replay buffer start from distinct
     observations with the default env stack. (Playground's cached

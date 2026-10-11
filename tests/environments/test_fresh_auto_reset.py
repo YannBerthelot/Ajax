@@ -15,24 +15,9 @@ import time
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from ajax.environments.create import build_env_from_id
 from ajax.wrappers import FreshAutoResetWrapper, _call_if_any
-
-
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
 
 N_ENVS, EPISODE_LENGTH, N_STEPS, N_SEEDS = 2, 3, 9, 2  # 4 episode starts each
 
@@ -77,7 +62,6 @@ def _n_distinct(rows):
     return len(np.unique(np.round(rows, 6), axis=0))
 
 
-@requires_playground
 def test_opting_out_restores_the_cached_reset():
     """``fresh_reset=False`` keeps playground's cached semantics, the setting
     playground results produced before fresh resets became the default were
@@ -98,7 +82,6 @@ def test_opting_out_restores_the_cached_reset():
     assert _n_distinct(starts) == 1
 
 
-@requires_playground
 def test_default_starts_every_episode_from_a_new_state():
     env, _ = build_env_from_id(
         "CartpoleBalance", n_envs=N_ENVS, episode_length=EPISODE_LENGTH
@@ -112,7 +95,6 @@ def test_default_starts_every_episode_from_a_new_state():
             assert _n_distinct(starts) == 4, (seed, env_idx, starts)
 
 
-@requires_playground
 def test_fresh_reset_keeps_the_transition_bookkeeping():
     """On a done step the new episode's state comes from the reset, but what
     describes the finished transition must survive it: ``truncation`` (else
@@ -133,7 +115,6 @@ def test_fresh_reset_keeps_the_transition_bookkeeping():
     np.testing.assert_array_equal(out["rng_changed"], done)
 
 
-@requires_playground
 def test_fresh_reset_with_differentiable_reset_gives_the_same_rollout():
     """``differentiable_reset=True`` evaluates the reset on every step (for
     reverse mode through it, see ``build_env_from_id``) with the same keys,
@@ -159,7 +140,6 @@ def test_fresh_reset_with_differentiable_reset_gives_the_same_rollout():
         np.testing.assert_allclose(gated[name], every[name], rtol=1e-5, atol=1e-5)
 
 
-@requires_playground
 def test_eval_rebuild_keeps_the_reset_semantics():
     from ajax.evaluate import setup_environment
 

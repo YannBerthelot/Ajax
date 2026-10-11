@@ -326,7 +326,6 @@ def get_pre_trained_agent(
         n_timesteps=cloning_args.pre_train_n_steps,
         augment_obs_with_expert_state=augment_obs_with_expert_state,
     )
-    jax.clear_caches()
     actor_state, _metrics, obs_mean, obs_std = pre_train(
         rng=expert_key,
         actor_state=agent_state.actor_state,

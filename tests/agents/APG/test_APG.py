@@ -15,6 +15,7 @@ from ajax.agents.APG import (
 from ajax.agents.APG.train_APG import (
     evaluate_apg,
     init_APG,
+    make_policy_step,
     reset_optimizer,
     rollout_returns,
 )
@@ -386,3 +387,37 @@ def test_the_downstream_training_and_evaluation_contract(env_and_class):
         stateful=True,
     )
     assert returns.shape == (5,) and jnp.isfinite(returns).all()
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "MountainCarContinuous-v0"])
+def test_the_controller_output_is_mapped_onto_the_torque_bounds(env_id):
+    """Inside the differentiable rollout the controller's [-1, 1] output is
+    mapped onto the env's bounds: on Pendulum's [-2, 2] the executed torque
+    and its gradient are twice the output's; on MountainCarContinuous's
+    [-1, 1] they are the output's own (to float rounding: the two programs
+    compile apart)."""
+    agent = APG(env_id, n_envs=4, horizon=2, pid=None, actor_architecture=("8", "tanh"))
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    state = jax.tree.map(lambda x: x[0], state)
+    key = jax.random.PRNGKey(1)
+
+    def executed(params):
+        _, rollout = rollout_returns(state, params, key, agent.env_args, None, 2, 4)
+        return rollout.action[0, :, 0].sum(), rollout
+
+    params = state.actor_state.params
+    (total, rollout), grad_executed = jax.value_and_grad(executed, has_aux=True)(params)
+
+    def own(params):
+        step = make_policy_step(state.actor_state, params, False)
+        return step(None, rollout.obs[0], rollout.resets[0])[0][:, 0].sum()
+
+    scale = 2.0 if env_id == "Pendulum-v1" else 1.0
+    out, grad_own = jax.value_and_grad(own)(params)
+    assert jnp.allclose(total, scale * out, rtol=1e-6)
+    close = jax.tree.map(
+        lambda a, b: jnp.allclose(a, scale * b, rtol=1e-5, atol=1e-7),
+        grad_executed,
+        grad_own,
+    )
+    assert jax.tree.all(close)

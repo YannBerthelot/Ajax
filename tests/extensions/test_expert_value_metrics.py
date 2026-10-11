@@ -69,7 +69,8 @@ def test_the_metrics_read_the_critic_at_the_stored_expert_actions() -> None:
     buffer_state = state.collector_state.buffer_state
     obs, *_, actions, _, _ = get_batch_from_buffer(agent.buffer, buffer_state, key)
     a_expert, _ = get_expert_fields_from_buffer(agent.buffer, buffer_state, key)
-    np.testing.assert_allclose(a_expert, jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0))
+    # The expert's torque on Pendulum's [-2, 2], stored in agent units.
+    np.testing.assert_allclose(a_expert, jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0) / 2)
 
     def q_min(a: jax.Array) -> jax.Array:
         x = jnp.concatenate([obs, a], axis=-1)

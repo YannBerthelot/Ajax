@@ -45,6 +45,13 @@ all (2e-7 at most).
 The expert-policy golden (ExpertGuidance's until that inert extension
 went) was re-captured when its stack became empty: SAC then draws no
 post_update key, a move of 1.6e-5..2.9e-4.
+
+Re-captured when every continuous action was mapped from [-1, 1] onto
+Pendulum's [-2, 2] torque box: the policy and the uniform warm-up act at
+twice the torque, and the expert (``tanh(sum(obs))``, read as env units)
+is read at half its value in agent units, so every stack moved: by at
+most 1.9e-3 (PhiRefresh's actor), 1.1e-3 (the expert policy's actor) and
+1.0e-3 (EDGE thompson's critic), the others 1.3e-4..9.2e-4.
 """
 
 from __future__ import annotations

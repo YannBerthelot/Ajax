@@ -44,6 +44,7 @@ from ajax.environments.interaction import (
     update_episodic_return,
 )
 from ajax.environments.utils import (
+    agent_action_to_env,
     check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
 )
@@ -196,7 +197,7 @@ def _udrl_collect_step(
             step(
                 rng_step,
                 cs.env_state,
-                action,
+                agent_action_to_env(action, env_args.env, env_args.env_params),
                 env_args.env,
                 mode,
                 env_args.env_params,

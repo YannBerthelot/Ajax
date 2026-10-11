@@ -8,15 +8,18 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.SAC.SAC import SAC
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.TD3.networks import (
     DeterministicPIDActor,
     get_initialized_td3_actor_critic,
 )
+from ajax.evaluate import evaluate
 from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
+from tests.environments import paid_action
 
 from . import setpoint_env
 
@@ -44,7 +47,7 @@ def test_the_fixed_actor_parameters_are_the_gains():
     actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2)
     params = actor.init(jax.random.PRNGKey(0), OBS)
     shapes = jax.tree.map(jnp.shape, params["params"])
-    assert shapes == {"pid": {g: (2, 2) for g in GAINS}, "log_std": (2,)}
+    assert shapes == {"pid": dict.fromkeys(GAINS, (2, 2)), "log_std": (2,)}
     params = _set_gains(params, GAINS)
     np.testing.assert_allclose(
         actor.apply(params, OBS).mean(), _by_hand(OBS, GAINS), 1e-6
@@ -215,3 +218,25 @@ def test_every_continuous_agent_trains_a_pid_policy(case):
         mean, var = np.asarray(stats.mean), np.asarray(stats.var)
         assert np.all(mean[..., :3] == 0.0) and np.all(var[..., :3] == 1.0)
         assert np.all(var[..., 3] != 1.0)
+
+
+def test_the_gains_are_normalised_on_a_wider_box():
+    """On Box(-2, 2) a SAC PID actor's deterministic control tanh(u) is
+    executed as 2 tanh(u): pid_gains reads normalised gains, in env units
+    twice them (small-signal)."""
+    env, params = paid_action.make()
+    agent = SAC(env, env_params=params, n_envs=1, actor_architecture=PIDPolicy())
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    actor = jax.tree.map(lambda x: x[0], state.actor_state)
+    gains = {
+        "kp": jnp.array([[0.4]]),
+        "ki": jnp.array([[0.2]]),
+        "kd": jnp.array([[0.1]]),
+    }
+    actor = actor.replace(params=_set_gains(actor.params, gains))
+    for name, value in pid_gains(actor.params).items():
+        np.testing.assert_array_equal(value, gains[name])
+    e, i, d = paid_action.OBS
+    u = 0.4 * e + 0.2 * i + 0.1 * d
+    paid = evaluate(env, actor, 2, jax.random.PRNGKey(0), params)[0]
+    np.testing.assert_allclose(paid, paid_action.HIGH * jnp.tanh(u), rtol=1e-6)

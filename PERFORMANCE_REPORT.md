@@ -947,6 +947,31 @@ Medians of the three trials. REDQ is slow by design: 20 critic updates of
 most (9,604 to 15,069 exec steps/s); judge it on more trials before calling
 a regression.
 
+## Continuous actions mapped onto the env's box (2026-10-12)
+
+Every model-free env step now maps the agent's `[-1, 1]` action onto the
+env's box (`agent_action_to_env`, one `c + h * clip(a, -1, 1)`), and
+experts are read in the same units. On `[-1, 1]` boxes every run is
+bitwise unchanged. On Pendulum's `[-2, 2]` the squashed agents reached only half the
+torque before.
+
+`benchmarks/agent_bench.py` defaults, CPU, before and after the change,
+medians of 3 trials, exec steps/s: SAC (Pendulum) 2,138 -> 2,141 (+0.1%),
+TD3 (Pendulum) 2,699 -> 2,776 (+2.8%), PPO (CartPole, discrete: the map
+passes it through) 16,784 -> 16,957 (+1.0%). All within noise.
+
+Learning check: gymnax Pendulum-v1, 20k steps, the final evaluation return
+(10 episodes) of seeds 0 and 1.
+
+| Agent | before | after |
+|---|---|---|
+| SAC | -262, -291 | -166, -167 |
+| TD3 | -242, -147 | -180, -87 |
+| PPO | -1537, -1313 | -1400, -1334 |
+
+20k steps are too few for PPO on Pendulum; its Gaussian is now read in
+normalised units (its torque std doubles), so this row only shows it runs.
+
 ## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
 
 `benchmarks/world_models/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2

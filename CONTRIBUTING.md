@@ -70,6 +70,11 @@ pre-training (`ExtensionStack.fold_init`) on a fresh run, the given state on a
 resumed one, then the iterations in `build_resumable_train`'s jitted scan,
 evaluating and logging every `log_frequency` steps (with `eval_metrics`).
 
+Continuous agents act in `[-1, 1]`; never scale to the env's bounds yourself.
+Every Ajax env step maps the action onto them (`agent_action_to_env`), and
+`ActorCritic` reads an expert, written in env units, in the same `[-1, 1]`
+(`ExpertInAgentUnits`): replay, losses and extensions see one unit.
+
 The world models (DreamerV3, TDMPC2) also give `off_policy` their own
 `collect(agent_state, tick)`, `n_updates(tick, agent_state)` (such as a train
 ratio) and `Evaluation`. UDRL runs its own iteration on `TrainLoop.train`; APG

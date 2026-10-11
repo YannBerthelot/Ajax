@@ -5,10 +5,21 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.SAC.SAC import SAC
+from ajax.agents.TD3.TD3 import TD3
 from ajax.environments.interaction import collect_experience_from_expert_policy
 from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import ExpertInAgentUnits, agent_action_to_env
+from ajax.evaluate import evaluate
+from ajax.extensions.expert import (
+    ImitationLoss,
+    ResidualPolicy,
+    reads_stored_expert_actions,
+)
+from ajax.extensions.target_mods import IBRL
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, Transition
+from tests.environments import paid_action
 
 
 @pytest.fixture(scope="session")
@@ -179,3 +190,99 @@ def test_per_env_params_give_the_expert_one_box():
     params = params.replace(max_torque=jnp.array([1.0, 2.0, 2.0]))
     with pytest.raises(ValueError, match="different action bounds"):
         ExpertInAgentUnits(lambda o: o, env, params)
+
+
+# ---------------------------------------------------------------------------
+# Behind the doors: the agent reads its expert in agent units
+# ---------------------------------------------------------------------------
+_SAC = {
+    "n_envs": 1,
+    "actor_architecture": ("8", "relu"),
+    "critic_architecture": ("8", "relu"),
+    "buffer_size": 64,
+    "batch_size": 4,
+    "expert_buffer_n_steps": 0,
+    "expert_fraction": 1.0,  # the expert acts on every warm-up step
+}
+
+
+def _constant(obs):
+    """1.5 on the paid Box(-2, 2): 0.75 in agent units."""
+    return jnp.full((*obs.shape[:-1], 1), 1.5)
+
+
+def _sac(**kwargs):
+    env, params = paid_action.make()
+    kwargs = _SAC | {"expert_policy": _constant} | kwargs
+    return SAC(env, env_params=params, **kwargs)
+
+
+def _written(state):
+    """The replay buffer's written rows of the run's only seed and env."""
+    buffer_state = state.collector_state.buffer_state
+    n = int(np.asarray(buffer_state.current_index).reshape(-1)[0])
+    return {k: np.asarray(v)[0, 0, :n] for k, v in buffer_state.experience.items()}
+
+
+def test_expert_rows_are_stored_in_agent_units_and_paid_in_env_units():
+    """The expert prefill and the expert's warm-up steps store action =
+    a_expert = next_a_expert = 0.75 and are paid the expert's 1.5."""
+    agent = _sac(expert_buffer_n_steps=4, learning_starts=64)
+    state, _ = agent.train(seed=0, n_timesteps=8)
+    rows = _written(state)
+    assert len(rows["reward"]) == 4 + 8
+    for key in ("action", "a_expert", "next_a_expert"):
+        np.testing.assert_array_equal(rows[key], 0.75, err_msg=key)
+    np.testing.assert_array_equal(rows["reward"], 1.5)
+
+
+def test_a_zero_scale_residual_policy_executes_the_expert():
+    """ResidualPolicy(scale=0) acts clip(a_expert + 0 * a, -1, 1) = 0.75,
+    paid 1.5 in collection and evaluate() (1.0 when it mixed env units);
+    the expert's own rollout is paid 1.5, as raw stepping."""
+    agent = _sac(learning_starts=4, extensions=(ResidualPolicy(scale=0.0),))
+    logging = LoggingConfig(config={}, log_frequency=4, use_wandb=False)
+    state, out = agent.train(
+        seed=0, n_timesteps=12, num_episode_test=2, logging_config=logging
+    )
+    np.testing.assert_array_equal(_written(state)["reward"][4:], 1.5)  # warmed up
+    evaluated = np.asarray(out["timestep"]) >= 0
+    assert evaluated.any()
+    for key in ("Eval/episodic mean reward", "Eval/episodic mean expert reward"):
+        np.testing.assert_allclose(np.asarray(out[key])[evaluated], 1.5, err_msg=key)
+
+
+def test_the_extensions_read_the_expert_in_agent_units():
+    """IBRL and ImitationLoss call their expert in agent units, IBRL
+    holding the agent's own (it reads the stored actions); SAC's
+    eval_expert_policy is converted too. (The augmented observation's
+    column: tests/extensions/test_expert_observations.py.)"""
+    env, params = paid_action.make()
+    sac = _sac(
+        extensions=(IBRL(expert_policy=_constant),), eval_expert_policy=_constant
+    )
+    td3 = TD3(env, env_params=params, extensions=(ImitationLoss(_constant),))
+    obs = paid_action.OBS[None]
+    for owner in (sac, td3):
+        (ext,) = owner.extension_stack.extensions
+        np.testing.assert_array_equal(ext.expert_policy(obs), [[0.75]])
+    (ibrl,) = sac.extension_stack.extensions
+    assert ibrl.expert_policy is sac.expert_policy is sac.eval_expert_policy
+    assert reads_stored_expert_actions(ibrl, {"expert_policy": sac.expert_policy})
+
+
+def test_evaluate_reads_an_env_unit_expert_as_a_wrapped_one():
+    """evaluate()'s expert stays in env units for a direct caller: a raw and
+    a wrapped expert give the same evaluation, the expert paid 1.5."""
+    env, params = paid_action.make()
+    state, _ = _sac().train(seed=0, n_timesteps=0)
+    actor = jax.tree.map(lambda x: x[0], state.actor_state)
+    key = jax.random.PRNGKey(2)
+    wrapped = ExpertInAgentUnits(_constant, env, params)
+    out = [
+        evaluate(env, actor, 2, key, params, expert_policy=e)
+        for e in (_constant, wrapped)
+    ]
+    for a, b in zip(*out, strict=True):
+        np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(out[0][5], 1.5)

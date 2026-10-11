@@ -317,7 +317,8 @@ def test_cloning_statistics_leave_the_training_fraction_column_raw():
 def test_normalised_agents_train_with_augmentation(monkeypatch, kw):
     """With the agent's own normaliser (running, or seeded by cloning) and
     augmentation, the statistics cover the agent's observation (with the
-    training fraction); the expert's column reaches the actor raw (-0.9)."""
+    training fraction); the expert's column reaches the actor unnormalised,
+    in agent units (its -0.9 torque of Pendulum's [-2, 2]: -0.45)."""
     seen = actor_inputs(monkeypatch)
     train(
         expert_policy=RecordingExpert(action=-0.9),
@@ -325,7 +326,7 @@ def test_normalised_agents_train_with_augmentation(monkeypatch, kw):
         **kw,
     )
     for x in seen:
-        np.testing.assert_allclose(x[..., -1], -0.9)
+        np.testing.assert_allclose(x[..., -1], -0.45)
 
 
 @pytest.mark.parametrize(
@@ -420,7 +421,8 @@ def test_every_phi_star_reader_strips_the_agents_statistics(phi_star_readers, re
 
 def test_the_actor_is_evaluated_with_the_training_experts_column(monkeypatch):
     """The evaluation builds the actor's input with the training expert
-    (-0.9); eval_expert_policy (0.5) only rolls out the baseline."""
+    (-0.9, in agent units -0.45); eval_expert_policy (0.5) only rolls out
+    the baseline."""
     seen = actor_inputs(monkeypatch)
     baseline = RecordingExpert(action=0.5)
     train(
@@ -432,7 +434,7 @@ def test_the_actor_is_evaluated_with_the_training_experts_column(monkeypatch):
     evaluated = [x for x in seen if len(x) == 3]
     assert evaluated and baseline.seen
     for x in evaluated:
-        np.testing.assert_allclose(x[..., -1], -0.9)
+        np.testing.assert_allclose(x[..., -1], -0.45)
 
 
 @pytest.mark.parametrize("name", ["PhiRefresh", "BellmanPretrain"])

@@ -12,21 +12,29 @@ of gains:
 
 * ``gains="fixed"``: the gains are the actor's parameters, a linear map
   with no bias and no hidden layer, so the trained policy deploys as a
-  plain PID with the gains :func:`pid_gains` reads off it (Lawrence et
-  al. 2022, "Deep reinforcement learning with shallow controllers: an
-  experimental application to PID tuning", cited from memory, unverified).
+  plain (saturated) PID with the gains :func:`pid_gains` reads off it, in
+  normalised units (below) (Lawrence et al. 2022, "Deep reinforcement
+  learning with shallow controllers: an experimental application to PID
+  tuning", cited from memory, unverified).
 * ``gains="observation"``: an MLP predicts the gains from the observation
   (gain scheduling); with a constant network it is the fixed policy.
 
 Each agent's own output rules apply to ``u`` as to any actor's mean: SAC,
 REDQ, ASAC, AVG and APO squash it with ``tanh``, TD3 too (deterministic),
-PPO samples around it unsquashed (unless ``squash=True``) and the env
-clips. The deployed controller is that saturated PID. The stochastic
-agents explore with a learned, state-independent log-std. Gains start at
-zero (no control).
+PPO samples around it unsquashed (unless ``squash=True``). Like every
+action, ``u`` is in agent units, ``[-1, 1]``, mapped onto the env's box
+``[low, high]`` (:func:`ajax.environments.utils.agent_action_to_env`): the
+deployed controller is ``c + h * sat(u)``, with centre ``c = (high + low) /
+2``, half-range ``h = (high - low) / 2`` and ``sat`` the agent's ``tanh``
+or clip to ``[-1, 1]``. The gains are therefore normalised: they map the
+error terms to agent units, and a PID in the env's units has gains ``h *
+K`` (small-signal, ``tanh`` near 0) and offset ``c``; zero gains command
+the box's centre (no control on a symmetric box). The stochastic agents
+explore with a learned, state-independent log-std. Gains start at zero.
 Observation normalisation (env- or agent-side) leaves the terms raw, as
-the wrapper declares them, so the gains stay a PID's in the env's units;
-the gain network of ``gains="observation"`` reads the rest normalised.
+the wrapper declares them, so the gains act on the errors in the env's
+units; the gain network of ``gains="observation"`` reads the rest
+normalised.
 """
 
 from __future__ import annotations
@@ -146,6 +154,10 @@ def check_pid_actor(continuous: bool, memory: object) -> None:
 def pid_gains(actor_params) -> dict[str, jax.Array]:
     """``{"kp", "ki", "kd"}`` of a fixed-gain PID actor, each ``(...,
     action_dim, n_errors)`` (leading axes, e.g. seeds, kept).
+
+    They are normalised gains, from the errors to agent units ``[-1, 1]``:
+    on an env box ``[low, high]`` the env-unit gains are ``(high - low) /
+    2`` times these (the module docstring), equal on a ``[-1, 1]`` box.
 
     Observation-conditioned gains depend on the observation: read them
     with ``actor.apply(params, obs, method="gains")``.

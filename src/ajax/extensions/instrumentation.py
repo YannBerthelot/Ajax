@@ -601,14 +601,11 @@ class BiasVorePenalty(Extension):
     0 ⇒ identical to vanilla; alpha->0 is the AVEC limit (use a small
     alpha rather than zero). ``coeff_override`` lets callers fix the
     coefficient directly (e.g. to disable the extra penalty entirely
-    without recomputing alpha). Reads ``observations`` and (for SAC)
-    ``actions`` + ``targets`` from the ``batch`` dict the agent threads
-    into the critic-loss fold. The extension is loss-agent-aware:
-    SAC's critic-loss fold passes ``actions`` (Q-critic) while
-    PPO/PQN/DQN pass only ``observations`` + ``targets`` (V-critic
-    or already-gathered q_taken). Both paths reconstruct the same
-    residual the agent's MSE term sees, so the bias/Var math is
-    bit-for-bit consistent.
+    without recomputing alpha). It rebuilds the residual the agent's MSE
+    term sees from the ``critic_loss`` batch: ``observations``,
+    ``targets`` and the critic (``critic_params`` and ``critic_state``,
+    with ``actions`` for a Q-critic; DQN's and PQN's ``q_state`` and
+    ``actions``), and raises on a batch without them rather than add 0.
     """
 
     alpha: float = 0.5
@@ -637,20 +634,12 @@ class BiasVorePenalty(Extension):
         if coeff == 0.0:
             return jnp.asarray(0.0)
 
-        # Two batch-shape conventions the agents use:
-        # - SAC critic loss fold passes 'critic_params', 'critic_state',
-        #   'observations', 'actions', 'target_q' (or similar) so we
-        #   can rebuild q_preds and residual. PPO fold passes
-        #   'critic_params', 'critic_state', 'observations', 'targets'.
-        # - DQN/PQN fold passes 'q_state', 'observations', 'actions',
-        #   'targets'. Q-network case reconstructs q_taken via
-        #   predict_q + gather.
-        obs = batch.get("observations")
-        if obs is None:
-            return jnp.asarray(0.0)
-        target = batch.get("target_q", batch.get("targets"))
-        if target is None:
-            return jnp.asarray(0.0)
+        missing = [key for key in ("observations", "targets") if key not in batch]
+        if missing:
+            raise ValueError(
+                f"BiasVorePenalty needs {missing} in the critic_loss batch."
+            )
+        obs, target = batch["observations"], batch["targets"]
 
         # Try the SAC/PPO MultiCritic path first.
         cs = batch.get("critic_state")
@@ -686,7 +675,10 @@ class BiasVorePenalty(Extension):
             resid = q_taken - target
             return self.loss_scale * coeff * jnp.var(resid)
 
-        return jnp.asarray(0.0)
+        raise ValueError(
+            "BiasVorePenalty needs the critic in the critic_loss batch:"
+            " critic_params and critic_state, or q_state and actions."
+        )
 
 
 # Public re-exports for downstream importers.

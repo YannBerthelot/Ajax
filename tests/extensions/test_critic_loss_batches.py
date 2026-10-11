@@ -1,6 +1,7 @@
 """The ``critic_loss`` batch carries what a critic-loss extension needs: on
 every agent family :class:`BiasVorePenalty` (it reads the observations, the
-targets and the critic) has a nonzero gradient on the critic."""
+targets and the critic) has a nonzero gradient on the critic, and on a batch
+without them it raises instead of adding 0."""
 
 from __future__ import annotations
 
@@ -70,6 +71,20 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
 
     moved = stepped(PENALTY) - stepped(BiasVorePenalty(coeff_override=0.0))
     assert float(jnp.abs(moved).max()) > 0.0
+
+
+@pytest.mark.parametrize(
+    "batch",
+    [
+        {"targets": jnp.zeros((2, 1))},
+        {"observations": jnp.zeros((2, 1))},
+        {"observations": jnp.zeros((2, 1)), "targets": jnp.zeros((2, 1))},
+    ],
+    ids=["no-observations", "no-targets", "no-critic"],
+)
+def test_the_penalty_raises_on_a_batch_without_its_operands(batch: dict) -> None:
+    with pytest.raises(ValueError, match="BiasVorePenalty"):
+        PENALTY.critic_loss(None, (), batch, CTX)
 
 
 # --- One run per agent: the penalty's gradient on the critic the agent steps --

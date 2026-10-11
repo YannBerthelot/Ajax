@@ -206,5 +206,5 @@ def test_parse_activation_passes_callables_through():
 
 @pytest.mark.parametrize("activation", ["no_such_activation", 3])
 def test_parse_activation_rejects_unknown(activation):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="'mish', 'relu'"):  # it lists the names
         parse_activation(activation)

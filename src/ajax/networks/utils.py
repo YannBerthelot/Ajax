@@ -64,6 +64,16 @@ def get_adam_tx(
     return adam
 
 
+_ACTIVATIONS: dict[str, ActivationFunction] = {
+    "relu": nn.relu,
+    "tanh": nn.tanh,
+    "leaky_relu": nn.leaky_relu,
+    "swish": nn.swish,
+    "silu": nn.silu,
+    "mish": jax.nn.mish,
+}
+
+
 def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFunction:
     """Parse an activation name, or pass an activation callable through.
 
@@ -71,29 +81,13 @@ def parse_activation(activation: Union[str, ActivationFunction]) -> ActivationFu
     arXiv:2301.04104v2). ``"mish"`` is ``x * tanh(softplus(x))`` (TD-MPC2's
     activation, Sec. 3.1 of arXiv:2310.16828v2; torch ``nn.Mish``).
     """
-    activation_matching = {
-        "relu": nn.relu,
-        "tanh": nn.tanh,
-        "leaky_relu": nn.leaky_relu,
-        "swish": nn.swish,
-        "silu": nn.silu,
-        "mish": jax.nn.mish,
-    }
-
-    match activation:
-        case str():
-            if activation in activation_matching:
-                return cast("ActivationFunction", activation_matching[activation])
-            raise ValueError(
-                (
-                    f"Unrecognized activation name {activation}, acceptable activations"
-                    f" names are : {activation_matching.keys()}"
-                ),
-            )
-        case _ if callable(activation):
-            return activation
-        case _:
-            raise ValueError(f"Unrecognized activation {activation}")
+    if callable(activation):
+        return activation
+    if isinstance(activation, str) and activation in _ACTIVATIONS:
+        return _ACTIVATIONS[activation]
+    raise ValueError(
+        f"Unrecognized activation {activation!r}; the names are {sorted(_ACTIVATIONS)}"
+    )
 
 
 def parse_function_string(s, context=None):

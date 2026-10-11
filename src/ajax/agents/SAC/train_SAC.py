@@ -174,6 +174,8 @@ def init_SAC(
                 buffer_state=collector_state.buffer_state,
                 rng=expert_key,
                 n_steps=expert_buffer_n_steps,
+                augment_obs_with_expert_state=augment_obs_with_expert_state,
+                with_train_frac=max_timesteps is not None,
             )
         )
 
@@ -892,6 +894,7 @@ def make_train(
             actor_optimizer_args,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
+            with_train_frac=use_train_frac,
         )
 
     # An extension with ``build_policy_transform`` (ResidualPolicy) makes

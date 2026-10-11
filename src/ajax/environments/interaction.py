@@ -1075,6 +1075,7 @@ def collect_experience_from_expert_policy(
     env_args: EnvironmentConfig,
     n_timesteps: int = int(1e5),
     augment_obs_with_expert_state: bool = False,
+    train_frac: Optional[float] = None,
 ) -> Sequence[Transition]:
     """Collect experience by running an expert policy in the environment.
 
@@ -1082,6 +1083,11 @@ def collect_experience_from_expert_policy(
     called as ``expert_policy(state, obs) -> (action, new_state)`` and the
     state is reset on episode termination so the integrator restarts each
     episode. Stateless experts are called as ``expert_policy(obs) -> action``.
+
+    The observations are the live collector's: the training fraction
+    ``train_frac`` appended when given, then, with
+    ``augment_obs_with_expert_state``, the expert's state before its call
+    at s and after it at s' (the state an episode end resets comes after).
 
     Returns:
         transitions: A `Transition` object containing all collected transitions.
@@ -1147,6 +1153,7 @@ def collect_experience_from_expert_policy(
         else:
             next_action = jax.vmap(expert_policy, in_axes=0)(raw_next_obs)
 
+        post_step_state = new_expert_state
         # Reset expert state on episode end so the integrator restarts
         # at the start of the next episode (autoreset has already produced
         # a fresh first obs in `obsv`).
@@ -1163,22 +1170,16 @@ def collect_experience_from_expert_policy(
                 zero_state,
             )
 
-        # When augment_obs_with_expert_state is on, mirror the live
-        # collector: append the BEFORE-expert state to obs, and the
-        # AFTER-expert state to next_obs. The actor was init with this
-        # inflated obs dim, so BC must feed it the same shape.
+        # The live collector's layout (augment_obs): the training fraction,
+        # then the expert's state before its call at s, after it (before an
+        # episode end's reset) at s'.
+        last_obs_aug = maybe_append_train_frac(last_obs, train_frac)
+        next_obs_aug = maybe_append_train_frac(next_obs, train_frac)
         if augment_obs_with_expert_state and expert_is_stateful:
-            cur_state_aug = flatten_expert_state(expert_state)
-            next_state_aug = flatten_expert_state(new_expert_state)
-            if cur_state_aug is not None:
-                last_obs_aug = augment_obs(last_obs, cur_state_aug)
-                next_obs_aug = augment_obs(next_obs, next_state_aug)
-            else:
-                last_obs_aug = last_obs
-                next_obs_aug = next_obs
-        else:
-            last_obs_aug = last_obs
-            next_obs_aug = next_obs
+            last_obs_aug = augment_obs(last_obs_aug, flatten_expert_state(expert_state))
+            next_obs_aug = augment_obs(
+                next_obs_aug, flatten_expert_state(post_step_state)
+            )
 
         transition = Transition(
             obs=last_obs_aug,

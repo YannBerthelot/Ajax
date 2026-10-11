@@ -68,20 +68,21 @@ class CounterEnv(environment.Environment):
 
 class CountingExpert:
     """Stateful: plays t / LIMIT at observation t, its state counting its
-    calls since the episode's start (so t). Called only with its state,
-    unless ``stateless_too`` (then ``expert(obs)`` plays t / LIMIT too)."""
+    calls since the episode's start (so t; with ``state_dim`` d, the j-th
+    column j t). Called only with its state, unless ``stateless_too`` (then
+    ``expert(obs)`` plays t / LIMIT too)."""
 
-    def __init__(self, stateless_too: bool = False) -> None:
-        self.stateless_too = stateless_too
+    def __init__(self, stateless_too: bool = False, state_dim: int = 1) -> None:
+        self.stateless_too, self.state_dim = stateless_too, state_dim
 
     def init_state(self, n_envs: int) -> jax.Array:
-        return jnp.zeros((n_envs, 1))
+        return jnp.zeros((n_envs, self.state_dim))
 
     def __call__(self, *args: jax.Array) -> Any:
         if len(args) == 1 and self.stateless_too:
             return args[0][..., :1] / LIMIT
         state, obs = args
-        return obs[..., :1] / LIMIT, state + 1
+        return obs[..., :1] / LIMIT, state + jnp.arange(1.0, self.state_dim + 1)
 
 
 class RecordingExpert:
@@ -281,11 +282,23 @@ def test_the_normaliser_leaves_appended_columns_raw():
     np.testing.assert_allclose(out, [[1.0, 2.0, 0.7]], atol=1e-6)
 
 
+def test_cloning_statistics_leave_the_training_fraction_column_raw():
+    """Cloning standardises its dataset but not the training-fraction
+    column: constant 0 before training, its std would be 1e-6."""
+    from ajax.agents.cloning import bc_statistics
+
+    obs = jnp.stack([jnp.linspace(-2.0, 2.0, 64), jnp.zeros(64)], axis=-1)
+    mean, std = bc_statistics(obs, train_frac_column=1)
+    np.testing.assert_allclose(mean, [0.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(std[1], 1.0)
+    assert std[0] > 1.0  # the other columns are standardised
+
+
 @pytest.mark.parametrize(
     "kw",
     [
         {"normalize_obs_running": True, "use_train_frac": True},
-        {"pre_train_n_steps": 64},  # cloning has no training-fraction column
+        {"pre_train_n_steps": 64, "use_train_frac": True},
     ],
     ids=["running", "cloning"],
 )
@@ -408,3 +421,73 @@ def test_an_extensions_expert_reads_the_raw_next_observation_of_each_row(
     expert_rows = rows[rows[:, -1] < -1.5]
     assert len(expert_rows) >= 8
     np.testing.assert_allclose(expert_rows[:, -1], expert_rows[:, 0] / LIMIT - 3.0)
+
+
+@pytest.mark.parametrize(
+    "state_dim, train_frac", [(1, True), (2, False)], ids=["1d+fraction", "2d"]
+)
+def test_the_expert_prefill_stores_the_experts_state_as_collection_does(
+    state_dim, train_frac
+):
+    """With augment_obs_with_expert_state, every stored row, the expert
+    prefill's (its first LIMIT per env) and collection's, is [t, (the
+    training fraction,) the expert's state t] at s and [t + 1, (...), t + 1]
+    at s', the episode's last s' included (the state before the reset)."""
+    state = train(
+        CounterEnv(),
+        expert_policy=CountingExpert(state_dim=state_dim),
+        expert_buffer_n_steps=LIMIT,
+        augment_obs_with_expert_state=True,
+        use_train_frac=train_frac,
+    )
+    rows = state.collector_state.buffer_state.experience
+    obs, nxt = (np.asarray(rows[k]) for k in ("obs", "next_obs"))
+    obs, nxt = (x.reshape(-1, *x.shape[-2:]) for x in (obs, nxt))  # (envs, rows, .)
+    assert obs.shape[-1] == nxt.shape[-1] == 1 + train_frac + state_dim
+    written = nxt[..., 0] != 0  # every transition's s' is at least 1
+    assert written[:, :LIMIT].all()  # the prefill's rows come first
+    for x in (obs, nxt):
+        for j in range(state_dim):
+            got = x[..., 1 + train_frac + j][written]
+            np.testing.assert_allclose(got, (j + 1) * x[..., 0][written])
+        if train_frac:  # 0 in the prefill, a fraction after
+            np.testing.assert_allclose(x[:, :LIMIT, 1], 0.0)
+            assert (x[..., 1][written] <= 1.0).all()
+
+
+class IntegratingExpert:
+    """Stateful, its action reading its state: an integrator of the
+    observations since the episode's start, playing u / LIMIT - I / 200
+    at observation u with I its integral before the call (so, on the
+    counter, A(u) = u / LIMIT - u (u - 1) / 400)."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return obs[..., :1] / LIMIT - state / 200.0, state + obs[..., :1]
+
+
+def integrated_action(u: Any) -> Any:
+    return u / LIMIT - u * (u - 1) / 400.0
+
+
+def test_stored_expert_actions_come_from_the_experts_tracked_state():
+    """Every stored row, the prefill's and collection's, holds the action
+    the integrating expert took at s from its state there, a_E = A(s), and
+    at s' from its state after the step, A(s + 1): a zero, reset or
+    pre-call state stores another."""
+    state = train(
+        CounterEnv(), expert_policy=IntegratingExpert(), expert_buffer_n_steps=LIMIT
+    )
+    rows = state.collector_state.buffer_state.experience
+    s, s_next, a, a_next = (
+        np.asarray(rows[k])[..., 0].reshape(-1)
+        for k in ("raw_obs", "next_obs", "a_expert", "next_a_expert")
+    )
+    written = s_next != 0
+    assert written.sum() >= 2 * LIMIT
+    np.testing.assert_allclose(a[written], integrated_action(s[written]), atol=1e-6)
+    np.testing.assert_allclose(
+        a_next[written], integrated_action(s[written] + 1), atol=1e-6
+    )

@@ -66,13 +66,20 @@ class CounterEnv(environment.Environment):
 
 
 class CountingExpert:
-    """Stateful, called only with its state: plays t / LIMIT at observation
-    t, its state counting its calls since the episode's start (so t)."""
+    """Stateful: plays t / LIMIT at observation t, its state counting its
+    calls since the episode's start (so t). Called only with its state,
+    unless ``stateless_too`` (then ``expert(obs)`` plays t / LIMIT too)."""
+
+    def __init__(self, stateless_too: bool = False) -> None:
+        self.stateless_too = stateless_too
 
     def init_state(self, n_envs: int) -> jax.Array:
         return jnp.zeros((n_envs, 1))
 
-    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+    def __call__(self, *args: jax.Array) -> Any:
+        if len(args) == 1 and self.stateless_too:
+            return args[0][..., :1] / LIMIT
+        state, obs = args
         return obs[..., :1] / LIMIT, state + 1
 
 
@@ -313,3 +320,32 @@ def test_the_actor_is_evaluated_with_the_training_experts_column(monkeypatch):
     assert evaluated and baseline.seen
     for x in evaluated:
         np.testing.assert_allclose(x[..., -1], -0.9)
+
+
+@pytest.mark.parametrize("name", ["PhiRefresh", "BellmanPretrain"])
+def test_replay_readers_augment_each_observation_with_its_own_expert_action(
+    monkeypatch, name
+):
+    """PhiRefresh and BellmanPretrain augment a replay row's s and s' with
+    the expert's stored actions there (augment_from_buffer): every critic
+    input, theirs and the update's, is [t, t / LIMIT, action]."""
+    sac = _record(monkeypatch, ajax.agents.recurrent, "predict_value")
+    phi_star = _record(monkeypatch, ajax.extensions.pretrain, "predict_value")
+    expert = CountingExpert(stateless_too=True)
+    stack = {
+        "PhiRefresh": (
+            _mc(expert),
+            PhiRefresh(expert_policy=expert, interval=16, steps=2),
+        ),
+        "BellmanPretrain": (BellmanPretrain(n_steps=4),),
+    }[name]
+    train(
+        CounterEnv(),
+        expert_policy=expert,
+        expert_buffer_n_steps=16,
+        augment_obs_with_expert_action=True,
+        extensions=stack,
+    )
+    assert sac and (phi_star or name == "BellmanPretrain")  # phi*: PhiRefresh's
+    for x in sac + phi_star:
+        np.testing.assert_allclose(x[..., 1], x[..., 0] / LIMIT)

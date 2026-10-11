@@ -19,6 +19,7 @@ import ajax.evaluate
 import ajax.extensions.expert
 import ajax.extensions.pretrain
 from ajax import SAC
+from ajax.agents.obs_norm import apply_obs_norm, init_agent_obs_norm
 from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
@@ -215,3 +216,39 @@ def test_extensions_querying_critics_train_with_augmentation(stack):
         **kw,
     )
     assert np.isfinite(np.asarray(jax.tree.leaves(state.critic_state.params)[0])).all()
+
+
+# --- the observation normaliser ------------------------------------------------
+
+
+def test_the_normaliser_leaves_appended_columns_raw():
+    """Statistics over the agent's observation normalise it; the expert
+    action appended after it (and a critic's action) stays raw."""
+    info = init_agent_obs_norm(2)
+    info = info.replace(
+        count=jnp.ones((1, 1)), mean=jnp.ones((1, 2)), var=4 * jnp.ones((1, 2))
+    )
+    out = apply_obs_norm(jnp.array([[3.0, 5.0, 0.7]]), info)
+    np.testing.assert_allclose(out, [[1.0, 2.0, 0.7]], atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"normalize_obs_running": True, "use_train_frac": True},
+        {"pre_train_n_steps": 64},  # cloning has no training-fraction column
+    ],
+    ids=["running", "cloning"],
+)
+def test_normalised_agents_train_with_augmentation(monkeypatch, kw):
+    """With the agent's own normaliser (running, or seeded by cloning) and
+    augmentation, the statistics cover the agent's observation (with the
+    training fraction); the expert's column reaches the actor raw (-0.9)."""
+    seen = actor_inputs(monkeypatch)
+    train(
+        expert_policy=RecordingExpert(action=-0.9),
+        augment_obs_with_expert_action=True,
+        **kw,
+    )
+    for x in seen:
+        np.testing.assert_allclose(x[..., -1], -0.9)

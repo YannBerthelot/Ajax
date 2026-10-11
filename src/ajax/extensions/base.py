@@ -65,7 +65,8 @@ raises on a key it needs and does not find, rather than return a no-op.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import dataclasses
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any, ClassVar
 
 import jax
@@ -199,6 +200,9 @@ class Extension:
     #: Whether the extension reads the agent's stored actions of its expert
     #: when that expert is the agent's (check_extension_experts).
     reads_agent_expert_actions: ClassVar[bool] = False
+    #: The fields holding an expert (raw observations in, env-unit actions
+    #: out), which :meth:`ExtensionStack.with_experts` converts.
+    expert_fields: ClassVar[frozenset[str]] = frozenset()
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -603,3 +607,20 @@ class ExtensionStack:
         return ExtensionStack(
             tuple(ext.bind_to_agent(**agent_context) for ext in self.extensions)
         )
+
+    def with_experts(self, convert: Callable[[Any], Any]) -> "ExtensionStack":
+        """The stack with ``convert`` applied to every expert its extensions
+        hold (their ``expert_fields``; one still None is left). A
+        ``convert`` memoised by identity keeps one expert one object, which
+        :func:`ajax.extensions.expert.reads_stored_expert_actions` compares."""
+
+        def converted(ext: Extension) -> Extension:
+            experts = {f: getattr(ext, f) for f in ext.expert_fields}
+            changes = {f: convert(e) for f, e in experts.items() if e is not None}
+            if not changes:
+                return ext
+            # An extension holding an expert is a dataclass (the recommended
+            # frozen form, which the field test enforces); the base is not.
+            return dataclasses.replace(ext, **changes)  # type: ignore[type-var]
+
+        return ExtensionStack(tuple(converted(ext) for ext in self.extensions))

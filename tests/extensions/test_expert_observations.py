@@ -442,7 +442,7 @@ def test_replay_readers_augment_each_observation_with_its_own_expert_action(
     monkeypatch, name
 ):
     """PhiRefresh and BellmanPretrain augment a replay row's s and s' with
-    the expert's stored actions there (augment_from_buffer): every critic
+    the expert's stored actions there (augment_from_batch): every critic
     input, theirs and the update's, is [t, t / LIMIT, action]."""
     sac = _record(monkeypatch, ajax.agents.recurrent, "predict_value")
     phi_star = _record(monkeypatch, ajax.extensions.pretrain, "predict_value")

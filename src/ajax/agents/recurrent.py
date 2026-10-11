@@ -250,10 +250,10 @@ def sample_replay(
         return sample_and_burnin_sequences(
             agent_state, buffer, key, burn_in, burn_target_actor, stored_state
         )
-    obs, terminated, truncated, next_obs, rewards, actions, raw_obs, _ = (
-        get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, key)
+    b = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, key)
+    batch = Transition(
+        b.obs, b.action, b.reward, b.terminated, b.truncated, b.next_obs, b.raw_obs
     )
-    batch = Transition(obs, actions, rewards, terminated, truncated, next_obs, raw_obs)
     return batch, None
 
 

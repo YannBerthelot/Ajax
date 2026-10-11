@@ -344,20 +344,11 @@ def update_agent(
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
-    (
-        observations,
-        terminated,
-        truncated,
-        next_observations,
-        rewards,
-        actions,
-        _,
-        _,
-    ) = get_batch_from_buffer(
-        buffer,
-        agent_state.collector_state.buffer_state,
-        sample_key,
+    batch = get_batch_from_buffer(
+        buffer, agent_state.collector_state.buffer_state, sample_key
     )
+    observations, actions, rewards = batch.obs, batch.action, batch.reward
+    terminated, next_observations = batch.terminated, batch.next_obs
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = terminated.astype(jnp.float32)
 

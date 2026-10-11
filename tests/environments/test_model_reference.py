@@ -16,6 +16,7 @@ from ajax.environments.model_reference import (
     StepReference,
 )
 from ajax.environments.system_class import UniformPerturbation
+from ajax.wrappers import TransformObservation
 
 N = 50
 
@@ -157,6 +158,31 @@ def test_wrapper_step_bookkeeping_and_reward(tracking_pendulum):
     assert jnp.allclose(info["y_desired"], y_d1) and jnp.allclose(info["y"], y1)
     # get_obs reproduces the observation returned by step
     assert jnp.allclose(env.get_obs(s1, params), obs1)
+
+
+def test_controller_sees_the_observation_the_plant_returned():
+    """The controller's error and raw-observation columns come from the
+    observation the plant returned, the one the reward scores, not from one
+    recomputed from the plant's state: here an inner wrapper shifts it."""
+    env, params = make_gymnax_env("Pendulum-v1")
+    shifted = TransformObservation(env, lambda obs: obs + 0.25)
+    w = ModelReferenceWrapper(
+        shifted,
+        StepReference(N, -1.0, 1.0, 5, 15),
+        LinearReferenceModel.first_order(),
+        output_fn=angle,
+        include_raw_obs=True,
+    )
+    key = jax.random.PRNGKey(0)
+    obs, state = w.reset(key, params)
+    for i in range(2):
+        plant_obs = env.get_obs(state.env_state) + 0.25
+        assert jnp.allclose(obs[2:], plant_obs)
+        assert jnp.allclose(obs[0], state.reference[state.t, 0] - angle(plant_obs))
+        obs, state, _, _, _, info = w.step(
+            jax.random.fold_in(key, i), state, jnp.array([0.7]), params
+        )
+        assert jnp.allclose(obs[0], state.reference[state.t, 0] - info["y"])
 
 
 def test_wrapper_resamples_task_when_plant_episode_ends(tracking_pendulum):

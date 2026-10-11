@@ -9,10 +9,11 @@ instrumentation extensions:
 * :class:`BiasVorePenalty`      — additive critic-loss penalty
 
 wires into the Extension surface on PPO (on-policy, through
-``agent_state.last_rollout``). BiasVorePenalty's coefficient also has
-unit checks. Numerical exactness is intentionally NOT covered here --
+``agent_state.last_rollout``). BiasVorePenalty's coefficient and penalty
+also have unit checks. The diagnostics' numbers are not checked here --
 the math is ported verbatim from EVAREST (see the per-extension
-docstring); these tests only pin the *integration contract*.
+docstring); these tests pin the *integration contract*. Every agent's
+critic lookup is checked in tests/agents/test_agent_contract.py.
 """
 
 from __future__ import annotations
@@ -46,10 +47,34 @@ EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
 # --------------------------------------------------------------------------
 
 
+def _q_network_batch() -> dict:
+    """A DQN/PQN critic-loss batch whose taken Q-values are (1, 5, 1)
+    against zero targets: the residual's variance is 32/9."""
+    q_values = jnp.array([[1.0, 2.0], [3.0, 5.0], [1.0, 0.0]])
+    q_state = SimpleNamespace(
+        params=None, apply_fn=lambda _, obs: SimpleNamespace(q_values=q_values)
+    )
+    return {
+        "q_state": q_state,
+        "observations": jnp.zeros((3, 1)),
+        "actions": jnp.array([0, 1, 0]),
+        "targets": jnp.zeros((3, 1)),
+    }
+
+
 def test_bias_vore_penalty_alpha_half_is_zero():
-    """alpha=0.5 ⇒ coeff = 0 ⇒ the penalty short-circuits to ``0.0``."""
+    """alpha=0.5 ⇒ coeff = 0 ⇒ no penalty, on a batch whose residual
+    variance is not zero."""
     ext = BiasVorePenalty(alpha=0.5)
     assert ext._coeff() == 0.0
+    assert float(ext.critic_loss(None, None, _q_network_batch(), None)) == 0.0
+
+
+def test_bias_vore_penalty_scales_the_residual_variance():
+    """The penalty is ``loss_scale * coeff * Var(q_taken - target)``."""
+    ext = BiasVorePenalty(alpha=0.3, loss_scale=0.5)
+    penalty = ext.critic_loss(None, None, _q_network_batch(), None)
+    assert float(penalty) == pytest.approx(0.5 * evarest_coeff(0.3) * 32 / 9)
 
 
 def test_bias_vore_penalty_coeff_matches_paper_formula():
@@ -98,11 +123,11 @@ def test_a_rollout_batch_is_one_row_per_step():
 
 
 # --------------------------------------------------------------------------
-# ConditioningMetrics on PPO: eval_metrics fold emits the four Cond/* keys.
+# On PPO, through the exposed rollout
 # --------------------------------------------------------------------------
 
 
-def _train_ppo_with_extension(ext, n_steps=32):
+def _train_ppo_with_extensions(extensions, n_steps=32):
     agent = PPO(
         env_id="CartPole-v1",
         n_envs=2,
@@ -112,35 +137,25 @@ def _train_ppo_with_extension(ext, n_steps=32):
         batch_size=n_steps,
         n_epochs=1,
         expose_recent_rollout=True,
-        extensions=[ext],
+        extensions=extensions,
     )
     return agent.train(seed=42, n_timesteps=128, logging_config=EVALUATE)
 
 
-def test_conditioning_metrics_on_ppo_completes():
-    """ConditioningMetrics folds into PPO's eval_metrics phase end-to-end:
-    its keys are among the evaluations ``train`` returns."""
-    ext = ConditioningMetrics(on_policy_batch=16)
-    out = _train_ppo_with_extension(ext)
+def test_conditioning_and_decomposition_compose_on_ppo():
+    """Both fold into PPO's eval_metrics phase together: the Cond/* and
+    EVarEst/* keys are among the evaluations ``train`` returns."""
+    out = _train_ppo_with_extensions(
+        [
+            ConditioningMetrics(on_policy_batch=16),
+            BiasVoreDecomposition(on_policy_batch=16),
+        ]
+    )
     # ``train`` returns ``(state, metrics)``.
     assert isinstance(out, tuple) and len(out) == 2
     _, metrics = out
-    for key in COND_METRIC_KEYS:
-        assert key in metrics, f"missing eval-metric key {key!r}; got {list(metrics)}"
-
-
-def test_bias_vore_decomposition_on_ppo_completes():
-    """BiasVoreDecomposition folds into PPO's eval_metrics phase."""
-    ext = BiasVoreDecomposition(on_policy_batch=16, gamma=0.99)
-    out = _train_ppo_with_extension(ext)
-    _, metrics = out
-    for key in EVAREST_DECOMP_KEYS:
-        assert key in metrics, f"missing eval-metric key {key!r}; got {list(metrics)}"
-
-
-# --------------------------------------------------------------------------
-# DiagnosticSnapshots: smoke test (uses a temp dir, post_update fires).
-# --------------------------------------------------------------------------
+    for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
+        assert key in metrics, f"missing {key!r}; got {list(metrics)}"
 
 
 def test_diagnostic_snapshots_writes_files(tmp_path):
@@ -151,8 +166,7 @@ def test_diagnostic_snapshots_writes_files(tmp_path):
         n_sub=8,
         sample_batch=4,
     )
-    out = _train_ppo_with_extension(ext)
-    _, _ = out
+    _train_ppo_with_extensions([ext])
     # post_update is gated on (counter % every_n_iters == 0), so every
     # iteration writes a file. n_timesteps=128 / (n_envs=2 * n_steps=32)
     # plus 1 from the num_updates+1 formula ⇒ >= 1 snapshot expected.
@@ -162,49 +176,9 @@ def test_diagnostic_snapshots_writes_files(tmp_path):
     ), f"DiagnosticSnapshots wrote no files to {tmp_path}; got: {files}"
 
 
-# --------------------------------------------------------------------------
-# BiasVorePenalty on PPO: the additive critic-loss term lands in the loss
-# fold without breaking training (numerical equivalence at alpha=0.5).
-# --------------------------------------------------------------------------
-
-
-def test_bias_vore_penalty_on_ppo_completes():
-    """BiasVorePenalty (alpha=0.5 ⇒ no-op) keeps PPO training stable."""
-    out = _train_ppo_with_extension(BiasVorePenalty(alpha=0.5))
-    _, metrics = out
-    # No new keys; just ensure training survived.
-    assert metrics is not None
-
-
 def test_bias_vore_penalty_alpha_nonhalf_runs():
     """alpha=0.3 ⇒ non-zero penalty; PPO still trains end-to-end."""
-    out = _train_ppo_with_extension(BiasVorePenalty(alpha=0.3, loss_scale=0.5))
-    _, metrics = out
-    assert metrics is not None
-
-
-# --------------------------------------------------------------------------
-# Compose two instrumentation extensions: both contribute eval-metric keys.
-# --------------------------------------------------------------------------
-
-
-def test_conditioning_and_decomposition_compose_on_ppo():
-    """Both Cond/* and EVarEst/* keys appear when the two are stacked."""
-    agent = PPO(
-        env_id="CartPole-v1",
-        n_envs=2,
-        actor_architecture=("16", "relu"),
-        critic_architecture=("16", "relu"),
-        n_steps=32,
-        batch_size=32,
-        n_epochs=1,
-        expose_recent_rollout=True,
-        extensions=[
-            ConditioningMetrics(on_policy_batch=16),
-            BiasVoreDecomposition(on_policy_batch=16),
-        ],
+    _, metrics = _train_ppo_with_extensions(
+        [BiasVorePenalty(alpha=0.3, loss_scale=0.5)]
     )
-    out = agent.train(seed=42, n_timesteps=128, logging_config=EVALUATE)
-    _, metrics = out
-    for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
-        assert key in metrics, f"missing {key!r}; got {list(metrics)}"
+    assert metrics is not None

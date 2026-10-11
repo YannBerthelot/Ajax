@@ -29,6 +29,17 @@ def _ctx(step: int = 0) -> ExtensionContext:
     )
 
 
+@dataclass(frozen=True)
+class _FakeAgentState:
+    ext_state: tuple = ()
+    value: float = 0.0
+
+    def replace(self, **kw):
+        from dataclasses import replace as _r
+
+        return _r(self, **kw)
+
+
 class AddTarget(Extension):
     def __init__(self, delta):
         self.delta = delta
@@ -90,25 +101,6 @@ def test_implemented_phases_introspection():
 
 
 # --------------------------------------------------------------------------
-# ExtensionStack — empty stack is a genuine no-op
-# --------------------------------------------------------------------------
-def test_empty_stack_is_noop():
-    stack = ExtensionStack()
-    ctx = _ctx()
-    target = jnp.ones((2,))
-    key = jax.random.PRNGKey(0)
-
-    assert len(stack) == 0 and not stack
-    assert stack.init_states(None, key) == ()
-    assert stack.pretrain("S", (), ctx) == ("S", ())
-    assert stack.on_target(None, (), None, target, ctx) is target
-    assert stack.critic_loss(None, (), None, ctx) == 0.0
-    assert stack.actor_loss(None, (), None, ctx) == 0.0
-    assert stack.eval_metrics(None, (), key, ctx) == {}
-    assert stack.post_update("S", (), ctx) == ("S", ())
-
-
-# --------------------------------------------------------------------------
 # ExtensionStack — folds extensions in list order
 # --------------------------------------------------------------------------
 def test_stack_folds_transforms_and_sums_losses():
@@ -122,23 +114,48 @@ def test_stack_folds_transforms_and_sums_losses():
     stack = ExtensionStack(
         [AddTarget(1.0), AddTarget(10.0), ConstCriticLoss(0.25), ConstCriticLoss(0.75)]
     )
-    states = ((),) * 4
-    ctx = _ctx()
-    assert float(stack.on_target(None, states, None, jnp.asarray(0.0), ctx)) == 11.0
-    assert float(stack.critic_loss(None, states, None, ctx)) == 1.0
+    agent, step, rng = _FakeAgentState(ext_state=((),) * 4), 0, jax.random.PRNGKey(0)
+    target = stack.fold_on_target(agent, None, jnp.asarray(0.0), step, rng, 100)
+    assert float(target) == 11.0
+    assert float(stack.fold_critic_loss(agent, None, step, rng, 100)) == 1.0
 
 
-def test_eval_metrics_merge():
+def test_eval_metrics_merge_with_a_key_per_extension():
     class Metric(Extension):
         def __init__(self, key):
             self.key = key
 
         def eval_metrics(self, agent_state, ext_state, rng, ctx):
-            return {self.key: 1.0}
+            return {self.key: rng, f"{self.key}/ctx": ctx.rng}
 
-    stack = ExtensionStack([Metric("a/x"), Metric("b/y")])
-    out = stack.eval_metrics(None, ((), ()), jax.random.PRNGKey(0), _ctx())
-    assert set(out) == {"a/x", "b/y"}
+    stack, rng = ExtensionStack([Metric("a/x"), Metric("b/y")]), jax.random.PRNGKey(0)
+    out = stack.fold_eval_metrics(_FakeAgentState(ext_state=((), ())), 0, rng, 100)
+    assert set(out) == {"a/x", "b/y", "a/x/ctx", "b/y/ctx"}
+    for key, want in zip(("a/x", "b/y"), jax.random.split(rng, 2), strict=True):
+        np.testing.assert_array_equal(out[key], want)
+        np.testing.assert_array_equal(out[f"{key}/ctx"], rng)
+
+
+def test_state_folds_thread_the_agent_state_in_list_order():
+    """pretrain and post_update hand each extension the agent state the
+    previous one returned, and write back every extension's own state."""
+
+    @dataclass(frozen=True)
+    class Digit(Extension):
+        digit: int = 0
+
+        def pretrain(self, agent_state, ext_state, ctx):
+            return agent_state.replace(value=10 * agent_state.value + self.digit), -1
+
+        def post_update(self, agent_state, ext_state, ctx):
+            return self.pretrain(agent_state, ext_state, ctx)[0], ext_state + 1
+
+    stack, rng = ExtensionStack([Digit(1), Digit(2)]), jax.random.PRNGKey(0)
+    agent = _FakeAgentState(ext_state=(0, 5))
+    pretrained = stack.fold_pretrain(agent, 0, rng, 100)
+    assert (pretrained.value, pretrained.ext_state) == (12, (-1, -1))
+    updated = stack.fold_post_update(agent, 0, rng, 100)
+    assert (updated.value, updated.ext_state) == (12, (1, 6))
 
 
 def test_sac_action_dispatch_takes_the_last_proposal():
@@ -171,13 +188,13 @@ def test_sac_action_dispatch_takes_the_last_proposal():
 # Stateful extension — init_state + post_update threaded through a scan
 # --------------------------------------------------------------------------
 def test_stateful_extension_through_scan():
-    stack = ExtensionStack([Counter()])
-    ext_states = stack.init_states(None, jax.random.PRNGKey(0))
+    stack, rng = ExtensionStack([Counter()]), jax.random.PRNGKey(0)
+    ext_states = stack.fold_init_states(_FakeAgentState(), rng).ext_state
     assert int(ext_states[0]) == 0
 
     def body(carry, _):
-        _, new = stack.post_update(None, carry, _ctx())
-        return new, None
+        agent = _FakeAgentState(ext_state=carry)
+        return stack.fold_post_update(agent, 0, rng, 100).ext_state, None
 
     final, _ = jax.lax.scan(body, ext_states, None, length=5)
     assert int(final[0]) == 5
@@ -212,17 +229,6 @@ def test_extension_context_is_pytree():
 # Critical invariant: empty stack returns the input unchanged WITHOUT
 # constructing an ExtensionContext (zero JIT-trace cost).
 # --------------------------------------------------------------------------
-@dataclass(frozen=True)
-class _FakeAgentState:
-    ext_state: tuple = ()
-    value: float = 0.0
-
-    def replace(self, **kw):
-        from dataclasses import replace as _r
-
-        return _r(self, **kw)
-
-
 def test_fold_helpers_empty_stack_zero_cost():
     """Empty stack: every fold returns the input unchanged, no ctx built."""
 
@@ -233,6 +239,7 @@ def test_fold_helpers_empty_stack_zero_cost():
     rng = jax.random.PRNGKey(0)
     step = jnp.asarray(0)
 
+    assert len(stack) == 0 and not stack
     # All fold helpers must short-circuit before any ctx construction:
     assert stack.fold_init(agent, rng, 100) is agent
     assert stack.fold_init_states(agent, rng) is agent
@@ -264,8 +271,7 @@ def test_fold_helpers_route_through_phase():
     # post_update threads through the agent_state.replace and returns
     # the updated agent_state with the new ext_state attached.
     stack2 = ExtensionStack([Counter()])
-    init_state = stack2.init_states(_FakeAgentState(), jax.random.PRNGKey(0))
-    agent2 = _FakeAgentState(ext_state=init_state)
+    agent2 = stack2.fold_init_states(_FakeAgentState(), jax.random.PRNGKey(0))
     new_agent = stack2.fold_post_update(agent2, step, rng, 100)
     assert int(new_agent.ext_state[0]) == 1
 

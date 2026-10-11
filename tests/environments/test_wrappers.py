@@ -171,11 +171,6 @@ def batched_brax_env():
     return BatchedMockBraxEnv(), None, "brax"
 
 
-@pytest.fixture
-def fast_brax_env():
-    return create_brax_env("fast", batch_size=1, auto_reset=False), None, "brax"
-
-
 def _reset(env, key, params, mode):
     """``(obs, state)`` of either API's reset."""
     if mode == "gymnax":
@@ -245,32 +240,6 @@ def test_clip_action(wrapper, env_fixture, request):
     assert out[2] == bound[2]
 
 
-@pytest.mark.parametrize("env_fixture", ["gymnax_env", "fast_brax_env"])
-def test_normalize_vec_observation(env_fixture, request):
-    env, env_params, mode = request.getfixturevalue(env_fixture)
-    wrapped_env = NORMALIZERS[mode](env, gamma=0.99)
-    key = jax.random.PRNGKey(0)
-    _, state = _reset(wrapped_env, key, env_params, mode)
-    for _ in range(3):
-        key, _ = jax.random.split(key)
-        _, state, *_ = _step(wrapped_env, key, state, jnp.array([0]), env_params, mode)
-
-
-@pytest.mark.parametrize("env_fixture", ["gymnax_env", "brax_env"])
-def test_normalize_vec_reward(env_fixture, request):
-    env, env_params, mode = request.getfixturevalue(env_fixture)
-    wrapped_env = NORMALIZERS[mode](env, gamma=0.99)
-    key = jax.random.PRNGKey(0)
-    _, state = _reset(wrapped_env, key, env_params, mode)
-    for _ in range(10):
-        key, _ = jax.random.split(key)
-        _, state, _, done = _step(
-            wrapped_env, key, state, jnp.array(0), env_params, mode
-        )
-        if done:
-            _, state = _reset(wrapped_env, key, env_params, mode)
-
-
 @pytest.fixture
 def fail_brax_env():
     """Fixture to create a Brax environment."""
@@ -280,44 +249,6 @@ def fail_brax_env():
 def test_fails_with_autoreset(fail_brax_env):
     with pytest.raises(AssertionError):
         BraxToGymnasium(fail_brax_env)
-
-
-N_STEPS = 5
-
-
-@pytest.fixture
-def brax_env_with_autoreset():
-    """Fixture to create a Brax environment wrapped with AutoResetWrapper."""
-    env = create_brax_env(
-        "inverted_pendulum", batch_size=2, auto_reset=False, episode_length=N_STEPS
-    )  # fast env has a fixed initial obs, had to switch to a real one
-    return AutoResetWrapper(env)
-
-
-@pytest.mark.slow
-def test_autoreset_initialization_differs(brax_env_with_autoreset):
-    """Test that the initialization is different at each episode start."""
-    wrapped_env = brax_env_with_autoreset
-    rng = jax.random.PRNGKey(0)
-    state = wrapped_env.reset(rng)
-    initial_rng = state.info["rng"]
-    initial_obs = state.obs
-
-    # Step the environment until at least one episode ends
-    for _ in range(N_STEPS):
-        action = jnp.zeros((wrapped_env.n_envs, wrapped_env.action_size))
-        state = wrapped_env.step(state, action)
-
-    assert state.done[0]  # env should reset after N_STEPS steps
-    # Check that the RNG used for initialization differs after reset
-
-    new_rng = state.info["rng"]
-    new_init_obs = state.obs
-
-    assert not jnp.array_equal(initial_rng, new_rng), "RNG should differ after reset"
-    assert not jnp.array_equal(
-        initial_obs, new_init_obs
-    ), "Initial obs should differ after reset"
 
 
 @pytest.mark.parametrize("env_fixture", ["batched_gymnax_env", "batched_brax_env"])

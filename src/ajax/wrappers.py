@@ -519,15 +519,10 @@ class AutoResetWrapper(BraxWrapper):
         super().__init__(env)
         self.differentiable_reset = differentiable_reset
         self.n_envs = jax.eval_shape(env.reset, jax.random.PRNGKey(0)).obs.shape[0]
-        self.single_env = self.n_envs == 1
 
     def reset(self, rng: jax.Array) -> State:
         state = self.env.reset(rng)
-        state.info["first_pipeline_state"] = state.pipeline_state
-        state.info["first_obs"] = state.obs
-        state.info["rng"] = (
-            rng.reshape(1, -1) if self.single_env else jnp.tile(rng, (self.n_envs, 1))
-        )
+        state.info["rng"] = jnp.tile(rng, (self.n_envs, 1))
         return state
 
     def _initial_state(self, rng: jax.Array):
@@ -566,11 +561,7 @@ class AutoResetWrapper(BraxWrapper):
             )
         # The seed is tiled to the batch size so that info entries keep a
         # leading env axis; only row 0 is read.
-        state.info["rng"] = (
-            new_rng.reshape(1, -1)
-            if self.single_env
-            else jnp.tile(new_rng, (self.n_envs, 1))
-        )
+        state.info["rng"] = jnp.tile(new_rng, (self.n_envs, 1))
 
         def where_done(x, y):
             done = state.done
@@ -582,9 +573,7 @@ class AutoResetWrapper(BraxWrapper):
             where_done, first_pipeline_state, state.pipeline_state
         )
         obs = where_done(first_obs, state.obs)
-        info = state.info
-        state = state.replace(pipeline_state=pipeline_state, obs=obs, info=info)
-        return state
+        return state.replace(pipeline_state=pipeline_state, obs=obs)
 
 
 class BatchRngWrapper(BraxWrapper):

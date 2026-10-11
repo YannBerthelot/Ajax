@@ -90,6 +90,8 @@ def update_agent(
             "actions": rollout.action,
             "next_observations": rollout.next_obs,
             "rewards": rollout.reward,
+            # Where the target cut the bootstrap, as the replay agents pass.
+            "dones": rollout.terminated,
             "terminated": rollout.terminated,
             "truncated": rollout.truncated,
             "gamma": agent_config.gamma,

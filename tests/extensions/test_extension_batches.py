@@ -1,5 +1,5 @@
 """What the agents hand the extensions' phases: a key of their own for every
-loss term."""
+loss term, and PQN's target the cuts it bootstrapped on."""
 
 from __future__ import annotations
 
@@ -73,3 +73,29 @@ def test_every_loss_term_gets_a_key_of_its_own(agent: str) -> None:
     assert len(keys) > 2
     assert len(np.unique(keys, axis=0)) == len(keys)
     assert not (keys == own).all(axis=1).any()
+
+
+DONES: list[tuple[np.ndarray, np.ndarray]] = []
+
+
+@dataclass(frozen=True)
+class RecordDones(Extension):
+    name: str = "record_dones"
+
+    def on_target(self, agent_state, ext_state, batch, target, ctx):
+        jax.debug.callback(
+            lambda *flags: DONES.append(tuple(map(np.asarray, flags))),
+            batch["dones"],
+            batch["terminated"],
+        )
+        return target
+
+
+def test_pqn_hands_its_target_extensions_the_dones() -> None:
+    """``dones`` is where PQN's target cut the bootstrap: its terminations."""
+    DONES.clear()
+    PQN(**AGENTS["PQN"][1], extensions=(RecordDones(),)).train(seed=0, n_timesteps=48)
+    jax.effects_barrier()
+    assert DONES
+    for dones, terminated in DONES:
+        np.testing.assert_array_equal(dones, terminated)

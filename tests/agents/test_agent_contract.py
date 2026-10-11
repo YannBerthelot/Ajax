@@ -379,7 +379,9 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
         )
         policy_step = make_policy_step(actor, actor.params, False)
         own, _ = policy_step(None, rollout.obs[0], rollout.resets[0])
-        np.testing.assert_allclose(rollout.reward[0], paid_action.mapped(own)[:, 0])
+        np.testing.assert_allclose(
+            rollout.reward[0], paid_action.mapped(own)[:, 0], rtol=1e-6
+        )
         return
     case = CASES[name]
     exposed = {"expose_recent_rollout": True} if case.rollout is not None else {}

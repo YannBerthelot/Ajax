@@ -91,19 +91,16 @@ A0 = -0.5
 class ActorPull(Extension):
     """+ 100 mean((a - A0)^2) on the deterministic action, from half the
     budget when ``gated``. PPO passes no observations (``probe_obs`` stands
-    in), SAC only the pre-squash ``pi_loc``."""
+    in)."""
 
     gated: bool = False
     probe_obs: tuple[float, ...] = (0.0,)
     name: str = "p3_actor_pull"
 
     def actor_loss(self, agent_state, ext_state, batch, ctx):
-        if "actor_params" in batch:
-            obs = batch.get("observations")
-            obs = jnp.asarray([self.probe_obs], jnp.float32) if obs is None else obs
-            a = batch["actor_state"].apply_fn(batch["actor_params"], obs).mean()
-        else:
-            a = jnp.tanh(batch["pi_loc"])
+        obs = batch.get("observations")
+        obs = jnp.asarray([self.probe_obs], jnp.float32) if obs is None else obs
+        a = batch["actor_state"].apply_fn(batch["actor_params"], obs).mean()
         term = 100.0 * jnp.mean((a - A0) ** 2)
         if self.gated:
             term = jnp.where(ctx.step >= ctx.total_steps // 2, term, 0.0)

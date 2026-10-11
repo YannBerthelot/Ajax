@@ -132,7 +132,7 @@ def test_compute_online_bc_loss_decays_after_warmup():
 
     critic_state = _fake_critic_state(apply_fn)
     common = {
-        "pi_loc": jnp.zeros((3, 2)),
+        "pi_mean": jnp.zeros((3, 2)),
         "a_expert": jnp.ones((3, 2)),
         "critic_state": critic_state,
         "expert_critic_params": {"e": 0.0},

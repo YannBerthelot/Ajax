@@ -3,7 +3,6 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from extension_stubs import CounterExt
 from gymnax import make as make_gymnax_env
 
 from ajax import APG
@@ -27,6 +26,7 @@ from ajax.environments.model_reference import (
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
 from ajax.networks.memory import MemoryConfig
 from ajax.wrappers import InitialStateWrapper
+from tests.agents.extension_stubs import CounterExt
 
 HORIZON = 16
 N_ENVS = 4

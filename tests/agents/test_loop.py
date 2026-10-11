@@ -17,7 +17,6 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
-from extension_stubs import CounterExt
 from flax import struct
 from flax.training.train_state import TrainState
 
@@ -30,6 +29,7 @@ from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
+from tests.agents.extension_stubs import CounterExt
 
 
 @struct.dataclass

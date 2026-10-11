@@ -17,7 +17,6 @@ from typing import Any
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from extension_stubs import METRIC, CounterExt, MetricExt
 from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
 from ajax.agents.APO.APO import APO
@@ -43,6 +42,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
 
 CONTINUOUS, DISCRETE = ("fast", "Pendulum-v1"), ("CartPole-v1",)
 NET = ("16", "relu")

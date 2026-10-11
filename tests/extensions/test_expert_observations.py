@@ -337,6 +337,59 @@ def test_phi_star_is_queried_as_it_was_fitted(kw):
     np.testing.assert_allclose(target, fitted, rtol=1e-6)
 
 
+READERS = {  # each reader of phi*, by the function applying it
+    "OnlineBC": "compute_online_bc_loss",
+    "ExpertValueMetrics": "eval_metrics",
+    "online light pretraining": "light_loss_fn",
+    "CriticBlend": "on_target",
+    "MCVarianceCorrection": "mc_correction_modify_target",
+    "EDGE": "pipeline",
+    "ValueBox": "box_compute_state",
+}
+
+
+@pytest.fixture(scope="module")
+def phi_star_readers() -> dict:
+    """The functions that applied phi* through phi_star_critic_state while
+    SAC trained with the agent's own statistics and every reader of phi*,
+    and whether the critic state they stripped held statistics."""
+    import sys
+
+    import ajax.agents.SAC.action_pipeline
+    from ajax.extensions.expert import OnlineBC
+    from ajax.extensions.exploration import EDGEExploration
+    from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection
+    from ajax.networks.networks import phi_star_critic_state
+
+    readers: dict = {}
+
+    def recording(critic_state: Any) -> Any:
+        caller = sys._getframe(1).f_code.co_name
+        readers[caller] = critic_state.obs_norm_info is not None
+        return phi_star_critic_state(critic_state)
+
+    expert = RecordingExpert(action=-0.5)
+    stack: tuple = (_mc(expert), OnlineBC(), CriticBlend(expert_policy=expert))
+    stack += (MCVarianceCorrection(threshold=0.0), ExpertValueMetrics())
+    stack += (EDGEExploration(gate="lcb"), ValueBox())
+    modules: tuple = (ajax.extensions.expert, ajax.extensions.target_mods)
+    modules += (ajax.extensions.pretrain, ajax.agents.SAC.action_pipeline)
+    with pytest.MonkeyPatch.context() as patch:
+        for module in modules:
+            patch.setattr(module, "phi_star_critic_state", recording)
+        train(
+            log=True, expert_policy=expert, normalize_obs_running=True, extensions=stack
+        )
+    return readers
+
+
+@pytest.mark.parametrize("reader", list(READERS))
+def test_every_phi_star_reader_strips_the_agents_statistics(phi_star_readers, reader):
+    """With the agent's own statistics on, each reader applies phi* through
+    phi_star_critic_state, which drops them (phi* is fitted without)."""
+    assert phi_star_readers.get(READERS[reader]) is True, phi_star_readers
+
+
 # --- the evaluation's experts ---------------------------------------------------
 
 

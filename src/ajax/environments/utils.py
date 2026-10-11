@@ -247,43 +247,45 @@ def agent_episode_length(
     return sim_steps // action_repeat
 
 
-def _concrete(x) -> Optional[np.ndarray]:
-    """``x`` as a NumPy array, or None when it is a tracer (unknown at trace time)."""
-    if isinstance(x, jax.core.Tracer):
-        return None
-    return np.asarray(x)
-
-
 def _action_bounds(
     env: EnvType, env_params: Optional[EnvParams], n_envs: Optional[int] = None
-) -> Optional[tuple[Any, Any]]:
-    """The ``(low, high)`` bounds of ``env``'s continuous actions, or None
-    for discrete ones. brax / playground actions live in ``[-1, 1]``.
-    Per-env (batched) gymnax params (``ajax.environments.system_class``)
-    give each env its own bounds, ``[n_envs, *action_shape]``; ``n_envs``,
-    the number of actions they apply to, must match."""
+) -> Optional[tuple[jax.Array, jax.Array]]:
+    """The centre ``(high + low) / 2`` and half-range ``(high - low) / 2``
+    of ``env``'s continuous action box, or None for discrete actions.
+
+    A dimension with an infinite bound gets ``(0, 1)``, as a ``[-1, 1]``
+    one. brax / playground actions live in ``[-1, 1]``. Per-env (batched)
+    gymnax params (``ajax.environments.system_class``) give each env its
+    own box, ``[n_envs, *action_shape]``; ``n_envs``, the number of actions
+    they apply to, must match.
+    """
     if not check_if_environment_has_continuous_actions(env, env_params):
         return None
     if check_env_is_brax(env):
-        ones = np.ones(get_action_dim(env), dtype=np.float32)
-        return -ones, ones
-    if not env_params_is_batched(env_params):
-        space = env.action_space(env_params)
-        return space.low, space.high
-    if n_envs is not None and _n_param_envs(env_params) != n_envs:
-        raise ValueError(
-            f"Per-env params for {_n_param_envs(env_params)} envs, but"
-            f" actions for {n_envs}."
-        )
+        n_actions = get_action_dim(env)
+        return jnp.zeros(n_actions), jnp.ones(n_actions)
 
-    def bounds(params):
+    def box(params):
         space = env.action_space(params)
         return (
             jnp.broadcast_to(space.low, space.shape),
             jnp.broadcast_to(space.high, space.shape),
         )
 
-    return jax.vmap(bounds)(env_params)
+    if not env_params_is_batched(env_params):
+        low, high = box(env_params)
+    elif n_envs is not None and _n_param_envs(env_params) != n_envs:
+        raise ValueError(
+            f"Per-env params for {_n_param_envs(env_params)} envs, but"
+            f" actions for {n_envs}."
+        )
+    else:
+        low, high = jax.vmap(box)(env_params)
+    finite = jnp.isfinite(low) & jnp.isfinite(high)
+    return (
+        jnp.where(finite, (high + low) / 2, 0.0),
+        jnp.where(finite, (high - low) / 2, 1.0),
+    )
 
 
 def agent_action_to_env(
@@ -293,36 +295,21 @@ def agent_action_to_env(
 
     ``action`` is ``[n_envs, *action_shape]``. Continuous actions are
     clipped to ``[-1, 1]`` and, on every dimension of the Box with finite
-    bounds ``[low, high]``, mapped affinely: ``low + (clip(a, -1, 1) + 1) /
-    2 * (high - low)``. This is DreamerV3's ``ClipAction`` +
-    ``NormalizeAction`` (a dimension with an infinite bound keeps the
-    clipped action) and TD-MPC2's action scaling. For ``[-1, 1]`` bounds --
-    every brax / playground env, gymnax envs like MountainCarContinuous --
-    the map is the identity on in-range actions (only the clip acts);
-    gymnax Pendulum's torque is ``[-2, 2]``. Per-env (batched) gymnax
-    params (``ajax.environments.system_class``) give per-env bounds: env
-    ``e``'s action is mapped with its own system's bounds. Discrete actions
-    pass through. Replay stores the agent's raw action, not this one.
+    bounds ``[low, high]``, mapped affinely onto them: ``c + h * clip(a,
+    -1, 1)``, with centre ``c = (high + low) / 2`` and half-range ``h =
+    (high - low) / 2`` (CleanRL's ``action_bias`` and ``action_scale``).
+    This is DreamerV3's ``ClipAction`` + ``NormalizeAction`` (a dimension
+    with an infinite bound keeps the clipped action) and TD-MPC2's action
+    scaling. For ``[-1, 1]`` bounds -- every brax / playground env, gymnax
+    envs like MountainCarContinuous -- the map is exactly the clip, even
+    when the bounds are traced; gymnax Pendulum's torque is ``[-2, 2]``.
+    Per-env (batched) gymnax params (``ajax.environments.system_class``)
+    give per-env bounds: env ``e``'s action is mapped with its own system's
+    bounds. Discrete actions pass through. Replay stores the agent's raw
+    action, not this one. :func:`env_action_to_agent` is the inverse.
     """
     bounds = _action_bounds(env, env_params, action.shape[0])
     if bounds is None:
         return action
-    low, high = bounds
-    clipped = jnp.clip(action, -1.0, 1.0)
-    concrete_low, concrete_high = _concrete(low), _concrete(high)
-    if (
-        concrete_low is not None
-        and concrete_high is not None
-        and bool(np.all(concrete_low == -1.0))
-        and bool(np.all(concrete_high == 1.0))
-    ):
-        return clipped  # exact, without the affine round trip
-    low = jnp.asarray(low, dtype=action.dtype)
-    high = jnp.asarray(high, dtype=action.dtype)
-    finite = jnp.isfinite(low) & jnp.isfinite(high)
-    # Substitute [-1, 1] on infinite dims so the arithmetic stays finite;
-    # those dims take the clipped action in the final select anyway.
-    safe_low = jnp.where(finite, low, -1.0)
-    safe_high = jnp.where(finite, high, 1.0)
-    scaled = safe_low + (clipped + 1.0) / 2.0 * (safe_high - safe_low)
-    return jnp.where(finite, scaled, clipped)
+    centre, half = (jnp.asarray(x, dtype=action.dtype) for x in bounds)
+    return centre + half * jnp.clip(action, -1.0, 1.0)

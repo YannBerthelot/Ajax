@@ -277,6 +277,26 @@ def test_per_env_params_map_actions_to_each_systems_bounds():
         agent_action_to_env(a[:2], env, params)
 
 
+class _ArrayBoxEnv:
+    """A unit box declared with ``jnp.array`` bounds, as TargetGym's envs
+    do: inside jit they are tracers, unknown at trace time."""
+
+    def action_space(self, params=None):
+        return spaces.Box(low=-jnp.ones(2), high=jnp.array([1.0, 1.0]), shape=(2,))
+
+
+def test_unit_bounds_are_exactly_the_clip_even_when_traced():
+    a = jnp.array([[0.3, -0.7], [1e-3, 0.123456], [2.0, -0.999]])
+    clipped = np.asarray(jnp.clip(a, -1.0, 1.0))
+    env = _ArrayBoxEnv()
+    mapped = jax.jit(lambda a: agent_action_to_env(a, env, None))(a)
+    np.testing.assert_array_equal(mapped, clipped)
+    env, params = gymnax.make("MountainCarContinuous-v0")
+    params = broadcast_env_params(params, 3)  # per-env, all [-1, 1]
+    mapped = jax.jit(lambda p, a: agent_action_to_env(a, env, p))(params, a[:, :1])
+    np.testing.assert_array_equal(mapped, clipped[:, :1])
+
+
 class _HalfBoundedEnv:
     """A gymnax-like env whose second action dimension is unbounded."""
 

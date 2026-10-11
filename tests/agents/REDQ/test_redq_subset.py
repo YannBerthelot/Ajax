@@ -7,7 +7,6 @@ exercises ``compute_redq_td_target`` directly at the boundary values
 (subset_size = 1 and subset_size = num_critics).
 """
 
-import gymnax
 import jax
 import jax.numpy as jnp
 import pytest
@@ -15,28 +14,11 @@ import pytest
 from ajax.agents.REDQ.train_REDQ import compute_redq_td_target, init_REDQ
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import get_state_action_shapes
-from ajax.state import (
-    AlphaConfig,
-    BufferConfig,
-    EnvironmentConfig,
-    NetworkConfig,
-    OptimizerConfig,
-)
+from ajax.state import AlphaConfig, NetworkConfig, OptimizerConfig
 
 
 @pytest.fixture
-def env_config():
-    env, env_params = gymnax.make("Pendulum-v1")
-    return EnvironmentConfig(
-        env=env,
-        env_params=env_params,
-        n_envs=1,
-        continuous=True,
-    )
-
-
-@pytest.fixture
-def REDQ_state(env_config):
+def REDQ_state(gymnax_env_config):
     key = jax.random.PRNGKey(0)
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
@@ -45,21 +27,14 @@ def REDQ_state(env_config):
         squash=True,
     )
     alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
-    buffer = get_buffer(
-        **{
-            **BufferConfig(
-                buffer_size=256, batch_size=16, n_envs=env_config.n_envs
-            ).__dict__
-        }
-    )
     return init_REDQ(
         key=key,
-        env_args=env_config,
+        env_args=gymnax_env_config,
         actor_optimizer_args=optimizer_args,
         critic_optimizer_args=optimizer_args,
         network_args=network_args,
         alpha_args=alpha_args,
-        buffer=buffer,
+        buffer=get_buffer(buffer_size=256, batch_size=16, n_envs=1),
         number_of_critics=10,
     )
 
@@ -86,21 +61,13 @@ def _call_target(REDQ_state, env_config, subset_size, seed=1):
     return target
 
 
-def test_subset_size_one_is_finite(env_config, REDQ_state):
-    target = _call_target(REDQ_state, env_config, subset_size=1)
-    assert jnp.all(jnp.isfinite(target))
-
-
-def test_subset_size_full_ensemble_is_finite(env_config, REDQ_state):
-    target = _call_target(REDQ_state, env_config, subset_size=10)
-    assert jnp.all(jnp.isfinite(target))
-
-
-def test_different_subset_sizes_produce_different_targets(env_config, REDQ_state):
-    """subset_size=1 picks a single Q; subset_size=num_critics picks min
-    over all. These should (in general) differ."""
-    t_one = _call_target(REDQ_state, env_config, subset_size=1, seed=1)
-    t_full = _call_target(REDQ_state, env_config, subset_size=10, seed=1)
-    # Not a strict inequality — equality is possible if all Q-values
-    # happen to match — but on random init they should differ.
+def test_the_whole_ensembles_target_is_finite_and_lowest(gymnax_env_config, REDQ_state):
+    """At one key (one next action) subset_size=1 takes one critic's value,
+    subset_size=num_critics the min over all ten: both finite, the whole
+    ensemble's at most the single critic's, and (on a random init) apart.
+    ``not allclose`` alone would pass on NaN, hence the finiteness."""
+    t_one = _call_target(REDQ_state, gymnax_env_config, subset_size=1)
+    t_full = _call_target(REDQ_state, gymnax_env_config, subset_size=10)
+    assert jnp.all(jnp.isfinite(t_one)) and jnp.all(jnp.isfinite(t_full))
+    assert jnp.all(t_full <= t_one)
     assert not jnp.allclose(t_one, t_full)

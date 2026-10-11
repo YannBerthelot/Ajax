@@ -14,21 +14,17 @@ from ajax.extensions.target_mods import IBRL, CriticBlend, LCBGatedBootstrap
 
 
 class _RecordingExpert:
-    """A Pendulum expert recording every observation batch it is given; its
-    action reads the last column, the angular velocity (raw in [-8, 8]).
-    Callable stateless, ``expert(obs)``, and stateful, ``expert(state, obs)``."""
+    """A stateless Pendulum expert recording every observation batch it is
+    given; its action reads the last column, the angular velocity (raw in
+    [-8, 8]). Stateless: an extension calls an expert of its own (not the
+    agent's) without a state, and refuses a stateful one."""
 
     def __init__(self) -> None:
         self.seen: list[np.ndarray] = []
 
-    def init_state(self, n_envs: int) -> jax.Array:
-        return jnp.zeros((n_envs, 1))
-
-    def __call__(self, *args):
-        obs = args[-1]
+    def __call__(self, obs):
         jax.debug.callback(lambda o: self.seen.append(np.asarray(o)), obs)
-        action = jnp.clip(-obs[..., -1:] / 8.0, -1.0, 1.0)
-        return (action, args[0]) if len(args) == 2 else action
+        return jnp.clip(-obs[..., -1:] / 8.0, -1.0, 1.0)
 
 
 def _mc(expert: _RecordingExpert) -> MCPretrain:

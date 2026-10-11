@@ -54,10 +54,10 @@ def collect_and_store_expert_transitions(
             "is_expert": jnp.ones_like(step.reward),
             "a_expert": step.a_expert,
             "next_a_expert": step.next_a_expert,
+            "raw_next_obs": step.raw_next_obs,
         }
-        if "raw_next_obs" in schema:
-            row["raw_next_obs"] = step.raw_next_obs
-        row = {k: v.astype(schema[k].dtype) for k, v in row.items()}
+        # The fields the buffer holds (init_buffer).
+        row = {k: v.astype(schema[k].dtype) for k, v in row.items() if k in schema}
         return buffer.add(buffer_state, row), None
 
     buffer_state, _ = jax.lax.scan(add_step, buffer_state, transitions)

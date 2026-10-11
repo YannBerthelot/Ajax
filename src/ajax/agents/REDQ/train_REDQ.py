@@ -28,7 +28,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
@@ -102,6 +102,7 @@ def init_REDQ(
     number_of_critics: int,
     window_size: int = 10,
     stored_state: bool = False,
+    store_expert_data: bool = False,
 ) -> REDQState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -115,6 +116,10 @@ def init_REDQ(
         num_critics=number_of_critics,
         window_size=window_size,
         stored_state=stored_state,
+        collector_extras={
+            "include_raw_obs": store_expert_data,
+            "include_is_expert": store_expert_data,
+        },
     )
     return REDQState(
         rng=rng,
@@ -390,6 +395,7 @@ def make_train(
             buffer,
             number_of_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
+            store_expert_data=holds_expert(expert_policy, loop.stack),
         )
         return pretrain_on_expert(
             agent_state,

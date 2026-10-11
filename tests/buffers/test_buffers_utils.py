@@ -23,7 +23,9 @@ def setup():
     obs_shape, action_shape = get_state_action_shapes(env)
     return SimpleNamespace(
         buffer=buffer,
-        state=init_buffer(buffer, env_args),
+        state=init_buffer(
+            buffer, env_args, include_raw_obs=True, include_is_expert=True
+        ),
         buffer_size=buffer_size,
         batch_size=batch_size,
         n_envs=n_envs,
@@ -77,8 +79,8 @@ def test_get_batch_from_buffer(setup):
     "env_id, action_dtype", [("Pendulum-v1", jnp.float32), ("CartPole-v1", jnp.int32)]
 )
 def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
-    """A row holds the transition and its raw observation; each option adds
-    its fields or widens the stored observations (never the raw ones)."""
+    """A row holds the transition; each option adds its fields or widens
+    the stored observations (never the raw ones)."""
     env, params = make_gymnax_env(env_id)
     env_args = EnvironmentConfig(
         env=env, env_params=params, n_envs=1, continuous=env_id == "Pendulum-v1"
@@ -98,11 +100,8 @@ def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
         "terminated",
         "truncated",
         "next_obs",
-        "raw_obs",
-        "is_expert",
     }
-    assert plain["obs"] == plain["next_obs"] == plain["raw_obs"]
-    assert plain["obs"] == ((obs_dim,), jnp.float32)
+    assert plain["obs"] == plain["next_obs"] == ((obs_dim,), jnp.float32)
     assert plain["action"] == ((1,), action_dtype)
     full = row(
         add_train_frac=True,
@@ -110,10 +109,14 @@ def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
         include_expert_fields=True,
         actor_carry_dim=5,
         include_raw_next_obs=True,
+        include_raw_obs=True,
+        include_is_expert=True,
     )
-    added = {"a_expert", "next_a_expert", "raw_next_obs", "actor_carry"}
+    added = {"a_expert", "next_a_expert", "actor_carry", "is_expert"}
+    added |= {"raw_obs", "raw_next_obs"}
     assert set(full) == set(plain) | added
     assert full["obs"] == full["next_obs"] == ((obs_dim + 1 + 2,), jnp.float32)
-    assert full["raw_obs"] == full["raw_next_obs"] == plain["raw_obs"]
+    assert full["raw_obs"] == full["raw_next_obs"] == ((obs_dim,), jnp.float32)
+    assert full["is_expert"] == ((1,), jnp.float32)
     assert full["a_expert"] == full["next_a_expert"] == plain["action"]
     assert full["actor_carry"] == ((5,), jnp.float32)

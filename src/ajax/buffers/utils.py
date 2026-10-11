@@ -60,6 +60,8 @@ def init_buffer(
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
+    include_raw_obs: bool = False,
+    include_is_expert: bool = False,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
@@ -71,9 +73,13 @@ def init_buffer(
     expert_state_aug_dim: extra trailing obs dims reserved for the
       flattened expert internal state when running with
       `augment_obs_with_expert_state=True`. 0 disables.
-    include_raw_next_obs: also keep the environment's own next observation
-      (the final one where an episode ended), ``raw_next_obs``, as
-      ``raw_obs`` keeps the current one, for an expert to read.
+    include_raw_obs, include_raw_next_obs: also keep the environment's own
+      observation, ``raw_obs``, and next observation (the final one where
+      an episode ended), ``raw_next_obs``, for an expert to read.
+    include_is_expert: also keep whether an expert acted, ``is_expert``.
+
+    A field is stored only for a reader: a row is about 40% raw
+    observation, which a run without an expert never reads.
     """
     observation_shape, action_shape = get_state_action_shapes(env_args.env)
     if action_dim_override is not None:
@@ -99,9 +105,11 @@ def init_buffer(
         "terminated": done,
         "truncated": done,
         "next_obs": obsv,
-        "raw_obs": raw_obsv,
-        "is_expert": jnp.zeros((1,), dtype=jnp.float32),
     }
+    if include_raw_obs:
+        schema["raw_obs"] = raw_obsv
+    if include_is_expert:
+        schema["is_expert"] = jnp.zeros((1,), dtype=jnp.float32)
     if include_expert_fields:
         schema["a_expert"] = schema["next_a_expert"] = action
     if include_raw_next_obs:

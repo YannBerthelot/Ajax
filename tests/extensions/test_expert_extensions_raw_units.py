@@ -119,6 +119,38 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
     assert ("raw_next_obs" in experience) == stored
 
 
+@pytest.mark.parametrize(
+    "agent_name, expert, extension, stored",
+    [
+        ("SAC", False, False, False),
+        ("SAC", True, False, True),
+        ("SAC", False, True, True),
+        ("TD3", False, False, False),
+        ("TD3", False, True, True),
+    ],
+)
+def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
+    agent_name, expert, extension, stored
+):
+    """raw_obs and is_expert, which only experts read, are allocated for a
+    run that has one: the agent's, or one an extension holds."""
+    import ajax
+    from ajax.extensions.expert import ImitationLoss
+
+    kw: dict = {
+        "actor_architecture": ("8", "relu"),
+        "critic_architecture": ("8", "relu"),
+    }
+    if expert:
+        kw |= {"expert_policy": _RecordingExpert(), "expert_buffer_n_steps": 0}
+    if extension:
+        kw["extensions"] = (ImitationLoss(expert_policy=lambda obs: obs[..., :1]),)
+    agent = getattr(ajax, agent_name)("Pendulum-v1", n_envs=2, **kw)
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    experience = state.collector_state.buffer_state.experience
+    assert ("raw_obs" in experience) == ("is_expert" in experience) == stored
+
+
 def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():
     from ajax import REDQ
 

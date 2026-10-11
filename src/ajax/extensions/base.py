@@ -60,7 +60,9 @@ raises on a key it needs and does not find, rather than return a no-op.
                  plus ``observations``, ``raw_observations`` and
                  ``pi_mean`` on SAC, ASAC, REDQ, TD3 and APO (SAC adds
                  the expert's action ``a_expert``), but on APG (its
-                 ``rollout``, ``returns`` and ``actor_params``)
+                 ``rollout``, ``returns`` and ``actor_params``). The
+                 replay agents' ``raw_observations`` is None in a run
+                 without an expert, whose replay does not keep them
 """
 
 from __future__ import annotations
@@ -139,6 +141,18 @@ def check_extension_phases(
             f"{agent_name} does not support these extension phases: {details}."
             f" Supported phases: {sorted(supported)}."
         )
+
+
+def holds_expert(agent_expert: Any, stack: Iterable["Extension"]) -> bool:
+    """Whether a run has an expert: the agent's ``expert_policy``, or one an
+    extension holds (its ``expert_fields``). Replay keeps the raw
+    observations and the expert flags, which only experts read, for such
+    a run (init_buffer's include_raw_obs, include_is_expert)."""
+    return agent_expert is not None or any(
+        getattr(ext, field, None) is not None
+        for ext in stack
+        for field in ext.expert_fields
+    )
 
 
 def check_extension_experts(

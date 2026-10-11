@@ -224,25 +224,15 @@ class Actor(nn.Module):
                 bias_init=self.encoder_bias_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        if self.kernel_init is None:
-            kernel_init = orthogonal(1.0)
-        else:
-            kernel_init = parse_initialization(self.kernel_init)
-        if self.bias_init is None:
-            bias_init = constant(0.0)
-        else:
-            bias_init = parse_initialization(self.bias_init)
+        kernel_init = parse_initialization(self.kernel_init, default=orthogonal(1.0))
+        bias_init = parse_initialization(self.bias_init, default=constant(0.0))
 
         if self.continuous:
-            if self.mean_kernel_init is None:
-                _mean_kernel_init = orthogonal(0.01)
-            elif callable(self.mean_kernel_init):
-                _mean_kernel_init = self.mean_kernel_init
-            else:
-                _mean_kernel_init = parse_initialization(self.mean_kernel_init)
             self.mean = nn.Dense(
                 self.action_dim,
-                kernel_init=_mean_kernel_init,
+                kernel_init=parse_initialization(
+                    self.mean_kernel_init, default=orthogonal(0.01)
+                ),
                 bias_init=bias_init,
                 name="mean",
             )
@@ -367,20 +357,10 @@ class Critic(nn.Module):
                 bias_init=self.encoder_bias_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        kernel_init = (
-            orthogonal(1.0)
-            if self.kernel_init is None
-            else parse_initialization(self.kernel_init)
-        )
-        bias_init = (
-            constant(0.0)
-            if self.bias_init is None
-            else parse_initialization(self.bias_init)
-        )
         self.model = nn.Dense(
             1,
-            kernel_init=kernel_init,
-            bias_init=bias_init,
+            kernel_init=parse_initialization(self.kernel_init, default=orthogonal(1.0)),
+            bias_init=parse_initialization(self.bias_init, default=constant(0.0)),
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):

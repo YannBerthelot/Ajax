@@ -154,6 +154,14 @@ def test_parse_initialization_passes_callables_through():
     assert parse_initialization(init_fn) is init_fn
 
 
+def test_parse_initialization_of_none_is_the_default():
+    default = orthogonal(1.0)
+    assert parse_initialization(None, default=default) is default
+    assert parse_initialization("zeros", default=default) is not default
+    with pytest.raises(ValueError, match="no default"):
+        parse_initialization(None)
+
+
 def test_parse_initialization_trunc_normal_fan_in():
     key, shape = jax.random.PRNGKey(0), (64, 32)
     expected = variance_scaling(1.0, "fan_in", "truncated_normal")(key, shape)

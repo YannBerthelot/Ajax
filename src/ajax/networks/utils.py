@@ -188,16 +188,21 @@ def get_initializer(name: str) -> Callable[..., InitializationFunction]:
 
 
 def parse_initialization(
-    initialization: Union[str, InitializationFunction],
+    initialization: Optional[Union[str, InitializationFunction]],
+    default: Optional[InitializationFunction] = None,
 ) -> InitializationFunction:
     """Parse an initializer string such as ``"orthogonal(1.0)"``, or pass a
-    callable initializer through.
+    callable initializer through; ``None`` gives ``default``.
 
     ``"name"`` calls the factory ``name`` (see :func:`get_initializer`)
     with no argument and ``"name(expr)"`` with the value of ``expr``. A
     string that does not start with a name, such as ``"0.5"`` or
     ``"-1.0"``, gives a constant initializer.
     """
+    if initialization is None:
+        if default is None:
+            raise ValueError("No initializer given, and no default for it.")
+        return default
     if callable(initialization):
         return initialization
     initialization_name, number = parse_function_string(initialization)
@@ -213,20 +218,11 @@ def parse_layer(
     bias_init: Optional[Union[str, InitializationFunction]] = None,
 ) -> Union[nn.Dense, ActivationFunction]:
     """Parse a layer representation into either a Dense or an activation function"""
-    if kernel_init is None:
-        kernel_init = orthogonal(1.0)
-    elif isinstance(kernel_init, str):
-        kernel_init = parse_initialization(kernel_init)
-    if bias_init is None:
-        bias_init = constant(0)
-    elif isinstance(bias_init, str):
-        bias_init = parse_initialization(bias_init)
-
     if str(layer).isnumeric():
         return nn.Dense(
             int(cast("str", layer)),
-            kernel_init=kernel_init,
-            bias_init=bias_init,
+            kernel_init=parse_initialization(kernel_init, default=orthogonal(1.0)),
+            bias_init=parse_initialization(bias_init, default=constant(0)),
         )
     return parse_activation(activation=layer)
 

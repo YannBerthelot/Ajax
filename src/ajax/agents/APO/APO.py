@@ -7,7 +7,7 @@ from gymnax import EnvParams
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import CloningConfig
+from ajax.agents.cloning import CloningConfig, warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
 from ajax.types import EnvType, InitializationFunction
@@ -57,7 +57,7 @@ class APO(ActorCritic):
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
         actor_cloning_epochs: int = 10,
-        actor_cloning_lr: float = 1e-3,
+        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
         actor_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         # Expert for the cloning pre-training and the eval expert-bias
@@ -76,19 +76,13 @@ class APO(ActorCritic):
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
             n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
+            actor_learning_rate (float): Learning rate for the actor's optimizer.
+            critic_learning_rate (float): Learning rate for the critic's optimizer.
             actor_architecture (tuple): Architecture of the actor network.
             critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
             env_params (Optional[EnvParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
             batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
-            alpha_init (float): Initial value for the temperature parameter.
-            target_entropy_per_dim (float): Target entropy per action dimension.
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "APO"})
@@ -151,9 +145,9 @@ class APO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
+        warn_actor_cloning_lr(actor_cloning_lr)
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
-            actor_lr=actor_cloning_lr,
             actor_batch_size=actor_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
         )

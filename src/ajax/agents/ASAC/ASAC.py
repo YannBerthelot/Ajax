@@ -74,10 +74,12 @@ class ASAC(ActorCritic):
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
             n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
+            actor_learning_rate (float): Learning rate for the actor's optimizer.
+            critic_learning_rate (float): Learning rate for the critic's optimizer.
+            alpha_learning_rate (float): Learning rate for the temperature's
+                optimizer.
             actor_architecture (tuple): Architecture of the actor network.
             critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
             env_params (Optional[EnvParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             buffer_size (int): Size of the replay buffer.

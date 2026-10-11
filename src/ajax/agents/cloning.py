@@ -1,4 +1,5 @@
-from typing import Dict, Sequence, Tuple
+import warnings
+from typing import Dict, Optional, Sequence, Tuple
 
 import distrax
 import jax
@@ -19,7 +20,6 @@ from ajax.environments.utils import check_env_is_gymnax, raw_obs_columns
 @struct.dataclass
 class CloningConfig:
     actor_epochs: int = 10
-    actor_lr: float = 1e-3
     actor_batch_size: int = 64
     pre_train_n_steps: int = int(1e5)
     skip_actor_pretrain: bool = False
@@ -39,6 +39,23 @@ class CloningConfig:
     bc_loss_type: str = "nll"
     bc_min_log_std: float = -1.0
     bc_action_clip_eps: float = 1e-3
+
+
+def warn_actor_cloning_lr(actor_cloning_lr: Optional[float]) -> None:
+    """Warn that ``actor_cloning_lr`` is deprecated and ignored.
+
+    Cloning has always trained at the actor's learning rate: the keyword
+    was never read. No downstream project sets it (scan of 2026-10-11), so
+    it goes expand-then-contract: this warning now, then a follow-up
+    removes the keyword from SAC, TD3, REDQ and APO.
+    """
+    if actor_cloning_lr is not None:
+        warnings.warn(
+            "actor_cloning_lr is deprecated and ignored: behaviour cloning"
+            " trains at actor_learning_rate. It will be removed.",
+            FutureWarning,
+            stacklevel=3,
+        )
 
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:

@@ -120,24 +120,19 @@ class ActorCritic:
         extensions: Sequence[Extension] = (),
     ) -> None:
         """
-        Initialize the PPO agent.
+        Initialize the agent.
 
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
             n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
+            actor_learning_rate (float | Callable[[int], float]): Learning
+                rate for the actor's optimizer, or its schedule.
+            critic_learning_rate (float | Callable[[int], float]): Learning
+                rate for the critic's optimizer, or its schedule.
             actor_architecture (tuple): Architecture of the actor network.
             critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
             env_params (Optional[EnvParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
-            alpha_init (float): Initial value for the temperature parameter.
-            target_entropy_per_dim (float): Target entropy per action dimension.
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
             normalize_rewards (bool): divide the rewards the agent learns

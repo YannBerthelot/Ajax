@@ -79,8 +79,10 @@ class APG(ActorCritic):
                 gradients.
             n_envs: systems sampled (and simulated in parallel) per update.
             horizon: closed-loop rollout length differentiated through.
-            learning_rate / weight_decay / beta_1 / beta_2: AdamW settings
-                (``weight_decay=0`` is plain Adam).
+            learning_rate: AdamW step size.
+            weight_decay: AdamW weight decay (``0`` is plain Adam).
+            beta_1: AdamW first-moment decay.
+            beta_2: AdamW second-moment decay.
             lr_schedule: ``None`` (constant) or ``"warmup_cosine"``
                 (linear warmup over ``warmup_steps`` updates, cosine decay
                 to ``learning_rate * lr_end_fraction`` at the last update).

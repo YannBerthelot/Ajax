@@ -5,7 +5,7 @@ from typing import Callable, Optional, Union
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import CloningConfig
+from ajax.agents.cloning import CloningConfig, warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
@@ -68,7 +68,7 @@ class REDQ(ActorCritic):
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
         actor_cloning_epochs: int = 10,
-        actor_cloning_lr: float = 1e-3,
+        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
         actor_cloning_batch_size: int = 64,
         pre_train_n_steps: int = 0,
         # Expert for the cloning pre-training and the eval expert-bias
@@ -83,7 +83,10 @@ class REDQ(ActorCritic):
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
             n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
+            actor_learning_rate (float): Learning rate for the actor's optimizer.
+            critic_learning_rate (float): Learning rate for the critic's optimizer.
+            alpha_learning_rate (float): Learning rate for the temperature's
+                optimizer.
             actor_architecture (tuple): Architecture of the actor network.
             critic_architecture (tuple): Architecture of the critic network.
             gamma (float): Discount factor for rewards.
@@ -142,9 +145,9 @@ class REDQ(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
 
+        warn_actor_cloning_lr(actor_cloning_lr)
         self.cloning_config = CloningConfig(
             actor_epochs=actor_cloning_epochs,
-            actor_lr=actor_cloning_lr,
             actor_batch_size=actor_cloning_batch_size,
             pre_train_n_steps=pre_train_n_steps,
         )
@@ -152,10 +155,10 @@ class REDQ(ActorCritic):
 
     def get_make_train(self) -> Callable:
         """
-        Create a training function for the APO agent.
+        Create a training function for the REDQ agent.
 
         Returns:
-            Callable: A function that trains the APO agent.
+            Callable: A function that trains the REDQ agent.
         """
         return partial(
             make_train,

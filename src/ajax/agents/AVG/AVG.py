@@ -67,8 +67,10 @@ class AVG(ActorCritic):
         Args:
             env_id (str | EnvType): Environment ID or environment instance.
             n_envs (int): Number of parallel environments.
-            actor_learning_rate, critic_learning_rate (float): Adam step sizes.
-            actor_architecture, critic_architecture (tuple): Network layers.
+            actor_learning_rate (float): Adam step size of the actor.
+            critic_learning_rate (float): Adam step size of the critic.
+            actor_architecture (tuple): Layers of the actor network.
+            critic_architecture (tuple): Layers of the critic network.
             gamma (float): Discount factor for rewards.
             env_params (Optional[EnvParams]): Parameters for the environment.
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
@@ -76,7 +78,8 @@ class AVG(ActorCritic):
             reward_scale (float): Scaling factor for rewards.
             alpha_init (float): The (fixed) entropy coefficient.
             target_entropy_per_dim (float): Target entropy per action dimension.
-            beta_1, beta_2 (float): Adam's moment decays (AVG uses beta_1 = 0).
+            beta_1 (float): Adam's first-moment decay (AVG uses 0).
+            beta_2 (float): Adam's second-moment decay.
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "AVG"})

@@ -71,10 +71,10 @@ resumed one, then the iterations in `build_resumable_train`'s jitted scan,
 evaluating and logging every `log_frequency` steps (with `eval_metrics`).
 
 The world models (DreamerV3, TDMPC2) also give `off_policy` their own
-`collect(agent_state, tick)`, `n_updates(tick)` (such as a train ratio) and
-`Evaluation`. UDRL runs its own iteration on `TrainLoop.train`; APG and the
-offline `TDMPC2MultiTask` call `build_resumable_train` themselves, with
-`fresh_state` and the `post_update` fold.
+`collect(agent_state, tick)`, `n_updates(tick, agent_state)` (such as a train
+ratio) and `Evaluation`. UDRL runs its own iteration on `TrainLoop.train`; APG
+and the offline `TDMPC2MultiTask` call `build_resumable_train` themselves,
+with `fresh_state` and the `post_update` fold.
 
 `ActorCritic.train` runs the seeds at once (`jax.vmap`). With a
 `LoggingConfig` it returns `(state, evaluations)`, each logged key's values
@@ -106,7 +106,7 @@ extensions traces nothing extra and never guards a fold.
 | `init_state(agent_state, rng)` | returns the extension's state (`()`: none) | every agent, fresh runs only |
 | `pretrain(agent_state, ext_state, ctx)` | one-shot step before training | every agent, fresh runs only |
 | `on_target(agent_state, ext_state, batch, target, ctx)` | transforms the TD or value target | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, ctx)` | adds a term to the critic loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO; DQN (without gradient) |
+| `critic_loss(agent_state, ext_state, batch, ctx)` | adds a term to the critic loss | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
 | `actor_loss(agent_state, ext_state, batch, ctx)` | adds a term to the actor loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, ctx)` | overrides the collection action (`None` defers) | SAC with an `expert_policy`, for extensions with an `action_slot` |
 | `eval_action(agent_state, ext_state, obs, rng, ctx)` | overrides the evaluation action | no agent yet |
@@ -114,8 +114,8 @@ extensions traces nothing extra and never guards a fold.
 | `eval_metrics(agent_state, ext_state, rng, ctx)` | adds metrics to each evaluation | every agent |
 
 `tests/probing/test_extensions.py` checks the phases on the agents with
-test-only extensions of known effect, and keeps each gap above visible as a
-strict xfail naming it.
+test-only extensions of known effect, and that an extension implementing a
+phase the agent does not fold is rejected.
 
 Every agent lists the phases it folds in `supported_extension_phases`: the
 shared loop's `LOOP_PHASES` (`pretrain`, `post_update`, `eval_metrics`, in
@@ -162,7 +162,9 @@ class FOOConfig(RecurrentReplayConfig):
 ```
 
 **2. `train_FOO.py`.** The paper's maths, then `make_train`. The critic step
-goes through `critic_step`, which folds `on_target` and `critic_loss`:
+goes through `critic_step`, which folds `on_target` and `critic_loss`; its
+keywords are what the target used (`dones`: where it cut the bootstrap, as
+TD3's `batch.terminated`):
 
 ```python
 def update_value_functions(agent_state, batch, agent_config, extension_stack, total_timesteps):
@@ -174,7 +176,8 @@ def update_value_functions(agent_state, batch, agent_config, extension_stack, to
 
     critic_state, aux = critic_step(
         agent_state, batch, target_q, value_loss, extension_stack, key, total_timesteps,
-        rewards=batch.reward, gamma=agent_config.gamma, reward_scale=agent_config.reward_scale,
+        rewards=batch.reward, dones=batch.terminated,
+        gamma=agent_config.gamma, reward_scale=agent_config.reward_scale,
     )
     return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
@@ -182,10 +185,11 @@ def update_value_functions(agent_state, batch, agent_config, extension_stack, to
 def make_train(
     env_args, actor_optimizer_args, critic_optimizer_args, network_args, buffer,
     agent_config, total_timesteps, num_episode_test,
-    run_ids=None, logging_config=None, extensions=(),
+    run_ids=None, logging_config=None, start_timestep=0, extensions=(),
 ):
     loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions
+        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions,
+        start_timestep=start_timestep,
     )
 
     def init(key, pretrain_key):
@@ -204,9 +208,10 @@ def make_train(
 `update_agent` samples a batch (`sample_replay`), takes the critic step, then
 the actor step, whose loss adds `extension_stack.fold_actor_loss(...)`, and
 returns the state with an `AuxiliaryLogs` of both steps' metrics.
-`ActorCritic.train` calls `make_train` with the keyword names above, so keep
-them. Split a random key for the extensions only under `if stack:`, so an
-agent without extensions keeps its random stream.
+`ActorCritic.train` calls `make_train` with the keyword names above
+(`start_timestep` when it resumes a run), so keep them. Split a random key
+for the extensions only under `if stack:`, so an agent without extensions
+keeps its random stream.
 
 **3. `FOO.py`.**
 
@@ -286,14 +291,15 @@ class UpdateCounter(Extension):
         return agent_state, ext_state + 1
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
-        return {"Counter/updates": ext_state}
+        # A float: the steps that do not evaluate log NaN in its place.
+        return {"Counter/updates": ext_state.astype(jnp.float32)}
 
 
 agent = PPO("CartPole-v1", n_steps=128, extensions=(UpdateCounter(),))
 logging = LoggingConfig(config={}, log_frequency=1024, use_wandb=False)
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=4096, logging_config=logging)
 print(state.ext_state[0])  # the updates each seed made: [9 9]
-print(evaluations["Counter/updates"])  # per seed, at each evaluation: [2 4 6 8]
+print(evaluations["Counter/updates"])  # per seed, at each evaluation: [2. 4. 6. 8.]
 ```
 
 3. **Test it** in `tests/extensions/`: the feature fires and does what its

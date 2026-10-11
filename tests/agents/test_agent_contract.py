@@ -4,6 +4,8 @@ refuses the other; a default run (one scalar seed, one env) keeps no
 extension state and no rollout; a run over two seeds and two envs, logged
 without a backend, folds two counters in step, adds an extension's metric
 to every evaluation and, where the agent exposes it, keeps the last rollout.
+The instrumentation extensions, left to auto-detect, measure the critic of
+every agent that has one.
 
 The two runs use different env modes (brax ``fast`` and gymnax) where the
 agent acts in both. The maths of each agent is tested in its own directory.
@@ -28,6 +30,12 @@ from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.UDRL.UDRL import UDRL
+from ajax.extensions.instrumentation import (
+    COND_METRIC_KEYS,
+    EVAREST_DECOMP_KEYS,
+    BiasVoreDecomposition,
+    ConditioningMetrics,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     AlphaConfig,
@@ -63,6 +71,7 @@ class Case:
     rollout: int | None = None  # length of the rollout it exposes, if it does
     alpha: bool = False  # has a temperature (alpha_args)
     buffer: bool = False  # has a replay buffer
+    critic: bool = True  # has a value or action-value network
     n_timesteps: int = 64
     # Overrides for the extensions' run only.
     extended: dict[str, Any] = field(default_factory=dict)
@@ -128,6 +137,7 @@ CASES = {
         },
         CONTINUOUS + DISCRETE,
         n_timesteps=128,
+        critic=False,
     ),
 }
 AGENTS = pytest.mark.parametrize("name", sorted(CASES))
@@ -206,3 +216,38 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
     obs = state.last_rollout.obs
     assert obs.shape[:3] == (2, case.rollout, 2), obs.shape
     assert jnp.isfinite(obs).all()
+
+
+@AGENTS
+def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
+    """ConditioningMetrics and BiasVoreDecomposition, with no per-agent
+    setting, find the critic (on critic_state, taking the observation or
+    the observation and action, or a Q-network on actor_state) and their
+    batch (the replay buffer or the exposed rollout): each evaluation of an
+    agent with a critic carries all their keys, finite; one without (UDRL)
+    carries none."""
+    case = CASES[name]
+    exposed = {} if case.rollout is None else {"expose_recent_rollout": True}
+    kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed, **case.kwargs}
+    buffer = getattr(case.cls(**kwargs), "buffer", None)
+    agent = case.cls(
+        **kwargs,
+        extensions=[
+            ConditioningMetrics(buffer=buffer),
+            BiasVoreDecomposition(buffer=buffer),
+        ],
+    )
+    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    _, out = agent.train(
+        seed=42,
+        n_timesteps=case.n_timesteps,
+        num_episode_test=1,
+        logging_config=logging,
+    )
+    keys = COND_METRIC_KEYS + EVAREST_DECOMP_KEYS
+    if not case.critic:
+        assert not set(keys) & set(out), sorted(out)
+        return
+    evaluated = np.asarray(out["timestep"]) >= 0
+    for key in keys:
+        assert np.isfinite(np.asarray(out[key])[evaluated]).all(), key

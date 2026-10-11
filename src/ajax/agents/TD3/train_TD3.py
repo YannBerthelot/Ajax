@@ -5,9 +5,9 @@ Three changes vs DDPG:
 2. Target policy smoothing: target action = clip(mu_target(s') + clip(N, -c, c), -1, 1).
 3. Delayed policy + target updates every `policy_delay` critic steps.
 
-The actor reuses Ajax's stochastic SquashedNormal head and is treated
-deterministically by taking pi.mean() (== tanh(mu)) for both target
-and behaviour. Exploration noise is added at action time.
+The actor is deterministic (networks.py: a Deterministic wrapper of
+tanh(mu)), and pi.mean() gives its action for both target and
+behaviour. Exploration noise is added at action time.
 """
 
 from collections.abc import Sequence

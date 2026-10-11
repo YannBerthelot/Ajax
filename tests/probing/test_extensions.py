@@ -427,8 +427,7 @@ class AgentExpert:
         return (a, args[0]) if len(args) == 2 else a
 
 
-STATELESS = "SAC's evaluation compares its policy with the expert by stepping the expert with a state (step_environment_expert, evaluate.py:406), unlike its own rollout and the collector, so a stateless expert raises TypeError at trace time; right: training runs"
-EXPERTS = [xparam(constant_expert, STATELESS, TypeError, "stateless")]
+EXPERTS = [pytest.param(constant_expert, id="stateless")]
 EXPERTS += [pytest.param(AgentExpert(constant_expert), id="stateful")]
 PREFILLED = ("action", "a_expert", "next_a_expert", "is_expert")
 

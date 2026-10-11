@@ -1,5 +1,8 @@
+import dataclasses
+
 import gymnax
 import jax
+import jax.numpy as jnp
 import pytest
 from brax.envs import create as create_brax_env
 from flax.serialization import to_state_dict
@@ -173,6 +176,39 @@ def test_evaluate_done_masking_no_accumulation_past_done():
     # Over-long length (2x). If done-masking is correct, rewards match.
     r_long, *_ = evaluate(max_eval_steps=400, **kwargs)
     assert float(r_base) == pytest.approx(float(r_long), abs=1e-4)
+
+
+def _zero_torque(obs):
+    return jnp.zeros(obs.shape[:-1] + (1,))
+
+
+@dataclasses.dataclass(frozen=True)
+class _StatefulZeroTorque:
+    """``_zero_torque`` in the stateful convention, its state unused."""
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state, obs):
+        return _zero_torque(obs), state
+
+
+def test_the_expert_rollout_calls_an_expert_in_its_own_convention():
+    """A stateless expert is called ``expert(obs)``, a stateful one
+    ``expert(state, obs)``, as in the agent's rollout: one expert written
+    both ways earns one return."""
+    env, env_params, state = _eval_pendulum()
+    kwargs = {
+        "env": env,
+        "actor_state": state.actor_state,
+        "num_episodes": 2,
+        "rng": jax.random.PRNGKey(3),
+        "env_params": env_params,
+    }
+    stateless = float(evaluate(expert_policy=_zero_torque, **kwargs)[-1])
+    stateful = float(evaluate(expert_policy=_StatefulZeroTorque(), **kwargs)[-1])
+    assert stateless < 0.0  # Pendulum's cost: every return is negative
+    assert stateless == pytest.approx(stateful)
 
 
 def test_setup_environment_accepts_prebuilt_gymnax_env_without_params():

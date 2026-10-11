@@ -350,7 +350,11 @@ def step_environment(
 
 
 def step_environment_expert(mode, env, env_params, expert_policy):
-    """Step function for expert policy. expert_policy must be a FunctionalExpertPolicy."""
+    """Step function for the expert's own rollout, called as the agent's
+    rollout calls it (:func:`step_environment`): a stateful expert (one with
+    ``init_state``) as ``expert_policy(state, obs) -> (action, state)``, a
+    stateless one as ``expert_policy(obs) -> action``."""
+    expert_is_stateful = hasattr(expert_policy, "init_state")
 
     def fn(carry):
         (
@@ -373,7 +377,10 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             else step_key
         )
 
-        actions, new_expert_state = expert_policy(expert_state, obs)
+        if expert_is_stateful:
+            actions, new_expert_state = expert_policy(expert_state, obs)
+        else:
+            actions, new_expert_state = expert_policy(obs), expert_state
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys, state, actions, env, mode, env_params
         )

@@ -25,6 +25,7 @@ from ajax.agents.TDMPC2.state import TDMPC2Config
 from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule
 from ajax.environments.row_collector import Row
 
+from .common import random_heads, td_target_of
 from .toy_envs import ChainEnv
 
 EPISODIC = TDMPC2Config(
@@ -44,15 +45,6 @@ OBS, ACT, B = 5, 2, 8
 GAMMA = 0.9
 
 
-def _random_heads(params: dict, key: jax.Array) -> dict:
-    """Non-zero reward and Q heads, so values and targets differ by sample."""
-    params = jax.tree_util.tree_map(lambda x: x, params)
-    k1, k2 = jax.random.split(key)
-    for head, k in ((params["reward"]["out"], k1), (params["q"]["members"]["out"], k2)):
-        head["kernel"] = 0.3 * jax.random.normal(k, head["kernel"].shape)
-    return params
-
-
 def _with_termination_bias(params: dict, bias: float) -> dict:
     """A head that predicts the same logit ``bias`` everywhere."""
     params = jax.tree_util.tree_map(lambda x: x, params)
@@ -66,7 +58,8 @@ def _with_termination_bias(params: dict, bias: float) -> dict:
 def state() -> core.TDMPC2UpdateState:
     state = core.create_update_state(jax.random.PRNGKey(0), EPISODIC, OBS, ACT)
     wm = state.world_model_state
-    params = _random_heads(wm.params, jax.random.PRNGKey(1))
+    # Non-zero reward and Q heads, so values and targets differ by sample.
+    params = random_heads(wm.params, *jax.random.split(jax.random.PRNGKey(1)), 0.3)
     wm = wm.replace(params=params, target_params=params["q"])
     return state.replace(world_model_state=wm)
 
@@ -165,25 +158,19 @@ def test_termination_statistics_are_the_latest_codes():
 def test_the_td_target_drops_the_bootstrap_after_a_termination(state, batch, noise):
     """``y = r + gamma (1 - terminated) Q``: the reward alone where the next
     state is terminal, the paper-era target elsewhere."""
-    wm, pi = state.world_model_state, state.actor_state
+    online_q = state.world_model_state.params["q"]
 
     def target(terminated):
-        y, _ = core.td_target(
-            wm_apply=wm.apply_fn,
-            pi_apply=pi.apply_fn,
-            wm_params=wm.params,
-            target_q_params=wm.params["q"],
-            pi_params=pi.params,
-            next_obs=batch.obs[1:],
-            reward=batch.reward,
+        return td_target_of(
+            state,
+            batch,
+            noise,
+            EPISODIC,
             gamma=GAMMA,
-            eps=noise.td_eps,
-            pair=noise.td_pair,
+            target_q=online_q,
             dropout_key=None,
-            config=EPISODIC,
             terminated=terminated,
-        )
-        return y
+        )[0]
 
     paper_era = target(None)
     assert not np.allclose(paper_era, batch.reward)

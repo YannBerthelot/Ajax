@@ -24,21 +24,19 @@ from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2UpdateState
 from ajax.normalizers import RunningScale
 from ajax.state import LoadedTrainState
 
+from .common import random_heads, random_kernel, td_target_of
+
 TINY = TDMPC2Config(latent_dim=16, enc_dim=32, mlp_dim=32, num_q=5, dropout=0.01)
 OBS, ACT, B = 5, 2, 8
 
 
 def _with_random_heads(state: TDMPC2UpdateState, key: jax.Array) -> TDMPC2UpdateState:
-    """Non-zero reward / Q heads, so every world-model parameter gets gradient."""
+    """Non-zero reward / Q heads (the target Q's too), so every world-model
+    parameter gets gradient."""
     wm = state.world_model_state
-    params = jax.tree_util.tree_map(lambda x: x, wm.params)
     k1, k2, k3 = jax.random.split(key, 3)
-    rew = params["reward"]["out"]
-    q = params["q"]["members"]["out"]
-    rew["kernel"] = 0.5 * jax.random.normal(k1, rew["kernel"].shape)
-    q["kernel"] = 0.5 * jax.random.normal(k2, q["kernel"].shape)
-    target = jax.tree_util.tree_map(lambda x: x, params["q"])
-    target["members"]["out"]["kernel"] = 0.5 * jax.random.normal(k3, q["kernel"].shape)
+    params = random_heads(wm.params, k1, k2, 0.5)
+    target = random_kernel(params["q"], ("members", "out"), k3, 0.5)
     return state.replace(
         world_model_state=wm.replace(params=params, target_params=target)
     )
@@ -281,19 +279,14 @@ def test_td_target_carries_no_gradient(state, batch, noise):
     wm, pi = state.world_model_state, state.actor_state
 
     def target_sum(wm_params, target_q, pi_params):
-        y, next_z = core.td_target(
-            wm_apply=wm.apply_fn,
-            pi_apply=pi.apply_fn,
+        y, next_z = td_target_of(
+            state,
+            batch,
+            noise,
+            TINY,
             wm_params=wm_params,
-            target_q_params=target_q,
+            target_q=target_q,
             pi_params=pi_params,
-            next_obs=batch.obs[1:],
-            reward=batch.reward,
-            gamma=0.99,
-            eps=noise.td_eps,
-            pair=noise.td_pair,
-            dropout_key=noise.td_dropout,
-            config=TINY,
         )
         return jnp.sum(y) + jnp.sum(next_z)
 
@@ -309,19 +302,8 @@ def test_world_model_loss_reaches_every_world_model_part_and_not_the_policy(
     wm, pi = state.world_model_state, state.actor_state
 
     def loss(wm_params, pi_params):
-        td, next_z = core.td_target(
-            wm_apply=wm.apply_fn,
-            pi_apply=pi.apply_fn,
-            wm_params=wm_params,
-            target_q_params=wm.target_params,
-            pi_params=pi_params,
-            next_obs=batch.obs[1:],
-            reward=batch.reward,
-            gamma=0.99,
-            eps=noise.td_eps,
-            pair=noise.td_pair,
-            dropout_key=noise.td_dropout,
-            config=TINY,
+        td, next_z = td_target_of(
+            state, batch, noise, TINY, wm_params=wm_params, pi_params=pi_params
         )
         total, _ = core.world_model_loss(
             wm_params,
@@ -401,24 +383,9 @@ def test_paper_era_td_target_has_q_dropout(state, batch, noise):
     config = TINY.replace(dropout=0.3)
     stateful = core.create_update_state(jax.random.PRNGKey(0), config, OBS, ACT)
     stateful = _with_random_heads(stateful, jax.random.PRNGKey(1))
-    wm, pi = stateful.world_model_state, stateful.actor_state
 
     def target(key):
-        y, _ = core.td_target(
-            wm_apply=wm.apply_fn,
-            pi_apply=pi.apply_fn,
-            wm_params=wm.params,
-            target_q_params=wm.target_params,
-            pi_params=pi.params,
-            next_obs=batch.obs[1:],
-            reward=batch.reward,
-            gamma=0.99,
-            eps=noise.td_eps,
-            pair=noise.td_pair,
-            dropout_key=key,
-            config=config,
-        )
-        return y
+        return td_target_of(stateful, batch, noise, config, dropout_key=key)[0]
 
     np.testing.assert_array_equal(target(None), target(None))
     assert not np.allclose(target(jax.random.PRNGKey(0)), target(None))
@@ -535,20 +502,7 @@ def test_aux_reports_the_policy_loss_sample(state, batch, noise):
     """``pi_entropy = -mean(log_pi)`` and ``pi_log_std = mean(log_std)`` of
     the policy loss' sample at the pre-step latents."""
     wm, pi = state.world_model_state, state.actor_state
-    td, next_z = core.td_target(
-        wm_apply=wm.apply_fn,
-        pi_apply=pi.apply_fn,
-        wm_params=wm.params,
-        target_q_params=wm.target_params,
-        pi_params=pi.params,
-        next_obs=batch.obs[1:],
-        reward=batch.reward,
-        gamma=0.99,
-        eps=noise.td_eps,
-        pair=noise.td_pair,
-        dropout_key=noise.td_dropout,
-        config=TINY,
-    )
+    td, next_z = td_target_of(state, batch, noise, TINY)
     _, (_, zs) = core.world_model_loss(
         wm.params,
         wm_apply=wm.apply_fn,

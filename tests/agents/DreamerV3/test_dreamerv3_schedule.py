@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
+from ajax.agents.DreamerV3.replay import StreamReplay
 from ajax.agents.DreamerV3.train_DreamerV3 import TrainRatio
 
 from .reference_loop import Ratio, reference_train_loop
@@ -126,16 +126,7 @@ def test_online_queue_pops_match_the_reference_replay(n_envs):
         n_envs, batch_size, batch_length, train_ratio, ticks, updates_after_tick=True
     )
     replay = StreamReplay(n_envs, ticks, batch_size, batch_length)
-    state = ReplayState(
-        **{
-            k: jnp.zeros((n_envs, ticks), jnp.float32)
-            for k in ("obs", "action", "reward", "is_first", "is_last")
-        },
-        is_terminal=jnp.zeros((n_envs, ticks), bool),
-        deter=jnp.zeros((n_envs, ticks, 1)),
-        stoch=jnp.zeros((n_envs, ticks, 1), jnp.uint8),
-        popped=jnp.zeros((), jnp.int32),
-    )
+    state = replay.init(1, 1, False, 1, 1, 2)  # only the counters matter
     sample = jax.jit(replay.sample)
     ours = []
     key = jax.random.PRNGKey(0)

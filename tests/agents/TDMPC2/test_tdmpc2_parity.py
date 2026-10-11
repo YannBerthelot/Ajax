@@ -38,6 +38,7 @@ The fixture also records the numeric defaults of the reference's
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 from pathlib import Path
 from typing import Any
@@ -51,36 +52,24 @@ from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2UpdateState
 from ajax.state import BaseAgentConfig
 
+from .common import td_target_of
 from .reference_params import (
+    LOGGED,
+    POST_STEP_Q_TOL,
+    SCALAR_TOL,
     ErrorReport,
     Fixture,
     ajax_config,
-    as_jnp,
+    check_final_params,
     load_fixture,
     reference_config,
     torch_to_ajax,
+    update_inputs,
+    with_reference_params,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tdmpc2_update.npz"
 N_UPDATES = 4
-# (rtol, atol)
-SCALAR_TOL = (2e-5, 1e-5)
-# Absolute only: one Adam step moves a parameter by ~lr (3e-4; 9e-5 for the
-# encoder), so a missing or wrong step anywhere in the chain exceeds it.
-PARAM_TOL = (0.0, 1.5e-5)
-# Q values decoded from the post-step parameters: their float32 error,
-# through the peaked softmax of the fixture's large heads and symexp.
-POST_STEP_Q_TOL = (1e-4, 1e-4)
-LOGGED = (
-    "consistency_loss",
-    "reward_loss",
-    "value_loss",
-    "total_loss",
-    "pi_loss",
-    "grad_norm",
-    "pi_grad_norm",
-    "pi_scale",
-)
 
 
 @pytest.fixture(scope="module")
@@ -110,46 +99,18 @@ def initial_state(
         learning_rate=ref_config["lr"],
         enc_lr_scale=ref_config["enc_lr_scale"],
     )
-    wm, target_q, pi = (as_jnp(t) for t in torch_to_ajax(fx, "init/", config))
-    for mapped, ajax in (
-        (wm, state.world_model_state.params),
-        (target_q, state.world_model_state.target_params),
-        (pi, state.actor_state.params),
-    ):
-        assert jax.tree_util.tree_structure(mapped) == jax.tree_util.tree_structure(
-            ajax
-        )
-        assert jax.tree_util.tree_map(jnp.shape, mapped) == jax.tree_util.tree_map(
-            jnp.shape, ajax
-        )
-    wm_state, pi_state = state.world_model_state, state.actor_state
-    return state.replace(
-        world_model_state=wm_state.replace(
-            params=wm, target_params=target_q, opt_state=wm_state.tx.init(wm)
-        ),
-        actor_state=pi_state.replace(params=pi, opt_state=pi_state.tx.init(pi)),
-    )
+    return with_reference_params(state, fx, config)
 
 
 def batch_and_noise(fx: Fixture, k: int) -> tuple[core.TDMPC2Batch, core.UpdateNoise]:
-    """Update ``k``'s batch and its recorded draws (dropout is 0: keys unused)."""
-    p = f"update{k}/"
-    batch = core.TDMPC2Batch(
-        obs=jnp.asarray(fx[p + "batch/obs"]),
-        action=jnp.asarray(fx[p + "batch/action"]),
-        reward=jnp.asarray(fx[p + "batch/reward"][..., 0]),
-    )
-    key = jax.random.PRNGKey(0)
-    noise = core.UpdateNoise(
-        td_eps=jnp.asarray(fx[p + "draws/td_eps"]),
-        td_pair=jnp.asarray(fx[p + "draws/td_pair"]),
-        td_dropout=key,
-        value_dropout=key,
-        pi_eps=jnp.asarray(fx[p + "draws/pi_eps"]),
-        pi_pair=jnp.asarray(fx[p + "draws/pi_pair"]),
-        pi_dropout=key,
-    )
+    batch, _, noise = update_inputs(fx, k)
     return batch, noise
+
+
+@functools.lru_cache(maxsize=None)
+def jitted_update(config: TDMPC2Config, gamma: float):
+    """One compilation of the update for the parity chain and its variants."""
+    return jax.jit(lambda s, b, n: core.update(s, b, n, config=config, gamma=gamma))
 
 
 def test_fixture_records_the_paper_era_q_dropout_mode(fx):
@@ -208,7 +169,7 @@ def test_create_update_state_defaults_are_the_paper_learning_rates(paper_config)
 def test_update_matches_reference_over_four_updates(fx, ref_config, config):
     gamma = float(fx["meta/discount"])
     state = initial_state(fx, ref_config, config)
-    step = jax.jit(lambda s, b, n: core.update(s, b, n, config=config, gamma=gamma))
+    step = jitted_update(config, gamma)
     report = ErrorReport("TD-MPC2 update parity")
 
     with jax.default_matmul_precision("highest"):
@@ -218,19 +179,8 @@ def test_update_matches_reference_over_four_updates(fx, ref_config, config):
             wm, pi = state.world_model_state, state.actor_state
 
             # Intermediates on the pre-update state.
-            td, next_z = core.td_target(
-                wm_apply=wm.apply_fn,
-                pi_apply=pi.apply_fn,
-                wm_params=wm.params,
-                target_q_params=wm.target_params,
-                pi_params=pi.params,
-                next_obs=batch.obs[1:],
-                reward=batch.reward,
-                gamma=gamma,
-                eps=noise.td_eps,
-                pair=noise.td_pair,
-                dropout_key=None,
-                config=config,
+            td, next_z = td_target_of(
+                state, batch, noise, config, gamma=gamma, dropout_key=None
             )
             report.check("td_targets", td, fx[p + "td_targets"][..., 0], SCALAR_TOL)
             _, (_, zs) = core.world_model_loss(
@@ -268,12 +218,7 @@ def test_update_matches_reference_over_four_updates(fx, ref_config, config):
                 SCALAR_TOL,
             )
 
-    wm_ref, target_ref, pi_ref = torch_to_ajax(fx, "final/", config)
-    report.check("wm_params", state.world_model_state.params, wm_ref, PARAM_TOL)
-    report.check(
-        "target_q_params", state.world_model_state.target_params, target_ref, PARAM_TOL
-    )
-    report.check("pi_params", state.actor_state.params, pi_ref, PARAM_TOL)
+    check_final_params(report, state, fx, config)
     report.print()
 
 
@@ -296,8 +241,7 @@ def _chain(
     ``stale=False`` zeroes the carried policy-gradient norm before every
     update, i.e. drops the paper-era clip-norm quirk.
     """
-    gamma = float(fx["meta/discount"])
-    step = jax.jit(lambda s, b, n: core.update(s, b, n, config=config, gamma=gamma))
+    step = jitted_update(config, float(fx["meta/discount"]))
     state = initial_state(fx, ref_config, config)
     out = []
     with jax.default_matmul_precision("highest"):

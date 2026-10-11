@@ -31,22 +31,13 @@ from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
 
+from .common import TINY_AGENT
 from .toy_envs import ConstantRewardEnv, TerminatingEnv
 
 # A tiny model and planner; everything else at the paper defaults. More
 # elites than policy-prior trajectories, so that the MPPI statistics (and
 # with them the warm start) shape the decisions of an untrained model.
-TINY = {
-    "enc_dim": 32,
-    "mlp_dim": 32,
-    "latent_dim": 16,
-    "num_q": 2,
-    "batch_size": 16,
-    "num_samples": 32,
-    "num_elites": 8,
-    "num_pi_trajs": 4,
-    "iterations": 2,
-}
+TINY = TINY_AGENT
 SEEDS = [0, 1]
 N_ENVS = 2
 # Pendulum: T = 200. S = 400 puts the seed tick on per-env step 200 (the

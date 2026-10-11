@@ -24,10 +24,8 @@ below the bounds in :data:`TOLERANCES`.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import json
-import pathlib
 import re
 
 import jax
@@ -39,53 +37,28 @@ from ajax.agents.DreamerV3.networks import (
     POSTERIOR_LAYERS,
     PRIOR_LAYERS,
     WorldModel,
-    encode_action,
     init_world_model,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config
-from ajax.agents.DreamerV3.world_model import (
-    LOSS_TERMS,
-    ReplayContextBatch,
-    world_model_loss,
+from ajax.agents.DreamerV3.world_model import LOSS_TERMS, world_model_loss
+
+from .common import (
+    FIXTURES,
+    REFERENCE_TERMS,
+    fixture_batch,
+    fixture_config,
+    get_path,
+    parity_error,
+    reference_to_ajax,
+    reference_trees,
 )
 
-from .common import reference_to_ajax
-
-FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 RUNS = ("continuous_init", "discrete_init", "continuous_perturbed")
-#: The reference's loss keys for Ajax's terms.
-REFERENCE_TERMS = dict(
-    zip(LOSS_TERMS, ("vector", "reward", "cont", "dyn", "rep"), strict=False)
-)
 #: Bounds on ``max |ajax - ref| / (1 + max |ref|)`` per compared quantity.
 TOLERANCES = {
     "values": 1e-6,  # deter, logits, tokens, losses, KL
     "grads": 1e-5,  # per parameter tensor, relative to its largest entry
 }
-
-
-def _set(tree: dict, path: tuple[str, ...], value) -> None:
-    for key in path[:-1]:
-        tree = tree.setdefault(key, {})
-    assert path[-1] not in tree, path
-    tree[path[-1]] = value
-
-
-def _get(tree, path: tuple[str, ...]):
-    for key in path:
-        tree = tree[key]
-    return tree
-
-
-def _to_ajax_tree(flat: dict[str, np.ndarray], bins: int) -> dict:
-    """Reference ``{name: array}`` -> Ajax nested params (reward logits cut)."""
-    tree: dict = {}
-    for name, value in flat.items():
-        path = reference_to_ajax(name)
-        if path[:2] == ("rew", "out"):
-            value = value[..., :bins]
-        _set(tree, path, jnp.asarray(value))
-    return tree
 
 
 @functools.lru_cache(maxsize=None)
@@ -101,50 +74,26 @@ def load(run: str) -> dict:
     return out
 
 
-def _config(meta: dict, params: dict[str, np.ndarray]) -> DreamerV3Config:
-    """Ajax's defaults at the fixture's widths.
-
-    Only the sizes come from the fixture (the MLP width read off the
-    reference's encoder); every other field keeps Ajax's default, pinned by
-    :func:`test_default_hyperparameters_are_the_references`.
-    """
-    rssm = meta["rssm"]
-    return dataclasses.replace(
-        DreamerV3Config(),
-        units=params["agent/enc/mlp0/kernel"].shape[-1],
-        hidden=rssm["hidden"],
-        deter=rssm["deter"],
-        stoch=rssm["stoch"],
-        classes=rssm["classes"],
-        blocks=rssm["blocks"],
-    )
-
-
-def _batch(fixture: dict, discrete: bool) -> ReplayContextBatch:
-    raw = fixture["batch"]
-    return ReplayContextBatch(
-        obs=jnp.asarray(raw["vector"]),
-        action=encode_action(jnp.asarray(raw["action"]), 3 if discrete else None),
-        reward=jnp.asarray(raw["reward"]),
-        is_first=jnp.asarray(raw["is_first"]),
-        is_last=jnp.asarray(raw["is_last"]),
-        is_terminal=jnp.asarray(raw["is_terminal"]),
-        # The reference keeps the context row's stored latent only
-        # (agent.py:175-176, ``data.pop(k)[:, :K]``).
-        context_deter=jnp.asarray(raw["deter"][:, 0]),
-        context_stoch=jnp.asarray(raw["stoch"][:, 0]),
-    )
-
-
 @functools.lru_cache(maxsize=None)
 def ajax_run(run: str):
     """Ajax's world-model loss and gradients on the fixture of ``run``."""
     fixture = load(run)
-    config = _config(fixture["meta"], fixture["param"])
+    # Only the sizes come from the fixture (the MLP width read off the
+    # reference's encoder); every other field keeps Ajax's default, pinned
+    # by test_default_hyperparameters_are_the_references.
+    units = fixture["param"]["agent/enc/mlp0/kernel"].shape[-1]
+    config = fixture_config(fixture["meta"]["rssm"], units)
     discrete = run.startswith("discrete")
-    batch = _batch(fixture, discrete)
+    raw = fixture["batch"]
+    # The reference keeps the context row's stored latent only
+    # (agent.py:175-176, ``data.pop(k)[:, :K]``).
+    batch = fixture_batch(
+        raw, 3 if discrete else None, raw["deter"][:, 0], raw["stoch"][:, 0]
+    )
     model = WorldModel(config, obs_dim=batch.obs.shape[-1])
-    params = _to_ajax_tree(fixture["param"], config.bins)
+    params = reference_trees(
+        fixture["param"], discrete, config.bins, dropped_must_be_zero=False
+    )["world_model"]
     noise = jnp.asarray(fixture["out"]["noise"])
 
     @jax.jit
@@ -158,11 +107,6 @@ def ajax_run(run: str):
     with jax.default_matmul_precision("highest"):
         (_, out), grads = loss_and_grad(params)
     return fixture, config, model, params, jax.device_get(out), jax.device_get(grads)
-
-
-def _error(ours, theirs) -> float:
-    ours, theirs = np.asarray(ours, np.float64), np.asarray(theirs, np.float64)
-    return float(np.max(np.abs(ours - theirs)) / (1.0 + np.max(np.abs(theirs))))
 
 
 def _layers(params: dict[str, np.ndarray], module: str) -> int:
@@ -227,10 +171,10 @@ def test_samples_and_entries_match(run):
         + config.unimix / config.classes
     )
     errors = {
-        "deter": _error(out.entries.deter, ref["deter"]),
-        "post_logit": _error(mixed(out.posterior.logits), ref["post_logit"]),
-        "prior_logit": _error(mixed(out.prior_logits), ref["prior_logit"]),
-        "tokens": _error(out.tokens, ref["embed"]),
+        "deter": parity_error(out.entries.deter, ref["deter"]),
+        "post_logit": parity_error(mixed(out.posterior.logits), ref["post_logit"]),
+        "prior_logit": parity_error(mixed(out.prior_logits), ref["prior_logit"]),
+        "tokens": parity_error(out.tokens, ref["embed"]),
     }
     print(f"\n{run} values: " + ", ".join(f"{k} {v:.1e}" for k, v in errors.items()))
     assert max(errors.values()) < TOLERANCES["values"], errors
@@ -240,11 +184,11 @@ def test_samples_and_entries_match(run):
 def test_loss_terms_and_kl_match(run):
     fixture, _, _, _, out, _ = ajax_run(run)
     errors = {
-        term: _error(out.losses[term], fixture["loss"][REFERENCE_TERMS[term]])
+        term: parity_error(out.losses[term], fixture["loss"][REFERENCE_TERMS[term]])
         for term in LOSS_TERMS
     }
-    errors["kl"] = _error(out.kl, fixture["out"]["kl"])
-    errors["weighted"] = _error(out.weighted, fixture["loss"]["weighted"])
+    errors["kl"] = parity_error(out.kl, fixture["out"]["kl"])
+    errors["weighted"] = parity_error(out.weighted, fixture["loss"]["weighted"])
     print(f"\n{run} losses: " + ", ".join(f"{k} {v:.1e}" for k, v in errors.items()))
     assert max(errors.values()) < TOLERANCES["values"], errors
     for term in LOSS_TERMS:
@@ -267,7 +211,7 @@ def test_gradients_match(run):
         if path[:2] == ("rew", "out"):
             assert not np.any(theirs[..., config.bins :]), name
             theirs = theirs[..., : config.bins]
-        ours = np.asarray(_get(grads, path), np.float64)
+        ours = np.asarray(get_path(grads, path), np.float64)
         scale = np.max(np.abs(theirs))
         errors[name] = float(np.max(np.abs(ours - theirs)) / (scale if scale else 1.0))
     worst = max(errors, key=errors.__getitem__)

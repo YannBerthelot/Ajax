@@ -235,7 +235,10 @@ def evaluate_and_log(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
+    expert_return: Optional[jax.Array] = None,
 ):
+    """``expert_return``: the expert's evaluation return when already known
+    (:func:`ajax.evaluate.evaluate_expert`), else evaluated each time."""
     timestep = agent_state.collector_state.timestep
 
     log_flag = (
@@ -288,6 +291,7 @@ def evaluate_and_log(
             pid_gain_policy=pid_gain_policy,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
+            expert_return=expert_return,
         )
         metrics_to_log = {
             "timestep": timestep,

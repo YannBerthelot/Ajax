@@ -285,10 +285,16 @@ def update_agent(
 ) -> Tuple[REDQState, AuxiliaryLogs]:
     """One update: ``num_critic_updates`` critic and target steps, each on a
     fresh replay batch, then one actor step and one temperature step on the
-    last batch (Chen et al., 2021, Algorithm 1)."""
+    last batch (Chen et al., 2021, Algorithm 1).
+
+    The actor step reads the critics from before the last critic step, as
+    REDQ's official code, which computes the actor loss
+    (watchernyu/REDQ@7b5d1bf, ``redq/algos/redq_sac.py:220``) before the
+    critics' optimizers step (``:242``); Algorithm 1 reads them after."""
 
     def critic_update_step(agent_state: REDQState, _: Any) -> Tuple[REDQState, Any]:
         sample_key, rng = jax.random.split(agent_state.rng)
+        critics_before = agent_state.critic_state.params
         batch, carries = sample_replay(
             agent_state,
             buffer,
@@ -306,20 +312,23 @@ def update_agent(
             carries,
         )
         agent_state = core.update_target_networks(agent_state, agent_config.tau)
-        return agent_state, (aux_value, batch, carries)
+        return agent_state, (aux_value, batch, carries, critics_before)
 
-    # Carry-only scan: only the last critic step's metrics and batch are kept.
-    agent_state, (aux_value, batch, carries) = final_aux_scan(
+    # Carry-only scan: only the last critic step's metrics, batch and
+    # critics before it are kept.
+    agent_state, (aux_value, batch, carries, critics_before) = final_aux_scan(
         critic_update_step, agent_state, length=agent_config.num_critic_updates
     )
+    critic_state = agent_state.critic_state
     agent_state, aux_policy, log_probs = update_policy(
-        agent_state,
+        agent_state.replace(critic_state=critic_state.replace(params=critics_before)),
         batch.obs,
         batch.raw_obs,
         extension_stack,
         total_timesteps,
         carries,
     )
+    agent_state = agent_state.replace(critic_state=critic_state)
     agent_state, aux_temperature = core.update_temperature(
         agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
     )

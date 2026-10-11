@@ -67,8 +67,11 @@ jobs:
           esac
           uv run coverage run -m pytest $paths -m "not slow" \
             --ignore=tests/probing --durations=30
+      # The cache only saves time: a failed save must not fail the job (in
+      # the test shards it would also skip the coverage upload).
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
+        continue-on-error: true
         uses: ./.github/actions/compile-cache-save
         with:
           key: ${{ steps.jax-cache.outputs.key }}
@@ -111,6 +114,7 @@ jobs:
       - run: uv run pytest -m slow --ignore=tests/probing --durations=30
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
+        continue-on-error: true
         uses: ./.github/actions/compile-cache-save
         with:
           key: ${{ steps.jax-cache.outputs.key }}
@@ -155,6 +159,7 @@ jobs:
           esac
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
+        continue-on-error: true
         uses: ./.github/actions/compile-cache-save
         with:
           key: ${{ steps.jax-cache.outputs.key }}

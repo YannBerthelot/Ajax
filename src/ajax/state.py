@@ -324,10 +324,3 @@ class OptimizerConfig:
 class AlphaConfig:
     alpha_init: float
     learning_rate: float
-
-
-@struct.dataclass
-class BufferConfig:
-    buffer_size: int
-    batch_size: int
-    n_envs: int

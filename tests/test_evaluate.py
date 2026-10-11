@@ -6,14 +6,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from brax.envs import create as create_brax_env
-from flax.serialization import to_state_dict
 
 from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.buffers.utils import get_buffer
 from ajax.evaluate import evaluate
 from ajax.state import (
     AlphaConfig,
-    BufferConfig,
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
@@ -28,11 +26,7 @@ def _sac_state(env_config: EnvironmentConfig):
         critic_architecture=["64", "relu", "64"],
         squash=True,
     )
-    buffer = get_buffer(
-        **to_state_dict(
-            BufferConfig(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
-        )
-    )
+    buffer = get_buffer(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
     return init_SAC(
         key=jax.random.PRNGKey(0),
         env_args=env_config,

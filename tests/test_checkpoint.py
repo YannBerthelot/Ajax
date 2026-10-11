@@ -221,3 +221,46 @@ def test_sac_short_train_then_resume_preserves_return(tmp_path):
     for rl, sl in zip(ref_leaves, res_leaves, strict=False):
         assert not np.any(np.isnan(np.asarray(sl))), "NaN in resumed params"
         assert np.asarray(sl).shape == np.asarray(rl).shape
+
+
+def _without(state_dict, field):
+    """The checkpoint as saved before ``field`` existed: every empty (None)
+    entry of that name dropped, the rollouts' Transition's included."""
+    if not isinstance(state_dict, dict):
+        return state_dict
+    return {
+        k: _without(v, field)
+        for k, v in state_dict.items()
+        if not (k == field and v is None)
+    }
+
+
+@pytest.mark.parametrize("agent_name", ["SAC", "PPO"])
+def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_name):
+    """Transition gained raw_next_obs, empty in every rollout the collector
+    and the last-rollout placeholder hold: a checkpoint written before it
+    restores, the new field empty."""
+    import pickle
+
+    from ajax.agents.PPO.PPO import PPO
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
+    if agent_name == "SAC":
+        kw |= {"learning_starts": 100, "batch_size": 4, "buffer_size": 40}
+        agent = SAC(env_id="Pendulum-v1", **kw)
+    else:
+        kw |= {"n_steps": 8, "batch_size": 8, "expose_recent_rollout": True}
+        agent = PPO(env_id="Pendulum-v1", **kw)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    old = _without(saved, "raw_next_obs")
+    assert old != saved  # the field was there to drop
+    with open(path, "wb") as fh:
+        pickle.dump(old, fh)
+    restored = restore_into(state, path)
+    assert restored.collector_state.rollout.raw_next_obs is None

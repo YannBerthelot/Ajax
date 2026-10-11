@@ -64,6 +64,9 @@ def restore_into(skeleton: Any, path: str) -> Any:
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
+    state_dict = _with_new_empty_fields(
+        serialization.to_state_dict(skeleton), state_dict
+    )
     restored = serialization.from_state_dict(skeleton, state_dict)
     # Push data back onto device
     return jax.tree.map(
@@ -103,6 +106,27 @@ def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
     saved = saved.replace(experience={**saved.experience, **rebuilt})
     collector = {**state_dict["collector_state"], "buffer_state": saved}
     return {**state_dict, "collector_state": collector}
+
+
+def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
+    """Give a checkpoint saved before a field was added the fields its
+    skeleton holds empty (None), at any depth: ``Transition.raw_next_obs``
+    in every rollout the collector and the last-rollout placeholder hold.
+    An empty field has no data to restore; a field with data stays
+    required, so a mismatched checkpoint still fails.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
+    ``_with_replay_next_obs``.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return saved
+    out = dict(saved)
+    for key, value in skeleton.items():
+        if key in out:
+            out[key] = _with_new_empty_fields(value, out[key])
+        elif value is None:
+            out[key] = None
+    return out
 
 
 def checkpoint_exists(path: str) -> bool:

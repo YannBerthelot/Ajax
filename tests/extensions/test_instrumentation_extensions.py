@@ -1,11 +1,10 @@
 """Smoke + key-set tests for ``ajax.extensions.instrumentation``.
 
-End-to-end checks that each of the four EVarEst measurement /
+End-to-end checks that each of the three EVarEst measurement /
 instrumentation extensions:
 
 * :class:`ConditioningMetrics`
 * :class:`BiasVoreDecomposition`
-* :class:`DiagnosticSnapshots`  — host-side I/O via ``io_callback``
 * :class:`BiasVorePenalty`      — additive critic-loss penalty
 
 wires into the Extension surface on PPO (on-policy, through
@@ -18,7 +17,6 @@ critic lookup is checked in tests/agents/test_agent_contract.py.
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 
 import jax
@@ -32,7 +30,6 @@ from ajax.extensions.instrumentation import (
     BiasVoreDecomposition,
     BiasVorePenalty,
     ConditioningMetrics,
-    DiagnosticSnapshots,
     _sample_transitions,
     evarest_coeff,
 )
@@ -156,24 +153,6 @@ def test_conditioning_and_decomposition_compose_on_ppo():
     _, metrics = out
     for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
         assert key in metrics, f"missing {key!r}; got {list(metrics)}"
-
-
-def test_diagnostic_snapshots_writes_files(tmp_path):
-    """DiagnosticSnapshots writes a chunk file every ``every_n_iters``."""
-    ext = DiagnosticSnapshots(
-        directory=str(tmp_path),
-        every_n_iters=1,
-        n_sub=8,
-        sample_batch=4,
-    )
-    _train_ppo_with_extensions([ext])
-    # post_update is gated on (counter % every_n_iters == 0), so every
-    # iteration writes a file. n_timesteps=128 / (n_envs=2 * n_steps=32)
-    # plus 1 from the num_updates+1 formula ⇒ >= 1 snapshot expected.
-    files = [f for f in os.listdir(tmp_path) if f.startswith("snapshot_")]
-    assert (
-        len(files) >= 1
-    ), f"DiagnosticSnapshots wrote no files to {tmp_path}; got: {files}"
 
 
 def test_bias_vore_penalty_alpha_nonhalf_runs():

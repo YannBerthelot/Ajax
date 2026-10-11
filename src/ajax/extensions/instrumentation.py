@@ -19,9 +19,6 @@ Coverage
   bias^2 / Var(residual) / MSE / |bias| decomposition of the critic
   objective. Mirrors the math in EVAREST's ``loss.py`` /
   ``mechanism.py``.
-* :class:`DiagnosticSnapshots`     — post_update phase, periodic
-  agent-state snapshot for offline post-mortem analysis (the chunked-
-  training protocol from EVAREST's ``snapshots.py``).
 * :class:`BiasVorePenalty`         — critic_loss phase, the EVarEst
   critic objective itself. ``penalty(alpha) = ((1-2alpha)/alpha) *
   Var(q_preds - target_q)`` added on top of the agent's vanilla MSE.
@@ -36,14 +33,11 @@ The math is intentionally kept identical to the EVAREST sources.
 from __future__ import annotations
 
 import math
-import os
-import pickle
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import action_value_input, predict_value
@@ -136,9 +130,7 @@ def _sample_transitions(
     contract is broken.
     """
     if _has_buffer(agent_state) and buffer is not None:
-        # Lazy import to keep the rest of the module buffer-agnostic
-        # (DiagnosticSnapshots doesn't need flashbax at import
-        # time so a missing optional dep doesn't break their import).
+        # Lazy import: the rest of the module does not need flashbax.
         from ajax.buffers.utils import get_batch_from_buffer
 
         obs, terminated, _, next_obs, reward, act = get_batch_from_buffer(
@@ -454,121 +446,6 @@ class BiasVoreDecomposition(Extension):
 
 
 # ---------------------------------------------------------------------------
-# Diagnostic snapshots (post_update side-effect)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DiagnosticSnapshots(Extension):
-    """Periodic agent-state snapshot for offline post-mortem analysis.
-
-    Ports :mod:`evarest.rl.snapshots` to the post_update phase. At every
-    ``every_n_iters``-th call the extension pickles a chunk containing:
-    * a uniform random subsample of the replay buffer (off-policy) OR
-      the current ``last_rollout`` (on-policy),
-    * the current actor parameters.
-    Files are written under ``directory`` with names
-    ``snapshot_<chunk_idx>.pkl``; ``chunk_idx`` is the per-instance
-    counter stored in ``ext_state``. Snapshots are taken via
-    ``jax.experimental.io_callback`` so the host-side pickle never
-    blocks the JIT'd train loop.
-    """
-
-    directory: str = "./snapshots"
-    every_n_iters: int = 100
-    n_sub: int = 4096
-    buffer: Any = None
-    # Subsample-batch size for buffer sampling; matches EVAREST's
-    # snapshots._SAMPLE_BATCH default.
-    sample_batch: int = 256
-    name: str = "diagnostic_snapshots"
-
-    def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
-        del agent_state, rng
-        os.makedirs(self.directory, exist_ok=True)
-        return jnp.asarray(0, dtype=jnp.int32)
-
-    def _take_transitions(self, agent_state: Any, rng: jax.Array) -> dict:
-        if _has_buffer(agent_state) and self.buffer is not None:
-            from ajax.buffers.utils import get_batch_from_buffer
-
-            n_iter = (self.n_sub + self.sample_batch - 1) // self.sample_batch
-
-            def one(_, k):
-                b = get_batch_from_buffer(
-                    self.buffer, agent_state.collector_state.buffer_state, k
-                )
-                return None, (b[0], b[5], b[4], b[3], b[1])
-
-            _, parts = jax.lax.scan(one, None, jax.random.split(rng, n_iter))
-            obs, act, rew, next_obs, term = jax.tree.map(
-                lambda x: x.reshape((-1,) + x.shape[2:])[: self.n_sub], parts
-            )
-            return {
-                "obs": obs,
-                "act": act,
-                "rew": rew,
-                "next_obs": next_obs,
-                "terminated": term,
-            }
-        if _has_last_rollout(agent_state):
-            sub = agent_state.last_rollout
-            return {
-                "obs": sub.obs,
-                "act": sub.action,
-                "rew": sub.reward,
-                "next_obs": sub.next_obs,
-                "terminated": sub.terminated,
-                "truncated": sub.truncated,
-            }
-        return {}
-
-    def _host_save(
-        self,
-        chunk_idx: jax.Array,
-        should_save: jax.Array,
-        transitions: dict,
-        params: Any,
-    ) -> None:
-        # Host-side gate: ``should_save`` is a 0-D bool array. We only
-        # touch disk when True. Doing the gate host-side keeps the
-        # io_callback unconditional, which avoids JAX's
-        # "IO effect not supported in vmap-of-cond" limitation when
-        # this extension runs under ``jax.vmap`` over seeds.
-        if not bool(np.asarray(should_save)):
-            return
-        path = os.path.join(self.directory, f"snapshot_{int(chunk_idx)}.pkl")
-        payload = {
-            "chunk_idx": int(chunk_idx),
-            "transitions": jax.tree.map(lambda x: np.asarray(x), transitions),
-            "actor_params": jax.tree.map(lambda x: np.asarray(x), params),
-        }
-        with open(path, "wb") as f:
-            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def post_update(
-        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
-    ) -> Tuple[Any, Any]:
-        # Snapshot every Nth iteration; ``ext_state`` is the per-instance
-        # call counter so the cadence is robust to compile cache reuse.
-        new_state = ext_state + 1
-        should_save = (new_state % self.every_n_iters) == 0
-
-        transitions = self._take_transitions(agent_state, ctx.rng)
-        # Unconditional io_callback — host-side ``_host_save`` is the
-        # gate, see its docstring.
-        jax.experimental.io_callback(
-            self._host_save,
-            None,
-            new_state,
-            should_save,
-            transitions,
-            agent_state.actor_state.params,
-        )
-        return agent_state, new_state
-
-
-# ---------------------------------------------------------------------------
 # EVarEst critic objective (additive penalty on the critic loss)
 # ---------------------------------------------------------------------------
 
@@ -680,7 +557,6 @@ class BiasVorePenalty(Extension):
 __all__ = [
     "ConditioningMetrics",
     "BiasVoreDecomposition",
-    "DiagnosticSnapshots",
     "BiasVorePenalty",
     "COND_METRIC_KEYS",
     "EVAREST_DECOMP_KEYS",

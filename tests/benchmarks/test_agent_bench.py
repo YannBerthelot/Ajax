@@ -58,3 +58,12 @@ def test_every_preset_updates_within_the_run(name):
     agent = agent_bench._build(name, env_id, kwargs, agent_bench.N_ENVS)
     n_updates = updates_in_run(agent, agent_bench.N_ENVS, agent_bench.TIMESTEPS)
     assert n_updates > 0, f"{name} would time collection only"
+
+
+def test_capturing_without_out_is_refused(capsys):
+    """A capture defaulting to the baseline file overwrote it with the rows
+    of the agents named by --only."""
+    with pytest.raises(SystemExit) as exit_info:
+        agent_bench.main(["--only", "SAC"])
+    assert exit_info.value.code == 2
+    assert "--out is required" in capsys.readouterr().err

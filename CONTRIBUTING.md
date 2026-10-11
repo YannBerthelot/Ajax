@@ -370,7 +370,7 @@ never as a looser tolerance. The directory is capped at 7,000 lines.
 CLAUDE.md ("Performance no-regression guardrail") sets the rule; here is the
 check. `benchmarks/agent_bench.py` times a fixed run per agent; `--compare`
 fails when one is slower than `--tol` (10% by default) against a baseline.
-Always pass `--out`: it defaults to the baseline file.
+Capturing requires `--out`, so a quick check never overwrites the baseline.
 
 ```bash
 export JAX_PLATFORMS=cpu

@@ -331,15 +331,12 @@ def compare(baseline_path: str, new_path: str, tol: float) -> int:
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="baseline")
-    ap.add_argument(
-        "--out",
-        default=os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "agent_baseline.jsonl"
-        ),
-    )
+    # No default: one defaulting to the baseline file let a quick
+    # `--only SAC` check replace the whole baseline with SAC's rows.
+    ap.add_argument("--out", help="result file to write (required to capture)")
     ap.add_argument("--n-envs", type=int, default=N_ENVS)
     ap.add_argument("--warmup", type=int, default=400)
     ap.add_argument("--timesteps", type=int, default=TIMESTEPS)
@@ -360,10 +357,12 @@ def main() -> None:
         default=0.10,
         help="regression tolerance for --compare (default 10%%)",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.compare:
         raise SystemExit(compare(args.compare[0], args.compare[1], args.tol))
+    if args.out is None:
+        ap.error("--out is required when capturing")
     capture(
         args.tag,
         args.out,

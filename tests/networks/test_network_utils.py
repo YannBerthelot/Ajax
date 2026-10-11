@@ -1,11 +1,9 @@
-import inspect
-
 import jax
 import jax.numpy as jnp
 import numpy as np
-import optax
 import pytest
-from flax.linen.initializers import constant, orthogonal, variance_scaling
+from flax.linen.initializers import orthogonal, variance_scaling
+from flax.serialization import to_state_dict
 
 from ajax.networks.utils import (
     get_adam_tx,
@@ -15,18 +13,43 @@ from ajax.networks.utils import (
     parse_initialization,
     trunc_normal_fan_in,
 )
+from ajax.state import OptimizerConfig
 
 
-def test_get_adam_tx_without_clipping():
-    """Test get_adam_tx without gradient clipping."""
-    tx = get_adam_tx(learning_rate=0.001, clipped=False)
-    assert isinstance(tx, optax.GradientTransformationExtraArgs)
+def _one_step(tx, params, grads):
+    state = tx.init(params)
+    updates, _ = tx.update(grads, state, params)
+    return jax.tree.map(lambda p, u: p + u, params, updates)
 
 
-def test_get_adam_tx_with_clipping():
-    """Test get_adam_tx with gradient clipping."""
-    tx = get_adam_tx(learning_rate=0.001, max_grad_norm=0.5, clipped=True)
-    assert isinstance(tx, optax.GradientTransformationExtraArgs)
+def test_zero_weight_decay_is_plain_adam():
+    params = {"w": jnp.ones(3)}
+    grads = {"w": jnp.zeros(3)}
+    new = _one_step(get_adam_tx(1e-2), params, grads)
+    assert jnp.allclose(new["w"], 1.0)  # zero grad, no decay -> unchanged
+
+
+def test_positive_weight_decay_shrinks_params_with_zero_grad():
+    params = {"w": jnp.ones(3)}
+    grads = {"w": jnp.zeros(3)}
+    new = _one_step(get_adam_tx(1e-2, weight_decay=0.1), params, grads)
+    assert jnp.allclose(new["w"], 1.0 - 1e-2 * 0.1)
+
+
+def test_weight_decay_composes_with_clipping_and_rejects_negative():
+    tx = get_adam_tx(1e-2, max_grad_norm=0.5, clipped=True, weight_decay=0.1)
+    params = {"w": jnp.ones(3)}
+    new = _one_step(tx, params, {"w": jnp.full(3, 100.0)})
+    assert jnp.all(new["w"] < 1.0) and jnp.all(jnp.isfinite(new["w"]))
+    with pytest.raises(ValueError, match="non-negative"):
+        get_adam_tx(1e-2, weight_decay=-1.0)
+
+
+def test_optimizer_config_round_trips_into_get_adam_tx():
+    cfg = OptimizerConfig(learning_rate=1e-3, weight_decay=0.05)
+    tx = get_adam_tx(**to_state_dict(cfg))
+    new = _one_step(tx, {"w": jnp.ones(2)}, {"w": jnp.zeros(2)})
+    assert jnp.allclose(new["w"], 1.0 - 1e-3 * 0.05)
 
 
 def test_get_adam_tx_clipping_without_norm():
@@ -83,24 +106,18 @@ def test_parse_function_string_invalid(input_str):
 
 
 def test_parse_initialization_constant_with_value():
-    # Parse the string and get back the init function
-    init_fn = parse_initialization("constant(2.5)")
-
-    # The flax constant initializer is actually a closure capturing 'val'
-    # Use inspect.getclosurevars to grab that captured value
-    closure_vars = inspect.getclosurevars(init_fn)
-    # Check that:
-    # 1) the function name matches flax's inner function name
-    assert init_fn.__name__ == constant(2.5).__name__
-
-    # 2) the captured 'val' in the closure is 2.5
-    assert closure_vars.nonlocals.get("value") == pytest.approx(2.5)
+    out = parse_initialization("constant(2.5)")(
+        jax.random.PRNGKey(0), (3, 4), jnp.float32
+    )
+    np.testing.assert_array_equal(out, 2.5)
 
 
 def test_parse_initialization_orthogonal():
-    # Parse the string and get back the init function
-    init_fn = parse_initialization("orthogonal")
-    assert init_fn.__name__ == orthogonal().__name__
+    """Orthonormal columns: ``W^T W = I``, as flax's ``orthogonal()``."""
+    key, shape = jax.random.PRNGKey(0), (8, 4)
+    w = parse_initialization("orthogonal")(key, shape, jnp.float32)
+    np.testing.assert_allclose(w.T @ w, np.eye(4), atol=1e-5)
+    np.testing.assert_array_equal(w, orthogonal()(key, shape, jnp.float32))
 
 
 def test_parse_initialization_constant_without_value():

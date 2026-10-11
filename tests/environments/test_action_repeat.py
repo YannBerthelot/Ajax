@@ -23,21 +23,6 @@ from ajax.environments.utils import (
 )
 from ajax.evaluate import setup_environment
 
-
-def _playground_available():
-    try:
-        import mujoco_playground  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-requires_playground = pytest.mark.skipif(
-    not _playground_available(), reason="mujoco_playground not installed"
-)
-
-
 # ---------------------------------------------------------------------------
 # Construction rules
 # ---------------------------------------------------------------------------
@@ -168,7 +153,6 @@ def test_agent_episode_length_brax_counts_agent_steps():
         agent_episode_length(env, None, 2)
 
 
-@requires_playground
 def test_agent_episode_length_playground_dmc_protocol():
     """The paper DMC protocol: 1000 simulator steps at repeat 2 -> T = 500."""
     env, _ = build_env_from_id("CartpoleBalance", episode_length=1000, action_repeat=2)
@@ -239,7 +223,6 @@ def test_brax_action_repeat_and_eval_rebuild():
     assert legacy.action_repeat == 1 and legacy.episode_length == 1000
 
 
-@requires_playground
 def test_playground_action_repeat_and_eval_rebuild():
     check_repeat_and_rebuild("CartpoleBalance", 3, 10, jnp.full((3, 1), 0.3))
     env, _ = build_env_from_id("CartpoleBalance", episode_length=10, action_repeat=2)

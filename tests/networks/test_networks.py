@@ -26,259 +26,113 @@ def sample_input():
     return jnp.ones((4, 8))  # Example input with batch size 4 and feature size 8
 
 
-@pytest.fixture
-def encoder_architecture():
-    return ["16", "relu", "8"]
+#: The actor's and the critics' hidden layers.
+ARCH = ["16", "relu"]
 
 
-def test_encoder(sample_input, encoder_architecture):
-    encoder = Encoder(input_architecture=encoder_architecture)
+def test_encoder(sample_input):
+    encoder = Encoder(input_architecture=["16", "relu", "8"])
     params = encoder.init(jax.random.PRNGKey(0), sample_input)
     output = encoder.apply(params, sample_input)
-    assert output.shape == (4, 8)  # Ensure output shape matches expected dimensions
+    assert output.shape == (4, 8)
 
 
-@pytest.fixture
-def actor_architecture():
-    return ["16", "relu"]
-
-
-def test_actor_continuous(sample_input, actor_architecture):
-    actor = Actor(
-        action_dim=4,
-        input_architecture=actor_architecture,
-        continuous=True,
-    )
+def test_actor_continuous(sample_input):
+    actor = Actor(action_dim=4, input_architecture=ARCH, continuous=True)
     params = actor.init(jax.random.PRNGKey(0), sample_input)
     distribution = actor.apply(params, sample_input)
-    assert distribution.mean().shape == (4, 4)  # Ensure mean shape matches action_dim
-    assert distribution.stddev().shape == (
-        4,
-        4,
-    )  # Ensure stddev shape matches action_dim
+    assert distribution.mean().shape == (4, 4)
+    assert distribution.stddev().shape == (4, 4)
 
 
-def test_actor_discrete(sample_input, actor_architecture):
-    actor = Actor(
-        action_dim=4,
-        input_architecture=actor_architecture,
-        continuous=False,
-    )
+def test_actor_discrete(sample_input):
+    actor = Actor(action_dim=4, input_architecture=ARCH, continuous=False)
     params = actor.init(jax.random.PRNGKey(0), sample_input)
     distribution = actor.apply(params, sample_input)
-    assert distribution.logits.shape == (4, 4)  # Ensure logits shape matches action_dim
+    assert distribution.logits.shape == (4, 4)
 
 
-@pytest.fixture
-def critic_architecture():
-    return ["16", "relu"]
+def test_critic(sample_input):
+    critic = Critic(input_architecture=ARCH)
+    x = jnp.hstack([sample_input, jnp.ones((4, 2))])  # an action of size 2
+    params = critic.init(jax.random.PRNGKey(0), x)
+    assert critic.apply(params, x).shape == (4, 1)
 
 
-def test_critic(sample_input, critic_architecture):
-    critic = Critic(
-        input_architecture=critic_architecture,
-    )
-    action_input = jnp.ones(
-        (4, 2)
-    )  # Example action input with batch size 4 and action size 2
-    params = critic.init(
-        jax.random.PRNGKey(0), jnp.hstack([sample_input, action_input])
-    )
-    output = critic.apply(params, jnp.hstack([sample_input, action_input]))
-    assert output.shape == (4, 1)  # Ensure output shape matches expected dimensions
-
-
-@pytest.fixture
-def multi_critic_architecture():
-    return ["16", "relu"]
-
-
-@pytest.mark.parametrize("num_critics", [1, 3])  # Test with num=1 and num=3
-def test_multi_critic(sample_input, multi_critic_architecture, num_critics):
-    multi_critic = MultiCritic(
-        input_architecture=multi_critic_architecture,
-        num=num_critics,
-    )
-    action_input = jnp.ones(
-        (4, 2)
-    )  # Example action input with batch size 4 and action size 2
-    params = multi_critic.init(
-        jax.random.PRNGKey(0), jnp.hstack([sample_input, action_input])
-    )
-    output = multi_critic.apply(params, jnp.hstack([sample_input, action_input]))
-    assert output.shape == (
-        num_critics,
-        4,
-        1,
-    )  # Ensure output shape matches (num, batch_size, 1)
+@pytest.mark.parametrize("num_critics", [1, 3])
+def test_multi_critic(sample_input, num_critics):
+    multi_critic = MultiCritic(input_architecture=ARCH, num=num_critics)
+    x = jnp.hstack([sample_input, jnp.ones((4, 2))])  # an action of size 2
+    params = multi_critic.init(jax.random.PRNGKey(0), x)
+    assert multi_critic.apply(params, x).shape == (num_critics, 4, 1)
 
 
 @pytest.fixture
 def real_env_config():
-    env_name = "CartPole-v1"
-    env, env_params = build_env_from_id(env_name)
-    return EnvironmentConfig(
-        env=env,
-        env_params=env_params,
-        n_envs=1,
-        continuous=True,
-    )
+    env, env_params = build_env_from_id("CartPole-v1")
+    return EnvironmentConfig(env=env, env_params=env_params, n_envs=1, continuous=False)
 
 
 @pytest.fixture
 def fast_env_config():
     env = create_brax_env("fast", batch_size=1)
-    return EnvironmentConfig(
-        env=env,
-        env_params=None,
-        n_envs=1,
-        continuous=True,
-    )
+    return EnvironmentConfig(env=env, env_params=None, n_envs=1, continuous=True)
 
 
-def test_get_initialized_actor_critic(
-    real_env_config, actor_architecture, critic_architecture
-):
-    key = jax.random.PRNGKey(0)
-    optimizer_config = OptimizerConfig(
-        **{"learning_rate": 0.001}
-    )  # Example optimizer config
-    network_config = NetworkConfig(
-        **{
-            "actor_architecture": actor_architecture,
-            "critic_architecture": critic_architecture,
-        }
-    )
-    num_critics = 2
+def _init_ac(env_config, continuous, action_value, key=0):
+    """Two critics and an actor of :data:`ARCH` on ``env_config``, and its
+    observation and action shapes."""
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
     actor_state, critic_state = get_initialized_actor_critic(
-        key=key,
-        env_config=real_env_config,
+        key=jax.random.PRNGKey(key),
+        env_config=env_config,
         actor_optimizer_config=optimizer_config,
         critic_optimizer_config=optimizer_config,
-        network_config=network_config,
-        continuous=False,
-        action_value=True,
-        num_critics=num_critics,
+        network_config=NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH),
+        continuous=continuous,
+        action_value=action_value,
+        num_critics=2,
     )
-
-    # Ensure actor and critic states are correctly initialized
     assert isinstance(actor_state, LoadedTrainState)
     assert isinstance(critic_state, LoadedTrainState)
+    return actor_state, critic_state, get_state_action_shapes(env_config.env)
 
-    observation_shape, action_shape = get_state_action_shapes(real_env_config.env)
-    init_obs = jnp.zeros((real_env_config.n_envs, *observation_shape))
-    init_action = jnp.zeros((real_env_config.n_envs, *action_shape))
 
-    # Validate actor state
-    actor_output = actor_state.apply_fn(actor_state.params, init_obs)
-
-    assert actor_output.mode().shape == (
-        real_env_config.n_envs,
-    )  # Ensure mean shape matches action_dim
-
-    # Validate critic state
+def test_get_initialized_actor_critic(real_env_config):
+    """A discrete actor and two Q critics on CartPole: the shapes of their
+    outputs, and ``predict_value`` of the two critics (on non-zero inputs:
+    zero-initialised biases make them agree on zero ones), finite and
+    distinct."""
+    actor_state, critic_state, (obs_shape, action_shape) = _init_ac(
+        real_env_config, continuous=False, action_value=True
+    )
+    n = real_env_config.n_envs
+    init_obs = jnp.zeros((n, *obs_shape))
+    init_action = jnp.zeros((n, *action_shape))
+    assert actor_state.apply_fn(actor_state.params, init_obs).mode().shape == (n,)
     critic_output = critic_state.apply_fn(
         critic_state.params, jnp.hstack([init_obs, init_action])
     )
-    assert critic_output.shape == (
-        num_critics,
-        real_env_config.n_envs,
-        1,
-    )  # Ensure output shape matches (num, batch_size, 1)
+    assert critic_output.shape == (2, n, 1)
+
+    ones = jnp.hstack([jnp.ones((n, *obs_shape)), jnp.ones((n, *action_shape))])
+    predicted = predict_value(critic_state, critic_state.params, ones)
+    assert predicted.shape == (2, n, 1), "Shape mismatch in predicted value."
+    assert jnp.all(jnp.isfinite(predicted)), "Predicted value is not finite."
+    assert not jnp.allclose(predicted[0], predicted[1]), "The critics are identical."
 
 
-def test_get_initialized_actor_critic_continuous(
-    fast_env_config, actor_architecture, critic_architecture
-):
-    key = jax.random.PRNGKey(1)
-    optimizer_config = OptimizerConfig(
-        **{"learning_rate": 0.001}
-    )  # Example optimizer config
-    network_config = NetworkConfig(
-        **{
-            "actor_architecture": actor_architecture,
-            "critic_architecture": critic_architecture,
-        }
+def test_get_initialized_actor_critic_continuous(fast_env_config):
+    actor_state, critic_state, (obs_shape, action_shape) = _init_ac(
+        fast_env_config, continuous=True, action_value=False, key=1
     )
-    num_critics = 2
-    actor_state, critic_state = get_initialized_actor_critic(
-        key=key,
-        env_config=fast_env_config,
-        actor_optimizer_config=optimizer_config,
-        critic_optimizer_config=optimizer_config,
-        network_config=network_config,
-        continuous=True,
-        action_value=False,
-        num_critics=num_critics,
-    )
-
-    # Ensure actor and critic states are correctly initialized
-    assert isinstance(actor_state, LoadedTrainState)
-    assert isinstance(critic_state, LoadedTrainState)
-
-    observation_shape, action_shape = get_state_action_shapes(fast_env_config.env)
-    init_obs = jnp.zeros((fast_env_config.n_envs, *observation_shape))
-
-    # Validate actor state
+    n = fast_env_config.n_envs
+    init_obs = jnp.zeros((n, *obs_shape))
     actor_output = actor_state.apply_fn(actor_state.params, init_obs)
-
-    assert actor_output.mean().shape == (
-        fast_env_config.n_envs,
-        *action_shape,
-    )  # Ensure mean shape matches action_dim
-    assert actor_output.stddev().shape == (
-        fast_env_config.n_envs,
-        *action_shape,
-    )  # Ensure stddev shape matches action_dim
-
-    # Validate critic state
+    assert actor_output.mean().shape == (n, *action_shape)
+    assert actor_output.stddev().shape == (n, *action_shape)
     critic_output = critic_state.apply_fn(critic_state.params, init_obs)
-
-    assert critic_output.shape == (
-        num_critics,
-        fast_env_config.n_envs,
-        1,
-    )  # Ensure output shape matches (num, batch_size, 1)
-
-
-def test_predict_value(real_env_config, actor_architecture, critic_architecture):
-    key = jax.random.PRNGKey(0)
-    optimizer_config = OptimizerConfig(learning_rate=0.001)
-    network_config = NetworkConfig(
-        actor_architecture=actor_architecture,
-        critic_architecture=critic_architecture,
-    )
-    num_critics = 2
-    actor_state, critic_state = get_initialized_actor_critic(
-        key=key,
-        env_config=real_env_config,
-        actor_optimizer_config=optimizer_config,
-        critic_optimizer_config=optimizer_config,
-        network_config=network_config,
-        continuous=False,
-        action_value=True,
-        num_critics=num_critics,
-    )
-
-    observation_shape, action_shape = get_state_action_shapes(real_env_config.env)
-    init_obs = jnp.ones((real_env_config.n_envs, *observation_shape))
-    init_action = jnp.ones((real_env_config.n_envs, *action_shape))
-    input_data = jnp.hstack([init_obs, init_action])
-
-    # Predict value using the critic
-    predicted_value = predict_value(critic_state, critic_state.params, input_data)
-
-    assert predicted_value.shape == (
-        num_critics,
-        real_env_config.n_envs,
-        1,
-    ), "Shape mismatch in predicted value."
-    assert jnp.all(
-        jnp.isfinite(predicted_value)
-    ), "Predicted value contains invalid values."
-    assert not jnp.allclose(
-        predicted_value[0], predicted_value[1]
-    ), "Predicted values for both critics are identical."
+    assert critic_output.shape == (2, n, 1)
 
 
 def test_encoder_penultimate_normalization():

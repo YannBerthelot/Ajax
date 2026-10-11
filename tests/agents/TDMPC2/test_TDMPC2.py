@@ -277,7 +277,6 @@ def test_every_hyperparameter_reaches_the_config():
 
 
 def test_playground_defaults_follow_the_paper_dmc_protocol():
-    pytest.importorskip("mujoco_playground")
     agent = TDMPC2("CartpoleBalance", episode_length=1000, action_repeat=2)
     assert agent.agent_episode_length == 500
     assert agent.gamma == pytest.approx(0.99)
@@ -521,7 +520,6 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
 
 
 def test_playground_cartpole_trains_and_logs(monkeypatch):
-    pytest.importorskip("mujoco_playground")
     logged = []
 
     def capture(metrics, index, run_ids):

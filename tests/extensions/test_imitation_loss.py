@@ -155,6 +155,7 @@ def _apo_update(stack: ExtensionStack) -> Any:
         ent_coef=0.0,
         extension_stack=stack,
         total_timesteps=1,
+        extension_key=KEY,
         raw_observations=obs,
         entropy_key=KEY,  # a squashed policy's entropy is estimated by sampling
     )

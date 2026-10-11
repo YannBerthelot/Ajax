@@ -224,14 +224,13 @@ def policy_loss_function(
 def _stack_critic_loss(
     extension_stack: Optional[ExtensionStack],
     agent_state: PPOState,
+    key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The stack's additive critic-loss term as a ``value_loss_function``
-    ``extra_loss_fn``: ``(critic_params, critic_states, observations,
-    value_targets) -> scalar``; ``None`` for an empty stack.
-
-    ``agent_state`` (the iteration-time state, captured by closure) is
-    what the extensions read ``ext_state`` from.
+    """The stack's additive critic-loss term on ``key`` as a
+    ``value_loss_function`` ``extra_loss_fn``: ``(critic_params,
+    critic_states, observations, value_targets) -> scalar``; ``None`` for an
+    empty stack. The extensions read their state from ``agent_state``.
     """
     if not extension_stack:
         return None
@@ -247,7 +246,7 @@ def _stack_critic_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            key,
             total_timesteps,
         )
 
@@ -257,11 +256,12 @@ def _stack_critic_loss(
 def _stack_actor_loss(
     extension_stack: Optional[ExtensionStack],
     agent_state: PPOState,
+    key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The stack's additive actor-loss term as a ``policy_loss_function``
-    ``extra_loss_fn``: ``(actor_params, actor_state) -> scalar``; ``None``
-    for an empty stack."""
+    """The stack's additive actor-loss term on ``key`` as a
+    ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
+    actor_state) -> scalar``; ``None`` for an empty stack."""
     if not extension_stack:
         return None
 
@@ -274,7 +274,7 @@ def _stack_actor_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            key,
             total_timesteps,
         )
 
@@ -611,15 +611,19 @@ def update_agent(
             return _sequence_minibatches(batch, carries, key, k, length)
         return get_minibatches_from_batch(batch, key, k)
 
-    # The extensions' loss terms read the state the epochs start from.
-    critic_extra = _stack_critic_loss(extension_stack, agent_state, total_timesteps)
-    actor_extra = _stack_actor_loss(extension_stack, agent_state, total_timesteps)
-
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
         """A critic and an actor step, both from the state before either."""
-        ent_rng, on_target_rng, new_rng = jax.random.split(agent_state.rng, 3)
+        ent_rng, ext_rng, new_rng = jax.random.split(agent_state.rng, 3)
         agent_state = agent_state.replace(rng=new_rng)
         critic, actor = agent_state.critic_state, agent_state.actor_state
+        # The extensions' target and loss terms, each on a key of its own.
+        target_key, critic_key, actor_key = jax.random.split(ext_rng, 3)
+        critic_extra = _stack_critic_loss(
+            extension_stack, agent_state, critic_key, total_timesteps
+        )
+        actor_extra = _stack_actor_loss(
+            extension_stack, agent_state, actor_key, total_timesteps
+        )
 
         if geometry.kind == "time":
             # brax's compute_ppo_loss: GAE from the current critic, held
@@ -664,7 +668,7 @@ def update_agent(
                     target_batch,
                     value_targets,
                     agent_state.collector_state.timestep,
-                    on_target_rng,
+                    target_key,
                     total_timesteps,
                 )
         else:

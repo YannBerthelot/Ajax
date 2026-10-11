@@ -74,10 +74,17 @@ def update_agent(
         agent_config.gamma,
         agent_config.q_lambda,
     )
-    # The extensions reshape the target before it is held constant.
+    # The extensions reshape the target before it is held constant, then add
+    # their loss terms, each on a key of its own (drawn only with extensions):
+    # one per epoch and minibatch.
+    loss_keys = None
     if extension_stack:
-        _tgt_rng, _tgt_seed = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=_tgt_rng)
+        rng, ext_key = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng)
+        target_key, loss_key = jax.random.split(ext_key)
+        loss_keys = jax.random.split(
+            loss_key, (agent_config.n_epochs, agent_config.num_minibatches)
+        )
         _tgt_batch = {
             "observations": rollout.obs,
             "actions": rollout.action,
@@ -93,7 +100,7 @@ def update_agent(
             _tgt_batch,
             targets,
             agent_state.collector_state.timestep,
-            _tgt_seed,
+            target_key,
             total_timesteps,
         )
     targets = jax.lax.stop_gradient(targets)
@@ -103,20 +110,29 @@ def update_agent(
     agent_state = agent_state.replace(rng=rng)
     epoch_keys = jax.random.split(epoch_rng, agent_config.n_epochs)
 
-    def epoch_body(agent_state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:
+    def epoch_body(agent_state: PQNState, keys: tuple) -> Tuple[Any, Any]:
+        epoch_key, epoch_loss_keys = keys
         minibatches = get_minibatches_from_batch(
             batch, epoch_key, agent_config.num_minibatches
         )
 
-        def mb_body(agent_state: PQNState, minibatch: tuple) -> Tuple[Any, Any]:
+        def mb_body(agent_state: PQNState, xs: tuple) -> Tuple[Any, Any]:
+            minibatch, loss_key = xs
             q_state, value_aux = q_gradient_step(
-                agent_state, *minibatch, td_loss_fn, extension_stack, total_timesteps
+                agent_state,
+                *minibatch,
+                td_loss_fn,
+                extension_stack,
+                loss_key,
+                total_timesteps,
             )
             return agent_state.replace(actor_state=q_state), value_aux
 
-        return jax.lax.scan(mb_body, agent_state, minibatches)
+        return jax.lax.scan(mb_body, agent_state, (minibatches, epoch_loss_keys))
 
-    agent_state, value_aux = jax.lax.scan(epoch_body, agent_state, epoch_keys)
+    agent_state, value_aux = jax.lax.scan(
+        epoch_body, agent_state, (epoch_keys, loss_keys)
+    )
     # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
     value_aux = jax.tree.map(lambda x: x.mean().reshape((1,)), value_aux)
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)

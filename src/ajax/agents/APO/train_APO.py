@@ -91,11 +91,13 @@ def update_policy(
     ent_coef: float,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    extension_key: jax.Array,
     raw_observations: Optional[jax.Array] = None,
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
 ) -> Tuple[APOState, PolicyAuxiliaries]:
-    """The clipped-surrogate actor step on one minibatch."""
+    """The clipped-surrogate actor step on one minibatch, the extensions'
+    terms folded on ``extension_key``."""
     actor_state = agent_state.actor_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
@@ -122,7 +124,7 @@ def update_policy(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            extension_key,
             total_timesteps,
         )
         return loss + extra, aux
@@ -183,8 +185,10 @@ def update_value_functions(
     b: float,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    extension_key: jax.Array,
 ) -> Tuple[APOState, ValueAuxiliaries]:
-    """The critic step on one minibatch."""
+    """The critic step on one minibatch, the extensions' terms folded on
+    ``extension_key``."""
     critic_state = agent_state.critic_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
@@ -201,7 +205,7 @@ def update_value_functions(
             agent_state,
             loss_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            extension_key,
             total_timesteps,
         )
         return loss + extra, aux
@@ -302,14 +306,17 @@ def update_agent(
 
     def minibatches(key: jax.Array) -> dict:
         """One epoch's partition of the rollout, each minibatch with a key
-        for its entropy sample, derived from the epoch's key so the agent's
-        own key stream is drawn as before."""
+        for its entropy sample and one for the extensions' loss terms,
+        derived from the epoch's key so the agent's own key stream is drawn
+        as before."""
         parts = get_minibatches_from_batch(batch, key, num_minibatches)
         keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
-        return parts | {"entropy_key": keys}
+        ext_keys = jax.random.split(jax.random.fold_in(key, 2), num_minibatches)
+        return parts | {"entropy_key": keys, "extension_key": ext_keys}
 
     def step(agent_state: APOState, mb: dict) -> Tuple[APOState, AuxiliaryLogs]:
         """A critic, then an actor step on one minibatch."""
+        critic_key, actor_key = jax.random.split(mb["extension_key"])
         agent_state, aux_value = update_value_functions(
             agent_state,
             mb["obs"],
@@ -318,6 +325,7 @@ def update_agent(
             b,
             extension_stack,
             total_timesteps,
+            critic_key,
         )
         agent_state, aux_policy = update_policy(
             agent_state,
@@ -329,6 +337,7 @@ def update_agent(
             agent_config.ent_coef,
             extension_stack,
             total_timesteps,
+            actor_key,
             raw_observations=mb["raw_obs"],
             raw_actions=mb["raw_actions"],
             entropy_key=mb["entropy_key"],

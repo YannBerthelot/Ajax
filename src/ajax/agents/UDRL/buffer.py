@@ -25,7 +25,11 @@ class SegmentBuffer:
     actions: jnp.ndarray  # (B, T, n_envs, action_dim)
     rewards: jnp.ndarray  # (B, T, n_envs, 1)
     dones: jnp.ndarray  # (B, T, n_envs, 1)  float in {0., 1.}
-    cum_rewards: jnp.ndarray  # (B, T+1, n_envs, 1)  prefix sum, cum[..., 0]=0
+    # (B, T+1, n_envs, 1) per-slot prefix sum, cum[..., 0]=0. Deliberately
+    # kept though nothing reads it since the sampler reads episode_stream:
+    # checkpoints saved with it still restore (expand-then-contract, rule
+    # 10). Drop it with a restore shim that discards the saved field.
+    cum_rewards: jnp.ndarray
     # (B, n_envs, 1) 1. where the slot's first step starts an episode: what
     # the top-K statistics need of an evicted slot (``topk_command_stats``).
     episode_start: jnp.ndarray

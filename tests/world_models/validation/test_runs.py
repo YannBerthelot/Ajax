@@ -165,7 +165,7 @@ def test_another_specification_is_refused(tmp_path):
         stored = json.load(f)
     assert stored["spec"] == {"name": "a"}
     assert {"git_sha", "jax", "device", "backend"} <= set(stored["provenance"])
-    with pytest.raises(ValueError, match="another specification"):
+    with pytest.raises(ValueError, match=r"another specification \(differing: name\)"):
         _run(tmp_path, budget=4, spec={"name": "b"})
     with pytest.raises(ValueError, match="positive"):
         _run(tmp_path / "c", budget=0)

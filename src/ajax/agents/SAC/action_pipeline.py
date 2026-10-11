@@ -111,7 +111,6 @@ def _gain_policy_step(
         action_key=action_key,
         agent_state=agent_state,
         recurrent=recurrent,
-        uniform=False,
     )
     uniform_action = jax.random.uniform(
         mix_key, minval=-1.0, maxval=1.0, shape=action.shape
@@ -274,7 +273,6 @@ def make_action_pipeline(
             action_key=action_key,
             agent_state=agent_state_for_actor,
             recurrent=recurrent,
-            uniform=False,
         )
 
         # --- Uniform action (for warmup) ---

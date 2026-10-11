@@ -696,14 +696,9 @@ class PhiRefresh(Extension):
     transitions, keeping ``φ*`` aligned with the live data distribution.
     Requires :class:`MCPretrain` (which creates the refreshable ``φ*``).
 
-    ``buffer``, ``gamma`` and ``reward_scale`` are populated by the
-    SAC training factory's auto-append shim from
-    ``agent_config.gamma`` / ``agent_config.reward_scale`` / the agent
-    ``buffer``. User-constructed ``PhiRefresh()`` instances leave them
-    ``None``; the SAC factory copies the resolved values onto the
-    instance with ``dataclasses.replace`` so the ``post_update`` math
-    has everything it needs without threading per-step kwargs through
-    the phase API.
+    ``buffer``, ``gamma`` and ``reward_scale`` come from the agent through
+    :meth:`bind_to_agent` (only SAC binds them); unbound, ``post_update``
+    raises ``ValueError``.
     """
 
     expert_policy: Callable
@@ -759,9 +754,11 @@ class PhiRefresh(Extension):
         # unchanged.
         del ctx
         if self.buffer is None or self.gamma is None or self.reward_scale is None:
-            # Unconfigured PhiRefresh — no-op (the SAC factory's
-            # auto-append shim is what populates these fields).
-            return agent_state, ext_state
+            raise ValueError(
+                "PhiRefresh needs the agent's buffer, gamma and reward_scale to"
+                " refresh phi*; the agent did not bind them (only SAC supports"
+                " PhiRefresh)."
+            )
         interval = self.interval
         steps = self.steps
         gamma = self.gamma

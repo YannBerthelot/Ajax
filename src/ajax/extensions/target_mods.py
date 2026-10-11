@@ -407,12 +407,11 @@ class ValueBox(Extension):
         ``entry_bonus`` into ``obs`` for pipeline-side bookkeeping
         (buffer-write suppression, reward shaping, ``is_expert_flag``).
         """
-        del ext_state, rng, ctx
+        del ext_state, rng
         env_action = obs["env_action"]
         expert_action = obs["expert_action"]
-        total_timesteps = obs["total_timesteps"]
 
-        train_frac = agent_state.collector_state.timestep / total_timesteps
+        train_frac = ctx.step / ctx.total_steps
         threshold = box_compute_threshold(
             agent_state.expert_v_min, agent_state.expert_v_max, train_frac
         )

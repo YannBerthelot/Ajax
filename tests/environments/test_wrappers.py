@@ -1,3 +1,6 @@
+import copy
+import pickle
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -7,6 +10,7 @@ from brax.envs.base import State
 from brax.envs.wrappers import training as brax_training
 from flax import struct
 from gymnax import make as make_gymnax_env
+from gymnax.environments import environment as gymnax_environment
 from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
 
 from ajax.environments.utils import get_state_action_shapes
@@ -211,6 +215,24 @@ def test_flatten_observation_wrapper(gymnax_env):
     assert obs.ndim == 1  # Observation should be flattened
     obs, *_ = wrapped_env.step(key, state, 0, env_params)
     assert obs.ndim == 1  # Observation should remain flattened
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    [copy.copy, copy.deepcopy, lambda env: pickle.loads(pickle.dumps(env))],
+    ids=["copy", "deepcopy", "pickle"],
+)
+def test_gymnax_wrapper_copies_and_pickles(duplicate):
+    """A wrapped env duplicates like the raw env: same type, same reset."""
+    env, params = make_gymnax_env("Pendulum-v1")
+    wrapped_env = ClipAction(FlattenObservationWrapper(env))
+    duplicated = duplicate(wrapped_env)
+    assert type(duplicated) is ClipAction
+    assert type(duplicated._env) is FlattenObservationWrapper
+    key = jax.random.PRNGKey(0)
+    assert jnp.array_equal(
+        duplicated.reset(key, params)[0], wrapped_env.reset(key, params)[0]
+    )
 
 
 def test_log_wrapper(gymnax_env):
@@ -445,38 +467,36 @@ def test_normalize_wrapper_on_real_gymnax_env(real_gymnax_env):
 
 
 @struct.dataclass
-class _LegacyState:
-    time: int
+class _LegacyState(gymnax_environment.EnvState):
+    pass
 
 
-@struct.dataclass
-class _LegacyParams:
-    max_steps_in_episode: int = 2
+class _LegacyDoneEnv(gymnax_environment.Environment):
+    """Env whose ``step_env`` still folds the time limit into its done flag.
 
-
-class _LegacyDoneEnv:
-    """Env whose terminal flag still folds the time limit into `terminated`.
-
-    Mirrors third-party gymnax envs that have not migrated to the 1.0 split:
-    their `step_env` returns `done = terminated | truncated`, which gymnax's
-    base `step` then hands back in the `terminated` slot.
+    Mirrors third-party gymnax envs that have not migrated to the 1.0 split.
+    It never terminates on its own, so every terminal flag it reports is the
+    time limit. gymnax's base ``step`` auto-resets it, so the state returned
+    at the time limit is already the next episode's (``time == 0``).
     """
 
-    default_params = _LegacyParams()
+    @property
+    def default_params(self):
+        return gymnax_environment.EnvParams(max_steps_in_episode=2)
 
-    def reset(self, key, params=None):
+    def reset_env(self, key, params):
         return jnp.zeros(2), _LegacyState(time=0)
 
-    def step(self, key, state, action, params=None):
+    def step_env(self, key, state, action, params):
         state = _LegacyState(time=state.time + 1)
         done = state.time >= params.max_steps_in_episode
-        return jnp.zeros(2), state, jnp.array([1.0]), done, done, {}
+        return jnp.zeros(2), state, jnp.array(1.0), done, {}
 
 
 def test_terminated_truncated_wrapper_unfolds_time_limit():
     """The wrapper must move a time-limit `done` out of `terminated`."""
     env = _LegacyDoneEnv()
-    params = _LegacyParams()
+    params = env.default_params
     wrapped_env = TerminatedTruncatedWrapper(env)
     key = jax.random.PRNGKey(0)
     _, state = wrapped_env.reset(key, params)
@@ -486,6 +506,7 @@ def test_terminated_truncated_wrapper_unfolds_time_limit():
     assert not bool(truncated)
 
     _, state, _, terminated, truncated, _ = wrapped_env.step(key, state, 0, params)
+    assert int(state.time) == 0  # auto-reset already happened
     # Time limit reached: truncated, and crucially NOT terminated -- otherwise
     # the agent would drop the V(s_T) bootstrap.
     assert bool(truncated)

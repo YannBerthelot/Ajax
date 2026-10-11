@@ -11,7 +11,7 @@ extension parametrised by ``gate``; the gate math is the functions below.
   ``"lcb"`` / ``"argmax_lcb"`` / ``"thompson"`` (quality-aware gates).
 
 The SAC action pipeline pre-computes the per-step quantities every gate
-needs (``policy_action``, ``expert_action``, ``obs_for_edge``, ...) and
+needs (``policy_action``, ``expert_action``, ``observations``, ...) and
 threads them through the ``obs`` argument as a dict — mirroring the
 ``batch``-dict convention the ``on_target`` / ``actor_loss`` phases
 already use to plumb call-site context into extension methods. The
@@ -333,10 +333,11 @@ class EDGEExploration(Extension):
         ``batch``-dict convention of the ``on_target`` / ``actor_loss``
         phases). The pipeline pre-computes every operand the six gate
         variants share: ``policy_action``, ``expert_action``,
-        ``obs_for_edge`` (already augmented with the expert-action dims
-        under ``augment_obs_with_expert_action``), ``edge_critic_params``
-        (the frozen expert critic if MC pretraining ran, else the live
-        critic params), the running ``post_warmup_action``, and the
+        ``observations`` (the critics' input, augmented with the
+        expert-action dims under ``augment_obs_with_expert_action``),
+        ``critic_params`` and ``critic_state`` (the frozen expert critic
+        if MC pretraining ran, else the live critic), the running
+        ``post_warmup_action``, and the
         gate's mutable rng (``gate_rng``) — updated in-place so the
         pre-refactor rng tree is preserved byte-for-byte (the
         framework's per-extension ``rng`` split would otherwise diverge).
@@ -348,8 +349,8 @@ class EDGEExploration(Extension):
         del ext_state, rng  # see docstring on rng plumbing.
         policy_action = obs["policy_action"]
         expert_action = obs["expert_action"]
-        obs_for_edge = obs["obs_for_edge"]
-        edge_critic_params = obs["edge_critic_params"]
+        observations = obs["observations"]
+        critic_params = obs["critic_params"]
         critic_state = obs["critic_state"]
         post_warmup_action = obs["post_warmup_action"]
         gate_rng = obs["gate_rng"]
@@ -358,11 +359,11 @@ class EDGEExploration(Extension):
 
         if gate == "thompson":
             mu_e, sigma_e, mu_p, sigma_p = edge_compute_thompson_stats(
-                obs_for_edge,
+                observations,
                 policy_action,
                 expert_action,
                 critic_state,
-                edge_critic_params,
+                critic_params,
             )
             use_expert_edge, gate_rng = edge_thompson_gate(
                 mu_e,
@@ -382,11 +383,11 @@ class EDGEExploration(Extension):
                 self.lcb_beta_decay_k,
             )
             score_e, score_p = edge_lcb_scores(
-                obs_for_edge,
+                observations,
                 policy_action,
                 expert_action,
                 critic_state,
-                edge_critic_params,
+                critic_params,
                 beta,
                 asymmetric=self.lcb_asymmetric,
             )
@@ -403,11 +404,11 @@ class EDGEExploration(Extension):
                 agent_state.collector_state.timestep, ctx.total_steps, self.decay_frac
             )
             gap, q_policy = edge_compute_value_gap(
-                obs_for_edge,
+                observations,
                 policy_action,
                 expert_action,
                 critic_state,
-                edge_critic_params,
+                critic_params,
             )
             if gate == "argmax":
                 use_expert_edge, gate_rng = edge_argmax_gate(gap, decay, gate_rng)

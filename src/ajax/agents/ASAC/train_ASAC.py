@@ -91,7 +91,7 @@ def init_ASAC(
     window_size: int = 10,
     stored_state: bool = False,
 ) -> ASACState:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
         init_key,
         collector_key,
@@ -106,7 +106,7 @@ def init_ASAC(
     )
     return ASACState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
@@ -275,40 +275,29 @@ def update_policy(
     return agent_state, aux
 
 
-def update_temperature(
+def sample_updated_policy(
     agent_state: ASACState,
     observations: jax.Array,
-    target_entropy: float,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[ASACState, TemperatureAuxiliaries]:
-    """SAC's temperature step, on fresh samples of the updated policy."""
+) -> Tuple[ASACState, jax.Array]:
+    """``log pi(a|s)`` per action dimension, ``a ~ pi(.|s)``, of the updated
+    policy: one sample the temperature and ``theta`` steps both read."""
     rng, sample_key = jax.random.split(agent_state.rng)
     actor_state = agent_state.actor_state
     pi = actor_dist(actor_state, actor_state.params, observations, carries)
     _, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    return core.update_temperature(
-        agent_state.replace(rng=rng), log_probs, jnp.asarray(target_entropy)
-    )
+    return agent_state.replace(rng=rng), log_probs
 
 
 def update_theta(
-    agent_state: ASACState,
-    tau: float,
-    rewards: jax.Array,
-    observations: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
+    agent_state: ASACState, tau: float, rewards: jax.Array, log_probs: jax.Array
 ) -> ASACState:
     """Track the entropy-regularised reward rate: an EMA of
     ``mean(r - alpha log pi(a|s))`` over the batch, ``a ~ pi(.|s)``."""
-    action_key, rng = jax.random.split(agent_state.rng)
-    pi = actor_dist(
-        agent_state.actor_state, agent_state.actor_state.params, observations, carries
-    )
-    _, log_probs = pi.sample_and_log_prob(seed=action_key)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     new_theta = jnp.mean(rewards - alpha * log_probs.sum(-1, keepdims=True))
     theta = agent_state.theta * (1 - tau) + tau * new_theta
-    return agent_state.replace(theta=theta, rng=rng)
+    return agent_state.replace(theta=theta)
 
 
 def update_agent(
@@ -361,18 +350,16 @@ def update_agent(
         total_timesteps,
         carries,
     )
+    agent_state, log_probs = sample_updated_policy(agent_state, transition.obs, carries)
     # The dual-gradient step towards ``target_entropy`` (target entropy
     # per dimension times the action dimension).
-    agent_state, aux_temperature = update_temperature(
-        agent_state,
-        observations=transition.obs,
-        target_entropy=agent_config.target_entropy,
-        carries=carries,
+    agent_state, aux_temperature = core.update_temperature(
+        agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
     )
     # In the target's units: the reward rate theta is subtracted from the
     # scaled rewards there.
     agent_state = update_theta(
-        agent_state, tau, rewards * agent_config.reward_scale, transition.obs, carries
+        agent_state, tau, rewards * agent_config.reward_scale, log_probs
     )
     agent_state = core.update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(

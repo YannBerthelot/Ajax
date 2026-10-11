@@ -218,7 +218,7 @@ class ModelReferenceWrapper(GymnaxWrapper):
         k_env, k_ref = jax.random.split(key)
         raw_obs, env_state = self._env.reset(k_env, params)
         state = self._fresh_task(k_ref, raw_obs, env_state)
-        return self.get_obs(state, params), state
+        return self._controller_obs(state, raw_obs), state
 
     def _fresh_task(self, key, raw_obs, env_state) -> ModelReferenceState:
         reference = self.reference.sample(key)
@@ -255,13 +255,31 @@ class ModelReferenceWrapper(GymnaxWrapper):
         fresh = self._fresh_task(k_ref, raw_obs, env_state)
         state = jax.tree.map(lambda a, b: jax.lax.select(done, a, b), fresh, continued)
         info = {**info, "y": y, "y_desired": y_desired, "r": r_now}
-        return self.get_obs(state, params), state, reward, terminated, truncated, info
+        obs = self._controller_obs(state, raw_obs)
+        return obs, state, reward, terminated, truncated, info
 
-    def get_obs(self, state: ModelReferenceState, params=None, key=None):
-        """Controller observation ``[r_t - y_t, u_{t-1} (, raw obs)]``."""
-        raw_obs = self._env.get_obs(state.env_state, params, key)
+    def _controller_obs(
+        self, state: ModelReferenceState, raw_obs: jax.Array
+    ) -> jax.Array:
+        """Controller observation ``[r_t - y_t, u_{t-1} (, raw obs)]``.
+
+        Built from the observation the plant returned, the one the reward
+        scores: recomputing it from the plant's state would differ for a
+        plant whose observation is not a function of its state (measurement
+        noise drawn in ``step``, an observation-transforming inner wrapper).
+        On the step a plant episode ends, ``raw_obs`` is the plant's reset
+        observation and ``state`` the fresh task.
+        """
         error = state.reference[state.t] - self.output(raw_obs)
         return self._observation(error, state.u_prev, raw_obs).astype(jnp.float32)
+
+    def get_obs(self, state: ModelReferenceState, params=None, key=None):
+        """The controller observation, with the plant's observation recomputed
+        from its state (equal to the returned one when it is a function of
+        the state)."""
+        return self._controller_obs(
+            state, self._env.get_obs(state.env_state, params, key)
+        )
 
 
 __all__ = [

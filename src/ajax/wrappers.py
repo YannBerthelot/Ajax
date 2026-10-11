@@ -43,6 +43,12 @@ class GymnaxWrapper:
 
     # provide proxy access to regular attributes of wrapped object
     def __getattr__(self, name):
+        # copy and pickle build the instance before ``_env`` is set and then
+        # probe protocol dunders (``__setstate__``, ``__deepcopy__``):
+        # forwarding ``_env`` would recurse forever, and forwarding a dunder
+        # would run the inner env's protocol on the wrapper.
+        if name == "_env" or (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(name)
         return getattr(self._env, name)
 
     @property
@@ -1172,15 +1178,15 @@ class TerminatedTruncatedWrapper(GymnaxWrapper):
     Stock gymnax >= 1.0 environments already return the two flags apart, so
     they do **not** need this wrapper. It is for third-party environments that
     subclass gymnax's ``Environment`` but whose ``step_env`` still reports the
-    pre-1.0 ``done = terminated | truncated`` in the ``terminated`` slot (or
-    that return the five-value tuple outright). Left unwrapped, such an env
-    makes every time-limit truncation look like a natural termination, so
-    PPO/SAC drop the ``V(s_T)`` bootstrap and silently underestimate the
-    value of long-running states.
+    pre-1.0 ``done = terminated | truncated``, which gymnax's base ``step``
+    hands back in the ``terminated`` slot. Left unwrapped, such an env makes
+    every time-limit truncation look like a natural termination, so PPO/SAC
+    drop the ``V(s_T)`` bootstrap and silently underestimate the value of
+    long-running states.
 
-    The time limit is recovered the same way gymnax's own
-    ``Environment.is_truncated`` does -- ``state.time >=
-    params.max_steps_in_episode`` -- and removed from ``terminated``.
+    The time limit is the ``truncated`` flag gymnax's base ``step`` reports:
+    it is computed from the pre-reset state, whereas the returned state has
+    already been auto-reset (``time == 0``) at the limit.
     """
 
     def __init__(self, env):
@@ -1196,13 +1202,9 @@ class TerminatedTruncatedWrapper(GymnaxWrapper):
         """Step the env and return Gymnasium-style terminal flags"""
         if params is None:
             params = self._env.default_params
-        out = self._env.step(key, state, action, params)
-        # Accept both the pre-1.0 five-value tuple and the 1.0 six-value one;
-        # in either case the terminal flag we get still folds in the time
-        # limit, which is exactly what this wrapper undoes.
-        obs, state, reward, done = out[0], out[1], out[2], out[3]
-        info = out[-1]
-        truncated = state.time >= params.max_steps_in_episode
+        obs, state, reward, done, truncated, info = self._env.step(
+            key, state, action, params
+        )
         terminated = jnp.logical_and(
             jnp.asarray(done, dtype=bool), jnp.logical_not(truncated)
         )

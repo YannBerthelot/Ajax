@@ -62,7 +62,13 @@ least ``H + 1`` rows, a uniform offset inside it, and adds ``terminated``
 (rows ``s + 1 .. s + H``; a time limit is not terminal, so it bootstraps).
 :class:`EpisodicBuffer` does the same on per-env rings of ``C`` rows written
 in lockstep by the row collector's dynamic mode (tick ``i`` at slot ``i mod
-C``). An overwritten episode keeps its stored tail, as in the reference.
+C``). An overwritten episode keeps its stored tail, as in the reference. As
+the reference's storage of ``min(buffer_size, steps)`` rows, the rings hold
+``C = ceil(min(buffer_size, total) / n)`` rows per env, ``total`` being the
+rows the run has written when the current ``train()`` call ends: a ring
+that holds every row of the run never overwrites one, so it behaves as the
+unclamped ring. A resumed run moves the carried rows into the rings of its
+own call (:meth:`EpisodicBuffer.adopt`).
 """
 
 from __future__ import annotations
@@ -463,7 +469,8 @@ class EpisodicBuffer:
         cls, *, buffer_size: int, n_envs: int, obs_dim: int, action_dim: int
     ) -> EpisodicBuffer:
         """The rings for ``buffer_size`` rows: ``ceil(buffer_size / n_envs)``
-        rows per env."""
+        rows per env (the agent passes the run's clamped capacity,
+        :func:`replay_capacity`)."""
         if buffer_size < 1:
             raise ValueError(f"buffer_size must be >= 1, got {buffer_size}")
         return cls(n_envs, math.ceil(buffer_size / n_envs), obs_dim, action_dim)
@@ -486,14 +493,64 @@ class EpisodicBuffer:
             step=jnp.zeros(rows, jnp.int32),
         )
 
-    def check_layout(self, state: EpisodicBufferState) -> None:
-        """Raise unless ``state`` is this buffer's (a trace-time check)."""
+    def check_layout(
+        self, state: EpisodicBufferState, *, any_rows: bool = False
+    ) -> None:
+        """Raise unless ``state`` is this buffer's (a trace-time check); with
+        ``any_rows`` its rings may hold another number of rows (carried
+        rings, :meth:`adopt`)."""
         expected = (self.n_envs, self.capacity, self.obs_dim)
-        if state.obs.shape[-3:] != expected:
+        got = state.obs.shape[-3:]
+        rows = any_rows or got[1:2] == (self.capacity,)
+        if len(got) != 3 or got[::2] != expected[::2] or not rows:
             raise ValueError(
                 f"replay obs has shape {state.obs.shape}, expected [..., {expected}]"
-                " (n_envs, ceil(buffer_size / n_envs) rows, obs_dim)"
+                " (n_envs, rows per env, obs_dim): carried rings of another"
+                " length must be adopted (EpisodicBuffer.adopt) first"
             )
+
+    def adopt(self, state: EpisodicBufferState, tick: int) -> EpisodicBufferState:
+        """Carried rings of any length, laid out as these, for a run that
+        continues at absolute tick ``tick`` (a resume).
+
+        Tick ``i``'s rows live at slot ``i mod C``; from ``tick`` on these
+        rings read the rows of the ``min(tick, C)`` latest ticks, each moved
+        from slot ``i mod C_carried``. Carried rings that still hold them all
+        (only rings built for a smaller ``buffer_size`` lose one) give the
+        state an uninterrupted run with these rings would have. The other
+        slots are zero (no row ends an episode there) until written.
+
+        ``tick`` is a host int (the agent's resume offset); leading (seed)
+        axes are kept. Returns ``state`` itself when the lengths agree.
+
+        Raises:
+            ValueError: if the carried rings are not this buffer's (envs,
+                observation size), or if they lost a row these rings read.
+        """
+        self.check_layout(state, any_rows=True)
+        carried = state.obs.shape[-2]
+        if carried == self.capacity:
+            return state
+        keep = min(tick, self.capacity)
+        if keep > min(tick, carried):
+            raise ValueError(
+                f"the carried rings hold the {carried} latest of {tick} rows per"
+                f" env, but these rings of {self.capacity} read the {keep} latest:"
+                " they were built with a smaller buffer_size"
+            )
+        ticks = np.arange(tick - keep, tick)
+        index = np.zeros(self.capacity, int)
+        index[ticks % self.capacity] = ticks % carried
+        valid = np.zeros(self.capacity, bool)
+        valid[ticks % self.capacity] = True
+        axis = state.reward.ndim - 1  # [..., n_envs, C, ...]: the rows
+
+        def move(store: jax.Array) -> jax.Array:
+            moved = jnp.take(store, jnp.asarray(index), axis=axis)
+            mask = valid.reshape((-1,) + (1,) * (store.ndim - 1 - axis))
+            return jnp.where(mask, moved, jnp.zeros((), store.dtype))
+
+        return jax.tree.map(move, state)
 
     def add(
         self, state: EpisodicBufferState, row: Row, step: jax.Array, tick: IntLike

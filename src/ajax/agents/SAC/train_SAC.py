@@ -111,7 +111,7 @@ def init_SAC(
     jsrl_curriculum: bool = False,
     store_raw_next_obs: bool = False,
 ) -> SACState:
-    rng, init_key, collector_key, expert_key = jax.random.split(key, num=4)
+    rng, init_key, collector_key, expert_key, eval_rng = jax.random.split(key, 5)
 
     # When augment_obs_with_expert_action=True, the actor and critic receive
     # obs augmented with a_expert at runtime (action_dim extra dimensions).
@@ -196,7 +196,7 @@ def init_SAC(
 
     return SACState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
@@ -349,10 +349,6 @@ def policy_loss_function(
     raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
     a_expert_precomputed: Optional[jax.Array] = None,
-    train_frac: Optional[jax.Array] = None,
-    expert_critic_params: Optional[Any] = None,
-    expert_v_min: Optional[jax.Array] = None,
-    expert_v_max: Optional[jax.Array] = None,
     policy_action_transform: Optional[Callable] = None,
     carries: Optional[RecurrentCarries] = None,
     extension_stack: Optional[ExtensionStack] = None,
@@ -404,7 +400,7 @@ def policy_loss_function(
         extension_stack is not None
         and "actor_loss" in extension_stack.implemented_phases()
         and expert_policy is not None
-        and expert_critic_params is not None
+        and agent_state.expert_critic_params is not None
     )
     if needs_bc:
         a_expert = (
@@ -415,20 +411,16 @@ def policy_loss_function(
     else:
         a_expert = None
 
-    # Additive actor-loss terms. Each extension reads what it needs out of
-    # the ``batch`` dict (OnlineBC: pi_loc, a_expert, train_frac,
-    # critic_state, expert_critic_params, expert_v_min/v_max) and returns
-    # 0.0 when an operand is missing (no phi* before MC pretraining).
+    # Additive actor-loss terms, on core.soft_actor_step's batch plus the
+    # expert's action (OnlineBC's target; None before phi* exists).
     if extension_stack:
         ext_batch = {
-            "pi_loc": pi.distribution.loc,
-            "a_expert": a_expert,
             "observations": observations,
-            "train_frac": train_frac,
-            "critic_state": critic_states,
-            "expert_critic_params": expert_critic_params,
-            "expert_v_min": expert_v_min,
-            "expert_v_max": expert_v_max,
+            "raw_observations": _raw_obs,
+            "pi_mean": pi.mean(),
+            "actor_params": actor_params,
+            "actor_state": actor_state,
+            "a_expert": a_expert,
         }
         bc_term = jnp.asarray(
             extension_stack.fold_actor_loss(
@@ -460,7 +452,6 @@ def update_policy(
     raw_observations: jax.Array,
     expert_policy: Optional[Callable] = None,
     a_expert_precomputed: Optional[jax.Array] = None,
-    train_frac: Optional[jax.Array] = None,
     policy_action_transform: Optional[Callable] = None,
     extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
@@ -483,10 +474,6 @@ def update_policy(
         raw_observations=raw_observations,
         expert_policy=expert_policy,
         a_expert_precomputed=a_expert_precomputed,
-        train_frac=train_frac,
-        expert_critic_params=agent_state.expert_critic_params,
-        expert_v_min=agent_state.expert_v_min,
-        expert_v_max=agent_state.expert_v_max,
         policy_action_transform=policy_action_transform,
         carries=carries,
         extension_stack=extension_stack,
@@ -681,14 +668,12 @@ def update_agent(
     )
 
     # --- Policy update — returns log_probs for temperature reuse ---
-    train_frac = agent_state.collector_state.timestep / total_timesteps
     new_agent_state, aux_policy, policy_log_probs = update_policy(
         observations=transition.obs,
         agent_state=agent_state,
         raw_observations=transition.raw_obs,
         expert_policy=expert_policy,
         a_expert_precomputed=a_expert_precomputed,
-        train_frac=train_frac,
         policy_action_transform=policy_action_transform,
         extension_stack=extension_stack,
         total_timesteps=total_timesteps,

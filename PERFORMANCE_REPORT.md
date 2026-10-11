@@ -871,8 +871,8 @@ collection alone, with no gradient update. Their presets now set
 `learning_starts=1000`, DQN's default, so the updates cover seven eighths
 of the run, and `tests/benchmarks/test_agent_bench.py` checks from the
 configs that every preset updates within the run. These four agents'
-figures will drop: do not compare them with the earlier rows. A new
-baseline is to be recorded on a quiet machine.
+figures will drop: do not compare them with the earlier rows. The new
+baseline is [below](#cpu-baseline-after-the-close-out-batch-1-2026-10-12).
 
 The other presets already updated in the run: DQN from step 1,000, AVG
 from the first step, PQN 16 rollouts, APG 125, DreamerV3 496 updates and
@@ -910,6 +910,43 @@ benefit.
    blocked by external library shape coupling (Brax VmapWrapper). The
    diminishing-returns line is reached.**
 
+## CPU baseline after the close-out batch 1 (2026-10-12)
+
+`benchmarks/agent_baseline.jsonl` now holds this run: main `a8a13c2`, macOS
+on Apple silicon (CPU only, `JAX_PLATFORMS=cpu`), the persistent compile
+cache off (`AJAX_NO_COMPILE_CACHE=1`), the defaults of
+`benchmarks/agent_bench.py` (4 envs, 8,000 steps, 1 seed, 3 trials), and no
+other Ajax work running. The load average was about 5, from macOS background
+services (Spotlight indexing).
+
+Two methodology breaks with every earlier `benchmarks/agent_*.jsonl` file:
+every preset now updates within the run (SAC, TD3, REDQ and ASAC start at
+step 1,000), and `exec_s` times the run's execution alone, without tracing,
+lowering or compiling (`measured_s` still includes them). Compare with
+`--compare`, which reads `exec_steps_per_s` when both files have it.
+
+| Agent | Env | exec steps/s | measured steps/s | compile s |
+|---|---|---|---|---|
+| SAC | Pendulum-v1 | 2,218 | 1,635 | 3.8 |
+| SAC | inverted_pendulum (terminates) | 1,090 | 723 | 5.3 |
+| TD3 | Pendulum-v1 | 2,659 | 1,961 | 1.4 |
+| REDQ | Pendulum-v1 | 47 | 47 | 1.7 |
+| ASAC | Pendulum-v1 | 1,254 | 1,032 | 1.6 |
+| AVG | Pendulum-v1 | 9,460 | 4,027 | 1.5 |
+| PPO | CartPole-v1 | 17,817 | 4,298 | 2.0 |
+| APO | Pendulum-v1 | 16,390 | 4,024 | 2.0 |
+| DQN | CartPole-v1 | 16,662 | 6,395 | 0.9 |
+| PQN | CartPole-v1 | 36,961 | 7,358 | 1.0 |
+| UDRL | Pendulum-v1 | 12,575 | 4,441 | 1.4 |
+| APG | Pendulum-v1 (tracking) | 34,958 | 5,339 | 1.6 |
+| DreamerV3 | CartPole-v1 | 367 | 275 | 12.9 |
+| TDMPC2 | Pendulum-v1 | 292 | 245 | 7.3 |
+
+Medians of the three trials. REDQ is slow by design: 20 critic updates of
+10 critics per environment step after step 1,000. UDRL's trials spread the
+most (9,604 to 15,069 exec steps/s); judge it on more trials before calling
+a regression.
+
 ## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
 
 `benchmarks/world_models/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
@@ -931,12 +968,10 @@ Pendulum is solved after the first 1,000 updates (a random policy scores about
 Seed 0 clears its bar by only 10, so the bar is not met with much margin at
 this budget.
 
-Bench entry (`benchmarks/agent_bench.py`, preset documented there): no
-baseline row yet. One run at load average ~35 gave 64-66 steps/s (8,000 env
-steps, 4 envs, 7,996 updates; compile 46 s); that number is not a baseline.
-Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py --only TDMPC2
---out benchmarks/agent_m4b.jsonl` on a quiet machine. Until then `--compare`
-lists TDMPC2 as `NEW (no baseline)`.
+Bench entry (`benchmarks/agent_bench.py`, preset documented there): one run
+at load average ~35 then gave 64-66 steps/s (8,000 env steps, 4 envs, 7,996
+updates; compile 46 s). Its baseline row is now in
+[the 2026-10-12 baseline](#cpu-baseline-after-the-close-out-batch-1-2026-10-12).
 
 The checks are the entries `tdmpc2-pendulum` and `tdmpc2-cartpole-balance` of
 the shared `benchmarks/world_models/learning_checks.py` registry (merged with DreamerV3's in
@@ -1084,7 +1119,6 @@ program; it then reaches 500 at 22k rows.
 
 Bench entry (`benchmarks/agent_bench.py`, preset documented there: the 1m model
 on 8 windows of 16 + 1 rows, train ratio 8, about 500 updates in 8,000 rows, 4
-envs): no baseline row yet. One run at load average about 25 gave a median of
-80.9 steps/s (3 trials at 66.5, 82.1 and 80.9 steps/s; compile 41 s); that
-number is not a baseline. Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py
---only DreamerV3 --out benchmarks/agent_m7.jsonl` on a quiet machine.
+envs): one run at load average about 25 then gave a median of 80.9 steps/s
+(3 trials at 66.5, 82.1 and 80.9 steps/s; compile 41 s). Its baseline row is
+now in [the 2026-10-12 baseline](#cpu-baseline-after-the-close-out-batch-1-2026-10-12).

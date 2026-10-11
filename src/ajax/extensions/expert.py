@@ -45,7 +45,7 @@ def residual_action_transform(
 
 
 def compute_online_bc_loss(
-    pi_loc: jax.Array,
+    pi_mean: jax.Array,
     a_expert: jax.Array,
     critic_state,
     expert_critic_params,
@@ -80,14 +80,13 @@ def compute_online_bc_loss(
         )
         ** 2
     )
-    mu = jnp.tanh(pi_loc)
     return (
         bc_coef
         * bc_weight
         * (
             v_weight
             * jnp.sum(
-                (mu - jax.lax.stop_gradient(a_expert)) ** 2,
+                (pi_mean - jax.lax.stop_gradient(a_expert)) ** 2,
                 axis=-1,
                 keepdims=True,
             )
@@ -119,20 +118,16 @@ def expert_next_actions(ext: Any, raw_next: Any, stored_next: Any) -> jax.Array:
 class OnlineBC(Extension):
     """Online, value-weighted, warmup-decaying behavioural-cloning term.
 
-    Equivalent to the ``use_online_bc`` additive actor-loss term: a
-    ``bc_coef · w(s) · ||μ_θ(s) - a_expert||²`` penalty that decays to
-    zero once ``train_frac`` exceeds ``critic_warmup_frac``. The
-    behaviour is identical to the pre-refactor ``make_bc_loss_fn``
-    builder: the term is silently skipped when
-    ``agent_state.expert_critic_params is None`` (i.e.
-    :class:`MCPretrain` hasn't run), which keeps a stack with only this
-    extension a no-op rather than an error.
-
-    The actor-loss call site folds every extension via
-    ``stack.actor_loss(...)``; this method reads ``pi_loc``,
-    ``a_expert``, ``observations`` and ``train_frac`` from ``batch``
-    (populated by :func:`policy_loss_function` in
-    ``ajax.agents.SAC.train_SAC`` with SAC's expert action).
+    A ``bc_coef · w(s) · ||μ_θ(s) - a_expert||²`` penalty
+    (:func:`compute_online_bc_loss`) that decays to zero once the training
+    fraction exceeds ``critic_warmup_frac``. It reads the actor's mean
+    action (``pi_mean``), the expert's action (``a_expert``, which SAC puts
+    in its actor-loss batch) and the observations from the batch, and the
+    frozen expert critic phi* with its value range
+    (``expert_critic_params``, ``expert_v_min``, ``expert_v_max``) and the
+    critic phi* is applied with from the agent's state. Until
+    :class:`MCPretrain` fits phi*, or without the expert's action, the term
+    is 0.
     """
 
     bc_coef: float = 1.0
@@ -146,36 +141,21 @@ class OnlineBC(Extension):
         batch: Any,
         ctx: ExtensionContext,
     ) -> Any:
-        del agent_state, ext_state, ctx
-        # ``policy_loss_function`` (in ``ajax.agents.SAC.train_SAC``) is what
-        # populates ``batch`` here. Every operand the legacy
-        # ``compute_online_bc_loss`` consumes is threaded through that
-        # dict so this method needs nothing off ``agent_state`` — see
-        # the Phase 2b commit notes on actor-loss plumbing.
-        expert_critic_params = batch.get("expert_critic_params", None)
-        a_expert = batch.get("a_expert", None)
-        train_frac = batch.get("train_frac", None)
-        # Mirror legacy ``bc_loss_fn is not None and
-        # expert_critic_params is not None`` gate: no-op when MC
-        # pre-training hasn't supplied φ*, or when ``critic_warmup_frac
-        # <= 0`` (the BC term would always be zero anyway).
-        if (
-            expert_critic_params is None
-            or a_expert is None
-            or train_frac is None
-            or self.critic_warmup_frac <= 0
-        ):
+        del ext_state
+        phi_star = getattr(agent_state, "expert_critic_params", None)
+        a_expert = batch.get("a_expert")
+        if phi_star is None or a_expert is None or self.critic_warmup_frac <= 0:
             return 0.0
         return compute_online_bc_loss(
-            batch["pi_loc"],
+            batch["pi_mean"],
             a_expert,
-            batch["critic_state"],
-            expert_critic_params,
+            agent_state.critic_state,
+            phi_star,
             batch["observations"],
-            train_frac,
+            ctx.step / ctx.total_steps,
             self.critic_warmup_frac,
-            batch["expert_v_min"],
-            batch["expert_v_max"],
+            agent_state.expert_v_min,
+            agent_state.expert_v_max,
             self.bc_coef,
         )
 
@@ -193,8 +173,8 @@ class ImitationLoss(Extension):
     is unweighted and needs no pre-trained expert critic.
 
     It replaces the ``imitation_coef`` keyword TD3, REDQ, ASAC and APO used
-    to carry. Those agents put ``pi_mean`` and ``raw_observations`` in their
-    actor-loss batch; an agent whose batch has no ``pi_mean`` (SAC, or a
+    to carry. Those agents and SAC put ``pi_mean`` and ``raw_observations``
+    in their actor-loss batch; an agent whose batch has no ``pi_mean`` (a
     discrete-action policy) raises at trace time.
     """
 

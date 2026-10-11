@@ -93,6 +93,11 @@ def test_parse_function_string_valid(input_str, expected_name, expected_value):
     "input_str",
     [
         "func(unknown_var)",
+        # Malformed specs must not silently fall back to the default scale.
+        "orthogonal(2.0",
+        "orthogonal(2.0)junk",
+        "lecun_uniform extra",
+        "np.sqrt(2)",
     ],
 )
 def test_parse_function_string_invalid(input_str):

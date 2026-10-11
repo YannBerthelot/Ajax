@@ -238,6 +238,29 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
     np.testing.assert_array_equal(cartpole.state.train_metrics.count, [0, 0])
 
 
+def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
+    """The episodes draw from the key the shared path hands the evaluation,
+    fresh at each one (``ajax.log.evaluation_keys``), not from a key of
+    their own."""
+    keys: list = []
+
+    def spy(env_args, policy, init_carry, num_episodes, key):
+        keys.append(np.asarray(key))
+        return jnp.zeros(()), jnp.zeros(())
+
+    monkeypatch.setattr(train_DreamerV3, "evaluate_policy", spy)
+    agent, key = cartpole.agent, jax.random.PRNGKey(3)
+    train_DreamerV3.evaluate_dreamer(
+        jax.tree.map(lambda x: x[0], cartpole.state),
+        key,
+        env_args=agent.env_args,
+        config=agent.dreamer_config,
+        spec=train_DreamerV3.env_spec(agent.env_args),
+        num_episode_test=1,
+    )
+    np.testing.assert_array_equal(keys, [key])
+
+
 def _per_update(records: list, n_updates: int) -> list:
     """Records of both seeds, grouped by update (two per update)."""
     assert len(records) == len(SEEDS) * n_updates

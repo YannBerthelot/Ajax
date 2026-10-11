@@ -35,9 +35,10 @@ ANSWER_DIGEST = "99d0216e0c08"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
-# One extension per phase, under a name no agent whitelists. The phase
-# batches are undocumented and differ by agent, so the extensions branch on
-# the keys each agent passes; a documented schema should replace them.
+# One extension per phase, under a name no agent whitelists. The keys every
+# agent puts in a phase's batch are listed in ajax/extensions/base.py; where
+# they leave a choice (a V- or Q-critic, DQN's q_state, the done flags), the
+# extensions branch on the keys each agent passes.
 
 
 @dataclasses.dataclass(frozen=True)
@@ -91,19 +92,16 @@ A0 = -0.5
 class ActorPull(Extension):
     """+ 100 mean((a - A0)^2) on the deterministic action, from half the
     budget when ``gated``. PPO passes no observations (``probe_obs`` stands
-    in), SAC only the pre-squash ``pi_loc``."""
+    in)."""
 
     gated: bool = False
     probe_obs: tuple[float, ...] = (0.0,)
     name: str = "p3_actor_pull"
 
     def actor_loss(self, agent_state, ext_state, batch, ctx):
-        if "actor_params" in batch:
-            obs = batch.get("observations")
-            obs = jnp.asarray([self.probe_obs], jnp.float32) if obs is None else obs
-            a = batch["actor_state"].apply_fn(batch["actor_params"], obs).mean()
-        else:
-            a = jnp.tanh(batch["pi_loc"])
+        obs = batch.get("observations")
+        obs = jnp.asarray([self.probe_obs], jnp.float32) if obs is None else obs
+        a = batch["actor_state"].apply_fn(batch["actor_params"], obs).mean()
         term = 100.0 * jnp.mean((a - A0) ** 2)
         if self.gated:
             term = jnp.where(ctx.step >= ctx.total_steps // 2, term, 0.0)

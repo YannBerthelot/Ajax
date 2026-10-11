@@ -101,12 +101,17 @@ def parse_function_string(s, context=None):
 
     A string that does not start with an identifier (a letter or ``_``),
     such as ``"0.5"`` or ``"-1.0"``, is evaluated as a whole and returned
-    as ``(None, value)``.
+    as ``(None, value)``. One that does but is neither form, such as
+    ``"orthogonal(2.0"`` or ``"np.sqrt(2)"``, raises ``ValueError``
+    rather than being read as a bare name.
     """
     if context is None:
         context = {"np": np, "math": math, "jnp": jnp}
 
-    match = re.match(r"([A-Za-z_]\w*)(?:\((.*)\))?", s)
+    s = s.strip()
+    match = re.fullmatch(r"([A-Za-z_]\w*)(?:\((.*)\))?", s)
+    if match is None and re.match(r"[A-Za-z_]", s):
+        raise ValueError(f"Malformed initializer: {s!r}")
     if match:
         name, expr = match.groups()
         if expr:

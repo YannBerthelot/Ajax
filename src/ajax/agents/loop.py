@@ -54,7 +54,6 @@ from ajax.environments.interaction import (
     should_use_uniform_sampling,
 )
 from ajax.environments.utils import check_env_is_gymnax
-from ajax.evaluate import evaluate_expert
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.log import (
     compose_eval_metrics,
@@ -89,13 +88,11 @@ RolloutUpdate = Callable[[Any, Any, Any], tuple[Any, Any]]
 #: ``experience`` is what its updates read (a replay agent: the tick, which
 #: locates the replay's newest rows).
 Collect = Callable[[Any, Any], tuple[Any, Any]]
-#: ``iteration(agent_state, index, tick, **fixed) -> (agent_state,
-#: metrics)``: one scan iteration, ``tick`` the absolute, unbatched scan
-#: index (offset on resume by ``ActorCritic.resume_iteration_offset``);
-#: ``metrics`` are what it logged (the sentinel when it did not; ``None``
-#: without logging); ``fixed`` what every evaluation of the call shares
-#: (:meth:`TrainLoop.train`).
-Iteration = Callable[..., tuple[Any, Optional[dict]]]
+#: ``iteration(agent_state, index, tick) -> (agent_state, metrics)``: one
+#: scan iteration, ``tick`` the absolute, unbatched scan index (offset on
+#: resume by ``ActorCritic.resume_iteration_offset``); ``metrics`` are what
+#: it logged (the sentinel when it did not; ``None`` without logging).
+Iteration = Callable[[Any, Any, Any], tuple[Any, Optional[dict]]]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -207,6 +204,7 @@ def critic_step(
         loss_batch = {
             "observations": batch.obs,
             "actions": batch.action,
+            "targets": target_q,
             "critic_params": params,
             "critic_state": critic_state,
         }
@@ -415,7 +413,6 @@ class TrainLoop:
         num_updates: int,
         last_rollout: Optional[tuple[int, dict]] = None,
         evaluations: Optional[int] = None,
-        prepare: Optional[Callable[[Any], dict]] = None,
     ) -> Callable:
         """The resumable train function: ``init`` (fresh runs only), then
         ``num_updates`` scan iterations ``iteration(agent_state, index,
@@ -424,9 +421,6 @@ class TrainLoop:
 
         ``last_rollout``, ``(length, collect_kwargs)``, pre-allocates
         ``agent_state.last_rollout`` for an agent exposing its rollouts.
-        ``prepare(agent_state)``, when the call evaluates, computes once
-        from the state it starts from what all its evaluations share
-        (:meth:`expert_baseline`), passed to every iteration as keywords.
         """
         rows = self.n_evaluations if evaluations is None else evaluations
 
@@ -447,11 +441,9 @@ class TrainLoop:
                     None,
                 )
 
-            fixed = prepare(_state) if prepare is not None and rows else {}
-
             def body(carry: Any, tick: Any) -> tuple[Any, None]:
                 agent_state, (rows, count) = carry
-                agent_state, metrics = iteration(agent_state, index, tick, **fixed)
+                agent_state, metrics = iteration(agent_state, index, tick)
                 assert metrics is not None  # logging: always the metrics
                 return (agent_state, record(rows, count, metrics)), None
 
@@ -478,35 +470,6 @@ class TrainLoop:
             return agent_state, rows
 
         return train_with_evaluations
-
-    def expert_baseline(
-        self, eval_kwargs: Optional[dict]
-    ) -> Optional[Callable[[Any], dict]]:
-        """:meth:`train`'s ``prepare`` for an evaluation comparing the agent
-        with an expert (``eval_kwargs["eval_expert_policy"]``, else
-        ``["expert_policy"]``): the expert's
-        return (:func:`ajax.evaluate.evaluate_expert`), the same at every
-        evaluation of a call (one key, ``eval_rng``, on one env), computed
-        once. An evaluation env's observation normaliser does not change it:
-        the expert acts on the environment's own observations.
-        """
-        kwargs = eval_kwargs or {}
-        expert = kwargs.get("eval_expert_policy") or kwargs.get("expert_policy")
-        if expert is None:
-            return None
-
-        def prepare(agent_state: Any) -> dict:
-            env_args = self.env_args
-            expert_return = evaluate_expert(
-                env_args.env,
-                self.num_episode_test,
-                agent_state.eval_rng,
-                env_args.env_params,
-                expert,
-            )
-            return {"expert_return": expert_return}
-
-        return prepare
 
     def off_policy(
         self,
@@ -562,7 +525,7 @@ class TrainLoop:
             return agent_state, transition
 
         def iteration(
-            agent_state: Any, index: Any, tick: Any, **fixed: Any
+            agent_state: Any, index: Any, tick: Any
         ) -> tuple[Any, Optional[dict]]:
             agent_state, experience = collect_step(agent_state, tick)
 
@@ -582,7 +545,7 @@ class TrainLoop:
             if evaluation is not None:
                 return self.evaluate_every(agent_state, aux, index, tick, evaluation)
             return self.evaluate_and_log(
-                agent_state, aux, index, recurrent, **(eval_kwargs or {}), **fixed
+                agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
 
         if num_ticks is None:
@@ -593,7 +556,6 @@ class TrainLoop:
             num_ticks,
             last_rollout=(1, collect_args) if expose_rollout else None,
             evaluations=None if evaluation is None else evaluation.count(num_ticks),
-            prepare=self.expert_baseline(eval_kwargs),
         )
 
     def on_policy(
@@ -617,9 +579,7 @@ class TrainLoop:
         """
         collect = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 
-        def iteration(
-            start: Any, index: Any, tick: Any, **fixed: Any
-        ) -> tuple[Any, Optional[dict]]:
+        def iteration(start: Any, index: Any, tick: Any) -> tuple[Any, Optional[dict]]:
             del tick
             agent_state, rollout = jax.lax.scan(
                 partial(collect_experience, **collect),
@@ -632,7 +592,7 @@ class TrainLoop:
             agent_state, aux = update(agent_state, rollout, start)
             agent_state = self.post_update(agent_state)
             return self.evaluate_and_log(
-                agent_state, aux, index, recurrent, **(eval_kwargs or {}), **fixed
+                agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
 
         return self.train(
@@ -640,7 +600,6 @@ class TrainLoop:
             iteration,
             self.n_rollouts(n_steps),
             last_rollout=(n_steps, collect) if expose_rollout else None,
-            prepare=self.expert_baseline(eval_kwargs),
         )
 
 

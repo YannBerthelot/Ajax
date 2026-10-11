@@ -300,12 +300,14 @@ def make_action_pipeline(
                     "policy_action": action,
                     "expert_action": expert_action,
                     "post_warmup_action": post_warmup_action,
-                    "obs_for_edge": (
+                    # The critics' input, augmented when it is, and the
+                    # critic the gates score with: phi* once it exists.
+                    "observations": (
                         _augmented_obs
                         if augment_obs_with_expert_action
                         else agent_state.collector_state.last_obs
                     ),
-                    "edge_critic_params": (
+                    "critic_params": (
                         agent_state.expert_critic_params
                         if agent_state.expert_critic_params is not None
                         else agent_state.critic_state.params
@@ -355,7 +357,6 @@ def make_action_pipeline(
                 {
                     "expert_action": expert_action,
                     "env_action": env_action,
-                    "total_timesteps": total_timesteps,
                     # The actor's and critics' input, augmented when it is.
                     "observations": (
                         _augmented_obs

@@ -358,10 +358,14 @@ def _p7_read(run: runs.Run) -> dict:
     """P(a=1) at each command, scaled as the collector scales it; raises
     unless each queried label occurs in every seed's final buffer."""
     for i, seed in enumerate(run.seeds):
-        acts = stream(run.state.buffer, i)[1].reshape(-1, SEG)
+        _, acts, _, done = stream(run.state.buffer, i)
         for r, h in P7_COMMANDS.values():
-            # the windows today's sampler draws: t1 in 0..2, inside one slot
-            if not sum((acts[:, t : t + int(h)].sum(1) == r).sum() for t in range(3)):
+            # the windows the sampler draws: n steps of the stream inside one
+            # episode (a done only on the last), across slots
+            n = int(h)
+            starts = range(len(acts) - n + 1)
+            inside = np.array([not done[t : t + n - 1].any() for t in starts])
+            if not (inside & (np.convolve(acts, np.ones(n), "valid") == r)).any():
                 raise RuntimeError(f"seed {seed}: no window labelled ({r}, {h})")
 
     def probs(n: R.Nets) -> dict:
@@ -383,7 +387,8 @@ CASES["p7-UDRL"] = Case(
     runs.readings(lambda: udrl_agent(**FIXED), _p7_read),
     2048,
     (0.02, 0.02, 0.027, 0.06),
-    note="1024 failed (0.078 on (2, 2)); cert 32/32; every label >= 25 windows",
+    note="1024 failed (0.078 on (2, 2)); cert 32/32; every label >= 25 windows;"
+    " cert 32/32 again once the sampler spanned slots",
 )
 
 
@@ -420,7 +425,8 @@ CASES["q14-UDRL"] = Case(
     runs.readings(lambda: udrl_agent(**Q14), _q14_read),
     4096,
     (2 / 32,),
-    note="1024, 2048 failed; 2/32: at most 2 of 32 episodes off 3; cert 32/32",
+    note="1024, 2048 failed; 2/32: at most 2 of 32 episodes off 3; cert 32/32;"
+    " cert 32/32 again once the sampler spanned slots",
 )
 
 
@@ -437,7 +443,7 @@ def test_q14_actor_sees_the_same_command_when_acting_and_training(
         jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
         return get_pi(actor_state, actor_params, obs, **kw)
 
-    def batch(key: Any, buffer: Any, size: int) -> tuple:
+    def batch(key: Any, buffer: Any, view: Any, size: int) -> tuple:
         obs = jnp.tile(jnp.asarray(raw), (size, 1))
         return obs, jnp.zeros((size, 1), jnp.int32), obs[:, -2], obs[:, -1]
 

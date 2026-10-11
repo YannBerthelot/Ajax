@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
-from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
 from ajax.agents.SAC.utils import SquashedNormal
@@ -55,7 +54,12 @@ class Encoder(nn.Module):
     def __call__(self, x):
         features = self.network(x)
         if self.penultimate_normalization:
-            return _l2_normalize(features, axis=1)
+            # Each feature vector (last axis) to unit L2 norm, whatever the
+            # leading batch or time axes: flax's _l2_normalize formula and
+            # eps, bitwise equal to its axis=1 on (B, F) inputs.
+            return features * jax.lax.rsqrt(
+                (features * features).sum(axis=-1, keepdims=True) + 1e-12
+            )
         if self.layer_norm:
             return self.norm(features)
         return features
@@ -85,6 +89,11 @@ class CNNEncoder(nn.Module):
     def __call__(self, x):
         H, W, C = self.image_shape
         img_flat = H * W * C
+        if x.shape[-1] != img_flat + self.extra_obs_dim:
+            raise ValueError(
+                f"CNNEncoder reads {img_flat} image dims {self.image_shape} and"
+                f" {self.extra_obs_dim} trailing dims, got {x.shape[-1]} dims."
+            )
         if self.extra_obs_dim > 0:
             img = x[..., :img_flat]
             extra = x[..., img_flat:]
@@ -501,7 +510,6 @@ def get_initialized_actor_critic(
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     action_dim_override: Optional[int] = None,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     log_std_state_independent: bool = False,
     log_std_init: float = -1.0,
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -527,22 +535,18 @@ def get_initialized_actor_critic(
     )
 
     memory = parse_memory_config(network_config.memory)
-    if memory is not None:
-        if network_config.penultimate_normalization:
-            # The encoder's l2-normalization is hardcoded to axis=1, which
-            # is the batch axis on time-major (T, B, F) inputs.
-            raise NotImplementedError(
-                "penultimate_normalization is incompatible with memory."
-            )
 
-    # Resolve the CNN encoder spec: an explicit arg (UDRL passes one)
-    # takes precedence, else fall back to the NetworkConfig field (the
-    # path SAC/PPO use). A CNN critic is only valid for state-value
-    # critics; an action-value critic (SAC's Q(s,a)) keeps the MLP.
-    if cnn_image_shape is None:
-        cnn_image_shape = network_config.cnn_image_shape
+    # A CNN critic is only valid for state-value critics; an action-value
+    # critic (SAC's Q(s,a)) keeps the MLP.
+    cnn_image_shape = network_config.cnn_image_shape
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
+    # Dims appended to the env's observation at run time: the train
+    # fraction and the agent's augmentation (UDRL's command, an expert's
+    # action). A CNN passes them through after the convolutions, with the
+    # env's own trailing dims, the same way in the actor and the critic.
+    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
     actor: nn.Module
     if isinstance(network_config.actor_architecture, PIDPolicy):
@@ -565,7 +569,7 @@ def get_initialized_actor_critic(
             encoder_kernel_init=encoder_kernel_init,
             encoder_bias_init=encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
-            cnn_extra_obs_dim=extra_obs_dim,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
@@ -583,7 +587,7 @@ def get_initialized_actor_critic(
         encoder_bias_init=encoder_bias_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=critic_cnn_image_shape,
-        cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
+        cnn_extra_obs_dim=cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
         memory=memory,
         query_dim=action_dim if action_value and memory is not None else 0,
@@ -596,7 +600,6 @@ def get_initialized_actor_critic(
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     # Inflate obs dim for train_frac and/or obs augmentation
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
     if obs_extra > 0:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += obs_extra
@@ -646,7 +649,9 @@ def get_initialized_critic(
     extra_obs_dim: int = 0,
 ) -> LoadedTrainState:
     """Initialize a standalone critic network (no actor). Same architecture as
-    the online critic so predict_value can be called on its params directly."""
+    the online critic so predict_value can be called on its params directly.
+    Always feedforward: its one reader (MCPretrain's frozen expert critic)
+    only calls predict_value."""
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
@@ -672,7 +677,6 @@ def get_initialized_critic(
         network=critic,
         key=key,
         tx=critic_tx,
-        memory=parse_memory_config(network_config.memory),
         n_envs=env_config.n_envs,
     )
 

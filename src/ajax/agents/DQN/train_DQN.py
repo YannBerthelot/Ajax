@@ -60,9 +60,8 @@ class ValueAuxiliaries:
 
 @struct.dataclass
 class AuxiliaryLogs:
-    # Nested one level deep on purpose: ajax.log.flatten_dict only
-    # collapses (1,)-shaped leaves to scalars for nested aux dataclasses,
-    # which is what ajax.log._make_no_op fills the skipped branch with.
+    # Nested one level deep so ajax.log.flatten_dict names the metrics
+    # ``value/<field>``, as the other agents' auxiliaries are named.
     value: ValueAuxiliaries
 
 
@@ -146,7 +145,7 @@ def init_DQN(
 ) -> Any:
     """The Q-network and the collector (writing to ``buffer``, if any) in a
     ``state_cls``: DQN's, or a descendant's (PQN: no buffer)."""
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     q_state = get_initialized_q_network(
         key=init_key,
@@ -167,7 +166,7 @@ def init_DQN(
     # works); critic_state mirrors it at init and is never updated.
     return state_cls(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=q_state,
         critic_state=q_state,
         collector_state=collector_state,
@@ -276,10 +275,12 @@ def q_gradient_step(
     targets: jax.Array,
     td_loss_fn: Callable,
     extension_stack: ExtensionStack,
+    key: Optional[jax.Array],
     total_timesteps: int,
 ) -> Tuple[LoadedTrainState, ValueAuxiliaries]:
     """One step of the Q-network (``agent_state.actor_state``) down the TD
-    loss plus the extensions' critic-loss terms. Returns the stepped
+    loss plus the extensions' critic-loss terms, folded on ``key`` (drawn
+    for them alone; ``None`` without extensions). Returns the stepped
     Q-network and the loss's metrics."""
     q_state = agent_state.actor_state
 
@@ -300,7 +301,7 @@ def q_gradient_step(
                 agent_state,
                 batch,
                 agent_state.collector_state.timestep,
-                agent_state.rng,
+                key,
                 total_timesteps,
             )
         return loss, aux
@@ -369,12 +370,13 @@ def update_agent(
         reward_scale=reward_scale,
     )
 
-    # Extension fold: TD-target shaping (analogous to SAC's
-    # ``stack.on_target``). Empty stack ⇒ identity. Each extension reads
-    # the standard DQN target operands off the batch dict.
+    # The extensions reshape the target, then add their loss terms, each on
+    # a key of its own (drawn only with extensions).
+    loss_key = None
     if extension_stack:
-        _tgt_rng, rng2 = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng2)
+        ext_key, rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng)
+        target_key, loss_key = jax.random.split(ext_key)
         _tgt_batch = {
             "observations": observations,
             "actions": actions,
@@ -389,7 +391,7 @@ def update_agent(
             _tgt_batch,
             target_q,
             agent_state.collector_state.timestep,
-            _tgt_rng,
+            target_key,
             total_timesteps,
         )
 
@@ -400,6 +402,7 @@ def update_agent(
         target_q,
         td_loss_fn,
         extension_stack,
+        loss_key,
         total_timesteps,
     )
 

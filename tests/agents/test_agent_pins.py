@@ -373,11 +373,6 @@ _GOLDEN |= {
         "critic": 9.956274032592773,
         "alpha": 0.972590446472168,
     },
-    "REDQ": {
-        "actor": 4.491269588470459,
-        "critic": 23.677350997924805,
-        "alpha": 0.9729597568511963,
-    },
     "SAC-gru": {
         "actor": 57.405818939208984,
         "critic": 134.20553588867188,
@@ -404,10 +399,30 @@ _GOLDEN |= {
         "nudge": 0.22634370625019073,
     },
 }
+# Recorded on macOS ARM CPU once ASAC's temperature and theta steps read one
+# sample of the updated policy (one actor pass fewer, one key fewer per
+# update): actor +0.034%, critic -0.015%, alpha +0.037%.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 4.501960754394531,
+        "critic": 9.954827308654785,
+        "alpha": 0.9729517102241516,
+    },
+}
+# Recorded on macOS ARM CPU once REDQ's critic loss summed each critic's
+# error and its actor read the critics from before their last update, both
+# as REDQ's official code. The second moved the actor -7.1e-6, the critic
+# -4.0e-7 and alpha +6.1e-8 (relative).
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 4.491237640380859,
+        "critic": 23.677995681762695,
+        "alpha": 0.9729598164558411,
+    },
+}
 # Recorded on macOS ARM CPU before step 17 moved the world models onto
 # TrainLoop and tidied APG and UDRL (the world models once they took
-# TrainLoop's init and post_update keys). UDRL's critic and its actor's
-# target are never-updated copies: not pinned.
+# TrainLoop's init and post_update keys).
 _GOLDEN |= {
     "DreamerV3-drift": {
         "actor": 92.46167755126953,
@@ -420,8 +435,11 @@ _GOLDEN |= {
         "world_model": 161.12486267089844,
         "drift": 0.2877737283706665,
     },
-    "UDRL-nudge": {"actor": 23.97211456298828, "nudge": 0.3160724639892578},
 }
+# Recorded on macOS ARM CPU once UDRL's sampler drew intervals across
+# segment boundaries (actor -1.3e-4; the nudge unchanged). UDRL's critic
+# and its actor's target are never-updated copies: not pinned.
+_GOLDEN |= {"UDRL-nudge": {"actor": 23.968936920166016, "nudge": 0.3160724639892578}}
 # Recorded on macOS ARM CPU once prepare_env kept the env_params given with
 # an env id: TDMPC2-drift had run on Pendulum's default T = 200, so its 40
 # steps ended before the seed tick and it pinned no update (actor +0.11 %,

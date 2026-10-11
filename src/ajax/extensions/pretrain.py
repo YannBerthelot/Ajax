@@ -18,14 +18,14 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.buffers.utils import get_batch_from_buffer
+from ajax.buffers.utils import get_batch_from_buffer, get_raw_next_obs_from_buffer
 from ajax.environments.interaction import (
     augment_from_buffer,
     augment_obs,
@@ -311,7 +311,9 @@ def refresh_phi_star(
         rewards = rewards * reward_scale
         dones = terminated.astype(jnp.float32)
 
-        a_expert_next = jax.lax.stop_gradient(expert_policy(next_obs))
+        # The expert reads the environment's own next observations.
+        raw_next = get_raw_next_obs_from_buffer(buffer, buffer_state, sample_key)
+        a_expert_next = jax.lax.stop_gradient(expert_policy(raw_next))
         if augment:
             obs, next_obs = augment_from_buffer(
                 buffer, buffer_state, sample_key, obs, next_obs
@@ -686,6 +688,7 @@ class PhiRefresh(Extension):
     reward_scale: Optional[float] = None
     augment_obs_with_expert_action: bool = False
     name: str = "phi_refresh"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.

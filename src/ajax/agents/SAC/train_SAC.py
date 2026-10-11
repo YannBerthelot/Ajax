@@ -952,9 +952,11 @@ def make_train(
         eval_kwargs={
             # Evaluate only in the last 20% of training (HPO phases).
             "sweep": logging_config is not None and logging_config.sweep,
-            "expert_policy": (
-                eval_expert_policy if eval_expert_policy is not None else expert_policy
-            ),
+            # The training expert builds the actor's input (augmentation,
+            # the residual's base, PID gains); eval_expert_policy, when
+            # given, only the expert's baseline return.
+            "expert_policy": expert_policy,
+            "eval_expert_policy": eval_expert_policy,
             "eval_action_transform": eval_action_transform,
             "pid_gain_policy": use_pid_policy,
             "augment_obs_with_expert_action": augment_obs_with_expert_action,

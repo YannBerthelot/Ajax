@@ -252,3 +252,23 @@ def test_normalised_agents_train_with_augmentation(monkeypatch, kw):
     )
     for x in seen:
         np.testing.assert_allclose(x[..., -1], -0.9)
+
+
+# --- the evaluation's experts ---------------------------------------------------
+
+
+def test_the_actor_is_evaluated_with_the_training_experts_column(monkeypatch):
+    """The evaluation builds the actor's input with the training expert
+    (-0.9); eval_expert_policy (0.5) only rolls out the baseline."""
+    seen = actor_inputs(monkeypatch)
+    baseline = RecordingExpert(action=0.5)
+    train(
+        log=True,
+        expert_policy=RecordingExpert(action=-0.9),
+        eval_expert_policy=baseline,
+        augment_obs_with_expert_action=True,
+    )
+    evaluated = [x for x in seen if len(x) == 3]
+    assert evaluated and baseline.seen
+    for x in evaluated:
+        np.testing.assert_allclose(x[..., -1], -0.9)

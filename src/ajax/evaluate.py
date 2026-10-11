@@ -545,6 +545,7 @@ def evaluate_expert(
         "pid_gain_policy",
         "augment_obs_with_expert_action",
         "augment_obs_with_expert_state",
+        "eval_expert_policy",
     ],
 )
 def evaluate(
@@ -567,11 +568,13 @@ def evaluate(
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
     expert_return: Optional[jax.Array] = None,
+    eval_expert_policy: Optional[Callable] = None,
 ) -> jax.Array:
     """Evaluate the actor's deterministic policy on ``num_episodes``
-    episodes; with ``expert_policy`` the expert's return too, rolled out
-    here unless already known (``expert_return``, from
-    :func:`evaluate_expert`)."""
+    episodes; with ``expert_policy`` (the training expert, which builds the
+    actor's input) the expert's return too, that of ``eval_expert_policy``
+    when given, rolled out here unless already known (``expert_return``,
+    from :func:`evaluate_expert`)."""
     env, mode, continuous, key, obs, state = _reset_eval_env(
         env, env_params, num_episodes, norm_info, rng, gamma
     )
@@ -663,12 +666,12 @@ def evaluate(
     expert_reward = jnp.nan
     if expert_return is not None:
         expert_reward = expert_return
-    elif expert_policy is not None:
+    elif expert_policy is not None or eval_expert_policy is not None:
         expert_reward = _expert_return(
             mode,
             env,
             env_params,
-            expert_policy,
+            eval_expert_policy or expert_policy,
             key,
             obs,
             state,

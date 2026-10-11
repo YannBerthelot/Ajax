@@ -182,7 +182,9 @@ class TDMPC2(ActorCritic):
                 burst, ``max(1, round(n_envs * updates_per_step))`` per
                 stepping tick (static); the default 1 is the reference's
                 UTD, which ``config.yaml`` does not expose (deviation T28).
-                The burst stays ``seed_steps`` updates.
+                The burst stays ``seed_steps`` updates. Episodic mode:
+                ``max(1, round(stepped * updates_per_step))`` on a tick that
+                stepped ``stepped > 0`` envs.
             episode_length: simulator steps per episode on brax /
                 playground (ignored on gymnax, which uses its params'
                 ``max_steps_in_episode``).
@@ -253,10 +255,11 @@ class TDMPC2(ActorCritic):
             "episode_length": self.agent_episode_length,
             "seed_steps": self.seed_steps,
         }
+        ratio = float(updates_per_step)
         self.schedule: Schedule | EpisodicSchedule = (
-            EpisodicSchedule(**schedule)
+            EpisodicSchedule(**schedule, updates_per_step=ratio)
             if episodic
-            else Schedule(**schedule, updates_per_step=float(updates_per_step))
+            else Schedule(**schedule, updates_per_step=ratio)
         )
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)

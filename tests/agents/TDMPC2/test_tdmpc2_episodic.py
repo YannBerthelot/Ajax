@@ -436,6 +436,31 @@ def test_the_episodic_schedule_counts_ticks_and_stepped_envs():
         EpisodicSchedule(n_envs=0, episode_length=10, seed_steps=100)
 
 
+@pytest.mark.parametrize(
+    "ratio, per_stepped",
+    [
+        (1.0, [0, 1, 2, 3, 4]),  # one per env step
+        (0.5, [0, 1, 1, 2, 2]),  # at least one; round(1.5) = 2, round(2.5) = 2
+        (2.0, [0, 2, 4, 6, 8]),
+    ],
+)
+def test_the_episodic_schedule_honours_updates_per_step(ratio, per_stepped):
+    """``max(1, round(stepped r))`` updates on a tick that stepped
+    ``stepped > 0`` envs (T28), none on a tick that stepped none; the
+    burst and the seed phase are unchanged."""
+    schedule = EpisodicSchedule(
+        n_envs=4, episode_length=10, seed_steps=100, updates_per_step=ratio
+    )
+    stepped = jnp.arange(5)
+    np.testing.assert_array_equal(schedule.n_updates(30, stepped), per_stepped)
+    np.testing.assert_array_equal(schedule.n_updates(25, stepped), 100)
+    np.testing.assert_array_equal(schedule.n_updates(20, stepped), 0)
+    with pytest.raises(ValueError, match="updates_per_step"):
+        EpisodicSchedule(
+            n_envs=4, episode_length=10, seed_steps=100, updates_per_step=0.0
+        )
+
+
 # The terminating chain s0 -0-> s1 -0-> s2 -1-> s3 (terminal), time limit 10:
 # the values are gamma^2, gamma, 1 at s0, s1, s2. The paper-era agent does
 # not see the termination (gymnax auto-resets to s0 mid-slot), so it learns
@@ -553,6 +578,25 @@ def test_the_episodic_ring_holds_the_collected_episodes(episodic_chain):
     np.testing.assert_array_equal(replay.terminal, replay.last)
     np.testing.assert_array_equal(replay.reward, replay.step == 3)
     np.testing.assert_array_equal(replay.action[replay.last], 0.0)
+
+
+def test_an_episodic_run_takes_its_updates_per_step():
+    """Two updates per env step in an episodic run: the chain's ticks step
+    both envs except every fourth (held), after the burst of S = 20 on the
+    seed tick ``max(20 // 2, 10) = 10``."""
+    agent = TDMPC2(
+        ChainEnv(),
+        episodic=True,
+        buffer_size=200,
+        updates_per_step=2.0,
+        **{**CHAIN, "seed_steps": 20},
+    )
+    state, _ = agent.train(seed=0, n_timesteps=120, num_episode_test=1)
+    ticks = np.arange(60)
+    stepping = (ticks > 10) & (ticks % 4 != 3)
+    expected = 20 + 4 * int(stepping.sum())
+    for count in (state.n_updates, state.world_model_state.step):
+        np.testing.assert_array_equal(count, expected)
 
 
 def test_an_episodic_run_resumes_as_the_uninterrupted_run():

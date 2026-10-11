@@ -202,20 +202,26 @@ class EpisodicSchedule:
     observation, so ticks are not env steps. With ``k_S = max(S div n, T)``:
     random actions on ticks ``0 .. k_S`` (the seed phase counts rows, held
     ones included; at least ``T + 1`` ticks, so every env has finished an
-    episode); the burst of ``S`` on tick ``k_S``, then one update per env
-    the tick stepped (``stepped``); a run of ``n_timesteps`` rows lasts
-    ``n_timesteps div n`` ticks.
+    episode); the burst of ``S`` on tick ``k_S``, then, on a tick that
+    stepped ``stepped > 0`` envs, ``max(1, round(stepped r))`` updates
+    (``r = updates_per_step``, T28: one per env step by default); a run of
+    ``n_timesteps`` rows lasts ``n_timesteps div n`` ticks.
     """
 
     n_envs: int
     episode_length: int
     seed_steps: int
+    updates_per_step: float = 1.0
 
     def __post_init__(self) -> None:
         if self.n_envs < 1 or self.episode_length < 1 or self.seed_steps < 0:
             raise ValueError(
                 "need n_envs >= 1, episode_length >= 1 and seed_steps >= 0, got"
                 f" {self.n_envs}, {self.episode_length}, {self.seed_steps}"
+            )
+        if not self.updates_per_step > 0:
+            raise ValueError(
+                f"updates_per_step must be > 0, got {self.updates_per_step}"
             )
 
     @property
@@ -230,7 +236,9 @@ class EpisodicSchedule:
         return tick <= self.seed_tick
 
     def n_updates(self, tick: Any, stepped: Any) -> Any:
-        after = jnp.where(tick > self.seed_tick, stepped, 0)
+        # jnp.round, like Python's round in Schedule, rounds halves to even.
+        per_tick = jnp.maximum(1, jnp.round(stepped * self.updates_per_step))
+        after = jnp.where((tick > self.seed_tick) & (stepped > 0), per_tick, 0)
         return jnp.where(tick == self.seed_tick, self.seed_steps, after).astype(
             jnp.int32
         )

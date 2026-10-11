@@ -21,7 +21,6 @@ from ajax.wrappers import (
     ClipActionBrax,
     FinalObsWrapper,
     FlattenObservationWrapper,
-    NoiseWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
     get_wrappers,
@@ -369,10 +368,9 @@ _NORMALISERS = (NormalizeVecObservationGymnax, NormalizeVecObservationBrax)
 
 def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
     """The task env under Ajax's own layers, and the keywords that rebuild
-    those layers with :func:`add_ajax_wrappers` (the observation noise of
-    :func:`prepare_env` is not rebuilt). Everything under them is the task:
-    the user's wrappers, the flattening of :func:`build_env_from_id`, a brax
-    stack's time limit."""
+    those layers with :func:`add_ajax_wrappers`. Everything under them is
+    the task: the user's wrappers, the flattening of
+    :func:`build_env_from_id`, a brax stack's time limit."""
     layers: dict = {}
     for layer in wrapper_chain(env):
         if isinstance(layer, _NORMALISERS):
@@ -382,7 +380,7 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
                 "gamma": layer.gamma,
                 "apply_obs_normalization": layer.apply_normalization,
             }
-        elif not isinstance(layer, (*_CLIPS, NoiseWrapper)):
+        elif not isinstance(layer, _CLIPS):
             return layer, layers
     raise ValueError(f"No task env under the Ajax wrappers of {env!r}")
 
@@ -395,7 +393,6 @@ def prepare_env(
     normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,  # Discount factor for reward normalization
-    noise_scale: Optional[float] = None,
     apply_obs_normalization: bool = True,
     action_repeat: int = 1,
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
@@ -445,7 +442,4 @@ def prepare_env(
         gamma=gamma,
         apply_obs_normalization=apply_obs_normalization,
     )
-    if noise_scale is not None:
-        print("noise wrapper")
-        env = NoiseWrapper(env, scale=noise_scale)
     return env, env_params, env_id, continuous

@@ -17,7 +17,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
+from ajax.agents.AVG.state import AVGConfig, AVGState, RunningMoments
 from ajax.agents.AVG.utils import compute_td_error_scaling
 from ajax.agents.loop import TrainLoop, critic_step, gradient_step
 from ajax.agents.recurrent import q_values
@@ -82,7 +82,7 @@ def init_AVG(
     )
     # One running statistic per scalar (reward, discount, return), shared
     # by every env.
-    init_norm_info = NormalizationInfo(
+    init_norm_info = RunningMoments(
         value=jnp.zeros((env_args.n_envs, 1)),
         count=jnp.zeros((1,)),
         mean=jnp.zeros((1, 1)),

@@ -1,13 +1,13 @@
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.AVG.state import NormalizationInfo
+from ajax.agents.AVG.state import RunningMoments
 from ajax.utils import online_normalize
 
 
 def _normalize_and_update(
-    info: NormalizationInfo, square_value: bool
-) -> tuple[NormalizationInfo, jnp.array]:
+    info: RunningMoments, square_value: bool
+) -> tuple[RunningMoments, jnp.array]:
     """Fold ``info.value`` (squared when ``square_value``) into its running
     statistics; returns them and the running variance."""
     value = jnp.square(info.value) if square_value else info.value
@@ -18,10 +18,10 @@ def _normalize_and_update(
 
 
 def compute_td_error_scaling(
-    reward: NormalizationInfo,
-    gamma: NormalizationInfo,
-    G_return: NormalizationInfo,
-) -> tuple[jnp.array, NormalizationInfo, NormalizationInfo, NormalizationInfo]:
+    reward: RunningMoments,
+    gamma: RunningMoments,
+    G_return: RunningMoments,
+) -> tuple[jnp.array, RunningMoments, RunningMoments, RunningMoments]:
     """AVG's TD-error scale ``sqrt(var(r) + E[G^2] var(gamma))`` (1 until two
     returns were seen), with the reward, discount and squared-return
     statistics updated; ``G_return.value`` is NaN unless an episode just

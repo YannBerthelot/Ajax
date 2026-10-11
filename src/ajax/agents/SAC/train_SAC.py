@@ -586,13 +586,13 @@ def update_agent(
 
     # --- Obs augmentation (interaction.augment_obs's layout) ---
     # Must happen before any network call (critic, actor, policy loss).
-    # The expert is defined in the environment's units and acts on its raw
-    # observations, as in collection and evaluation. The buffer keeps the
-    # raw observation, not the raw next one; for s' it keeps the action
-    # collection computed on the raw next observation (next_a_expert, the
-    # final one where an episode ended, from the expert's post-step state).
+    # The expert's actions as collection computed them, on the raw
+    # observations (an expert is defined in the environment's units) and
+    # from the expert's state, which the update does not have: a_expert at
+    # s, next_a_expert at s' (the final observation where an episode ended,
+    # from the expert's post-step state).
     if augment_obs_with_expert_action and expert_policy is not None:
-        aug_obs = augment_obs(transition.obs, expert_action=expert_policy(_raw))
+        aug_obs = augment_obs(transition.obs, expert_action=transition.a_expert)
         aug_next_obs = augment_obs(
             transition.next_obs, expert_action=transition.next_a_expert
         )

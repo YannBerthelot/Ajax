@@ -6,7 +6,7 @@ from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.utils import SquashedNormal
-from ajax.environments.interaction import get_pi, reset, step
+from ajax.environments.interaction import get_pi, get_raw_obs, reset, step
 from ajax.environments.row_collector import PolicyFn, check_unnormalized_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
@@ -159,6 +159,14 @@ def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):
     return fn
 
 
+def _expert_obs(state, env, mode) -> jax.Array:
+    """The observations an expert is given, as the collector gives them
+    (:func:`~ajax.environments.interaction.get_raw_obs`): the environment's
+    own, before any observation normalisation; an expert is defined in the
+    environment's units."""
+    return get_raw_obs(env_state=state, env=env, mode=mode).astype(jnp.float32)
+
+
 def step_environment(
     mode,
     env,
@@ -217,6 +225,11 @@ def step_environment(
         step_keys = (
             jax.random.split(step_key, obs.shape[0]) if mode == "gymnax" else step_key
         )
+        # The expert acts on the environment's own observations, as in
+        # collection: not normalised, without the training-fraction column.
+        expert_obs = (
+            _expert_obs(state, env, mode) if expert_policy is not None else None
+        )
 
         # When augmenting obs with the expert action OR with the expert's
         # internal state, compute the (stateful) expert call BEFORE the
@@ -233,10 +246,10 @@ def step_environment(
         if _need_expert_call:
             if expert_is_stateful:
                 _aug_expert_action, _aug_new_expert_state = expert_policy(
-                    expert_state, obs
+                    expert_state, expert_obs
                 )
             else:
-                _aug_expert_action = expert_policy(obs)
+                _aug_expert_action = expert_policy(expert_obs)
                 _aug_new_expert_state = expert_state
             if augment_obs_with_expert_action:
                 obs_for_actor = jnp.concatenate(
@@ -272,14 +285,16 @@ def step_environment(
         if pid_gain_policy:
             gains = _anchor_gains * jnp.exp(_gain_log_scale * raw_actions)
             actions, new_expert_state = expert_policy.step_with_gains(
-                expert_state, obs, gains
+                expert_state, expert_obs, gains
             )
         elif eval_action_transform is not None:
             if expert_policy is not None:
                 if expert_is_stateful:
-                    expert_actions, new_expert_state = expert_policy(expert_state, obs)
+                    expert_actions, new_expert_state = expert_policy(
+                        expert_state, expert_obs
+                    )
                 else:
-                    expert_actions = expert_policy(obs)
+                    expert_actions = expert_policy(expert_obs)
                     new_expert_state = expert_state
             else:
                 expert_actions = 0.0
@@ -373,7 +388,8 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             else step_key
         )
 
-        actions, new_expert_state = expert_policy(expert_state, obs)
+        expert_obs = _expert_obs(state, env, mode)  # as in step_environment
+        actions, new_expert_state = expert_policy(expert_state, expert_obs)
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys, state, actions, env, mode, env_params
         )

@@ -181,6 +181,7 @@ class ImitationLoss(Extension):
     expert_policy: Callable
     coef: float = 1.0
     name: str = "imitation_loss"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def experts(self) -> tuple:
         return (self.expert_policy,)  # called on each batch, without a state
@@ -349,6 +350,7 @@ class ExpertValueMetrics(Extension):
     expert_policy: Optional[Callable] = None
     augment_obs_with_expert_action: bool = False
     name: str = "expert_value_metrics"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":
         if self.buffer is not None:

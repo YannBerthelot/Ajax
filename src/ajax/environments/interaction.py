@@ -602,7 +602,6 @@ def get_action_and_log_probs(
     action_key: chex.PRNGKey,
     agent_state: BaseAgentState,
     recurrent: bool,
-    uniform: bool,
 ) -> Tuple[jax.Array, jax.Array, jax.Array, BaseAgentState]:
     """Sample an action from the policy.
 
@@ -613,7 +612,7 @@ def get_action_and_log_probs(
     would freeze the policy's memory at zero for the whole collection
     phase.
     """
-    action, log_probs, raw_action, agent_state = get_action_and_new_agent_state(
+    return get_action_and_new_agent_state(
         action_key,
         agent_state,
         agent_state.collector_state.last_obs,
@@ -622,15 +621,6 @@ def get_action_and_log_probs(
             agent_state.collector_state.last_truncated,
         ),
         recurrent=recurrent,
-    )
-    uniform_action = jax.random.uniform(
-        key=action_key, minval=-1, maxval=1, shape=action.shape
-    )  # TODO : add actual bounds
-    return (
-        uniform * uniform_action + (1 - uniform) * action,
-        log_probs,
-        raw_action,
-        agent_state,
     )
 
 
@@ -683,36 +673,6 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
 
 def identity(*args):
     return args
-
-
-def get_buffer_action_and_env_action(
-    rng: jax.Array,
-    expert_action: jax.Array,
-    policy_action: jax.Array,
-    is_warmup: jax.Array,
-    expert_fraction: float = 0.7,
-) -> tuple[jax.Array, jax.Array]:
-    """
-    During warmup: randomly choose between expert and uniform for BOTH
-    the environment step and the buffer write, so rewards are consistent.
-    After warmup: use the policy action for both.
-
-    Returns (env_action, buffer_action) — always the same during warmup,
-    always policy_action after warmup.
-    """
-    mix_key, _ = jax.random.split(rng)
-    uniform_action = jax.random.uniform(
-        mix_key, minval=-1.0, maxval=1.0, shape=expert_action.shape
-    )
-    use_expert = jax.random.uniform(mix_key) < expert_fraction
-    warmup_action = jnp.where(use_expert, expert_action, uniform_action)
-
-    env_action = jax.lax.cond(
-        is_warmup,
-        lambda: warmup_action,
-        lambda: policy_action,
-    )
-    return env_action, env_action  # buffer_action = env_action always
 
 
 class ActionPipelineResult(NamedTuple):
@@ -873,11 +833,13 @@ def collect_experience(
             action_key=action_key,
             agent_state=agent_state,
             recurrent=recurrent,
-            uniform=False,
         )
         uniform_action = jax.random.uniform(
             mix_key, minval=-1.0, maxval=1.0, shape=action.shape
         )
+        # A discrete policy's action is stepped and stored as a float, the
+        # uniform draw's dtype, which the cond needs both branches to share.
+        action = action.astype(uniform_action.dtype)
         env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
         is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
         in_value_box = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)

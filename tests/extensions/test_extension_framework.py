@@ -1,17 +1,24 @@
 """Tests for the Extension framework (`ajax.extensions.base`)."""
 
+import dataclasses
+import importlib
+import pkgutil
+import typing
 from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+import ajax.extensions
 from ajax.extensions.base import (
     PHASES,
     Extension,
     ExtensionContext,
     ExtensionStack,
 )
+from ajax.extensions.expert import ExpertValueMetrics, ImitationLoss
+from ajax.extensions.target_mods import IBRL
 
 
 def _ctx(step: int = 0) -> ExtensionContext:
@@ -357,3 +364,60 @@ def test_compose_eval_metrics_folds_the_stack_at_the_collector_timestep():
     eval_metrics = compose_eval_metrics(ExtensionStack([Metric()]), 100)
     out = eval_metrics(_FakeAgent(), jax.random.PRNGKey(0))
     assert float(out["s/x"]) == 2.0 and int(out["s/step"]) == 7
+
+
+# --------------------------------------------------------------------------
+# with_experts — the experts extensions hold, converted at one door
+# --------------------------------------------------------------------------
+def _ajax_extension_classes() -> list[type[Extension]]:
+    for module in pkgutil.iter_modules(ajax.extensions.__path__):
+        importlib.import_module(f"ajax.extensions.{module.name}")
+    classes: list[type[Extension]] = []
+    todo: list[type[Extension]] = [Extension]
+    while todo:
+        for sub in todo.pop().__subclasses__():
+            todo.append(sub)
+            if sub.__module__.startswith("ajax.extensions"):
+                classes.append(sub)
+    return classes
+
+
+def test_every_extension_field_holding_an_expert_is_declared():
+    """A callable field named for an expert is in ``expert_fields``, or
+    with_experts would hand it to the extension unconverted."""
+    holders = set()
+    for cls in _ajax_extension_classes():
+        if not dataclasses.is_dataclass(cls):
+            assert not cls.expert_fields, cls.__name__
+            continue
+        hints = typing.get_type_hints(cls)
+        held = {
+            f.name
+            for f in dataclasses.fields(cls)
+            if "expert" in f.name and "Callable" in str(hints[f.name])
+        }
+        assert cls.expert_fields == held, cls.__name__
+        holders |= {cls.__name__} if held else set()
+    assert {"ImitationLoss", "IBRL", "MCPretrain", "ExpertValueMetrics"} <= holders
+
+
+def test_with_experts_converts_each_held_expert_and_keeps_identity():
+    def expert(obs):
+        return obs
+
+    memo: dict = {}
+
+    def convert(e):
+        return memo.setdefault(id(e), lambda obs: 0.5 * e(obs))
+
+    other = AddTarget(1.0)
+    stack = ExtensionStack(
+        [IBRL(expert), ImitationLoss(expert), ExpertValueMetrics(), other]
+    )
+    ibrl, imitation, metrics, untouched = stack.with_experts(convert)
+    assert ibrl.expert_policy is imitation.expert_policy is convert(expert)
+    assert metrics.expert_policy is None  # bound later, from the agent
+    assert untouched is other
+    # one expert, one object: IBRL still reads the agent's stored actions
+    bound = ExtensionStack([ibrl]).bind_to_agent(expert_policy=convert(expert))
+    assert bound.extensions[0].reads_stored_expert

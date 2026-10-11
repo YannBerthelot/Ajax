@@ -231,8 +231,10 @@ the reference reuses the training env and prev_mean).
   `episode_length` explicitly; `_infer_max_eval_steps` is replaced at the new call sites
   by `agent_episode_length`.
 - **Action bounds.** The collector and `evaluate_policy` map the agent's action to the
-  env: `a_env = low + (clip(a, −1, 1) + 1)/2 · (high − low)` for finite Box bounds
-  (DreamerV3 reference `NormalizeAction` + `ClipAction`; TD-MPC2 `action_scale`).
+  env: `a_env = c + h · clip(a, −1, 1)` for finite Box bounds, with centre
+  `c = (high + low)/2` and half-range `h = (high − low)/2`, exactly the clip on a
+  [−1, 1] box (DreamerV3 reference `NormalizeAction` + `ClipAction`; TD-MPC2
+  `action_scale`).
   Replay stores the agent's raw action. Test with Pendulum's [−2, 2].
 
 ### 5.2 Row collector (`src/ajax/environments/row_collector.py`)

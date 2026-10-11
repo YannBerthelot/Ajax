@@ -33,7 +33,7 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
 from ajax.types import BufferType
 
@@ -245,7 +245,7 @@ def pretrain_critic_online_light(
         v_expert = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(
-                    critic_state=agent_state.critic_state,
+                    critic_state=phi_star_critic_state(agent_state.critic_state),
                     critic_params=agent_state.expert_critic_params,
                     x=jnp.concatenate([obs, actions], axis=-1),
                 ),

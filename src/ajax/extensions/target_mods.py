@@ -34,7 +34,7 @@ import jax.numpy as jnp
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.exploration import lcb_beta, lcb_score
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import phi_star_critic_state, predict_value
 
 
 def blend_modify_target(
@@ -59,7 +59,7 @@ def mc_correction_modify_target(
     uncertain_mask = q_var > mc_variance_threshold
     q_mc_target = jnp.min(
         predict_value(
-            critic_state=critic_state,
+            critic_state=phi_star_critic_state(critic_state),
             critic_params=critic_params_mc,
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         ),
@@ -96,7 +96,7 @@ def box_compute_state(
     """
     v_box = jnp.min(
         predict_value(
-            critic_state=critic_state,
+            critic_state=phi_star_critic_state(critic_state),
             critic_params=expert_critic_params,
             x=jnp.concatenate([obs, a_exp], axis=-1),
         ),
@@ -271,7 +271,7 @@ class CriticBlend(Extension):
         v_expert_next = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(
-                    critic_state=agent_state.critic_state,
+                    critic_state=phi_star_critic_state(agent_state.critic_state),
                     critic_params=agent_state.expert_critic_params,
                     x=jnp.concatenate([next_observations, a_expert_next], axis=-1),
                 ),

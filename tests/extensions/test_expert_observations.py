@@ -303,6 +303,40 @@ def test_normalised_agents_train_with_augmentation(monkeypatch, kw):
         np.testing.assert_allclose(x[..., -1], -0.9)
 
 
+@pytest.mark.parametrize(
+    "kw",
+    [{"normalize_obs_running": True}, {"pre_train_n_steps": 64}],
+    ids=["running", "cloning"],
+)
+def test_phi_star_is_queried_as_it_was_fitted(kw):
+    """With the agent's own observation statistics (running, or seeded by
+    cloning), phi* is still fitted on observations as stored; ValueBox's
+    expert value and MCVarianceCorrection's target read it the same way."""
+    from ajax.extensions.target_mods import (
+        box_compute_state,
+        mc_correction_modify_target,
+    )
+    from ajax.networks.networks import predict_value
+
+    expert = RecordingExpert(action=-0.5)
+    state = train(expert_policy=expert, extensions=(_mc(expert),), **kw)
+    first = lambda tree: jax.tree.map(lambda x: x[0], tree)  # noqa: E731
+    critic, phi = first(state.critic_state), first(state.expert_critic_params)
+    assert critic.obs_norm_info is not None
+    obs = jnp.array([[1.0, 0.0, 5.0], [0.0, 1.0, -6.0]])
+    a = jnp.full((2, 1), -0.5)
+    x = jnp.concatenate([obs, a], axis=-1)
+    fitted = predict_value(critic.replace(obs_norm_info=None), phi, x).min(0)
+    through_stats = predict_value(critic, phi, x).min(0)
+    assert not np.allclose(fitted, through_stats, atol=1e-3)  # the statistics matter
+    v_box = box_compute_state(obs, a, critic, phi, jnp.float32(-1e9), None)[2]
+    target = mc_correction_modify_target(
+        jnp.zeros((2, 1)), critic, phi, obs, a, jnp.full((2,), 1e9), 0.0
+    )
+    np.testing.assert_allclose(v_box, fitted, rtol=1e-6)
+    np.testing.assert_allclose(target, fitted, rtol=1e-6)
+
+
 # --- the evaluation's experts ---------------------------------------------------
 
 

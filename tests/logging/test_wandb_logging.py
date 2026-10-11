@@ -1,4 +1,7 @@
 import json
+import re
+import subprocess
+import sys
 
 import jax.numpy as jnp
 
@@ -6,10 +9,23 @@ from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
     load_scalars_from_tfevents,
+    new_run_id,
     start_async_logging,
     stop_async_logging,
     vmap_log,
 )
+
+
+def test_importing_ajax_does_not_import_wandb():
+    """wandb (about 0.4 s to import) loads only when a run logs to W&B."""
+    code = "import sys, ajax; from ajax import SAC, TDMPC2; assert 'wandb' not in sys.modules"
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_run_ids_have_wandb_format():
+    ids = {new_run_id() for _ in range(100)}
+    assert len(ids) == 100
+    assert all(re.fullmatch("[a-z0-9]{8}", run_id) for run_id in ids)
 
 
 def test_async_tensorboard_logging_round_trip(tmp_path):

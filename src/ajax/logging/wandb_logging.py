@@ -3,6 +3,8 @@
 import json
 import multiprocessing as mp
 import os
+import secrets
+import string
 import struct as pystruct
 from collections import defaultdict
 from pathlib import Path
@@ -10,21 +12,6 @@ from typing import Any, Dict, Optional, Sequence
 
 import jax
 import jax.numpy as jnp
-
-# wandb is imported defensively: a broken wandb install (e.g. partial
-# protobuf upgrade leaving ``wandb.proto.wandb_telemetry_pb2.Deprecated``
-# missing) would otherwise crash every Ajax import — and therefore every
-# downstream consumer (EVAREST run.py, every script that does
-# ``from ajax import SAC``) — even when wandb is never actually called
-# (TensorBoard-only runs set ``use_wandb=False``). When the import
-# fails, ``wandb`` is bound to ``None`` and callers that gate on
-# ``logging_config.use_wandb`` continue to work. Functions that try to
-# call ``wandb.X`` with no install raise a clear AttributeError instead
-# of a confusing import-time crash.
-try:
-    import wandb  # type: ignore[import-untyped]
-except ImportError:
-    wandb = None  # type: ignore[assignment]
 from flax.struct import dataclass as flax_dataclass
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
@@ -51,6 +38,23 @@ class LoggingConfig:
         logging worker; without one it still evaluates (``train`` returns
         the evaluations)."""
         return self.use_wandb or self.use_tensorboard
+
+
+def _wandb() -> Any:
+    """wandb, imported where a run logs to W&B and not before: the import
+    takes about 0.4 s, and a broken install (e.g. a partial protobuf
+    upgrade) must not break importing Ajax, nor a run that does not use
+    W&B."""
+    import wandb  # type: ignore[import-untyped]
+
+    return wandb
+
+
+def new_run_id() -> str:
+    """A fresh run id in W&B's format (``wandb.sdk.lib.runid.generate_id``:
+    8 random base-36 digits), without importing wandb."""
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
 # ---------------------------------------------------------------------------
@@ -87,16 +91,6 @@ def _logging_worker(q: Any) -> None:
         ("log",        run_id, metrics, step)       — buffer one step
         None                                        — poison pill / shutdown
     """
-    # Defensive re-import: a broken wandb in the spawned worker subprocess
-    # would kill the whole logging chain (which then propagates back to
-    # the main training process via the multiprocessing Queue closure).
-    # When wandb is unavailable we still want TensorBoard logging to work,
-    # so swallow the ImportError and bind _wandb=None. ``flush_run`` already
-    # gates wandb.init/log on use_wandb_map[run_id], so None is safe.
-    try:
-        import wandb as _wandb  # re-import in fresh spawned process
-    except ImportError:
-        _wandb = None  # type: ignore[assignment]
     from tensorboardX import SummaryWriter as _SW
 
     # run_id -> list of (metrics_dict, step)
@@ -115,8 +109,10 @@ def _logging_worker(q: Any) -> None:
             return
         if use_wandb_map.get(run_id):
             project, name = run_info[run_id]
+            # A broken wandb install fails here, reported like any failed
+            # flush: TensorBoard logging goes on.
             try:
-                run = _wandb.init(
+                run = _wandb().init(
                     project=project,
                     name=name,
                     id=run_id,
@@ -236,6 +232,7 @@ def init_logging(
     seed (see the per-run ``config.json`` written for TensorBoard runs).
     """
     if logging_config.use_wandb:
+        wandb = _wandb()
         wandb.init(
             project=logging_config.project_name,
             name=f"{logging_config.run_name}_{run_id}",

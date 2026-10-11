@@ -22,7 +22,9 @@ from flax.training.train_state import TrainState
 from ajax.agents import loop as loop_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.SAC.SAC import SAC
 from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
@@ -312,6 +314,57 @@ def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
     np.testing.assert_array_equal(resumed.collector_state.timestep, 2 * 80)
     logged = [96, 112, 128, 144, -1, -1]
     np.testing.assert_array_equal(resumed_rows["timestep"], [logged] * len(SEEDS))
+
+
+class _HalfTorque:
+    """A stateful expert (SAC's convention)."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0), state
+
+
+def _expert_rows(normalize_observations: bool) -> tuple[Any, Any, np.ndarray]:
+    agent = SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        learning_starts=16,
+        batch_size=8,
+        expert_policy=_HalfTorque(),
+        expert_buffer_n_steps=0,
+        normalize_observations=normalize_observations,
+    )
+    state, rows = agent.train(
+        seed=SEEDS, n_timesteps=BUDGET, num_episode_test=2, logging_config=_config()
+    )
+    return agent, state, np.asarray(rows["Eval/episodic mean expert reward"])
+
+
+def test_the_expert_return_is_computed_once_per_call() -> None:
+    """One key on one env: every evaluation reports the return the expert's
+    rollout in ``evaluate`` earns."""
+    agent, state, rows = _expert_rows(normalize_observations=False)
+    for seed in range(len(SEEDS)):
+        expert_return = evaluate(
+            agent.env_args.env,
+            jax.tree.map(lambda x, s=seed: x[s], state.actor_state),
+            2,
+            state.eval_rng[seed],
+            agent.env_args.env_params,
+            expert_policy=agent.expert_policy,
+        )[-1]
+        np.testing.assert_allclose(rows[seed, :4], float(expert_return), rtol=1e-6)
+
+
+def test_the_expert_sees_the_normaliser_of_each_evaluation() -> None:
+    """With an observation normaliser the expert sees its statistics of the
+    moment: its return is evaluated each time, and moves."""
+    _, _, rows = _expert_rows(normalize_observations=True)
+    assert np.all(np.ptp(rows[:, :4], axis=1) > 0)
 
 
 # --- Agents acting, training and evaluating their own way --------------------

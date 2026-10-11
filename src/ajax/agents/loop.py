@@ -207,6 +207,7 @@ def critic_step(
         loss_batch = {
             "observations": batch.obs,
             "actions": batch.action,
+            "targets": target_q,
             "critic_params": params,
             "critic_state": critic_state,
         }

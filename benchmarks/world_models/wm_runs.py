@@ -206,8 +206,9 @@ def check_specification(out_dir: str, spec: dict[str, Any]) -> None:
             stored = json.load(f)["spec"]
         if stored != spec:
             raise ValueError(
-                f"{out_dir} holds a run of another specification: start it in"
-                " a new directory (or delete the old one)"
+                f"{out_dir} holds a run of another specification (differing:"
+                f" {', '.join(spec_differences(stored, spec))}): start it in a"
+                " new directory (or delete the old one)"
             )
         return
     os.makedirs(out_dir, exist_ok=True)

@@ -16,15 +16,16 @@ entries; the CLI is shared.
 
 Usage::
 
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py --list
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py \\
+    JAX_PLATFORMS=cpu python benchmarks/world_models/learning_checks.py --list
+    JAX_PLATFORMS=cpu python benchmarks/world_models/learning_checks.py \\
         --only dreamerv3-cartpole --seeds 0 1 --out results.jsonl
-    JAX_PLATFORMS=cpu python benchmarks/learning_checks.py --smoke  # plumbing
+    JAX_PLATFORMS=cpu python benchmarks/world_models/learning_checks.py --smoke  # plumbing
 
 ``--smoke`` runs each check's tiny variant (:data:`SMOKE`) to check the
 script itself; it says nothing about learning and gives no verdict. Each
-check appends one JSON line (curves, finals, bar, verdict, wall time, git
-sha) to ``--out``; the exit code is 1 when a (non-smoke) check fails.
+check appends one JSON line (curves, finals, bar, verdict, wall time, and
+the paper-protocol runs' provenance: git commit and dirtiness, JAX
+version, backend, device) to ``--out``; the exit code is 1 when a (non-smoke) check fails.
 
 **The metric** is ``Eval/episodic mean reward``: the mean return of
 ``num_episode_test`` episodes of the current policy from fresh resets (for DreamerV3, sampled actions from a zero carry: the reference has
@@ -88,14 +89,12 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import os
-import subprocess
 import time
 from typing import Any, Optional
 
 import numpy as np
-
-_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from paper_protocol import DREAMERV3_TINY, TDMPC2_TINY
+from wm_runs import provenance
 
 
 @dataclasses.dataclass(frozen=True)
@@ -185,31 +184,11 @@ def _smoke_description(name: str) -> str:
     return f"smoke run of {name} (tiny model, short budget): plumbing only"
 
 
-_DREAMERV3_TINY: dict[str, Any] = {
-    "model_size": "1m",
-    "units": 16,
-    "hidden": 16,
-    "deter": 32,
-    "classes": 4,
-    "stoch": 4,
-    "blocks": 4,
-    "imag_horizon": 3,
-    "batch_size": 4,
-    "batch_length": 8,
-    "train_ratio": 32,
-    "n_envs": 4,
-}
-_TDMPC2_TINY: dict[str, Any] = {
-    **_TDMPC2,
-    "enc_dim": 32,
-    "mlp_dim": 32,
-    "latent_dim": 16,
-    "batch_size": 16,
-    "num_samples": 32,
-    "num_elites": 4,
-    "num_pi_trajs": 4,
-    "iterations": 2,
-}
+# paper_protocol's tiny models without its task's settings: each smoke
+# check keeps its own task's.
+_TASK_KEYS = ("action_repeat", "episode_length", "seed_steps")
+_DREAMERV3_TINY = {k: v for k, v in DREAMERV3_TINY.items() if k not in _TASK_KEYS}
+_TDMPC2_TINY = {k: v for k, v in TDMPC2_TINY.items() if k not in _TASK_KEYS}
 SMOKE: dict[str, Check] = {
     **{
         name: dataclasses.replace(
@@ -234,26 +213,12 @@ SMOKE: dict[str, Check] = {
     "tdmpc2-cartpole-balance": dataclasses.replace(
         CHECKS["tdmpc2-cartpole-balance"],
         description=_smoke_description("tdmpc2-cartpole-balance"),
-        kwargs={
-            **_TDMPC2_TINY,
-            "episode_length": 40,
-            "action_repeat": 2,
-            "seed_steps": 20,
-        },
+        kwargs=TDMPC2_TINY,  # episode_length 40 at action repeat 2: T = 20
         n_timesteps=80,
         log_frequency=40,
         num_episode_test=2,
     ),
 }
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=_REPO, text=True
-        ).strip()
-    except Exception:
-        return "unknown"
 
 
 def _logged(metrics: dict, key: str, ticks: np.ndarray) -> np.ndarray:
@@ -357,8 +322,7 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
             if hasattr(agent, key)
         },
         "wall_s": round(wall, 1),
-        "git_sha": _git_sha(),
-        "jax_backend": jax.default_backend(),
+        "provenance": provenance(),
     }
 
 

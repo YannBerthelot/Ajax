@@ -905,7 +905,7 @@ benefit.
 
 ## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
 
-`benchmarks/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
+`benchmarks/world_models/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
 at `model_size=1` with every other hyperparameter at the paper default (512
 planning samples including 24 policy-prior trajectories, 64 elites, 6 MPPI
 iterations, batch 256, UTD 1, one env, `seed_steps = max(1000, 5 T)`, `gamma`
@@ -932,12 +932,12 @@ Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py --only TDMPC2
 lists TDMPC2 as `NEW (no baseline)`.
 
 The checks are the entries `tdmpc2-pendulum` and `tdmpc2-cartpole-balance` of
-the shared `benchmarks/learning_checks.py` registry (merged with DreamerV3's in
+the shared `benchmarks/world_models/learning_checks.py` registry (merged with DreamerV3's in
 M7; same agent arguments, budgets, cadences and bars as the runs above).
 
 ## DreamerV3 agent (M7): CPU learning checks, reference comparison and bench entry (2026-10-03)
 
-`benchmarks/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
+`benchmarks/world_models/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
 512, 4 classes) with every other hyperparameter at the paper-era default (16
 envs, train ratio 512, batches of 16 x 64, imagination horizon 15), 20,000 rows
 (the agent's unit: one row per env per vector step, reset rows included), so

@@ -224,19 +224,12 @@ def get_minibatches_from_batch(batch: Any, rng: jax.Array, num_minibatches: int)
         f"T={T}, n_envs={n_envs}, total={total}, {num_minibatches=}"
     )
 
-    # Flatten the leading (T, n_envs) dims into a single sample axis for
-    # every leaf, regardless of trailing feature dims.
-    new_batch = jax.tree_util.tree_map(
-        lambda x: x.reshape((total,) + x.shape[2:]), batch
-    )
-    # Same rng + same leading dim => identical permutation across leaves
-    # => sample alignment preserved.
-    shuffled_batch = jax.tree_util.tree_map(
-        lambda x: jax.random.permutation(rng, x, axis=0), new_batch
-    )
-    # Split the flat sample axis into num_minibatches chunks.
-    minibatches = jax.tree_util.tree_map(
-        lambda x: jnp.reshape(x, (num_minibatches, -1) + x.shape[1:]),
-        shuffled_batch,
-    )
-    return minibatches
+    # One permutation for every leaf: jax.random.permutation(rng, x, axis=0)
+    # per leaf draws the same one, but shuffles a 1-D leaf by sorting it.
+    perm = jax.random.permutation(rng, total)
+
+    def shuffle(x: jax.Array) -> jax.Array:
+        x = jnp.take(x.reshape((total,) + x.shape[2:]), perm, axis=0)
+        return x.reshape((num_minibatches, -1) + x.shape[1:])
+
+    return jax.tree.map(shuffle, batch)

@@ -280,13 +280,14 @@ def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
 
 
 def test_the_actor_acts_and_trains_on_one_augmented_layout(monkeypatch):
-    """The expert's action (a constant -0.9 here) sits in the same column of
-    every input the actor is given, acting, evaluated or trained, after
-    Pendulum's three observations and the training fraction."""
+    """The expert's action (a constant -0.9 torque here, -0.45 in agent
+    units) sits in the same column of every input the actor is given,
+    acting, evaluated or trained, after Pendulum's three observations and
+    the training fraction."""
     seen = _actor_inputs(monkeypatch, lambda obs: jnp.full((*obs.shape[:-1], 1), -0.9))
     for x in seen:
         assert x.shape[-1] == 5
-        np.testing.assert_allclose(x[..., 4], -0.9, err_msg=f"batch {x.shape[0]}")
+        np.testing.assert_allclose(x[..., 4], -0.45, err_msg=f"batch {x.shape[0]}")
         assert ((0.0 <= x[..., 3]) & (x[..., 3] <= 1.0)).all()  # the fraction
 
 
@@ -306,12 +307,13 @@ def test_the_update_reads_the_stateful_experts_actions_from_the_buffer(monkeypat
     """The update augments the observation and the next one with the
     actions collection stored, which the expert took from its state; it
     never calls the expert without its state. Every input the actor is
-    given holds -0.9 or -0.8 in the expert's column, the update's both."""
+    given holds -0.9 or -0.8 in the expert's column (in agent units, -0.45
+    or -0.4), the update's both."""
     played = [
         np.round(x[..., 4].astype(float), 4)
         for x in _actor_inputs(monkeypatch, _AlternatingExpert())
     ]
     for column in played:
-        assert set(column.tolist()) <= {-0.9, -0.8}, column
+        assert set(column.tolist()) <= {-0.45, -0.4}, column
     trained = np.concatenate([column for column in played if len(column) == 8])
-    assert set(trained.tolist()) == {-0.9, -0.8}
+    assert set(trained.tolist()) == {-0.45, -0.4}

@@ -48,6 +48,12 @@ class GymnaxWrapper:
 
     # provide proxy access to regular attributes of wrapped object
     def __getattr__(self, name):
+        # copy and pickle build the instance before ``_env`` is set and then
+        # probe protocol dunders (``__setstate__``, ``__deepcopy__``):
+        # forwarding ``_env`` would recurse forever, and forwarding a dunder
+        # would run the inner env's protocol on the wrapper.
+        if name == "_env" or (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(name)
         return getattr(self._env, name)
 
     @property

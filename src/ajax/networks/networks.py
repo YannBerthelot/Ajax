@@ -512,7 +512,7 @@ def get_initialized_actor_critic(
     extra_obs_dim: extra dimensions appended to obs at runtime before the
     network forward pass. Set to action_dim (2 for the plane) when
     augment_obs_with_expert_action=True, so the network is initialised with
-    the correct input size matching what augment_obs_if_needed produces.
+    the correct input size matching what interaction.augment_obs produces.
 
     A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
     actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).

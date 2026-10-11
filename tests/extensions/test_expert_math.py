@@ -4,9 +4,10 @@ helpers and SAC's expert plumbing."""
 from types import SimpleNamespace
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from ajax.agents.SAC.expert import augment_obs_if_needed
+from ajax.environments.interaction import augment_obs
 from ajax.extensions.expert import (
     compute_online_bc_loss,
     residual_action_transform,
@@ -92,34 +93,15 @@ def test_mc_correction_replaces_high_variance_entries():
 # ---------------------------------------------------------------------------
 
 
-def test_augment_obs_if_needed_no_op_when_disabled():
-    obs = jnp.ones((2, 5))
-    out = augment_obs_if_needed(
-        obs, raw_observations=obs, expert_policy=None, augment=False
+def test_augment_obs_appends_the_expert_state_then_its_action():
+    obs = jnp.array([[1.0, 2.0, 3.0, 0.5]])  # the training fraction last
+    state, action = jnp.array([[7.0]]), jnp.array([[10.0, 20.0]])
+    np.testing.assert_array_equal(augment_obs(obs), obs)
+    np.testing.assert_array_equal(
+        augment_obs(obs, expert_action=action)[0, 4:], [10, 20]
     )
-    assert out is obs
-
-
-def test_augment_obs_if_needed_no_op_when_expert_policy_is_none():
-    obs = jnp.ones((2, 5))
-    out = augment_obs_if_needed(
-        obs, raw_observations=obs, expert_policy=None, augment=True
-    )
-    assert out is obs
-
-
-def test_augment_obs_inserts_expert_action_before_train_frac():
-    obs = jnp.array([[1.0, 2.0, 3.0, 0.5]])  # last dim = train_frac=0.5
-    raw = obs
-
-    def expert(x):
-        return jnp.array([[10.0, 20.0]])
-
-    out = augment_obs_if_needed(obs, raw, expert_policy=expert, augment=True)
-    # Expected layout [env_obs (first 3), a_expert (2), train_frac (1)].
-    assert out.shape == (1, 6)
-    assert float(out[0, -1]) == pytest.approx(0.5)
-    assert jnp.allclose(out[0, 3:5], jnp.array([10.0, 20.0]))
+    full = augment_obs(obs, state, action)
+    np.testing.assert_array_equal(full, [[1.0, 2.0, 3.0, 0.5, 7.0, 10.0, 20.0]])
 
 
 # ---------------------------------------------------------------------------

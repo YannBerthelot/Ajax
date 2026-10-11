@@ -10,6 +10,7 @@ from flax.training import train_state
 from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import (
+    augment_obs,
     collect_experience_from_expert_policy,
 )
 from ajax.environments.utils import check_env_is_gymnax, raw_obs_columns
@@ -155,10 +156,8 @@ def pre_train(
     obs = dataset.obs
     actions = dataset.action
     if augment_obs_with_expert_action:
-        # Match the training-time obs format: [env_obs, expert_action].
-        # dataset.actions IS the expert action for each obs (the dataset
-        # was collected by running the expert).
-        obs = jnp.concatenate([obs, actions], axis=-1)
+        # The dataset's actions are the expert's (it ran the expert).
+        obs = augment_obs(obs, expert_action=actions)
     # Standardize BC obs (only) for training: raw obs has wildly
     # varying scale (env state + flattened PID integrators can span 6
     # orders of magnitude), which leaves the encoder's first layer

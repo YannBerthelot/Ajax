@@ -281,3 +281,57 @@ def test_the_expert_sees_raw_observations_in_collection_evaluation_and_update(
     for seen in _SEEN:
         assert seen.shape[-1] == 3
         np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)
+
+
+def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
+    """Train a tiny SAC on Pendulum that conditions on the training fraction
+    and augments its observations with ``expert``'s action; every input the
+    actor is given (collection: 2 envs, evaluation: 3 episodes, the update:
+    8 rows)."""
+    import ajax.agents.recurrent
+    import ajax.environments.interaction
+    import ajax.evaluate
+    from ajax import SAC
+    from ajax.logging.wandb_logging import LoggingConfig
+
+    seen, get_pi = [], ajax.environments.interaction.get_pi
+
+    def recording_get_pi(*args, **kw):
+        obs = kw["obs"] if "obs" in kw else args[2]
+        jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
+        return get_pi(*args, **kw)
+
+    for module in (ajax.environments.interaction, ajax.agents.recurrent, ajax.evaluate):
+        monkeypatch.setattr(module, "get_pi", recording_get_pi)
+    agent = SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        learning_starts=16,
+        batch_size=8,
+        expert_policy=expert,
+        expert_buffer_n_steps=0,
+        augment_obs_with_expert_action=True,
+        use_train_frac=True,
+        # Without it, evaluating an agent on the training fraction recurses
+        # in log.py (getattr on the env state), a separate defect.
+        normalize_observations=True,
+        **kwargs,
+    )
+    logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    agent.train(seed=0, n_timesteps=64, num_episode_test=3, logging_config=logged)
+    jax.effects_barrier()
+    assert {x.shape[0] for x in seen} == {2, 3, 8}
+    return seen
+
+
+def test_the_actor_acts_and_trains_on_one_augmented_layout(monkeypatch):
+    """The expert's action (a constant -0.9 here) sits in the same column of
+    every input the actor is given, acting, evaluated or trained, after
+    Pendulum's three observations and the training fraction."""
+    seen = _actor_inputs(monkeypatch, lambda obs: jnp.full((*obs.shape[:-1], 1), -0.9))
+    for x in seen:
+        assert x.shape[-1] == 5
+        np.testing.assert_allclose(x[..., 4], -0.9, err_msg=f"batch {x.shape[0]}")
+        assert ((0.0 <= x[..., 3]) & (x[..., 3] <= 1.0)).all()  # the fraction

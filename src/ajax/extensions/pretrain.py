@@ -26,7 +26,10 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import collect_experience_from_expert_policy
+from ajax.environments.interaction import (
+    augment_obs,
+    collect_experience_from_expert_policy,
+)
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import predict_value
@@ -134,13 +137,8 @@ def pretrain_critic_mc(
 
     # Augment obs with expert action if enabled
     if augment_obs_with_expert_action:
-        a_expert_flat = jax.lax.stop_gradient(expert_policy(raw_obs_flat))
-        if max_timesteps is not None:
-            obs_flat = jnp.concatenate(
-                [obs_flat[..., :-1], a_expert_flat, obs_flat[..., -1:]], axis=-1
-            )
-        else:
-            obs_flat = jnp.concatenate([obs_flat, a_expert_flat], axis=-1)
+        a_expert_flat = expert_policy(raw_obs_flat)
+        obs_flat = augment_obs(obs_flat, expert_action=a_expert_flat)
 
     # Batch into fixed-size chunks for regression
     n_total = obs_flat.shape[0]
@@ -720,4 +718,4 @@ class PhiRefresh(Extension):
         return new_state, ext_state
 
 
-__all__ = ["MCPretrain", "BellmanPretrain", "PhiRefresh"]
+__all__ = ["BellmanPretrain", "MCPretrain", "PhiRefresh"]

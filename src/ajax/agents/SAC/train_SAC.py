@@ -23,14 +23,11 @@ from ajax.agents.SAC.core import (
     update_target_networks,
     update_temperature,
 )
-from ajax.agents.SAC.expert import (
-    augment_obs_if_needed,
-    collect_and_store_expert_transitions,
-    insert_expert_action,
-)
+from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_batch_from_buffer, get_expert_fields_from_buffer
+from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
@@ -587,7 +584,7 @@ def update_agent(
         else transition.obs[..., :-1]
     )
 
-    # --- Obs augmentation: append a_expert to obs and next_obs ---
+    # --- Obs augmentation (interaction.augment_obs's layout) ---
     # Must happen before any network call (critic, actor, policy loss).
     # The expert is defined in the environment's units and acts on its raw
     # observations, as in collection and evaluation. The buffer keeps the
@@ -595,9 +592,9 @@ def update_agent(
     # collection computed on the raw next observation (next_a_expert, the
     # final one where an episode ended, from the expert's post-step state).
     if augment_obs_with_expert_action and expert_policy is not None:
-        aug_obs = augment_obs_if_needed(transition.obs, _raw, expert_policy, True)
-        aug_next_obs = insert_expert_action(
-            transition.next_obs, transition.next_a_expert
+        aug_obs = augment_obs(transition.obs, expert_action=expert_policy(_raw))
+        aug_next_obs = augment_obs(
+            transition.next_obs, expert_action=transition.next_a_expert
         )
         transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
 

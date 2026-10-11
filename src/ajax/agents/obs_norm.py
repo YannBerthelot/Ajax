@@ -71,10 +71,16 @@ def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.n
     buffer or carried by the eval scan, so stats updates stay localised
     to the collection sites. Falls back to raw obs while the running
     stats are still empty (count == 0), avoiding a divide-by-≈0 at
-    step 1 before any update."""
+    step 1 before any update.
+
+    The statistics cover the agent's own observation, the leading columns;
+    what is appended after it stays raw: the expert's action
+    (``interaction.augment_obs``) and a critic's action, already in action
+    units, as the env's ``raw_columns`` keep a PID's terms raw."""
     if info is None or info.var is None:
         return obs
     count_total = jnp.sum(info.count)
     std = jnp.sqrt(info.var + 1e-8)
-    normalized = (obs - info.mean) / std
-    return jnp.where(count_total > 0, normalized, obs)
+    own, appended = obs[..., : info.mean.shape[-1]], obs[..., info.mean.shape[-1] :]
+    normalized = jnp.where(count_total > 0, (own - info.mean) / std, own)
+    return jnp.concatenate([normalized, appended], axis=-1)

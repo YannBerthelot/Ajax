@@ -64,6 +64,10 @@ def restore_into(skeleton: Any, path: str) -> Any:
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
+    state_dict = _with_new_empty_fields(
+        serialization.to_state_dict(skeleton), state_dict
+    )
+    state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     # Push data back onto device
     return jax.tree.map(
@@ -72,9 +76,16 @@ def restore_into(skeleton: Any, path: str) -> Any:
     )
 
 
+#: Next-observation fields a replay buffer gained, by the field each is
+#: rebuilt from in a checkpoint saved before it.
+_REPLAY_SUCCESSORS = {"next_obs": "obs", "raw_next_obs": "raw_obs"}
+
+
 def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
-    """Give a replay buffer saved before it stored ``next_obs`` that field,
-    rebuilt as each row's successor: the observation its replay read then.
+    """Give a replay buffer saved before it stored ``next_obs`` (or
+    ``raw_next_obs``) that field, rebuilt as each row's successor: the
+    observation its replay read then (the reset one, not the final one, at
+    a time limit).
 
     Deliberate expand-then-contract shim (CLAUDE.md, refactoring rule 10),
     so a run resumes across the change; delete it once no checkpoint from
@@ -82,15 +93,67 @@ def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
     is no flax-serialisable node), hence the attribute access.
     """
     buffer = getattr(getattr(skeleton, "collector_state", None), "buffer_state", None)
-    if "next_obs" not in getattr(buffer, "experience", {}):
+    wanted = [k for k in _REPLAY_SUCCESSORS if k in getattr(buffer, "experience", {})]
+    if not wanted:  # no replay buffer (no collector, or an on-policy one)
         return state_dict
     saved = state_dict["collector_state"]["buffer_state"]
-    if "next_obs" in saved.experience:
+    missing = [k for k in wanted if k not in saved.experience]
+    if not missing:
         return state_dict
     # Rows run along the second-to-last axis, the ring wrapping round.
-    next_obs = np.roll(saved.experience["obs"], -1, axis=-2)
-    saved = saved.replace(experience={**saved.experience, "next_obs": next_obs})
+    rebuilt = {
+        k: np.roll(saved.experience[_REPLAY_SUCCESSORS[k]], -1, axis=-2)
+        for k in missing
+    }
+    saved = saved.replace(experience={**saved.experience, **rebuilt})
     collector = {**state_dict["collector_state"], "buffer_state": saved}
+    return {**state_dict, "collector_state": collector}
+
+
+def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
+    """Give a checkpoint saved before a field was added the fields its
+    skeleton holds empty (None), at any depth: ``Transition.raw_next_obs``
+    in every rollout the collector and the last-rollout placeholder hold.
+    An empty field has no data to restore; a field with data stays
+    required, so a mismatched checkpoint still fails.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
+    ``_with_replay_next_obs``.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return saved
+    out = dict(saved)
+    for key, value in skeleton.items():
+        if key in out:
+            out[key] = _with_new_empty_fields(value, out[key])
+        elif value is None:
+            out[key] = None
+    return out
+
+
+def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:
+    """Give a brax env state saved before the observation normaliser kept
+    its raw observation in the info (``RAW_OBS_KEY``) that entry: the saved
+    observation un-normalised by the statistics saved with it.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
+    ``_with_replay_next_obs``.
+    """
+    from ajax.utils import online_denormalize
+    from ajax.wrappers import RAW_OBS_KEY
+
+    env_state = getattr(getattr(skeleton, "collector_state", None), "_env_state", None)
+    if RAW_OBS_KEY not in getattr(env_state, "info", {}):
+        return state_dict
+    saved = state_dict["collector_state"]["_env_state"]
+    if RAW_OBS_KEY in saved["info"]:
+        return state_dict
+    stats = saved["info"]["normalization_info"]["obs"]
+    raw = online_denormalize(
+        saved["obs"], stats["count"], stats["mean"], stats["mean_2"]
+    )
+    info = {**saved["info"], RAW_OBS_KEY: np.asarray(raw, saved["obs"].dtype)}
+    collector = {**state_dict["collector_state"], "_env_state": {**saved, "info": info}}
     return {**state_dict, "collector_state": collector}
 
 

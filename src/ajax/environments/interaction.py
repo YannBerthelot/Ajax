@@ -9,7 +9,7 @@ from flax.core import FrozenDict
 from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
-from ajax.buffers.utils import init_buffer
+from ajax.buffers.utils import get_expert_fields_from_buffer, init_buffer
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
     get_state_action_shapes,
@@ -26,7 +26,7 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
-from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_REWARD_KEY
+from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_OBS_KEY, RAW_REWARD_KEY
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -54,6 +54,36 @@ def flatten_expert_state(expert_state) -> jnp.ndarray:
         else:
             cols.append(leaf)
     return jnp.concatenate(cols, axis=-1)
+
+
+def augment_obs(
+    obs: jax.Array,
+    expert_state: Optional[jax.Array] = None,
+    expert_action: Optional[jax.Array] = None,
+) -> jax.Array:
+    """The observation of an agent augmented with its expert, in the one
+    layout every site builds (collection, the replay buffer, SAC's update,
+    the pretraining and cloning, the evaluation): the agent's observation
+    (its training-fraction column last when it has one), the expert's
+    flattened state (:func:`flatten_expert_state`), then the expert's
+    action. A part given as None is left out. Appending keeps the agent's
+    own observation leading, as the observation normaliser reads it."""
+    extra = [x for x in (expert_state, expert_action) if x is not None]
+    return jnp.concatenate([obs, *map(jax.lax.stop_gradient, extra)], axis=-1)
+
+
+def augment_from_buffer(
+    buffer: Any, buffer_state: Any, key: jax.Array, obs: jax.Array, next_obs: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
+    """``obs`` and ``next_obs`` of the replay batch ``key`` samples, augmented
+    (:func:`augment_obs`) with the expert's actions collection stored for
+    them: ``a_expert`` and ``next_a_expert``, from raw observations and the
+    expert's state."""
+    a_expert, next_a_expert = get_expert_fields_from_buffer(buffer, buffer_state, key)
+    return (
+        augment_obs(obs, expert_action=a_expert),
+        augment_obs(next_obs, expert_action=next_a_expert),
+    )
 
 
 def expert_state_dim(expert_policy, n_envs_probe: int = 1) -> int:
@@ -621,6 +651,10 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
         # envs (e.g. MemoryChain) make `params` required rather than optional.
         env_params = getattr(env, "default_params", None)
         return maybe_vmap(lambda st: env.get_obs(st, env_params), vmap_on)(env_state)
+    # An observation normaliser overwrites a brax state's obs and keeps the
+    # raw one in its info.
+    if RAW_OBS_KEY in getattr(env_state, "info", {}):
+        return env_state.info[RAW_OBS_KEY]
     if check_env_is_playground(env):
         # env_state.obs is already the post-wrapper observation (e.g. with
         # safety-wrapper augmentations). Recomputing it via the raw env's
@@ -867,6 +901,8 @@ def collect_experience(
 
     # Read before the train_frac column below, which info's final obs lacks.
     final_obs = get_final_obs(info, obsv).astype(obsv.dtype)
+    # The same in the environment's own units, what an expert reads.
+    raw_final_obs = get_raw_final_obs(info, final_obs)
 
     # An agent conditioned on the training fraction sees it as a last
     # column of every observation, the next one (the final observation off
@@ -895,7 +931,7 @@ def collect_experience(
     )
     if next_expert_fn is not None:
         _next_a_expert_for_buf = jax.lax.stop_gradient(
-            next_expert_fn(new_expert_state, get_raw_final_obs(info, raw_next_obs))
+            next_expert_fn(new_expert_state, raw_final_obs)
         )
     else:
         _next_a_expert_for_buf = jnp.zeros_like(buffer_action)
@@ -911,7 +947,7 @@ def collect_experience(
         == raw_next_obs.shape[-1] + _next_state_aug.shape[-1]
     )
     if augmented:
-        next_obs_for_buffer = jnp.concatenate([raw_next_obs, _next_state_aug], axis=-1)
+        next_obs_for_buffer = augment_obs(raw_next_obs, _next_state_aug)
     else:
         next_obs_for_buffer = raw_next_obs
 
@@ -926,7 +962,7 @@ def collect_experience(
             _start_state_aug = jnp.where(
                 _ended, flatten_expert_state(_initial_expert_state), _next_state_aug
             )
-        new_last_obs = jnp.concatenate([obsv, _start_state_aug], axis=-1)
+        new_last_obs = augment_obs(obsv, _start_state_aug)
     else:
         new_last_obs = obsv
 
@@ -936,7 +972,7 @@ def collect_experience(
         # The final observation as wide as the next row's.
         final_obs = maybe_append_train_frac(final_obs, train_frac=train_frac)
         if augmented:
-            final_obs = jnp.concatenate([final_obs, _next_state_aug], axis=-1)
+            final_obs = augment_obs(final_obs, _next_state_aug)
         _transition = {
             "obs": agent_state.collector_state.last_obs,
             "action": buffer_action,
@@ -950,6 +986,8 @@ def collect_experience(
         if next_expert_fn is not None:
             _transition["a_expert"] = _a_expert_for_buf
             _transition["next_a_expert"] = _next_a_expert_for_buf
+        if "raw_next_obs" in buffer_state.experience:
+            _transition["raw_next_obs"] = raw_final_obs.astype(jnp.float32)
         if store_hidden:
             _transition["actor_carry"] = _pre_actor_carry_flat
         buffer_state = buffer.add(buffer_state, _transition)
@@ -1100,12 +1138,14 @@ def collect_experience_from_expert_policy(
         # Build transition — prefer the env's final observation so truncation
         # bootstraps on V(s_final), not V(s_reset).
         next_obs = get_final_obs(info, obsv)
-        # The expert's action there, on its state after this step (the live
-        # collector's next_a_expert), before an episode end resets the state.
+        # The expert's action there, on the observation in the environment's
+        # units and its state after this step (the live collector's
+        # next_a_expert), before an episode end resets the state.
+        raw_next_obs = get_raw_final_obs(info, next_obs).astype(jnp.float32)
         if expert_is_stateful:
-            next_action, _ = expert_policy(new_expert_state, next_obs)
+            next_action, _ = expert_policy(new_expert_state, raw_next_obs)
         else:
-            next_action = jax.vmap(expert_policy, in_axes=0)(next_obs)
+            next_action = jax.vmap(expert_policy, in_axes=0)(raw_next_obs)
 
         # Reset expert state on episode end so the integrator restarts
         # at the start of the next episode (autoreset has already produced
@@ -1131,8 +1171,8 @@ def collect_experience_from_expert_policy(
             cur_state_aug = flatten_expert_state(expert_state)
             next_state_aug = flatten_expert_state(new_expert_state)
             if cur_state_aug is not None:
-                last_obs_aug = jnp.concatenate([last_obs, cur_state_aug], axis=-1)
-                next_obs_aug = jnp.concatenate([next_obs, next_state_aug], axis=-1)
+                last_obs_aug = augment_obs(last_obs, cur_state_aug)
+                next_obs_aug = augment_obs(next_obs, next_state_aug)
             else:
                 last_obs_aug = last_obs
                 next_obs_aug = next_obs
@@ -1150,6 +1190,7 @@ def collect_experience_from_expert_policy(
             raw_obs=raw_obs,
             a_expert=action,
             next_a_expert=next_action,
+            raw_next_obs=raw_next_obs,
         )
 
         new_rng, _ = jax.random.split(rng)
@@ -1197,6 +1238,7 @@ def init_collector_state(
     normalize_obs_running: bool = False,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
+    include_raw_next_obs: bool = False,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -1228,7 +1270,7 @@ def init_collector_state(
         _obs_shape[-1] += expert_state_aug_dim
         obs_shape = tuple(_obs_shape)
         zero_aug = jnp.zeros((last_obs.shape[0], expert_state_aug_dim))
-        last_obs = jnp.concatenate([last_obs, zero_aug], axis=-1)
+        last_obs = augment_obs(last_obs, zero_aug)
 
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
@@ -1265,6 +1307,7 @@ def init_collector_state(
             expert_state_aug_dim=expert_state_aug_dim,
             include_expert_fields=include_expert_fields,
             actor_carry_dim=actor_carry_dim,
+            include_raw_next_obs=include_raw_next_obs,
         )
         if buffer is not None
         else None

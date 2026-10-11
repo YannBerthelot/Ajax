@@ -10,6 +10,7 @@ from flax.training import train_state
 from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import (
+    augment_obs,
     collect_experience_from_expert_policy,
 )
 from ajax.environments.utils import check_env_is_gymnax, raw_obs_columns
@@ -154,11 +155,6 @@ def pre_train(
     """
     obs = dataset.obs
     actions = dataset.action
-    if augment_obs_with_expert_action:
-        # Match the training-time obs format: [env_obs, expert_action].
-        # dataset.actions IS the expert action for each obs (the dataset
-        # was collected by running the expert).
-        obs = jnp.concatenate([obs, actions], axis=-1)
     # Standardize BC obs (only) for training: raw obs has wildly
     # varying scale (env state + flattened PID integrators can span 6
     # orders of magnitude), which leaves the encoder's first layer
@@ -167,10 +163,15 @@ def pre_train(
     # standardised inputs; the caller seeds the agent's runtime
     # obs_norm_info with these same stats so get_pi / predict_value
     # apply matching normalisation online.
+    # The statistics cover the observation, not the expert action appended
+    # after it, which stays raw (apply_obs_norm, as at run time).
     obs_flat = obs.reshape(-1, obs.shape[-1])
     obs_mean = obs_flat.mean(axis=0).at[:raw_columns].set(0.0)
     obs_std = (obs_flat.std(axis=0) + 1e-6).at[:raw_columns].set(1.0)
     obs = (obs - obs_mean) / obs_std
+    if augment_obs_with_expert_action:
+        # The dataset's actions are the expert's (it ran the expert).
+        obs = augment_obs(obs, expert_action=actions)
     metrics = {"actor_loss": jnp.zeros((actor_epochs,))}
 
     # --------------------------

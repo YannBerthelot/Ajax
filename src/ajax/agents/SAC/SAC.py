@@ -53,6 +53,7 @@ class SAC(ActorCritic):
         "actor_loss",
         "action",
     }
+    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
 
     def __init__(
         self,

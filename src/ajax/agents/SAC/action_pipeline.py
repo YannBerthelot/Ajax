@@ -18,6 +18,7 @@ import jax.numpy as jnp
 
 from ajax.environments.interaction import (
     ActionPipelineResult,
+    augment_obs,
     get_action_and_log_probs,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
@@ -255,10 +256,10 @@ def make_action_pipeline(
             expert_action = jax.lax.stop_gradient(expert_policy(_raw_for_expert))
             new_expert_state = None
 
-        # --- Obs augmentation: [env_obs | a_expert] ---
+        # --- Obs augmentation (interaction.augment_obs's layout) ---
         if augment_obs_with_expert_action:
             _last_obs = agent_state.collector_state.last_obs
-            _augmented_obs = jnp.concatenate([_last_obs, expert_action], axis=-1)
+            _augmented_obs = augment_obs(_last_obs, expert_action=expert_action)
             agent_state_for_actor = agent_state.replace(
                 collector_state=agent_state.collector_state.replace(
                     last_obs=_augmented_obs
@@ -349,6 +350,12 @@ def make_action_pipeline(
                     "expert_action": expert_action,
                     "env_action": env_action,
                     "total_timesteps": total_timesteps,
+                    # The actor's and critics' input, augmented when it is.
+                    "observations": (
+                        _augmented_obs
+                        if augment_obs_with_expert_action
+                        else agent_state.collector_state.last_obs
+                    ),
                 },
                 "env_action",
                 rng,

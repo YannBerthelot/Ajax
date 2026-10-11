@@ -136,6 +136,38 @@ def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
     np.testing.assert_array_equal(got["next_obs"][..., -1, :], obs[..., 0, :])
 
 
+def test_a_replay_buffer_saved_without_raw_next_obs_restores_with_the_next_rows(
+    tmp_path,
+):
+    """A checkpoint from before the replay buffer stored ``raw_next_obs``
+    (kept when an extension carries its own expert) resumes with each row's
+    raw successor there, what its replay read then."""
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.extensions.target_mods import IBRL
+
+    net = ("8", "relu")
+    agent = SAC(
+        env_id="Pendulum-v1",
+        n_envs=2,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=100,
+        batch_size=4,
+        buffer_size=40,
+        extensions=(IBRL(expert_policy=lambda obs: obs[..., :1]),),
+    )
+    state, _ = agent.train(seed=0, n_timesteps=10)
+    buffer = state.collector_state.buffer_state
+    rows = {k: v for k, v in buffer.experience.items() if k != "raw_next_obs"}
+    old = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state.replace(collector_state=old), path)
+    got = restore_into(state, path).collector_state.buffer_state.experience
+    raw = np.asarray(rows["raw_obs"])
+    np.testing.assert_array_equal(got["raw_next_obs"][..., :-1, :], raw[..., 1:, :])
+    np.testing.assert_array_equal(got["raw_next_obs"][..., -1, :], raw[..., 0, :])
+
+
 def test_agent_train_returns_tuple_shape(sac_run):
     """Regression: ``agent.train(...)`` returns a ``(state, metrics)`` 2-tuple,
     not a bare ``BaseAgentState``. The resume path in ``agents/base.py`` must
@@ -181,3 +213,121 @@ def test_sac_resumes_from_a_restored_checkpoint_of_its_train_tuple(sac_run, tmp_
         assert np.shape(ours) == np.shape(theirs)
         assert np.all(np.isfinite(ours)), "NaN in resumed params"
     assert any(not np.array_equal(a, b) for a, b in zip(after, before, strict=True))
+
+
+def _without(state_dict, field):
+    """The checkpoint as saved before ``field`` existed: every empty (None)
+    entry of that name dropped, the rollouts' Transition's included."""
+    if not isinstance(state_dict, dict):
+        return state_dict
+    return {
+        k: _without(v, field)
+        for k, v in state_dict.items()
+        if not (k == field and v is None)
+    }
+
+
+@pytest.mark.parametrize("agent_name", ["SAC", "PPO"])
+def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_name):
+    """Transition gained raw_next_obs, empty in every rollout the collector
+    and the last-rollout placeholder hold: a checkpoint written before it
+    restores, the new field empty."""
+    import pickle
+
+    from ajax.agents.PPO.PPO import PPO
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
+    if agent_name == "SAC":
+        kw |= {"learning_starts": 100, "batch_size": 4, "buffer_size": 40}
+        agent = SAC(env_id="Pendulum-v1", **kw)
+    else:
+        kw |= {"n_steps": 8, "batch_size": 8, "expose_recent_rollout": True}
+        agent = PPO(env_id="Pendulum-v1", **kw)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    old = _without(saved, "raw_next_obs")
+    assert old != saved  # the field was there to drop
+    with open(path, "wb") as fh:
+        pickle.dump(old, fh)
+    restored = restore_into(state, path)
+    assert restored.collector_state.rollout.raw_next_obs is None
+
+
+def test_a_state_without_a_collector_restores(tmp_path):
+    """TDMPC2MultiTask trains offline: its state holds no collector
+    (collector_state None). It restores, as does a checkpoint whose root is
+    not a mapping (an array)."""
+    from ajax import TDMPC2MultiTask
+    from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
+
+    rng, length = np.random.default_rng(0), 10
+    action = rng.uniform(-1, 1, (2, length + 1, 1)).astype(np.float32)
+    reward = rng.uniform(0, 1, (2, length + 1)).astype(np.float32)
+    action[:, -1], reward[:, 0] = 0.0, 0.0
+    obs = rng.normal(size=(2, length + 1, 2)).astype(np.float32)
+    data = pool_tasks([TaskEpisodes(obs, action, reward, length, "task")])
+    tiny = {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16, "num_q": 2}
+    tiny |= {"task_dim": 4, "batch_size": 16, "num_samples": 32, "num_elites": 8}
+    agent = TDMPC2MultiTask(data, num_pi_trajs=4, iterations=2, **tiny)
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    assert state.collector_state is None
+    path = str(tmp_path / "offline.pkl")
+    save_checkpoint(state, path)
+    restore_into(state, path)
+    path = str(tmp_path / "array.pkl")
+    save_checkpoint(jnp.arange(3.0), path)
+    np.testing.assert_array_equal(restore_into(jnp.zeros(3), path), [0.0, 1.0, 2.0])
+
+
+def test_a_checkpoint_missing_a_data_field_still_fails(sac_run, tmp_path):
+    """Only fields the skeleton holds empty (None) are filled on restore: a
+    checkpoint missing a field with data is a mismatch and raises."""
+    import pickle
+
+    state = sac_run.out[0]
+    path = str(tmp_path / "mismatched.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    del saved["collector_state"]["rollout"]["obs"]
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    with pytest.raises(ValueError, match="obs"):
+        restore_into(state, path)
+
+
+def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
+    """A brax env state saved before the observation normaliser kept the raw
+    observation in its info restores with it, un-normalised from the saved
+    observation and statistics."""
+    import pickle
+
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    agent = SAC(
+        env_id="fast",
+        n_envs=2,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=100,
+        batch_size=4,
+        buffer_size=40,
+        normalize_observations=True,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    info = saved["collector_state"]["_env_state"]["info"]
+    want = info.pop("raw_obs")
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    got = restore_into(state, path).collector_state.env_state.info["raw_obs"]
+    np.testing.assert_allclose(got, want, rtol=1e-6)

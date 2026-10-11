@@ -231,14 +231,11 @@ class ActorCritic:
         """Reject extensions implementing phases this agent never folds, or
         reading buffer fields it does not store."""
         check_extension_phases(
-            type(self).__name__, self.extension_stack, self.supported_extension_phases
+            type(self).__name__,
+            self.extension_stack,
+            self.supported_extension_phases,
+            self.supported_buffer_fields,
         )
-        missing = self.extension_stack.buffer_fields() - self.supported_buffer_fields
-        if missing:
-            raise ValueError(
-                f"{type(self).__name__} does not store the buffer fields"
-                f" {sorted(missing)} its extensions read."
-            )
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
         """Absolute index of the first scan iteration when resuming.

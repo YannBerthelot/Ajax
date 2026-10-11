@@ -128,3 +128,27 @@ def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():
 
     with pytest.raises(ValueError, match="raw_next_obs"):
         REDQ("Pendulum-v1", extensions=(IBRL(expert_policy=_RecordingExpert()),))
+
+
+def test_an_offline_agent_rejects_an_extension_reading_a_buffer_field():
+    """TDMPC2MultiTask runs the shared check too: it stores no extra buffer
+    field, so PhiRefresh (a post_update it does fold) is rejected."""
+    from ajax import TDMPC2MultiTask
+    from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
+
+    rng, length = np.random.default_rng(0), 10
+    data = pool_tasks(
+        [
+            TaskEpisodes(
+                rng.normal(size=(2, length + 1, 2)).astype(np.float32),
+                np.zeros((2, length + 1, 1), np.float32),
+                np.zeros((2, length + 1), np.float32),
+                length,
+                "task",
+            )
+        ]
+    )
+    with pytest.raises(ValueError, match="raw_next_obs"):
+        TDMPC2MultiTask(
+            data, extensions=(PhiRefresh(expert_policy=_RecordingExpert()),)
+        )

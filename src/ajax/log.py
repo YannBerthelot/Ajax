@@ -240,15 +240,13 @@ def evaluate_and_log(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
-    expert_return: Optional[jax.Array] = None,
 ) -> tuple[BaseAgentState, Optional[dict]]:
     """Evaluate and log every ``log_frequency`` collected steps; returns the
     state (one more ``n_logs`` per evaluation) and the logged metrics, or
     the same structure filled with NaN (``-1``: the timestep) between
     evaluations. Without logging (``log`` false) the evaluation is not even
     traced (tracing alone rebuilds the evaluation env) and the metrics are
-    ``None``. ``expert_return``: the expert's evaluation return when already
-    known (:func:`ajax.evaluate.evaluate_expert`), else evaluated each time."""
+    ``None``."""
     if not log:
         return agent_state, None
     timestep = agent_state.collector_state.timestep
@@ -300,7 +298,6 @@ def evaluate_and_log(
             pid_gain_policy=pid_gain_policy,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
-            expert_return=expert_return,
         )
         metrics_to_log = {
             "timestep": timestep,

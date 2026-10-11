@@ -151,9 +151,8 @@ def _full_torque(obs):
 
 
 def test_the_baseline_return_is_the_evaluation_experts():
-    """Without a precomputed expert_return, evaluate rolls out
-    eval_expert_policy for the baseline, expert_policy building only the
-    actor's input."""
+    """evaluate rolls out eval_expert_policy for the baseline,
+    expert_policy building only the actor's input."""
     env, env_params, state = _eval_pendulum()
     kwargs = {
         "env": env,

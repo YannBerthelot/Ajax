@@ -498,42 +498,6 @@ def _expert_return(
 @partial(
     jax.jit,
     static_argnames=[
-        "env",
-        "num_episodes",
-        "env_params",
-        "expert_policy",
-        "max_eval_steps",
-    ],
-)
-def evaluate_expert(
-    env,
-    num_episodes: int,
-    rng: jax.Array,
-    env_params: Optional[EnvParams],
-    expert_policy: Callable,
-    norm_info: Optional[NormalizationInfo] = None,
-    max_eval_steps: Optional[int] = None,
-) -> jax.Array:
-    """The expert's return that :func:`evaluate` reports for the same
-    arguments: the same episodes from the same reset. Its ``expert_return``
-    takes it, computed once for evaluations that share a key and
-    ``norm_info`` instead of at each one."""
-    env, mode, _, key, obs, state = _reset_eval_env(
-        env, env_params, num_episodes, norm_info, rng
-    )
-    length = (
-        int(max_eval_steps)
-        if max_eval_steps is not None
-        else _infer_max_eval_steps(env, env_params)
-    )
-    return _expert_return(
-        mode, env, env_params, expert_policy, key, obs, state, num_episodes, length
-    )
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
         "recurrent",
         "env_params",
         "num_episodes",
@@ -567,14 +531,12 @@ def evaluate(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
-    expert_return: Optional[jax.Array] = None,
     eval_expert_policy: Optional[Callable] = None,
 ) -> jax.Array:
     """Evaluate the actor's deterministic policy on ``num_episodes``
     episodes; with ``expert_policy`` (the training expert, which builds the
     actor's input) the expert's return too, that of ``eval_expert_policy``
-    when given, rolled out here unless already known (``expert_return``,
-    from :func:`evaluate_expert`)."""
+    when given, on the same episodes (the same reset and key)."""
     env, mode, continuous, key, obs, state = _reset_eval_env(
         env, env_params, num_episodes, norm_info, rng, gamma
     )
@@ -664,9 +626,7 @@ def evaluate(
 
     # Optionally compute expert comparison
     expert_reward = jnp.nan
-    if expert_return is not None:
-        expert_reward = expert_return
-    elif expert_policy is not None or eval_expert_policy is not None:
+    if expert_policy is not None or eval_expert_policy is not None:
         expert_reward = _expert_return(
             mode,
             env,

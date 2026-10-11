@@ -98,7 +98,8 @@ class UniformPerturbation(SystemClass):
     """Independent uniform relative perturbation of selected parameter fields.
 
     Each listed field ``p`` is drawn as ``p * (1 + U(-scale, scale))``,
-    independently per field and per sampled system; every other field
+    independently per field and per sampled system (a vector or matrix field
+    is scaled by one factor per system); every other field
     stays at its nominal value. This is the meta-dataset construction of
     Busetto et al. 2024 (there: ``scale=0.05`` on the 19 evaporator
     constants).
@@ -134,6 +135,10 @@ class UniformPerturbation(SystemClass):
             factor = 1.0 + jax.random.uniform(
                 key, (n,), minval=-self.scale, maxval=self.scale
             )
+            # One factor per system scales the whole field: trailing unit
+            # axes keep a vector or matrix field from broadcasting against
+            # (or, when its length is n, being mistaken for) the batch axis.
+            factor = factor.reshape((n,) + (1,) * nominal_value.ndim)
             updates[name] = nominal_value * factor
         return batched.replace(**updates)
 

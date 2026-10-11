@@ -290,3 +290,32 @@ def test_a_state_without_a_collector_restores(tmp_path):
     path = str(tmp_path / "array.pkl")
     save_checkpoint(jnp.arange(3.0), path)
     np.testing.assert_array_equal(restore_into(jnp.zeros(3), path), [0.0, 1.0, 2.0])
+
+
+def test_a_checkpoint_missing_a_data_field_still_fails(tmp_path):
+    """Only fields the skeleton holds empty (None) are filled on restore: a
+    checkpoint missing a field with data is a mismatch and raises."""
+    import pickle
+
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    agent = SAC(
+        env_id="Pendulum-v1",
+        n_envs=2,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=100,
+        batch_size=4,
+        buffer_size=40,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=8)
+    path = str(tmp_path / "mismatched.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    del saved["collector_state"]["rollout"]["obs"]
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    with pytest.raises(ValueError, match="obs"):
+        restore_into(state, path)

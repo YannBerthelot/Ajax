@@ -15,12 +15,13 @@ Ajax runs with its own defaults at the fixture's widths, and
 :func:`test_default_hyperparameters_are_the_references` pins the world
 model's against the reference's (test_dreamerv3_train_parity.py pins the
 rest, and that the mapped parameter trees match Ajax's). Each other test
-maps the reference's parameters onto Ajax's tree (:func:`reference_to_ajax`; dreamerv3_spec 2.17), runs
-:func:`world_model_loss` with the Gumbel noise the reference drew, and
-compares the samples (exactly), the posterior entries, the loss terms, the
-KL and the gradient of the weighted world-model loss with respect to every
-parameter. The achieved errors are printed (``pytest -s``) and asserted
-below the bounds in :data:`TOLERANCES`.
+maps the reference's parameters onto Ajax's tree (:func:`reference_to_ajax`;
+dreamerv3_spec 2.17), runs :func:`world_model_loss` with the Gumbel noise
+the reference drew, and compares the samples (exactly), the posterior
+entries, the loss terms, the KL and the gradient of the weighted
+world-model loss with respect to every parameter. The achieved errors are
+printed (``pytest -s``) and asserted below the bounds in
+:data:`TOLERANCES`.
 """
 
 from __future__ import annotations

@@ -269,11 +269,7 @@ class CriticBlend(Extension):
             return target
 
         next_observations = batch["next_observations"]
-        # CriticBlend always strips the trailing expert-action dim
-        # (matches the pre-refactor `next_raw = next_observations[..., :-1]`
-        # path, which was unconditional in the blend branch).
-        next_raw = next_observations[..., :-1]
-        a_expert_next = jax.lax.stop_gradient(self.expert_policy(next_raw))
+        a_expert_next = jax.lax.stop_gradient(self.expert_policy(_next_raw(batch)))
         v_expert_next = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(

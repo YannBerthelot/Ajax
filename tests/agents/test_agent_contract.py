@@ -16,6 +16,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from extension_stubs import METRIC, CounterExt, MetricExt
+from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
@@ -34,7 +35,6 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import BufferType
 
 CONTINUOUS, DISCRETE = ("fast", "Pendulum-v1"), ("CartPole-v1",)
 NET = ("16", "relu")
@@ -150,7 +150,7 @@ def test_an_agent_builds_its_configs(name: str, env_id: str) -> None:
     assert agent.env_args.continuous == (env_id not in DISCRETE)
     assert isinstance(getattr(agent, "alpha_args", None), AlphaConfig) == case.alpha
     # An on-policy agent keeps no replay buffer.
-    assert isinstance(getattr(agent, "buffer", None), BufferType) == case.buffer
+    assert isinstance(getattr(agent, "buffer", None), TrajectoryBuffer) == case.buffer
 
 
 @pytest.mark.parametrize(

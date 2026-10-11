@@ -94,6 +94,7 @@ import time
 from typing import Any, Optional
 
 import numpy as np
+from paper_protocol import DREAMERV3_TINY, TDMPC2_TINY
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -185,31 +186,11 @@ def _smoke_description(name: str) -> str:
     return f"smoke run of {name} (tiny model, short budget): plumbing only"
 
 
-_DREAMERV3_TINY: dict[str, Any] = {
-    "model_size": "1m",
-    "units": 16,
-    "hidden": 16,
-    "deter": 32,
-    "classes": 4,
-    "stoch": 4,
-    "blocks": 4,
-    "imag_horizon": 3,
-    "batch_size": 4,
-    "batch_length": 8,
-    "train_ratio": 32,
-    "n_envs": 4,
-}
-_TDMPC2_TINY: dict[str, Any] = {
-    **_TDMPC2,
-    "enc_dim": 32,
-    "mlp_dim": 32,
-    "latent_dim": 16,
-    "batch_size": 16,
-    "num_samples": 32,
-    "num_elites": 4,
-    "num_pi_trajs": 4,
-    "iterations": 2,
-}
+# paper_protocol's tiny models without its task's settings: each smoke
+# check keeps its own task's.
+_TASK_KEYS = ("action_repeat", "episode_length", "seed_steps")
+_DREAMERV3_TINY = {k: v for k, v in DREAMERV3_TINY.items() if k not in _TASK_KEYS}
+_TDMPC2_TINY = {k: v for k, v in TDMPC2_TINY.items() if k not in _TASK_KEYS}
 SMOKE: dict[str, Check] = {
     **{
         name: dataclasses.replace(
@@ -234,12 +215,7 @@ SMOKE: dict[str, Check] = {
     "tdmpc2-cartpole-balance": dataclasses.replace(
         CHECKS["tdmpc2-cartpole-balance"],
         description=_smoke_description("tdmpc2-cartpole-balance"),
-        kwargs={
-            **_TDMPC2_TINY,
-            "episode_length": 40,
-            "action_repeat": 2,
-            "seed_steps": 20,
-        },
+        kwargs=TDMPC2_TINY,  # episode_length 40 at action repeat 2: T = 20
         n_timesteps=80,
         log_frequency=40,
         num_episode_test=2,

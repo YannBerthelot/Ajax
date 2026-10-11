@@ -130,7 +130,7 @@ def paper_runs() -> dict[str, RunSpec]:
     return runs
 
 
-#: Tiny models for ``--smoke`` (the learning checks' tiny presets).
+#: Tiny models for ``--smoke``, which learning_checks.py's smoke runs share.
 DREAMERV3_TINY: dict[str, Any] = {
     "model_size": "1m",
     "units": 16,

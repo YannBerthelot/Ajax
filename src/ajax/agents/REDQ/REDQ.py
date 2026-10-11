@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from functools import partial
-from typing import Callable, Optional, Union
+from typing import Callable, Literal, Optional, Union
 
 from gymnax import EnvParams
 
@@ -18,6 +18,37 @@ from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
+
+# MBPO's per-task target entropies (Janner et al., 2019), each the whole
+# action's: the default of REDQ's official code (watchernyu/REDQ@7b5d1bf,
+# ``redq/algos/core.py:10-13``, read at ``redq/algos/redq_sac.py:57-58``),
+# here under the ids of brax's versions of those gym MuJoCo tasks.
+MBPO_TARGET_ENTROPY = {
+    "hopper": -1.0,
+    "halfcheetah": -3.0,
+    "walker2d": -3.0,
+    "ant": -4.0,
+    "humanoid": -2.0,
+}
+
+
+def resolve_target_entropy(
+    per_dim: Union[float, Literal["mbpo"]], action_dim: int, env_id: object
+) -> float:
+    """``per_dim`` per action dimension, or with ``"mbpo"`` MBPO's target
+    entropy for ``env_id``."""
+    if not isinstance(per_dim, str):
+        return per_dim * action_dim
+    if per_dim != "mbpo":
+        raise ValueError(
+            f"target_entropy_per_dim takes a number or 'mbpo', not {per_dim!r}."
+        )
+    if not isinstance(env_id, str) or env_id not in MBPO_TARGET_ENTROPY:
+        raise ValueError(
+            f"target_entropy_per_dim='mbpo': MBPO's table has no {env_id!r}; it"
+            f" has {sorted(MBPO_TARGET_ENTROPY)}."
+        )
+    return MBPO_TARGET_ENTROPY[env_id]
 
 
 class REDQ(ActorCritic):
@@ -50,7 +81,7 @@ class REDQ(ActorCritic):
         tau: float = 0.005,
         reward_scale: float = 1.0,
         alpha_init: float = 1.0,
-        target_entropy_per_dim: float = -1.0,
+        target_entropy_per_dim: Union[float, Literal["mbpo"]] = -1.0,
         num_critic_updates: int = 20,
         num_critics: int = 10,
         subset_size: int = 2,
@@ -107,7 +138,10 @@ class REDQ(ActorCritic):
                 (``utd_ratio``) of the first env step that trains: those
                 updates' targets and the first actor loss read 0.2, a
                 transient not reproduced.
-            target_entropy_per_dim (float): Target entropy per action dimension.
+            target_entropy_per_dim (float | "mbpo"): Target entropy per
+                action dimension, or ``"mbpo"`` for MBPO's per-task target
+                entropy (:data:`MBPO_TARGET_ENTROPY`), the default of REDQ's
+                official code; an env id outside that table raises.
         """
         self.config = {**locals()}
         self.config.update({"algo_name": "REDQ"})
@@ -138,7 +172,9 @@ class REDQ(ActorCritic):
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("REDQ only supports continuous action spaces.")
         action_dim = get_action_dim(self.env_args.env, env_params)
-        target_entropy = target_entropy_per_dim * action_dim
+        target_entropy = resolve_target_entropy(
+            target_entropy_per_dim, action_dim, env_id
+        )
         self.agent_config = REDQConfig(
             gamma=gamma,
             tau=tau,

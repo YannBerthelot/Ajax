@@ -47,7 +47,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import action_value_input, predict_value
 
 # Public metric keys — duplicated here so Ajax callers don't need to
 # import from EVAREST. The strings are identical so dashboards built on
@@ -156,6 +156,49 @@ def _sample_state_batch(
 
 
 # ---------------------------------------------------------------------------
+# Finding the critic
+# ---------------------------------------------------------------------------
+
+
+def _network(train_state: Any) -> Any:
+    """The flax module whose ``apply`` is ``train_state.apply_fn``."""
+    return getattr(getattr(train_state, "apply_fn", None), "__self__", None)
+
+
+def _is_ensemble_critic(train_state: Any) -> bool:
+    """A :class:`~ajax.networks.networks.MultiCritic` exposes its members'
+    encoder features; a Q-network does not."""
+    return hasattr(_network(train_state), "apply_encoder_ensemble")
+
+
+def _takes_action(
+    critic_state: Any, obs: jax.Array, act: jax.Array, rng: jax.Array
+) -> bool:
+    """Whether an ensemble critic reads the observation and action (an
+    action-value critic) or the observation alone (a state-value one).
+
+    The answer is the input its parameters were built on: each candidate
+    goes through the critic's ``init`` abstractly (shapes only, nothing is
+    computed) and the one that rebuilds the critic's parameter shapes wins.
+    Where the batch comes from does not say it: AVG learns an action-value
+    critic from its rollout, without a replay buffer.
+    """
+
+    def shapes(tree: Any) -> list:
+        return [leaf.shape for leaf in jax.tree.leaves(tree)]
+
+    init = _network(critic_state).init
+    with_action = action_value_input(obs, act.astype(obs.dtype))
+    for takes_action, x in ((True, with_action), (False, obs)):
+        if shapes(jax.eval_shape(init, rng, x)) == shapes(critic_state.params):
+            return takes_action
+    raise ValueError(
+        "The critic's parameters fit neither the observation nor the"
+        " observation and action of the measurement batch."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Conditioning / plasticity extension
 # ---------------------------------------------------------------------------
 
@@ -173,8 +216,13 @@ def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
 def _encoder_features_qnet(actor_state: Any, x: jax.Array) -> jax.Array:
     """Penultimate features sown by DQN / PQN Q-networks. ``(1, batch, d)``."""
     _, mv = actor_state.apply_fn(actor_state.params, x, mutable=["intermediates"])
-    feat = mv["intermediates"]["encoder_features"][0]
-    return feat[None]
+    if "encoder_features" not in mv.get("intermediates", {}):
+        raise ValueError(
+            "ConditioningMetrics found neither an ensemble critic on"
+            " critic_state nor a Q-network sowing encoder_features on"
+            " actor_state."
+        )
+    return mv["intermediates"]["encoder_features"][0][None]
 
 
 @dataclass(frozen=True)
@@ -182,19 +230,20 @@ class ConditioningMetrics(Extension):
     """Plasticity diagnostics on a state batch sampled from the agent's
     visited-state distribution.
 
-    Auto-detects the critic location and input convention:
-    * ``critic_loc='critic'`` + ``concat_action=True``  ⇒ SAC-style
-      Q(obs,act) critic on ``critic_state``.
-    * ``critic_loc='critic'`` + ``concat_action=False`` ⇒ PPO-style
-      V(obs) critic on ``critic_state``.
-    * ``critic_loc='actor'``  ⇒ DQN / PQN: Q-network on ``actor_state``,
+    Reads the critic's encoder features:
+    * ``critic_loc='critic'`` + ``concat_action=True``  ⇒ Q(obs,act)
+      ensemble critic on ``critic_state``.
+    * ``critic_loc='critic'`` + ``concat_action=False`` ⇒ V(obs)
+      ensemble critic on ``critic_state``.
+    * ``critic_loc='actor'``  ⇒ Q-network on ``actor_state`` (DQN, PQN),
       penultimate features read via the ``encoder_features`` sow.
 
-    Auto-detection (``critic_loc='auto'``, ``concat_action='auto'``)
-    picks the actor branch when the critic_state has no apply_fn
-    intermediate sow point, the critic branch otherwise; for the
-    critic branch it concats actions iff the on-policy ``last_rollout``
-    action width is compatible with the critic's input dim.
+    ``'auto'`` (the default for both) reads them from the networks, never
+    from the agent's name or the batch source: the critic branch when
+    ``critic_state``'s network is an ensemble critic (it exposes
+    ``apply_encoder_ensemble``), the actor branch otherwise; on the critic
+    branch, the action is concatenated when the critic's parameters were
+    built on the observation and action (:func:`_takes_action`).
 
     Hyperparameters live on this dataclass (no per-extension agent-side
     kwargs). Pass ``buffer=agent.buffer`` for off-policy agents whose
@@ -208,42 +257,25 @@ class ConditioningMetrics(Extension):
     concat_action: Any = "auto"  # bool | 'auto'
     name: str = "conditioning_metrics"
 
-    def _features(self, agent_state: Any, obs: jax.Array, act: jax.Array) -> jax.Array:
-        loc = self.critic_loc
-        if loc == "auto":
-            # SAC-style MultiCritic critic exposes apply_encoder_ensemble;
-            # DQN/PQN Q-network is on actor_state and sows its features.
-            cs = agent_state.critic_state
-            has_ensemble = hasattr(cs, "apply_fn") and callable(
-                getattr(cs, "apply_fn", None)
-            )
-            loc = "critic" if has_ensemble else "actor"
-        if loc == "actor":
+    def _loc(self, agent_state: Any) -> str:
+        if self.critic_loc != "auto":
+            return self.critic_loc
+        return "critic" if _is_ensemble_critic(agent_state.critic_state) else "actor"
+
+    def _features(
+        self, agent_state: Any, obs: jax.Array, act: jax.Array, rng: jax.Array
+    ) -> jax.Array:
+        if self._loc(agent_state) == "actor":
             return _encoder_features_qnet(agent_state.actor_state, obs)
-        # critic branch: V(obs) (PPO) or Q(obs,act) (SAC). Decide
-        # whether to concat the action via the explicit flag, falling
-        # back to a buffer-vs-on-policy heuristic.
+        critic_state = agent_state.critic_state
         concat = self.concat_action
         if concat == "auto":
-            # Off-policy buffer agents (SAC) carry the (obs, act)
-            # critic; on-policy rollout-only agents (PPO) carry V(obs).
-            concat = bool(_has_buffer(agent_state) and self.buffer is not None)
-        if concat:
-            # Reshape action to match obs's batch convention; the
-            # discrete-action subsample may have a trailing 1-dim or
-            # not, so we flatten it back to (B, action_dim).
-            if act.ndim == obs.ndim - 1:
-                act = act[..., None]
-            x = jnp.concatenate([obs, act.astype(obs.dtype)], axis=-1)
-        else:
-            x = obs
-        return _encoder_features_ppo_sac(agent_state.critic_state, x)
+            concat = _takes_action(critic_state, obs, act, rng)
+        x = action_value_input(obs, act.astype(obs.dtype)) if concat else obs
+        return _encoder_features_ppo_sac(critic_state, x)
 
     def _critic_params(self, agent_state: Any) -> Any:
-        loc = self.critic_loc
-        if loc == "auto":
-            loc = "critic" if hasattr(agent_state.critic_state, "params") else "actor"
-        return getattr(agent_state, f"{loc}_state").params
+        return getattr(agent_state, f"{self._loc(agent_state)}_state").params
 
     def eval_metrics(
         self,
@@ -262,7 +294,7 @@ class ConditioningMetrics(Extension):
             # the first rollout populates last_rollout), emit an empty
             # dict so the eval log still completes.
             return {}
-        feats = self._features(agent_state, obs, act)
+        feats = self._features(agent_state, obs, act, rng)
         return dict(
             zip(
                 COND_METRIC_KEYS,

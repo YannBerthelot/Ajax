@@ -11,7 +11,7 @@ The contrast with the wire/code tier (``test_PPO_code.py``) is:
   * RL tier:   "is the loss math itself correct?"
 
 The contrast with the smoke / probing tier (``test_PPO.py``,
-``test_probing.py``) is:
+``tests/probing``) is:
   * Smoke / probing: "does the full agent learn a task?"
   * RL tier:         "is each individual numerical primitive correct?"
 

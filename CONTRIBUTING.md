@@ -309,9 +309,8 @@ isolation and that every agent and extension runs. *Pins* record behaviour so
 a restructuring can show it changed nothing: `tests/agents/test_agent_pins.py`
 (tiny runs' fingerprints), `tests/extensions/test_sac_extensions_equivalence.py`
 and `tests/test_downstream_api.py` (the names downstream projects import).
-*Probing tests* check that agents learn the right thing: `tests/probing` and,
-older, `tests/agents/test_probing.py`. *Slow tests* (`@pytest.mark.slow`) are
-the long trainings.
+*Probing tests* (`tests/probing`) check that agents learn the right thing.
+*Slow tests* (`@pytest.mark.slow`) are the long trainings.
 
 ```bash
 uv run pytest --collect-only -q   # everything imports and collects

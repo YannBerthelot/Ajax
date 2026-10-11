@@ -84,7 +84,8 @@ _BOOKKEEPING = {
 }
 
 # The world models' learning probes (Q10, Q12, Q13): the tiny models of
-# tests/agents (test_tdmpc2_probes.py:35-49, test_probing.py's DreamerV3),
+# tests/agents (test_tdmpc2_probes.py:35-49, the retired test_probing.py's
+# DreamerV3),
 # copied so their retuning does not move these calibrations.
 _T_CORE: dict[str, Any] = {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16}
 _T_CORE |= {"num_q": 2, "batch_size": 32, "num_samples": 64, "num_elites": 8}

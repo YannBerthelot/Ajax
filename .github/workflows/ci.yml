@@ -38,7 +38,7 @@ jobs:
   # Shards 1 and 2 name directories; shard 3 runs everything else under
   # tests/ (pyproject's testpaths), so a new test file always runs somewhere.
   # The split balances the per-file times of the CI runs at a1658d9.
-  # Probing (tests/agents/test_probing.py and tests/probing) is left out here
+  # Probing (tests/probing) is left out here
   # and in the slow job: the probing job owns it.
   tests:
     name: Tests (shard ${{ matrix.shard }})
@@ -66,7 +66,7 @@ jobs:
             3) paths="tests $(printf -- '--ignore=%s ' $SHARD_1 $SHARD_2)" ;;
           esac
           uv run coverage run -m pytest $paths -m "not slow" \
-            --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
+            --ignore=tests/probing --durations=30
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
         uses: actions/cache/save@v6
@@ -109,7 +109,7 @@ jobs:
         uses: ./.github/actions/compile-cache
         with:
           job: slow
-      - run: uv run pytest -m slow --deselect tests/agents/test_probing.py --ignore=tests/probing --durations=30
+      - run: uv run pytest -m slow --ignore=tests/probing --durations=30
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
         uses: actions/cache/save@v6
@@ -151,7 +151,7 @@ jobs:
             2) run $MEMORY -k mamba && run $SHARD_2 ;;
             3) run $MEMORY -k "lstm or transformer" && run $SHARD_3 ;;
             4) run $SHARD_4 ;;
-            5) run tests/agents/test_probing.py tests/probing \
+            5) run tests/probing \
                  $(printf -- '--ignore=%s ' $MEMORY $SHARD_2 $SHARD_3 $SHARD_4) \
                && run $MEMORY -k "not gru and not mamba and not lstm and not transformer" ;;
           esac

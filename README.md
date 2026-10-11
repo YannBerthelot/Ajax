@@ -169,10 +169,9 @@ that a run split this way equals the run left whole.
 ## Testing
 
 *Unit tests* check pieces in isolation (losses, buffers, networks, wrappers, logging) and that every
-agent and extension runs. *Probing tests* (`tests/probing`, older ones in `tests/agents/test_probing.py`)
-check that agents learn the right thing: each trains an agent on a tiny problem whose answer is known
-exactly (a value, a best action, a count) and tells it apart from named wrong answers, such as a
-discount applied twice.
+agent and extension runs. *Probing tests* (`tests/probing`) check that agents learn the right thing:
+each trains an agent on a tiny problem whose answer is known exactly (a value, a best action, a
+count) and tells it apart from named wrong answers, such as a discount applied twice.
 
 ```bash
 uv run pytest                  # every test

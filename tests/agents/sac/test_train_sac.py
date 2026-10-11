@@ -3,7 +3,7 @@
 Tests functions and mechanics unique to SAC: temperature (alpha) loss and
 update, and soft target-network updates. Shared behaviors (loss shapes,
 agent-state updates, training loop, make_train) are covered by the probing
-suite (``tests/agents/test_probing.py``) and the per-agent smoke tests
+suite (``tests/probing``) and the per-agent smoke tests
 (``test_sac.py``).
 """
 

@@ -78,7 +78,6 @@ def init_UDRL(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     agent_config: UDRLConfig,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
 ) -> UDRLState:
     rng, init_key, collector_key = jax.random.split(key, 3)
 
@@ -96,7 +95,6 @@ def init_UDRL(
         squash=continuous,
         num_critics=1,
         extra_obs_dim=2,  # the (d_r, d_h) command is appended to obs
-        cnn_image_shape=cnn_image_shape,
     )
     mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
     collector_state = init_collector_state(
@@ -483,7 +481,6 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     extensions: Sequence = (),
 ):
     """UDRL's train function: its own iteration (a segment, the replay of
@@ -521,7 +518,6 @@ def make_train(
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             agent_config=agent_config,
-            cnn_image_shape=cnn_image_shape,
         )
 
     def iteration(agent_state: UDRLState, index: Any, tick: Any) -> tuple:

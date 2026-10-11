@@ -51,7 +51,6 @@ def main(path: str | None = None):
         )
 
     base_median = rows[0]["median_s"]
-    rows[0]["peak_mb"]
     base_n = rows[0]["n"]
 
     print(f"Per-seed scaling (baseline: n_seeds={base_n})")

@@ -18,10 +18,15 @@ Scenarios:
                       patch #2 (gated q_preds_for_var).
     obs_norm_sac      Pendulum-v1, normalize_obs_running=True. Sensitive
                       to patch #1 (agent obs-norm shape).
+    stress_sac        Pendulum-v1, 64 envs, 10 critics, 256-wide nets,
+                      obs norm: the headline scenario.
+    stress_sac_utd    stress_sac with 10 critic updates per step (patch #4).
+    p3dcircle_sac     target_gym's Plane3DCircle (17-dim obs, 3-dim
+                      action), 256-wide nets: cache and seed-scaling runs.
 
 The script prints one JSON line per trial to stdout AND appends it to
-``--out`` (jsonl). A separate aggregator (``perf_compare.py``) reads the
-log and produces before/after deltas.
+``--out`` (jsonl). ``seed_scaling_report.py`` tabulates a seed sweep
+(runs at several ``--n-seeds``) from such a log.
 """
 
 from __future__ import annotations
@@ -143,9 +148,8 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
 def _seed_arg(seed_base: int, n_seeds: int):
     """Build the train()'s seed argument: int when n_seeds==1, else list.
 
-    The list form triggers ``jax.vmap(set_key_and_train, in_axes=0)`` in
-    [base.py:168](src/ajax/agents/base.py#L168), running all seeds in
-    parallel under one compiled program.
+    ``ActorCritic.train`` (``src/ajax/agents/base.py``) vmaps over the
+    list, running all seeds in parallel under one compiled program.
     """
     if n_seeds == 1:
         return seed_base
@@ -180,13 +184,13 @@ def _run_one_trial(
         scenario, n_envs=n_envs, learning_starts=min(50, warmup_timesteps // 2)
     )
     t0 = time.perf_counter()
-    agent.train(seed=_seed_arg(seed, n_seeds), n_timesteps=warmup_timesteps)
-    jax.block_until_ready(getattr(agent, "_last_state", 0))
+    out = agent.train(seed=_seed_arg(seed, n_seeds), n_timesteps=warmup_timesteps)
+    jax.block_until_ready(out)
     compile_plus_warmup_s = time.perf_counter() - t0
 
     # Measured run: rebuild the agent so seed / buffer state is clean,
     # but the JIT cache from the warmup carries over (same shapes).
-    del agent
+    del agent, out
     gc.collect()
     if has_mem_stats:
         try:
@@ -198,8 +202,8 @@ def _run_one_trial(
         scenario, n_envs=n_envs, learning_starts=min(50, timesteps // 4)
     )
     t0 = time.perf_counter()
-    agent.train(seed=_seed_arg(seed + 1, n_seeds), n_timesteps=timesteps)
-    jax.block_until_ready(getattr(agent, "_last_state", 0))
+    out = agent.train(seed=_seed_arg(seed + 1, n_seeds), n_timesteps=timesteps)
+    jax.block_until_ready(out)
     measured_s = time.perf_counter() - t0
 
     if has_mem_stats:

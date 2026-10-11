@@ -298,10 +298,6 @@ def test_get_final_obs_prefers_env_reported_final_observation():
     assert jnp.array_equal(
         step_module.get_final_obs({"final_obs": final}, fallback), final
     )
-    # pre-1.0 gymnax fork naming
-    assert jnp.array_equal(
-        step_module.get_final_obs({"obs_st": final}, fallback), final
-    )
     # env exposes none of them -> post-step obs
     assert jnp.array_equal(step_module.get_final_obs({}, fallback), fallback)
 

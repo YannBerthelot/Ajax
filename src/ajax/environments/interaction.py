@@ -26,7 +26,7 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
-from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_REWARD_KEY
+from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_OBS_KEY, RAW_REWARD_KEY
 
 
 def flatten_expert_state(expert_state) -> jnp.ndarray:
@@ -651,6 +651,10 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
         # envs (e.g. MemoryChain) make `params` required rather than optional.
         env_params = getattr(env, "default_params", None)
         return maybe_vmap(lambda st: env.get_obs(st, env_params), vmap_on)(env_state)
+    # An observation normaliser overwrites a brax state's obs and keeps the
+    # raw one in its info.
+    if RAW_OBS_KEY in getattr(env_state, "info", {}):
+        return env_state.info[RAW_OBS_KEY]
     if check_env_is_playground(env):
         # env_state.obs is already the post-wrapper observation (e.g. with
         # safety-wrapper augmentations). Recomputing it via the raw env's

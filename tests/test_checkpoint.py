@@ -319,3 +319,35 @@ def test_a_checkpoint_missing_a_data_field_still_fails(tmp_path):
         pickle.dump(saved, fh)
     with pytest.raises(ValueError, match="obs"):
         restore_into(state, path)
+
+
+def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
+    """A brax env state saved before the observation normaliser kept the raw
+    observation in its info restores with it, un-normalised from the saved
+    observation and statistics."""
+    import pickle
+
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    agent = SAC(
+        env_id="fast",
+        n_envs=2,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=100,
+        batch_size=4,
+        buffer_size=40,
+        normalize_observations=True,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    info = saved["collector_state"]["_env_state"]["info"]
+    want = info.pop("raw_obs")
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    got = restore_into(state, path).collector_state.env_state.info["raw_obs"]
+    np.testing.assert_allclose(got, want, rtol=1e-6)

@@ -67,6 +67,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _with_new_empty_fields(
         serialization.to_state_dict(skeleton), state_dict
     )
+    state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     # Push data back onto device
     return jax.tree.map(
@@ -128,6 +129,32 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
         elif value is None:
             out[key] = None
     return out
+
+
+def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:
+    """Give a brax env state saved before the observation normaliser kept
+    its raw observation in the info (``RAW_OBS_KEY``) that entry: the saved
+    observation un-normalised by the statistics saved with it.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
+    ``_with_replay_next_obs``.
+    """
+    from ajax.utils import online_denormalize
+    from ajax.wrappers import RAW_OBS_KEY
+
+    env_state = getattr(getattr(skeleton, "collector_state", None), "_env_state", None)
+    if RAW_OBS_KEY not in getattr(env_state, "info", {}):
+        return state_dict
+    saved = state_dict["collector_state"]["_env_state"]
+    if RAW_OBS_KEY in saved["info"]:
+        return state_dict
+    stats = saved["info"]["normalization_info"]["obs"]
+    raw = online_denormalize(
+        saved["obs"], stats["count"], stats["mean"], stats["mean_2"]
+    )
+    info = {**saved["info"], RAW_OBS_KEY: np.asarray(raw, saved["obs"].dtype)}
+    collector = {**state_dict["collector_state"], "_env_state": {**saved, "info": info}}
+    return {**state_dict, "collector_state": collector}
 
 
 def checkpoint_exists(path: str) -> bool:

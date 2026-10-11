@@ -1,12 +1,14 @@
 """Offline multi-task datasets (M8): export, pooling, schema, sampling.
 
 :mod:`ajax.agents.TDMPC2.dataset` (``docs/world_models/DESIGN.md`` §7;
-tdmpc2_spec 4.18-4.19): a tiny single-task TD-MPC2 run on the counter env
-(whose rows are recoverable from its actions) is exported, pooled with a
-second task of other dims and read back; the export's slot order is checked
-on a wrapped ring; the sampler is b67b21c's uniform episode x uniform crop
-over the pooled episodes; a dataset saved to disk loads back identical and
-checked.
+tdmpc2_spec 4.18-4.19): the ring of a two-seed single-task run, built on
+the host, is exported, pooled with a second task of other dims and read
+back; the export's slot order is checked on a wrapped ring; the sampler is
+b67b21c's uniform episode x uniform crop over the pooled episodes; a dataset
+saved to disk loads back identical and checked. A real agent's export is
+exercised by the multi-task validation smoke test
+(``tests/world_models/validation/test_multitask_validation.py``), what an
+agent's ring rows hold by ``test_TDMPC2.py`` and ``test_tdmpc2_schedule.py``.
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import TDMPC2
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodeBufferState, slice_batch
 from ajax.agents.TDMPC2.dataset import (
     MultiTaskDataset,
@@ -32,20 +33,8 @@ from ajax.agents.TDMPC2.dataset import (
     save_dataset,
 )
 
-from .toy_envs import CounterEnv
-
 T = 6  # rows T + 1 = 7
-TINY = {
-    "enc_dim": 16,
-    "mlp_dim": 16,
-    "latent_dim": 8,
-    "num_q": 2,
-    "batch_size": 4,
-    "num_samples": 8,
-    "num_elites": 2,
-    "num_pi_trajs": 2,
-    "iterations": 1,
-}
+EPISODE_FIELDS = ("obs", "action", "reward")
 
 
 def synthetic(n, obs_dim, action_dim, name, rows=T + 1, seed=0):
@@ -67,12 +56,18 @@ def synthetic(n, obs_dim, action_dim, name, rows=T + 1, seed=0):
 
 @pytest.fixture(scope="module")
 def run():
-    """Two seeds, 2 envs, 20 env steps per env: 3 complete rounds (6
-    episodes per seed) and 2 steps of a fourth, the planner acting after
-    the seed phase."""
-    agent = TDMPC2(CounterEnv(length=T), n_envs=2, seed_steps=12, **TINY)
-    state, _ = agent.train(seed=[0, 1], n_timesteps=40)
-    return agent, jax.device_get(state)
+    """Two seeds, 2 envs, 20 env steps per env in a 5-round ring: 3
+    complete rounds (6 episodes per seed, the first 6 slots) and 2 steps of
+    a fourth (23 ticks of T + 1: a round's T steps and its held tick)."""
+    seeds = [synthetic(10, 2, 1, "ring", seed=seed) for seed in (0, 1)]
+    state = SimpleNamespace(
+        buffer_state=EpisodeBufferState(
+            *(np.stack([getattr(e, f) for e in seeds]) for f in EPISODE_FIELDS)
+        ),
+        collector_state=SimpleNamespace(rows=np.full(2, 2 * 23, np.int32)),
+    )
+    agent = SimpleNamespace(env_args=SimpleNamespace(n_envs=2), agent_episode_length=T)
+    return agent, state
 
 
 def test_export_reads_every_committed_episode_in_order(run):
@@ -81,33 +76,21 @@ def test_export_reads_every_committed_episode_in_order(run):
     assert (episodes.num_episodes, episodes.rows) == (6, T + 1)
     assert (episodes.obs_dim, episodes.action_dim) == (2, 1)
     assert episodes.episode_length == T and episodes.name == "counter"
-    # The ring never wrapped (5 rounds): its first 6 slots, rounds in order.
-    np.testing.assert_array_equal(episodes.obs, state.buffer_state.obs[0, :6])
-    # The obs-aligned rows of the counter env (obs [t, x], reward (t + 1) a):
-    # row k holds o_k, a_k (none on the last row) and r_{k-1} (none on row 0).
-    np.testing.assert_array_equal(
-        episodes.obs[..., 0], np.broadcast_to(np.arange(T + 1), (6, T + 1))
-    )
-    a = episodes.action[..., 0]
-    np.testing.assert_allclose(
-        episodes.obs[:, 1:, 1], np.cumsum(np.clip(a[:, :-1], -1, 1), axis=1), atol=1e-5
-    )
-    np.testing.assert_allclose(
-        episodes.reward[:, 1:],
-        np.arange(1, T + 1) * np.clip(a[:, :-1], -1, 1),
-        atol=1e-5,
-    )
-    np.testing.assert_array_equal(a[:, -1], 0.0)
-    np.testing.assert_array_equal(episodes.reward[:, 0], 0.0)
+    # The ring never wrapped: its first 6 slots, rounds in order, verbatim.
+    for field in EPISODE_FIELDS:
+        np.testing.assert_array_equal(
+            getattr(episodes, field), getattr(state.buffer_state, field)[0, :6]
+        )
     # Seeds are exported separately.
     other = export_episodes(agent, state, seed_index=1, name="counter")
+    np.testing.assert_array_equal(other.action, state.buffer_state.action[1, :6])
     assert not np.array_equal(other.action, episodes.action)
     with pytest.raises(ValueError, match="seed_index"):
         export_episodes(agent, state)
 
 
 def test_pooled_dataset_round_trips_and_samples_the_exports(run):
-    """Pool the counter env's two seeds with a task of other dims: padding
+    """Pool the ring's two seeds with a task of other dims: padding
     with zeros at the end, task ids in order, the per-task metadata, the
     unpooled episodes identical to the exports, and the slices of the pooled
     dataset those of the exports."""

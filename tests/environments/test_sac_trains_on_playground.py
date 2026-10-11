@@ -1,39 +1,56 @@
-"""End-to-end regression: SAC must be able to train on a wrapped
-mujoco_playground env without the vmap-rank crash we saw on CheetahRun.
+"""SAC end to end on mujoco_playground envs built by ``build_env_from_id``.
 
-The bug (before this test): ``envs.py`` in the AjaxExperiments repo returned
-raw mujoco_playground envs to the SAC training loop. Ajax's collection path
-calls ``maybe_vmap(raw._get_obs, vmap_on)`` which requires a rank-1 batch
-axis on the env state; raw Playground envs have rank-0 state and crash
-immediately at ``interaction.py:398`` with:
+Regression: raw playground envs have rank-0 states, and SAC's collection
+vmaps their observation function over the env axis
+(``ajax.environments.interaction.get_raw_obs``), so SAC crashed at once
+with
 
     ValueError: vmap was requested to map its argument along axis 0, which
     implies that its rank should be at least 1, but is only 0
 
-The fix was to go through ``ajax.environments.create.build_env_from_id``
-which applies EpisodeWrapper + VmapWrapper + FinalObsWrapper + an
-auto-reset wrapper + BatchRngWrapper. This test ensures that path
-continues to work for one Playground env so the regression doesn't sneak
-back in.
+until envs went through ``build_env_from_id``, which applies EpisodeWrapper
++ VmapWrapper + FinalObsWrapper + an auto-reset wrapper + BatchRngWrapper.
+Both trainings below go through that stack.
 """
 
 import pytest
 
+#: 2-dim actions: the only multi-dimensional playground action space SAC
+#: trains on here (CartpoleBalance's is 1-dim), with a small MJX model.
+MULTI_DIM_ENV = "PointMass"
+
 
 @pytest.mark.slow
-def test_sac_trains_on_playground_env_smoke():
-    """Build CheetahRun via ``build_env_from_id`` and run a few SAC training
-    steps. The assertion is simply "does not raise" — covering the vmap-rank
-    regression. Kept tiny (300 steps, 1 seed) so runtime stays under 30 s on
-    CPU."""
+def test_sac_updates_on_a_multi_dimensional_playground_env():
+    """A tiny SAC past its learning starts (critic, policy, temperature):
+    gradient updates run on 2-dim actions stored in its replay, and the
+    parameters stay finite."""
+    import jax
+    import numpy as np
+
     from ajax.agents.SAC.SAC import SAC
     from ajax.environments.create import build_env_from_id
 
-    env, env_params = build_env_from_id("CheetahRun", n_envs=1, episode_length=200)
-    agent = SAC(env_id=env, env_params=env_params)
-    # Returns (state, metrics); we only care that it completes.
-    result = agent.train(seed=[0], n_timesteps=300, num_episode_test=1)
-    assert result is not None
+    env, env_params = build_env_from_id(MULTI_DIM_ENV, n_envs=1, episode_length=20)
+    net = ("16", "relu")
+    agent = SAC(
+        env_id=env,
+        env_params=env_params,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=10,
+        policy_update_start=10,
+        alpha_update_start=10,
+        batch_size=8,
+        buffer_size=100,
+    )
+    state, _ = agent.train(seed=[0], n_timesteps=40, num_episode_test=1)
+    action = np.asarray(state.collector_state.buffer_state.experience["action"])
+    assert action.shape[-1] == env.action_size == 2
+    for train_state in (state.actor_state, state.critic_state):
+        assert np.all(np.asarray(train_state.step) > 0)
+    for leaf in jax.tree.leaves((state.actor_state.params, state.critic_state.params)):
+        assert np.all(np.isfinite(leaf))
 
 
 def test_playground_env_has_ajax_wrapper_stack():
@@ -43,13 +60,13 @@ def test_playground_env_has_ajax_wrapper_stack():
     from ajax.environments.create import build_env_from_id
     from ajax.wrappers import BatchRngWrapper
 
-    env, _ = build_env_from_id("CheetahRun", n_envs=1, episode_length=200)
+    env, _ = build_env_from_id(MULTI_DIM_ENV, n_envs=1, episode_length=200)
     assert isinstance(env, BatchRngWrapper), (
         "Expected the outer wrapper to be BatchRngWrapper so SAC's "
         "unbatched-rng convention holds; got "
         f"{type(env).__name__}."
     )
-    assert getattr(env, "_ajax_env_id", None) == "CheetahRun"
+    assert getattr(env, "_ajax_env_id", None) == MULTI_DIM_ENV
 
 
 @pytest.mark.slow

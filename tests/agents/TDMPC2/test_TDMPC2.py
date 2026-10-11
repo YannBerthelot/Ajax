@@ -26,6 +26,7 @@ from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents import loop
 from ajax.agents.TDMPC2 import core, train_TDMPC2
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
+from ajax.agents.TDMPC2.TDMPC2 import refuse_terminations
 from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_policy
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
@@ -632,16 +633,35 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "terminate_at",
-    [3, 10],
-    ids=["off-schedule", "on-the-last-step"],
-)
-def test_terminations_are_refused_after_the_run(terminate_at):
-    """A termination is refused wherever it happens, including on the
-    episode's scheduled last step (``is_terminal`` on the final row)."""
-    agent = TDMPC2(
-        TerminatingEnv(length=10, terminate_at=terminate_at), seed_steps=5, **TINY
-    )
+def test_terminations_are_refused_after_the_run():
+    """A termination on the episode's scheduled last step (``is_terminal`` on
+    the final row, which only the loop counts) is refused after the run."""
+    agent = TDMPC2(TerminatingEnv(length=10, terminate_at=10), seed_steps=5, **TINY)
     with pytest.raises(ValueError, match="terminations are not supported"):
         agent.train(seed=0, n_timesteps=30, num_episode_test=1)
+
+
+@pytest.mark.parametrize(
+    "offschedule,terminations",
+    [([0, 2], [0, 0]), ([0, 0], [1, 0])],
+    ids=["off-schedule", "on-the-last-step"],
+)
+def test_any_termination_of_any_seed_is_refused(offschedule, terminations):
+    """Off the schedule (an episode ended early: the collector's count,
+    tests/environments/test_row_collector.py) or on its last step, in any
+    seed; a run without either passes."""
+
+    def state(offschedule, terminations):
+        return SimpleNamespace(
+            collector_state=SimpleNamespace(
+                n_offschedule_dones=np.asarray(offschedule)
+            ),
+            n_terminations=np.asarray(terminations),
+        )
+
+    with pytest.raises(ValueError, match="terminations are not supported") as error:
+        refuse_terminations(state(offschedule, terminations), 10)
+    assert f"schedule {offschedule} times" in str(error.value)
+    assert f"last step {terminations} times" in str(error.value)
+    assert "T = 10-step" in str(error.value)
+    refuse_terminations(state([0, 0], [0, 0]), 10)

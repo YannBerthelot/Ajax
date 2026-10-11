@@ -1,6 +1,7 @@
 """Tests for ajax.checkpoint: save/load and resume-training round-trip."""
 
 import os
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -94,11 +95,12 @@ def test_atomic_save_tmp_cleanup(tmp_path):
     assert not os.path.exists(path + ".tmp")
 
 
-def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
-    tmp_path,
-):
-    """A checkpoint from before the replay buffer stored ``next_obs`` resumes
-    with each row's successor there, what its replay bootstrapped on then."""
+@pytest.fixture(scope="module")
+def sac_run():
+    """One tiny SAC run, shared: 40 transitions of 2 envs, past its learning
+    starts (critic, policy, temperature), so every gradient update runs.
+    ``train``'s output is kept on the host: a state passed as
+    ``initial_state`` may be donated."""
     from ajax.agents.SAC.SAC import SAC
 
     net = ("8", "relu")
@@ -107,11 +109,22 @@ def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
         n_envs=2,
         actor_architecture=net,
         critic_architecture=net,
-        learning_starts=100,
+        learning_starts=10,
+        policy_update_start=10,
+        alpha_update_start=10,
         batch_size=4,
         buffer_size=40,
     )
-    state, _ = agent.train(seed=0, n_timesteps=10)
+    out = agent.train(seed=[0], n_timesteps=40, num_episode_test=1)
+    return SimpleNamespace(agent=agent, out=jax.device_get(out))
+
+
+def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
+    sac_run, tmp_path
+):
+    """A checkpoint from before the replay buffer stored ``next_obs`` resumes
+    with each row's successor there, what its replay bootstrapped on then."""
+    state = sac_run.out[0]
     buffer = state.collector_state.buffer_state
     rows = {k: v for k, v in buffer.experience.items() if k != "next_obs"}
     old = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
@@ -123,17 +136,14 @@ def test_a_replay_buffer_saved_without_next_obs_restores_with_the_next_rows(
     np.testing.assert_array_equal(got["next_obs"][..., -1, :], obs[..., 0, :])
 
 
-def test_agent_train_returns_tuple_shape():
+def test_agent_train_returns_tuple_shape(sac_run):
     """Regression: ``agent.train(...)`` returns a ``(state, metrics)`` 2-tuple,
     not a bare ``BaseAgentState``. The resume path in ``agents/base.py`` must
     accept either form; tests elsewhere rely on this shape. If Ajax ever
     changes this contract silently, downstream code (and the orchestrator's
     build_agent_and_train wrapper) will break in subtle ways.
     """
-    from ajax.agents.SAC.SAC import SAC
-
-    agent = SAC(env_id="Pendulum-v1")
-    out = agent.train(seed=[0], n_timesteps=100, num_episode_test=1)
+    out = sac_run.out
     assert isinstance(
         out, tuple
     ), f"agent.train() was expected to return a 2-tuple; got {type(out)}"
@@ -142,76 +152,32 @@ def test_agent_train_returns_tuple_shape():
     assert state.actor_state is not None
 
 
-def test_resume_accepts_tuple_initial_state(tmp_path):
-    """Regression: passing the whole ``(state, metrics)`` tuple returned by
-    ``agent.train()`` as ``initial_state=`` must not crash. Before the fix,
-    the vmap in ``base.py`` tried to scan ``collector_state`` on a tuple.
-    """
-    from ajax.agents.SAC.SAC import SAC
-
-    agent = SAC(env_id="Pendulum-v1")
-    first = agent.train(seed=[0], n_timesteps=100, num_episode_test=1)
-    # Pass the tuple directly (not state_only).
-    second = agent.train(
-        seed=[0],
-        n_timesteps=100,
-        num_episode_test=1,
-        initial_state=first,
+def test_sac_resumes_from_a_restored_checkpoint_of_its_train_tuple(sac_run, tmp_path):
+    """End-to-end, and the critical test of ``agent.train(initial_state=...)``
+    and the ``resume_from_state=True`` branch of ``make_train``: the
+    ``(state, metrics)`` tuple ``train`` returned is saved, restored into
+    itself unchanged, and passed whole as ``initial_state`` (regression:
+    the vmap in ``base.py`` scanned ``collector_state`` on a tuple). The
+    resumed run continues the timestep and keeps updating: the critic's
+    step count goes on and the policy's parameters move, finite and of
+    their shapes. (A resumed run draws fresh keys, so
+    it is not compared with an uninterrupted one.)"""
+    agent, first = sac_run.agent, sac_run.out
+    path = str(tmp_path / "sac.pkl")
+    save_checkpoint(first, path)
+    restored = restore_into(first, path)
+    jax.tree.map(np.testing.assert_array_equal, restored, first)
+    resumed, _ = agent.train(
+        seed=[0], n_timesteps=40, num_episode_test=1, initial_state=restored
     )
-    assert second is not None
-
-
-@pytest.mark.slow
-def test_sac_short_train_then_resume_preserves_return(tmp_path):
-    """End-to-end: train SAC briefly, checkpoint, reload, resume, verify the
-    final state matches a continuation computed without the save/load cycle.
-
-    This is the critical test: it exercises ``agent.train(initial_state=...)``
-    and the ``resume_from_state=True`` branch inside ``make_train``.
-    """
-
-    from ajax.agents.SAC.SAC import SAC
-
-    env_id = "Pendulum-v1"
-    seeds = [0]
-    total = 2_000  # intentionally tiny
-    half = 1_000
-
-    agent = SAC(env_id=env_id)
-
-    # Reference run: train for `total` steps in one go
-    ref_result = agent.train(seed=seeds, n_timesteps=total, num_episode_test=1)
-    ref_state = ref_result[0] if isinstance(ref_result, tuple) else ref_result
-
-    # Resume run: train for `half` steps, save, load, train for `total-half`
-    mid_result = agent.train(seed=seeds, n_timesteps=half, num_episode_test=1)
-
-    path = str(tmp_path / "sac_mid.pkl")
-    save_checkpoint(mid_result, path)
-    # The mid_result itself is a valid skeleton (same structure as the saved
-    # checkpoint). In production, the skeleton would come from a fresh init.
-    loaded = restore_into(mid_result, path)
-
-    resumed_result = agent.train(
-        seed=seeds,
-        n_timesteps=total - half,
-        num_episode_test=1,
-        initial_state=loaded,
+    np.testing.assert_array_equal(
+        resumed.collector_state.timestep, 2 * first[0].collector_state.timestep
     )
-    resumed_state = (
-        resumed_result[0] if isinstance(resumed_result, tuple) else resumed_result
-    )
-
-    # Sanity: both paths produce a state with a valid actor_state
-    assert resumed_state.actor_state is not None
-    assert ref_state.actor_state is not None
-
-    # The two paths are NOT expected to produce bit-identical results because
-    # resumed training gets fresh random keys. We check that it converges to
-    # a *reasonable* final state (no NaNs, actor params populated).
-    ref_leaves = jax.tree.leaves(ref_state.actor_state.params)
-    res_leaves = jax.tree.leaves(resumed_state.actor_state.params)
-    assert len(ref_leaves) == len(res_leaves)
-    for rl, sl in zip(ref_leaves, res_leaves, strict=False):
-        assert not np.any(np.isnan(np.asarray(sl))), "NaN in resumed params"
-        assert np.asarray(sl).shape == np.asarray(rl).shape
+    assert np.all(resumed.critic_state.step > first[0].critic_state.step)
+    before = jax.tree.leaves(first[0].actor_state.params)
+    after = jax.tree.leaves(resumed.actor_state.params)
+    assert len(after) == len(before)
+    for ours, theirs in zip(after, before, strict=True):
+        assert np.shape(ours) == np.shape(theirs)
+        assert np.all(np.isfinite(ours)), "NaN in resumed params"
+    assert any(not np.array_equal(a, b) for a, b in zip(after, before, strict=True))

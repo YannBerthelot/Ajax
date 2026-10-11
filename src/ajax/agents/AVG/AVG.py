@@ -86,6 +86,8 @@ class AVG(ActorCritic):
 
         # AVG normalises its observations (never its rewards) and squashes
         # its actions.
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -123,7 +125,6 @@ class AVG(ActorCritic):
             num_critics=num_critics,
             expose_recent_rollout=expose_recent_rollout,
         )
-        self.expert_policy = expert_policy
 
     def get_make_train(self) -> Callable:
         return partial(

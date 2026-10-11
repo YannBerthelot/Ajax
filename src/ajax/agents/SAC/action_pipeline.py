@@ -22,6 +22,7 @@ from ajax.environments.interaction import (
     get_action_and_log_probs,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
+from ajax.networks.networks import phi_star_critic_state
 
 #: The pipeline's slots for an ``action`` extension: before the warmup
 #: choice (EDGEExploration, JSRLCurriculum) and after it (ValueBox).
@@ -309,7 +310,12 @@ def make_action_pipeline(
                         if agent_state.expert_critic_params is not None
                         else agent_state.critic_state.params
                     ),
-                    "critic_state": agent_state.critic_state,
+                    # phi* is applied without the agent's statistics.
+                    "critic_state": (
+                        phi_star_critic_state(agent_state.critic_state)
+                        if agent_state.expert_critic_params is not None
+                        else agent_state.critic_state
+                    ),
                     "raw_obs": raw_obs,
                     "gate_rng": rng,
                 },

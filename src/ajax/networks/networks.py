@@ -769,6 +769,16 @@ def predict_value_sequence(
     )
 
 
+def phi_star_critic_state(critic_state: LoadedTrainState) -> LoadedTrainState:
+    """The critic state the frozen expert critic phi*'s parameters
+    (``expert_critic_params``) are applied with: the online critic's
+    network without the agent's observation statistics, as MC pretraining
+    and PhiRefresh fit phi* on the observations as stored."""
+    if getattr(critic_state, "obs_norm_info", None) is None:
+        return critic_state
+    return critic_state.replace(obs_norm_info=None)
+
+
 def predict_value(
     critic_state: LoadedTrainState,
     critic_params: FrozenDict,

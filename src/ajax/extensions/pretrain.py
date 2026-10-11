@@ -25,7 +25,11 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.buffers.utils import get_batch_from_buffer, get_raw_next_obs_from_buffer
+from ajax.buffers.utils import (
+    get_batch_from_buffer,
+    get_expert_fields_from_buffer,
+    get_raw_next_obs_from_buffer,
+)
 from ajax.environments.interaction import (
     augment_from_buffer,
     augment_obs,
@@ -33,7 +37,8 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
+from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
 from ajax.types import BufferType
 
@@ -65,6 +70,7 @@ class MCPretrainAux:
         "max_timesteps",
         "batch_size",
         "augment_obs_with_expert_action",
+        "augment_obs_with_expert_state",
     ],
 )
 def pretrain_critic_mc(
@@ -81,6 +87,7 @@ def pretrain_critic_mc(
     batch_size: int = 256,
     max_timesteps: Optional[int] = None,
     augment_obs_with_expert_action: bool = False,
+    augment_obs_with_expert_state: bool = False,
 ) -> Tuple[Any, FrozenDict, jax.Array, jax.Array, MCPretrainAux, LoadedTrainState]:
     """Pre-train critic using Monte Carlo returns from expert trajectories.
 
@@ -105,6 +112,10 @@ def pretrain_critic_mc(
         mode=mode,
         env_args=env_args,
         n_timesteps=n_total_steps,
+        # The online critic's layout: the training fraction (0 before
+        # training), then the expert's state.
+        augment_obs_with_expert_state=augment_obs_with_expert_state,
+        train_frac=0.0 if max_timesteps is not None else None,
     )
 
     rewards = all_transitions.reward * reward_scale
@@ -128,12 +139,6 @@ def pretrain_critic_mc(
     obs_flat = all_transitions.obs.reshape(T * n_envs, -1)
     action_flat = all_transitions.action.reshape(T * n_envs, -1)
     mc_flat = mc_returns.reshape(T * n_envs, 1)
-
-    # Append train_frac=0.0 if max_timesteps was set
-    if max_timesteps is not None:
-        obs_flat = jnp.concatenate(
-            [obs_flat, jnp.zeros((obs_flat.shape[0], 1))], axis=-1
-        )
 
     # Augment obs with the expert's actions as its rollout took them (on raw
     # observations, from its state), as collection stores a_expert.
@@ -245,7 +250,7 @@ def pretrain_critic_online_light(
         v_expert = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(
-                    critic_state=agent_state.critic_state,
+                    critic_state=phi_star_critic_state(agent_state.critic_state),
                     critic_params=agent_state.expert_critic_params,
                     x=jnp.concatenate([obs, actions], axis=-1),
                 ),
@@ -281,11 +286,12 @@ def refresh_phi_star(
     phi_refresh_steps: int,
     gamma: float,
     reward_scale: float,
-    expert_policy: Callable,
+    ext: "PhiRefresh",
     augment: bool = False,
 ) -> Any:
     """Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
-    ``augment``: φ* reads observations augmented with SAC's expert actions.
+    ``augment``: φ* reads observations augmented with SAC's expert actions;
+    ``ext``'s expert gives the action at s' (expert_next_actions).
 
     Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
     Non-expert transitions are masked out, so the gradient comes only from
@@ -311,9 +317,15 @@ def refresh_phi_star(
         rewards = rewards * reward_scale
         dones = terminated.astype(jnp.float32)
 
-        # The expert reads the environment's own next observations.
+        # The expert's action at s': stored (the agent's expert, from its
+        # state), or its call on the raw next observations.
         raw_next = get_raw_next_obs_from_buffer(buffer, buffer_state, sample_key)
-        a_expert_next = jax.lax.stop_gradient(expert_policy(raw_next))
+        stored = (
+            get_expert_fields_from_buffer(buffer, buffer_state, sample_key)[1]
+            if ext.reads_stored_expert
+            else None
+        )
+        a_expert_next = expert_next_actions(ext, raw_next, stored)
         if augment:
             obs, next_obs = augment_from_buffer(
                 buffer, buffer_state, sample_key, obs, next_obs
@@ -384,6 +396,7 @@ class MCPretrain(Extension):
     reward_scale: Optional[float] = None
     use_train_frac: bool = False
     augment_obs_with_expert_action: bool = False
+    expert_state_aug_dim: int = 0
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
 
@@ -391,12 +404,21 @@ class MCPretrain(Extension):
         """Copy the agent's context (``env_args``, ``network_args``,
         ``critic_optimizer_args``, ``num_critics``, ``gamma``,
         ``reward_scale``, ``use_train_frac``,
-        ``augment_obs_with_expert_action``) onto a new instance, and keep
+        ``augment_obs_with_expert_action``, ``expert_state_aug_dim``) onto a
+        new instance, and keep
         ``φ*``'s optimiser when the stack (``extensions``) holds a
         :class:`PhiRefresh`."""
         env_args = agent_context.get("env_args", None)
         if self.env_args is not None or env_args is None:
             return self
+        state_dim = agent_context.get("expert_state_aug_dim", 0)
+        if state_dim and self.expert_policy is not agent_context.get("expert_policy"):
+            raise ValueError(
+                "MCPretrain fits phi* on the agent's observations, which carry"
+                " the state of the agent's expert (augment_obs_with_expert_state):"
+                " its MC rollout must be that expert's. Give MCPretrain the"
+                " agent's expert_policy."
+            )
         return dataclasses.replace(
             self,
             env_args=env_args,
@@ -410,6 +432,7 @@ class MCPretrain(Extension):
                 "augment_obs_with_expert_action",
                 self.augment_obs_with_expert_action,
             ),
+            expert_state_aug_dim=state_dim,
             use_phi_refresh=any(
                 isinstance(e, PhiRefresh) for e in agent_context.get("extensions", ())
             ),
@@ -452,7 +475,9 @@ class MCPretrain(Extension):
             network_config=self.network_args,
             num_critics=self.num_critics,
             max_timesteps=max_timesteps,
-            extra_obs_dim=(
+            # The online critic's extra columns: the expert's state and action.
+            extra_obs_dim=self.expert_state_aug_dim
+            + (
                 get_action_dim(self.env_args.env, self.env_args.env_params)
                 if self.augment_obs_with_expert_action
                 else 0
@@ -478,6 +503,7 @@ class MCPretrain(Extension):
             n_steps=self.n_steps,
             max_timesteps=max_timesteps,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
+            augment_obs_with_expert_state=self.expert_state_aug_dim > 0,
         )
         agent_state = agent_state.replace(
             expert_critic_params=frozen_expert_params,
@@ -687,8 +713,13 @@ class PhiRefresh(Extension):
     gamma: Optional[float] = None
     reward_scale: Optional[float] = None
     augment_obs_with_expert_action: bool = False
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.
@@ -712,6 +743,7 @@ class PhiRefresh(Extension):
             gamma=gamma,
             reward_scale=reward_scale,
             augment_obs_with_expert_action=augment,
+            reads_stored_expert=reads_stored_expert_actions(self, agent_context),
         )
 
     def post_update(
@@ -734,7 +766,6 @@ class PhiRefresh(Extension):
         steps = self.steps
         gamma = self.gamma
         reward_scale = self.reward_scale
-        expert_policy = self.expert_policy
         buffer = self.buffer
 
         def _do_refresh(s: Any) -> Any:
@@ -744,7 +775,7 @@ class PhiRefresh(Extension):
                 steps,
                 gamma,
                 reward_scale,
-                expert_policy,
+                self,
                 self.augment_obs_with_expert_action,
             )
 

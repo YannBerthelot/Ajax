@@ -25,6 +25,7 @@ SAC keeps them when an extension carries an expert) and ``recurrent``.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional, Tuple
 
@@ -33,8 +34,9 @@ import jax.numpy as jnp
 
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.extensions.exploration import lcb_beta, lcb_score
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import phi_star_critic_state, predict_value
 
 
 def blend_modify_target(
@@ -59,7 +61,7 @@ def mc_correction_modify_target(
     uncertain_mask = q_var > mc_variance_threshold
     q_mc_target = jnp.min(
         predict_value(
-            critic_state=critic_state,
+            critic_state=phi_star_critic_state(critic_state),
             critic_params=critic_params_mc,
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         ),
@@ -96,7 +98,7 @@ def box_compute_state(
     """
     v_box = jnp.min(
         predict_value(
-            critic_state=critic_state,
+            critic_state=phi_star_critic_state(critic_state),
             critic_params=expert_critic_params,
             x=jnp.concatenate([obs, a_exp], axis=-1),
         ),
@@ -125,7 +127,7 @@ def box_action_override(
 
 
 def _next_target_q(
-    expert_policy: Callable, agent_state: Any, batch: dict
+    ext: Any, agent_state: Any, batch: dict
 ) -> tuple[jax.Array, jax.Array]:
     """The target critics' ensemble at ``s'`` for the expert's action and
     for a policy sample: ``(Q_target(s', a_E), Q_target(s', a'))``."""
@@ -136,8 +138,9 @@ def _next_target_q(
         x = jnp.concatenate((next_observations, actions), axis=-1)
         return predict_value(critic_state, critic_state.target_params, x)
 
-    raw_next = batch["raw_next_observations"]
-    next_expert_actions = jax.lax.stop_gradient(expert_policy(raw_next))
+    next_expert_actions = expert_next_actions(
+        ext, batch["raw_next_observations"], batch["next_a_expert"]
+    )
     next_pi, _ = get_pi(
         actor_state=agent_state.actor_state,
         actor_params=agent_state.actor_state.params,
@@ -160,8 +163,18 @@ class IBRL(Extension):
     """
 
     expert_policy: Callable
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
+
+    def bind_to_agent(self, **agent_context: Any) -> "IBRL":
+        """Read the expert's stored actions when it is the agent's."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        return dataclasses.replace(self, reads_stored_expert=stored)
 
     def on_target(
         self,
@@ -173,7 +186,7 @@ class IBRL(Extension):
     ) -> jax.Array:
         del ext_state, ctx
         dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self.expert_policy, agent_state, batch)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch)
         min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
         min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
         gap = jax.lax.stop_gradient(
@@ -195,8 +208,18 @@ class LCBGatedBootstrap(Extension):
     lcb_beta_init: float = 1.0
     lcb_beta_decay_k: float = 2.0
     lcb_temperature: float = 1.0
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
+
+    def bind_to_agent(self, **agent_context: Any) -> "LCBGatedBootstrap":
+        """Read the expert's stored actions when it is the agent's."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        return dataclasses.replace(self, reads_stored_expert=stored)
 
     def on_target(
         self,
@@ -212,7 +235,7 @@ class LCBGatedBootstrap(Extension):
         # and expert TD targets by
         #   P_expert = σ((score_e - score_p) / lcb_temperature).
         dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self.expert_policy, agent_state, batch)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch)
         beta = lcb_beta(
             agent_state.collector_state.timestep,
             ctx.total_steps,
@@ -247,8 +270,18 @@ class CriticBlend(Extension):
 
     expert_policy: Callable
     critic_warmup_frac: float = 0.15
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
+
+    def bind_to_agent(self, **agent_context: Any) -> "CriticBlend":
+        """Read the expert's stored actions when it is the agent's."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        return dataclasses.replace(self, reads_stored_expert=stored)
 
     def on_target(
         self,
@@ -266,12 +299,13 @@ class CriticBlend(Extension):
             return target
 
         next_observations = batch["next_observations"]
-        raw_next = batch["raw_next_observations"]
-        a_expert_next = jax.lax.stop_gradient(self.expert_policy(raw_next))
+        a_expert_next = expert_next_actions(
+            self, batch["raw_next_observations"], batch["next_a_expert"]
+        )
         v_expert_next = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(
-                    critic_state=agent_state.critic_state,
+                    critic_state=phi_star_critic_state(agent_state.critic_state),
                     critic_params=agent_state.expert_critic_params,
                     x=jnp.concatenate([next_observations, a_expert_next], axis=-1),
                 ),

@@ -54,6 +54,7 @@ class SAC(ActorCritic):
         "action",
     }
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    stores_expert_actions: bool = True
 
     def __init__(
         self,
@@ -160,6 +161,8 @@ class SAC(ActorCritic):
         self.config = {**locals()}
         self.config.update({"algo_name": "SAC"})
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -230,7 +233,6 @@ class SAC(ActorCritic):
             reset_log_std_after_bc=reset_log_std_after_bc,
             reset_actor_head_after_bc=reset_actor_head_after_bc,
         )
-        self.expert_policy = expert_policy
         self.eval_expert_policy = eval_expert_policy
         self.jsrl_curriculum = jsrl_curriculum
         self.use_pid_policy = use_pid_policy

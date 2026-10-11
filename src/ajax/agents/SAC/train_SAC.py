@@ -174,6 +174,8 @@ def init_SAC(
                 buffer_state=collector_state.buffer_state,
                 rng=expert_key,
                 n_steps=expert_buffer_n_steps,
+                augment_obs_with_expert_state=augment_obs_with_expert_state,
+                with_train_frac=max_timesteps is not None,
             )
         )
 
@@ -225,6 +227,7 @@ def update_value_functions(
     next_a_expert: Optional[jax.Array] = None,
     carries: Optional[RecurrentCarries] = None,
     raw_next_observations: Optional[jax.Array] = None,
+    stored_next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
     value_loss_key, rng = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
@@ -277,6 +280,8 @@ def update_value_functions(
             "q_preds": q_preds_for_var,
             "gamma": gamma,
             "raw_next_observations": raw_next_observations,
+            # The agent's expert's actions at s', from its state.
+            "next_a_expert": stored_next_a_expert,
             "recurrent": recurrent,
         }
         target_q = extension_stack.fold_on_target(
@@ -666,6 +671,7 @@ def update_agent(
             next_a_expert=_next_a_expert_for_target,
             carries=carries,
             raw_next_observations=raw_next_observations,
+            stored_next_a_expert=transition.next_a_expert,
         )
 
     agent_state, aux_value = final_aux_scan(
@@ -825,6 +831,9 @@ def make_train(
         reward_scale=agent_config.reward_scale,
         use_train_frac=use_train_frac,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
+        expert_state_aug_dim=(
+            expert_state_aug_dim if augment_obs_with_expert_state else 0
+        ),
         action_dim=_resolved_action_dim,
         extensions=tuple(extensions),
         expert_policy=expert_policy,
@@ -892,6 +901,7 @@ def make_train(
             actor_optimizer_args,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
+            with_train_frac=use_train_frac,
         )
 
     # An extension with ``build_policy_transform`` (ResidualPolicy) makes

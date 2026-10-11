@@ -68,20 +68,21 @@ class CounterEnv(environment.Environment):
 
 class CountingExpert:
     """Stateful: plays t / LIMIT at observation t, its state counting its
-    calls since the episode's start (so t). Called only with its state,
-    unless ``stateless_too`` (then ``expert(obs)`` plays t / LIMIT too)."""
+    calls since the episode's start (so t; with ``state_dim`` d, the j-th
+    column j t). Called only with its state, unless ``stateless_too`` (then
+    ``expert(obs)`` plays t / LIMIT too)."""
 
-    def __init__(self, stateless_too: bool = False) -> None:
-        self.stateless_too = stateless_too
+    def __init__(self, stateless_too: bool = False, state_dim: int = 1) -> None:
+        self.stateless_too, self.state_dim = stateless_too, state_dim
 
     def init_state(self, n_envs: int) -> jax.Array:
-        return jnp.zeros((n_envs, 1))
+        return jnp.zeros((n_envs, self.state_dim))
 
     def __call__(self, *args: jax.Array) -> Any:
         if len(args) == 1 and self.stateless_too:
             return args[0][..., :1] / LIMIT
         state, obs = args
-        return obs[..., :1] / LIMIT, state + 1
+        return obs[..., :1] / LIMIT, state + jnp.arange(1.0, self.state_dim + 1)
 
 
 class RecordingExpert:
@@ -106,6 +107,18 @@ class RecordingExpert:
         else:
             action = jnp.full((*obs.shape[:-1], 1), self.action, jnp.float32)
         return (action, args[0]) if len(args) == 2 else action
+
+
+class StatelessRecordingExpert:
+    """RecordingExpert without a state (no init_state): an extension calls
+    an expert of its own, not the agent's, without one."""
+
+    def __init__(self, action: float) -> None:
+        self._expert = RecordingExpert(action=action)
+        self.seen = self._expert.seen
+
+    def __call__(self, obs: jax.Array) -> jax.Array:
+        return self._expert(obs)
 
 
 def _record(monkeypatch, module: Any, name: str) -> list:
@@ -281,11 +294,23 @@ def test_the_normaliser_leaves_appended_columns_raw():
     np.testing.assert_allclose(out, [[1.0, 2.0, 0.7]], atol=1e-6)
 
 
+def test_cloning_statistics_leave_the_training_fraction_column_raw():
+    """Cloning standardises its dataset but not the training-fraction
+    column: constant 0 before training, its std would be 1e-6."""
+    from ajax.agents.cloning import bc_statistics
+
+    obs = jnp.stack([jnp.linspace(-2.0, 2.0, 64), jnp.zeros(64)], axis=-1)
+    mean, std = bc_statistics(obs, train_frac_column=1)
+    np.testing.assert_allclose(mean, [0.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(std[1], 1.0)
+    assert std[0] > 1.0  # the other columns are standardised
+
+
 @pytest.mark.parametrize(
     "kw",
     [
         {"normalize_obs_running": True, "use_train_frac": True},
-        {"pre_train_n_steps": 64},  # cloning has no training-fraction column
+        {"pre_train_n_steps": 64, "use_train_frac": True},
     ],
     ids=["running", "cloning"],
 )
@@ -301,6 +326,93 @@ def test_normalised_agents_train_with_augmentation(monkeypatch, kw):
     )
     for x in seen:
         np.testing.assert_allclose(x[..., -1], -0.9)
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [{"normalize_obs_running": True}, {"pre_train_n_steps": 64}],
+    ids=["running", "cloning"],
+)
+def test_phi_star_is_queried_as_it_was_fitted(kw):
+    """With the agent's own observation statistics (running, or seeded by
+    cloning), phi* is still fitted on observations as stored; ValueBox's
+    expert value and MCVarianceCorrection's target read it the same way."""
+    from ajax.extensions.target_mods import (
+        box_compute_state,
+        mc_correction_modify_target,
+    )
+    from ajax.networks.networks import predict_value
+
+    expert = RecordingExpert(action=-0.5)
+    state = train(expert_policy=expert, extensions=(_mc(expert),), **kw)
+    first = lambda tree: jax.tree.map(lambda x: x[0], tree)  # noqa: E731
+    critic, phi = first(state.critic_state), first(state.expert_critic_params)
+    assert critic.obs_norm_info is not None
+    obs = jnp.array([[1.0, 0.0, 5.0], [0.0, 1.0, -6.0]])
+    a = jnp.full((2, 1), -0.5)
+    x = jnp.concatenate([obs, a], axis=-1)
+    fitted = predict_value(critic.replace(obs_norm_info=None), phi, x).min(0)
+    through_stats = predict_value(critic, phi, x).min(0)
+    assert not np.allclose(fitted, through_stats, atol=1e-3)  # the statistics matter
+    v_box = box_compute_state(obs, a, critic, phi, jnp.float32(-1e9), None)[2]
+    target = mc_correction_modify_target(
+        jnp.zeros((2, 1)), critic, phi, obs, a, jnp.full((2,), 1e9), 0.0
+    )
+    np.testing.assert_allclose(v_box, fitted, rtol=1e-6)
+    np.testing.assert_allclose(target, fitted, rtol=1e-6)
+
+
+READERS = {  # each reader of phi*, by the function applying it
+    "OnlineBC": "compute_online_bc_loss",
+    "ExpertValueMetrics": "eval_metrics",
+    "online light pretraining": "light_loss_fn",
+    "CriticBlend": "on_target",
+    "MCVarianceCorrection": "mc_correction_modify_target",
+    "EDGE": "pipeline",
+    "ValueBox": "box_compute_state",
+}
+
+
+@pytest.fixture(scope="module")
+def phi_star_readers() -> dict:
+    """The functions that applied phi* through phi_star_critic_state while
+    SAC trained with the agent's own statistics and every reader of phi*,
+    and whether the critic state they stripped held statistics."""
+    import sys
+
+    import ajax.agents.SAC.action_pipeline
+    from ajax.extensions.expert import OnlineBC
+    from ajax.extensions.exploration import EDGEExploration
+    from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection
+    from ajax.networks.networks import phi_star_critic_state
+
+    readers: dict = {}
+
+    def recording(critic_state: Any) -> Any:
+        caller = sys._getframe(1).f_code.co_name
+        readers[caller] = critic_state.obs_norm_info is not None
+        return phi_star_critic_state(critic_state)
+
+    expert = RecordingExpert(action=-0.5)
+    stack: tuple = (_mc(expert), OnlineBC(), CriticBlend(expert_policy=expert))
+    stack += (MCVarianceCorrection(threshold=0.0), ExpertValueMetrics())
+    stack += (EDGEExploration(gate="lcb"), ValueBox())
+    modules: tuple = (ajax.extensions.expert, ajax.extensions.target_mods)
+    modules += (ajax.extensions.pretrain, ajax.agents.SAC.action_pipeline)
+    with pytest.MonkeyPatch.context() as patch:
+        for module in modules:
+            patch.setattr(module, "phi_star_critic_state", recording)
+        train(
+            log=True, expert_policy=expert, normalize_obs_running=True, extensions=stack
+        )
+    return readers
+
+
+@pytest.mark.parametrize("reader", list(READERS))
+def test_every_phi_star_reader_strips_the_agents_statistics(phi_star_readers, reader):
+    """With the agent's own statistics on, each reader applies phi* through
+    phi_star_critic_state, which drops them (phi* is fitted without)."""
+    assert phi_star_readers.get(READERS[reader]) is True, phi_star_readers
 
 
 # --- the evaluation's experts ---------------------------------------------------
@@ -360,7 +472,7 @@ def test_raw_next_observations_are_each_rows_successor(monkeypatch):
     (the final observation at the time limit), the expert prefill's rows
     too, and IBRL's expert reads s' of its batch's rows: never 0, the first
     observation, which no transition leads to."""
-    ibrl_expert = RecordingExpert(action=0.5)
+    ibrl_expert = StatelessRecordingExpert(action=0.5)
     state = train(
         CounterEnv(),
         expert_policy=RecordingExpert(action=0.5),
@@ -374,6 +486,113 @@ def test_raw_next_observations_are_each_rows_successor(monkeypatch):
     np.testing.assert_array_equal(raw_next[written], raw[written] + 1)
     read = np.concatenate([x[..., 0] for x in ibrl_expert.seen if len(x) == 8])
     assert read.size and read.min() >= 1 and read.max() <= LIMIT
+
+
+class _ShiftedIntegratingExpert:
+    """Stateful, called only with its state, its action reading it: an
+    integrator of the observations since the episode's start, playing
+    u / LIMIT - 3 - I / 200 at observation u with I its integral before the
+    call, outside the action box so the critic inputs it builds stand
+    apart. On the counter its action at u is shifted_integrated(u)."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        u = obs[..., :1]
+        return u / LIMIT - 3.0 - state / 200.0, state + u
+
+
+def shifted_integrated(u: Any) -> Any:
+    return u / LIMIT - 3.0 - u * (u - 1) / 400.0
+
+
+@pytest.mark.parametrize(
+    "name", ["IBRL", "LCBGatedBootstrap", "CriticBlend", "PhiRefresh"]
+)
+def test_an_extension_reads_a_stateful_agent_experts_stored_actions(monkeypatch, name):
+    """An extension given the agent's stateful expert reads the actions
+    collection stored for it, from its tracked state: its critic inputs at
+    s' in the replay batches it reads (8 rows: the update's, PhiRefresh's
+    refresh) are [s', shifted_integrated(s')], which a zero, reset or
+    pre-call state breaks. Such inputs must exist (PhiRefresh refreshed)."""
+    from ajax.extensions.target_mods import CriticBlend, LCBGatedBootstrap
+
+    module = (
+        ajax.extensions.pretrain
+        if name == "PhiRefresh"
+        else ajax.extensions.target_mods
+    )
+    seen = _record(monkeypatch, module, "predict_value")
+    expert = _ShiftedIntegratingExpert()
+    stack = {
+        "IBRL": (IBRL(expert_policy=expert),),
+        "LCBGatedBootstrap": (LCBGatedBootstrap(expert_policy=expert),),
+        "CriticBlend": (_mc(expert), CriticBlend(expert_policy=expert)),
+        "PhiRefresh": (
+            _mc(expert),
+            PhiRefresh(expert_policy=expert, interval=16, steps=2),
+        ),
+    }[name]
+    train(CounterEnv(), expert_policy=expert, extensions=stack)
+    rows = np.concatenate([x for x in seen if len(x) == 8])  # replay batches
+    expert_rows = rows[rows[:, -1] < -1.5]
+    assert len(expert_rows) >= 8
+    np.testing.assert_allclose(
+        expert_rows[:, -1], shifted_integrated(expert_rows[:, 0]), atol=1e-5
+    )
+
+
+SETTINGS = "expert_buffer_n_steps=0 .no expert prefill. and expert_fraction=0.0"
+
+
+@pytest.mark.parametrize("agent", ["SAC", "TD3"])
+def test_an_extension_refuses_a_stateful_expert_without_its_state(agent):
+    """IBRL on SAC without that expert, and ImitationLoss on TD3 (which
+    stores no expert action), would call a stateful expert without its
+    state: refused at construction, naming the settings that keep only the
+    extension's use of the expert. A stateless expert stays allowed."""
+    from ajax.agents.TD3.TD3 import TD3
+    from ajax.extensions.expert import ImitationLoss
+
+    stateful, stateless = _ShiftedIntegratingExpert(), _ShiftedExpert()
+    with pytest.raises(ValueError, match=SETTINGS):
+        if agent == "SAC":
+            SAC("Pendulum-v1", extensions=(IBRL(expert_policy=stateful),))
+        else:
+            TD3("Pendulum-v1", extensions=(ImitationLoss(expert_policy=stateful),))
+    if agent == "SAC":
+        SAC("Pendulum-v1", extensions=(IBRL(expert_policy=stateless),))
+    else:
+        TD3("Pendulum-v1", extensions=(ImitationLoss(expert_policy=stateless),))
+
+
+def test_the_named_settings_keep_only_the_extensions_use_of_the_expert():
+    """Following the refusal (the stateful expert given to SAC with no
+    prefill and no warm-up mixing) trains exactly as the extension using
+    the same expert statelessly, with SAC holding no expert."""
+
+    def act(obs: jax.Array) -> jax.Array:
+        return jnp.tanh(jnp.sum(obs, axis=-1, keepdims=True))
+
+    class Stateful:
+        def init_state(self, n_envs: int) -> jax.Array:
+            return jnp.zeros((n_envs, 1))
+
+        def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+            return act(obs), state
+
+    alone = train(extensions=(IBRL(expert_policy=act),))
+    expert = Stateful()
+    stored = train(
+        expert_policy=expert,
+        expert_fraction=0.0,
+        extensions=(IBRL(expert_policy=expert),),
+    )  # train() sets expert_buffer_n_steps=0
+    for name in ("actor_state", "critic_state"):
+        a, b = (jax.tree.leaves(getattr(s, name).params) for s in (alone, stored))
+        for x, y in zip(a, b, strict=True):
+            np.testing.assert_array_equal(x, y)
 
 
 class _ShiftedExpert:
@@ -408,3 +627,113 @@ def test_an_extensions_expert_reads_the_raw_next_observation_of_each_row(
     expert_rows = rows[rows[:, -1] < -1.5]
     assert len(expert_rows) >= 8
     np.testing.assert_allclose(expert_rows[:, -1], expert_rows[:, 0] / LIMIT - 3.0)
+
+
+@pytest.mark.parametrize(
+    "state_dim, train_frac", [(1, True), (2, False)], ids=["1d+fraction", "2d"]
+)
+def test_the_expert_prefill_stores_the_experts_state_as_collection_does(
+    state_dim, train_frac
+):
+    """With augment_obs_with_expert_state, every stored row, the expert
+    prefill's (its first LIMIT per env) and collection's, is [t, (the
+    training fraction,) the expert's state t] at s and [t + 1, (...), t + 1]
+    at s', the episode's last s' included (the state before the reset)."""
+    state = train(
+        CounterEnv(),
+        expert_policy=CountingExpert(state_dim=state_dim),
+        expert_buffer_n_steps=LIMIT,
+        augment_obs_with_expert_state=True,
+        use_train_frac=train_frac,
+    )
+    rows = state.collector_state.buffer_state.experience
+    obs, nxt = (np.asarray(rows[k]) for k in ("obs", "next_obs"))
+    obs, nxt = (x.reshape(-1, *x.shape[-2:]) for x in (obs, nxt))  # (envs, rows, .)
+    assert obs.shape[-1] == nxt.shape[-1] == 1 + train_frac + state_dim
+    written = nxt[..., 0] != 0  # every transition's s' is at least 1
+    assert written[:, :LIMIT].all()  # the prefill's rows come first
+    for x in (obs, nxt):
+        for j in range(state_dim):
+            got = x[..., 1 + train_frac + j][written]
+            np.testing.assert_allclose(got, (j + 1) * x[..., 0][written])
+        if train_frac:  # 0 in the prefill, a fraction after
+            np.testing.assert_allclose(x[:, :LIMIT, 1], 0.0)
+            assert (x[..., 1][written] <= 1.0).all()
+
+
+class IntegratingExpert:
+    """Stateful, its action reading its state: an integrator of the
+    observations since the episode's start, playing u / LIMIT - I / 200
+    at observation u with I its integral before the call (so, on the
+    counter, A(u) = u / LIMIT - u (u - 1) / 400)."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return obs[..., :1] / LIMIT - state / 200.0, state + obs[..., :1]
+
+
+def integrated_action(u: Any) -> Any:
+    return u / LIMIT - u * (u - 1) / 400.0
+
+
+def test_stored_expert_actions_come_from_the_experts_tracked_state():
+    """Every stored row, the prefill's and collection's, holds the action
+    the integrating expert took at s from its state there, a_E = A(s), and
+    at s' from its state after the step, A(s + 1): a zero, reset or
+    pre-call state stores another."""
+    state = train(
+        CounterEnv(), expert_policy=IntegratingExpert(), expert_buffer_n_steps=LIMIT
+    )
+    rows = state.collector_state.buffer_state.experience
+    s, s_next, a, a_next = (
+        np.asarray(rows[k])[..., 0].reshape(-1)
+        for k in ("raw_obs", "next_obs", "a_expert", "next_a_expert")
+    )
+    written = s_next != 0
+    assert written.sum() >= 2 * LIMIT
+    np.testing.assert_allclose(a[written], integrated_action(s[written]), atol=1e-6)
+    np.testing.assert_allclose(
+        a_next[written], integrated_action(s[written] + 1), atol=1e-6
+    )
+
+
+def test_mc_pretraining_fits_phi_star_with_the_experts_state_columns(monkeypatch):
+    """With augment_obs_with_expert_state (and the action, and ValueBox
+    querying phi* at acting time), phi*'s inputs are the online critic's:
+    [t, 0 (the fraction), the integrating expert's state t (t - 1) / 2, its
+    action A(t), action]."""
+    seen = _record(monkeypatch, ajax.extensions.pretrain, "predict_value")
+    expert = IntegratingExpert()
+    train(
+        CounterEnv(),
+        expert_policy=expert,
+        augment_obs_with_expert_state=True,
+        augment_obs_with_expert_action=True,
+        use_train_frac=True,
+        extensions=(_mc(expert), ValueBox()),
+    )
+    assert seen
+    for x in seen:
+        t = x[..., 0]
+        assert x.shape[-1] == 5
+        np.testing.assert_allclose(x[..., 1], 0.0)
+        np.testing.assert_allclose(x[..., 2], t * (t - 1) / 2)
+        np.testing.assert_allclose(x[..., 3], integrated_action(t), atol=1e-6)
+
+
+@pytest.mark.parametrize("own", ["stateless", "another stateful"])
+def test_mc_pretraining_refuses_another_expert_under_state_augmentation(own):
+    """phi*'s state columns are the agent's expert's: MCPretrain rolling out
+    another expert (a stateless one, or another stateful one of the same
+    width) is refused with augment_obs_with_expert_state."""
+    stateless = lambda obs: jnp.full((*obs.shape[:-1], 1), 0.5)  # noqa: E731
+    expert = stateless if own == "stateless" else IntegratingExpert()
+    with pytest.raises(ValueError, match="MC rollout must be that expert's"):
+        train(
+            CounterEnv(),
+            expert_policy=IntegratingExpert(),
+            augment_obs_with_expert_state=True,
+            extensions=(_mc(expert),),
+        )

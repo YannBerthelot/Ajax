@@ -10,6 +10,11 @@ from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import get_expert_fields_from_buffer, init_buffer
+from ajax.environments.obs_norm import (
+    apply_obs_norm,
+    init_agent_obs_norm,
+    update_obs_norm,
+)
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
     ExpertInAgentUnits,
@@ -407,10 +412,7 @@ def get_pi(
     # Agent-side obs normalisation: applied here so all callers of get_pi
     # stay unchanged. Stats are synced into actor_state.obs_norm_info
     # after every online collection step. None disables normalisation.
-    if getattr(actor_state, "obs_norm_info", None) is not None:
-        from ajax.agents.obs_norm import apply_obs_norm
-
-        obs = apply_obs_norm(obs, actor_state.obs_norm_info)
+    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
     obs = maybe_add_axis(obs, recurrent)
     done = maybe_add_axis(done, recurrent)
     if recurrent:
@@ -449,10 +451,7 @@ def get_pi_sequence(
         (pi, final_hidden): distribution over (T, B, ...) and the carry
         after consuming the sequence.
     """
-    if getattr(actor_state, "obs_norm_info", None) is not None:
-        from ajax.agents.obs_norm import apply_obs_norm
-
-        obs = apply_obs_norm(obs, actor_state.obs_norm_info)
+    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
     return actor_state.apply(
         actor_params, obs, hidden_state=initial_hidden, done=resets
     )
@@ -764,8 +763,6 @@ def collect_experience(
     # of training already uses non-zero stats. This avoids a step-1
     # divide-by-≈0 in apply_obs_norm.
     if agent_state.collector_state.obs_norm_info is not None:
-        from ajax.agents.obs_norm import update_obs_norm
-
         _, _new_obs_norm = update_obs_norm(
             agent_state.collector_state.last_obs,
             agent_state.collector_state.obs_norm_info,
@@ -1291,8 +1288,6 @@ def init_collector_state(
     )
     obs_norm_info = None
     if normalize_obs_running:
-        from ajax.agents.obs_norm import init_agent_obs_norm
-
         obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
 
     return CollectorState(

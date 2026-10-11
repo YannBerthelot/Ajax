@@ -5,10 +5,15 @@ import importlib
 
 import pytest
 
+from ajax.environments import obs_norm
 from ajax.networks.distributions import SquashedNormal
 
 MOVED = {
     ("ajax.agents.SAC.utils", "SquashedNormal"): SquashedNormal,
+    **{
+        ("ajax.agents.obs_norm", name): getattr(obs_norm, name)
+        for name in ("apply_obs_norm", "init_agent_obs_norm", "update_obs_norm")
+    },
 }
 
 

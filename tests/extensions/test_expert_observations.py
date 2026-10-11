@@ -20,7 +20,7 @@ import ajax.extensions.expert
 import ajax.extensions.pretrain
 import ajax.extensions.target_mods
 from ajax import SAC
-from ajax.agents.obs_norm import apply_obs_norm, init_agent_obs_norm
+from ajax.environments.obs_norm import apply_obs_norm, init_agent_obs_norm
 from ajax.extensions.expert import ExpertValueMetrics
 from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import IBRL, ValueBox

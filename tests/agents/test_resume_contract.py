@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import ajax
 from ajax.agents.APG.APG import APG
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.networks.memory import MemoryConfig
@@ -83,3 +84,13 @@ def test_a_resumed_run_equals_the_uninterrupted_run(
     split = runs.train(agent, SEEDS, second, initial_state=first, **kw).state
     differing = readouts.differing_leaves(full, split)
     assert not differing, (f"first leg ended at {ended}", differing[:20])
+
+
+def test_every_agent_taking_normalisation_or_memory_has_its_row() -> None:
+    """A new agent taking either joins test_agent_contract.CASES: its rows follow."""
+    ids = {p.id for p in ROWS}
+    for name in ajax.__all__:
+        cls = getattr(ajax, name)
+        normalises = NORMALISATION.keys() & inspect.signature(cls).parameters.keys()
+        assert not normalises or name in ids, name
+        assert not getattr(cls, "supports_memory", None) or f"{name}-memory" in ids

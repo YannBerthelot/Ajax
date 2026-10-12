@@ -815,8 +815,7 @@ class ObservationNoiseWrapper(GymnaxWrapper):
     then sees. ``scale`` is a scalar or one value per dimension (e.g. the
     observations' standard deviations). ``get_obs`` stays the state's
     noiseless observation, which an expert reads
-    (``interaction.get_raw_obs``). It replaces the ``env._obs_noise_sigma``
-    hook (``interaction._maybe_noise_obs``).
+    (``interaction.get_raw_obs``).
     """
 
     def __init__(self, env, sigma: float, scale: Any = 1.0):

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
@@ -100,7 +100,7 @@ def update_step(
     *,
     config: TDMPC2Config,
     tasks: TaskSet,
-    extension_stack: Optional[ExtensionStack],
+    extension_stack: ExtensionStack,
     total_timesteps: int,
 ) -> TDMPC2MultiTaskState:
     """One ``agent.update(buffer)`` on a fresh batch with fresh noise, then

@@ -26,7 +26,7 @@ from ajax.agents.TDMPC2 import core, multitask, train_TDMPC2MultiTask
 from ajax.agents.TDMPC2.core import TASK_EMB
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset, TaskEpisodes, pool_tasks
 from ajax.agents.TDMPC2.state import TDMPC2Config
-from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import TargetTweak
 
@@ -331,7 +331,7 @@ def test_update_step_updates_on_the_sampled_batch_and_its_tasks(monkeypatch):
             train_TDMPC2MultiTask.update_step,
             config=config,
             tasks=tasks,
-            extension_stack=None,
+            extension_stack=ExtensionStack(),
             total_timesteps=1,
         )
     )(state, dataset)

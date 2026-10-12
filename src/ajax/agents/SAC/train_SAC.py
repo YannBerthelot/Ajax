@@ -7,7 +7,6 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -25,12 +24,13 @@ from ajax.agents.SAC.core import (
 )
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.networks import predict_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
@@ -219,8 +219,8 @@ def update_value_functions(
     recurrent: bool,
     rewards: jax.Array,
     gamma: float,
+    extension_stack: ExtensionStack,
     reward_scale: float = 1.0,
-    extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
     next_action_transform: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
@@ -255,14 +255,7 @@ def update_value_functions(
     # the critic's predictions (``q_preds``: MCVarianceCorrection's
     # variance) from a pass of their own: the target comes before the
     # gradient-bearing pass inside critic_loss_fn.
-    has_target_mods = (
-        extension_stack is not None
-        and "on_target" in extension_stack.implemented_phases()
-    )
-    if has_target_mods:
-        # `has_target_mods` already asserts `extension_stack is not
-        # None` — assert it again for mypy.
-        assert extension_stack is not None
+    if "on_target" in extension_stack.implemented_phases():
         q_preds_for_var = predict_value(
             critic_state=agent_state.critic_state,
             critic_params=agent_state.critic_state.params,
@@ -301,21 +294,20 @@ def update_value_functions(
         loss, core_aux = core.critic_loss_fn(
             params, critic_state, observations, actions, target_q, carries=carries
         )
-        if extension_stack is not None:
-            loss_batch = {
-                "observations": observations,
-                "actions": actions,
-                "targets": target_q,
-                "critic_params": params,
-                "critic_state": critic_state,
-            }
-            loss = loss + extension_stack.fold_critic_loss(
-                agent_state,
-                loss_batch,
-                agent_state.collector_state.timestep,
-                value_loss_key,
-                total_timesteps,
-            )
+        loss_batch = {
+            "observations": observations,
+            "actions": actions,
+            "targets": target_q,
+            "critic_params": params,
+            "critic_state": critic_state,
+        }
+        loss = loss + extension_stack.fold_critic_loss(
+            agent_state,
+            loss_batch,
+            agent_state.collector_state.timestep,
+            value_loss_key,
+            total_timesteps,
+        )
         return loss, core_aux
 
     (loss, core_aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
@@ -345,12 +337,12 @@ def policy_loss_function(
     observations: jax.Array,
     alpha: jax.Array,
     rng: jax.random.PRNGKey,
+    extension_stack: ExtensionStack,
     raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
     a_expert_precomputed: Optional[jax.Array] = None,
     policy_action_transform: Optional[Callable] = None,
     carries: Optional[RecurrentCarries] = None,
-    extension_stack: Optional[ExtensionStack] = None,
     agent_state: Any = None,
     total_timesteps: int = 1,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
@@ -359,7 +351,7 @@ def policy_loss_function(
     Structure mirrors the critic side: core SAC loss + layered expert additions.
     1. Core: forward pass → sample → Q eval → α·log π - Q
     2. Modifier: policy_action_transform (residual RL before Q eval)
-    3. Modifier: extension_stack.actor_loss (e.g. OnlineBC term)
+    3. Modifier: extension_stack.fold_actor_loss (e.g. OnlineBC term)
     """
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
@@ -396,8 +388,7 @@ def policy_loss_function(
     # 3. The actor-loss extensions' terms, which get the expert action
     # (OnlineBC's BC target) once phi* exists.
     needs_bc = (
-        extension_stack is not None
-        and "actor_loss" in extension_stack.implemented_phases()
+        "actor_loss" in extension_stack.implemented_phases()
         and expert_policy is not None
         and agent_state.expert_critic_params is not None
     )
@@ -412,28 +403,25 @@ def policy_loss_function(
 
     # Additive actor-loss terms, on core.soft_actor_step's batch plus the
     # expert's action (OnlineBC's target; None before phi* exists).
-    if extension_stack:
-        ext_batch = {
-            "observations": observations,
-            # The replay keeps them only for a run with an expert: None
-            # without one, never the observations passed off as raw.
-            "raw_observations": raw_observations,
-            "pi_mean": pi.mean(),
-            "actor_params": actor_params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-        }
-        bc_term = jnp.asarray(
-            extension_stack.fold_actor_loss(
-                agent_state,
-                ext_batch,
-                agent_state.collector_state.timestep,
-                rng,
-                total_timesteps,
-            )
+    ext_batch = {
+        "observations": observations,
+        # The replay keeps them only for a run with an expert: None
+        # without one, never the observations passed off as raw.
+        "raw_observations": raw_observations,
+        "pi_mean": pi.mean(),
+        "actor_params": actor_params,
+        "actor_state": actor_state,
+        "a_expert": a_expert,
+    }
+    bc_term = jnp.asarray(
+        extension_stack.fold_actor_loss(
+            agent_state,
+            ext_batch,
+            agent_state.collector_state.timestep,
+            rng,
+            total_timesteps,
         )
-    else:
-        bc_term = jnp.zeros(())
+    )
 
     total_loss = loss_actor.mean() + bc_term
 
@@ -451,10 +439,10 @@ def update_policy(
     agent_state: SACState,
     observations: jax.Array,
     raw_observations: jax.Array,
+    extension_stack: ExtensionStack,
     expert_policy: Optional[Callable] = None,
     a_expert_precomputed: Optional[jax.Array] = None,
     policy_action_transform: Optional[Callable] = None,
-    extension_stack: Optional[ExtensionStack] = None,
     total_timesteps: int = 1,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
@@ -509,6 +497,7 @@ def update_agent(
     gamma: float,
     target_entropy: float,
     tau: float,
+    extension_stack: ExtensionStack,
     num_critic_updates: int = 1,
     reward_scale: float = 1.0,
     expert_policy: Optional[Callable] = None,
@@ -519,7 +508,6 @@ def update_agent(
     total_timesteps: int = 1,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
-    extension_stack: Optional[ExtensionStack] = None,
     policy_action_transform: Optional[Callable] = None,
     burn_in: int = 8,
     stored_state: bool = False,
@@ -595,10 +583,7 @@ def update_agent(
     a_expert_precomputed = None
     # The actor-loss extensions (OnlineBC) take the expert action from
     # here, phi* or not.
-    has_actor_loss = (
-        extension_stack is not None
-        and "actor_loss" in extension_stack.implemented_phases()
-    )
+    has_actor_loss = "actor_loss" in extension_stack.implemented_phases()
     needs_expert = expert_policy is not None and (
         policy_action_transform is not None or has_actor_loss
     )
@@ -734,7 +719,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning_args: Optional[CloningConfig] = None,
+    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
     fixed_alpha: bool = False,
@@ -777,6 +762,9 @@ def make_train(
                         Defaults to ``expert_policy`` if unset.
     extensions:         composable research features (see
                         :mod:`ajax.extensions`), bound to SAC's context.
+    cloning:            the deprecated cloning keywords' CloningPretrain
+                        (CloningPretrain.from_deprecated_kwargs), run at
+                        init on the pretrain key.
 
     The flags above thread into init, collection or the action pipeline at
     a level the extension framework does not reach yet; they mirror the
@@ -785,31 +773,30 @@ def make_train(
     recurrent = network_args.memory is not None
     # Bind the SAC-factory-only context onto every extension (see
     # :meth:`Extension.bind_to_agent`: each picks the kwargs it needs).
-    _resolved_action_dim = (
-        action_dim_override
-        if action_dim_override is not None
-        else get_action_dim(env_args.env, env_args.env_params)
-    )
-    stack = ExtensionStack(extensions).bind_to_agent(
-        env_args=env_args,
-        network_args=network_args,
-        critic_optimizer_args=critic_optimizer_args,
-        num_critics=num_critics,
-        buffer=buffer,
-        gamma=agent_config.gamma,
-        reward_scale=agent_config.reward_scale,
-        use_train_frac=use_train_frac,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        expert_state_aug_dim=(
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "network_args": network_args,
+        "critic_optimizer_args": critic_optimizer_args,
+        "num_critics": num_critics,
+        "buffer": buffer,
+        "gamma": agent_config.gamma,
+        "reward_scale": agent_config.reward_scale,
+        "use_train_frac": use_train_frac,
+        "augment_obs_with_expert_action": augment_obs_with_expert_action,
+        "expert_state_aug_dim": (
             expert_state_aug_dim if augment_obs_with_expert_state else 0
         ),
-        action_dim=_resolved_action_dim,
-        extensions=tuple(extensions),
-        expert_policy=expert_policy,
-        recurrent=recurrent,
-        update_value_fn=update_value_functions,
-        update_target_fn=update_target_networks,
-    )
+        "extensions": tuple(extensions),
+        "expert_policy": expert_policy,
+        "recurrent": recurrent,
+        "update_value_fn": update_value_functions,
+        "update_target_fn": update_target_networks,
+        "augment_obs_with_expert_state": augment_obs_with_expert_state,
+    }
+    stack = ExtensionStack(extensions).bind_to_agent(**agent_context)
+    if cloning is not None:
+        cloning = cloning.bind_to_agent(**agent_context)
     if recurrent:
         # Expert-guidance features (and their Extension replacements) are
         # orthogonal to memory and untested with sequence replay; fail
@@ -818,13 +805,7 @@ def make_train(
             "SAC",
             expert_policy=expert_policy,
             extensions=(stack.extensions or None),
-            # SAC always builds a default CloningConfig; only actual
-            # pre-training (pre_train_n_steps > 0) conflicts with memory.
-            cloning_pretrain=(
-                cloning_args
-                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
-                else None
-            ),
+            cloning_pretrain=cloning,
         )
     loop = TrainLoop.create(
         env_args,
@@ -862,17 +843,9 @@ def make_train(
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
             store_expert_data=holds_expert(expert_policy, stack),
         )
-        return pretrain_on_expert(
-            agent_state,
-            pretrain_key,
-            cloning_args,
-            expert_policy,
-            env_args,
-            actor_optimizer_args,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            augment_obs_with_expert_state=augment_obs_with_expert_state,
-            with_train_frac=use_train_frac,
-        )
+        if cloning is None:
+            return agent_state
+        return cloning.clone(agent_state, pretrain_key)
 
     # An extension with ``build_policy_transform`` (ResidualPolicy) makes
     # the executed action residual: in collection (the action pipeline),

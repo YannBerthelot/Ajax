@@ -136,7 +136,6 @@ class APG(ActorCritic):
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=learning_rate,
             max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
             beta_1=beta_1,
             beta_2=beta_2,
             weight_decay=weight_decay,

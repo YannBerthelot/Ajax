@@ -1,8 +1,11 @@
 """One-shot pre-training research features as composable :class:`Extension`s.
 
-MCPretrain runs once, before the training loop (the ``pretrain`` phase,
-skipped on resume); PhiRefresh refreshes its critic during training.
+CloningPretrain, MCPretrain and BellmanPretrain run once, before the
+training loop (the ``pretrain`` phase, skipped on resume); PhiRefresh
+refreshes MCPretrain's critic during training.
 
+* :class:`CloningPretrain`     — behaviour cloning of the actor on an
+  expert's rollouts (the deprecated ``pre_train_n_steps`` keywords).
 * :class:`MCPretrain`          — ``use_mc_critic_pretrain``: regress a
   frozen expert critic on Monte-Carlo returns, then (optionally) lightly
   nudge the online critic toward it.
@@ -16,26 +19,29 @@ skipped on resume); PhiRefresh refreshes its critic during training.
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, ClassVar, Optional, Tuple
+from typing import Any, Callable, ClassVar, Optional, Sequence, Tuple
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
+from ajax.agents.cloning import pre_train
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     augment_from_batch,
     augment_obs,
     collect_experience_from_expert_policy,
 )
-from ajax.extensions.base import Extension, ExtensionContext
+from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
+from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
-from ajax.types import BufferType
+from ajax.types import BufferType, NormalizationInfo
 
 
 @struct.dataclass
@@ -350,6 +356,200 @@ def refresh_phi_star(
     )
 
 
+#: SAC, REDQ, TD3 and APO's deprecated cloning keywords, by the
+#: :class:`CloningPretrain` field each sets.
+DEPRECATED_CLONING_KWARGS = {
+    "pre_train_n_steps": "n_steps",
+    "actor_cloning_epochs": "epochs",
+    "actor_cloning_batch_size": "batch_size",
+    "skip_actor_pretrain": "skip_actor",
+    "reset_log_std_after_bc": "reset_log_std",
+    "reset_actor_head_after_bc": "reset_actor_head",
+}
+
+
+@dataclass(frozen=True)
+class CloningPretrain(Extension):
+    """Behaviour cloning of the actor on an expert's rollouts, before training.
+
+    Rolls ``expert_policy`` out for ``n_steps`` steps per env, observing as
+    the agent does, then fits the actor to its actions on observations
+    standardised with the dataset's statistics
+    (:func:`ajax.agents.cloning.pre_train`: ``epochs`` passes in batches of
+    ``batch_size``, at the actor's learning rate). The agent's observation
+    statistics start from the dataset's. ``skip_actor`` leaves the actor as
+    initialised; ``reset_log_std`` and ``reset_actor_head`` re-initialise
+    its log-std head, or both heads, after cloning.
+
+    The fields after ``reset_actor_head`` are the agent's context, filled by
+    :meth:`bind_to_agent` (SAC, REDQ, TD3 and APO do).
+    """
+
+    expert_policy: Callable
+    n_steps: int = 100_000
+    epochs: int = 10
+    batch_size: int = 64
+    skip_actor: bool = False
+    reset_log_std: bool = False
+    reset_actor_head: bool = False
+    # Agent context, bound by bind_to_agent.
+    env_args: Any = None
+    actor_optimizer_args: Any = None
+    augment_obs_with_expert_action: bool = False
+    augment_obs_with_expert_state: bool = False
+    use_train_frac: bool = False
+    name: str = "cloning_pretrain"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+
+    @classmethod
+    def from_deprecated_kwargs(
+        cls,
+        expert_policy: Optional[Callable],
+        extensions: Sequence[Extension],
+        **kwargs: Any,
+    ) -> Optional["CloningPretrain"]:
+        """The CloningPretrain of an agent's cloning keywords
+        (:data:`DEPRECATED_CLONING_KWARGS`, None when not passed) and
+        ``expert_policy``; None when ``pre_train_n_steps`` is unset or 0,
+        which turns cloning off. Passing any keyword warns.
+
+        Deliberate transitional shim (CLAUDE.md rule 10, expand then
+        contract): AjaxExperiments still passes ``pre_train_n_steps``; the
+        keywords go once it passes the extension. The agent runs this one at
+        initialisation, on the pretrain key, where the keywords always
+        cloned, so their runs are unchanged; one in ``extensions`` runs in
+        the pretrain phase. Raises ``ValueError`` when both clone, or when
+        there is no expert to clone.
+        """
+        passed = {k: v for k, v in kwargs.items() if v is not None}
+        if not passed:
+            return None
+        fields = {DEPRECATED_CLONING_KWARGS[k]: v for k, v in passed.items()}
+        warnings.warn(
+            f"{', '.join(passed)}: deprecated, pass extensions=(CloningPretrain("
+            f"expert_policy, {', '.join(f'{f}=...' for f in fields)}),) instead"
+            " (ajax.extensions.pretrain). The keywords will be removed.",
+            FutureWarning,
+            stacklevel=3,
+        )
+        if fields.get("n_steps", 0) <= 0:
+            return None
+        if expert_policy is None:
+            raise ValueError("pre_train_n_steps clones the agent's expert_policy.")
+        if any(isinstance(e, cls) for e in extensions):
+            raise ValueError(
+                "pre_train_n_steps and a CloningPretrain extension both clone"
+                " the actor: pass the extension only."
+            )
+        return cls(expert_policy, **fields)
+
+    def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
+        """Copy the agent's ``env_args``, ``actor_optimizer_args`` and
+        observation layout (``augment_obs_with_expert_action``,
+        ``augment_obs_with_expert_state``, ``use_train_frac``). Raises
+        ``ValueError`` when the layout carries the agent's expert's action or
+        state and ``expert_policy`` is another expert, or when another
+        pretrain-phase extension comes before it in the stack."""
+        optimizer = agent_context.get("actor_optimizer_args")
+        if self.actor_optimizer_args is not None or optimizer is None:
+            return self
+        # Cloning seeds the observation statistics the critic reads too: a
+        # critic pretrained before it (MCPretrain's nudge, BellmanPretrain)
+        # would then be queried on inputs it was not fitted on. The keywords
+        # cloned at init, before every extension's pretraining.
+        stack = agent_context.get("extensions", ())
+        ahead = next((stack[:i] for i, e in enumerate(stack) if e is self), ())
+        if any("pretrain" in e.implemented_phases() for e in ahead):
+            raise ValueError(
+                "CloningPretrain seeds the observation statistics the critic"
+                " reads: put it before the other pretraining extensions."
+            )
+        augment_action = agent_context.get("augment_obs_with_expert_action", False)
+        augment_state = agent_context.get("augment_obs_with_expert_state", False)
+        agent_expert = agent_context.get("expert_policy")
+        if (augment_action or augment_state) and self.expert_policy is not agent_expert:
+            raise ValueError(
+                "CloningPretrain clones on the agent's observations, which carry"
+                " its expert's action or state (augment_obs_with_expert_*): give"
+                " CloningPretrain the agent's expert_policy."
+            )
+        return dataclasses.replace(
+            self,
+            env_args=agent_context["env_args"],
+            actor_optimizer_args=optimizer,
+            augment_obs_with_expert_action=augment_action,
+            augment_obs_with_expert_state=augment_state,
+            use_train_frac=agent_context.get("use_train_frac", False),
+        )
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+    ) -> tuple[Any, Any]:
+        """Clone the actor on ``ctx.rng`` (:meth:`clone`)."""
+        return self.clone(agent_state, ctx.rng), ext_state
+
+    def clone(self, agent_state: Any, key: jax.Array) -> Any:
+        """``agent_state`` with its actor cloned on rollouts drawn with
+        ``key`` and its observation statistics seeded; raises ``ValueError``
+        when the agent did not bind its context."""
+        if self.actor_optimizer_args is None:
+            raise ValueError(
+                "CloningPretrain needs the agent's env and actor optimizer; the"
+                " agent did not bind them (SAC, REDQ, TD3 and APO do)."
+            )
+        env = self.env_args.env
+        dataset = collect_experience_from_expert_policy(
+            self.expert_policy,
+            rng=key,
+            env_args=self.env_args,
+            mode=self.env_args.mode,
+            n_timesteps=self.n_steps,
+            augment_obs_with_expert_state=self.augment_obs_with_expert_state,
+            train_frac=0.0 if self.use_train_frac else None,
+        )
+        env_obs_dim = get_state_action_shapes(env)[0][-1]
+        actor_state, _metrics, obs_mean, obs_std = pre_train(
+            rng=key,
+            actor_state=agent_state.actor_state,
+            dataset=dataset,
+            actor_lr=self.actor_optimizer_args.learning_rate,
+            actor_epochs=self.epochs,
+            actor_batch_size=self.batch_size,
+            skip_actor=self.skip_actor,
+            reset_log_std_after_bc=self.reset_log_std,
+            reset_actor_head_after_bc=self.reset_actor_head,
+            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
+            raw_columns=raw_obs_columns(env),
+            train_frac_column=env_obs_dim if self.use_train_frac else None,
+        )
+        # The actor was just trained on inputs standardised with the
+        # dataset's statistics: the agent's running observation statistics
+        # start from them, so that get_pi / predict_value standardise its
+        # inputs online as cloning did. An agent without running statistics
+        # gets them here (online collection then updates them from this
+        # baseline); without them the cloned actor would be queried on raw
+        # observations.
+        new_state = agent_state.replace(actor_state=actor_state)
+        if self.skip_actor and agent_state.collector_state.obs_norm_info is None:
+            return new_state  # no actor cloned: nothing to keep consistent
+        # Agent-side statistics have a leading axis of size 1
+        # (init_agent_obs_norm).
+        n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
+        var = (obs_std**2).reshape(1, -1)
+        seeded = NormalizationInfo(
+            count=jnp.full((1, 1), n_samples),
+            mean=obs_mean.reshape(1, -1),
+            mean_2=var * n_samples,
+            var=var,
+            returns=None,
+        )
+        return new_state.replace(
+            collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
+            actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
+            critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
+        )
+
+
 @dataclass(frozen=True)
 class MCPretrain(Extension):
     """Monte-Carlo critic pre-training (``use_mc_critic_pretrain``).
@@ -566,6 +766,7 @@ def pretrain_critic_bellman(
         observations, next_observations = batch.obs, batch.next_obs
         if augment:
             observations, next_observations = augment_from_batch(batch)
+        # The plain Bellman target: no extension's target or loss term.
         agent_state, _ = update_value_fn(
             observations=observations,
             actions=batch.action,
@@ -575,6 +776,7 @@ def pretrain_critic_bellman(
             agent_state=agent_state,
             recurrent=recurrent,
             gamma=gamma,
+            extension_stack=ExtensionStack(),
             reward_scale=reward_scale,
         )
         agent_state = update_target_fn(agent_state, tau=5e-4)
@@ -759,4 +961,4 @@ class PhiRefresh(Extension):
         return new_state, ext_state
 
 
-__all__ = ["BellmanPretrain", "MCPretrain", "PhiRefresh"]
+__all__ = ["BellmanPretrain", "CloningPretrain", "MCPretrain", "PhiRefresh"]

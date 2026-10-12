@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
 import jax
-import jax.numpy as jnp
+import numpy as np
 from flax.struct import dataclass as flax_dataclass
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
@@ -296,11 +296,10 @@ def vmap_log(
         return None
 
     run_id = run_ids[index]
-    metrics_np = {
-        k: jax.device_get(v)
-        for k, v in log_metrics.items()
-        if not jnp.any(jnp.isnan(v))
-    }
+    # The callback gets CPU arrays: numpy reads them without dispatching
+    # two JAX ops per metric.
+    metrics_np = {k: np.asarray(v) for k, v in log_metrics.items()}
+    metrics_np = {k: v for k, v in metrics_np.items() if not np.isnan(v).any()}
     step = int(metrics_np["timestep"])
 
     _log_queue.put(("log", run_id, metrics_np, step))

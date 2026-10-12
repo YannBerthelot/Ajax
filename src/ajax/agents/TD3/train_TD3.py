@@ -18,7 +18,6 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, critic_step, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -28,6 +27,7 @@ from ajax.agents.recurrent import (
     stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
+from ajax.agents.SAC.core import critic_loss_fn
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.environments.interaction import (
@@ -36,6 +36,7 @@ from ajax.environments.interaction import (
     init_collector_state,
 )
 from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     EnvironmentConfig,
@@ -190,24 +191,6 @@ def compute_td3_td_target(
     return jax.lax.stop_gradient(target)
 
 
-def value_loss_function(
-    critic_params: FrozenDict,
-    critic_state: LoadedTrainState,
-    observations: jax.Array,
-    actions: jax.Array,
-    target_q: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """Both critics regress on the one target: ``sum_i (Q_i(s, a) - y)^2``."""
-    q_preds = q_values(critic_state, critic_params, observations, actions, carries)
-    loss = jnp.mean((q_preds - target_q) ** 2)
-    return loss, ValueAuxiliaries(
-        critic_loss=loss,
-        target_q=target_q.mean().flatten(),
-        q_pred_min=jnp.min(q_preds, axis=0).mean().flatten(),
-    )
-
-
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
@@ -251,8 +234,14 @@ def update_value_functions(
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        return value_loss_function(
+        """Both critics regress on the one target (SAC's critic loss)."""
+        loss, aux = critic_loss_fn(
             params, agent_state.critic_state, batch.obs, batch.action, target_q, carries
+        )
+        return loss, ValueAuxiliaries(
+            critic_loss=loss,
+            target_q=target_q.mean().flatten(),
+            q_pred_min=aux.q_pred_min,
         )
 
     critic_state, aux = critic_step(
@@ -377,26 +366,29 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning_args: Optional[CloningConfig] = None,
+    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     action_pipeline: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """TD3's train function: one step per env, then (from ``learning_starts``)
-    one update, per iteration."""
+    one update, per iteration. ``cloning``: the deprecated cloning keywords'
+    CloningPretrain, run at init on the pretrain key."""
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
+    }
+    extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
+    if cloning is not None:
+        cloning = cloning.bind_to_agent(**agent_context)
     recurrent = network_args.memory is not None
     if recurrent:
         unsupported_recurrent_options(
             "TD3",
             expert_policy=expert_policy,
             extensions=(tuple(extensions) or None),
-            # TD3 always builds a default CloningConfig; only actual
-            # pre-training (pre_train_n_steps > 0) conflicts with memory.
-            cloning_pretrain=(
-                cloning_args
-                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
-                else None
-            ),
+            cloning_pretrain=cloning,
         )
     loop = TrainLoop.create(
         env_args,
@@ -425,14 +417,9 @@ def make_train(
             expert_policy=expert_policy,
             store_expert_data=holds_expert(expert_policy, loop.stack),
         )
-        return pretrain_on_expert(
-            agent_state,
-            pretrain_key,
-            cloning_args,
-            expert_policy,
-            env_args,
-            actor_optimizer_args,
-        )
+        if cloning is None:
+            return agent_state
+        return cloning.clone(agent_state, pretrain_key)
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:
         # The step just collected is in the buffer: TD3 samples it from there.

@@ -312,15 +312,13 @@ def training_iteration(
             env_args.n_envs,
         )
         matching_loss = -returns.mean()
-        loss = matching_loss
-        if loop.stack:
-            loss = loss + loop.stack.fold_actor_loss(
-                agent_state,
-                {"rollout": rollout, "actor_params": params, "returns": returns},
-                timestep,
-                ext_key,
-                loop.total_timesteps,
-            )
+        loss = matching_loss + loop.stack.fold_actor_loss(
+            agent_state,
+            {"rollout": rollout, "actor_params": params, "returns": returns},
+            timestep,
+            ext_key,
+            loop.total_timesteps,
+        )
         return loss, matching_loss
 
     (loss, matching_loss), grads = jax.value_and_grad(loss_fn, has_aux=True)(

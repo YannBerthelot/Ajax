@@ -151,10 +151,6 @@ class CollectorState:
         the training fraction is the collector's (``train_time_fraction``)."""
         return self._env_state
 
-    @env_state.setter
-    def env_state(self, value) -> None:
-        self._env_state = value
-
 
 @partial(struct.dataclass, kw_only=True)
 class LoadedTrainState(TrainState):
@@ -189,12 +185,6 @@ class LoadedTrainState(TrainState):
     def apply(self, params, *args, **kwargs):
         """Call the apply_fn with the given parameters and arguments."""
         return self.apply_fn(params, *args, **kwargs)
-
-    def __eq__(self, value):
-        return (
-            self.params.values == value.params.values
-            and self.opt_state == value.opt_state
-        )
 
 
 @struct.dataclass
@@ -310,7 +300,6 @@ class NetworkConfig:
 class OptimizerConfig:
     learning_rate: float | Callable[[int], float]
     max_grad_norm: Optional[float] = None
-    clipped: bool = False
     beta_1: float = 0.9
     beta_2: float = 0.999
     # Adam's epsilon for numerical stability. Default 1e-5 matches the
@@ -328,10 +317,3 @@ class OptimizerConfig:
 class AlphaConfig:
     alpha_init: float
     learning_rate: float
-
-
-@struct.dataclass
-class BufferConfig:
-    buffer_size: int
-    batch_size: int
-    n_envs: int

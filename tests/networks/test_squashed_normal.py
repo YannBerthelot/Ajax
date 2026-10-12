@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ajax.agents.SAC.utils import SquashedNormal
+from ajax.networks.distributions import SquashedNormal
 
 PI = SquashedNormal(jnp.zeros(7), jnp.full(7, 1.5))
 KEY = jax.random.PRNGKey(0)

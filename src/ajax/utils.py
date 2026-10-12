@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
-from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
 
@@ -113,26 +112,3 @@ def fill_with_nan(dataclass):
             fill_with_nan(sub) if hasattr(sub, "__dataclass_fields__") else nan
         )
     return dataclass(**values)
-
-
-def compare_frozen_dicts(dict1: FrozenDict, dict2: FrozenDict) -> bool:
-    """
-    Compares two FrozenDicts to check if they are equal.
-
-    Args:
-        dict1 (FrozenDict): The first FrozenDict.
-        dict2 (FrozenDict): The second FrozenDict.
-
-    Returns:
-        bool: True if the FrozenDicts are equal, False otherwise.
-    """
-    for key in dict1.keys():
-        if key not in dict2:
-            return False
-        value1, value2 = dict1[key], dict2[key]
-        if isinstance(value1, FrozenDict) and isinstance(value2, FrozenDict):
-            if not compare_frozen_dicts(value1, value2):
-                return False
-        elif not jnp.allclose(value1, value2):
-            return False
-    return True

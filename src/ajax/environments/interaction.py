@@ -1,3 +1,4 @@
+import inspect
 import warnings
 from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 
@@ -11,15 +12,24 @@ from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import ReplayBatch, init_buffer
+from ajax.environments.obs_norm import (
+    apply_obs_norm,
+    init_agent_obs_norm,
+    update_obs_norm,
+)
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
     ExpertInAgentUnits,
     agent_action_to_env,
+    check_env_is_playground,
+    check_if_environment_has_continuous_actions,
     env_keys,
+    get_raw_env,
     get_state_action_shapes,
     maybe_append_train_frac,
     raw_obs_columns,
 )
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import flatten_carry, tree_where_reset
 from ajax.state import (
     BaseAgentState,
@@ -212,10 +222,6 @@ def step(
         # indexer, so restore the integer dtype at the env boundary. Envs
         # whose dynamics only compare the action (classic control) accepted
         # the float silently, which is why this stayed hidden.
-        from ajax.environments.utils import (
-            check_if_environment_has_continuous_actions,
-        )
-
         if not check_if_environment_has_continuous_actions(env, env_params):
             action = action.astype(jnp.int32)
 
@@ -356,10 +362,7 @@ def get_pi(
     # Agent-side obs normalisation: applied here so all callers of get_pi
     # stay unchanged. Stats are synced into actor_state.obs_norm_info
     # after every online collection step. None disables normalisation.
-    if getattr(actor_state, "obs_norm_info", None) is not None:
-        from ajax.agents.obs_norm import apply_obs_norm
-
-        obs = apply_obs_norm(obs, actor_state.obs_norm_info)
+    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
     obs = maybe_add_axis(obs, recurrent)
     done = maybe_add_axis(done, recurrent)
     if recurrent:
@@ -398,10 +401,7 @@ def get_pi_sequence(
         (pi, final_hidden): distribution over (T, B, ...) and the carry
         after consuming the sequence.
     """
-    if getattr(actor_state, "obs_norm_info", None) is not None:
-        from ajax.agents.obs_norm import apply_obs_norm
-
-        obs = apply_obs_norm(obs, actor_state.obs_norm_info)
+    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
     return actor_state.apply(
         actor_params, obs, hidden_state=initial_hidden, done=resets
     )
@@ -452,8 +452,6 @@ def get_action_and_new_agent_state(
         done=done,
         recurrent=recurrent,
     )
-    from ajax.agents.SAC.utils import SquashedNormal
-
     if isinstance(pi, SquashedNormal):
         # Sample the base Normal manually so raw_action is exposed
         # (PPO/APO need it to recompute log_prob without arctanh).
@@ -551,8 +549,6 @@ def maybe_vmap(f, vmap_on, **kwargs):
 
 
 def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
-    from ajax.environments.utils import check_env_is_playground, get_raw_env
-
     vmap_on = (
         max(jax.tree_util.tree_leaves(jax.tree.map(lambda x: x.ndim, env_state))) > 0
     )
@@ -580,8 +576,6 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
     # Some brax envs (e.g. humanoid) have `_get_obs(pipeline_state, action)`
     # and cannot be recomputed without the action; env_state.obs already
     # holds the correct pre-normalization observation -> trust it.
-    import inspect
-
     try:
         n_obs_params = len(inspect.signature(raw_env._get_obs).parameters)
     except (TypeError, ValueError):
@@ -716,8 +710,6 @@ def collect_experience(
     # of training already uses non-zero stats. This avoids a step-1
     # divide-by-≈0 in apply_obs_norm.
     if agent_state.collector_state.obs_norm_info is not None:
-        from ajax.agents.obs_norm import update_obs_norm
-
         _, _new_obs_norm = update_obs_norm(
             agent_state.collector_state.last_obs,
             agent_state.collector_state.obs_norm_info,
@@ -1188,8 +1180,6 @@ def init_collector_state(
     )
     obs_norm_info = None
     if normalize_obs_running:
-        from ajax.agents.obs_norm import init_agent_obs_norm
-
         obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
 
     return CollectorState(

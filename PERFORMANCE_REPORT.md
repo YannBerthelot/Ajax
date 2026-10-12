@@ -42,7 +42,7 @@ cache (see "Did the round-1-3 patches help this?" below).
 
 | Patch | Where it lives | Effect | Workload-conditional? |
 | ----- | -------------- | ------ | --------------------- |
-| #1 obs-norm shape `(n_envs,*) -> (1,*)` | [obs_norm.py](src/ajax/agents/obs_norm.py), [cloning.py](src/ajax/agents/cloning.py) | n_envs× drop on running stats; redundant per-call `nanmean` reductions removed | Material when n_envs and obs_dim both grow (image obs, large vmap). Invisible at Pendulum scale. |
+| #1 obs-norm shape `(n_envs,*) -> (1,*)` | [obs_norm.py](src/ajax/environments/obs_norm.py), [cloning.py](src/ajax/agents/cloning.py) | n_envs× drop on running stats; redundant per-call `nanmean` reductions removed | Material when n_envs and obs_dim both grow (image obs, large vmap). Invisible at Pendulum scale. |
 | #6 network init shape `(n_envs,*) -> (1,*)` | [networks.py](src/ajax/networks/networks.py) | One-shot allocation drop at agent build time | Material when obs is high-dim (images) or n_envs is large. |
 | #4 carry-only inner critic-update scan | [perf_utils.py](src/ajax/perf_utils.py), used by SAC + REDQ + TD3 | Drops `[num_critic_updates, *aux]` of per-step diagnostics that get discarded | Material under vmap-over-seeds with large `num_critic_updates` (REDQ-style UTD>1). |
 | #5 `donate_argnames` on top-level train jit | [perf_utils.py](src/ajax/perf_utils.py) | XLA reuses caller's `initial_state` buffer instead of cloning | Material on resume-from-checkpoint paths. No-op (and free) on init paths. |
@@ -59,7 +59,7 @@ becomes the actual peak.
 | Patch | Where it lives | Effect | Workload-conditional? |
 | ----- | -------------- | ------ | --------------------- |
 | #2 gate redundant `q_preds_for_var` | [SAC/train_SAC.py:1209-1265](src/ajax/agents/SAC/train_SAC.py#L1209-L1265) | Pure SAC saves a full `[N_critics, B]` critic forward per critic step | Always on for default SAC. Bigger relative win at higher `num_critics`. |
-| #7 `nan_safe=False` opt-in for agent obs | [utils.py](src/ajax/utils.py), [obs_norm.py](src/ajax/agents/obs_norm.py) | `mean` instead of `nanmean` per call (skips the per-element NaN-mask compare) | Always on. AVG keeps `nan_safe=True` because of its NaN-sentinel `G_return`. |
+| #7 `nan_safe=False` opt-in for agent obs | [utils.py](src/ajax/utils.py), [obs_norm.py](src/ajax/environments/obs_norm.py) | `mean` instead of `nanmean` per call (skips the per-element NaN-mask compare) | Always on. AVG keeps `nan_safe=True` because of its NaN-sentinel `G_return`. |
 | #9 reuse buffer-mix sample indices | [SAC/train_SAC.py:1635-1654](src/ajax/agents/SAC/train_SAC.py#L1635-L1654) | One `randint` call replaces N `random.choice` calls inside `tree.map` | Only triggers on the IBRL/expert buffer-mix path. Not on default SAC. |
 | **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **~17s of HLO compile saved per fresh process when shapes match** | Hits on second and subsequent invocations of the same code. |
 

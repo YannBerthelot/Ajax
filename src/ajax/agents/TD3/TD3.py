@@ -5,13 +5,14 @@ from typing import Callable, Optional, Union
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import CloningConfig, warn_actor_cloning_lr
+from ajax.agents.cloning import warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType
 
@@ -71,13 +72,13 @@ class TD3(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # --- Cloning pretraining (mirrors REDQ); online BC is the
-        # ImitationLoss extension ---
-        actor_cloning_epochs: int = 10,
+        # --- Deprecated cloning keywords: extensions=(CloningPretrain(...),);
+        # online BC is the ImitationLoss extension ---
+        actor_cloning_epochs: Optional[int] = None,
         actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        skip_actor_pretrain: bool = False,
-        actor_cloning_batch_size: int = 64,
-        pre_train_n_steps: int = 0,
+        skip_actor_pretrain: Optional[bool] = None,
+        actor_cloning_batch_size: Optional[int] = None,
+        pre_train_n_steps: Optional[int] = None,
         expert_policy: Optional[Callable] = None,
         # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,
@@ -127,10 +128,12 @@ class TD3(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
         warn_actor_cloning_lr(actor_cloning_lr)
-        self.cloning_config = CloningConfig(
-            actor_epochs=actor_cloning_epochs,
-            actor_batch_size=actor_cloning_batch_size,
+        self.cloning = CloningPretrain.from_deprecated_kwargs(
+            self.expert_policy,
+            self.extension_stack.extensions,
             pre_train_n_steps=pre_train_n_steps,
+            actor_cloning_epochs=actor_cloning_epochs,
+            actor_cloning_batch_size=actor_cloning_batch_size,
             skip_actor_pretrain=skip_actor_pretrain,
         )
         self.action_pipeline = action_pipeline
@@ -139,7 +142,7 @@ class TD3(ActorCritic):
         return partial(
             make_train,
             buffer=self.buffer,
-            cloning_args=self.cloning_config,
+            cloning=self.cloning,
             expert_policy=self.expert_policy,
             action_pipeline=self.action_pipeline,
             extensions=tuple(self.extension_stack.extensions),

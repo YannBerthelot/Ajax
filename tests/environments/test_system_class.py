@@ -11,7 +11,7 @@ from ajax.environments.system_class import (
     UniformPerturbation,
     broadcast_env_params,
     env_params_is_batched,
-    select_env_params,
+    n_systems,
 )
 
 N = 6
@@ -42,7 +42,8 @@ def test_broadcast_and_select_round_trip(pendulum):
             batched,
         )
     )
-    single = select_env_params(batched, 2)
+    assert n_systems(batched) == N
+    single = jax.tree.map(lambda leaf: leaf[2], batched)
     assert not env_params_is_batched(single)
     assert float(single.m) == float(params.m)
 
@@ -153,7 +154,8 @@ def test_matrix_valued_unbatched_params_are_not_mistaken_for_a_batch(pendulum):
     batched = broadcast_env_params(single, 4)
     assert env_params_is_batched(batched)
     assert batched.A.shape == (4, 3, 3) and batched.max_steps_in_episode.shape == (4,)
-    assert not env_params_is_batched(select_env_params(batched, 1))
+    assert n_systems(batched) == 4
+    assert not env_params_is_batched(jax.tree.map(lambda leaf: leaf[1], batched))
 
 
 @pytest.mark.parametrize("n", [3, 4])

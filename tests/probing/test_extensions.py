@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "99d0216e0c08"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "f4e4fb90895f"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -494,8 +494,8 @@ ONE = 1e6  # critic_warmup_frac: the blend and clone weights stay at 1 (1e-6)
 
 
 def mc(light: bool = False) -> MCPretrain:
-    """512 MC rows, two regression batches (fewer than 256 rows divide by zero,
-    modules/pretrain.py:178-213), 250 regression steps."""
+    """512 MC rows, two regression batches (fewer than 256 rows divide by zero
+    in extensions/pretrain.py's pretrain_critic_mc), 250 regression steps."""
     return MCPretrain(EXPERT, use_online_light=light, **MC_KW | {"n_steps": 250})
 
 
@@ -532,7 +532,7 @@ def _bc(n: R.Nets) -> dict:
     return {"a(1)": R.action(n, 1.0), "a_E - a(0)": A_E - R.action(n, 0.0)}
 
 
-_UNSCALED = "MC returns left unscaled (modules/pretrain.py:137)"
+_UNSCALED = "MC returns left unscaled (pretrain_critic_mc)"
 _G99 = {"gamma bound from the 0.99 default": 0.99 * RS}
 _LAST = {"range of the last batch only, envs in lockstep": RS}
 PHI = (

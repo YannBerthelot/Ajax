@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.environments.system_class import env_params_is_batched
+from ajax.environments.system_class import env_params_is_batched, n_systems
 from ajax.types import (
     BraxEnv,
     EnvType,
@@ -190,11 +190,6 @@ def check_action_repeat(action_repeat: int) -> None:
         raise ValueError(f"action_repeat must be a positive int, got {action_repeat!r}")
 
 
-def _n_param_envs(env_params: EnvParams) -> int:
-    """Leading (per-env) axis of a batched params (see ``system_class``)."""
-    return int(jnp.shape(jax.tree.leaves(env_params)[0])[0])
-
-
 def agent_episode_length(
     env: EnvType, env_params: Optional[EnvParams], action_repeat: int = 1
 ) -> int:
@@ -274,9 +269,9 @@ def _action_bounds(
 
     if not env_params_is_batched(env_params):
         low, high = box(env_params)
-    elif n_envs is not None and _n_param_envs(env_params) != n_envs:
+    elif n_envs is not None and n_systems(env_params) != n_envs:
         raise ValueError(
-            f"Per-env params for {_n_param_envs(env_params)} envs, but"
+            f"Per-env params for {n_systems(env_params)} envs, but"
             f" actions for {n_envs}."
         )
     else:

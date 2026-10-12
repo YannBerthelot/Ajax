@@ -200,6 +200,15 @@ class SAC(ActorCritic):
                     " learnable_fields (registered via register_learnable_gains)."
                 )
             self.action_dim_override = len(expert_policy.learnable_fields)
+            if augment_obs_with_expert_action:
+                # The expert's action is what the actor's gains make it, after
+                # the actor has read its observation.
+                raise ValueError(
+                    "use_pid_policy=True cannot take augment_obs_with_expert_action"
+                    "=True: the actor's output sets the gains the expert acts"
+                    " with, so the expert's action does not exist before the"
+                    " actor reads its observation."
+                )
 
         action_dim = (
             self.action_dim_override

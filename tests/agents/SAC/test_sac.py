@@ -2,6 +2,7 @@ import jax.numpy as jnp
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
+from tests.agents.test_option_smoke import Expert
 
 
 def test_skip_critic_pretrain_is_a_transitional_no_op():
@@ -10,6 +11,15 @@ def test_skip_critic_pretrain_is_a_transitional_no_op():
     SAC(env_id="Pendulum-v1", skip_critic_pretrain=True)
     with pytest.raises(ValueError, match="MCPretrain"):
         SAC(env_id="Pendulum-v1", skip_critic_pretrain=False)
+
+
+def test_the_gain_policy_refuses_the_experts_action_in_the_observation():
+    """With use_pid_policy the actor's output sets the expert's gains, so the
+    expert's action cannot be in the observation the actor reads."""
+    kw = {"expert_policy": Expert(), "use_pid_policy": True}
+    SAC(env_id="Pendulum-v1", augment_obs_with_expert_state=True, **kw)
+    with pytest.raises(ValueError, match="augment_obs_with_expert_action"):
+        SAC(env_id="Pendulum-v1", augment_obs_with_expert_action=True, **kw)
 
 
 def test_fixed_alpha_keeps_temperature_at_alpha_init():

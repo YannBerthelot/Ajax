@@ -32,6 +32,13 @@ dependencies = [
     "playground>=0.2.0,<0.3",
 ]
 
+[project.optional-dependencies]
+# CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
+# `ajax[cuda]`. Ask for it now: the default dependencies above still bring
+# jax[cuda] off Apple-silicon Macs, and will stop once the downstream
+# projects that need a GPU request the extra.
+cuda = ["jax[cuda]>=0.6.2; sys_platform == 'linux'"]
+
 [dependency-groups]
 dev = [
     "mypy>=1.4.1,<2",

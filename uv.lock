@@ -58,6 +58,11 @@ dependencies = [
     { name = "tqdm" },
 ]
 
+[package.optional-dependencies]
+cuda = [
+    { name = "jax", extra = ["cuda"], marker = "sys_platform == 'linux'" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "coverage", extra = ["toml"] },
@@ -86,6 +91,7 @@ requires-dist = [
     { name = "gymnax", git = "https://github.com/YannBerthelot/gymnax.git?branch=chore%2Frelax-runtime-pins" },
     { name = "jax", marker = "(platform_machine == 'aarch64' and sys_platform == 'darwin') or (platform_machine == 'arm64' and sys_platform == 'darwin')", specifier = ">=0.6.2" },
     { name = "jax", extras = ["cuda"], marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'darwin'", specifier = ">=0.6.2" },
+    { name = "jax", extras = ["cuda"], marker = "sys_platform == 'linux' and extra == 'cuda'", specifier = ">=0.6.2" },
     { name = "matplotlib", specifier = ">=3.8.0,<4" },
     { name = "mujoco", specifier = ">=3.1.4,<4" },
     { name = "mujoco-mjx", specifier = ">=3.1.4,<4" },
@@ -98,6 +104,7 @@ requires-dist = [
     { name = "tensorboardx", specifier = ">=2.6.4,<3" },
     { name = "tqdm", specifier = ">=4.65.0,<5" },
 ]
+provides-extras = ["cuda"]
 
 [package.metadata.requires-dev]
 dev = [

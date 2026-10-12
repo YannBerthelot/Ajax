@@ -1,4 +1,5 @@
 from functools import partial
+from typing import get_args
 
 import distrax
 import jax
@@ -129,7 +130,7 @@ def test_reset_then_scanned_steps_keep_the_batch_shapes(env_and_shape):
     obs, env_state = reset(rng, env, mode=mode, env_params=env_params)
     assert obs.shape == (n_envs, *obs_shape)
     if mode == "gymnax":
-        assert isinstance(env_state, EnvStateType)
+        assert isinstance(env_state, get_args(EnvStateType))
     else:
         assert hasattr(env_state, "obs")
 

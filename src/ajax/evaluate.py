@@ -376,9 +376,9 @@ def step_environment(
             obs_for_actor = command.actor_input(obs_for_actor, carry.command)
 
         raw_actions, entropy, new_actor_hidden = (
-            get_deterministic_action_and_entropy_fn(
-                actor_state, recurrent, continuous
-            )(obs_for_actor, done if recurrent else None, carry.actor_hidden)
+            get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous)(
+                obs_for_actor, done if recurrent else None, carry.actor_hidden
+            )
         )
 
         if pid_gain_policy:
@@ -605,7 +605,7 @@ def evaluate(
     eval_expert_policy: Optional[Callable] = None,
     value_estimate: Optional[ValueEstimate] = None,
     command: Optional[Any] = None,
-) -> tuple[jax.Array, ...]:
+) -> tuple[jax.Array | float, ...]:
     """Evaluate the actor's deterministic policy on ``num_episodes``
     episodes; with ``expert_policy`` (the training expert, which builds the
     actor's input) the expert's return too, that of ``eval_expert_policy``
@@ -701,7 +701,7 @@ def evaluate(
     )
     rewards, step_count = final_carry.rewards, final_carry.step_count
 
-    bias = jnp.nan
+    bias: jax.Array | float = jnp.nan
     if value_estimate is not None and not recurrent:
         scale = value_estimate.reward_scale
         bias = _value_bias(
@@ -712,7 +712,7 @@ def evaluate(
         )
 
     # Optionally compute expert comparison
-    expert_reward = jnp.nan
+    expert_reward: jax.Array | float = jnp.nan
     if expert_policy is not None or eval_expert_policy is not None:
         expert_reward = _expert_return(
             mode,

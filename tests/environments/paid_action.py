@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 from gymnax.environments import environment, spaces
+from jax.typing import ArrayLike
 
 OBS = jnp.array([1.0, 0.5, -0.5])
 HIGH = 2.0  # the box is [-HIGH, HIGH]: centre 0, half-range HIGH
@@ -50,7 +51,7 @@ def make() -> tuple[PaidAction, Params]:
     return PaidAction(), Params()
 
 
-def mapped(a: jax.Array) -> jax.Array:
+def mapped(a: ArrayLike) -> jax.Array:
     """What the env is paid for the agent action ``a``: ``[-1, 1]`` mapped
     onto the box."""
     return HIGH * jnp.clip(a, -1.0, 1.0)

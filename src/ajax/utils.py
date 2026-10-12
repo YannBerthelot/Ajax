@@ -12,16 +12,16 @@ from jax.tree_util import Partial as partial
 )
 def online_normalize(
     x: jax.Array,
-    count: int,
-    mean: float,
-    mean_2: float,
+    count: jax.Array,
+    mean: jax.Array,
+    mean_2: jax.Array,
     eps: float = 1e-8,
     train: bool = True,
     shift: bool = True,
     returns: Optional[jax.Array] = None,
     nan_safe: bool = True,
     raw_columns: int = 0,
-) -> tuple[jax.Array, int, float, float, float]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
     """Welford-style running mean / var update.
 
     ``nan_safe`` (static): when True (default), reductions skip NaN
@@ -74,9 +74,9 @@ def online_normalize(
         # Set, not computed: a compiler free to fuse the division by the
         # averaged std may otherwise move them by an ulp.
         x_norm = x_norm.at[..., :raw_columns].set(input_x[..., :raw_columns])
-    assert (
-        x_norm.shape == input_x.shape
-    ), f"x_norm shape {x_norm.shape} does not match input_x shape {input_x.shape}"
+    assert x_norm.shape == input_x.shape, (
+        f"x_norm shape {x_norm.shape} does not match input_x shape {input_x.shape}"
+    )
 
     return (
         x_norm,

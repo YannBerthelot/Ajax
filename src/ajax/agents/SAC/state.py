@@ -2,20 +2,19 @@ from typing import Any, Optional
 
 from flax import struct
 from flax.training.train_state import TrainState
-from jax.tree_util import Partial as partial
 
 from ajax.agents.recurrent import RecurrentReplayConfig
 from ajax.state import BaseAgentState, LoadedTrainState
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class SoftACState(BaseAgentState):
     """A soft actor-critic's state: the base one plus the temperature."""
 
     alpha: TrainState  # log-temperature, params["log_alpha"]
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class SACState(SoftACState):
     """SAC's state, with the frozen expert critic phi* its extensions fill."""
 
@@ -26,7 +25,7 @@ class SACState(SoftACState):
     expert_critic_state: Optional[LoadedTrainState] = None
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class SACConfig(RecurrentReplayConfig):
     """SAC's hyperparameters (the wrapper sets every one)."""
 

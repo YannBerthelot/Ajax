@@ -9,7 +9,7 @@ terminations are charged a penalty learned from the non-terminal rewards
 """
 
 from collections.abc import Sequence
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -68,7 +68,7 @@ class ValueAuxiliaries:
 
 @struct.dataclass
 class ThetaAuxiliaries:
-    theta: jax.Array
+    theta: Union[float, jax.Array]
     episode_termination_penalty: jax.Array
 
 
@@ -130,7 +130,7 @@ def compute_asac_td_target(
     # tests/probing can mask the target with it.
     dones: jax.Array,  # noqa: ARG001
     rewards: jax.Array,
-    theta: float,
+    theta: float | jax.Array,
     alpha: jax.Array,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
@@ -158,6 +158,7 @@ def compute_asac_td_target(
     # episode start (a batch of 1, a fresh carry, no previous action).
     zero_obs = jnp.zeros((1, next_observations.shape[-1]))
     zero_action = jnp.zeros((1, next_actions.shape[-1]))
+    assert critic_states.target_params is not None
     if carries is None:
         zero_x = action_value_input(zero_obs, zero_action)
         shift_value = predict_value(critic_states, critic_states.target_params, zero_x)

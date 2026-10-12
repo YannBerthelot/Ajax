@@ -64,6 +64,7 @@ dev = [
     { name = "probing-environments" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "types-pyyaml" },
 ]
 plane = [
     { name = "target-gym" },
@@ -105,6 +106,7 @@ dev = [
     { name = "probing-environments", git = "https://github.com/YannBerthelot/ProbingEnvironments.git?branch=feature%2Fgymnax-1.0-compat" },
     { name = "pytest", specifier = "==7.4.0" },
     { name = "ruff", specifier = ">=0.11.6,<0.12" },
+    { name = "types-pyyaml", specifier = ">=6.0.0" },
 ]
 plane = [{ name = "target-gym", specifier = ">=0.6.1,<0.7" }]
 render = [{ name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.0,<3" }]
@@ -2729,6 +2731,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/dd/84/2d632c39007e6461c7d782a4484f4f16bc4aab8196cbe199cf74a9701627/trimesh-4.6.6.tar.gz", hash = "sha256:6c300190e21799a4f6a905316d8edb502bc1e2462ee6625dc06d5a726875788e", size = 797856, upload-time = "2025-03-29T19:52:30.711Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/17/f9/831a943d3a53af305560fd232e92081f8e5c067cdb9bc6733800751bf2d4/trimesh-4.6.6-py3-none-any.whl", hash = "sha256:b310e367a95487a6fa3b3fa12b3cdc7f3024882fd1c318653b5cdaeeed5632fd", size = 709294, upload-time = "2025-03-29T19:52:28.339Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20260906"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/6e/abec85b9013db5b934b0280a6dd104904d84f7bcbaab2e2f3def87ac7463/types_pyyaml-6.0.12.20260906.tar.gz", hash = "sha256:f59c1cc05010b833d2d72287bbaa72610106b28d42d89a907313117faba85212", size = 18649, upload-time = "2026-09-06T06:35:35.362Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/c0/fc0644b7ddcfb969e95845837143cb5173ddd6e06ee4ba5fc493cd9329b7/types_pyyaml-6.0.12.20260906-py3-none-any.whl", hash = "sha256:bca893ff0d51df5c9053137d5d0e6ccd36e939a196356f1d5c16372422f5137b", size = 21282, upload-time = "2026-09-06T06:35:34.372Z" },
 ]
 
 [[package]]

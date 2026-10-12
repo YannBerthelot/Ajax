@@ -29,6 +29,7 @@ from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
+from ajax.types import Replaceable
 from tests.agents.extension_stubs import CounterExt
 
 
@@ -38,7 +39,7 @@ class Collector:
 
 
 @struct.dataclass
-class State:
+class State(Replaceable):
     rng: jax.Array
     collector_state: Collector
     value: jax.Array

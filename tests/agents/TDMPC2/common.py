@@ -3,6 +3,7 @@ TD target of an update state."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import jax
@@ -24,7 +25,9 @@ TINY_AGENT: dict[str, Any] = {
 }
 
 
-def random_kernel(params: dict, path: tuple[str, ...], key: jax.Array, std: float):
+def random_kernel(
+    params: Mapping[str, Any], path: tuple[str, ...], key: jax.Array, std: float
+):
     """``params`` with the kernel under ``path`` drawn ``N(0, std^2)`` (a
     copy: ``params`` is unchanged)."""
     if not path:
@@ -35,7 +38,7 @@ def random_kernel(params: dict, path: tuple[str, ...], key: jax.Array, std: floa
 
 
 def random_heads(
-    wm_params: dict, reward_key: jax.Array, q_key: jax.Array, std: float
+    wm_params: Mapping[str, Any], reward_key: jax.Array, q_key: jax.Array, std: float
 ) -> dict:
     """The reward and Q heads' final kernels drawn ``N(0, std^2)``.
 

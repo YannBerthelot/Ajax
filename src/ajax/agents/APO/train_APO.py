@@ -64,9 +64,9 @@ def policy_loss_function(
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)
     ratio = jnp.exp(new_log_probs - log_probs)
-    assert (
-        ratio.shape[0] == gae.shape[0]
-    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    assert ratio.shape[0] == gae.shape[0], (
+        f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    )
     loss_actor, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
     total_loss = (loss_actor - ent_coef * entropy.mean()).mean()
     aux = PolicyAuxiliaries(
@@ -157,7 +157,7 @@ def value_loss_function(
     observations: jax.Array,
     value_targets: jax.Array,
     nu: float,
-    b: float,
+    b: float | jax.Array,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """The differential value loss ``0.5 (V(s) - (target - nu b))^2``.
 
@@ -181,7 +181,7 @@ def update_value_functions(
     observations: jax.Array,
     value_targets: jax.Array,
     nu: float,
-    b: float,
+    b: jax.Array,
     extension_stack: ExtensionStack,
     total_timesteps: int,
     extension_key: jax.Array,

@@ -27,7 +27,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import jax
@@ -38,6 +37,7 @@ from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.types import Replaceable
 
 if TYPE_CHECKING:
     from ajax.agents.DreamerV3.replay import ReplayState
@@ -287,7 +287,7 @@ class DreamerV3Config:
         return TwoHot.dreamerv3(self.bins)
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DreamerV3AgentConfig(BaseAgentConfig):
     """Hyperparameters of the DreamerV3 training loop (static).
 
@@ -313,7 +313,7 @@ class DreamerV3AgentConfig(BaseAgentConfig):
 
 
 @struct.dataclass
-class MetricsAccumulator:
+class MetricsAccumulator(Replaceable):
     """Sums of the training-step metrics since the last log, and their count.
 
     The reference logs the mean of each training metric over the updates
@@ -350,7 +350,7 @@ class MetricsAccumulator:
         return jax.tree.map(lambda x: jnp.where(flag, jnp.zeros_like(x), x), self)
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DreamerV3State(BaseAgentState):
     """The DreamerV3 agent's state (``docs/world_models/DESIGN.md`` section 6.6).
 

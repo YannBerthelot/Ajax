@@ -17,7 +17,7 @@ M-RMSE, i.e. the paper's validation metric, at the logging frequency.
 """
 
 from collections.abc import Sequence
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
@@ -56,7 +56,7 @@ class APGAuxiliaries:
     loss: jax.Array  # objective actually minimised (incl. extension terms)
     matching_loss: jax.Array  # -mean_i sum_k r_k, the closed-loop cost
     m_rmse: jax.Array  # sqrt(matching_loss / horizon)
-    timestep: jax.Array
+    timestep: Union[int, jax.Array]
 
 
 # ---------------------------------------------------------------------------

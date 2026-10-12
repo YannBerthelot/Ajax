@@ -3,15 +3,15 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.state import SoftACState
 from ajax.deprecation import warn_inert
 from ajax.state import BaseAgentConfig
+from ajax.types import Replaceable
 
 
 @struct.dataclass
-class RunningMoments:
+class RunningMoments(Replaceable):
     """The latest ``value`` of one scalar stream (AVG's reward, discount or
     squared return) and its running ``count``, ``mean`` and ``mean_2``;
     not the observation normaliser's :class:`ajax.types.NormalizationInfo`."""
@@ -22,7 +22,7 @@ class RunningMoments:
     mean_2: jax.Array
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class AVGState(SoftACState):
     """AVG's state: a soft actor-critic's plus the TD-error scale statistics."""
 
@@ -32,7 +32,7 @@ class AVGState(SoftACState):
     scaling_coef: jnp.ndarray
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class AVGConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

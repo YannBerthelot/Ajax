@@ -31,6 +31,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=1.4.1,<2",
+    "types-PyYAML>=6.0.0",
     "pre-commit>=3.3.3,<4",
     "pytest==7.4.0",
     "coverage[toml]>=7.8.0,<8",
@@ -97,7 +98,6 @@ max-complexity = 20
 ignore_missing_imports = true
 follow_imports = "silent"
 show_error_codes = true
-disable_error_code = ["attr-defined" ,"call-arg","misc"]
 
 
 

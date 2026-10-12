@@ -47,7 +47,7 @@ class CoreCriticAux:
 class TemperatureAuxiliaries:
     alpha: jax.Array
     log_alpha: jax.Array
-    effective_target_entropy: jax.Array
+    effective_target_entropy: jax.Array | float
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ def create_alpha_train_state(
     alpha_init: float = 1.0,
 ) -> TrainState:
     log_alpha = jnp.log(alpha_init)
-    params = FrozenDict({"log_alpha": log_alpha})
+    params: FrozenDict[str, Any] = FrozenDict({"log_alpha": log_alpha})
     # No gradient clipping on the dual variable. log_alpha's gradient is
     # the scalar (H_target - H_pi); clipping it to a constant norm erases
     # the magnitude (and hence the target) from the update whenever the

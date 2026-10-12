@@ -52,12 +52,12 @@ import time
 
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-import jax  # noqa: E402
-import numpy as np  # noqa: E402
-import provenance  # noqa: E402  (this directory)
+import jax
+import numpy as np
+import provenance
 
-import ajax  # noqa: E402
-from ajax.logging.wandb_logging import LoggingConfig  # noqa: E402
+import ajax
+from ajax.logging.wandb_logging import LoggingConfig
 
 TINY = {"units": 16, "hidden": 16, "deter": 64, "classes": 4}
 

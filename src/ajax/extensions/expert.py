@@ -330,10 +330,10 @@ class JSRLCurriculum(Extension):
 
 
 __all__ = [
-    "OnlineBC",
     "ImitationLoss",
-    "ResidualPolicy",
     "JSRLCurriculum",
+    "OnlineBC",
+    "ResidualPolicy",
 ]
 
 

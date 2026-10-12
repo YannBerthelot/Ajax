@@ -98,7 +98,7 @@ class DQN(ActorCritic):
         if check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("DQN only supports discrete action spaces.")
 
-        self.agent_config = DQNConfig(
+        self.agent_config: DQNConfig = DQNConfig(
             gamma=gamma,
             tau=tau,
             target_update_interval=target_update_interval,

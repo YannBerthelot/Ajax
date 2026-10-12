@@ -118,7 +118,7 @@ class APO(ActorCritic):
             extensions=extensions,
         )
 
-        self.agent_config = APOConfig(
+        self.agent_config: APOConfig = APOConfig(
             ent_coef=ent_coef,
             clip_range=clip_range,
             n_steps=n_steps,

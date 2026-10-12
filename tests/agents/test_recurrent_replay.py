@@ -187,11 +187,17 @@ def test_a_replayed_window_bootstraps_a_time_limit_on_its_final_observation() ->
     batch, carries = sample_and_burnin_sequences(
         agent_state, buffer, jax.random.PRNGKey(1), burn_in
     )
-    t = batch.obs[..., 0]
-    np.testing.assert_array_equal(batch.next_obs[..., 0], jnp.where(t == 3, 103, t + 1))
-    np.testing.assert_array_equal(carries.next_resets, jnp.isin(t, jnp.array([7, 11])))
-    np.testing.assert_array_equal(carries.resets, jnp.isin(t, jnp.array([4, 8, 12])))
-    after_limit = jnp.cumsum(t == 3, 0) - (t == 3)
+    row_t = batch.obs[..., 0]
+    np.testing.assert_array_equal(
+        batch.next_obs[..., 0], jnp.where(row_t == 3, 103, row_t + 1)
+    )
+    np.testing.assert_array_equal(
+        carries.next_resets, jnp.isin(row_t, jnp.array([7, 11]))
+    )
+    np.testing.assert_array_equal(
+        carries.resets, jnp.isin(row_t, jnp.array([4, 8, 12]))
+    )
+    after_limit = jnp.cumsum(row_t == 3, 0) - (row_t == 3)
     np.testing.assert_array_equal(
         carries.positions, jnp.arange(length)[:, None] + after_limit
     )

@@ -175,7 +175,7 @@ class REDQ(ActorCritic):
         target_entropy = resolve_target_entropy(
             target_entropy_per_dim, action_dim, env_id
         )
-        self.agent_config = REDQConfig(
+        self.agent_config: REDQConfig = REDQConfig(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,

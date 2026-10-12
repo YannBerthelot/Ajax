@@ -131,7 +131,7 @@ class AVG(ActorCritic):
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate or 0.0, alpha_init=alpha_init
         )
-        self.agent_config = AVGConfig(
+        self.agent_config: AVGConfig = AVGConfig(
             gamma=gamma,
             learning_starts=learning_starts,
             reward_scale=reward_scale,

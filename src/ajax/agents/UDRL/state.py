@@ -1,5 +1,6 @@
-from typing import Optional
+from typing import Optional, Union
 
+import jax
 from flax import struct
 
 from ajax.agents.UDRL.buffer import SegmentBuffer
@@ -19,9 +20,9 @@ class UDRLState(BaseAgentState):
     top-K episode returns (Algorithm 5).
     """
 
-    command_target_return: float = 1.0
-    command_target_return_std: float = 0.0
-    command_target_horizon: float = 100.0
+    command_target_return: Union[float, jax.Array] = 1.0
+    command_target_return_std: Union[float, jax.Array] = 0.0
+    command_target_horizon: Union[float, jax.Array] = 100.0
     buffer: Optional[SegmentBuffer] = None
 
 

@@ -15,11 +15,10 @@ import optax
 from flax import struct
 from flax.training.train_state import TrainState
 from gymnax import EnvParams
-from jax.tree_util import Partial as partial
 
 from ajax.environments.utils import get_env_type
 from ajax.networks.memory import MemoryConfig
-from ajax.types import EnvStateType, EnvType, InitializationFunction
+from ajax.types import EnvStateType, EnvType, InitializationFunction, Replaceable
 from ajax.wrappers import NormalizationInfo
 
 if TYPE_CHECKING:
@@ -28,7 +27,7 @@ if TYPE_CHECKING:
 
 
 @struct.dataclass
-class Transition:
+class Transition(Replaceable):
     obs: jnp.ndarray
     action: jnp.ndarray
     reward: jnp.ndarray
@@ -76,7 +75,7 @@ def zeros_like_abstract_pytree(abstract_tree: Any) -> Any:
 
 
 @struct.dataclass
-class EnvironmentConfig:
+class EnvironmentConfig(Replaceable):
     env: EnvType
     env_params: EnvParams
     n_envs: int
@@ -94,7 +93,7 @@ class EnvironmentConfig:
 
 
 @struct.dataclass
-class RollinEpisodicMeanRewardState:
+class RollinEpisodicMeanRewardState(Replaceable):
     """Each env's rolling window of its last episode returns."""
 
     buffer: jnp.ndarray  # (window_size, n_envs, 1)
@@ -106,7 +105,7 @@ class RollinEpisodicMeanRewardState:
 
 
 @struct.dataclass
-class CollectorState:
+class CollectorState(Replaceable):
     """The variables necessary to interact with the environment and collect the transitions"""
 
     rng: jax.Array
@@ -115,8 +114,8 @@ class CollectorState:
     last_terminated: jnp.ndarray
     last_truncated: jnp.ndarray
     episodic_return_state: RollinEpisodicMeanRewardState
-    episodic_mean_return: float = jnp.nan
-    timestep: int = 0
+    episodic_mean_return: Union[float, jax.Array] = jnp.nan
+    timestep: Union[int, jax.Array] = 0
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
     rollout: Optional[Transition] = None
     max_timesteps: Optional[int] = None
@@ -133,7 +132,7 @@ class CollectorState:
     obs_norm_info: Optional[NormalizationInfo] = None
     # Fraction of envs an expert drove on the latest collection step
     # (EDGEExploration logs it); NaN until the first step.
-    last_expert_frac: float = jnp.nan
+    last_expert_frac: Union[float, jax.Array] = jnp.nan
     # Per-env step counter within the current episode. Incremented on
     # every env step, reset to 0 on done; None unless an extension reads it
     # (Extension.reads_step_in_episode: JSRLCurriculum, whose expert acts
@@ -141,7 +140,7 @@ class CollectorState:
     step_in_episode: Optional[jnp.ndarray] = None
 
     @property
-    def train_time_fraction(self) -> Optional[float]:
+    def train_time_fraction(self) -> Optional[Union[float, jax.Array]]:
         if self.max_timesteps is None:
             return None
         return self.timestep / self.max_timesteps
@@ -153,7 +152,7 @@ class CollectorState:
         return self._env_state
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class LoadedTrainState(TrainState):
     hidden_state: Optional[Any] = None
     recurrent: bool = False
@@ -189,7 +188,7 @@ class LoadedTrainState(TrainState):
 
 
 @struct.dataclass
-class BaseAgentState:
+class BaseAgentState(Replaceable):
     rng: jax.Array
     actor_state: LoadedTrainState
     critic_state: LoadedTrainState
@@ -201,8 +200,8 @@ class BaseAgentState:
     # keys are those of the split without it (threefry is partitionable:
     # ``split(k, n + 1)[:n] == split(k, n)``).
     eval_rng: jax.Array
-    n_updates: int = 0
-    n_logs: int = 0
+    n_updates: Union[int, jax.Array] = 0
+    n_logs: Union[int, jax.Array] = 0
     index: Optional[int] = None
     # Per-extension pytree state (one entry per Extension in the agent's
     # ExtensionStack; `()` -> no extensions / all stateless). See
@@ -233,13 +232,9 @@ class BaseAgentState:
     # and do not touch this field.
     last_rollout: Optional[Any] = None
 
-    def replace(self, *args, **kwargs):  # To make mypy happy
-        """Replace fields in the dataclass with new values."""
-        return struct.replace(self, *args, **kwargs)
-
 
 @struct.dataclass
-class BaseAgentConfig:
+class BaseAgentConfig(Replaceable):
     # Opt-in flag for on-policy agents (PPO, PQN, APO, AVG) to write the
     # most recent ``(T, n_envs, ...)`` rollout transition onto
     # ``BaseAgentState.last_rollout`` after each collection. Off by
@@ -252,11 +247,11 @@ class BaseAgentConfig:
 
 
 @struct.dataclass
-class NetworkConfig:
+class NetworkConfig(Replaceable):
     # Hidden layers, or a PIDPolicy: the actor is then a PID controller
     # (ajax.modules.pid_actor).
     actor_architecture: Union[Tuple[str, ...], "PIDPolicy"]
-    critic_architecture: Tuple[str]
+    critic_architecture: Tuple[str, ...]
     # Pluggable memory block (encoder -> memory -> heads); None keeps the
     # network feedforward. Static (hashable) so trace-time branching on it
     # never leaks into the compiled graph. See ajax.networks.memory.
@@ -274,7 +269,9 @@ class NetworkConfig:
     # after. None keeps the legacy MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
-    # Conv architecture for the CNN encoder; None -> CNNEncoder's default.
+    # Conv architecture for the CNN encoder (imported for type checking
+    # only, to avoid a networks<->state import cycle). None ->
+    # CNNEncoder's default architecture.
     cnn_spec: Optional["CNNSpec"] = None
     # Actor head knobs (Actor in networks.py). Default = legacy Ajax.
     # Set per-env to match brax/playground convention for envs that
@@ -293,7 +290,7 @@ class NetworkConfig:
 
 
 @struct.dataclass
-class OptimizerConfig:
+class OptimizerConfig(Replaceable):
     learning_rate: float | Callable[[int], float]
     max_grad_norm: Optional[float] = None
     beta_1: float = 0.9

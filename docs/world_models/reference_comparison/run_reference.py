@@ -449,14 +449,14 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--tiny", action="store_true")
     a = ap.parse_args(argv)
-    assert (
-        a.rows % 16 == 0 and a.eval_every % 16 == 0
-    ), "rows and eval-every are multiples of 16"
+    assert a.rows % 16 == 0 and a.eval_every % 16 == 0, (
+        "rows and eval-every are multiples of 16"
+    )
 
     out = pathlib.Path(a.out).resolve()
-    assert (
-        not out.exists()
-    ), f"{out} exists: the stock checkpoint logic would resume from it"
+    assert not out.exists(), (
+        f"{out} exists: the stock checkpoint logic would resume from it"
+    )
     config, args, over = build_config(a.seed, a.rows, str(out), a.tiny)
     # Recorded relative to named roots (provenance.py); the run itself uses
     # the real logdir.

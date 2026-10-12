@@ -116,16 +116,16 @@ os.environ.setdefault("JAX_PLATFORMS", "cpu")
 sys.path.insert(0, os.getcwd())  # the reference checkout (see the docstring)
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-import dreamerv3_world_model_fixtures as wm  # noqa: E402
-import embodied  # noqa: E402
-import jax  # noqa: E402
-import jax.numpy as jnp  # noqa: E402
-import numpy as np  # noqa: E402
-import optax  # noqa: E402
-from dreamerv3 import agent as agt  # noqa: E402
-from dreamerv3 import jaxutils, nets  # noqa: E402
-from dreamerv3 import ninjax as nj  # noqa: E402
-from tensorflow_probability.substrates.jax.internal import samplers  # noqa: E402
+import dreamerv3_world_model_fixtures as wm
+import embodied
+import jax
+import jax.numpy as jnp
+import numpy as np
+import optax
+from dreamerv3 import agent as agt
+from dreamerv3 import jaxutils, nets
+from dreamerv3 import ninjax as nj
+from tensorflow_probability.substrates.jax.internal import samplers
 
 jax.config.update("jax_default_matmul_precision", "highest")
 

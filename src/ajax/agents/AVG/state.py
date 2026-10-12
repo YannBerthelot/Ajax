@@ -6,7 +6,7 @@ from flax import struct
 from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.state import SoftACState
-from ajax.deprecation import moved_names, warn_inert
+from ajax.deprecation import warn_inert
 from ajax.state import BaseAgentConfig
 
 
@@ -48,6 +48,3 @@ class AVGConfig(BaseAgentConfig):
         warn_inert(
             "AVGConfig", reason, stacklevel=4, target_entropy=self.target_entropy
         )
-
-
-__getattr__ = moved_names(__name__, NormalizationInfo=RunningMoments)

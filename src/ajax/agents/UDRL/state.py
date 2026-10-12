@@ -34,7 +34,6 @@ class UDRLConfig(BaseAgentConfig):
     batch_size: int = 64
     command_return_init: float = 1.0
     command_horizon_init: float = 100.0
-    bc_loss_type: str = "nll"  # "nll" or "mse"
     # Dynamic-target settings: every iter, set the command_target to the
     # top-K episode returns' mean + ``command_return_boost`` * std (UDRL
     # paper §4.2). Horizon target is the mean horizon of the same top-K.

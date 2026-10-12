@@ -107,7 +107,6 @@ def _reset_actor_heads(
         "reset_log_std_after_bc",
         "reset_actor_head_after_bc",
         "augment_obs_with_expert_action",
-        "bc_loss_type",
         "raw_columns",
     ],
 )
@@ -131,7 +130,6 @@ def pre_train(
     # actor outputs are random-init scale, no entropy compression).
     reset_actor_head_after_bc: bool = False,
     augment_obs_with_expert_action: bool = False,
-    bc_loss_type: str = "nll",
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
     raw_columns: int = 0,
@@ -182,35 +180,23 @@ def pre_train(
             # a pre-tanh mean: either loss regresses its action on the
             # expert's (its log_prob is minus the squared error).
             return -pi.log_prob(batch_actions).sum(-1, keepdims=True).mean()
-        if bc_loss_type == "nll":
-            # NLL with log_std lower-clipped at bc_min_log_std (prevents
-            # entropy collapse on saturated samples, where scale → 0 would
-            # otherwise dominate the loss).
-            eps = bc_action_clip_eps
-            if isinstance(pi, SquashedNormal):
-                # Clip the action into the squash domain so tanh^{-1}
-                # inside log_prob stays finite.
-                target = jnp.clip(batch_actions, -1.0 + eps, 1.0 - eps)
-                loc = pi.distribution.loc
-                scale = jnp.maximum(pi.distribution.scale, jnp.exp(bc_min_log_std))
-                pi_clipped = SquashedNormal(loc, scale)
-                return -pi_clipped.log_prob(target).sum(-1, keepdims=True).mean()
-            # Plain Normal (no squashing): no action clipping needed.
-            loc = pi.loc
-            scale = jnp.maximum(pi.scale, jnp.exp(bc_min_log_std))
-            pi_clipped = distrax.Normal(loc, scale)
-            return -pi_clipped.log_prob(batch_actions).sum(-1, keepdims=True).mean()
-        # Legacy MSE on unsquashed mean targeting atanh(clipped expert), a
-        # numerical-stability fallback. It collapses on heavily-saturated PID
-        # experts: mu drifts toward the majority sign's atanh(±0.999) ≈ ±3.8
-        # and the minority samples never recover (diag_bc_quality_v2,
-        # 2026-04-26).
-        target = jnp.arctanh(jnp.clip(batch_actions, -0.999, 0.999))
-        if hasattr(pi, "unsquashed_mean"):
-            mu = pi.unsquashed_mean()
-        else:
-            mu = pi.mean()
-        return jnp.square(mu - target).sum(-1, keepdims=True).mean()
+        # NLL with log_std lower-clipped at bc_min_log_std (prevents entropy
+        # collapse on saturated samples, where scale → 0 would otherwise
+        # dominate the loss).
+        eps = bc_action_clip_eps
+        if isinstance(pi, SquashedNormal):
+            # Clip the action into the squash domain so tanh^{-1} inside
+            # log_prob stays finite.
+            target = jnp.clip(batch_actions, -1.0 + eps, 1.0 - eps)
+            loc = pi.distribution.loc
+            scale = jnp.maximum(pi.distribution.scale, jnp.exp(bc_min_log_std))
+            pi_clipped = SquashedNormal(loc, scale)
+            return -pi_clipped.log_prob(target).sum(-1, keepdims=True).mean()
+        # Plain Normal (no squashing): no action clipping needed.
+        loc = pi.loc
+        scale = jnp.maximum(pi.scale, jnp.exp(bc_min_log_std))
+        pi_clipped = distrax.Normal(loc, scale)
+        return -pi_clipped.log_prob(batch_actions).sum(-1, keepdims=True).mean()
 
     def actor_train_step(state, batch_obs, batch_actions):
         loss, grads = jax.value_and_grad(actor_loss_fn)(

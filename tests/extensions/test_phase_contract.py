@@ -138,9 +138,11 @@ def _run(name: str) -> SimpleNamespace:
     DRAWN.clear()
     spies = {name: _spy(getattr(jax.random, name)) for name in DRAWS.split()}
     with mock.patch.multiple(jax.random, **spies):
+        jax.clear_caches()  # a helper traced before would draw unseen
         agent = cls(env_id, **kwargs, extensions=(recorder,))
         state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
         jax.effects_barrier()
+    jax.clear_caches()  # no trace keeps a spy past the run
     drawn = {tuple(k) for d in DRAWN for k in np.reshape(d, (-1, 2)).tolist()}
     return SimpleNamespace(
         phases=phases,

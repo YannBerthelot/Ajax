@@ -37,7 +37,6 @@ class GymnaxWrapper:
     def __init__(self, env: environment.Environment):
         self._env = env
 
-    # provide proxy access to regular attributes of wrapped object
     def __getattr__(self, name):
         # copy and pickle build the instance before ``_env`` is set and then
         # probe protocol dunders (``__setstate__``, ``__deepcopy__``):
@@ -73,7 +72,6 @@ class FlattenObservationWrapper(GymnaxWrapper):
     """Flatten the observations of the environment."""
 
     def observation_space(self, params) -> spaces.Box:
-        """Get the observation space from a gymnax env given its params"""
         assert isinstance(
             self._env.observation_space(params),
             spaces.Box,
@@ -91,7 +89,6 @@ class FlattenObservationWrapper(GymnaxWrapper):
         key: chex.PRNGKey,
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[chex.Array, environment.EnvState]:
-        """Reset the environment and flatten the observation"""
         obs, state = self._env.reset(key, params)
         obs = jnp.reshape(obs, (-1,))
         return obs, state
@@ -104,7 +101,6 @@ class FlattenObservationWrapper(GymnaxWrapper):
         action: float,
         params: Optional[environment.EnvParams] = None,
     ) -> StepReturn:
-        """Step the environment and flatten the observation"""
         obs, state, reward, terminated, truncated, info = self._env.step(
             key, state, action, params
         )
@@ -144,7 +140,6 @@ class ClipAction(GymnaxWrapper):
         self.high = None if high is None else jnp.array(high)
 
     def step(self, key, state, action, params=None):
-        """Step the environment while clipping the action first"""
         space = self._env.action_space(
             self.default_params if params is None else params
         )
@@ -158,13 +153,11 @@ class ClipActionBrax(BraxWrapper):
     """Clip an action to brax's action space, ``[-1, 1]`` (or ``[low, high]``)."""
 
     def __init__(self, env, low=-1.0, high=1.0):
-        """Set the high and low bounds"""
         super().__init__(env)
         self.low = low
         self.high = high
 
     def step(self, state, action):
-        """Step the environment while clipping the action first"""
         action = jnp.clip(action, self.low, self.high)
         return self.env.step(state=state, action=action)
 
@@ -527,9 +520,8 @@ class AutoResetWrapper(BraxWrapper):
     respect to something it depends on (e.g. physics parameters of the env):
     ``jax.grad`` then raises "Reverse-mode differentiation does not work for
     lax.while_loop" at trace time. ``differentiable_reset=True`` evaluates
-    the reset on every step instead and keeps the result only for done envs
-    (the behaviour before the gating), which reverse mode can cross, at the
-    cost of a reset per step.
+    the reset on every step instead and keeps the result only for done envs,
+    which reverse mode can cross, at the cost of a reset per step.
     """
 
     def __init__(self, env: BraxWrapper, differentiable_reset: bool = False):
@@ -793,7 +785,6 @@ class TerminatedTruncatedWrapper(GymnaxWrapper):
         action,
         params: environment.EnvParams = None,
     ) -> StepReturn:
-        """Step the env and return Gymnasium-style terminal flags"""
         if params is None:
             params = self._env.default_params
         obs, state, reward, done, truncated, info = self._env.step(

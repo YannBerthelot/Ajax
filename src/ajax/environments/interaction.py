@@ -160,17 +160,11 @@ def reset(
     mode: str,
     env_params: Optional[EnvParams] = None,
 ) -> tuple[jax.Array, EnvState]:
-    """
-    Reset the environment and return the initial observation and state.
+    """Reset the environment and return the initial observation and state.
 
     Args:
-        rng (jax.Array): Random number generator key.
-        env (Environment): Environment to reset.
-        mode (str): Environment mode ("gymnax" or "brax").
-        env_params (Optional[EnvParams]): Parameters for Gymnax environments.
-
-    Returns:
-        tuple[jax.Array, EnvState]: Initial observation and environment state.
+        mode: Environment mode ("gymnax" or "brax").
+        env_params: Parameters for Gymnax environments.
     """
     if mode == "gymnax":
         # Batched params (one system per env, see ajax.environments.system_class)
@@ -178,7 +172,7 @@ def reset(
         params_axis = 0 if env_params_is_batched(env_params) else None
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, params_axis))(rng, env_params)
     else:
-        env_state = env.reset(rng)  # ✅ no vmap
+        env_state = env.reset(rng)
         obsv = env_state.obs
     # Observations feed neural networks and a float32-schema replay buffer.
     # Some envs (e.g. the discrete probing envs) emit integer observations;
@@ -196,19 +190,15 @@ def step(
     mode: str,
     env_params: Optional[EnvParams] = None,
 ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, jax.Array, Any]:
-    """
-    Perform a step in the environment.
+    """Perform a step in the environment.
 
     Args:
-        rng (jax.Array): Random number generator key.
-        state (jax.Array): Current environment state.
-        action (jax.Array): Action to take.
-        env (Environment): Environment to step in.
-        mode (str): Environment mode ("gymnax" or "brax").
-        env_params (Optional[EnvParams]): Parameters for Gymnax environments.
+        mode: Environment mode ("gymnax" or "brax").
+        env_params: Parameters for Gymnax environments.
 
     Returns:
-        Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]: Observation, new state, reward, done flag, and info.
+        The observation, new state, reward, terminated and truncated flags,
+        and info.
     """
     if env_params is None and mode == "gymnax":
         env_params = env.default_params
@@ -229,7 +219,6 @@ def step(
             action: jax.Array,
             env_params: EnvParams,
         ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, jax.Array, Any]:
-            """Wrapper to step the environment."""
             return env.step(key=rng, state=state, action=action, params=env_params)
 
         params_axis = 0 if env_params_is_batched(env_params) else None
@@ -263,7 +252,7 @@ def step(
                     obs=obs_norm_info, reward=reward_norm_info
                 )
             )
-    elif mode == "brax":  # ✅ no vmap for brax
+    elif mode == "brax":
         env_state = env.step(state=state, action=action)
         obsv, reward, done, info = (
             env_state.obs,
@@ -293,22 +282,17 @@ def get_pi(
     done: Optional[jax.Array] = None,
     recurrent: bool = False,
 ) -> Tuple[distrax.Distribution, LoadedTrainState]:
-    """
-    Get the policy distribution for the given observation and actor state.
+    """Get the policy distribution for the given observation and actor state.
 
     Args:
-        actor_state (LoadedTrainState): Actor's train state.
-        actor_params (FrozenDict): Parameters of the actor.
-        obs (jax.Array): Current observation.
-        done (Optional[jax.Array]): Done flags for recurrent mode.
-        recurrent (bool): Whether the actor is recurrent.
+        done: Done flags for recurrent mode.
 
     Returns:
-        Tuple[distrax.Distribution, LoadedTrainState]: Policy distribution and updated actor state.
+        The policy distribution and the updated actor state.
     """
-    # Agent-side obs normalisation: applied here so all callers of get_pi
-    # stay unchanged. Stats are synced into actor_state.obs_norm_info
-    # after every online collection step. None disables normalisation.
+    # Agent-side obs normalisation. Stats are synced into
+    # actor_state.obs_norm_info after every online collection step. None
+    # disables normalisation.
     obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
     obs = maybe_add_axis(obs, recurrent)
     if recurrent:
@@ -356,16 +340,7 @@ def get_pi_sequence(
 
 
 def maybe_add_axis(arr: jax.Array, recurrent: bool) -> jax.Array:
-    """
-    Add an axis to the array if in recurrent mode.
-
-    Args:
-        arr (jax.Array): Input array.
-        recurrent (bool): Whether to add an axis.
-
-    Returns:
-        jax.Array: Array with an additional axis if recurrent.
-    """
+    """Add an axis to the array if in recurrent mode."""
     return arr[jnp.newaxis, :] if recurrent else arr
 
 
@@ -380,15 +355,10 @@ def get_action_and_new_agent_state(
     """Get the action and updated agent state based on the current observation.
 
     Args:
-        rng (jax.Array): Random number generator key.
-        agent_state (BaseAgentState): Current agent state.
-        obs (jnp.ndarray): Current observation.
-        done (Optional[jax.Array]): Done flags for recurrent mode.
-        recurrent (bool): Whether the agent is recurrent.
+        done: Done flags for recurrent mode.
 
     Returns:
-        Tuple[jax.Array, BaseAgentState]: Action and updated agent state.
-
+        ``(action, log_probs, raw_action, agent_state)``.
     """
     if recurrent:
         chex.assert_tree_no_nones(done)
@@ -704,7 +674,6 @@ def collect_experience(
     raw_action = action if result.raw_action is None else result.raw_action
     buffer_action = env_action if result.buffer_action is None else result.buffer_action
 
-    # --- Step environment ---
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(
             rng_step,
@@ -738,11 +707,9 @@ def collect_experience(
         terminated.astype(bool), entry_bonus[..., 0] > 0
     ).astype(terminated.dtype)
 
-    # Compute a_expert and next_a_expert once; reused both for the
-    # buffer write and the on-policy Transition object below. Only
-    # included in the buffer write when next_expert_fn is provided
-    # (SAC with expert_policy). Other agents leave them out so their
-    # buffer schema stays unchanged.
+    # Computed once for the buffer write and the on-policy Transition
+    # below; zeros without an expert. The buffer keeps them only when its
+    # schema has the fields (init_buffer's include_expert_fields).
     _a_expert_for_buf = (
         result.a_expert
         if result.a_expert is not None
@@ -786,7 +753,6 @@ def collect_experience(
     else:
         new_last_obs = obsv
 
-    # --- Buffer write ---
     buffer_state = agent_state.collector_state.buffer_state
     if buffer_state is not None and buffer is not None:
         # The final observation as wide as the next row's.
@@ -842,11 +808,8 @@ def collect_experience(
         done=jnp.logical_or(terminated, truncated),
     )
 
-    # Per-env step_in_episode counter for JSRL curriculum: increment
-    # by 1 each step, reset to 0 on episode end (terminated|truncated).
-    # Stored as int32 in collector_state.step_in_episode (None when
-    # not initialised — callers that need it must initialise to zeros
-    # of shape (n_envs,) at agent setup).
+    # Per-env step counter for the JSRL curriculum, None unless the agent
+    # initialised it (int32 zeros of shape (n_envs,)).
     _prev_step_in_ep = agent_state.collector_state.step_in_episode
     if _prev_step_in_ep is not None:
         _ep_done = terminated.astype(jnp.bool_) | truncated.astype(jnp.bool_)
@@ -911,16 +874,11 @@ def collect_experience_from_expert_policy(
     ``augment_obs_with_expert_state``, the expert's state before its call
     at s and after it at s' (the state an episode end resets comes after).
 
-    Returns:
-        transitions: A `Transition` object containing all collected transitions.
     """
     expert_policy = ExpertInAgentUnits.wrap(
         expert_policy, env_args.env, env_args.env_params
     )
-    # Split RNGs for environment reset and stepping
     reset_key, step_key, rng = jax.random.split(rng, 3)
-
-    # Reset environment
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
 
@@ -938,9 +896,7 @@ def collect_experience_from_expert_policy(
         rng = jax.random.split(rng)[0]
         rng_step = env_keys(rng, mode, env_args.n_envs)
 
-        # Compute action using expert policy. Stateful experts get the
-        # running PID/etc state and return an updated state; stateless
-        # experts ignore it. obs is the raw env obs (NOT normalized).
+        # The expert reads the raw env obs (NOT normalized).
         raw_obs = get_raw_obs(
             env_state=env_state,
             env=env_args.env,
@@ -952,7 +908,6 @@ def collect_experience_from_expert_policy(
             action = jax.vmap(expert_policy, in_axes=0)(raw_obs)
             new_expert_state = expert_state
 
-        # Step environment and stop gradient to avoid backprop through env
         obsv, new_env_state, reward, terminated, truncated, info = (
             jax.lax.stop_gradient(
                 step(
@@ -1016,7 +971,6 @@ def collect_experience_from_expert_policy(
         carry = (new_env_state, rng, obsv, new_expert_state)
         return carry, transition
 
-    # Run for n_timesteps and collect transitions
     _, transitions = jax.lax.scan(
         step_fn,
         (env_state, step_key, last_obs, init_expert_state),
@@ -1096,10 +1050,9 @@ def init_collector_state(
         truncated=jnp.ones((env_args.n_envs, 1)),
         log_prob=jnp.ones((env_args.n_envs, *action_shape)),
         raw_obs=jnp.ones((env_args.n_envs, *obs_shape)),
-        # Buffer schema must include a_expert and next_a_expert so
-        # collected transitions can store the expert action computed
-        # with the correct stateful expert state at both s_t and
-        # s_{t+1}. The residual-RL TD target reads next_a_expert.
+        # The expert action computed with the correct stateful expert
+        # state at both s_t and s_{t+1}. The residual-RL TD target reads
+        # next_a_expert.
         a_expert=jnp.zeros((env_args.n_envs, *action_shape)),
         next_a_expert=jnp.zeros((env_args.n_envs, *action_shape)),
     )

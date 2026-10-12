@@ -43,26 +43,19 @@ def get_action_dim(env: EnvType, env_params: Optional[EnvParams] = None) -> int:
 def get_state_action_shapes(
     env: EnvType,
 ) -> Tuple[tuple, tuple]:
-    """Returns the (obs_shape, action_shape) of a gymnax, brax, or gymnasium environment.
-
-    - Discrete action spaces return shape (1,)
-    - Shapes are returned as `tuple`s (not multiplied)
-    - Works for wrapped environments
-    """
-    # Gymnax
+    """Returns the (obs_shape, action_shape) of a gymnax or brax environment,
+    wrapped or not. Discrete action spaces return shape (1,)."""
     if check_env_is_gymnax(env):
         env_params = env.default_params
         obs_space = env.observation_space(env_params)
         act_space = env.action_space(env_params)
         obs_shape = obs_space.shape
-        # Discrete check via duck typing
         if hasattr(act_space, "n") and isinstance(act_space.n, int):
             action_shape = (1,)
         else:
             action_shape = act_space.shape
         return obs_shape, action_shape
 
-    # Brax
     if check_env_is_brax(env):
         return (traced_observation_size(env),), (env.action_size,)
 

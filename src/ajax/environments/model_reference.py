@@ -187,7 +187,6 @@ class ModelReferenceWrapper(GymnaxWrapper):
         self.include_raw_obs = include_raw_obs
         self.action_dim = action_dim
 
-    # ---------------------------------------------------------------- output
     def output(self, obs: jax.Array) -> jax.Array:
         """Measured output ``y`` of the plant, shape ``(n_y,)``."""
         if self._output_fn is not None:
@@ -209,7 +208,6 @@ class ModelReferenceWrapper(GymnaxWrapper):
             dim += raw_dim
         return spaces.Box(-jnp.inf, jnp.inf, (dim,), jnp.float32)
 
-    # ------------------------------------------------------------ transitions
     def reset(self, key, params=None):
         k_env, k_ref = jax.random.split(key)
         raw_obs, env_state = self._env.reset(k_env, params)

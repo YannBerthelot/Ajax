@@ -1,7 +1,7 @@
 """Wrappers for environment"""
 
 import dataclasses
-from functools import cached_property, partial
+from functools import cache, cached_property, partial
 from typing import Any, Callable, Optional, Tuple
 
 import chex
@@ -445,24 +445,19 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
         return self._with_stats(state, norm_info, extra, obs=obs, reward=reward)
 
 
-#: The normalised state class of each inner gymnax state class.
-_NORMALIZED_STATES: dict[type, type] = {}
-
-
+@cache
 def normalized_state_class(raw_state: type) -> type:
     """A normalised gymnax env's state class: its inner state class
-    ``raw_state`` with a ``normalization_info`` field. One per inner class,
-    so a state one normaliser built is another's of the same env, as a
-    resumed run's initial state on a new agent instance requires (a scan
-    carry refuses a same-named class built apart)."""
-    if raw_state not in _NORMALIZED_STATES:
+    ``raw_state`` with a ``normalization_info`` field. Built once per inner
+    class (cached), so a state one normaliser built is another's of the
+    same env, as a resumed run's initial state on a new agent instance
+    requires (a scan carry refuses a same-named class built apart)."""
 
-        @struct.dataclass
-        class NormalizedEnvState(raw_state):  # type: ignore[valid-type, misc]
-            normalization_info: Optional[NormalizationInfo] = None
+    @struct.dataclass
+    class NormalizedEnvState(raw_state):  # type: ignore[valid-type, misc]
+        normalization_info: Optional[NormalizationInfo] = None
 
-        _NORMALIZED_STATES[raw_state] = NormalizedEnvState
-    return _NORMALIZED_STATES[raw_state]
+    return NormalizedEnvState
 
 
 class NormalizeVecObservationGymnax(_OnlineNormalization, GymnaxWrapper):
@@ -479,7 +474,8 @@ class NormalizeVecObservationGymnax(_OnlineNormalization, GymnaxWrapper):
             jax.random.PRNGKey(0),
         )
         self._raw_state = type(state)
-        self.state_class = normalized_state_class(self._raw_state)
+        # A class is hashable: mypy reads type[Any] as not Hashable.
+        self.state_class = normalized_state_class(self._raw_state)  # type: ignore[arg-type]
         return obs
 
     def _with_stats(self, env_state: Any, norm_info) -> Any:

@@ -7,7 +7,6 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -29,6 +28,7 @@ from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.networks import predict_value
@@ -719,7 +719,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning_args: Optional[CloningConfig] = None,
+    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
     fixed_alpha: bool = False,
@@ -762,6 +762,9 @@ def make_train(
                         Defaults to ``expert_policy`` if unset.
     extensions:         composable research features (see
                         :mod:`ajax.extensions`), bound to SAC's context.
+    cloning:            the deprecated cloning keywords' CloningPretrain
+                        (CloningPretrain.from_deprecated_kwargs), run at
+                        init on the pretrain key.
 
     The flags above thread into init, collection or the action pipeline at
     a level the extension framework does not reach yet; they mirror the
@@ -770,25 +773,30 @@ def make_train(
     recurrent = network_args.memory is not None
     # Bind the SAC-factory-only context onto every extension (see
     # :meth:`Extension.bind_to_agent`: each picks the kwargs it needs).
-    stack = ExtensionStack(extensions).bind_to_agent(
-        env_args=env_args,
-        network_args=network_args,
-        critic_optimizer_args=critic_optimizer_args,
-        num_critics=num_critics,
-        buffer=buffer,
-        gamma=agent_config.gamma,
-        reward_scale=agent_config.reward_scale,
-        use_train_frac=use_train_frac,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        expert_state_aug_dim=(
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "network_args": network_args,
+        "critic_optimizer_args": critic_optimizer_args,
+        "num_critics": num_critics,
+        "buffer": buffer,
+        "gamma": agent_config.gamma,
+        "reward_scale": agent_config.reward_scale,
+        "use_train_frac": use_train_frac,
+        "augment_obs_with_expert_action": augment_obs_with_expert_action,
+        "expert_state_aug_dim": (
             expert_state_aug_dim if augment_obs_with_expert_state else 0
         ),
-        extensions=tuple(extensions),
-        expert_policy=expert_policy,
-        recurrent=recurrent,
-        update_value_fn=update_value_functions,
-        update_target_fn=update_target_networks,
-    )
+        "extensions": tuple(extensions),
+        "expert_policy": expert_policy,
+        "recurrent": recurrent,
+        "update_value_fn": update_value_functions,
+        "update_target_fn": update_target_networks,
+        "augment_obs_with_expert_state": augment_obs_with_expert_state,
+    }
+    stack = ExtensionStack(extensions).bind_to_agent(**agent_context)
+    if cloning is not None:
+        cloning = cloning.bind_to_agent(**agent_context)
     if recurrent:
         # Expert-guidance features (and their Extension replacements) are
         # orthogonal to memory and untested with sequence replay; fail
@@ -797,13 +805,7 @@ def make_train(
             "SAC",
             expert_policy=expert_policy,
             extensions=(stack.extensions or None),
-            # SAC always builds a default CloningConfig; only actual
-            # pre-training (pre_train_n_steps > 0) conflicts with memory.
-            cloning_pretrain=(
-                cloning_args
-                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
-                else None
-            ),
+            cloning_pretrain=cloning,
         )
     loop = TrainLoop.create(
         env_args,
@@ -841,17 +843,9 @@ def make_train(
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
             store_expert_data=holds_expert(expert_policy, stack),
         )
-        return pretrain_on_expert(
-            agent_state,
-            pretrain_key,
-            cloning_args,
-            expert_policy,
-            env_args,
-            actor_optimizer_args,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            augment_obs_with_expert_state=augment_obs_with_expert_state,
-            with_train_frac=use_train_frac,
-        )
+        if cloning is None:
+            return agent_state
+        return cloning.clone(agent_state, pretrain_key)
 
     # An extension with ``build_policy_transform`` (ResidualPolicy) makes
     # the executed action residual: in collection (the action pipeline),

@@ -17,7 +17,6 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, critic_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -29,6 +28,7 @@ from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
@@ -354,25 +354,29 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning_args: Optional[CloningConfig] = None,
+    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """REDQ's train function: one step per env, then (from
-    ``learning_starts``) one update, per iteration."""
+    ``learning_starts``) one update, per iteration. ``cloning``: the
+    deprecated cloning keywords' CloningPretrain, run at init on the
+    pretrain key."""
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
+    }
+    extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
+    if cloning is not None:
+        cloning = cloning.bind_to_agent(**agent_context)
     recurrent = network_args.memory is not None
     if recurrent:
         unsupported_recurrent_options(
             "REDQ",
             expert_policy=expert_policy,
             extensions=(tuple(extensions) or None),
-            # REDQ always builds a default CloningConfig; only actual
-            # pre-training (pre_train_n_steps > 0) conflicts with memory.
-            cloning_pretrain=(
-                cloning_args
-                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
-                else None
-            ),
+            cloning_pretrain=cloning,
         )
     loop = TrainLoop.create(
         env_args,
@@ -397,14 +401,9 @@ def make_train(
             stored_state=agent_config.stored_state,
             store_expert_data=holds_expert(expert_policy, loop.stack),
         )
-        return pretrain_on_expert(
-            agent_state,
-            pretrain_key,
-            cloning_args,
-            expert_policy,
-            env_args,
-            actor_optimizer_args,
-        )
+        if cloning is None:
+            return agent_state
+        return cloning.clone(agent_state, pretrain_key)
 
     def update(agent_state: REDQState, _transition: Transition) -> Any:
         # The step just collected is in the buffer: REDQ samples it from there.

@@ -7,9 +7,10 @@ from gymnax import EnvParams
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import CloningConfig, warn_actor_cloning_lr
+from ajax.agents.cloning import warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -56,10 +57,11 @@ class APO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        actor_cloning_epochs: int = 10,
+        # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
+        actor_cloning_epochs: Optional[int] = None,
         actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        actor_cloning_batch_size: int = 64,
-        pre_train_n_steps: int = 0,
+        actor_cloning_batch_size: Optional[int] = None,
+        pre_train_n_steps: Optional[int] = None,
         # Expert for the cloning pre-training and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
@@ -148,10 +150,12 @@ class APO(ActorCritic):
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
         warn_actor_cloning_lr(actor_cloning_lr)
-        self.cloning_config = CloningConfig(
-            actor_epochs=actor_cloning_epochs,
-            actor_batch_size=actor_cloning_batch_size,
+        self.cloning = CloningPretrain.from_deprecated_kwargs(
+            self.expert_policy,
+            self.extension_stack.extensions,
             pre_train_n_steps=pre_train_n_steps,
+            actor_cloning_epochs=actor_cloning_epochs,
+            actor_cloning_batch_size=actor_cloning_batch_size,
         )
 
     def get_make_train(self) -> Callable:
@@ -163,7 +167,7 @@ class APO(ActorCritic):
         """
         return partial(
             make_train,
-            cloning_args=self.cloning_config,
+            cloning=self.cloning,
             expert_policy=self.expert_policy,
             extensions=tuple(self.extension_stack.extensions),
         )

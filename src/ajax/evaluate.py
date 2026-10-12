@@ -293,6 +293,7 @@ def step_environment(
     augment_obs_with_expert_state: bool = False,
     value_estimate: Optional[ValueEstimate] = None,
     command: Optional[Any] = None,
+    norm_info: Optional[Any] = None,
 ):
     """Return a pure function stepping the evaluation (an :class:`_EvalCarry`).
 
@@ -313,8 +314,9 @@ def step_environment(
     the actor's (the gains') under ``pid_gain_policy``.
 
     command: a command-conditioned actor's (see :func:`evaluate`): the
-    actor reads ``command.actor_input(obs, c)``, and each step's reward and
-    end update ``c``.
+    actor reads ``command.actor_input(obs, c)``, and each step's reward, in
+    the agent's units (``norm_info``, :func:`normalised_reward`), and end
+    update ``c``.
     """
 
     expert_is_stateful = expert_policy is not None and hasattr(
@@ -426,7 +428,9 @@ def step_environment(
         still_running = 1 - done
         new_command = carry.command
         if command is not None:
-            new_command = command.update(carry.command, new_rewards, new_done)
+            new_command = command.update(
+                carry.command, normalised_reward(new_rewards, norm_info), new_done
+            )
 
         # Reset the expert's internal state per-env when the episode just ended
         # (autoreset produces the fresh first obs of the next episode).
@@ -612,7 +616,9 @@ def evaluate(
     ``command`` evaluates a command-conditioned actor (UDRL's desired
     return and horizon): ``command.initial(agent_state, num_episodes)`` is
     each episode's first command, the actor reads ``command.actor_input(obs,
-    c)``, and ``command.update(c, reward, done)`` follows each step.
+    c)``, and ``command.update(c, reward, done)`` follows each step, the
+    reward in the agent's units, normalised as in training: the units of
+    its targets.
 
     Returns the mean return, entropy, average reward (``avg_reward_mode``),
     value bias (``value_estimate``), episode length and expert's return,
@@ -669,6 +675,7 @@ def evaluate(
         augment_obs_with_expert_state=augment_obs_with_expert_state,
         value_estimate=None if recurrent else value_estimate,
         command=command,
+        norm_info=norm_info,
     )
 
     # Main loop. We use `scan` with a fixed length rather than `while_loop`

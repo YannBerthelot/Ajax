@@ -436,7 +436,10 @@ class EvalCommand:
     ``command``): each episode starts from the current target return and
     horizon, without the exploration noise collection adds, then decays as
     in collection (:func:`update_command`; past an episode's end the
-    evaluation counts nothing), the actor reading it scaled."""
+    evaluation counts nothing), the actor reading it scaled. Under reward
+    normalisation the targets are in normalised units, as the rewards
+    collection decays the command by: evaluate() hands ``update`` the
+    rewards normalised with the training env's frozen statistics."""
 
     scale_r: float
     scale_h: float

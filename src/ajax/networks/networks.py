@@ -135,10 +135,10 @@ class CNNEncoder(nn.Module):
 
 
 class Actor(nn.Module):
-    """The stochastic actor of the actor-critic agents (SAC, REDQ, ASAC, AVG,
-    PPO, APO, UDRL): a Normal (or tanh-squashed) head for continuous actions,
-    a Categorical one for discrete. Expert guidance acts at the loss level,
-    not in the architecture, which keeps the policy unconstrained.
+    """The stochastic policy of SAC, REDQ, ASAC, AVG, PPO, APO and UDRL: a
+    Normal (or tanh-squashed) head for continuous actions, a Categorical one
+    for discrete. Expert guidance acts at the loss level, not in the
+    architecture, which keeps the policy unconstrained.
     """
 
     input_architecture: Sequence[Union[str, ActivationFunction]]
@@ -435,10 +435,9 @@ def get_initialized_actor_critic(
     as ``network_config`` sets them; a prebuilt ``actor`` (TD3's
     deterministic one) replaces the :class:`Actor` built here.
 
-    extra_obs_dim: extra dimensions appended to obs at runtime before the
-    network forward pass (the action_dim under
-    augment_obs_with_expert_action), so the network is initialised with the
-    input size interaction.augment_obs produces.
+    extra_obs_dim: dimensions the agent appends to obs at run time (UDRL's
+    command; SAC's expert action and expert state when it augments with
+    them), so the network is initialised on the input width it will be fed.
 
     A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
     actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).

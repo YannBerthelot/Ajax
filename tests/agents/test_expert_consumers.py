@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import ajax
 import ajax.extensions.pretrain
 from ajax.environments.utils import env_action_to_agent
 from ajax.extensions.pretrain import CloningPretrain
@@ -28,11 +29,13 @@ from tests.agents.test_agent_contract import CASES
 from tests.environments.identity_env import LIMIT, TERMINAL, IdentityEnv
 
 N_ENVS, N_EVAL = 2, 3  # the calls' batch sizes tell training's from evaluation's
-EXPERT_AGENTS = [
+#: Every agent Ajax ships (test_exports: ajax.__all__ names them all) that
+#: takes an expert; one without a row in CASES fails.
+EXPERT_AGENTS = sorted(
     n
-    for n in sorted(CASES)
-    if "expert_policy" in inspect.signature(CASES[n].cls).parameters
-]
+    for n in ajax.__all__
+    if "expert_policy" in inspect.signature(getattr(ajax, n)).parameters
+)
 
 
 def expert_action(t):
@@ -57,6 +60,7 @@ class StrictExpert:
 
 @pytest.mark.parametrize("name", EXPERT_AGENTS)
 def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypatch):
+    assert name in CASES, f"{name} takes an expert: give it a row in CASES"
     case, expert, env = CASES[name], StrictExpert(), IdentityEnv()
     takes = inspect.signature(case.cls).parameters
     clones = "pre_train_n_steps" in takes  # the agents binding CloningPretrain

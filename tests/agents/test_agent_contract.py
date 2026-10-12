@@ -12,6 +12,7 @@ agent acts in both. The maths of each agent is tested in its own directory.
 """
 
 import importlib
+import pkgutil
 import sys
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,7 @@ import numpy as np
 import pytest
 from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
+import ajax.agents
 from ajax.agents import base
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
@@ -448,5 +450,16 @@ def test_an_agent_forwards_its_episode_length_and_action_repeat(
     with pytest.raises(_Built):
         getattr(module, name)("fast", episode_length=123, action_repeat=3)
     assert (seen["episode_length"], seen["action_repeat"]) == (123, 3)
-    found = {c.__name__ for c in base.ActorCritic.__subclasses__()}
-    assert found <= set(ACTOR_CRITICS.split()), "add the new agent to ACTOR_CRITICS"
+
+
+def test_every_src_agent_is_in_actor_critics() -> None:
+    """Test files subclass ActorCritic too, so only ``ajax.`` classes count."""
+    for module in pkgutil.iter_modules(ajax.agents.__path__):
+        if module.ispkg:
+            importlib.import_module(f"ajax.agents.{module.name}.{module.name}")
+    found = {
+        c.__name__
+        for c in base.ActorCritic.__subclasses__()
+        if c.__module__.startswith("ajax.")
+    }
+    assert found == set(ACTOR_CRITICS.split()), "add the new agent to ACTOR_CRITICS"

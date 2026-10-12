@@ -14,6 +14,8 @@ posterior written back.
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
 from types import SimpleNamespace
 from typing import Any
 
@@ -521,6 +523,22 @@ def test_constructor_defaults_are_the_reference_pinned_configs():
     agent = DreamerV3("CartPole-v1")
     assert agent.dreamer_config == DreamerV3Config()
     assert agent.agent_config == DreamerV3AgentConfig()
+
+
+def test_the_config_is_built_from_the_constructor_arguments():
+    """``from_arguments`` takes ``model_size`` and the fields the arguments
+    name, ignoring the others; the constructor names every field, with the
+    field's default (the widths: None, the preset's), so none silently
+    keeps its default."""
+    from ajax.agents.DreamerV3.state import DreamerV3Config
+
+    got = DreamerV3Config.from_arguments({"model_size": "1m", "lam": 0.9, "n_envs": 4})
+    assert got == DreamerV3Config.from_model_size("1m", lam=0.9)
+    parameters = inspect.signature(DreamerV3).parameters
+    for field in dataclasses.fields(DreamerV3Config):
+        default = parameters[field.name].default
+        widths = ("units", "hidden", "deter", "classes")
+        assert default is None if field.name in widths else default == field.default
 
 
 def test_image_observations_are_refused_at_construction():

@@ -161,7 +161,6 @@ class EpisodeBuffer:
             action_dim=action_dim,
         )
 
-    # -- static layout ---------------------------------------------------
     @property
     def period(self) -> int:
         """Rows (ticks) per episode, ``T + 1``."""
@@ -299,7 +298,6 @@ class EpisodeBuffer:
             reward=move(state.reward, 1),
         )
 
-    # -- operations ------------------------------------------------------
     def init(self) -> EpisodeBufferState:
         """Zero-filled storage."""
         rows = (self.n_slots, self.period)

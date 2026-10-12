@@ -79,10 +79,6 @@ from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import FloatOrCallable
 
-# ---------------------------------------------------------------------------
-# Schedule
-# ---------------------------------------------------------------------------
-
 
 @dataclasses.dataclass(frozen=True)
 class Schedule:
@@ -244,11 +240,6 @@ class EpisodicSchedule:
         )
 
 
-# ---------------------------------------------------------------------------
-# Acting
-# ---------------------------------------------------------------------------
-
-
 def planner_policy(
     carry: jax.Array,
     obs: jax.Array,
@@ -294,11 +285,6 @@ def _policy(
         gamma=gamma,
         eval_mode=eval_mode,
     )
-
-
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
 
 
 def update_metrics_zeros(
@@ -378,11 +364,6 @@ def init_TDMPC2(
     )
 
 
-# ---------------------------------------------------------------------------
-# Evaluation + logging
-# ---------------------------------------------------------------------------
-
-
 def evaluate_tdmpc2(
     agent_state: TDMPC2State,
     key: jax.Array,
@@ -430,11 +411,6 @@ def train_metrics(
     }
     metrics.update({f"Train/{k}": v for k, v in agent_state.update_metrics.items()})
     return metrics
-
-
-# ---------------------------------------------------------------------------
-# One tick
-# ---------------------------------------------------------------------------
 
 
 def collect(
@@ -519,11 +495,6 @@ def update(
         n_updates=agent_state.n_updates + 1, update_metrics=metrics
     )
     return agent_state, None
-
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(

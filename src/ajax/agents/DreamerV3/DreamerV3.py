@@ -226,8 +226,6 @@ class DreamerV3(ActorCritic):
         #: Ring length ``C`` (rows per env) of the latest train() call.
         self.replay_rows_per_env: Optional[int] = None
 
-    # ------------------------------------------------------------------ replay
-
     def _ring_rows(self, n_timesteps: int) -> int:
         """``C`` for a run of ``n_timesteps`` rows in all.
 
@@ -315,8 +313,6 @@ class DreamerV3(ActorCritic):
             spec.obs_dim, spec.action_dim, spec.discrete, c.deter, c.stoch, c.classes
         )
         return row * self.replay_rows_per_env * self.env_args.n_envs
-
-    # ------------------------------------------------------------------ train
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
         """The absolute tick of a resumed run, equal across seeds

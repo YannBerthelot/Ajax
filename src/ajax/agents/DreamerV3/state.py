@@ -148,7 +148,6 @@ class DreamerV3Config:
     dyn_scale: float = 1.0
     rep_scale: float = 0.1
     return_horizon: float = 333.0
-    # Actor-critic.
     actor_layers: int = 3
     critic_layers: int = 3
     actor_unimix: float = 0.01
@@ -165,7 +164,6 @@ class DreamerV3Config:
     actor_scale: float = 1.0
     critic_scale: float = 1.0
     repval_scale: float = 0.3
-    # Optimizer.
     learning_rate: LearningRate = 4e-5
     agc: float = 0.3
     agc_pmin: float = 1e-3

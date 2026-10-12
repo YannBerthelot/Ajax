@@ -90,6 +90,7 @@ OPTIONS |= {
     "n_gradient_steps": {"n_gradient_steps": 2},
     "n_epochs": {"n_epochs": 2},
     "cnn_image_shape": {"cnn_image_shape": None},
+    "mlp": {"cnn_image_shape": None},  # the CNN's alternative
     "lr_schedule": {"lr_schedule": "warmup_cosine", "warmup_steps": 2},
     "pid": {"pid": PIDHeadConfig()},
     "actor_bias_init": {"actor_bias_init": "0.1"},
@@ -160,6 +161,7 @@ REQUIRES |= {
 EXPERTS = {"expert_policy", "eval_expert_policy"}
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
+ONE_OF += [{"cnn_image_shape", "mlp"}]  # else the CNN takes every row
 EXCLUSIVE = [
     # Recurrent agents refuse experts and extensions (recurrent.py), PPO
     # its feedforward fragments.
@@ -242,7 +244,7 @@ def _build(name: str, row: frozenset[str]) -> Any:
     env = kw.pop("env_id", None)
     if "squash" in kw:
         kw["squash"] = not params["squash"].default
-    if "cnn_image_shape" in kw:
+    if "cnn_image_shape" in row:
         kw["cnn_image_shape"] = CNN[env]
     if "action_pipeline" in kw:
         kw["action_pipeline"] = make_default_action_pipeline("memory" in kw, 0.1)

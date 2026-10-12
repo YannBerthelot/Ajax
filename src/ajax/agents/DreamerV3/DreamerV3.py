@@ -101,7 +101,7 @@ class DreamerV3(ActorCritic):
 
     Every other argument is the
     :class:`~ajax.agents.DreamerV3.state.DreamerV3Config` field of the same
-    name and default, documented there with its reference configuration key.
+    name and default, documented there.
 
     Static hyperparameters (fixing shapes or the program, so changing them
     recompiles): every width, depth and count, ``bins``, ``imag_horizon``,

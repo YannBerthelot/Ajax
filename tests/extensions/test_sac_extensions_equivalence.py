@@ -52,6 +52,10 @@ twice the torque, and the expert (``tanh(sum(obs))``, read as env units)
 is read at half its value in agent units, so every stack moved: by at
 most 1.9e-3 (PhiRefresh's actor), 1.1e-3 (the expert policy's actor) and
 1.0e-3 (EDGE thompson's critic), the others 1.3e-4..9.2e-4.
+
+OnlineBC's golden was re-captured with MCPretrain in its stack, which every
+reader of phi* now needs (it added nothing without it): critic 5.5e-3,
+actor 4.8e-4, target 1.7e-4, alpha 3e-6.
 """
 
 from __future__ import annotations
@@ -143,11 +147,10 @@ CASES: dict[str, dict[str, Any]] = {
     "test_empty_stack_matches_legacy_plain_sac": {"extensions": ()},
     # SAC's expert policy alone equals pre-Phase-5 ``expert_policy=``.
     "test_expert_policy_matches_legacy_expert_policy": _expert(),
-    # OnlineBC is only active once MC pretraining populated
-    # ``expert_critic_params``; without it the BC term is skipped, so this
-    # pins the wiring (the BC math: tests/modules/test_expert.py).
+    # OnlineBC reads the expert critic MC pretraining fits (the BC math:
+    # tests/extensions/test_expert_math.py).
     "test_online_bc_matches_legacy_flag": _expert(
-        OnlineBC(bc_coef=0.5, critic_warmup_frac=0.5)
+        _MC, OnlineBC(bc_coef=0.5, critic_warmup_frac=0.5)
     ),
     "test_residual_policy_matches_legacy_use_residual_rl": _expert(
         ResidualPolicy(scale=0.5)

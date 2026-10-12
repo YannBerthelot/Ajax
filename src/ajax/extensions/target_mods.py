@@ -266,8 +266,8 @@ class CriticBlend(Extension):
     the one-step target on the frozen expert critic ``V_E(s') = φ*(s',
     a_E(s'))``, so the blend stays a Bellman target (``use_critic_blend``
     blended ``V_E(s')`` alone: no reward, discount or terminal mask). ``α``
-    decays linearly to 0 over ``critic_warmup_frac`` of training. Requires a
-    frozen expert critic (MC pre-training).
+    decays linearly to 0 over ``critic_warmup_frac`` of training. Requires the
+    frozen expert critic :class:`MCPretrain` fits (refused without it).
     """
 
     expert_policy: Callable
@@ -280,6 +280,9 @@ class CriticBlend(Extension):
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "CriticBlend":
         """Read the expert's stored actions when it is the agent's."""
@@ -295,12 +298,6 @@ class CriticBlend(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state
-        # No-op when the frozen expert critic has not been populated (no
-        # MC pre-training in the stack). Matches the pre-refactor guard
-        # `if has_blend and agent_state.expert_critic_params is not None`.
-        if agent_state.expert_critic_params is None:
-            return target
-
         next_observations = batch["next_observations"]
         a_expert_next = expert_next_actions(
             self, batch["raw_next_observations"], batch["next_a_expert"]
@@ -332,11 +329,15 @@ class MCVarianceCorrection(Extension):
 
     Equivalent to ``mc_variance_threshold``: where the inter-critic
     variance exceeds ``threshold`` the Bellman target is swapped for the
-    MC-pretrained expert critic's estimate. Requires MC pre-training.
+    MC-pretrained expert critic's estimate. Requires :class:`MCPretrain`
+    (refused without it).
     """
 
     threshold: float
     name: str = "mc_variance_correction"
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def on_target(
         self,
@@ -347,10 +348,6 @@ class MCVarianceCorrection(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state, ctx
-        # Same guard as the legacy `has_mc and expert_critic_params is not
-        # None` branch — silent no-op without MC pre-training.
-        if agent_state.expert_critic_params is None:
-            return target
         observations = batch["observations"]
         actions = batch["actions"]
         q_preds = batch["q_preds"]
@@ -373,7 +370,8 @@ class ValueBox(Extension):
     During collection, override the policy action with the expert's
     whenever the frozen-expert value ``V_expert(s)`` exceeds a curriculum
     threshold that ramps from ``v_min`` to ``v_max`` over training.
-    Requires MC pre-training (which supplies ``v_min`` / ``v_max``).
+    Requires :class:`MCPretrain` (which supplies phi*, ``v_min`` and
+    ``v_max``; refused without it).
 
     The :meth:`action` phase owns the override math. It reads the
     pre-computed per-step quantities off the SAC action pipeline's batch
@@ -391,6 +389,9 @@ class ValueBox(Extension):
 
     name: str = "value_box"
     action_slot: ClassVar[str] = "post_warmup"
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def action(
         self,

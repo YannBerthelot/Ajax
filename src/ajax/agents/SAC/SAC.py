@@ -5,7 +5,6 @@ from typing import Callable, Optional, Union
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
@@ -94,7 +93,6 @@ class SAC(ActorCritic):
         reward_normalization_gamma: Optional[float] = None,
         # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
         actor_cloning_epochs: Optional[int] = None,
-        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
         actor_cloning_batch_size: Optional[int] = None,
         pre_train_n_steps: Optional[int] = None,
         # Expert objects: still used by collection / cloning / a fair
@@ -234,7 +232,6 @@ class SAC(ActorCritic):
                 "SAC no longer pretrains its critic on the cloning dataset; "
                 "use the MCPretrain extension."
             )
-        warn_actor_cloning_lr(actor_cloning_lr)
         self.cloning = CloningPretrain.from_deprecated_kwargs(
             self.expert_policy,
             self.extension_stack.extensions,

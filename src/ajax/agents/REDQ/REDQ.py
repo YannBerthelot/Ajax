@@ -5,7 +5,6 @@ from typing import Callable, Literal, Optional, Union
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
@@ -101,7 +100,6 @@ class REDQ(ActorCritic):
         reward_normalization_gamma: Optional[float] = None,
         # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
         actor_cloning_epochs: Optional[int] = None,
-        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
         actor_cloning_batch_size: Optional[int] = None,
         pre_train_n_steps: Optional[int] = None,
         # Expert for the cloning pre-training and the eval expert-bias
@@ -194,7 +192,6 @@ class REDQ(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
 
-        warn_actor_cloning_lr(actor_cloning_lr)
         self.cloning = CloningPretrain.from_deprecated_kwargs(
             self.expert_policy,
             self.extension_stack.extensions,

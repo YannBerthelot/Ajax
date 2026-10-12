@@ -24,6 +24,7 @@ from ajax.wrappers import NormalizationInfo
 
 if TYPE_CHECKING:
     from ajax.modules.pid_actor import PIDPolicy
+    from ajax.networks.networks import CNNSpec
 
 
 @struct.dataclass
@@ -273,10 +274,8 @@ class NetworkConfig:
     # after. None keeps the legacy MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
-    # Conv architecture for the CNN encoder (a `networks.CNNSpec`, kept as
-    # a loose `tuple` annotation to avoid a networks<->state import cycle).
-    # None -> CNNEncoder's default architecture.
-    cnn_spec: Optional[tuple] = None
+    # Conv architecture for the CNN encoder; None -> CNNEncoder's default.
+    cnn_spec: Optional["CNNSpec"] = None
     # Actor head knobs (Actor in networks.py). Default = legacy Ajax.
     # Set per-env to match brax/playground convention for envs that
     # need it (e.g. mujoco_playground manip uses scalar state-indep

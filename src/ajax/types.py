@@ -1,15 +1,13 @@
 from typing import Any, Callable, Optional, TypeAlias, Union
 
 import flashbax as fbx
-import jax.numpy as jnp
+import jax
 from brax.envs import Env as BraxEnv
 from brax.envs.base import State as BraxEnvState
 from flax import struct
-from flax.core.frozen_dict import FrozenDict
 from gymnax.environments.environment import Environment as GymnaxEnv
 from gymnax.environments.environment import EnvState as GymnaxEnvState
 
-HiddenState: TypeAlias = Union[jnp.ndarray, FrozenDict]
 EnvType: TypeAlias = Union[GymnaxEnv, BraxEnv]
 EnvStateType: TypeAlias = Union[BraxEnvState, GymnaxEnvState]
 ActivationFunction: TypeAlias = Any
@@ -25,11 +23,11 @@ FloatOrCallable: TypeAlias = Union[float, Callable[[int], float]]
 
 @struct.dataclass
 class NormalizationInfo:
-    var: jnp.array
-    count: jnp.array
-    mean: jnp.array
-    mean_2: jnp.array
-    returns: Optional[jnp.array] = None  # For reward normalization, returns are needed
+    var: jax.Array
+    count: jax.Array
+    mean: jax.Array
+    mean_2: jax.Array
+    returns: Optional[jax.Array] = None  # For reward normalization, returns are needed
 
 
 @struct.dataclass

@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from functools import partial
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -21,6 +21,7 @@ from ajax.logging.wandb_logging import (
     stop_async_logging,
 )
 from ajax.networks.memory import MemoryConfig, parse_memory_config
+from ajax.networks.networks import CNNSpec
 from ajax.state import (
     BaseAgentConfig,
     BaseAgentState,
@@ -119,9 +120,9 @@ class ActorCritic:
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # Brax-style actor head knobs (see NetworkConfig). Default = legacy.
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,

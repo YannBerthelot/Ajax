@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 from gymnax import EnvParams
 
@@ -9,6 +9,7 @@ from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType
 
 
@@ -50,9 +51,9 @@ class PQN(ActorCritic):
         # TD loss: None -> MSE. Pass make_huber_td_loss(delta) for Huber.
         td_loss_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``

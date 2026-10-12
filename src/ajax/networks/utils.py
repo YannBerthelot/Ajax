@@ -229,8 +229,8 @@ def parse_architecture(
     return [parse_layer(layer, kernel_init, bias_init) for layer in architecture]
 
 
-def uniform_init(bound: float):
-    def _init(key, shape, dtype):
+def uniform_init(bound: float) -> InitializationFunction:
+    def _init(key: jax.Array, shape: tuple, dtype: jnp.dtype) -> jax.Array:
         return jax.random.uniform(
             key,
             shape=shape,

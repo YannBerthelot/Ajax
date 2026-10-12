@@ -125,10 +125,9 @@ def train(
     ``log_every``, evaluate and capture the logs at that frequency."""
     config = None if log_every is None else log_config(log_every)
     with captured_logs(agent) as events:
-        out = agent.train(
+        state, _ = agent.train(
             seed=list(seeds), n_timesteps=budget, logging_config=config, **kw
         )
-        state = out[0] if isinstance(out, tuple) else out
         jax.block_until_ready(state)
         jax.effects_barrier()
     return Run(agent, state, list(events), tuple(seeds))

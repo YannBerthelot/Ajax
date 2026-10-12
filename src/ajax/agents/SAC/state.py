@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from flax import struct
+from flax.training.train_state import TrainState
 from jax.tree_util import Partial as partial
 
 from ajax.agents.recurrent import RecurrentReplayConfig
@@ -11,7 +12,7 @@ from ajax.state import BaseAgentState, LoadedTrainState
 class SoftACState(BaseAgentState):
     """A soft actor-critic's state: the base one plus the temperature."""
 
-    alpha: LoadedTrainState  # log-temperature, params["log_alpha"]
+    alpha: TrainState  # log-temperature, params["log_alpha"]
 
 
 @partial(struct.dataclass, kw_only=True)

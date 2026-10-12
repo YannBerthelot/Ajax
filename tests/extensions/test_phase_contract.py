@@ -169,11 +169,10 @@ def test_each_batch_holds_the_documented_keys(name: str) -> None:
 
 SHARED_KEYS = pytest.mark.xfail(
     strict=True,
-    reason="fix/extension-keys: on_target and critic_loss share the TD target's"
-    " key, actor_loss the policy sample's (TD3 and AVG the agent's own, UDRL"
-    " its batch's)",
+    reason="fix/extension-keys: fold_in(k, 1) is split(k)[1], so actor_loss's"
+    " key is TD3's and AVG's next key and UDRL's batch's",
 )
-_SHARED = ("ASAC", "AVG", "REDQ", "SAC", "TD3", "UDRL")
+_SHARED = ("AVG", "TD3", "UDRL")
 
 
 @pytest.mark.parametrize(

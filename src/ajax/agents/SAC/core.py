@@ -301,7 +301,8 @@ def soft_actor_step(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            policy_key,
+            # Apart from the policy sample's draws on policy_key.
+            jax.random.fold_in(policy_key, 1),
             total_timesteps,
         )
         return loss + extra, (loss, log_probs, q)

@@ -386,7 +386,8 @@ def training_iteration(
                 a_state,
                 _al_batch,
                 a_state.collector_state.timestep,
-                key,
+                # Apart from the batch's draws on key.
+                jax.random.fold_in(key, 1),
                 total_timesteps,
             )
 

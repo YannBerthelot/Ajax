@@ -286,7 +286,8 @@ def update_policy(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            # Apart from the agent's own key, which it carries on.
+            jax.random.fold_in(agent_state.rng, 1),
             total_timesteps,
         )
         return loss + extra, aux

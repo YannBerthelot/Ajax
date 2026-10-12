@@ -1,10 +1,9 @@
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.state import BaseAgentConfig, BaseAgentState
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DQNState(BaseAgentState):
     """DQN carries a single Q-network -- no actor, no temperature.
 
@@ -15,7 +14,7 @@ class DQNState(BaseAgentState):
     """
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DQNConfig(BaseAgentConfig):
     """Static DQN hyperparameters carried through the compiled train loop."""
 

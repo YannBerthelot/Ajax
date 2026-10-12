@@ -40,8 +40,14 @@ def env_params_is_batched(params: EnvParamsT) -> bool:
     leaves = jax.tree.leaves(params)
     if not leaves or any(jnp.ndim(leaf) == 0 for leaf in leaves):
         return False
-    first = jnp.shape(leaves[0])[0]
+    first = n_systems(params)
     return all(jnp.shape(leaf)[0] == first for leaf in leaves)
+
+
+def n_systems(params: EnvParamsT) -> int:
+    """The number of systems a batched ``params`` carries: its leaves'
+    leading axis."""
+    return int(jnp.shape(jax.tree.leaves(params)[0])[0])
 
 
 def broadcast_env_params(params: EnvParamsT, n: int) -> EnvParamsT:
@@ -60,11 +66,6 @@ def broadcast_env_params(params: EnvParamsT, n: int) -> EnvParamsT:
         return jnp.broadcast_to(arr, (n, *arr.shape))
 
     return jax.tree.map(_tile, params)
-
-
-def select_env_params(params: EnvParamsT, index: int | jax.Array) -> EnvParamsT:
-    """Pick one system out of a batched ``params`` (inverse of broadcasting)."""
-    return jax.tree.map(lambda leaf: jnp.asarray(leaf)[index], params)
 
 
 class SystemClass:
@@ -98,7 +99,8 @@ class UniformPerturbation(SystemClass):
     """Independent uniform relative perturbation of selected parameter fields.
 
     Each listed field ``p`` is drawn as ``p * (1 + U(-scale, scale))``,
-    independently per field and per sampled system; every other field
+    independently per field and per sampled system (a vector or matrix field
+    is scaled by one factor per system); every other field
     stays at its nominal value. This is the meta-dataset construction of
     Busetto et al. 2024 (there: ``scale=0.05`` on the 19 evaporator
     constants).
@@ -134,6 +136,10 @@ class UniformPerturbation(SystemClass):
             factor = 1.0 + jax.random.uniform(
                 key, (n,), minval=-self.scale, maxval=self.scale
             )
+            # One factor per system scales the whole field: trailing unit
+            # axes keep a vector or matrix field from broadcasting against
+            # (or, when its length is n, being mistaken for) the batch axis.
+            factor = factor.reshape((n,) + (1,) * nominal_value.ndim)
             updates[name] = nominal_value * factor
         return batched.replace(**updates)
 
@@ -152,5 +158,5 @@ __all__ = [
     "UniformPerturbation",
     "broadcast_env_params",
     "env_params_is_batched",
-    "select_env_params",
+    "n_systems",
 ]

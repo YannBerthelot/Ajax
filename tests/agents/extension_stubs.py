@@ -1,6 +1,7 @@
 """Extension stubs the agent tests share: a counter of the ``post_update``
-folds and a constant evaluation metric. Frozen dataclasses, so hashable:
-an extension stack is a static argument of the jitted train function."""
+folds, a constant evaluation metric and an ``on_target`` pass-through (a
+phase the world-model agents refuse). Frozen dataclasses, so hashable: an
+extension stack is a static argument of the jitted train function."""
 
 from dataclasses import dataclass
 
@@ -32,3 +33,14 @@ class MetricExt(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {METRIC: jnp.asarray(1.0)}
+
+
+@dataclass(frozen=True)
+class TargetTweak(Extension):
+    """Implements ``on_target``, which the world-model agents do not fold:
+    they must refuse it at construction."""
+
+    name: str = "target-tweak"
+
+    def on_target(self, agent_state, ext_state, batch, target, ctx):
+        return target

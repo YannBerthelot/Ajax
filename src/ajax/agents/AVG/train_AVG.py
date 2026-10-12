@@ -17,15 +17,17 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.AVG.state import AVGConfig, AVGState, NormalizationInfo
+from ajax.agents.AVG.state import AVGConfig, AVGState, RunningMoments
 from ajax.agents.AVG.utils import compute_td_error_scaling
 from ajax.agents.loop import TrainLoop, critic_step, gradient_step
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.environments.interaction import get_pi
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.networks import action_value
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -69,7 +71,7 @@ def init_AVG(
     num_critics: int = 1,
     window_size: int = 10,
 ) -> AVGState:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
         init_key,
         collector_key,
@@ -82,7 +84,7 @@ def init_AVG(
     )
     # One running statistic per scalar (reward, discount, return), shared
     # by every env.
-    init_norm_info = NormalizationInfo(
+    init_norm_info = RunningMoments(
         value=jnp.zeros((env_args.n_envs, 1)),
         count=jnp.zeros((1,)),
         mean=jnp.zeros((1, 1)),
@@ -90,7 +92,7 @@ def init_AVG(
     )
     return AVGState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
@@ -109,6 +111,7 @@ def update_AVG_values(
     scale: its entropy-regularised reward and discount and, where an
     episode ended, its return."""
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    assert rollout.log_prob is not None
     r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(
         -1, keepdims=True
     )
@@ -224,7 +227,9 @@ def update_value_functions(
     total_timesteps: int,
 ) -> Tuple[AVGState, ValueAuxiliaries]:
     """The critic step on the scaled TD error of ``transition``."""
-    key, rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     critic_state = agent_state.critic_state
     # Only a termination cuts the bootstrap: the official code passes
@@ -262,7 +267,7 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        key,
+        ext_key,
         total_timesteps,
         rewards=transition.reward,
         dones=dones,
@@ -301,7 +306,8 @@ def update_policy(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            # update_value_functions splits the same key in three.
+            jax.random.split(agent_state.rng, 4)[3],
             total_timesteps,
         )
         return loss + extra, aux
@@ -331,6 +337,7 @@ def update_agent(
     critic_updated, aux_value = update_value_functions(
         agent_state, transition, agent_config, extension_stack, total_timesteps
     )
+    assert transition.raw_action is not None
     policy_updated, aux_policy = update_policy(
         agent_state,
         transition.obs,
@@ -379,7 +386,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> AVGState:
+    def init(key: jax.Array) -> AVGState:
         return init_AVG(
             key,
             env_args,
@@ -405,5 +412,10 @@ def make_train(
         agent_config.learning_starts,
         expose_rollout=agent_config.expose_recent_rollout,
         after_collect=after_collect,
-        eval_kwargs={"expert_policy": expert_policy},
+        eval_kwargs={
+            "expert_policy": expert_policy,
+            "value_estimate": ValueEstimate(
+                action_value, agent_config.gamma, agent_config.reward_scale
+            ),
+        },
     )

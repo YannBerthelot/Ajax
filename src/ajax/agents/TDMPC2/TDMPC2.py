@@ -13,18 +13,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import jax
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodicBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
-from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule, Schedule, make_train
 from ajax.environments.row_collector import resume_tick
 from ajax.environments.utils import (
@@ -86,9 +85,7 @@ class TDMPC2(ActorCritic):
     config of the loggers). Memory per seed: ``R * n_envs * (T + 1) *
     (obs_dim + A + 1) * 4`` bytes with ``R = ceil(capacity / (T n_envs)) +
     1``: 124 MB for DMC walker (obs 24, A 6, T 500) at the full
-    1,000,000-step capacity; the seed ``vmap`` multiplies it. With a
-    ``logging_config``, :meth:`train` also returns the evaluations, a row
-    per evaluation per seed; without one it returns no metrics.
+    1,000,000-step capacity; the seed ``vmap`` multiplies it.
 
     Evaluation (with a ``logging_config``): every ``log_frequency`` env
     steps, ``num_episode_test`` episodes of the planner in ``eval_mode`` on
@@ -111,8 +108,10 @@ class TDMPC2(ActorCritic):
     ``episodic=True`` takes terminating tasks instead (the latest code's
     episodic mode, ``nicklashansen/tdmpc2@eece801``; deviation T29): a
     termination head, ``1 - terminated`` in the targets and the planner,
-    the variable-length replay of ``ceil(buffer_size / n_envs)`` rows per
-    env, and ``n_timesteps`` counting rows (env steps plus one per finished
+    the variable-length replay of ``ceil(min(buffer_size, total) /
+    n_envs)`` rows per env (``total`` the rows of the run when the call ends,
+    sized and adopted on a resume as the episode ring is), and
+    ``n_timesteps`` counting rows (env steps plus one per finished
     episode). ``T`` is then the time limit, still bootstrapped.
 
     Extensions: ``pretrain``, ``post_update`` (folded after every update,
@@ -122,6 +121,7 @@ class TDMPC2(ActorCritic):
 
     name: str = "TDMPC2"
     supported_extension_phases: frozenset = LOOP_PHASES
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -199,10 +199,7 @@ class TDMPC2(ActorCritic):
         ``learning_rate``), with its paper default; see the class docstring
         for the static ones and the derived defaults.
         """
-        self.config = {
-            k: v for k, v in locals().items() if k not in ("self", "__class__")
-        }
-        self.config.update({"algo_name": "TDMPC2"})
+        self.config = run_config(locals(), self.name)
 
         # The base class's actor / critic optimizer and network configs do
         # not apply: core.create_update_state builds TD-MPC2's optimizers.
@@ -217,7 +214,7 @@ class TDMPC2(ActorCritic):
         if not self.env_args.continuous:
             raise ValueError("TD-MPC2 only supports continuous action spaces.")
 
-        self.agent_config = TDMPC2Config.from_arguments(self.config)
+        self.agent_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
         env, params = self.env_args.env, self.env_args.env_params
         obs_shape, _ = get_state_action_shapes(env)
         if len(obs_shape) != 1:
@@ -261,9 +258,13 @@ class TDMPC2(ActorCritic):
             if episodic
             else Schedule(**schedule, updates_per_step=ratio)
         )
-        self.learning_rate = learning_rate
-        self.enc_lr_scale = float(enc_lr_scale)
-        self.pi_eps = float(pi_eps)
+        self.train_kwargs = {
+            "gamma": self.gamma,
+            "schedule": self.schedule,
+            "learning_rate": learning_rate,
+            "enc_lr_scale": float(enc_lr_scale),
+            "pi_eps": float(pi_eps),
+        }
         # Sized at every train() call (see the class docstring).
         self.replay_capacity: Optional[int] = None
         self.replay_bytes_per_seed: Optional[int] = None
@@ -278,17 +279,6 @@ class TDMPC2(ActorCritic):
             }
         )
 
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            gamma=self.gamma,
-            schedule=self.schedule,
-            learning_rate=self.learning_rate,
-            enc_lr_scale=self.enc_lr_scale,
-            pi_eps=self.pi_eps,
-            extensions=tuple(self.extension_stack.extensions),
-        )
-
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
         """The absolute tick a resumed run starts at, equal across seeds
         (:func:`~ajax.environments.row_collector.resume_tick`)."""
@@ -296,11 +286,11 @@ class TDMPC2(ActorCritic):
 
     def _replay_buffer(self, total_timesteps: int) -> EpisodeBuffer | EpisodicBuffer:
         """The ring of a call that ends after ``total_timesteps`` env steps of
-        the run (the episodic mode's rings ignore it); records its capacity
-        and size (class docstring)."""
+        the run (rows in the episodic mode); records its capacity and size
+        (class docstring)."""
         buffer: EpisodeBuffer | EpisodicBuffer
+        capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
         if self.agent_config.episodic:
-            capacity = self.agent_config.buffer_size
             buffer = EpisodicBuffer.create(
                 buffer_size=capacity,
                 n_envs=self.env_args.n_envs,
@@ -308,7 +298,6 @@ class TDMPC2(ActorCritic):
                 action_dim=self.action_dim,
             )
         else:
-            capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
             buffer = EpisodeBuffer.create(
                 capacity=capacity,
                 n_envs=self.env_args.n_envs,
@@ -358,21 +347,20 @@ class TDMPC2(ActorCritic):
         start_tick = (
             0 if initial_state is None else self.resume_iteration_offset(initial_state)
         )
-        buffer: EpisodeBuffer | EpisodicBuffer
-        if isinstance(self.schedule, EpisodicSchedule):
-            buffer = self._replay_buffer(0)  # not sized for the run
-            if initial_state is not None:
-                buffer.check_layout(initial_state.buffer_state)
-        else:
-            end_tick = start_tick + self.schedule.num_ticks(n_timesteps, start_tick)
-            buffer = self._replay_buffer(
-                self.schedule.steps_before(end_tick) * self.env_args.n_envs
-            )
-            assert isinstance(buffer, EpisodeBuffer)
-            if initial_state is not None:
-                initial_state = initial_state.replace(
-                    buffer_state=buffer.adopt(initial_state.buffer_state, start_tick)
-                )
+        end_tick = start_tick + self.schedule.num_ticks(n_timesteps, start_tick)
+        # Per env, the rows the replay stores by then: env steps, or every
+        # tick's row in the episodic mode (held ones included).
+        per_env = (
+            end_tick
+            if isinstance(self.schedule, EpisodicSchedule)
+            else self.schedule.steps_before(end_tick)
+        )
+        buffer = self._replay_buffer(per_env * self.env_args.n_envs)
+        if initial_state is not None:
+            state = cast(TDMPC2State, initial_state)
+            # The carried ring is of this buffer's kind (episodic or not).
+            replay = buffer.adopt(state.buffer_state, start_tick)  # type: ignore[arg-type]
+            initial_state = state.replace(buffer_state=replay)
         result: Any = super().train(
             seed=seed,
             n_timesteps=n_timesteps,

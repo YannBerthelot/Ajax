@@ -24,17 +24,12 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.SAC.state import SoftACState
 from ajax.environments.interaction import init_collector_state
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType
 
 S = TypeVar("S", bound=SoftACState)
-
-# ---------------------------------------------------------------------------
-# Auxiliary dataclasses (core diagnostics only)
-# ---------------------------------------------------------------------------
 
 
 @struct.dataclass
@@ -48,12 +43,7 @@ class CoreCriticAux:
 class TemperatureAuxiliaries:
     alpha: jax.Array
     log_alpha: jax.Array
-    effective_target_entropy: jax.Array
-
-
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
+    effective_target_entropy: jax.Array | float
 
 
 def create_alpha_train_state(
@@ -61,7 +51,7 @@ def create_alpha_train_state(
     alpha_init: float = 1.0,
 ) -> TrainState:
     log_alpha = jnp.log(alpha_init)
-    params = FrozenDict({"log_alpha": log_alpha})
+    params: FrozenDict[str, Any] = FrozenDict({"log_alpha": log_alpha})
     # No gradient clipping on the dual variable. log_alpha's gradient is
     # the scalar (H_target - H_pi); clipping it to a constant norm erases
     # the magnitude (and hence the target) from the update whenever the
@@ -109,18 +99,13 @@ def init_soft_actor_critic(
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
+        mode=env_args.mode,
         buffer=buffer,
         window_size=window_size,
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
         **(collector_extras or {}),
     )
     return actor_state, critic_state, collector_state
-
-
-# ---------------------------------------------------------------------------
-# TD target computation (pure Bellman — modifiers compose on top)
-# ---------------------------------------------------------------------------
 
 
 def sample_next_actions(
@@ -193,11 +178,6 @@ def compute_td_target(
     return jax.lax.stop_gradient(target)
 
 
-# ---------------------------------------------------------------------------
-# Critic loss (MSE against pre-computed target)
-# ---------------------------------------------------------------------------
-
-
 def critic_loss_fn(
     critic_params: FrozenDict,
     critic_state,
@@ -228,11 +208,6 @@ def critic_loss_fn(
         q_pred_min=q_pred_min.mean().flatten(),
         var_preds=var_preds.mean().flatten(),
     )
-
-
-# ---------------------------------------------------------------------------
-# Actor loss (α log π - Q)
-# ---------------------------------------------------------------------------
 
 
 def soft_policy_loss(
@@ -276,7 +251,9 @@ def soft_actor_step(
     """One actor step on :func:`soft_policy_loss` plus the extensions'
     actor-loss terms. Returns the state and ``(loss, log_probs, q)``, the
     SAC loss before the extensions' terms."""
-    rng, policy_key = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    rng, policy_key, ext_key = jax.random.split(agent_state.rng, 3)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state = agent_state.actor_state
 
@@ -302,18 +279,13 @@ def soft_actor_step(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            policy_key,
+            ext_key,
             total_timesteps,
         )
         return loss + extra, (loss, log_probs, q)
 
     actor_state, out = gradient_step(actor_state, loss_fn)
     return agent_state.replace(rng=rng, actor_state=actor_state), out
-
-
-# ---------------------------------------------------------------------------
-# Temperature (standard SAC dual gradient) and target networks
-# ---------------------------------------------------------------------------
 
 
 def temperature_loss_fn(

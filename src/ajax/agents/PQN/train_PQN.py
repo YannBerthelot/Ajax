@@ -21,7 +21,7 @@ from typing import Any, Callable, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.DQN.networks import predict_q
+from ajax.agents.DQN.networks import predict_q, q_network_value
 from ajax.agents.DQN.train_DQN import (
     AuxiliaryLogs,
     init_DQN,
@@ -35,6 +35,7 @@ from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.utils import get_action_dim
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
@@ -43,10 +44,6 @@ from ajax.state import (
     OptimizerConfig,
     Transition,
 )
-
-# ---------------------------------------------------------------------------
-# The update: Q(lambda) targets, then minibatched TD epochs
-# ---------------------------------------------------------------------------
 
 
 def update_agent(
@@ -74,15 +71,24 @@ def update_agent(
         agent_config.gamma,
         agent_config.q_lambda,
     )
-    # The extensions reshape the target before it is held constant.
+    # The extensions reshape the target before it is held constant, then add
+    # their loss terms, each on a key of its own (drawn only with extensions):
+    # one per epoch and minibatch.
+    loss_keys = None
     if extension_stack:
-        _tgt_rng, _tgt_seed = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=_tgt_rng)
+        rng, ext_key = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng)
+        target_key, loss_key = jax.random.split(ext_key)
+        loss_keys = jax.random.split(
+            loss_key, (agent_config.n_epochs, agent_config.num_minibatches)
+        )
         _tgt_batch = {
             "observations": rollout.obs,
             "actions": rollout.action,
             "next_observations": rollout.next_obs,
             "rewards": rollout.reward,
+            # Where the target cut the bootstrap, as the replay agents pass.
+            "dones": rollout.terminated,
             "terminated": rollout.terminated,
             "truncated": rollout.truncated,
             "gamma": agent_config.gamma,
@@ -93,7 +99,7 @@ def update_agent(
             _tgt_batch,
             targets,
             agent_state.collector_state.timestep,
-            _tgt_seed,
+            target_key,
             total_timesteps,
         )
     targets = jax.lax.stop_gradient(targets)
@@ -103,29 +109,35 @@ def update_agent(
     agent_state = agent_state.replace(rng=rng)
     epoch_keys = jax.random.split(epoch_rng, agent_config.n_epochs)
 
-    def epoch_body(agent_state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:
+    def epoch_body(agent_state: PQNState, keys: tuple) -> Tuple[Any, Any]:
+        epoch_key, epoch_loss_keys = keys
         minibatches = get_minibatches_from_batch(
             batch, epoch_key, agent_config.num_minibatches
         )
 
-        def mb_body(agent_state: PQNState, minibatch: tuple) -> Tuple[Any, Any]:
+        def mb_body(agent_state: PQNState, xs: tuple) -> Tuple[Any, Any]:
+            (observations, actions, targets), loss_key = xs
             q_state, value_aux = q_gradient_step(
-                agent_state, *minibatch, td_loss_fn, extension_stack, total_timesteps
+                agent_state,
+                observations,
+                actions,
+                targets,
+                td_loss_fn,
+                extension_stack,
+                loss_key,
+                total_timesteps,
             )
             return agent_state.replace(actor_state=q_state), value_aux
 
-        return jax.lax.scan(mb_body, agent_state, minibatches)
+        return jax.lax.scan(mb_body, agent_state, (minibatches, epoch_loss_keys))
 
-    agent_state, value_aux = jax.lax.scan(epoch_body, agent_state, epoch_keys)
+    agent_state, value_aux = jax.lax.scan(
+        epoch_body, agent_state, (epoch_keys, loss_keys)
+    )
     # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
     value_aux = jax.tree.map(lambda x: x.mean().reshape((1,)), value_aux)
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
     return agent_state, AuxiliaryLogs(value=value_aux)
-
-
-# ---------------------------------------------------------------------------
-# Training factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(
@@ -160,7 +172,7 @@ def make_train(
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> PQNState:
+    def init(key: jax.Array) -> PQNState:
         return init_DQN(
             key,
             env_args,
@@ -191,4 +203,9 @@ def make_train(
         agent_config.n_steps,
         expose_rollout=agent_config.expose_recent_rollout,
         collect_kwargs={"action_pipeline": action_pipeline},
+        eval_kwargs={
+            "value_estimate": ValueEstimate(
+                q_network_value, agent_config.gamma, agent_config.reward_scale
+            )
+        },
     )

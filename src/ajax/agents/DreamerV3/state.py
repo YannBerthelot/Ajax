@@ -24,8 +24,9 @@ the train ratio, the batch geometry and the replay capacity --
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import jax
@@ -36,6 +37,7 @@ from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.types import Replaceable
 
 if TYPE_CHECKING:
     from ajax.agents.DreamerV3.replay import ReplayState
@@ -53,6 +55,10 @@ MODEL_SIZES: dict[str, int] = {
     "200m": 1024,
     "400m": 1536,
 }
+
+
+#: The widths a ``model_size`` preset sets (:meth:`DreamerV3Config.from_model_size`).
+WIDTHS = ("units", "hidden", "deter", "classes")
 
 
 @dataclass(frozen=True)
@@ -110,7 +116,7 @@ class DreamerV3Config:
         retnorm_rate, retnorm_limit: EMA rate and scale floor of the return
             normaliser (``retnorm``).
         actor_scale, critic_scale, repval_scale: loss scales (``loss_scales``:
-            ``actor``, ``critic``, ``replay_critic``).
+            ``actor``, ``critic``, ``replay_critic``; Table 4).
 
     Optimizer (``opt``; dreamerv3_spec 4.3-4.7; :func:`ajax.agents.DreamerV3.
     optim.laprop`):
@@ -142,7 +148,6 @@ class DreamerV3Config:
     dyn_scale: float = 1.0
     rep_scale: float = 0.1
     return_horizon: float = 333.0
-    # Actor-critic.
     actor_layers: int = 3
     critic_layers: int = 3
     actor_unimix: float = 0.01
@@ -159,7 +164,6 @@ class DreamerV3Config:
     actor_scale: float = 1.0
     critic_scale: float = 1.0
     repval_scale: float = 0.3
-    # Optimizer.
     learning_rate: LearningRate = 4e-5
     agc: float = 0.3
     agc_pmin: float = 1e-3
@@ -209,13 +213,8 @@ class DreamerV3Config:
         classes: Optional[int] = None,
         **kwargs: Any,
     ) -> DreamerV3Config:
-        """The ``model_size`` preset, with explicit widths taking precedence.
-
-        ``d = MODEL_SIZES[model_size]`` gives ``units = hidden = d``,
-        ``deter = 8 d`` and ``classes = d // 16`` (dreamerv3_spec 2.1); any
-        width passed explicitly overrides its preset value, and ``kwargs``
-        set the remaining fields.
-        """
+        """The ``model_size`` preset (module docstring), with explicit widths
+        taking precedence; ``kwargs`` set the remaining fields."""
         if model_size not in MODEL_SIZES:
             raise ValueError(
                 f"Unknown model_size {model_size!r}; choose from {sorted(MODEL_SIZES)}"
@@ -228,6 +227,20 @@ class DreamerV3Config:
             classes=d // 16 if classes is None else classes,
             **kwargs,
         )
+
+    @classmethod
+    def from_arguments(cls, arguments: Mapping[str, Any]) -> DreamerV3Config:
+        """:meth:`from_model_size` of the agent constructor's arguments:
+        ``model_size`` and every field they name (the constructor names its
+        hyperparameters as the fields); the other fields keep their
+        defaults."""
+        names = inspect.signature(cls).parameters  # the fields
+        fields = {k: v for k, v in arguments.items() if k in names}
+        return cls.from_model_size(arguments["model_size"], **fields)
+
+    def resolved(self) -> dict[str, int]:
+        """The widths the preset resolves, for the loggers' run config."""
+        return {f"resolved_{k}": getattr(self, k) for k in WIDTHS}
 
     @property
     def feat_dim(self) -> int:
@@ -267,7 +280,7 @@ class DreamerV3Config:
         return TwoHot.dreamerv3(self.bins)
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DreamerV3AgentConfig(BaseAgentConfig):
     """Hyperparameters of the DreamerV3 training loop (static).
 
@@ -293,7 +306,7 @@ class DreamerV3AgentConfig(BaseAgentConfig):
 
 
 @struct.dataclass
-class MetricsAccumulator:
+class MetricsAccumulator(Replaceable):
     """Sums of the training-step metrics since the last log, and their count.
 
     The reference logs the mean of each training metric over the updates
@@ -330,7 +343,7 @@ class MetricsAccumulator:
         return jax.tree.map(lambda x: jnp.where(flag, jnp.zeros_like(x), x), self)
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DreamerV3State(BaseAgentState):
     """The DreamerV3 agent's state (``docs/world_models/DESIGN.md`` section 6.6).
 

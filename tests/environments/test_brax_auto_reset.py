@@ -49,12 +49,8 @@ class _UngatedAutoResetWrapper(AutoResetWrapper):
         state = self.env.step(state, action)
         rng = state.info["rng"][0]
         new_rng = jax.lax.cond(state.done.any(), split, lambda x: x, rng)
-        new_init_state = self.reset(new_rng)
-        state.info["rng"] = (
-            new_rng.reshape(1, -1)
-            if self.single_env
-            else jnp.tile(new_rng, (self.n_envs, 1))
-        )
+        new_init_state = self.env.reset(new_rng)
+        state.info["rng"] = jnp.tile(new_rng, (self.n_envs, 1))
 
         def where_done(x, y):
             done = state.done
@@ -63,11 +59,9 @@ class _UngatedAutoResetWrapper(AutoResetWrapper):
             return jnp.where(done, x, y)
 
         pipeline_state = jax.tree.map(
-            where_done,
-            new_init_state.info["first_pipeline_state"],
-            state.pipeline_state,
+            where_done, new_init_state.pipeline_state, state.pipeline_state
         )
-        obs = where_done(new_init_state.info["first_obs"], state.obs)
+        obs = where_done(new_init_state.obs, state.obs)
         return state.replace(pipeline_state=pipeline_state, obs=obs, info=state.info)
 
 

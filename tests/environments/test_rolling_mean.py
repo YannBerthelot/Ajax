@@ -1,135 +1,96 @@
-import jax.numpy as jnp
+"""The house training return: each env's rolling window of episode returns
+(init_rolling_mean, update_episodic_return), for two envs."""
 
-from ajax.environments.interaction import init_rolling_mean, update_rolling_mean
+import jax.numpy as jnp
+import numpy as np
+import pytest
+
+from ajax.environments.interaction import init_rolling_mean, update_episodic_return
 
 
 def test_init_rolling_mean():
-    window_size = 5
-    cumulative_reward = jnp.zeros((3, 1))  # Example batch size of 3
-    last_return = jnp.zeros((3, 1))
-
-    rolling_mean_state = init_rolling_mean(
-        window_size=window_size,
-        cumulative_reward=cumulative_reward,
-        last_return=last_return,
+    state = init_rolling_mean(
+        window_size=5,
+        cumulative_reward=jnp.zeros((3, 1)),
+        last_return=jnp.zeros((3, 1)),
     )
-
-    assert rolling_mean_state.buffer.shape == (window_size, 3, 1)
-    assert jnp.all(
-        rolling_mean_state.buffer == 0
-    ), "Buffer should be initialized to zeros."
-    assert jnp.all(
-        rolling_mean_state.index == 0
-    ), "Index should be initialized to zeros."
-    assert jnp.all(
-        rolling_mean_state.count == 0
-    ), "Count should be initialized to zeros."
-    assert jnp.all(rolling_mean_state.sum == 0), "Sum should be initialized to zeros."
-    assert jnp.allclose(
-        rolling_mean_state.cumulative_reward, cumulative_reward
-    ), "Cumulative reward should match the input."
-    assert jnp.allclose(
-        rolling_mean_state.last_return, last_return
-    ), "Last return should match the input."
+    assert state.buffer.shape == (5, 3, 1)
+    for x in (state.buffer, state.index, state.count, state.sum):
+        assert jnp.all(x == 0)
 
 
-def test_update_rolling_mean_within_window():
-    window_size = 5
-    cumulative_reward = jnp.zeros((3, 1))  # Example batch size of 3
-    last_return = jnp.nan * jnp.zeros((3, 1))
+def _episodes(*returns):
+    """Steps ending one episode per env with each of ``returns``."""
+    return [(r, [True, True]) for r in returns]
 
-    rolling_mean_state = init_rolling_mean(
-        window_size=window_size,
-        cumulative_reward=cumulative_reward,
-        last_return=last_return,
+
+# window, (reward, done) steps -> buffer, index, count, sum, mean over envs.
+CASES = {
+    "one episode": (
+        5,
+        [([1.0, 2.0], [False, False]), ([9.0, 18.0], [True, True])],
+        [[10, 20], [0, 0], [0, 0], [0, 0], [0, 0]],
+        [1, 1],
+        [1, 1],
+        [10, 20],
+        15.0,
+    ),
+    "partial window": (
+        5,
+        _episodes([10.0, 20.0], [30.0, 40.0]),
+        [[10, 20], [30, 40], [0, 0], [0, 0], [0, 0]],
+        [2, 2],
+        [2, 2],
+        [40, 60],
+        25.0,
+    ),
+    "wrap-around": (
+        3,
+        _episodes([10.0, 20.0], [30.0, 40.0], [50.0, 60.0], [70.0, 80.0]),
+        [[70, 80], [30, 40], [50, 60]],
+        [1, 1],
+        [3, 3],
+        [150, 180],
+        55.0,
+    ),
+    # An env whose episode runs on keeps its window as it is.
+    "envs ending apart": (
+        3,
+        [([10.0, 20.0], [True, False]), ([3.0, 5.0], [False, True])],
+        [[10, 25], [0, 0], [0, 0]],
+        [1, 1],
+        [1, 1],
+        [10, 25],
+        17.5,
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(CASES))
+def test_update_episodic_return(name):
+    window, steps, buffer, index, count, total, mean = CASES[name]
+    state = init_rolling_mean(
+        window_size=window,
+        cumulative_reward=jnp.zeros((2, 1)),
+        last_return=jnp.nan * jnp.zeros((2, 1)),
     )
-
-    new_value = jnp.array([[10.0], [20.0], [30.0]])
-    updated_state, mean = update_rolling_mean(rolling_mean_state, new_value)
-
-    assert jnp.all(
-        updated_state.buffer[0] == new_value
-    ), "New value should be added to the buffer."
-    assert jnp.all(
-        updated_state.index == 1
-    ), "Index should be incremented for all batch elements."
-    assert jnp.all(
-        updated_state.count == 1
-    ), "Count should be incremented for all batch elements."
-    assert jnp.all(
-        updated_state.sum == new_value
-    ), "Sum should be updated for all batch elements."
-    assert jnp.all(
-        mean == new_value
-    ), "Mean should equal the new value when count is 1."
+    for reward, done in steps:
+        state, got = update_episodic_return(state, jnp.array(reward), jnp.array(done))
+    np.testing.assert_array_equal(state.buffer[..., 0], buffer)
+    np.testing.assert_array_equal(state.index[:, 0], index)
+    np.testing.assert_array_equal(state.count[:, 0], count)
+    np.testing.assert_array_equal(state.sum[:, 0], total)
+    assert float(got) == mean
 
 
-def test_update_rolling_mean_overflow_window():
-    window_size = 3
-    cumulative_reward = jnp.zeros((2, 1))  # Example batch size of 2
-    last_return = jnp.nan * jnp.zeros((2, 1))
-
-    rolling_mean_state = init_rolling_mean(
-        window_size=window_size,
-        cumulative_reward=cumulative_reward,
-        last_return=last_return,
+def test_an_env_without_a_finished_episode_has_no_mean_yet():
+    state = init_rolling_mean(
+        window_size=3,
+        cumulative_reward=jnp.zeros((2, 1)),
+        last_return=jnp.nan * jnp.zeros((2, 1)),
     )
-
-    values = [
-        jnp.array([[10.0], [20.0]]),
-        jnp.array([[30.0], [40.0]]),
-        jnp.array([[50.0], [60.0]]),
-        jnp.array([[70.0], [80.0]]),
-    ]
-    for value in values:
-        rolling_mean_state, mean = update_rolling_mean(rolling_mean_state, value)
-
-    assert jnp.allclose(
-        rolling_mean_state.buffer,
-        jnp.array([[[70.0], [80.0]], [[30.0], [40.0]], [[50.0], [60.0]]]),
-    ), "Buffer should overwrite old values."
-    assert jnp.all(
-        rolling_mean_state.index == 1
-    ), "Index should wrap around for all batch elements."
-    assert jnp.all(
-        rolling_mean_state.count == window_size
-    ), "Count should not exceed window size."
-    assert jnp.all(
-        rolling_mean_state.sum == jnp.array([[150.0], [180.0]])
-    ), "Sum should reflect the current buffer values."
-    assert jnp.all(
-        mean == jnp.array([[50.0], [60.0]])
-    ), "Mean should be the average of the current buffer values."
-
-
-def test_update_rolling_mean_partial_window():
-    window_size = 5
-    cumulative_reward = jnp.zeros((2, 1))  # Example batch size of 2
-    last_return = jnp.nan * jnp.zeros((2, 1))
-
-    rolling_mean_state = init_rolling_mean(
-        window_size=window_size,
-        cumulative_reward=cumulative_reward,
-        last_return=last_return,
+    state, mean = update_episodic_return(
+        state, jnp.array([10.0, 20.0]), jnp.array([True, False])
     )
-
-    values = [jnp.array([[10.0], [20.0]]), jnp.array([[30.0], [40.0]])]
-    for value in values:
-        rolling_mean_state, mean = update_rolling_mean(rolling_mean_state, value)
-
-    assert jnp.allclose(
-        rolling_mean_state.buffer[:2],
-        jnp.array([[[10.0], [20.0]], [[30.0], [40.0]]]),
-    ), "Buffer should contain the added values."
-    assert jnp.all(
-        rolling_mean_state.index == 2
-    ), "Index should reflect the number of added values."
-    assert jnp.all(
-        rolling_mean_state.count == 2
-    ), "Count should reflect the number of added values."
-    assert jnp.all(
-        rolling_mean_state.sum == jnp.array([[40.0], [60.0]])
-    ), "Sum should reflect the total of added values."
-    assert jnp.all(
-        mean == jnp.array([[20.0], [30.0]])
-    ), "Mean should be the average of the added values."
+    assert jnp.isnan(mean)
+    np.testing.assert_array_equal(state.cumulative_reward[:, 0], [0.0, 20.0])

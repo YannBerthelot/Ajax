@@ -1,17 +1,17 @@
 import warnings
 from collections.abc import Sequence
-from functools import partial
-from typing import Callable, Optional, Union
+from typing import Optional, Tuple, Union
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PPO.core import resolve_num_minibatches
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -53,10 +53,11 @@ class PPO(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 4,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
@@ -73,7 +74,6 @@ class PPO(ActorCritic):
         num_minibatches: int = 0,
         adam_eps: float = 1e-8,
         vf_coef: float = 1.0,
-        use_vtrace_gae: bool = False,
         fused_grad_clip: bool = False,
         unroll_length: Optional[int] = None,
         num_resets_per_eval: int = 0,
@@ -83,67 +83,40 @@ class PPO(ActorCritic):
         # Pluggable memory block, e.g. MemoryConfig("gru", 64) or
         # {"kind": "lstm", "hidden_size": 64}. When set, PPO trains with
         # BPTT over sequences minibatched from the rollout (see
-        # num_minibatches and bptt_length; batch_size is ignored).
+        # num_minibatches and bptt_length).
         memory: Optional[Union[MemoryConfig, dict]] = None,
-        # Recurrent-only truncated-BPTT length: splits each env's rollout
-        # into n_steps/bptt_length contiguous sequences whose start
-        # carries are recomputed chunk-wise (never zero mid-episode).
-        # None = full-rollout BPTT. Must divide n_steps.
         bptt_length: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        # Brax-style actor head knobs (off by default = Ajax legacy).
-        # Set per-env in EVAREST's manip dict for brax/playground envs.
+        # Brax-style actor head knobs (off by default).
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_layer_norm: bool = False,
+        # Squashed or not, the action is read in [-1, 1] and mapped onto the
+        # env's bounds (agent_action_to_env), clipped there first.
         squash: bool = False,
         episode_length: Optional[int] = None,
-        # (agent_state, rollout) -> reward bonus added before GAE.
-        reward_shaping_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
-        # --- New surface: composable research features as Extensions ---
+        cnn_spec: Optional[CNNSpec] = None,
         extensions: Sequence[Extension] = (),
-        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout`` so
         # measurement extensions can read an on-state-visitation batch
         # without forcing a fresh rollout per eval. Off by default —
         # see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # Simulator steps per agent step on brax / playground envs
+        # (ActorCritic).
+        action_repeat: int = 1,
     ) -> None:
-        """
-        Initialize the PPO agent.
-
-        Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
-            alpha_init (float): Initial value for the temperature parameter.
-            target_entropy_per_dim (float): Target entropy per action dimension.
-        """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "PPO"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,
@@ -158,12 +131,9 @@ class PPO(ActorCritic):
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
-            actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
-            critic_kernel_init=critic_kernel_init,
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
-            encoder_bias_init=encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
@@ -173,6 +143,7 @@ class PPO(ActorCritic):
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
             episode_length=episode_length,
+            action_repeat=action_repeat,
             # The env's normaliser hands every observation normalised
             # with the statistics of its step, and the rollout keeps it
             # so: the loss sees what the policy acted on (the ratio is 1
@@ -180,7 +151,7 @@ class PPO(ActorCritic):
             extensions=extensions,
         )
 
-        self.agent_config = config = PPOConfig(
+        config = PPOConfig(
             gamma=gamma,
             ent_coef=ent_coef,
             clip_range=clip_range,
@@ -191,7 +162,6 @@ class PPO(ActorCritic):
             normalize_advantage=normalize_advantage,
             num_minibatches=num_minibatches,
             vf_coef=vf_coef,
-            use_vtrace_gae=use_vtrace_gae,
             fused_grad_clip=fused_grad_clip,
             unroll_length=unroll_length,
             bptt_length=bptt_length,
@@ -199,6 +169,7 @@ class PPO(ActorCritic):
             num_evals=num_evals,
             expose_recent_rollout=expose_recent_rollout,
         )
+        self.agent_config: PPOConfig = config
 
         if bptt_length is not None:
             if self.network_args.memory is None:
@@ -217,17 +188,3 @@ class PPO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        self.reward_shaping_fn = reward_shaping_fn
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the PPO agent.
-
-        Returns:
-            Callable: A function that trains the PPO agent.
-        """
-        return partial(
-            make_train,
-            reward_shaping_fn=self.reward_shaping_fn,
-            extensions=tuple(self.extension_stack.extensions),
-        )

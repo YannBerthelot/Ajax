@@ -1,8 +1,6 @@
 """The expert-guidance maths: the expert extensions' and target modifiers'
 helpers and SAC's expert plumbing."""
 
-from types import SimpleNamespace
-
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -13,20 +11,6 @@ from ajax.extensions.expert import (
     residual_action_transform,
 )
 from ajax.extensions.target_mods import blend_modify_target, mc_correction_modify_target
-
-
-def _fake_critic_state(fn):
-    """Build a minimal LoadedTrainState-like object.
-
-    ``predict_value`` only calls critic_state.apply_fn(params, x), so a
-    SimpleNamespace with callable apply_fn is sufficient.
-    """
-    return SimpleNamespace(
-        apply_fn=lambda params, x: fn(params, x),
-        params={"online": 1.0},
-        target_params={"target": 1.0},
-    )
-
 
 # ---------------------------------------------------------------------------
 # Blend target modifier
@@ -47,12 +31,8 @@ def test_blend_modify_target_matches_convex_combination():
 # ---------------------------------------------------------------------------
 
 
-def test_mc_correction_preserves_low_variance_entries():
-    def apply_fn(params, x):
-        batch = jnp.ones((x.shape[0], 1)) * 9.0
-        return jnp.stack([batch], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
+def test_mc_correction_preserves_low_variance_entries(critic_stub):
+    critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 9.0))
     target_q = jnp.array([[1.0], [2.0], [3.0]])
     q_var = jnp.array([0.0, 0.0, 0.0])  # below threshold
     out = mc_correction_modify_target(
@@ -67,12 +47,8 @@ def test_mc_correction_preserves_low_variance_entries():
     assert jnp.allclose(out, target_q)
 
 
-def test_mc_correction_replaces_high_variance_entries():
-    def apply_fn(params, x):
-        batch = jnp.ones((x.shape[0], 1)) * 9.0
-        return jnp.stack([batch], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
+def test_mc_correction_replaces_high_variance_entries(critic_stub):
+    critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 9.0))
     target_q = jnp.array([[1.0], [2.0], [3.0]])
     q_var = jnp.array([1.0, 1.0, 1.0])  # above threshold everywhere
     out = mc_correction_modify_target(
@@ -125,14 +101,10 @@ def test_residual_action_transform_sum_inside_box():
     assert jnp.allclose(out, jnp.array([[0.4, 0.2]]))
 
 
-def test_compute_online_bc_loss_decays_after_warmup():
-    def apply_fn(params, x):
-        batch = jnp.ones((x.shape[0], 1)) * 0.8
-        return jnp.stack([batch], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
+def test_compute_online_bc_loss_decays_after_warmup(critic_stub):
+    critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 0.8))
     common = {
-        "pi_loc": jnp.zeros((3, 2)),
+        "pi_mean": jnp.zeros((3, 2)),
         "a_expert": jnp.ones((3, 2)),
         "critic_state": critic_state,
         "expert_critic_params": {"e": 0.0},

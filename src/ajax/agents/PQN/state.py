@@ -1,10 +1,9 @@
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.state import BaseAgentConfig, BaseAgentState
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class PQNState(BaseAgentState):
     """PQN carries a single Q-network -- no replay buffer, no target network.
 

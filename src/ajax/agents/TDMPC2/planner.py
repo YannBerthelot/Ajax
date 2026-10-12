@@ -44,7 +44,7 @@ draws recorded from the reference
 uniform number turned into an index by the inverse CDF, the algorithm of the
 reference's ``np.random.choice(p=score)``.
 
-Multi-task (M8; ``tdmpc2.py:94-171`` with ``task``, tdmpc2_spec 3.9, 3.12):
+Multi-task (``tdmpc2.py:94-171`` with ``task``, tdmpc2_spec 3.9, 3.12):
 every function takes an optional :class:`~ajax.agents.TDMPC2.core.TaskContext`
 of one task (``ids`` a scalar, ``mask [A]``; ``None``, the default, is the
 single-task computation, unchanged). The task embedding conditions every
@@ -63,7 +63,7 @@ persisted (deviation T15; the reference writes it into its parameters).
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Optional, Union
+from typing import Any, Callable, NamedTuple, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -229,7 +229,7 @@ def estimate_value(
     ``alive`` is the latest code's ``1 - termination``.
     """
     action_dim = actions.shape[-1]
-    wm_apply = make_world_model(config).apply
+    wm_apply: Callable[..., Any] = make_world_model(config).apply
     pi_apply = make_policy_prior(config, action_dim).apply
     two_hot = config.two_hot
     emb = task_embedding(wm_params, task)
@@ -278,7 +278,7 @@ def policy_trajectories(
     horizon, p, action_dim = eps.shape
     if p == 0:  # the "planning without policy" ablation (spec 3.4)
         return jnp.zeros((horizon, 0, action_dim), jnp.float32)
-    wm_apply = make_world_model(config).apply
+    wm_apply: Callable[..., Any] = make_world_model(config).apply
     pi_apply = make_policy_prior(config, action_dim).apply
     emb = task_embedding(wm_params, task)
     mask = None if task is None else task.mask
@@ -395,8 +395,9 @@ def sample_elite(score: jax.Array, uniform: jax.Array) -> jax.Array:
 
 
 def check_plan_noise(noise: PlanNoise, config: TDMPC2Config, action_dim: int) -> None:
-    """Raise ``ValueError`` unless ``noise`` has the shapes of one decision of
-    ``config`` with ``action_dim`` actions (:func:`draw_plan_noise`).
+    """Raise ``ValueError`` unless ``noise`` has the shapes
+    :func:`draw_plan_noise` draws for one decision of ``config`` with
+    ``action_dim`` actions.
 
     In particular it must hold ``config.planning_iterations(action_dim)``
     rows of per-iteration draws: :func:`plan` runs one MPPI iteration per row,
@@ -405,23 +406,20 @@ def check_plan_noise(noise: PlanNoise, config: TDMPC2Config, action_dim: int) ->
     are static, so the check costs nothing under ``jit`` and sees one
     environment's shapes under ``vmap``.
     """
-    h, n, p = config.horizon, config.num_samples, config.num_pi_trajs
-    iterations = config.planning_iterations(action_dim)
-    expected = {
-        "pi_eps": (h, p, action_dim),
-        "candidate_eps": (iterations, h, n - p, action_dim),
-        "terminal_eps": (iterations, n, action_dim),
-        "q_pair": (iterations, 2),
-        "q_dropout": (iterations,),  # leading axis of raw or typed keys
-        "elite_uniform": (),
-        "action_eps": (action_dim,),
-    }
-    shapes = {name: getattr(noise, name).shape for name in expected}
-    shapes["q_dropout"] = shapes["q_dropout"][:1]
-    if shapes != expected:
+
+    def shapes(draws: PlanNoise) -> dict[str, tuple[int, ...]]:
+        out = {name: x.shape for name, x in vars(draws).items()}
+        out["q_dropout"] = out["q_dropout"][:1]  # raw or typed keys: their count
+        return out
+
+    key = jax.ShapeDtypeStruct((2,), jnp.uint32)
+    drawn = jax.eval_shape(lambda k: draw_plan_noise(k, config, action_dim), key)
+    expected = shapes(drawn)
+    if shapes(noise) != expected:
         raise ValueError(
             f"noise does not match the config with action_dim={action_dim} "
-            f"({iterations} iterations): shapes {shapes}, expected {expected}"
+            f"({config.planning_iterations(action_dim)} iterations): shapes"
+            f" {shapes(noise)}, expected {expected}"
         )
 
 

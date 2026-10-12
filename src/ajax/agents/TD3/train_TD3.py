@@ -5,9 +5,9 @@ Three changes vs DDPG:
 2. Target policy smoothing: target action = clip(mu_target(s') + clip(N, -c, c), -1, 1).
 3. Delayed policy + target updates every `policy_delay` critic steps.
 
-The actor reuses Ajax's stochastic SquashedNormal head and is treated
-deterministically by taking pi.mean() (== tanh(mu)) for both target
-and behaviour. Exploration noise is added at action time.
+The actor is deterministic (networks.py: a Deterministic wrapper of
+tanh(mu)), and pi.mean() gives its action for both target and
+behaviour. Exploration noise is added at action time.
 """
 
 from collections.abc import Sequence
@@ -18,7 +18,6 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, critic_step, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -28,6 +27,7 @@ from ajax.agents.recurrent import (
     stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
+from ajax.agents.SAC.core import critic_loss_fn
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.environments.interaction import (
@@ -35,9 +35,10 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
 )
-from ajax.environments.utils import check_env_is_gymnax
-from ajax.extensions.base import ExtensionStack
+from ajax.evaluate import ValueEstimate
+from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.networks import action_value
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -117,8 +118,9 @@ def init_TD3(
     window_size: int = 10,
     stored_state: bool = False,
     expert_policy: Optional[Callable] = None,
+    store_expert_data: bool = False,
 ) -> TD3State:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state = get_initialized_td3_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -130,10 +132,12 @@ def init_TD3(
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
+        mode=env_args.mode,
         buffer=buffer,
         window_size=window_size,
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
+        include_raw_obs=store_expert_data,
+        include_is_expert=store_expert_data,
     )
     # A stateful expert (PID integrator, CPG phase) threads its state
     # through collection; seed it so the scan carry keeps one shape.
@@ -143,7 +147,7 @@ def init_TD3(
         )
     return TD3State(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         collector_state=collector_state,
@@ -188,24 +192,6 @@ def compute_td3_td_target(
     return jax.lax.stop_gradient(target)
 
 
-def value_loss_function(
-    critic_params: FrozenDict,
-    critic_state: LoadedTrainState,
-    observations: jax.Array,
-    actions: jax.Array,
-    target_q: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """Both critics regress on the one target: ``sum_i (Q_i(s, a) - y)^2``."""
-    q_preds = q_values(critic_state, critic_params, observations, actions, carries)
-    loss = jnp.mean((q_preds - target_q) ** 2)
-    return loss, ValueAuxiliaries(
-        critic_loss=loss,
-        target_q=target_q.mean().flatten(),
-        q_pred_min=jnp.min(q_preds, axis=0).mean().flatten(),
-    )
-
-
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
@@ -231,7 +217,9 @@ def update_value_functions(
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[TD3State, ValueAuxiliaries]:
     """The critic step on the smoothed, clipped double-Q target."""
-    key, rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
     target_q = compute_td3_td_target(
@@ -249,8 +237,14 @@ def update_value_functions(
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        return value_loss_function(
+        """Both critics regress on the one target (SAC's critic loss)."""
+        loss, aux = critic_loss_fn(
             params, agent_state.critic_state, batch.obs, batch.action, target_q, carries
+        )
+        return loss, ValueAuxiliaries(
+            critic_loss=loss,
+            target_q=target_q.mean().flatten(),
+            q_pred_min=aux.q_pred_min,
         )
 
     critic_state, aux = critic_step(
@@ -259,7 +253,7 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        key,
+        ext_key,
         total_timesteps,
         rewards=batch.reward,
         dones=dones,
@@ -295,7 +289,8 @@ def update_policy(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            # The next update splits the agent's key in two (update_agent).
+            jax.random.split(agent_state.rng, 3)[2],
             total_timesteps,
         )
         return loss + extra, aux
@@ -375,26 +370,24 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
     action_pipeline: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """TD3's train function: one step per env, then (from ``learning_starts``)
     one update, per iteration."""
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
+    }
+    extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     recurrent = network_args.memory is not None
     if recurrent:
         unsupported_recurrent_options(
             "TD3",
             expert_policy=expert_policy,
             extensions=(tuple(extensions) or None),
-            # TD3 always builds a default CloningConfig; only actual
-            # pre-training (pre_train_n_steps > 0) conflicts with memory.
-            cloning_pretrain=(
-                cloning_args
-                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
-                else None
-            ),
         )
     loop = TrainLoop.create(
         env_args,
@@ -410,8 +403,8 @@ def make_train(
             recurrent, agent_config.exploration_noise
         )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> TD3State:
-        agent_state = init_TD3(
+    def init(key: jax.Array) -> TD3State:
+        return init_TD3(
             key,
             env_args,
             actor_optimizer_args,
@@ -421,14 +414,7 @@ def make_train(
             num_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
             expert_policy=expert_policy,
-        )
-        return pretrain_on_expert(
-            agent_state,
-            pretrain_key,
-            cloning_args,
-            expert_policy,
-            env_args,
-            actor_optimizer_args,
+            store_expert_data=holds_expert(expert_policy, loop.stack),
         )
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:
@@ -448,5 +434,10 @@ def make_train(
             "action_pipeline": action_pipeline,
             "store_hidden": recurrent and agent_config.stored_state,
         },
-        eval_kwargs={"expert_policy": expert_policy},
+        eval_kwargs={
+            "expert_policy": expert_policy,
+            "value_estimate": ValueEstimate(
+                action_value, agent_config.gamma, agent_config.reward_scale
+            ),
+        },
     )

@@ -1,4 +1,4 @@
-"""Offline multi-task TD-MPC2 datasets: schema, export, pooling, sampling (M8).
+"""Offline multi-task TD-MPC2 datasets: schema, export, pooling, sampling.
 
 The paper's multi-task models train offline on the pooled replay of
 single-task agents (Sec. 4.1; tdmpc2_spec 4.18-4.19; ``DESIGN.md`` §7). This
@@ -38,12 +38,9 @@ Rows are obs-aligned (``DESIGN.md`` §5.2, the layout of the single-task ring,
 :mod:`ajax.agents.TDMPC2.buffer`): row ``k`` holds ``o_k``, the action ``a_k``
 taken there and the reward ``r_{k-1}`` received on entering ``o_k``. Row 0 is
 the reset row, whose reward slot is 0 (no reward led into it); the last row
-has no action, its action slot is 0. The reference stores ``(o_k, a_{k-1},
-r_{k-1})`` with dummies in row 0 (b67b21c ``online_trainer.py:50-65``) and
-drops them when slicing (``buffer.py:26-28``); the slice conversion of
-:func:`ajax.agents.TDMPC2.buffer.slice_batch` (obs rows ``s .. s + H``, action
-rows ``s .. s + H - 1``, reward rows ``s + 1 .. s + H``) yields the same
-transitions from this layout, so the placeholder slots are never read.
+has no action, its action slot is 0. The slices of
+:func:`ajax.agents.TDMPC2.buffer.slice_batch` never read these placeholder
+slots and give the reference's transitions (the buffer module docstring).
 
 Sampling (:meth:`MultiTaskDataset.sample`) is b67b21c's (``buffer.py:60-70``):
 an episode uniformly over the *pooled* episodes (``RandomSampler``, so a
@@ -106,7 +103,6 @@ class TaskEpisodes(_EpisodeShape):
         action: ``[N, L, action_dim]`` float32 (row ``L - 1`` is 0).
         reward: ``[N, L]`` float32 (row 0 is 0).
         episode_length: the task's episode length ``T`` in agent steps.
-        name: the task's name.
     """
 
     obs: np.ndarray
@@ -161,7 +157,6 @@ def export_episodes(
         state: the run's state, as ``agent.train`` returned it; with a
             leading seed axis, ``seed_index`` picks the seed.
         seed_index: the seed to export, required for a seed-batched state.
-        name: the task's name.
         allow_evicted: export what the ring still holds when it wrapped and
             evicted older episodes. By default this raises: a dataset of the
             full training history (``DESIGN.md`` §7) needs ``buffer_size`` at
@@ -193,7 +188,9 @@ def export_episodes(
         obs_dim=obs.shape[-1],
         action_dim=action.shape[-1],
     )
-    ring.check_layout(EpisodeBufferState(obs=obs, action=action, reward=reward))
+    # Host copies, not device arrays: the layout check reads shapes only.
+    host_state = EpisodeBufferState(obs=obs, action=action, reward=reward)  # type: ignore[arg-type]
+    ring.check_layout(host_state)
     ticks = int(rows) // n_envs
     slots, evicted = ring.committed_slots(ticks - 1)
     if slots.size == 0:
@@ -250,19 +247,7 @@ def concatenate_episodes(episodes: Sequence[TaskEpisodes]) -> TaskEpisodes:
 class MultiTaskDataset(_EpisodeShape):
     """A pooled multi-task dataset (module docstring for the schema).
 
-    A pytree of the four arrays; the per-task metadata is static. The
-    offline trainer passes it to its jitted, seed-vmapped program as one
-    unbatched argument (``build_resumable_train``'s ``shared`` input).
-
-    Attributes:
-        obs: ``[N, L, O_max]`` float32, zero-padded at the end.
-        action: ``[N, L, A_max]`` float32, zero on invalid dims.
-        reward: ``[N, L]`` float32.
-        task: ``[N]`` int32 task ids.
-        obs_dims: per-task observation dims.
-        action_dims: per-task action dims (the leading dims).
-        episode_lengths: per-task episode lengths ``T`` (agent steps).
-        names: per-task names.
+    A pytree of the four arrays; the per-task metadata is static.
     """
 
     obs: jax.Array

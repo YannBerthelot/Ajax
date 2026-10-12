@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple, Optional, Tuple, Union
 
 import distrax
 import flax.linen as nn
@@ -8,13 +8,14 @@ import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
 from flax.linen.initializers import constant, orthogonal
-from flax.linen.normalization import _l2_normalize
 from flax.serialization import to_state_dict
 
-from ajax.agents.SAC.utils import SquashedNormal
+from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import (
+    Carry,
     MemoryCell,
     MemoryConfig,
     init_carry,
@@ -31,14 +32,14 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import ActivationFunction, HiddenState, InitializationFunction
+from ajax.types import ActivationFunction, InitializationFunction
 
 
 class Encoder(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     penultimate_normalization: bool = False
-    kernel_init: Optional[str] = None
-    bias_init: Optional[str] = None
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    bias_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the output features. Off by default: the SAC,
     # TD3, PPO and DQN papers use plain MLPs. Ignored under
     # penultimate_normalization, which takes precedence.
@@ -55,10 +56,30 @@ class Encoder(nn.Module):
     def __call__(self, x):
         features = self.network(x)
         if self.penultimate_normalization:
-            return _l2_normalize(features, axis=1)
+            # Each feature vector (last axis) to unit L2 norm, whatever the
+            # leading batch or time axes: flax's _l2_normalize formula and
+            # eps, bitwise equal to its axis=1 on (B, F) inputs.
+            return features * jax.lax.rsqrt(
+                (features * features).sum(axis=-1, keepdims=True) + 1e-12
+            )
         if self.layer_norm:
             return self.norm(features)
         return features
+
+
+class CNNSpec(NamedTuple):
+    """CNN encoder architecture: conv stack + projection width.
+
+    ``CNNSpec()`` is :class:`CNNEncoder`'s default architecture. Each
+    ``kernel_sizes`` / ``strides`` entry may be an ``int`` (square) or an
+    ``(h, w)`` tuple. A ``NamedTuple`` -> hashable, so it is safe as a flax
+    module field and as a :class:`NetworkConfig` field.
+    """
+
+    channels: Tuple[int, ...] = (16, 32)
+    kernel_sizes: Tuple = (4, 3)
+    strides: Tuple = (2, 2)
+    feature_dim: int = 128
 
 
 class CNNEncoder(nn.Module):
@@ -76,15 +97,18 @@ class CNNEncoder(nn.Module):
 
     image_shape: Tuple[int, int, int]  # (H, W, C)
     extra_obs_dim: int = 0
-    channels: Tuple[int, ...] = (16, 32)
-    kernel_sizes: Tuple[int, ...] = (4, 3)
-    strides: Tuple[int, ...] = (2, 2)
-    feature_dim: int = 128
+    spec: Optional[CNNSpec] = None  # None: CNNSpec()
 
     @nn.compact
     def __call__(self, x):
+        spec = self.spec if self.spec is not None else CNNSpec()
         H, W, C = self.image_shape
         img_flat = H * W * C
+        if x.shape[-1] != img_flat + self.extra_obs_dim:
+            raise ValueError(
+                f"CNNEncoder reads {img_flat} image dims {self.image_shape} and"
+                f" {self.extra_obs_dim} trailing dims, got {x.shape[-1]} dims."
+            )
         if self.extra_obs_dim > 0:
             img = x[..., :img_flat]
             extra = x[..., img_flat:]
@@ -93,7 +117,7 @@ class CNNEncoder(nn.Module):
             extra = None
         img = img.reshape(*x.shape[:-1], H, W, C)
         for c, k, s in zip(
-            self.channels, self.kernel_sizes, self.strides, strict=False
+            spec.channels, spec.kernel_sizes, spec.strides, strict=False
         ):
             # Each kernel/stride entry may be an int (square) or an (h, w)
             # tuple -- the latter for non-square images (e.g. octax's 64x32).
@@ -103,51 +127,18 @@ class CNNEncoder(nn.Module):
             img = nn.relu(img)
         # Flatten the spatial+channel dims while preserving leading batch dims.
         img = img.reshape(*img.shape[:-3], -1)
-        feat = nn.Dense(self.feature_dim)(img)
+        feat = nn.Dense(spec.feature_dim)(img)
         feat = nn.relu(feat)
         if extra is not None:
             feat = jnp.concatenate([feat, extra], axis=-1)
         return feat
 
 
-class CNNSpec(NamedTuple):
-    """CNN encoder architecture: conv stack + projection width.
-
-    Defaults match :class:`CNNEncoder`'s own defaults, so ``CNNSpec()``
-    reproduces the legacy encoder. Each ``kernel_sizes`` / ``strides``
-    entry may be an ``int`` (square) or an ``(h, w)`` tuple. A
-    ``NamedTuple`` -> hashable, so it is safe as a flax module field and
-    as a :class:`NetworkConfig` field.
-    """
-
-    channels: Tuple[int, ...] = (16, 32)
-    kernel_sizes: Tuple = (4, 3)
-    strides: Tuple = (2, 2)
-    feature_dim: int = 128
-
-
-def build_cnn_encoder(image_shape, extra_obs_dim=0, cnn_spec=None):
-    """Build a :class:`CNNEncoder` from an optional :class:`CNNSpec`.
-
-    ``cnn_spec=None`` -> ``CNNEncoder``'s default architecture. The single
-    place that turns a (shape, spec) pair into an encoder, so every
-    network module wires the CNN identically.
-    """
-    spec = cnn_spec if cnn_spec is not None else CNNSpec()
-    return CNNEncoder(
-        image_shape=image_shape,
-        extra_obs_dim=extra_obs_dim,
-        channels=spec.channels,
-        kernel_sizes=spec.kernel_sizes,
-        strides=spec.strides,
-        feature_dim=spec.feature_dim,
-    )
-
-
 class Actor(nn.Module):
-    """
-    Standard SAC actor. Expert guidance is handled at the loss level, not in the
-    architecture. This keeps the policy unconstrained and theoretically clean.
+    """The stochastic policy of SAC, REDQ, ASAC, AVG, PPO, APO and UDRL: a
+    Normal (or tanh-squashed) head for continuous actions, a Categorical one
+    for discrete. Expert guidance acts at the loss level, not in the
+    architecture, which keeps the policy unconstrained.
     """
 
     input_architecture: Sequence[Union[str, ActivationFunction]]
@@ -155,10 +146,8 @@ class Actor(nn.Module):
     continuous: bool = False
     squash: bool = False
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
     # When True, log_std is a single learnable scalar Param per action
     # dim (state-independent), matching brax PPO's ``noise_std_type=
     # 'scalar'``. When False (default), log_std is a Dense layer over
@@ -166,31 +155,26 @@ class Actor(nn.Module):
     # ``log_std_init`` sets the initial value of log_std (in either
     # mode). brax PPO defaults to ``init_noise_std=1.0`` (a softplus-
     # parametrised scalar around std=1.31); the equivalent in log-space
-    # is ``log_std_init=0.0`` giving std=1.0. The legacy Ajax default
+    # is ``log_std_init=0.0`` giving std=1.0. The Ajax default
     # (``-1.0``) gives std=exp(-1)≈0.37, which is ~3.5× quieter than
     # brax — explored less and contributed to PPO policy collapse on
     # bounded continuous control envs (mujoco_playground manip).
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
-    # Mean-head kernel init. None keeps the legacy ``orthogonal(0.01)``
-    # default (small initial mean, used by SAC/old PPO/etc). Setting to
-    # a string ("lecun_uniform", "orthogonal", ...) parses via
-    # ``parse_initialization``; setting to a callable uses it directly.
+    # Mean-head kernel init (a ``parse_initialization`` string or a
+    # callable). None keeps ``orthogonal(0.01)``, a small initial mean.
     # brax PPO uses ``lecun_uniform`` for the mean head, which gives an
     # initial mean magnitude ~17x bigger than ``orthogonal(0.01)`` --
     # essential for the eval (deterministic mean) action to be non-zero
-    # at the start of training. When the mean stays at ~0 (the legacy
+    # at the start of training. When the mean stays at ~0 (the
     # default), eval = tanh(near_zero) ≈ near_zero and the arm doesn't
     # move; combined with the wide std=1 exploration noise this produces
     # the "train_reward >> eval_reward" pathology on continuous control.
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
-    # Optional CNN encoder. When `cnn_image_shape` is provided, the encoder
-    # treats obs as `(*batch, H*W*C + cnn_extra_obs_dim)` flat: the image
-    # portion is reshaped to NHWC, run through a small conv stack, then
-    # any trailing scalar dims (e.g. UDRL command) are concatenated to the
-    # embedding before the heads. None keeps the legacy MLP encoder.
+    # Optional CNN encoder over flat image obs (see `CNNEncoder`); None
+    # keeps the MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
@@ -204,7 +188,7 @@ class Actor(nn.Module):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
         if self.cnn_image_shape is not None:
-            self.encoder = build_cnn_encoder(
+            self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
             )
         else:
@@ -212,41 +196,25 @@ class Actor(nn.Module):
                 input_architecture=self.input_architecture,
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
-                bias_init=self.encoder_bias_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        if self.kernel_init is None:
-            kernel_init = orthogonal(1.0)
-        else:
-            kernel_init = parse_initialization(self.kernel_init)
-        if self.bias_init is None:
-            bias_init = constant(0.0)
-        else:
-            bias_init = parse_initialization(self.bias_init)
+        kernel_init = orthogonal(1.0)
+        bias_init = parse_initialization(self.bias_init, default=constant(0.0))
 
         if self.continuous:
-            if self.mean_kernel_init is None:
-                _mean_kernel_init = orthogonal(0.01)
-            elif callable(self.mean_kernel_init):
-                _mean_kernel_init = self.mean_kernel_init
-            else:
-                _mean_kernel_init = parse_initialization(self.mean_kernel_init)
             self.mean = nn.Dense(
                 self.action_dim,
-                kernel_init=_mean_kernel_init,
+                kernel_init=parse_initialization(
+                    self.mean_kernel_init, default=orthogonal(0.01)
+                ),
                 bias_init=bias_init,
                 name="mean",
             )
-            # log_std head: two flavours.
-            #  * Dense over the encoder features (state-dependent, SAC's
-            #    convention). kernel_init=zeros means output equals bias
-            #    at init -- clean starting std=exp(log_std_init).
-            #  * Scalar Param per action dim (state-independent, brax PPO's
-            #    convention). Lives outside the encoder so the policy's
-            #    exploration profile is a pure global scalar that doesn't
-            #    couple to the value-estimating features. flax requires
-            #    such params to be declared in setup() (or in a method
-            #    wrapped with @nn.compact); we use the former.
+            # The state-dependent head's zero kernel outputs its bias at
+            # init: std=exp(log_std_init). The state-independent Param
+            # lives outside the encoder so exploration does not couple to
+            # the value-estimating features; flax requires it declared in
+            # setup() (or an @nn.compact method).
             if not self.log_std_state_independent:
                 self.log_std = nn.Dense(
                     self.action_dim,
@@ -276,9 +244,6 @@ class Actor(nn.Module):
         if self.continuous:
             mean = self.mean(embedding)
             if self.log_std_state_independent:
-                # Single learnable scalar per action dim, declared in
-                # setup(); broadcast to mean.shape for the elementwise
-                # std computation.
                 log_std = jnp.clip(
                     jnp.broadcast_to(self.log_std_param, mean.shape),
                     -20,
@@ -309,10 +274,8 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
     # When set, the encoder is a `CNNEncoder` over flat image obs rather
@@ -343,11 +306,10 @@ class Critic(nn.Module):
                 self.head = Encoder(
                     input_architecture=self.input_architecture,
                     kernel_init=self.encoder_kernel_init,
-                    bias_init=self.encoder_bias_init,
                     layer_norm=self.encoder_layer_norm,
                 )
         if self.cnn_image_shape is not None:
-            self.encoder = build_cnn_encoder(
+            self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
             )
         else:
@@ -355,23 +317,12 @@ class Critic(nn.Module):
                 input_architecture=self.input_architecture,
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
-                bias_init=self.encoder_bias_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        kernel_init = (
-            orthogonal(1.0)
-            if self.kernel_init is None
-            else parse_initialization(self.kernel_init)
-        )
-        bias_init = (
-            constant(0.0)
-            if self.bias_init is None
-            else parse_initialization(self.bias_init)
-        )
         self.model = nn.Dense(
             1,
-            kernel_init=kernel_init,
-            bias_init=bias_init,
+            kernel_init=orthogonal(1.0),
+            bias_init=parse_initialization(self.bias_init, default=constant(0.0)),
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -388,30 +339,19 @@ class Critic(nn.Module):
         return self.model(feat), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
-        """Expose the encoder's features alone, without the value head.
-
-        Used by auxiliary representation-shaping losses (VAE, RSSM) that
-        need to push gradients into the shared encoder while owning
-        their own decoder/prior/posterior heads.
-        """
+        """The encoder's features alone, without the value head (read by
+        :class:`ajax.extensions.instrumentation.ConditioningMetrics`)."""
         return self.encoder(x)
 
 
 class MultiCritic(nn.Module):
-    """
-    Ensemble of critics. Using num=4 is recommended for this setting:
-    the min aggregation over 4 critics is significantly more conservative
-    than over 2, directly reducing overestimation bias without requiring
-    more gradient updates per step.
-    """
+    """Ensemble of ``num`` critics, vmapped over a leading parameter axis."""
 
     input_architecture: Sequence[Union[str, ActivationFunction]]
     num: int = 4
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_layer_norm: bool = False
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
@@ -425,8 +365,8 @@ class MultiCritic(nn.Module):
         # x (and done) are broadcast across the ensemble; the carry is
         # mapped over its leading (num,) axis so each member evolves its
         # own memory. NOTE: the recurrent in_axes spec matches __call__'s
-        # 3-arg signature; apply_encoder (1 arg) is only used by the
-        # VAE/RSSM auxiliaries, which never combine with memory.
+        # 3-arg signature; apply_encoder (1 arg) is only used by
+        # ConditioningMetrics, which therefore needs a feedforward critic.
         in_axes = (None, 0, None) if self.memory is not None else None
         Vmapped = nn.vmap(
             target=Critic,
@@ -440,10 +380,8 @@ class MultiCritic(nn.Module):
         self.ensemble = Vmapped(
             input_architecture=self.input_architecture,
             penultimate_normalization=self.penultimate_normalization,
-            kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             encoder_kernel_init=self.encoder_kernel_init,
-            encoder_bias_init=self.encoder_bias_init,
             encoder_layer_norm=self.encoder_layer_norm,
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
@@ -460,13 +398,8 @@ class MultiCritic(nn.Module):
         return self.ensemble(x)
 
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
-        """Per-ensemble-member encoder features, shape ``(num, ..., d)``.
-
-        Auxiliary modules (VAE, RSSM) consume these features to drive
-        gradients back through the shared encoder. Callers typically
-        average across the ensemble axis since the encoder sees
-        identical inputs and only diverges via its init RNG.
-        """
+        """Per-ensemble-member encoder features, shape ``(num, ..., d)``
+        (:class:`ajax.extensions.instrumentation.ConditioningMetrics`)."""
         return self.ensemble.apply_encoder(x)
 
 
@@ -492,33 +425,22 @@ def get_initialized_actor_critic(
     action_value: bool = False,
     squash: bool = False,
     num_critics: int = 4,
-    actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
-    encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     action_dim_override: Optional[int] = None,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
-    log_std_state_independent: bool = False,
-    log_std_init: float = -1.0,
-    mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+    actor: Optional[nn.Module] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
-    Create actor and critic networks.
+    Create actor and critic networks, their initializers and log-std head
+    as ``network_config`` sets them; a prebuilt ``actor`` (TD3's
+    deterministic one) replaces the :class:`Actor` built here.
 
-    extra_obs_dim: extra dimensions appended to obs at runtime before the
-    network forward pass. Set to action_dim (2 for the plane) when
-    augment_obs_with_expert_action=True, so the network is initialised with
-    the correct input size matching what interaction.augment_obs produces.
+    extra_obs_dim: dimensions the agent appends to obs at run time (UDRL's
+    command; SAC's expert action and expert state when it augments with
+    them), so the network is initialised on the input width it will be fed.
 
     A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
     actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).
-
-    All other expert-guidance is handled at the loss level (value
-    constraint, online BC) so the architecture is always a plain Actor/MultiCritic.
     """
     action_dim = (
         action_dim_override
@@ -527,31 +449,28 @@ def get_initialized_actor_critic(
     )
 
     memory = parse_memory_config(network_config.memory)
-    if memory is not None:
-        if network_config.penultimate_normalization:
-            # The encoder's l2-normalization is hardcoded to axis=1, which
-            # is the batch axis on time-major (T, B, F) inputs.
-            raise NotImplementedError(
-                "penultimate_normalization is incompatible with memory."
-            )
 
-    # Resolve the CNN encoder spec: an explicit arg (UDRL passes one)
-    # takes precedence, else fall back to the NetworkConfig field (the
-    # path SAC/PPO use). A CNN critic is only valid for state-value
-    # critics; an action-value critic (SAC's Q(s,a)) keeps the MLP.
-    if cnn_image_shape is None:
-        cnn_image_shape = network_config.cnn_image_shape
+    # A CNN critic is only valid for state-value critics; an action-value
+    # critic (SAC's Q(s,a)) keeps the MLP.
+    cnn_image_shape = network_config.cnn_image_shape
     critic_cnn_image_shape = None if action_value else cnn_image_shape
-    cnn_spec = network_config.cnn_spec  # conv architecture (None -> default)
+    cnn_spec = network_config.cnn_spec
+    # Dims appended to the env's observation at run time: the train
+    # fraction and the agent's augmentation (UDRL's command, an expert's
+    # action). A CNN passes them through after the convolutions, with the
+    # env's own trailing dims, the same way in the actor and the critic.
+    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
-    actor: nn.Module
-    if isinstance(network_config.actor_architecture, PIDPolicy):
+    if actor is not None:
+        pass
+    elif isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(continuous, memory)
         actor = PIDActor(
             policy=network_config.actor_architecture,
             action_dim=action_dim,
             squash=squash,
-            log_std_init=log_std_init,
+            log_std_init=network_config.log_std_init,
         )
     else:
         actor = Actor(
@@ -560,16 +479,14 @@ def get_initialized_actor_critic(
             continuous=continuous,
             squash=squash,
             penultimate_normalization=network_config.penultimate_normalization,
-            kernel_init=actor_kernel_init,
-            bias_init=actor_bias_init,
-            encoder_kernel_init=encoder_kernel_init,
-            encoder_bias_init=encoder_bias_init,
+            bias_init=network_config.actor_bias_init,
+            encoder_kernel_init=network_config.encoder_kernel_init,
             cnn_image_shape=cnn_image_shape,
-            cnn_extra_obs_dim=extra_obs_dim,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
-            log_std_state_independent=log_std_state_independent,
-            log_std_init=log_std_init,
-            mean_kernel_init=mean_kernel_init,
+            log_std_state_independent=network_config.log_std_state_independent,
+            log_std_init=network_config.log_std_init,
+            mean_kernel_init=network_config.mean_kernel_init,
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
         )
@@ -577,13 +494,11 @@ def get_initialized_actor_critic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
         num=num_critics,
-        kernel_init=critic_kernel_init,
-        bias_init=critic_bias_init,
-        encoder_kernel_init=encoder_kernel_init,
-        encoder_bias_init=encoder_bias_init,
+        bias_init=network_config.critic_bias_init,
+        encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=critic_cnn_image_shape,
-        cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
+        cnn_extra_obs_dim=cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
         memory=memory,
         query_dim=action_dim if action_value and memory is not None else 0,
@@ -595,17 +510,14 @@ def get_initialized_actor_critic(
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
-    # Inflate obs dim for train_frac and/or obs augmentation
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
     if obs_extra > 0:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += obs_extra
         observation_shape = tuple(_obs_shape)
 
-    # Flax network.init only reads init_x's shape to infer param shapes;
-    # the leading batch dim can be 1. Allocating (n_envs, ...) just
-    # materialised an n_envs× larger zero tensor for no benefit, and
-    # matters when n_envs is large or obs are high-dim (images).
+    # Flax network.init only reads init_x's shape, so a batch of 1 does:
+    # n_envs rows would allocate an n_envs-times larger zero tensor for
+    # nothing, which matters with many envs or image observations.
     init_obs = jnp.zeros((1, *observation_shape))
     if action_dim_override is not None:
         action_shape = (action_dim_override,)
@@ -646,7 +558,9 @@ def get_initialized_critic(
     extra_obs_dim: int = 0,
 ) -> LoadedTrainState:
     """Initialize a standalone critic network (no actor). Same architecture as
-    the online critic so predict_value can be called on its params directly."""
+    the online critic so predict_value can be called on its params directly.
+    Always feedforward: its one reader (MCPretrain's frozen expert critic)
+    only calls predict_value."""
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
@@ -672,7 +586,6 @@ def get_initialized_critic(
         network=critic,
         key=key,
         tx=critic_tx,
-        memory=parse_memory_config(network_config.memory),
         n_envs=env_config.n_envs,
     )
 
@@ -702,7 +615,7 @@ def init_network_state(
     batch-sized to ``n_envs``.
     """
     if memory is None:
-        params = FrozenDict(network.init(key, init_x))
+        params: FrozenDict[str, Any] = FrozenDict(network.init(key, init_x))
         hidden_state = None
     else:
         init_key, carry_key = jax.random.split(key)
@@ -714,8 +627,6 @@ def init_network_state(
         init_carry_batch = init_network_carry(
             network, memory, carry_key, init_x.shape[0]
         )
-        # Recurrent networks consume time-major (T, B, ...) sequences;
-        # initialize with a single-step sequence.
         params = FrozenDict(
             network.init(
                 init_key,
@@ -738,8 +649,6 @@ def _apply_critic_obs_norm(critic_state: LoadedTrainState, x: jax.Array) -> jax.
     """Normalise the obs slice of a critic input (obs or concat(obs, action));
     the action slice stays raw (``apply_obs_norm``). No-op when
     normalisation is disabled."""
-    from ajax.agents.obs_norm import apply_obs_norm
-
     return apply_obs_norm(x, getattr(critic_state, "obs_norm_info", None))
 
 
@@ -748,8 +657,8 @@ def predict_value_sequence(
     critic_params: FrozenDict,
     x: jax.Array,
     resets: jax.Array,
-    initial_hidden: HiddenState,
-) -> Tuple[jax.Array, HiddenState]:
+    initial_hidden: Carry,
+) -> Tuple[jax.Array, Carry]:
     """Run a recurrent critic over a time-major sequence.
 
     Args:
@@ -769,12 +678,36 @@ def predict_value_sequence(
     )
 
 
+def phi_star_critic_state(critic_state: LoadedTrainState) -> LoadedTrainState:
+    """The critic state the frozen expert critic phi*'s parameters
+    (``expert_critic_params``) are applied with: the online critic's
+    network without the agent's observation statistics, as MC pretraining
+    and PhiRefresh fit phi* on the observations as stored."""
+    if getattr(critic_state, "obs_norm_info", None) is None:
+        return critic_state
+    return critic_state.replace(obs_norm_info=None)
+
+
 def predict_value(
     critic_state: LoadedTrainState,
     critic_params: FrozenDict,
     x: jax.Array,
 ) -> jax.Array:
-    # Agent-side obs normalisation (stats on critic_state.obs_norm_info,
-    # synced from CollectorState after every online collection step).
     x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(critic_params, x)
+
+
+def state_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
+    """``V(obs)`` of the agent's critic, its ensemble's mean (``action``
+    unused): an evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
+    del action
+    critic = agent_state.critic_state
+    return predict_value(critic, critic.params, obs).mean(0).squeeze(-1)
+
+
+def action_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
+    """``Q(obs, action)`` of the agent's critic, its ensemble's mean: an
+    evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
+    critic = agent_state.critic_state
+    x = action_value_input(obs, action.astype(obs.dtype))
+    return predict_value(critic, critic.params, x).mean(0).squeeze(-1)

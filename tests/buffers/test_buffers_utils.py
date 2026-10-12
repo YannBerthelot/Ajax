@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 import jax
+import jax.numpy as jnp
 import pytest
+from gymnax import make as make_gymnax_env
 
 from ajax.buffers.utils import get_batch_from_buffer, get_buffer, init_buffer
 from ajax.environments.create import build_env_from_id
@@ -21,7 +23,9 @@ def setup():
     obs_shape, action_shape = get_state_action_shapes(env)
     return SimpleNamespace(
         buffer=buffer,
-        state=init_buffer(buffer, env_args),
+        state=init_buffer(
+            buffer, env_args, include_raw_obs=True, include_is_expert=True
+        ),
         buffer_size=buffer_size,
         batch_size=batch_size,
         n_envs=n_envs,
@@ -55,18 +59,64 @@ def test_init_buffer(setup):
 
 
 def test_get_batch_from_buffer(setup):
-    obs, terminated, truncated, next_obs, reward, action, raw_obs, is_expert = (
-        get_batch_from_buffer(setup.buffer, setup.state, jax.random.PRNGKey(0))
-    )
-    batch = setup.batch_size
+    b = get_batch_from_buffer(setup.buffer, setup.state, jax.random.PRNGKey(0))
     for sample, trailing in (
-        (obs, setup.obs_shape),
-        (next_obs, setup.obs_shape),
-        (raw_obs, setup.obs_shape),
-        (action, setup.action_shape),
-        (terminated, (1,)),
-        (truncated, (1,)),
-        (reward, (1,)),
-        (is_expert, (1,)),
+        (b.obs, setup.obs_shape),
+        (b.next_obs, setup.obs_shape),
+        (b.raw_obs, setup.obs_shape),
+        (b.action, setup.action_shape),
+        (b.terminated, (1,)),
+        (b.truncated, (1,)),
+        (b.reward, (1,)),
+        (b.is_expert, (1,)),
     ):
-        assert sample.shape == (batch, *trailing)
+        assert sample.shape == (setup.batch_size, *trailing)
+    # Fields the buffer does not store come back None.
+    assert b.a_expert is None and b.next_a_expert is None and b.raw_next_obs is None
+
+
+@pytest.mark.parametrize(
+    "env_id, action_dtype", [("Pendulum-v1", jnp.float32), ("CartPole-v1", jnp.int32)]
+)
+def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
+    """A row holds the transition; each option adds its fields or widens
+    the stored observations (never the raw ones)."""
+    env, params = make_gymnax_env(env_id)
+    env_args = EnvironmentConfig(
+        env=env, env_params=params, n_envs=1, continuous=env_id == "Pendulum-v1"
+    )
+    obs_dim = env.observation_space(params).shape[0]
+    buffer = get_buffer(buffer_size=8, batch_size=2)
+
+    def row(**options):
+        rows = init_buffer(buffer, env_args, **options).experience
+        return {k: (v.shape[2:], v.dtype) for k, v in rows.items()}
+
+    plain = row()
+    assert set(plain) == {
+        "obs",
+        "action",
+        "reward",
+        "terminated",
+        "truncated",
+        "next_obs",
+    }
+    assert plain["obs"] == plain["next_obs"] == ((obs_dim,), jnp.float32)
+    assert plain["action"] == ((1,), action_dtype)
+    full = row(
+        add_train_frac=True,
+        expert_state_aug_dim=2,
+        include_expert_fields=True,
+        actor_carry_dim=5,
+        include_raw_next_obs=True,
+        include_raw_obs=True,
+        include_is_expert=True,
+    )
+    added = {"a_expert", "next_a_expert", "actor_carry", "is_expert"}
+    added |= {"raw_obs", "raw_next_obs"}
+    assert set(full) == set(plain) | added
+    assert full["obs"] == full["next_obs"] == ((obs_dim + 1 + 2,), jnp.float32)
+    assert full["raw_obs"] == full["raw_next_obs"] == ((obs_dim,), jnp.float32)
+    assert full["is_expert"] == ((1,), jnp.float32)
+    assert full["a_expert"] == full["next_a_expert"] == plain["action"]
+    assert full["actor_carry"] == ((5,), jnp.float32)

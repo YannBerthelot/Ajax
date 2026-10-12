@@ -1,16 +1,20 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from brax.envs import create as create_brax_env
+from flax import linen as nn
 
 from ajax.environments.create import build_env_from_id
 from ajax.environments.utils import get_state_action_shapes
+from ajax.networks.memory import MemoryConfig, init_carry
 from ajax.networks.networks import (
     Actor,
     Critic,
     Encoder,
     MultiCritic,
     get_initialized_actor_critic,
+    get_initialized_critic,
     predict_value,
 )
 from ajax.state import (
@@ -122,6 +126,38 @@ def test_get_initialized_actor_critic(real_env_config):
     assert not jnp.allclose(predicted[0], predicted[1]), "The critics are identical."
 
 
+def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
+    """The initializers and the log-std head set on NetworkConfig reach the
+    actor and the critic (PPO's, SAC's and UDRL's build through here)."""
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
+    network_config = NetworkConfig(
+        actor_architecture=ARCH,
+        critic_architecture=ARCH,
+        encoder_kernel_init="zeros",
+        actor_bias_init="0.25",
+        mean_kernel_init="zeros",
+        critic_bias_init="0.5",
+        log_std_state_independent=True,
+        log_std_init=0.3,
+    )
+    actor_state, critic_state = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        fast_env_config,
+        optimizer_config,
+        optimizer_config,
+        network_config,
+        continuous=True,
+        num_critics=1,
+    )
+    actor, critic = actor_state.params["params"], critic_state.params["params"]
+    for encoder in (actor["encoder"], critic["ensemble"]["encoder"]):
+        assert not jnp.any(encoder["network"]["layers_0"]["kernel"])
+    assert not jnp.any(actor["mean"]["kernel"])
+    np.testing.assert_allclose(actor["mean"]["bias"], 0.25)
+    np.testing.assert_allclose(actor["log_std_param"], 0.3)
+    np.testing.assert_allclose(critic["ensemble"]["model"]["bias"], 0.5)
+
+
 def test_get_initialized_actor_critic_continuous(fast_env_config):
     actor_state, critic_state, (obs_shape, action_shape) = _init_ac(
         fast_env_config, continuous=True, action_value=False, key=1
@@ -133,6 +169,25 @@ def test_get_initialized_actor_critic_continuous(fast_env_config):
     assert actor_output.stddev().shape == (n, *action_shape)
     critic_output = critic_state.apply_fn(critic_state.params, init_obs)
     assert critic_output.shape == (2, n, 1)
+
+
+def test_a_standalone_critic_is_feedforward_even_with_memory(real_env_config):
+    """``get_initialized_critic`` builds a feedforward MultiCritic, so its
+    state must not be initialised as recurrent when the config sets memory."""
+    critic_state = get_initialized_critic(
+        key=jax.random.PRNGKey(0),
+        env_config=real_env_config,
+        critic_optimizer_config=OptimizerConfig(learning_rate=0.001),
+        network_config=NetworkConfig(
+            actor_architecture=ARCH,
+            critic_architecture=ARCH,
+            memory=MemoryConfig(kind="gru", hidden_size=4),
+        ),
+    )
+    assert not critic_state.recurrent and critic_state.hidden_state is None
+    obs_shape, action_shape = get_state_action_shapes(real_env_config.env)
+    x = jnp.ones((3, obs_shape[-1] + action_shape[-1]))
+    assert predict_value(critic_state, critic_state.params, x).shape == (2, 3, 1)
 
 
 def test_encoder_penultimate_normalization():
@@ -174,7 +229,43 @@ def test_encoder_penultimate_normalization_gradients():
     assert "params" in grads, "Gradients for parameters are missing."
     assert all(
         jnp.any(jnp.abs(g) > 0) for g in jax.tree_util.tree_leaves(grads["params"])
-    ), "Some gradients are zero, indicating no flow through _l2_normalize."
+    ), "Some gradients are zero: none flow through the L2 normalisation."
+
+
+def test_penultimate_normalization_with_memory_keeps_envs_apart(real_env_config):
+    """With memory the encoder sees time-major (T, B, F) features. Each
+    env's are normalised on their own, so an env's output does not depend
+    on which other envs share its batch."""
+    memory = MemoryConfig(kind="gru", hidden_size=4)
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
+    actor_state, _ = get_initialized_actor_critic(
+        key=jax.random.PRNGKey(0),
+        env_config=real_env_config,
+        actor_optimizer_config=optimizer_config,
+        critic_optimizer_config=optimizer_config,
+        network_config=NetworkConfig(
+            actor_architecture=ARCH,
+            critic_architecture=ARCH,
+            memory=memory,
+            penultimate_normalization=True,
+        ),
+        continuous=False,
+        action_value=False,
+    )
+    obs_shape, _ = get_state_action_shapes(real_env_config.env)
+    obs = jax.random.normal(jax.random.PRNGKey(1), (3, 2, *obs_shape))
+
+    def logits(obs):
+        batch = obs.shape[1]
+        dist, _ = actor_state.apply_fn(
+            actor_state.params,
+            obs,
+            hidden_state=init_carry(memory, jax.random.PRNGKey(2), batch),
+            done=jnp.zeros((3, batch), dtype=bool),
+        )
+        return dist.logits
+
+    assert jnp.allclose(logits(obs)[:, :1], logits(obs[:, :1]), atol=1e-6)
 
 
 def _soft_nets(agent_cls, init, **n_critics):
@@ -256,3 +347,41 @@ def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
     agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
     normed = leaf_names()
     assert plain < normed and all("/norm/" in n for n in normed - plain), normed
+
+
+@pytest.mark.parametrize("state_independent", [False, True])
+def test_the_actor_std_starts_at_exp_log_std_init(state_independent):
+    """Either log-std head, a Dense with a zero kernel over the features
+    (SAC's) or one parameter per action dimension (brax PPO's), starts every
+    std at exp(log_std_init), whatever the input."""
+    actor = Actor(
+        action_dim=3,
+        input_architecture=ARCH,
+        continuous=True,
+        log_std_state_independent=state_independent,
+        log_std_init=-0.5,
+    )
+    obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
+    params = actor.init(jax.random.PRNGKey(0), obs)["params"]
+    head, other = ("log_std_param", "log_std")
+    if not state_independent:
+        head, other = other, head
+    assert head in params and other not in params
+    std = actor.apply({"params": params}, obs).stddev()
+    np.testing.assert_allclose(std, np.full((4, 3), np.exp(-0.5)), rtol=1e-6)
+
+
+def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):
+    """The mean head starts orthogonal with gain 0.01 (a mean near 0);
+    ``mean_kernel_init`` replaces it, by name or as an initializer."""
+
+    def kernel(**kwargs):
+        actor = Actor(action_dim=3, input_architecture=ARCH, continuous=True, **kwargs)
+        params = actor.init(jax.random.PRNGKey(0), sample_input)
+        return np.asarray(params["params"]["mean"]["kernel"])
+
+    default = kernel()
+    np.testing.assert_allclose(default.T @ default, 1e-4 * np.eye(3), atol=1e-9)
+    lecun = np.abs(kernel(mean_kernel_init="lecun_uniform"))
+    assert 0.05 < lecun.max() <= np.sqrt(3 / 16)  # fan_in 16
+    np.testing.assert_array_equal(kernel(mean_kernel_init=nn.initializers.ones), 1.0)

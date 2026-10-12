@@ -230,10 +230,15 @@ the reference reuses the training env and prev_mean).
 - `setup_environment` (eval rebuild) takes `action_repeat` and the training
   `episode_length` explicitly; `_infer_max_eval_steps` is replaced at the new call sites
   by `agent_episode_length`.
-- **Action bounds.** The collector and `evaluate_policy` map the agent's action to the
-  env: `a_env = low + (clip(a, −1, 1) + 1)/2 · (high − low)` for finite Box bounds
-  (DreamerV3 reference `NormalizeAction` + `ClipAction`; TD-MPC2 `action_scale`).
-  Replay stores the agent's raw action. Test with Pendulum's [−2, 2].
+- **Action bounds.** Every Ajax env step maps the agent's action to the env (the
+  row collector and `evaluate_policy` here; the model-free collectors, `evaluate`,
+  UDRL and APG alike): `a_env = c + h · clip(a, −1, 1)` for finite Box bounds, with
+  centre `c = (high + low)/2` and half-range `h = (high − low)/2`, exactly the clip on
+  a [−1, 1] box (DreamerV3 reference `NormalizeAction` + `ClipAction`; TD-MPC2
+  `action_scale`). Experts, written in env units, are read in agent units by the
+  inverse, `(a − c)/h` (`ExpertInAgentUnits`). Replay stores the agent's raw action.
+  The public `interaction.step` and `closed_loop_rollout` stay raw. Test with
+  Pendulum's [−2, 2].
 
 ### 5.2 Row collector (`src/ajax/environments/row_collector.py`)
 One row per env per tick, obs-aligned (DreamerV3's replay convention; also exactly
@@ -546,7 +551,7 @@ agents. APG and both new agents get bench entries with a small documented preset
 - **Agent.** Module-scoped tiny-config fixtures (train once, assert smoke / metrics /
   resume / extensions on the same run); ≤ 3 min of CI per agent test module; regression
   goldens labelled as such.
-- **Learning checks** (`benchmarks/learning_checks.py`, outside CI, run before merging
+- **Learning checks** (`benchmarks/world_models/learning_checks.py`, outside CI, run before merging
   each agent PR): TD-MPC2 Pendulum-v1 (Pendulum's [−2, 2] bounds mapped), playground
   CartpoleBalance (repeat 2); DreamerV3 CartPole-v1 and Pendulum-v1 at small presets.
   Results recorded in the PR and `PERFORMANCE_REPORT.md`.

@@ -120,7 +120,7 @@ class TerminatingEnv(ConstantRewardEnv):
         self.terminate_at = terminate_at
 
     def _terminated(self, state: ToyState) -> jax.Array:
-        return state.time >= self.terminate_at
+        return jnp.greater_equal(state.time, self.terminate_at)
 
 
 class ChainEnv(_ToyEnv):
@@ -133,10 +133,10 @@ class ChainEnv(_ToyEnv):
         return jax.nn.one_hot(t, self.terminate_at + 1)
 
     def _reward(self, state: ToyState, action: jax.Array) -> jax.Array:
-        return (state.time + 1 == self.terminate_at).astype(jnp.float32)
+        return jnp.equal(state.time + 1, self.terminate_at).astype(jnp.float32)
 
     def _terminated(self, state: ToyState) -> jax.Array:
-        return state.time >= self.terminate_at
+        return jnp.greater_equal(state.time, self.terminate_at)
 
 
 class TargetEnv(_ToyEnv):

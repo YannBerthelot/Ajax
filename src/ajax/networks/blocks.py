@@ -73,12 +73,10 @@ def linear(
     ``nn.compact`` method).
 
     Args:
-        features: output width.
         kernel_init: initializer or initializer name (see
             ``parse_initialization``), e.g. ``"trunc_normal_fan_in"``
             (DreamerV3) or ``"normal(0.02)"`` (TD-MPC2).
         bias_init: initializer or name for the bias; both papers use zeros.
-        outscale: factor applied to the kernel initializer's samples.
         name: the module name; flax's automatic ``Dense_<i>`` when None.
     """
     return nn.Dense(
@@ -99,9 +97,7 @@ class NormedMLP(nn.Module):
     layer: compose one with :func:`linear`. Use :meth:`dreamerv3` and
     :meth:`tdmpc2` for the papers' configurations.
 
-    Args:
-        layers: number of hidden layers.
-        units: width of every hidden layer.
+    Attributes:
         act: activation or activation name (see ``parse_activation``).
         norm: ``"rms"`` (scale only) or ``"layer"`` (scale and shift, exact
             two-pass variance).

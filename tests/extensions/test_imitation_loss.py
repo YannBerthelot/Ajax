@@ -1,7 +1,7 @@
-"""The ImitationLoss extension: its term and its wiring into four actor losses.
+"""The ImitationLoss extension: its term and its wiring into five actor losses.
 
-TD3, REDQ, ASAC and APO put the actor's mean action (``pi_mean``) and the
-raw observations into their actor-loss batch. One actor update per agent,
+TD3, REDQ, ASAC, APO and SAC put the actor's mean action (``pi_mean``) and
+the raw observations into their actor-loss batch. One actor update per agent,
 run eagerly on a tiny network, checks that the extension's term changes the
 actor gradient and has no effect at zero weight or when absent.
 """
@@ -22,6 +22,8 @@ from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
+from ajax.agents.SAC import train_SAC
+from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3 import train_TD3
 from ajax.agents.TD3.TD3 import TD3
 from ajax.environments.utils import get_state_action_shapes
@@ -48,14 +50,18 @@ CTX = ExtensionContext(step=jnp.asarray(0), rng=KEY)
 def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
     pi_mean = jnp.array([[0.1], [-0.3]])
     obs = jnp.zeros((2, 3))
-    batch = {"pi_mean": pi_mean, "raw_observations": obs}
+    batch: dict[str, Any] = {"pi_mean": pi_mean, "raw_observations": obs}
     term = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
         None, (), batch, CTX
     )
     expected = 2.0 * np.mean((np.array([0.1, -0.3]) - 0.9) ** 2) / 4.0
     np.testing.assert_allclose(float(term), expected, rtol=1e-6)
     # Without raw observations the expert reads the agent's observations.
-    batch = {"pi_mean": pi_mean, "raw_observations": None, "observations": obs}
+    batch = {
+        "pi_mean": pi_mean,
+        "raw_observations": None,
+        "observations": obs,
+    }
     again = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
         None, (), batch, CTX
     )
@@ -63,6 +69,7 @@ def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
 
 
 def test_agent_without_policy_mean_raises() -> None:
+    """With the observations (test_no_silent_noop's empty batch has none)."""
     batch = {"observations": jnp.zeros((2, 3))}
     with pytest.raises(ValueError, match="pi_mean"):
         ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX)
@@ -132,6 +139,25 @@ def _init_asac(agent: ASAC) -> Any:
     )
 
 
+def _sac_update(stack: ExtensionStack) -> Any:
+    agent = SAC("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
+    state = train_SAC.init_SAC(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        agent.alpha_args,
+        agent.buffer,
+    )
+    state = _ext_state(state, stack)
+    obs = _obs(agent)
+    state, _, _ = train_SAC.update_policy(
+        state, obs, obs, extension_stack=stack, total_timesteps=1
+    )
+    return state.actor_state.params
+
+
 def _apo_update(stack: ExtensionStack) -> Any:
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
@@ -155,6 +181,7 @@ def _apo_update(stack: ExtensionStack) -> Any:
         ent_coef=0.0,
         extension_stack=stack,
         total_timesteps=1,
+        extension_key=KEY,
         raw_observations=obs,
         entropy_key=KEY,  # a squashed policy's entropy is estimated by sampling
     )
@@ -166,6 +193,7 @@ UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
     "ASAC": _sac_family_update(ASAC, train_ASAC, _init_asac),
     "APO": _apo_update,
+    "SAC": _sac_update,
 }
 
 

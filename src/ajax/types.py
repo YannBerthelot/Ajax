@@ -1,15 +1,13 @@
-from typing import Any, Callable, Optional, TypeAlias, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeAlias, Union
 
 import flashbax as fbx
-import jax.numpy as jnp
+import jax
 from brax.envs import Env as BraxEnv
 from brax.envs.base import State as BraxEnvState
 from flax import struct
-from flax.core.frozen_dict import FrozenDict
 from gymnax.environments.environment import Environment as GymnaxEnv
 from gymnax.environments.environment import EnvState as GymnaxEnvState
 
-HiddenState: TypeAlias = Union[jnp.ndarray, FrozenDict]
 EnvType: TypeAlias = Union[GymnaxEnv, BraxEnv]
 EnvStateType: TypeAlias = Union[BraxEnvState, GymnaxEnvState]
 ActivationFunction: TypeAlias = Any
@@ -22,14 +20,28 @@ InitializationFunction: TypeAlias = Callable
 
 FloatOrCallable: TypeAlias = Union[float, Callable[[int], float]]
 
+# A deliberate workaround for a typing gap: flax.struct.dataclass adds a
+# ``replace`` method at runtime but does not declare it, so a type checker
+# rejects ``state.replace(...)``. A struct dataclass whose ``replace`` typed
+# code calls derives from Replaceable, which declares it for the type checker
+# only; at runtime it is ``object``, so the class is unchanged.
+if TYPE_CHECKING:
+    from typing import Self
+
+    class Replaceable:
+        def replace(self, **updates: Any) -> Self: ...
+
+else:
+    Replaceable = object
+
 
 @struct.dataclass
 class NormalizationInfo:
-    var: jnp.array
-    count: jnp.array
-    mean: jnp.array
-    mean_2: jnp.array
-    returns: Optional[jnp.array] = None  # For reward normalization, returns are needed
+    var: jax.Array
+    count: jax.Array
+    mean: jax.Array
+    mean_2: jax.Array
+    returns: Optional[jax.Array] = None  # For reward normalization, returns are needed
 
 
 @struct.dataclass

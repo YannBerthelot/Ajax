@@ -157,9 +157,6 @@ def symlog_mse(prediction: jax.Array, target: jax.Array) -> jax.Array:
     return jnp.sum(distance, -1)
 
 
-# ------------------------------------------------------------------ the actor
-
-
 class BoundedNormal(NamedTuple):
     """The continuous actor's distribution: ``Normal(mean, std)`` per dimension.
 
@@ -214,7 +211,9 @@ class BoundedNormal(NamedTuple):
         return jnp.sum((0.5 + log_normalization) * jnp.ones_like(self.mean), -1)
 
     @staticmethod
-    def entropy_range(action_dim: int, minstd: float, maxstd: float) -> tuple:
+    def entropy_range(
+        action_dim: int, minstd: float, maxstd: float
+    ) -> tuple[float, float]:
         """The smallest and largest entropy, at ``std = minstd`` and ``maxstd``
         (``nets.py:491-492``, ``minent`` / ``maxent``; for the ``rand``
         metric)."""
@@ -278,7 +277,7 @@ class OneHotPolicy(NamedTuple):
         return lse - jnp.sum(weighted, -1) / jnp.sum(exp_x, -1)
 
     @staticmethod
-    def entropy_range(action_dim: int) -> tuple:
+    def entropy_range(action_dim: int) -> tuple[float, float]:
         """``(0, log A)`` (``nets.py:527-528``, ``minent`` / ``maxent``)."""
         return 0.0, math.log(action_dim)
 

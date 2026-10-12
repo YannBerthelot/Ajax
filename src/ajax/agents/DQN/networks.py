@@ -5,12 +5,6 @@ that takes ``concat(obs, action)`` as input), DQN's network is a
 state-value-vector ``Q(s) -> R^{n_actions}``. The greedy policy is the
 argmax over that vector; epsilon-greedy exploration is layered on at
 collection time via a custom ``action_pipeline``.
-
-``QNetwork.__call__`` returns a :class:`GreedyQPolicy` -- a tiny
-distrax-compatible wrapper (mirroring TD3's ``Deterministic``) so the
-shared evaluation loop (``ajax.evaluate.evaluate`` -> ``get_pi``) can call
-``.mode()`` / ``.entropy()`` on it unchanged, while DQN's own loss reads
-the raw Q-vector via ``.q_values``.
 """
 
 from collections.abc import Sequence
@@ -23,7 +17,7 @@ from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_state_action_shapes
-from ajax.networks.networks import Encoder, build_cnn_encoder, init_network_state
+from ajax.networks.networks import CNNEncoder, CNNSpec, Encoder, init_network_state
 from ajax.networks.utils import get_adam_tx
 from ajax.state import (
     EnvironmentConfig,
@@ -86,9 +80,9 @@ class GreedyQPolicy:
 def _build_q_encoder(module: nn.Module) -> nn.Module:
     """Encoder for a Q-network: a `CNNEncoder` over flat image obs when
     `cnn_image_shape` is set (architecture from `cnn_spec`), else the
-    legacy MLP `Encoder`."""
+    MLP `Encoder`."""
     if module.cnn_image_shape is not None:
-        return build_cnn_encoder(
+        return CNNEncoder(
             module.cnn_image_shape, module.cnn_extra_obs_dim, module.cnn_spec
         )
     return Encoder(
@@ -109,7 +103,7 @@ class QNetwork(nn.Module):
     # Optional CNN encoder for image obs -- see `NetworkConfig.cnn_image_shape`.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
-    cnn_spec: Optional[tuple] = None
+    cnn_spec: Optional[CNNSpec] = None
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
@@ -161,6 +155,15 @@ def predict_q(
 ) -> jax.Array:
     """Return the raw Q-value vector ``Q(obs)`` of shape ``(..., n_actions)``."""
     return q_state.apply_fn(q_params, obs).q_values
+
+
+def q_network_value(agent_state, obs: jax.Array, action: jax.Array) -> jax.Array:
+    """``Q(obs, action)`` of the agent's Q-network (its ``actor_state``): an
+    evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
+    q_state = agent_state.actor_state
+    q_values = predict_q(q_state, q_state.params, obs)
+    index = action.astype(jnp.int32).reshape(*q_values.shape[:-1], 1)
+    return jnp.take_along_axis(q_values, index, axis=-1).squeeze(-1)
 
 
 def get_initialized_q_network(

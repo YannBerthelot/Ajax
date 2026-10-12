@@ -31,7 +31,10 @@ warmup in the same process. "warm-process" = a second invocation of
 the same script, so `import ajax` lands the disk-cache hit before any
 training starts. The two columns answer different questions: the
 first is "how fast is each training step now"; the second is "how
-fast does a freshly-launched HPO trial reach steady state".
+fast does a relaunch of the same program reach steady state". A
+distinct HPO trial is another program: its hyperparameters are
+closed over as Python constants and compiled in, so it misses the
+cache (see "Did the round-1-3 patches help this?" below).
 
 ## What changed and why it helped
 
@@ -39,11 +42,11 @@ fast does a freshly-launched HPO trial reach steady state".
 
 | Patch | Where it lives | Effect | Workload-conditional? |
 | ----- | -------------- | ------ | --------------------- |
-| #1 obs-norm shape `(n_envs,*) -> (1,*)` | [obs_norm.py](src/ajax/agents/obs_norm.py), [cloning.py](src/ajax/agents/cloning.py) | n_envs× drop on running stats; redundant per-call `nanmean` reductions removed | Material when n_envs and obs_dim both grow (image obs, large vmap). Invisible at Pendulum scale. |
+| #1 obs-norm shape `(n_envs,*) -> (1,*)` | [obs_norm.py](src/ajax/environments/obs_norm.py), [cloning.py](src/ajax/agents/cloning.py) | n_envs× drop on running stats; redundant per-call `nanmean` reductions removed | Material when n_envs and obs_dim both grow (image obs, large vmap). Invisible at Pendulum scale. |
 | #6 network init shape `(n_envs,*) -> (1,*)` | [networks.py](src/ajax/networks/networks.py) | One-shot allocation drop at agent build time | Material when obs is high-dim (images) or n_envs is large. |
 | #4 carry-only inner critic-update scan | [perf_utils.py](src/ajax/perf_utils.py), used by SAC + REDQ + TD3 | Drops `[num_critic_updates, *aux]` of per-step diagnostics that get discarded | Material under vmap-over-seeds with large `num_critic_updates` (REDQ-style UTD>1). |
 | #5 `donate_argnames` on top-level train jit | [perf_utils.py](src/ajax/perf_utils.py) | XLA reuses caller's `initial_state` buffer instead of cloning | Material on resume-from-checkpoint paths. No-op (and free) on init paths. |
-| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process (HPO sweep, repeated agent rebuilds). |
+| **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **Eliminates ~290 MB of XLA transient compile-time scratch** | Material on every fresh process that runs a program already cached: relaunches of the same configuration, repeated agent rebuilds. Not distinct HPO trials. |
 
 The peak-memory column on benchmark rows tracks the per-fresh-process
 peak, which is dominated by JIT compilation transients on first
@@ -56,7 +59,7 @@ becomes the actual peak.
 | Patch | Where it lives | Effect | Workload-conditional? |
 | ----- | -------------- | ------ | --------------------- |
 | #2 gate redundant `q_preds_for_var` | [SAC/train_SAC.py:1209-1265](src/ajax/agents/SAC/train_SAC.py#L1209-L1265) | Pure SAC saves a full `[N_critics, B]` critic forward per critic step | Always on for default SAC. Bigger relative win at higher `num_critics`. |
-| #7 `nan_safe=False` opt-in for agent obs | [utils.py](src/ajax/utils.py), [obs_norm.py](src/ajax/agents/obs_norm.py) | `mean` instead of `nanmean` per call (skips the per-element NaN-mask compare) | Always on. AVG keeps `nan_safe=True` because of its NaN-sentinel `G_return`. |
+| #7 `nan_safe=False` opt-in for agent obs | [utils.py](src/ajax/utils.py), [obs_norm.py](src/ajax/environments/obs_norm.py) | `mean` instead of `nanmean` per call (skips the per-element NaN-mask compare) | Always on. AVG keeps `nan_safe=True` because of its NaN-sentinel `G_return`. |
 | #9 reuse buffer-mix sample indices | [SAC/train_SAC.py:1635-1654](src/ajax/agents/SAC/train_SAC.py#L1635-L1654) | One `randint` call replaces N `random.choice` calls inside `tree.map` | Only triggers on the IBRL/expert buffer-mix path. Not on default SAC. |
 | **#10 persistent JAX compile cache** | [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py) | **~17s of HLO compile saved per fresh process when shapes match** | Hits on second and subsequent invocations of the same code. |
 
@@ -196,8 +199,12 @@ ahead of time is hard.
 No. All numbers in the table above are from HPO runs that predate the
 audit. The patches that landed:
 - #10 (persistent compile cache) saves ~17s of HLO compile **per
-  fresh process**. For HPO that's a real per-trial win (every trial
-  is a fresh process). Does not change the per-step scaling curve.
+  fresh process that runs a program already in the cache**: a
+  relaunch of the same configuration (a rerun, a resumed or repeated
+  trial). Distinct HPO trials miss it, since their hyperparameters are
+  compiled into the program as constants, and so does any run that
+  logs (programs with host callbacks are never cached). Does not
+  change the per-step scaling curve.
 - The other patches (#1-#9) shave 1-5% of steady-state per-step cost.
   Visible at the headline-bench scale, invisible against the
   bandwidth-bound regime that drives the regression.
@@ -228,10 +235,10 @@ Pragmatic operational advice given the current state:
   budget is at the largest N where the per-seed-per-step cost is
   still < ~1.5× the N=1 number.** This is empirical; there's no
   formula.
-- The persistent compile cache (#10) ensures the **per-trial**
-  startup tax stays small regardless of which N you pick. That's
-  orthogonal to the per-step scaling regression and applies
-  uniformly.
+- The persistent compile cache (#10) removes the startup tax of
+  **relaunching the same configuration**, whatever N you pick. A new
+  trial (other hyperparameters) still compiles. That's orthogonal to
+  the per-step scaling regression.
 
 ## Decision: bf16 dropped (2026-05-08)
 
@@ -563,8 +570,9 @@ existing runs are byte-identical.
 To check whether the LCB-gating + expert-call overhead changes the
 shape of the scaling curve, swept the `p3dcircle_edge_qa` scenario
 (SAC + symmetric LCB + obs/state aug + obs norm + zero-action stub
-expert) at the same N values used for vanilla SAC. 1 trial per N,
-500 measured timesteps.
+expert; since deleted from `perf_bench.py`, as it passed SAC options
+that Phase 5 moved into extensions) at the same N values used for
+vanilla SAC. 1 trial per N, 500 measured timesteps.
 
 |   N | wall (s) | throughput vs N=1 | time/seed (s) | peak (MB) | mem/seed (MB) |
 | --: | -------: | ----------------: | ------------: | --------: | ------------: |
@@ -836,6 +844,8 @@ beyond 10%. Median steps/s and compile (plus warm-up) seconds:
 | TD3 | 5317 | 6163 | +15.9% | 1.52 | 1.30 | -14% |
 | TDMPC2 | 247 | 243 | -1.3% | 6.65 | 7.25 | +9% |
 
+The SAC, TD3, REDQ and ASAC rows time collection only (see
+[the next section](#the-off-policy-bench-rows-timed-collection-only-2026-10-11)).
 SafeSAC, benchmarked before (4091 steps/s), was deleted in between
 (#77). The causes, where known:
 
@@ -850,6 +860,26 @@ SafeSAC, benchmarked before (4091 steps/s), was deleted in between
 - PQN, APO: the shared loop (#79) and the dead work removed (#71); not
   attributed further.
 - APG, TDMPC2, DreamerV3: within run-to-run spread; not attributed.
+
+## The off-policy bench rows timed collection only (2026-10-11)
+
+`benchmarks/agent_bench.py` ran SAC, TD3, REDQ and ASAC at their default
+`learning_starts=10_000`, past the end of its 8,000-step run. Their
+steps/s figures, in the table above and in every
+`benchmarks/agent_*.jsonl` file (the baseline included), measured
+collection alone, with no gradient update. Their presets now set
+`learning_starts=1000`, DQN's default, so the updates cover seven eighths
+of the run, and `tests/benchmarks/test_agent_bench.py` checks from the
+configs that every preset updates within the run. These four agents'
+figures will drop: do not compare them with the earlier rows. The new
+baseline is [below](#cpu-baseline-after-the-close-out-batch-1-2026-10-12).
+
+The other presets already updated in the run: DQN from step 1,000, AVG
+from the first step, PQN 16 rollouts, APG 125, DreamerV3 496 updates and
+TD-MPC2 7,996. PPO and APO make one update: their default 2,048-step
+rollout over 4 envs is 8,192 steps, more than the run, and the loop
+always runs one rollout, so their steps/s count 8,000 of the 8,192 steps
+they take (2.4% low, the same in every row).
 
 ## Where to look for more
 
@@ -880,9 +910,71 @@ benefit.
    blocked by external library shape coupling (Brax VmapWrapper). The
    diminishing-returns line is reached.**
 
+## CPU baseline after the close-out batch 1 (2026-10-12)
+
+`benchmarks/agent_baseline.jsonl` now holds this run: main `a8a13c2`, macOS
+on Apple silicon (CPU only, `JAX_PLATFORMS=cpu`), the persistent compile
+cache off (`AJAX_NO_COMPILE_CACHE=1`), the defaults of
+`benchmarks/agent_bench.py` (4 envs, 8,000 steps, 1 seed, 3 trials), and no
+other Ajax work running. The load average was about 5, from macOS background
+services (Spotlight indexing).
+
+Two methodology breaks with every earlier `benchmarks/agent_*.jsonl` file:
+every preset now updates within the run (SAC, TD3, REDQ and ASAC start at
+step 1,000), and `exec_s` times the run's execution alone, without tracing,
+lowering or compiling (`measured_s` still includes them). Compare with
+`--compare`, which reads `exec_steps_per_s` when both files have it.
+
+| Agent | Env | exec steps/s | measured steps/s | compile s |
+|---|---|---|---|---|
+| SAC | Pendulum-v1 | 2,218 | 1,635 | 3.8 |
+| SAC | inverted_pendulum (terminates) | 1,090 | 723 | 5.3 |
+| TD3 | Pendulum-v1 | 2,659 | 1,961 | 1.4 |
+| REDQ | Pendulum-v1 | 47 | 47 | 1.7 |
+| ASAC | Pendulum-v1 | 1,254 | 1,032 | 1.6 |
+| AVG | Pendulum-v1 | 9,460 | 4,027 | 1.5 |
+| PPO | CartPole-v1 | 17,817 | 4,298 | 2.0 |
+| APO | Pendulum-v1 | 16,390 | 4,024 | 2.0 |
+| DQN | CartPole-v1 | 16,662 | 6,395 | 0.9 |
+| PQN | CartPole-v1 | 36,961 | 7,358 | 1.0 |
+| UDRL | Pendulum-v1 | 12,575 | 4,441 | 1.4 |
+| APG | Pendulum-v1 (tracking) | 34,958 | 5,339 | 1.6 |
+| DreamerV3 | CartPole-v1 | 367 | 275 | 12.9 |
+| TDMPC2 | Pendulum-v1 | 292 | 245 | 7.3 |
+
+Medians of the three trials. REDQ is slow by design: 20 critic updates of
+10 critics per environment step after step 1,000. UDRL's trials spread the
+most (9,604 to 15,069 exec steps/s); judge it on more trials before calling
+a regression.
+
+## Continuous actions mapped onto the env's box (2026-10-12)
+
+Every model-free env step now maps the agent's `[-1, 1]` action onto the
+env's box (`agent_action_to_env`, one `c + h * clip(a, -1, 1)`), and
+experts are read in the same units. On `[-1, 1]` boxes every run is
+bitwise unchanged. On Pendulum's `[-2, 2]` the squashed agents reached only half the
+torque before.
+
+`benchmarks/agent_bench.py` defaults, CPU, before and after the change,
+medians of 3 trials, exec steps/s: SAC (Pendulum) 2,138 -> 2,141 (+0.1%),
+TD3 (Pendulum) 2,699 -> 2,776 (+2.8%), PPO (CartPole, discrete: the map
+passes it through) 16,784 -> 16,957 (+1.0%). All within noise.
+
+Learning check: gymnax Pendulum-v1, 20k steps, the final evaluation return
+(10 episodes) of seeds 0 and 1.
+
+| Agent | before | after |
+|---|---|---|
+| SAC | -262, -291 | -166, -167 |
+| TD3 | -242, -147 | -180, -87 |
+| PPO | -1537, -1313 | -1400, -1334 |
+
+20k steps are too few for PPO on Pendulum; its Gaussian is now read in
+normalised units (its torque std doubles), so this row only shows it runs.
+
 ## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
 
-`benchmarks/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
+`benchmarks/world_models/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2
 at `model_size=1` with every other hyperparameter at the paper default (512
 planning samples including 24 policy-prior trajectories, 64 elites, 6 MPPI
 iterations, batch 256, UTD 1, one env, `seed_steps = max(1000, 5 T)`, `gamma`
@@ -901,20 +993,18 @@ Pendulum is solved after the first 1,000 updates (a random policy scores about
 Seed 0 clears its bar by only 10, so the bar is not met with much margin at
 this budget.
 
-Bench entry (`benchmarks/agent_bench.py`, preset documented there): no
-baseline row yet. One run at load average ~35 gave 64-66 steps/s (8,000 env
-steps, 4 envs, 7,996 updates; compile 46 s); that number is not a baseline.
-Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py --only TDMPC2
---out benchmarks/agent_m4b.jsonl` on a quiet machine. Until then `--compare`
-lists TDMPC2 as `NEW (no baseline)`.
+Bench entry (`benchmarks/agent_bench.py`, preset documented there): one run
+at load average ~35 then gave 64-66 steps/s (8,000 env steps, 4 envs, 7,996
+updates; compile 46 s). Its baseline row is now in
+[the 2026-10-12 baseline](#cpu-baseline-after-the-close-out-batch-1-2026-10-12).
 
 The checks are the entries `tdmpc2-pendulum` and `tdmpc2-cartpole-balance` of
-the shared `benchmarks/learning_checks.py` registry (merged with DreamerV3's in
+the shared `benchmarks/world_models/learning_checks.py` registry (merged with DreamerV3's in
 M7; same agent arguments, budgets, cadences and bars as the runs above).
 
 ## DreamerV3 agent (M7): CPU learning checks, reference comparison and bench entry (2026-10-03)
 
-`benchmarks/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
+`benchmarks/world_models/learning_checks.py`: DreamerV3 at `model_size="1m"` (`d = 64`: deter
 512, 4 classes) with every other hyperparameter at the paper-era default (16
 envs, train ratio 512, batches of 16 x 64, imagination horizon 15), 20,000 rows
 (the agent's unit: one row per env per vector step, reset rows included), so
@@ -1054,7 +1144,6 @@ program; it then reaches 500 at 22k rows.
 
 Bench entry (`benchmarks/agent_bench.py`, preset documented there: the 1m model
 on 8 windows of 16 + 1 rows, train ratio 8, about 500 updates in 8,000 rows, 4
-envs): no baseline row yet. One run at load average about 25 gave a median of
-80.9 steps/s (3 trials at 66.5, 82.1 and 80.9 steps/s; compile 41 s); that
-number is not a baseline. Capture `JAX_PLATFORMS=cpu python benchmarks/agent_bench.py
---only DreamerV3 --out benchmarks/agent_m7.jsonl` on a quiet machine.
+envs): one run at load average about 25 then gave a median of 80.9 steps/s
+(3 trials at 66.5, 82.1 and 80.9 steps/s; compile 41 s). Its baseline row is
+now in [the 2026-10-12 baseline](#cpu-baseline-after-the-close-out-batch-1-2026-10-12).

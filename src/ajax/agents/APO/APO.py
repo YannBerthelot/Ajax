@@ -1,13 +1,11 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
-from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import CloningConfig
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
 from ajax.types import EnvType, InitializationFunction
@@ -15,7 +13,8 @@ from ajax.types import EnvType, InitializationFunction
 
 class APO(ActorCritic):
     """
-    Average-Policy Optimization (APO, Ma et al. 2021) agent for training and testing in continuous action spaces.
+    Average-Policy Optimization (APO, Ma et al. 2021) for discrete and
+    continuous action spaces.
     See  https://arxiv.org/pdf/2106.03442
     """
 
@@ -25,10 +24,11 @@ class APO(ActorCritic):
         "critic_loss",
         "actor_loss",
     }
+    make_train = staticmethod(make_train)
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 4,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
@@ -50,49 +50,26 @@ class APO(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        actor_cloning_epochs: int = 10,
-        actor_cloning_lr: float = 1e-3,
-        actor_cloning_batch_size: int = 64,
-        pre_train_n_steps: int = 0,
-        # Expert for the cloning pre-training and the eval expert-bias
+        # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
-        """
-        Initialize the APO agent.
+        self.config = run_config(locals(), self.name)
 
-        Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
-            alpha_init (float): Initial value for the temperature parameter.
-            target_entropy_per_dim (float): Target entropy per action dimension.
-        """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "APO"})
-
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -105,12 +82,9 @@ class APO(ActorCritic):
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
-            actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
-            critic_kernel_init=critic_kernel_init,
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
-            encoder_bias_init=encoder_bias_init,
             # Continuous APO on bounded control envs (brax, playground)
             # saturates an unbounded Gaussian at the action clip, as PPO
             # does: the squashed policy stays in [-1, 1] with a correct
@@ -125,10 +99,12 @@ class APO(ActorCritic):
             log_std_state_independent=True,
             log_std_init=0.0,
             mean_kernel_init="lecun_uniform",
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
-        self.agent_config = APOConfig(
+        self.agent_config: APOConfig = APOConfig(
             ent_coef=ent_coef,
             clip_range=clip_range,
             n_steps=n_steps,
@@ -151,24 +127,6 @@ class APO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        self.cloning_config = CloningConfig(
-            actor_epochs=actor_cloning_epochs,
-            actor_lr=actor_cloning_lr,
-            actor_batch_size=actor_cloning_batch_size,
-            pre_train_n_steps=pre_train_n_steps,
-        )
-        self.expert_policy = expert_policy
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the APO agent.
-
-        Returns:
-            Callable: A function that trains the APO agent.
-        """
-        return partial(
-            make_train,
-            cloning_args=self.cloning_config,
-            expert_policy=self.expert_policy,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "expert_policy": self.expert_policy,
+        }

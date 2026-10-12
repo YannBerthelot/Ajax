@@ -1,24 +1,21 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from brax.envs import create as create_brax_env
 from brax.envs.base import Env as BraxEnv
 from brax.envs.base import State
 from brax.envs.wrappers import training as brax_training
 from flax import struct
 from gymnax import make as make_gymnax_env
+from gymnax.environments import environment as gymnax_environment
 from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
 
 from ajax.environments.utils import get_state_action_shapes
 from ajax.wrappers import (
     AutoResetWrapper,
-    BraxToGymnasium,
     ClipAction,
     ClipActionBrax,
     EnvNormalizationInfo,
     FlattenObservationWrapper,
-    LogWrapper,
-    NoiseWrapper,
     NormalizationInfo,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
@@ -171,11 +168,6 @@ def batched_brax_env():
     return BatchedMockBraxEnv(), None, "brax"
 
 
-@pytest.fixture
-def fast_brax_env():
-    return create_brax_env("fast", batch_size=1, auto_reset=False), None, "brax"
-
-
 def _reset(env, key, params, mode):
     """``(obs, state)`` of either API's reset."""
     if mode == "gymnax":
@@ -218,18 +210,6 @@ def test_flatten_observation_wrapper(gymnax_env):
     assert obs.ndim == 1  # Observation should remain flattened
 
 
-def test_log_wrapper(gymnax_env):
-    env, env_params, _ = gymnax_env
-    wrapped_env = LogWrapper(env)
-    key = jax.random.PRNGKey(0)
-    _, state = wrapped_env.reset(key, env_params)
-    assert hasattr(state, "episode_returns")
-    assert hasattr(state, "episode_lengths")
-    *_, info = wrapped_env.step(key, state, 0, env_params)
-    assert "returned_episode_returns" in info
-    assert "returned_episode_lengths" in info
-
-
 @pytest.mark.parametrize(
     "wrapper,env_fixture",
     [(ClipAction, "gymnax_env"), (ClipActionBrax, "brax_env")],
@@ -243,81 +223,6 @@ def test_clip_action(wrapper, env_fixture, request):
     bound = _step(wrapped_env, key, state, jnp.array(0.5), env_params, mode)
     assert jnp.allclose(out[0], bound[0])
     assert out[2] == bound[2]
-
-
-@pytest.mark.parametrize("env_fixture", ["gymnax_env", "fast_brax_env"])
-def test_normalize_vec_observation(env_fixture, request):
-    env, env_params, mode = request.getfixturevalue(env_fixture)
-    wrapped_env = NORMALIZERS[mode](env, gamma=0.99)
-    key = jax.random.PRNGKey(0)
-    _, state = _reset(wrapped_env, key, env_params, mode)
-    for _ in range(3):
-        key, _ = jax.random.split(key)
-        _, state, *_ = _step(wrapped_env, key, state, jnp.array([0]), env_params, mode)
-
-
-@pytest.mark.parametrize("env_fixture", ["gymnax_env", "brax_env"])
-def test_normalize_vec_reward(env_fixture, request):
-    env, env_params, mode = request.getfixturevalue(env_fixture)
-    wrapped_env = NORMALIZERS[mode](env, gamma=0.99)
-    key = jax.random.PRNGKey(0)
-    _, state = _reset(wrapped_env, key, env_params, mode)
-    for _ in range(10):
-        key, _ = jax.random.split(key)
-        _, state, _, done = _step(
-            wrapped_env, key, state, jnp.array(0), env_params, mode
-        )
-        if done:
-            _, state = _reset(wrapped_env, key, env_params, mode)
-
-
-@pytest.fixture
-def fail_brax_env():
-    """Fixture to create a Brax environment."""
-    return create_brax_env("fast")
-
-
-def test_fails_with_autoreset(fail_brax_env):
-    with pytest.raises(AssertionError):
-        BraxToGymnasium(fail_brax_env)
-
-
-N_STEPS = 5
-
-
-@pytest.fixture
-def brax_env_with_autoreset():
-    """Fixture to create a Brax environment wrapped with AutoResetWrapper."""
-    env = create_brax_env(
-        "inverted_pendulum", batch_size=2, auto_reset=False, episode_length=N_STEPS
-    )  # fast env has a fixed initial obs, had to switch to a real one
-    return AutoResetWrapper(env)
-
-
-@pytest.mark.slow
-def test_autoreset_initialization_differs(brax_env_with_autoreset):
-    """Test that the initialization is different at each episode start."""
-    wrapped_env = brax_env_with_autoreset
-    rng = jax.random.PRNGKey(0)
-    state = wrapped_env.reset(rng)
-    initial_rng = state.info["rng"]
-    initial_obs = state.obs
-
-    # Step the environment until at least one episode ends
-    for _ in range(N_STEPS):
-        action = jnp.zeros((wrapped_env.n_envs, wrapped_env.action_size))
-        state = wrapped_env.step(state, action)
-
-    assert state.done[0]  # env should reset after N_STEPS steps
-    # Check that the RNG used for initialization differs after reset
-
-    new_rng = state.info["rng"]
-    new_init_obs = state.obs
-
-    assert not jnp.array_equal(initial_rng, new_rng), "RNG should differ after reset"
-    assert not jnp.array_equal(
-        initial_obs, new_init_obs
-    ), "Initial obs should differ after reset"
 
 
 @pytest.mark.parametrize("env_fixture", ["batched_gymnax_env", "batched_brax_env"])
@@ -436,22 +341,6 @@ def test_train_mode_updates_shared_statistics_per_env(mode, request):
     assert not jnp.allclose(updated.var, norm_info.obs.var), "variance not updated"
 
 
-def test_noise_wrapper(batched_brax_env):
-    """NoiseWrapper adds noise to observations and rewards."""
-    env, _, _ = batched_brax_env
-    scale = 0.1
-    wrapped_env = NoiseWrapper(env, scale=scale)
-    rng = jax.random.PRNGKey(0)
-    action = jnp.zeros((wrapped_env.action_size,))
-    noisy_state = wrapped_env.step(wrapped_env.reset(rng), action)
-    clean_state = env.step(env.reset(rng), action)
-    assert not jnp.allclose(noisy_state.obs, clean_state.obs)
-    assert not jnp.allclose(noisy_state.reward, clean_state.reward)
-    # 99.7% of values should be within 3 standard deviations
-    assert jnp.all(jnp.abs(noisy_state.obs - clean_state.obs) <= 3 * scale)
-    assert jnp.all(jnp.abs(noisy_state.reward - clean_state.reward) <= 3 * scale)
-
-
 # --------------------------------------------------------------------------
 # Gymnax >= 1.0 six-value step API
 #
@@ -478,26 +367,6 @@ def test_gymnax_env_step_returns_six_values(real_gymnax_env):
     assert "final_observation" in out[-1]
 
 
-def test_log_wrapper_on_real_gymnax_env(real_gymnax_env):
-    """LogWrapper must pass the terminal flags through, not collapse them."""
-    env, params = real_gymnax_env
-    wrapped_env = LogWrapper(env)
-    key = jax.random.PRNGKey(0)
-    obs, state = wrapped_env.reset(key, params)
-
-    for _ in range(3):
-        obs, state, reward, terminated, truncated, info = wrapped_env.step(
-            key, state, jnp.array([0.0]), params
-        )
-
-    # Pendulum never terminates naturally, so step 3 is a pure truncation.
-    assert not bool(terminated)
-    assert bool(truncated)
-    # Episode bookkeeping still closes on the truncation.
-    assert bool(info["returned_episode"])
-    assert info["returned_episode_lengths"] == 3
-
-
 def test_normalize_wrapper_on_real_gymnax_env(real_gymnax_env):
     """NormalizeVecObservationGymnax must survive a real six-value step."""
     env, params = real_gymnax_env
@@ -513,39 +382,48 @@ def test_normalize_wrapper_on_real_gymnax_env(real_gymnax_env):
     assert not bool(terminated)
 
 
-@struct.dataclass
-class _LegacyState:
-    time: int
+def test_two_normalisers_of_one_env_build_states_of_one_class(real_gymnax_env):
+    """A state one normaliser built is another's of the same env: a new
+    agent instance resumes the state an earlier one returned."""
+    env, params = real_gymnax_env
+    states = [
+        NormalizeVecObservationGymnax(env).reset(jax.random.PRNGKey(0), params)[1]
+        for _ in range(2)
+    ]
+    assert jax.tree.structure(states[0]) == jax.tree.structure(states[1])
 
 
 @struct.dataclass
-class _LegacyParams:
-    max_steps_in_episode: int = 2
+class _LegacyState(gymnax_environment.EnvState):
+    pass
 
 
-class _LegacyDoneEnv:
-    """Env whose terminal flag still folds the time limit into `terminated`.
+class _LegacyDoneEnv(gymnax_environment.Environment):
+    """Env whose ``step_env`` still folds the time limit into its done flag.
 
-    Mirrors third-party gymnax envs that have not migrated to the 1.0 split:
-    their `step_env` returns `done = terminated | truncated`, which gymnax's
-    base `step` then hands back in the `terminated` slot.
+    Mirrors third-party gymnax envs that have not migrated to the 1.0 split.
+    It never terminates on its own, so every terminal flag it reports is the
+    time limit. gymnax's base ``step`` auto-resets it, so the state returned
+    at the time limit is already the next episode's (``time == 0``).
     """
 
-    default_params = _LegacyParams()
+    @property
+    def default_params(self):
+        return gymnax_environment.EnvParams(max_steps_in_episode=2)
 
-    def reset(self, key, params=None):
+    def reset_env(self, key, params):
         return jnp.zeros(2), _LegacyState(time=0)
 
-    def step(self, key, state, action, params=None):
+    def step_env(self, key, state, action, params):
         state = _LegacyState(time=state.time + 1)
         done = state.time >= params.max_steps_in_episode
-        return jnp.zeros(2), state, jnp.array([1.0]), done, done, {}
+        return jnp.zeros(2), state, jnp.array(1.0), done, {}
 
 
 def test_terminated_truncated_wrapper_unfolds_time_limit():
     """The wrapper must move a time-limit `done` out of `terminated`."""
     env = _LegacyDoneEnv()
-    params = _LegacyParams()
+    params = env.default_params
     wrapped_env = TerminatedTruncatedWrapper(env)
     key = jax.random.PRNGKey(0)
     _, state = wrapped_env.reset(key, params)
@@ -555,6 +433,7 @@ def test_terminated_truncated_wrapper_unfolds_time_limit():
     assert not bool(truncated)
 
     _, state, _, terminated, truncated, _ = wrapped_env.step(key, state, 0, params)
+    assert int(state.time) == 0  # auto-reset already happened
     # Time limit reached: truncated, and crucially NOT terminated -- otherwise
     # the agent would drop the V(s_T) bootstrap.
     assert bool(truncated)
@@ -715,14 +594,14 @@ class _ResetRecorder(BraxEnv):
 
 
 def test_the_wrappers_read_shapes_without_running_the_reset():
-    """Building the brax stack (auto-reset, noise, normaliser) and reading
+    """Building the brax stack (auto-reset, normaliser) and reading
     its shapes trace the reset, never run it: on brax physics a run takes
     seconds."""
     env = _ResetRecorder()
     stack = brax_training.VmapWrapper(
         brax_training.EpisodeWrapper(env, 10, action_repeat=1), batch_size=4
     )
-    stack = NoiseWrapper(AutoResetWrapper(stack), scale=0.1)
+    stack = AutoResetWrapper(stack)
     stack = NormalizeVecObservationBrax(stack)
     shapes = get_state_action_shapes(stack)
     jax.effects_barrier()

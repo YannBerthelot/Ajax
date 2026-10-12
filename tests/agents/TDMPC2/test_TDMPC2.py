@@ -31,6 +31,7 @@ from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_p
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.extension_stubs import TargetTweak
 
 from .common import TINY_AGENT
 from .toy_envs import ConstantRewardEnv, TerminatingEnv
@@ -88,14 +89,6 @@ class MetricExt(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
         return {"ext_smoke/x": jnp.asarray(1.0)}
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    name: str = "target-tweak"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
 
 
 def _scheduled_updates(schedule: Schedule, n_ticks: int) -> int:
@@ -494,14 +487,14 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
     out = evaluate(state, key)
     assert float(out["Eval/mean episodic length"]) == 200
     assert -2000 < float(out["Eval/episodic mean reward"]) < 0
-    # Deterministic per state and key; each evaluation (n_logs) starts from
-    # fresh initial states.
+    # Deterministic per state and key; another key (the next evaluation's:
+    # tests/logging/test_maybe_eval_and_log.py) starts other episodes.
     again = evaluate(state, key)
     assert float(again["Eval/episodic mean reward"]) == float(
         out["Eval/episodic mean reward"]
     )
-    later = evaluate(state.replace(n_logs=state.n_logs + 1), key)
-    assert float(later["Eval/episodic mean reward"]) != float(
+    other = evaluate(state, jax.random.fold_in(key, 1))
+    assert float(other["Eval/episodic mean reward"]) != float(
         out["Eval/episodic mean reward"]
     )
 

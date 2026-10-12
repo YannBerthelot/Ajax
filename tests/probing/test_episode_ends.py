@@ -854,7 +854,7 @@ def _q1_asac(spec: envs.Spec, at: dict[str, float]) -> Callable:
         base = R.value("ASAC", n, 0.0)
         return {k: R.value("ASAC", n, x) - base for k, x in at.items()}
 
-    kw = {"alpha_init": 1e-3, "alpha_learning_rate": 0.0, "p_0": 1.0}
+    kw: dict[str, Any] = {"alpha_init": 1e-3, "alpha_learning_rate": 0.0, "p_0": 1.0}
     build = functools.partial(agents.make, "ASAC", *spec.make(), **kw)
     return runs.readings(build, lambda run: R.per_seed(one, R.nets(run.state)))
 

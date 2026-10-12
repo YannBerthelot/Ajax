@@ -50,18 +50,18 @@ class Ratio:
 
 
 class ReferenceReplay:
-    """The item and online-queue bookkeeping of 2411f7d ``Replay``."""
+    """The item and online-queue bookkeeping of 2411f7d ``Replay`` with
+    ``online=True``, the configuration the agent reproduces (the
+    reference's ``online=False`` branches are left out)."""
 
-    def __init__(self, length: int, online: bool = True):
+    def __init__(self, length: int):
         self.length = length
-        self.online = online
         self.items: dict = {}
         self.itemid = 0
         self.streams: dict = defaultdict(deque)
         self.counts: dict = defaultdict(int)  # the chunk index, per worker
-        if online:
-            self.lengths: dict = defaultdict(int)
-            self.queue: deque = deque()
+        self.lengths: dict = defaultdict(int)
+        self.queue: deque = deque()
 
     def __len__(self) -> int:
         return len(self.items)
@@ -75,17 +75,14 @@ class ReferenceReplay:
             key = stream.popleft()
             self.items[self.itemid] = key
             self.itemid += 1
-            if self.online and self.lengths[worker] % self.length == 0:
+            if self.lengths[worker] % self.length == 0:
                 self.queue.append(key)
-        if self.online:
-            self.lengths[worker] += 1
+        self.lengths[worker] += 1
 
     def sample_online(self) -> Optional[tuple]:
         """The online part of ``_sample``: the oldest queued item, or None
         (the reference then draws a uniform item)."""
-        if self.online and self.queue:
-            return self.queue.popleft()
-        return None
+        return self.queue.popleft() if self.queue else None
 
 
 def reference_train_loop(

@@ -29,7 +29,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "23895d40fb8e"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "42894a50b97d"  # verdict.digest(CASES): every answer, pinned
 L = 7
 
 
@@ -358,10 +358,14 @@ def _p7_read(run: runs.Run) -> dict:
     """P(a=1) at each command, scaled as the collector scales it; raises
     unless each queried label occurs in every seed's final buffer."""
     for i, seed in enumerate(run.seeds):
-        acts = stream(run.state.buffer, i)[1].reshape(-1, SEG)
+        _, acts, _, done = stream(run.state.buffer, i)
         for r, h in P7_COMMANDS.values():
-            # the windows today's sampler draws: t1 in 0..2, inside one slot
-            if not sum((acts[:, t : t + int(h)].sum(1) == r).sum() for t in range(3)):
+            # the windows the sampler draws: n steps of the stream inside one
+            # episode (a done only on the last), across slots
+            n = int(h)
+            starts = range(len(acts) - n + 1)
+            inside = np.array([not done[t : t + n - 1].any() for t in starts])
+            if not (inside & (np.convolve(acts, np.ones(n), "valid") == r)).any():
                 raise RuntimeError(f"seed {seed}: no window labelled ({r}, {h})")
 
     def probs(n: R.Nets) -> dict:
@@ -383,7 +387,8 @@ CASES["p7-UDRL"] = Case(
     runs.readings(lambda: udrl_agent(**FIXED), _p7_read),
     2048,
     (0.02, 0.02, 0.027, 0.06),
-    note="1024 failed (0.078 on (2, 2)); cert 32/32; every label >= 25 windows",
+    note="1024 failed (0.078 on (2, 2)); cert 32/32; every label >= 25 windows;"
+    " cert 32/32 again once the sampler spanned slots",
 )
 
 
@@ -420,7 +425,8 @@ CASES["q14-UDRL"] = Case(
     runs.readings(lambda: udrl_agent(**Q14), _q14_read),
     4096,
     (2 / 32,),
-    note="1024, 2048 failed; 2/32: at most 2 of 32 episodes off 3; cert 32/32",
+    note="1024, 2048 failed; 2/32: at most 2 of 32 episodes off 3; cert 32/32;"
+    " cert 32/32 again once the sampler spanned slots",
 )
 
 
@@ -437,9 +443,8 @@ def test_q14_actor_sees_the_same_command_when_acting_and_training(
         jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
         return get_pi(actor_state, actor_params, obs, **kw)
 
-    def batch(key: Any, buffer: Any, size: int) -> tuple:
-        obs = jnp.tile(jnp.asarray(raw), (size, 1))
-        return obs, jnp.zeros((size, 1), jnp.int32), obs[:, -2], obs[:, -1]
+    def batch(key: Any, buffer: Any, view: Any, size: int) -> tuple:
+        return jnp.tile(jnp.asarray(raw), (size, 1)), jnp.zeros((size, 1), jnp.int32)
 
     monkeypatch.setattr(udrl, "get_pi", recording)
     monkeypatch.setattr(udrl, "sample_training_batch", batch)
@@ -671,9 +676,12 @@ def test_q4_episode_start_rows_store_the_reset_obs_and_reset_expert_state() -> N
 # --- Q5: the actions that reach an env declaring Box(0, 2) -------------------
 # The counter declaring Box(0, 2) (asymmetric: [-1, 1] and the box differ),
 # its first 64 executed actions recorded: SAC's and TD3's uniform warm-up,
-# PPO's first rollouts at sigma 1. Which contract is right (map to the box,
-# reject it, keep [-1, 1]) is open: only what holds under all three is checked.
-# SAC and TD3 read exactly 0 on 96 seeds (both cells draw the same warm-up).
+# PPO's first rollouts at sigma 1. The contract: agents act in [-1, 1],
+# mapped onto the box (1 + a here), so half the actions land above 1
+# (MAPPED); an unmapped collector clips [-1, 1] to [0, 1] (none above 1,
+# PPO's Gaussian 0.159). An unmapped evaluation: the PPO train == eval test.
+# The flag cells: SAC and TD3 read exactly 0 on 96 seeds (both cells draw
+# the same warm-up).
 
 
 def _paid(st: envs.State, a: jax.Array, key: Any) -> tuple:
@@ -699,30 +707,44 @@ W = {"training clip made bounds-aware, collector unmapped": 0.5}
 BOX = Query("share outside [0, 2], cell A minus cell B", 0.0, W)
 
 
+MAPPED = "share above 1, cell A"
+UNMAPPED = {"PPO": 0.1587, "SAC": 0.0, "TD3": 0.0}  # P(N(0, 1) > 1) for PPO
+MAPPED_TOL = {"PPO": 0.17, "SAC": 0.25, "TD3": 0.25}  # half the gap
+
+
 def _outside(x: np.ndarray) -> dict:
     return {UNIT.name: (abs(x) > 1).mean(1), BOX.name: ((x < 0) | (x > 2)).mean(1)}
 
 
 def _q5_flag(agent: str) -> Callable:
-    """Cell A (no flag) minus cell B (normalize_rewards), per share."""
+    """Cell A (no flag) minus cell B (normalize_rewards), per share; and
+    cell A's share above 1."""
 
     @functools.cache
     def read(seeds: tuple, budget: int) -> dict:
         cell = functools.partial(q5_run, agent, seeds, budget)
-        a, b = (_outside(cell(normalize_rewards=f)[1]) for f in (False, True))
-        return {k: a[k] - b[k] for k in a}
+        executed = [cell(normalize_rewards=f)[1] for f in (False, True)]
+        a, b = (_outside(x) for x in executed)
+        return {k: a[k] - b[k] for k in a} | {MAPPED: (executed[0] > 1).mean(1)}
 
     return read
 
 
+# MAPPED's tolerance, half its gap, is 4 (PPO 2.7) binomial sigmas of 64
+# draws: on seeds 1000-1031, 2000-2031 and 3000-3031 every agent's worst
+# error was 0.156 (SAC and TD3 draw the same warm-up).
 for _a in ("PPO", "SAC", "TD3"):
-    _tol = () if _a == "PPO" else (0.02, 0.02)
-    CASES[f"q5-{_a}"] = Case(f"q5-{_a}", (UNIT, BOX), _q5_flag(_a), 64, _tol)
+    _mapped = Query(MAPPED, 0.5, {"collector unmapped": UNMAPPED[_a]})
+    _tol = ((0.1, 0.1) if _a == "PPO" else (0.02, 0.02)) + (MAPPED_TOL[_a],)
+    CASES[f"q5-{_a}"] = Case(
+        f"q5-{_a}", (UNIT, BOX, _mapped), _q5_flag(_a), 64, _tol, ceiling=0.25
+    )
 
 
 def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:
-    """A constant PPO policy sending 1.5 (in the box, outside [-1, 1]) has
-    the same action executed in training and in evaluate() (the env pays it)."""
+    """A constant PPO policy sending 1.5 (outside [-1, 1]) has the same
+    action executed in training and in evaluate(), the box's top, 2.0 (the
+    env pays it): clipped to [-1, 1] and mapped onto Box(0, 2) in both."""
     kw = {"log_std_init": -20.0, "mean_kernel_init": "0.0", "actor_bias_init": "1.5"}
     run, trained = q5_run("PPO", (0, 1), 32, True, actor_learning_rate=0.0, **kw)
     start, s, args = envs.one_hot(0, L + 1), run.state, run.agent.env_args
@@ -735,6 +757,7 @@ def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:
         out = evaluate(args.env, actor, 2, rng[i], args.env_params, gamma=agents.GAMMA)
         evaluated.append(float(np.asarray(out[0]).mean() / np.asarray(out[4])))
     np.testing.assert_allclose(evaluated, trained.mean(1), atol=1e-6)
+    np.testing.assert_allclose(evaluated, 2.0, atol=1e-6)
 
 
 # --- Q8: the likelihood-ratio identity of PPO and APO with a frozen actor ---

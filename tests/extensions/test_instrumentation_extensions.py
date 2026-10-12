@@ -1,24 +1,26 @@
 """Smoke + key-set tests for ``ajax.extensions.instrumentation``.
 
-End-to-end checks that each of the four EVarEst measurement /
+End-to-end checks that each of the three EVarEst measurement /
 instrumentation extensions:
 
 * :class:`ConditioningMetrics`
 * :class:`BiasVoreDecomposition`
-* :class:`DiagnosticSnapshots`  — host-side I/O via ``io_callback``
 * :class:`BiasVorePenalty`      — additive critic-loss penalty
 
 wires into the Extension surface on PPO (on-policy, through
-``agent_state.last_rollout``). BiasVorePenalty's coefficient also has
-unit checks. Numerical exactness is intentionally NOT covered here --
-the math is ported verbatim from EVAREST (see the per-extension
-docstring); these tests only pin the *integration contract*.
+``agent_state.last_rollout``). BiasVorePenalty's coefficient and penalty
+also have unit checks, and every logged metric of the two others meets
+its closed form on a known rollout, critic and residual. Every agent's
+critic lookup is checked in tests/agents/test_agent_contract.py.
 """
 
 from __future__ import annotations
 
-import os
+from types import SimpleNamespace
 
+import gymnax
+import jax
+import jax.numpy as jnp
 import pytest
 
 from ajax.agents.PPO.PPO import PPO
@@ -28,10 +30,13 @@ from ajax.extensions.instrumentation import (
     BiasVoreDecomposition,
     BiasVorePenalty,
     ConditioningMetrics,
-    DiagnosticSnapshots,
+    _sample_transitions,
+    _takes_action,
     evarest_coeff,
 )
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.networks import get_initialized_actor_critic
+from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig, Transition
 
 # Evaluate (and return the evaluations) without a logging backend.
 EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
@@ -41,10 +46,34 @@ EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
 # --------------------------------------------------------------------------
 
 
+def _q_network_batch() -> dict:
+    """A DQN/PQN critic-loss batch whose taken Q-values are (1, 5, 1)
+    against zero targets: the residual's variance is 32/9."""
+    q_values = jnp.array([[1.0, 2.0], [3.0, 5.0], [1.0, 0.0]])
+    q_state = SimpleNamespace(
+        params=None, apply_fn=lambda _, obs: SimpleNamespace(q_values=q_values)
+    )
+    return {
+        "q_state": q_state,
+        "observations": jnp.zeros((3, 1)),
+        "actions": jnp.array([0, 1, 0]),
+        "targets": jnp.zeros((3, 1)),
+    }
+
+
 def test_bias_vore_penalty_alpha_half_is_zero():
-    """alpha=0.5 ⇒ coeff = 0 ⇒ the penalty short-circuits to ``0.0``."""
+    """alpha=0.5 ⇒ coeff = 0 ⇒ no penalty, on a batch whose residual
+    variance is not zero."""
     ext = BiasVorePenalty(alpha=0.5)
     assert ext._coeff() == 0.0
+    assert float(ext.critic_loss(None, None, _q_network_batch(), None)) == 0.0
+
+
+def test_bias_vore_penalty_scales_the_residual_variance():
+    """The penalty is ``loss_scale * coeff * Var(q_taken - target)``."""
+    ext = BiasVorePenalty(alpha=0.3, loss_scale=0.5)
+    penalty = ext.critic_loss(None, None, _q_network_batch(), None)
+    assert float(penalty) == pytest.approx(0.5 * evarest_coeff(0.3) * 32 / 9)
 
 
 def test_bias_vore_penalty_coeff_matches_paper_formula():
@@ -63,11 +92,41 @@ def test_bias_vore_penalty_coeff_override_wins():
 
 
 # --------------------------------------------------------------------------
-# ConditioningMetrics on PPO: eval_metrics fold emits the four Cond/* keys.
+# The measurement batch
 # --------------------------------------------------------------------------
 
 
-def _train_ppo_with_extension(ext, n_steps=32):
+def test_a_rollout_batch_is_one_row_per_step():
+    """A ``(T, n_envs, ...)`` rollout gives ``(T * n_envs, ...)`` rows, cut
+    at ``on_policy_take``: srank and the dormant fraction read a 2-D
+    feature matrix, not one matrix per time step. Either end of an episode
+    stops a rollout's bootstrap."""
+    obs = jnp.arange(4 * 2 * 3.0).reshape(4, 2, 3)
+    flags = jnp.zeros((4, 2), dtype=bool)
+    rollout = Transition(
+        obs=obs,
+        action=jnp.ones((4, 2, 1)),
+        reward=jnp.ones((4, 2)),
+        terminated=flags.at[2, 1].set(True),
+        truncated=flags.at[1, 0].set(True),
+        next_obs=obs + 1.0,
+    )
+    state = SimpleNamespace(collector_state=None, last_rollout=rollout)
+    rows, actions, rewards, next_rows, done = _sample_transitions(
+        state, jax.random.PRNGKey(0), None, 6
+    )
+    assert jnp.array_equal(rows, obs.reshape(8, 3)[:6])
+    assert jnp.array_equal(next_rows, rows + 1.0)
+    assert actions.shape == rewards.shape == (6, 1)
+    assert done[:, 0].tolist() == [False, False, True, False, False, True]
+
+
+# --------------------------------------------------------------------------
+# On PPO, through the exposed rollout
+# --------------------------------------------------------------------------
+
+
+def _train_ppo_with_extensions(extensions, n_steps=32):
     agent = PPO(
         env_id="CartPole-v1",
         n_envs=2,
@@ -77,99 +136,104 @@ def _train_ppo_with_extension(ext, n_steps=32):
         batch_size=n_steps,
         n_epochs=1,
         expose_recent_rollout=True,
-        extensions=[ext],
+        extensions=extensions,
     )
     return agent.train(seed=42, n_timesteps=128, logging_config=EVALUATE)
 
 
-def test_conditioning_metrics_on_ppo_completes():
-    """ConditioningMetrics folds into PPO's eval_metrics phase end-to-end:
-    its keys are among the evaluations ``train`` returns."""
-    ext = ConditioningMetrics(on_policy_batch=16)
-    out = _train_ppo_with_extension(ext)
+def test_conditioning_and_decomposition_compose_on_ppo():
+    """Both fold into PPO's eval_metrics phase together: the Cond/* and
+    EVarEst/* keys are among the evaluations ``train`` returns."""
+    out = _train_ppo_with_extensions(
+        [
+            ConditioningMetrics(on_policy_batch=16),
+            BiasVoreDecomposition(on_policy_batch=16),
+        ]
+    )
     # ``train`` returns ``(state, metrics)``.
     assert isinstance(out, tuple) and len(out) == 2
     _, metrics = out
-    for key in COND_METRIC_KEYS:
-        assert key in metrics, f"missing eval-metric key {key!r}; got {list(metrics)}"
-
-
-def test_bias_vore_decomposition_on_ppo_completes():
-    """BiasVoreDecomposition folds into PPO's eval_metrics phase."""
-    ext = BiasVoreDecomposition(on_policy_batch=16, gamma=0.99)
-    out = _train_ppo_with_extension(ext)
-    _, metrics = out
-    for key in EVAREST_DECOMP_KEYS:
-        assert key in metrics, f"missing eval-metric key {key!r}; got {list(metrics)}"
-
-
-# --------------------------------------------------------------------------
-# DiagnosticSnapshots: smoke test (uses a temp dir, post_update fires).
-# --------------------------------------------------------------------------
-
-
-def test_diagnostic_snapshots_writes_files(tmp_path):
-    """DiagnosticSnapshots writes a chunk file every ``every_n_iters``."""
-    ext = DiagnosticSnapshots(
-        directory=str(tmp_path),
-        every_n_iters=1,
-        n_sub=8,
-        sample_batch=4,
-    )
-    out = _train_ppo_with_extension(ext)
-    _, _ = out
-    # post_update is gated on (counter % every_n_iters == 0), so every
-    # iteration writes a file. n_timesteps=128 / (n_envs=2 * n_steps=32)
-    # plus 1 from the num_updates+1 formula ⇒ >= 1 snapshot expected.
-    files = [f for f in os.listdir(tmp_path) if f.startswith("snapshot_")]
-    assert (
-        len(files) >= 1
-    ), f"DiagnosticSnapshots wrote no files to {tmp_path}; got: {files}"
-
-
-# --------------------------------------------------------------------------
-# BiasVorePenalty on PPO: the additive critic-loss term lands in the loss
-# fold without breaking training (numerical equivalence at alpha=0.5).
-# --------------------------------------------------------------------------
-
-
-def test_bias_vore_penalty_on_ppo_completes():
-    """BiasVorePenalty (alpha=0.5 ⇒ no-op) keeps PPO training stable."""
-    out = _train_ppo_with_extension(BiasVorePenalty(alpha=0.5))
-    _, metrics = out
-    # No new keys; just ensure training survived.
-    assert metrics is not None
+    for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
+        assert key in metrics, f"missing {key!r}; got {list(metrics)}"
 
 
 def test_bias_vore_penalty_alpha_nonhalf_runs():
     """alpha=0.3 ⇒ non-zero penalty; PPO still trains end-to-end."""
-    out = _train_ppo_with_extension(BiasVorePenalty(alpha=0.3, loss_scale=0.5))
-    _, metrics = out
+    _, metrics = _train_ppo_with_extensions(
+        [BiasVorePenalty(alpha=0.3, loss_scale=0.5)]
+    )
     assert metrics is not None
 
 
 # --------------------------------------------------------------------------
-# Compose two instrumentation extensions: both contribute eval-metric keys.
+# Every metric against its closed form
 # --------------------------------------------------------------------------
+#: Live units' activation: under the dormancy threshold unless normalised
+#: by the layer's mean.
+LIVE = 0.1
+#: The critic's features are the observations of a (T=4, n_envs=2) rollout,
+#: rows LIVE (e_0, e_1, e_2, e_0) then zeros: rank 3 (each step's rows,
+#: read apart, give four equal singular values), one dead unit of 4; its
+#: parameters have norm 5; the residual (0.5, -3.5, ...) has mean -1.5 and
+#: variance 4.
+CLOSED_FORM = {
+    "Cond/critic_srank": 3.0,
+    "Cond/critic_dormant_frac": 0.25,
+    "Cond/critic_feat_norm": 4 * LIVE / 8,
+    "Cond/critic_weight_norm": 5.0,
+    "EVarEst/bias_sq": 2.25,
+    "EVarEst/var_resid": 4.0,
+    "EVarEst/mse": 6.25,
+    "EVarEst/abs_bias": 1.5,
+}
 
 
-def test_conditioning_and_decomposition_compose_on_ppo():
-    """Both Cond/* and EVarEst/* keys appear when the two are stacked."""
-    agent = PPO(
-        env_id="CartPole-v1",
-        n_envs=2,
-        actor_architecture=("16", "relu"),
-        critic_architecture=("16", "relu"),
-        n_steps=32,
-        batch_size=32,
-        n_epochs=1,
-        expose_recent_rollout=True,
-        extensions=[
-            ConditioningMetrics(on_policy_batch=16),
-            BiasVoreDecomposition(on_policy_batch=16),
-        ],
+def test_every_metric_has_a_closed_form():
+    assert set(CLOSED_FORM) == set(COND_METRIC_KEYS + EVAREST_DECOMP_KEYS)
+
+
+@pytest.mark.parametrize("key", COND_METRIC_KEYS + EVAREST_DECOMP_KEYS)
+def test_a_metric_takes_its_closed_form(key):
+    rows = jnp.zeros((8, 4)).at[jnp.arange(4), jnp.array([0, 1, 2, 0])].set(LIVE)
+    obs, flags = rows.reshape(4, 2, 4), jnp.zeros((4, 2), dtype=bool)
+    rollout = Transition(
+        obs=obs,
+        action=jnp.zeros((4, 2, 1)),
+        reward=jnp.zeros((4, 2)),
+        terminated=flags,
+        truncated=flags,
+        next_obs=obs,
     )
-    out = agent.train(seed=42, n_timesteps=128, logging_config=EVALUATE)
-    _, metrics = out
-    for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
-        assert key in metrics, f"missing {key!r}; got {list(metrics)}"
+    critic = SimpleNamespace(
+        params={"w": jnp.array([3.0, 4.0])}, apply_fn=lambda _, x, method: x[None]
+    )
+    state = SimpleNamespace(
+        collector_state=None, last_rollout=rollout, critic_state=critic
+    )
+    residual = jnp.tile(jnp.array([0.5, -3.5]), 4)
+    extensions = (
+        ConditioningMetrics(critic_loc="critic", concat_action=False),
+        BiasVoreDecomposition(value_target_fn=lambda *_: (jnp.zeros(8), residual)),
+    )
+    key0 = jax.random.PRNGKey(0)
+    metrics = {
+        k: v
+        for e in extensions
+        for k, v in e.eval_metrics(state, None, key0, None).items()
+    }
+    assert float(metrics[key]) == pytest.approx(CLOSED_FORM[key], rel=1e-6)
+
+
+def test_a_cnn_critic_reads_the_observation_alone():
+    """A CNN state-value critic refuses an input one column wide too (the
+    action appended), where an MLP builds other shapes: the instrumentation
+    reads it as a state-value critic all the same."""
+    env, params = gymnax.make("CartPole-v1")
+    env_config = EnvironmentConfig(env, params, n_envs=1, continuous=False)
+    network = NetworkConfig(("8", "relu"), ("8", "relu"), cnn_image_shape=(2, 2, 1))
+    adam = OptimizerConfig(learning_rate=1e-3)
+    key = jax.random.PRNGKey(0)
+    _, critic = get_initialized_actor_critic(
+        key, env_config, adam, adam, network, continuous=False, num_critics=1
+    )
+    assert not _takes_action(critic, jnp.zeros((2, 4)), jnp.zeros((2, 1)), key)

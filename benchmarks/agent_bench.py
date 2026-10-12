@@ -17,19 +17,32 @@ Compare (exit code 1 if any agent regressed past --tol)::
     python benchmarks/agent_bench.py --compare \
         benchmarks/agent_baseline.jsonl benchmarks/agent_rework.jsonl
 
-One process, one agent at a time; the JIT cache is warmed once per agent
-then a fresh agent is timed (buffer/seed state clean, cache hot) — the
-same compile/measured split as ``perf_bench.py``.
+One process, one agent at a time: a short warmup run (``compile_s``), then
+``--trials`` runs of a fresh agent (clean buffer and seed state). A fresh
+agent jits a new closure, so every measured run traces and lowers its
+program again, and compiles it unless the persistent cache holds it.
+``measured_s`` and ``steps_per_s`` include that time; ``exec_s`` and
+``exec_steps_per_s`` leave out the spans JAX reports for tracing, lowering
+and compiling (:func:`compile_spans`). ``--compare`` judges
+``exec_steps_per_s`` when both files have it, else ``steps_per_s``.
+``--n-seeds N`` trains N seeds at once, the vmapped program experiments
+run; steps/s then count every seed's steps.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import gc
 import json
 import os
 import subprocess
 import time
+
+# The standardized run: every agent trains for TIMESTEPS steps over N_ENVS
+# envs (the --n-envs and --timesteps defaults).
+N_ENVS = 4
+TIMESTEPS = 8000
 
 # TD-MPC2 at its paper defaults (a 5M-parameter model, batch 256, 512
 # planning candidates over 6 MPPI iterations per env step) would take
@@ -39,7 +52,7 @@ import time
 # Pendulum's T = 200) at a small size: the model_size=1 preset narrowed to
 # 64-unit layers and a 32-dim latent, batch 32, 64 candidates / 8 elites /
 # 4 prior trajectories, 2 MPPI iterations; seed_steps stays
-# max(1000, 5 T) = 1000. With the defaults below (--n-envs 4, --timesteps
+# max(1000, 5 T) = 1000. With N_ENVS and TIMESTEPS (--n-envs 4, --timesteps
 # 8000) a run is 2010 ticks (2000 env steps per env and 10 held ticks):
 # random actions up to the tick of per-env step 250, the first on which the
 # total env steps exceed 1000 (the n_envs > 1 rule, deviation T7 in
@@ -58,34 +71,49 @@ _TDMPC2_PRESET = {
     "iterations": 2,
 }
 
+# SAC, TD3, REDQ and ASAC default to learning_starts=10_000, past the end of
+# the TIMESTEPS-step run: their rows timed collection alone. 1,000 is DQN's
+# default, so the replay agents share one warm-up: the updates start an
+# eighth into the run and cover the other seven eighths, past SAC's
+# policy_update_start and alpha_update_start (2,000), with more stored steps
+# than any of their batch sizes. tests/benchmarks/test_agent_bench.py checks
+# that every preset updates within the run.
+_WARMUP_INSIDE_RUN = {"learning_starts": 1000}
+
 # agent name -> (env_id, extra constructor kwargs). Discrete-action
-# agents train on CartPole-v1, continuous ones on Pendulum-v1. Only
-# env_id / n_envs / n_timesteps are pinned; every other hyperparameter
+# agents train on CartPole-v1, continuous ones on Pendulum-v1; an agent's
+# second scenario is named <agent>/<env>. Only
+# env_id / n_envs / n_timesteps are pinned, and a learning_starts that
+# would outlast the run (_WARMUP_INSIDE_RUN); every other hyperparameter
 # uses the agent default, so the benchmark tracks the agent's own code
 # path rather than a tuned config. Agents that cannot train on a plain env
 # id get a small documented preset in _CUSTOM_BUILDERS instead (env_id is
 # then a label).
 AGENTS: dict[str, tuple[str, dict]] = {
-    "SAC": ("Pendulum-v1", {}),
+    "SAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "PPO": ("CartPole-v1", {}),
     "DQN": ("CartPole-v1", {}),
     "PQN": ("CartPole-v1", {}),
-    "TD3": ("Pendulum-v1", {}),
-    "REDQ": ("Pendulum-v1", {}),
+    "TD3": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
+    "REDQ": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "APO": ("Pendulum-v1", {}),
-    "ASAC": ("Pendulum-v1", {}),
+    "ASAC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
     "AVG": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
+    "UDRL": ("Pendulum-v1", {}),
+    # Pendulum's episodes end on the time limit only. Brax's
+    # inverted_pendulum ends them when the pole passes 0.2 rad, within tens
+    # of steps for an untrained policy: the auto-reset and the terminal
+    # targets of a state-terminating continuous task, on the off-policy
+    # flagship.
+    "SAC/inverted_pendulum": ("inverted_pendulum", _WARMUP_INSIDE_RUN),
     # DreamerV3 preset: the 1m model (d = 64, deter 512, 4 classes) on 8
     # windows of 16 + 1 rows, train ratio 8 (one update per 16 rows after
     # the training start: ~500 updates in 8000 rows), every other
     # hyperparameter at its paper-era default (the replay ring is the whole
-    # run: min(capacity / n_envs, rows per env)). The warmup does not compile
-    # the measured program (the scan length, n_timesteps // n_envs, is
-    # static, as for every agent here): a measured trial also traces and
-    # lowers, ~15-20% of it at this preset, and the first one compiles
-    # unless the persistent cache holds the program -- compare medians of
-    # the default 3 trials.
+    # run: min(capacity / n_envs, rows per env)). Tracing and lowering take
+    # ~15-20% of a measured trial at this preset: exec_steps_per_s leaves
+    # them out.
     "DreamerV3": (
         "CartPole-v1",
         {
@@ -108,19 +136,6 @@ def _git_sha() -> str:
         ).strip()
     except Exception:
         return "unknown"
-
-
-def _agent_class(name: str):
-    """Resolve an agent class — exported on `ajax`, else from its module."""
-    import ajax
-
-    cls = getattr(ajax, name, None)
-    if cls is None:
-        import importlib
-
-        mod = importlib.import_module(f"ajax.agents.{name}.{name}")
-        cls = getattr(mod, name)
-    return cls
 
 
 def _apg_tracking(n_envs: int):
@@ -171,9 +186,50 @@ _CUSTOM_BUILDERS = {"APG": _apg_tracking}
 
 
 def _build(name: str, env_id: str, kw: dict, n_envs: int):
+    import ajax
+
     if name in _CUSTOM_BUILDERS:
         return _CUSTOM_BUILDERS[name](n_envs, **kw)
-    return _agent_class(name)(env_id=env_id, n_envs=n_envs, **kw)
+    agent = getattr(ajax, name.split("/")[0])
+    return agent(env_id=env_id, n_envs=n_envs, **kw)
+
+
+# The JAX events whose spans are tracing, lowering and compiling; a load
+# from the persistent cache happens inside the compile span.
+_COMPILE_EVENTS = frozenset(
+    {
+        "/jax/core/compile/jaxpr_trace_duration",
+        "/jax/core/compile/jaxpr_to_mlir_module_duration",
+        "/jax/core/compile/backend_compile_duration",
+    }
+)
+
+
+@functools.cache
+def compile_spans() -> list[tuple[float, float]]:
+    """The ``(start, end)`` of every trace, lowering and compile since the
+    list was last cleared, appended by a JAX listener registered once."""
+    import jax
+
+    spans: list[tuple[float, float]] = []
+
+    def listen(event: str, start: float, end: float, **_: object) -> None:
+        if event in _COMPILE_EVENTS:
+            spans.append((start, end))
+
+    jax.monitoring.register_event_time_span_listener(listen)
+    return spans
+
+
+def covered_seconds(spans: list[tuple[float, float]]) -> float:
+    """The length of the union of ``spans``: nested spans (a jit traced
+    inside another's trace) count once."""
+    total, reach = 0.0, float("-inf")
+    for start, end in sorted(spans):
+        if end > reach:
+            total += end - max(start, reach)
+            reach = end
+    return total
 
 
 def _time_agent(
@@ -182,41 +238,48 @@ def _time_agent(
     kw: dict,
     *,
     n_envs: int,
+    n_seeds: int,
     warmup: int,
     timesteps: int,
     trials: int,
 ) -> list[dict]:
-    """Warm the JIT cache, then time `trials` measured runs of `timesteps`."""
+    """Warm the JIT cache, then time `trials` measured runs of `timesteps`,
+    each training `n_seeds` seeds at once (one vmapped program)."""
     import jax
 
     rows: list[dict] = []
-    # Warmup: compile for this exact (shapes, n_seeds) signature.
     t0 = time.perf_counter()
     agent = _build(name, env_id, kw, n_envs)
-    out = agent.train(seed=0, n_timesteps=warmup)
+    out = agent.train(seed=list(range(n_seeds)), n_timesteps=warmup)
     jax.block_until_ready(out)
     compile_s = time.perf_counter() - t0
     del agent, out
     gc.collect()
 
+    spans = compile_spans()
     for trial in range(trials):
         agent = _build(name, env_id, kw, n_envs)
+        spans.clear()
         t0 = time.perf_counter()
-        out = agent.train(seed=1 + trial, n_timesteps=timesteps)
+        seeds = [1 + trial * n_seeds + i for i in range(n_seeds)]
+        out = agent.train(seed=seeds, n_timesteps=timesteps)
         jax.block_until_ready(out)
         measured_s = time.perf_counter() - t0
+        exec_s = measured_s - covered_seconds(spans)
+        env_steps = timesteps * n_seeds  # every seed's
         rows.append(
             {
                 "agent": name,
                 "env": env_id,
                 "trial": trial,
                 "n_envs": n_envs,
+                "n_seeds": n_seeds,
                 "timesteps": timesteps,
                 "compile_s": round(compile_s, 3),
                 "measured_s": round(measured_s, 3),
-                "steps_per_s": round(timesteps / measured_s, 1)
-                if measured_s > 0
-                else 0.0,
+                "steps_per_s": round(env_steps / measured_s, 1),
+                "exec_s": round(exec_s, 3),
+                "exec_steps_per_s": round(env_steps / exec_s, 1),
             }
         )
         del agent, out
@@ -229,6 +292,7 @@ def capture(
     out_path: str,
     *,
     n_envs: int,
+    n_seeds: int,
     warmup: int,
     timesteps: int,
     trials: int,
@@ -251,6 +315,7 @@ def capture(
                 env_id,
                 kw,
                 n_envs=n_envs,
+                n_seeds=n_seeds,
                 warmup=warmup,
                 timesteps=timesteps,
                 trials=trials,
@@ -270,9 +335,10 @@ def capture(
             )
             continue
         med = sorted(r["steps_per_s"] for r in rows)[len(rows) // 2]
+        exec_med = sorted(r["exec_steps_per_s"] for r in rows)[len(rows) // 2]
         print(
             f"  {name:9s} compile={rows[0]['compile_s']:7.2f}s  "
-            f"steps/s(median)={med:9.1f}",
+            f"steps/s(median)={med:9.1f}  exec steps/s(median)={exec_med:9.1f}",
             flush=True,
         )
         for r in rows:
@@ -283,25 +349,28 @@ def capture(
         for r in all_rows:
             f.write(json.dumps(r) + "\n")
     print(
-        f"baseline -> {out_path}  ({len(all_rows)} rows, "
-        f"git={sha}, backend={backend})",
+        f"baseline -> {out_path}  ({len(all_rows)} rows, git={sha}, backend={backend})",
         flush=True,
     )
 
 
-def _median_steps(path: str) -> dict[str, float]:
+def _medians(path: str, metric: str) -> dict[str, float]:
     per: dict[str, list[float]] = {}
     with open(path) as f:
         for line in f:
             r = json.loads(line)
-            if "steps_per_s" in r:
-                per.setdefault(r["agent"], []).append(r["steps_per_s"])
+            if metric in r:
+                per.setdefault(r["agent"], []).append(r[metric])
     return {a: sorted(v)[len(v) // 2] for a, v in per.items() if v}
 
 
 def compare(baseline_path: str, new_path: str, tol: float) -> int:
-    base = _median_steps(baseline_path)
-    new = _median_steps(new_path)
+    metric = "exec_steps_per_s"
+    base, new = _medians(baseline_path, metric), _medians(new_path, metric)
+    if not base or not new:  # rows recorded before exec_s existed
+        metric = "steps_per_s"
+        base, new = _medians(baseline_path, metric), _medians(new_path, metric)
+    print(f"median {metric}")
     print(f"{'agent':10s} {'baseline':>12s} {'new':>12s} {'delta':>9s}")
     regressed = []
     for agent in sorted(base):
@@ -327,18 +396,21 @@ def compare(baseline_path: str, new_path: str, tol: float) -> int:
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="baseline")
+    # No default: one defaulting to the baseline file let a quick
+    # `--only SAC` check replace the whole baseline with SAC's rows.
+    ap.add_argument("--out", help="result file to write (required to capture)")
+    ap.add_argument("--n-envs", type=int, default=N_ENVS)
     ap.add_argument(
-        "--out",
-        default=os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "agent_baseline.jsonl"
-        ),
+        "--n-seeds",
+        type=int,
+        default=1,
+        help="seeds trained at once (vmapped); steps/s count every seed's",
     )
-    ap.add_argument("--n-envs", type=int, default=4)
     ap.add_argument("--warmup", type=int, default=400)
-    ap.add_argument("--timesteps", type=int, default=8000)
+    ap.add_argument("--timesteps", type=int, default=TIMESTEPS)
     ap.add_argument("--trials", type=int, default=3)
     ap.add_argument(
         "--only", nargs="*", default=None, help="benchmark only these agents"
@@ -356,14 +428,17 @@ def main() -> None:
         default=0.10,
         help="regression tolerance for --compare (default 10%%)",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.compare:
         raise SystemExit(compare(args.compare[0], args.compare[1], args.tol))
+    if args.out is None:
+        ap.error("--out is required when capturing")
     capture(
         args.tag,
         args.out,
         n_envs=args.n_envs,
+        n_seeds=args.n_seeds,
         warmup=args.warmup,
         timesteps=args.timesteps,
         trials=args.trials,

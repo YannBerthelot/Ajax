@@ -17,7 +17,6 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
-from extension_stubs import CounterExt
 from flax import struct
 from flax.training.train_state import TrainState
 
@@ -30,6 +29,8 @@ from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
+from ajax.types import Replaceable
+from tests.agents.extension_stubs import CounterExt
 
 
 @struct.dataclass
@@ -38,7 +39,7 @@ class Collector:
 
 
 @struct.dataclass
-class State:
+class State(Replaceable):
     rng: jax.Array
     collector_state: Collector
     value: jax.Array
@@ -336,21 +337,30 @@ def _expert_rows(normalize_observations: bool) -> tuple[Any, Any, np.ndarray]:
 
 
 @pytest.mark.parametrize("normalize", [False, True], ids=["raw", "normalised"])
-def test_the_expert_return_is_computed_once_per_call(normalize: bool) -> None:
-    """One key on one env: every evaluation reports the return the expert's
-    rollout in ``evaluate`` earns, an observation normaliser or not (the
-    expert acts on the environment's own observations)."""
+def test_each_evaluation_reports_the_experts_return_on_its_episodes(
+    normalize: bool,
+) -> None:
+    """Every evaluation reports the return the expert's rollout in
+    ``evaluate`` earns on the agent's episodes (its key), an observation
+    normaliser or not (the expert acts on the environment's own
+    observations)."""
     agent, state, rows = _expert_rows(normalize_observations=normalize)
     for seed in range(len(SEEDS)):
-        expert_return = evaluate(
-            agent.env_args.env,
-            jax.tree.map(lambda x, s=seed: x[s], state.actor_state),
-            2,
-            state.eval_rng[seed],
-            agent.env_args.env_params,
-            expert_policy=agent.expert_policy,
-        )[-1]
-        np.testing.assert_allclose(rows[seed, :4], float(expert_return), rtol=1e-6)
+        actor_state = jax.tree.map(lambda x, s=seed: x[s], state.actor_state)
+        for n_logs in range(4):
+            key = jax.random.fold_in(state.eval_rng[seed], n_logs)
+            expert_return = evaluate(
+                agent.env_args.env,
+                actor_state,
+                2,
+                jax.random.split(key)[0],
+                agent.env_args.env_params,
+                expert_policy=agent.expert_policy,
+            )[-1]
+            np.testing.assert_allclose(
+                rows[seed, n_logs], float(expert_return), rtol=1e-6
+            )
+    assert len(set(rows[0, :4])) == 4  # fresh episodes at each evaluation
 
 
 # --- Agents acting, training and evaluating their own way --------------------

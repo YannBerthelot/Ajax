@@ -1,10 +1,11 @@
 """The pretraining helpers and extensions of :mod:`ajax.extensions.pretrain`.
 
 These are integration-style tests: they build real (tiny) flax TrainStates
-and drive the pretrain helpers end-to-end. Heavy helpers
-(``pretrain_critic_mc``, ``refresh_phi_star``) that require real env rollouts
-or buffers with expert flags are out of scope here — they are exercised
-indirectly through the SAC probing tests.
+and drive the pretrain helpers end-to-end. The helpers that need real env
+rollouts or buffers with expert flags (``pretrain_critic_mc``,
+``refresh_phi_star``) run inside SAC: the MCPretrain and PhiRefresh goldens
+of test_sac_extensions_equivalence.py, test_expert_observations.py,
+test_expert_extensions_raw_units.py and the probing tests.
 """
 
 from typing import Any, Optional
@@ -20,7 +21,8 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.pretrain import (
     BellmanPretrain,
-    MCPretrainAux,
+    CloningPretrain,
+    PhiRefresh,
     pretrain_critic_online_light,
 )
 from ajax.state import LoadedTrainState
@@ -73,42 +75,8 @@ def pretrain_batches(rng):
 
 
 # ---------------------------------------------------------------------------
-# Auxiliary dataclass smoke tests
-# ---------------------------------------------------------------------------
-
-
-def test_mc_pretrain_aux_fields_round_trip():
-    aux = MCPretrainAux(
-        initial_loss=jnp.asarray(1.0),
-        final_loss=jnp.asarray(0.5),
-        q_expert_mean=jnp.asarray(2.0),
-        q_expert_min=jnp.asarray(-1.0),
-        q_expert_max=jnp.asarray(5.0),
-        v_min=jnp.asarray(-1.0),
-        v_max=jnp.asarray(5.0),
-    )
-    # Field access plus dataclass-style replace should both work.
-    replaced = aux.replace(final_loss=jnp.asarray(0.25))
-    assert float(replaced.final_loss) == pytest.approx(0.25)
-    assert float(replaced.initial_loss) == pytest.approx(1.0)
-
-
-# ---------------------------------------------------------------------------
 # pretrain_critic_online_light
 # ---------------------------------------------------------------------------
-
-
-def test_pretrain_critic_online_light_returns_agent_state(rng, pretrain_batches):
-    critic_state = _make_critic_state(rng)
-    # Frozen "expert" params = different params so the nudge has signal.
-    expert_params = _make_critic_state(jax.random.fold_in(rng, 1)).params
-    state = FakePretrainState(
-        critic_state=critic_state,
-        expert_critic_params=expert_params,
-    )
-    obs, actions = pretrain_batches
-    out = pretrain_critic_online_light(state, obs, actions, n_steps=2, lr_scale=0.1)
-    assert isinstance(out, FakePretrainState)
 
 
 def test_pretrain_critic_online_light_changes_params(rng, pretrain_batches):
@@ -120,6 +88,7 @@ def test_pretrain_critic_online_light_changes_params(rng, pretrain_batches):
     )
     obs, actions = pretrain_batches
     out = pretrain_critic_online_light(state, obs, actions, n_steps=2, lr_scale=1.0)
+    assert isinstance(out, FakePretrainState)
     # At least one leaf in the critic params should change after updates.
     orig_leaves = jax.tree_util.tree_leaves(critic_state.params)
     new_leaves = jax.tree_util.tree_leaves(out.critic_state.params)
@@ -176,3 +145,60 @@ def test_bellman_pretrain_needs_the_agent_context_and_expert():
     agent = SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
     with pytest.raises(ValueError, match="expert_policy"):
         agent.train(seed=0, n_timesteps=10)
+
+
+def test_cloning_pretrain_binds_the_agent_context():
+    """An agent hands CloningPretrain its env, actor optimizer and
+    observation layout; an extension already bound keeps its own, and an
+    agent without an actor optimizer leaves it unbound."""
+    ext = CloningPretrain(expert_policy=abs, n_steps=8)
+    context = {
+        "env_args": "env",
+        "actor_optimizer_args": "adam",
+        "expert_policy": abs,
+        "augment_obs_with_expert_action": True,
+        "use_train_frac": True,
+    }
+    bound = ext.bind_to_agent(**context)
+    assert (bound.env_args, bound.actor_optimizer_args) == ("env", "adam")
+    assert bound.augment_obs_with_expert_action and bound.use_train_frac
+    assert not bound.augment_obs_with_expert_state
+    assert bound.bind_to_agent(**context | {"env_args": "other"}) is bound
+    assert ext.bind_to_agent(env_args="env") is ext
+
+
+@pytest.mark.parametrize(
+    "layout", ["augment_obs_with_expert_action", "augment_obs_with_expert_state"]
+)
+def test_cloning_pretrain_clones_the_expert_the_observations_carry(layout):
+    """Observations carrying the agent's expert's action or state would hold
+    another expert's in the cloning dataset: binding raises."""
+    ext = CloningPretrain(expert_policy=abs)
+    context = {"env_args": "env", "actor_optimizer_args": "adam", layout: True}
+    with pytest.raises(ValueError, match="agent's expert_policy"):
+        ext.bind_to_agent(**context, expert_policy=len)
+    assert ext.bind_to_agent(**context, expert_policy=abs).env_args == "env"
+
+
+def test_cloning_pretrain_comes_before_the_other_pretraining():
+    """Cloning seeds the statistics the critic reads: a critic pretrained
+    before it would be queried on other inputs, so binding raises."""
+    ext, other = CloningPretrain(expert_policy=abs), BellmanPretrain()
+    context = {"env_args": "env", "actor_optimizer_args": "adam"}
+    assert ext.bind_to_agent(**context, extensions=(ext, other)).env_args == "env"
+    with pytest.raises(ValueError, match="before the other pretraining"):
+        ext.bind_to_agent(**context, extensions=(other, ext))
+
+
+def test_cloning_pretrain_needs_the_agent_context():
+    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    with pytest.raises(ValueError, match="did not bind"):
+        CloningPretrain(expert_policy=abs).pretrain(None, (), ctx)
+
+
+def test_phi_refresh_needs_the_agent_context():
+    """Unbound (no agent handed it its buffer), its post_update raises
+    rather than never refreshing phi*."""
+    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    with pytest.raises(ValueError, match="did not bind"):
+        PhiRefresh(expert_policy=abs).post_update(None, (), ctx)

@@ -5,17 +5,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.AVG.utils import (
-    NormalizationInfo,
-    compute_td_error_scaling,
-)
+from ajax.agents.AVG.state import RunningMoments
+from ajax.agents.AVG.utils import compute_td_error_scaling
 
 
-def _info(value, count=0, mean=0.0) -> NormalizationInfo:
+def _info(value, count=0, mean=0.0) -> RunningMoments:
     """Running statistics of ``value`` (a column per env) after ``count``
     values of mean ``mean``."""
     value = jnp.array(value)
-    return NormalizationInfo(
+    return RunningMoments(
         value=value,
         count=jnp.full(value.shape, count),
         mean=jnp.full(value.shape, mean),

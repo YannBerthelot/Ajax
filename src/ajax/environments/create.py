@@ -4,6 +4,8 @@ from typing import Callable, Optional, Tuple, Union
 import brax
 import brax.envs
 import gymnax
+import jax
+from brax.envs.wrappers import training as brax_training
 from gymnax import EnvParams
 
 from ajax.environments.utils import (
@@ -17,11 +19,12 @@ from ajax.environments.utils import (
 from ajax.types import EnvNormalizationInfo
 from ajax.wrappers import (
     AutoResetWrapper,
+    BatchRngWrapper,
     ClipAction,
     ClipActionBrax,
     FinalObsWrapper,
     FlattenObservationWrapper,
-    NoiseWrapper,
+    FreshAutoResetWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
     get_wrappers,
@@ -59,8 +62,8 @@ def _call_registered_builder(
 ):
     """Call a registered ``(n_envs, episode_length)`` builder.
 
-    At ``action_repeat == 1`` the builder is called exactly as before (two
-    arguments). Above 1, ``action_repeat`` is forwarded as a keyword when the
+    At ``action_repeat == 1`` the builder is called with two arguments.
+    Above 1, ``action_repeat`` is forwarded as a keyword when the
     builder's signature takes it (by name or ``**kwargs``), and the built
     env -- not the signature -- decides: it must repeat each action
     ``action_repeat`` times (:func:`env_action_repeat`), otherwise this
@@ -169,14 +172,10 @@ def _build_playground_env(
             action_repeat,
         )
 
-    import jax as _jax
-    from brax.envs.wrappers import training as brax_training
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
-    from ajax.wrappers import BatchRngWrapper, FreshAutoResetWrapper
-
-    _overrides = {"impl": "jax"} if _jax.default_backend() == "cpu" else None
+    _overrides = {"impl": "jax"} if jax.default_backend() == "cpu" else None
     env = registry.load(env_id, config_overrides=_overrides)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
@@ -224,8 +223,6 @@ def _build_brax_env(
             action_repeat,
         )
 
-    from brax.envs.wrappers import training as brax_training
-
     env = brax.envs._envs[env_id]()
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env, batch_size=n_envs)
@@ -240,9 +237,9 @@ def build_env_from_id(
     n_envs: int = 1,
     fresh_reset: bool = True,
     *,
+    episode_length: int = 1000,
     action_repeat: int = 1,
     differentiable_reset: bool = False,
-    **kwargs,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
 
@@ -294,38 +291,25 @@ def build_env_from_id(
         # (H, W, C) from the flat vector via `cnn_image_shape`.
         if len(env.observation_space(env_params).shape) > 1:
             env = FlattenObservationWrapper(env)
-        return env, env_params  # TODO : see how to have env_params not mess up the rest
+        return env, env_params
 
-    episode_length = kwargs.get("episode_length", 1000)
+    from mujoco_playground import registry as mp_registry
 
     # External callers (e.g. SafetyExperiments) may register a playground
     # builder for an env id that is not part of `mp_registry.ALL_ENVS`
-    # (e.g. a custom MJX env composed from our own MJCF). Honour the
-    # builder registry before falling through to the upstream registry.
-    if env_id in _PLAYGROUND_BUILDERS:
+    # (e.g. a custom MJX env composed from our own MJCF); a registered
+    # builder owns its stack and ignores the auto-reset flags.
+    if env_id in _PLAYGROUND_BUILDERS or env_id in mp_registry.ALL_ENVS:
         return _build_playground_env(
             env_id,
             n_envs=n_envs,
             episode_length=episode_length,
             action_repeat=action_repeat,
+            fresh_reset=fresh_reset,
+            differentiable_reset=differentiable_reset,
         ), None
 
-    try:
-        from mujoco_playground import registry as mp_registry
-
-        if env_id in mp_registry.ALL_ENVS:
-            return _build_playground_env(
-                env_id,
-                n_envs=n_envs,
-                episode_length=episode_length,
-                action_repeat=action_repeat,
-                fresh_reset=fresh_reset,
-                differentiable_reset=differentiable_reset,
-            ), None
-    except ImportError:
-        pass
-
-    if env_id in _BRAX_BUILDERS or env_id in list(brax.envs._envs.keys()):
+    if env_id in _BRAX_BUILDERS or env_id in brax.envs._envs:
         return _build_brax_env(
             env_id,
             n_envs=n_envs,
@@ -372,10 +356,9 @@ _NORMALISERS = (NormalizeVecObservationGymnax, NormalizeVecObservationBrax)
 
 def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
     """The task env under Ajax's own layers, and the keywords that rebuild
-    those layers with :func:`add_ajax_wrappers` (the observation noise of
-    :func:`prepare_env` is not rebuilt). Everything under them is the task:
-    the user's wrappers, the flattening of :func:`build_env_from_id`, a brax
-    stack's time limit."""
+    those layers with :func:`add_ajax_wrappers`. Everything under them is
+    the task: the user's wrappers, the flattening of
+    :func:`build_env_from_id`, a brax stack's time limit."""
     layers: dict = {}
     for layer in wrapper_chain(env):
         if isinstance(layer, _NORMALISERS):
@@ -385,7 +368,7 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
                 "gamma": layer.gamma,
                 "apply_obs_normalization": layer.apply_normalization,
             }
-        elif not isinstance(layer, (*_CLIPS, NoiseWrapper)):
+        elif not isinstance(layer, _CLIPS):
             return layer, layers
     raise ValueError(f"No task env under the Ajax wrappers of {env!r}")
 
@@ -398,7 +381,6 @@ def prepare_env(
     normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,  # Discount factor for reward normalization
-    noise_scale: Optional[float] = None,
     apply_obs_normalization: bool = True,
     action_repeat: int = 1,
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
@@ -448,7 +430,4 @@ def prepare_env(
         gamma=gamma,
         apply_obs_normalization=apply_obs_normalization,
     )
-    if noise_scale is not None:
-        print("noise wrapper")
-        env = NoiseWrapper(env, scale=noise_scale)
     return env, env_params, env_id, continuous

@@ -16,8 +16,9 @@ conditional p(a | s, c) over a wide range of c rather than collapsing to
 the current rollout's narrow distribution.
 """
 
+import dataclasses
 from collections.abc import Sequence
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import distrax
 import jax
@@ -27,9 +28,9 @@ from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
 from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.agents.UDRL.buffer import (
     add_segment,
+    episode_stream,
     init_buffer,
     sample_training_batch,
     topk_command_stats,
@@ -40,13 +41,18 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
     step,
+    update_episodic_return,
 )
 from ajax.environments.utils import (
-    check_env_is_gymnax,
+    agent_action_to_env,
     check_if_environment_has_continuous_actions,
+    env_keys,
 )
+from ajax.evaluate import evaluate
 from ajax.extensions.base import ExtensionStack
+from ajax.log import eval_norm_info
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.distributions import SquashedNormal
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import (
     EnvironmentConfig,
@@ -62,13 +68,13 @@ class UDRLAuxiliaries:
     actor_loss: jnp.ndarray
     mean_rtg: jnp.ndarray
     mean_horizon: jnp.ndarray
-    # Mean completed-episode return within the rollout segment (0 if no
-    # episode finished). Plotted as the training curve.
-    episodic_return: jnp.ndarray
-    # Number of completed episodes in the segment (per iter).
+    # The house training return (update_episodic_return): each env's
+    # rolling mean of whole-episode returns, averaged over envs.
+    episodic_return: Union[float, jax.Array]
+    # Episodes that ended in the iteration's segment.
     n_completed_episodes: jnp.ndarray
     # Total env timesteps consumed up to and including this iter.
-    timestep: jnp.ndarray
+    timestep: Union[int, jax.Array]
 
 
 def init_UDRL(
@@ -78,9 +84,8 @@ def init_UDRL(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     agent_config: UDRLConfig,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
 ) -> UDRLState:
-    rng, init_key, collector_key = jax.random.split(key, 3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     continuous = check_if_environment_has_continuous_actions(
         env_args.env, env_params=env_args.env_params
@@ -96,9 +101,8 @@ def init_UDRL(
         squash=continuous,
         num_critics=1,
         extra_obs_dim=2,  # the (d_r, d_h) command is appended to obs
-        cnn_image_shape=cnn_image_shape,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
@@ -106,7 +110,6 @@ def init_UDRL(
         expert_state_aug_dim=2,  # reserves 2 trailing slots in last_obs for command
     )
 
-    # Seed last_obs's command slots with (return_init, horizon_init).
     n_envs = env_args.n_envs
     init_cmd = jnp.tile(
         jnp.array(
@@ -122,8 +125,7 @@ def init_UDRL(
 
     obs_dim = collector_state.last_obs.shape[-1]
     # The buffer stores actions with a trailing dim (1 for discrete, action_dim
-    # for continuous). Read it from the freshly-built actor's expected action
-    # space dim.
+    # for continuous).
     from ajax.environments.utils import get_action_dim
 
     if continuous:
@@ -143,7 +145,7 @@ def init_UDRL(
 
     return UDRLState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         collector_state=collector_state,
@@ -174,9 +176,7 @@ def _udrl_collect_step(
     """
     cs = agent_state.collector_state
     rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
-    rng_step = (
-        jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
-    )
+    rng_step = env_keys(step_key, mode, env_args.n_envs)
 
     last_obs = cs.last_obs  # (n_envs, raw_obs_dim + 2)
     # Scale (dr, dh) before the actor's forward pass (paper §appendix). The
@@ -196,7 +196,7 @@ def _udrl_collect_step(
             step(
                 rng_step,
                 cs.env_state,
-                action,
+                agent_action_to_env(action, env_args.env, env_args.env_params),
                 env_args.env,
                 mode,
                 env_args.env_params,
@@ -241,6 +241,10 @@ def _udrl_collect_step(
         log_prob=log_probs,
     )
 
+    # Episodes span segments: their returns are summed across iterations.
+    episodic_return_state, episodic_mean_return = update_episodic_return(
+        cs.episodic_return_state, reward, done > 0
+    )
     new_cs = cs.replace(
         rng=rng,
         _env_state=new_env_state,
@@ -248,6 +252,8 @@ def _udrl_collect_step(
         timestep=cs.timestep + env_args.n_envs,
         last_terminated=terminated,
         last_truncated=truncated,
+        episodic_return_state=episodic_return_state,
+        episodic_mean_return=episodic_mean_return,
     )
     return (
         agent_state.replace(
@@ -271,7 +277,6 @@ def actor_loss_fn(
     actor_state: LoadedTrainState,
     obs_with_realised_command: jax.Array,
     actions: jax.Array,
-    bc_loss_type: str,
 ) -> jax.Array:
     pi, _ = get_pi(
         actor_state=actor_state,
@@ -287,47 +292,11 @@ def actor_loss_fn(
         log_p = pi.log_prob(actions)
         return -log_p.mean()
 
-    if bc_loss_type == "mse":
-        if hasattr(pi, "unsquashed_mean"):
-            mu = pi.unsquashed_mean()
-        else:
-            mu = pi.mean()
-        target = jnp.arctanh(jnp.clip(actions, -0.999, 0.999))
-        return jnp.mean((mu - target) ** 2)
-
-    # NLL on the squashed-normal / normal
     if isinstance(pi, SquashedNormal):
         eps = 1e-3
         target = jnp.clip(actions, -1.0 + eps, 1.0 - eps)
         return -pi.log_prob(target).sum(-1).mean()
     return -pi.log_prob(actions).sum(-1).mean()
-
-
-def _completed_episode_returns(
-    rewards: jax.Array, dones: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
-    """Sum rewards into per-env episode returns, emitting at episode end.
-
-    rewards, dones: (T, n_envs, 1). Returns (sum_of_completed_returns,
-    n_completed_episodes), both scalars summed over the (T, n_envs) axes.
-    """
-
-    def body(carry, x):
-        running, sum_done, count = carry
-        r, d = x
-        new_running = running + r
-        sum_done = sum_done + d * new_running
-        count = count + d
-        new_running = new_running * (1.0 - d)
-        return (new_running, sum_done, count), None
-
-    init = (
-        jnp.zeros_like(rewards[0]),
-        jnp.zeros_like(rewards[0]),
-        jnp.zeros_like(rewards[0]),
-    )
-    (_, sum_done, count), _ = jax.lax.scan(body, init, (rewards, dones))
-    return sum_done.sum(), count.sum()
 
 
 def training_iteration(
@@ -336,7 +305,7 @@ def training_iteration(
     env_args: EnvironmentConfig,
     mode: str,
     agent_config: UDRLConfig,
-    extension_stack: Optional[ExtensionStack] = None,
+    extension_stack: ExtensionStack,
     total_timesteps: int = 1,
 ) -> Tuple[UDRLState, UDRLAuxiliaries]:
     # 1. Collect one rollout segment (Algorithm 4).
@@ -365,12 +334,11 @@ def training_iteration(
     # 3. Refresh the rollout command target from buffer top-K (Algorithm 5):
     #    an EMA towards the top-K statistics, keeping the old target while
     #    the buffer holds no completed episode (NaN statistics).
-    topk_r, topk_std, topk_h = topk_command_stats(
-        new_buffer, k=agent_config.command_topk
-    )
+    stream = episode_stream(new_buffer)
+    topk_r, topk_std, topk_h = topk_command_stats(stream, k=agent_config.command_topk)
     tau = agent_config.command_target_tau
 
-    def _refresh(old: jax.Array, proposal: jax.Array) -> jax.Array:
+    def _refresh(old: jax.Array | float, proposal: jax.Array) -> jax.Array:
         return (1.0 - tau) * old + tau * jnp.where(jnp.isnan(proposal), old, proposal)
 
     new_target_r = _refresh(
@@ -381,13 +349,15 @@ def training_iteration(
 
     # 4. Train: sample (s, a, dr, dh) from the buffer and fit the actor with
     #    a fixed number of gradient updates per iteration (Algorithm 3).
-    rng, train_rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    rng, train_rng, ext_rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
 
-    def update_step(carry, key):
-        a_state = carry
-        obs_b, act_b, _dr, _dh = sample_training_batch(
-            key, a_state.buffer, agent_config.batch_size
+    def update_step(carry, keys):
+        a_state, (key, ext_key) = carry, keys
+        obs_b, act_b = sample_training_batch(
+            key, new_buffer, stream, agent_config.batch_size
         )
         # Scale the (dr, dh) portion of obs to match what the actor sees
         # at rollout time.
@@ -396,45 +366,37 @@ def training_iteration(
         )
 
         def _loss(params):
-            loss = actor_loss_fn(
-                params, a_state.actor_state, obs_b, act_b, agent_config.bc_loss_type
+            loss = actor_loss_fn(params, a_state.actor_state, obs_b, act_b)
+            _al_batch = {
+                "observations": obs_b,
+                "actions": act_b,
+                "actor_params": params,
+                "actor_state": a_state.actor_state,
+            }
+            return loss + extension_stack.fold_actor_loss(
+                a_state,
+                _al_batch,
+                a_state.collector_state.timestep,
+                ext_key,
+                total_timesteps,
             )
-            if extension_stack:
-                _al_batch = {
-                    "observations": obs_b,
-                    "actions": act_b,
-                    "actor_params": params,
-                    "actor_state": a_state.actor_state,
-                }
-                loss = loss + extension_stack.fold_actor_loss(
-                    a_state,
-                    _al_batch,
-                    a_state.collector_state.timestep,
-                    key,
-                    total_timesteps,
-                )
-            return loss
 
         loss, grads = jax.value_and_grad(_loss)(a_state.actor_state.params)
         new_actor_state = a_state.actor_state.apply_gradients(grads=grads)
         return a_state.replace(actor_state=new_actor_state), loss
 
-    update_keys = jax.random.split(train_rng, agent_config.n_updates_per_iter)
-    agent_state, update_losses = jax.lax.scan(update_step, agent_state, update_keys)
+    n_updates = agent_config.n_updates_per_iter
+    update_keys = jax.random.split(train_rng, n_updates)
+    ext_keys = jax.random.split(ext_rng, n_updates)
+    agent_state, update_losses = jax.lax.scan(
+        update_step, agent_state, (update_keys, ext_keys)
+    )
 
-    # Extension post_update, folded after the per-iteration update loop.
     agent_state = fold_post_update(
         extension_stack,
         agent_state,
         agent_state.collector_state.timestep,
         total_timesteps,
-    )
-
-    # 5. Compute training-curve metric: mean completed-episode return in this
-    #    segment. (Used purely for logging; not for training signal.)
-    sum_returns, n_completed = _completed_episode_returns(rollout.reward, dones)
-    mean_episode_return = jnp.where(
-        n_completed > 0, sum_returns / jnp.maximum(n_completed, 1.0), jnp.nan
     )
 
     # Realised RTG / horizon over the segment, only used for diagnostics.
@@ -446,8 +408,8 @@ def training_iteration(
         actor_loss=update_losses.mean(),
         mean_rtg=rtg.mean(),
         mean_horizon=horizon.mean(),
-        episodic_return=mean_episode_return,
-        n_completed_episodes=n_completed,
+        episodic_return=agent_state.collector_state.episodic_mean_return,
+        n_completed_episodes=dones.sum(),
         timestep=agent_state.collector_state.timestep,
     )
     agent_state = agent_state.replace(
@@ -457,6 +419,61 @@ def training_iteration(
         command_target_horizon=new_target_h,
     )
     return agent_state, aux
+
+
+@dataclasses.dataclass(frozen=True)
+class EvalCommand:
+    """The command UDRL is evaluated with (:func:`ajax.evaluate.evaluate`'s
+    ``command``): each episode starts from the current target return and
+    horizon, without the exploration noise collection adds, then decays as
+    in collection (:func:`update_command`; past an episode's end the
+    evaluation counts nothing), the actor reading it scaled. Under reward
+    normalisation the targets are in normalised units, as the rewards
+    collection decays the command by: evaluate() hands ``update`` the
+    rewards normalised with the training env's frozen statistics."""
+
+    scale_r: float
+    scale_h: float
+
+    def initial(self, agent_state: UDRLState, n_envs: int) -> jax.Array:
+        target = (agent_state.command_target_return, agent_state.command_target_horizon)
+        return jnp.tile(jnp.stack(target), (n_envs, 1))
+
+    def update(self, command: jax.Array, reward: jax.Array, done: jax.Array):
+        d_r, d_h = command[:, 0], command[:, 1]
+        d_r, d_h = update_command(d_r, d_h, reward, done.astype(jnp.float32), d_r, d_h)
+        return jnp.stack([d_r, d_h], axis=-1)
+
+    def actor_input(self, obs: jax.Array, command: jax.Array) -> jax.Array:
+        obs = jnp.concatenate([obs, command.astype(obs.dtype)], axis=-1)
+        return _scale_obs_command(obs, self.scale_r, self.scale_h)
+
+
+def evaluate_UDRL(
+    agent_state: UDRLState,
+    key: jax.Array,
+    env_args: EnvironmentConfig,
+    agent_config: UDRLConfig,
+    num_episode_test: int,
+) -> dict:
+    """The deterministic policy's return, entropy and length on
+    ``num_episode_test`` episodes of the shared evaluation, commanded by
+    :class:`EvalCommand`."""
+    returns, entropy, _, _, length, _ = evaluate(
+        env_args.env,
+        agent_state.actor_state,
+        num_episode_test,
+        key,
+        env_args.env_params,
+        norm_info=eval_norm_info(agent_state, env_args.mode),
+        agent_state=agent_state,
+        command=EvalCommand(agent_config.command_scale_r, agent_config.command_scale_h),
+    )
+    return {
+        "Eval/episodic mean reward": returns,
+        "Eval/episodic entropy": entropy,
+        "Eval/mean episodic length": length,
+    }
 
 
 def train_metrics(agent_state: UDRLState, aux: UDRLAuxiliaries) -> dict:
@@ -483,19 +500,17 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cnn_image_shape: Optional[Tuple[int, int, int]] = None,
     extensions: Sequence = (),
 ):
     """UDRL's train function: its own iteration (a segment, the replay of
     segments, the command statistics, the updates) on :meth:`TrainLoop.train`.
 
     With a logging config every ``log_frequency`` env steps it logs the
-    iteration's training metrics and the extensions' ``eval_metrics``,
-    whether or not a backend records them, and ``train`` returns them; it
-    has no policy evaluation (a command-conditioned policy needs a command
-    to be evaluated with).
+    iteration's training metrics, its policy's evaluation
+    (:func:`evaluate_UDRL`) and the extensions' ``eval_metrics``, whether or
+    not a backend records them, and ``train`` returns them.
     """
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -510,10 +525,15 @@ def make_train(
     evaluation = Evaluation(
         metrics=train_metrics,
         every=loop.log_frequency and max(loop.log_frequency // per_iter, 1),
+        evaluate=partial(
+            evaluate_UDRL,
+            env_args=env_args,
+            agent_config=agent_config,
+            num_episode_test=num_episode_test,
+        ),
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> UDRLState:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> UDRLState:
         return init_UDRL(
             key=key,
             env_args=env_args,
@@ -521,7 +541,6 @@ def make_train(
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             agent_config=agent_config,
-            cnn_image_shape=cnn_image_shape,
         )
 
     def iteration(agent_state: UDRLState, index: Any, tick: Any) -> tuple:

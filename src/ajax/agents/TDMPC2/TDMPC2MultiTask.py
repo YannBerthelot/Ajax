@@ -21,6 +21,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ajax.agents.base import run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import PAPER_TASK_DIM, TaskSet
@@ -39,6 +40,7 @@ from ajax.environments.utils import (
     get_state_action_shapes,
 )
 from ajax.extensions.base import Extension, ExtensionStack, check_extension_phases
+from ajax.log import evaluation_keys
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -181,12 +183,7 @@ class TDMPC2MultiTask:
         :class:`~ajax.agents.TDMPC2.TDMPC2.TDMPC2` (``5f6fade``'s
         ``config.yaml``), with the paper's multi-task batch size 1024.
         """
-        self.config = {
-            k: v
-            for k, v in locals().items()
-            if k not in ("self", "__class__", "dataset", "eval_envs")
-        }
-        self.config.update({"algo_name": "TDMPC2MultiTask"})
+        self.config = run_config(locals(), self.name, ("dataset", "eval_envs"))
         self.extension_stack = ExtensionStack(extensions)
         check_extension_phases(
             type(self).__name__, self.extension_stack, self.supported_extension_phases
@@ -210,7 +207,7 @@ class TDMPC2MultiTask:
             discount_max=discount_max,
         )
         self.task_dim = int(task_dim)
-        self.agent_config = TDMPC2Config.from_arguments(self.config)
+        self.agent_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)
         self.pi_eps = float(pi_eps)
@@ -238,7 +235,6 @@ class TDMPC2MultiTask:
             }
         )
 
-    # -- setup -----------------------------------------------------------
     def _eval_envs(
         self,
         eval_envs: Sequence[str | EnvType],
@@ -300,7 +296,6 @@ class TDMPC2MultiTask:
             )
         return int(done[0])
 
-    # -- jitted programs -------------------------------------------------
     def _train_fn(self, num_updates: int, total: int) -> Callable:
         """The jitted, seed-vmapped program of a chunk (cached per length).
 
@@ -372,7 +367,7 @@ class TDMPC2MultiTask:
                 num_episodes=num_episodes,
             )
             self._eval_fns[cache_key] = jax.jit(
-                jax.vmap(lambda state: evaluate(state, state.eval_rng))
+                jax.vmap(lambda state: evaluate(state, evaluation_keys(state)[0]))
             )
         return self._eval_fns[cache_key]
 
@@ -386,7 +381,7 @@ class TDMPC2MultiTask:
         reward`` and ``Eval/<name>/mean episodic length``, their means over
         tasks and ``Eval/normalized score`` (class docstring). It does not
         advance ``state.n_logs``: :meth:`train` does after logging, so the
-        next evaluation starts from new initial states.
+        next evaluation draws fresh keys (:func:`ajax.log.evaluation_keys`).
         """
         if self.eval_env_args is None:
             raise ValueError("no eval_envs were given: nothing to evaluate on")
@@ -429,13 +424,12 @@ class TDMPC2MultiTask:
             stack = self.extension_stack
 
             def extra(s: TDMPC2MultiTaskState) -> dict:
-                key = jax.random.fold_in(jax.random.split(s.eval_rng)[1], s.n_logs)
+                key = evaluation_keys(s)[1]
                 return stack.fold_eval_metrics(s, s.n_updates, key, total)
 
             self._extra_eval_fns[total] = jax.jit(jax.vmap(extra))
         return self._extra_eval_fns[total]
 
-    # -- training --------------------------------------------------------
     def train(
         self,
         seed: int | Sequence[int] = 42,

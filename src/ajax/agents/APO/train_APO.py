@@ -16,7 +16,6 @@ import jax.numpy as jnp
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
-from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
@@ -65,9 +64,9 @@ def policy_loss_function(
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)
     ratio = jnp.exp(new_log_probs - log_probs)
-    assert (
-        ratio.shape[0] == gae.shape[0]
-    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    assert ratio.shape[0] == gae.shape[0], (
+        f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    )
     loss_actor, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
     total_loss = (loss_actor - ent_coef * entropy.mean()).mean()
     aux = PolicyAuxiliaries(
@@ -91,11 +90,13 @@ def update_policy(
     ent_coef: float,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    extension_key: jax.Array,
     raw_observations: Optional[jax.Array] = None,
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
 ) -> Tuple[APOState, PolicyAuxiliaries]:
-    """The clipped-surrogate actor step on one minibatch."""
+    """The clipped-surrogate actor step on one minibatch, the extensions'
+    terms folded on ``extension_key``."""
     actor_state = agent_state.actor_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
@@ -108,7 +109,7 @@ def update_policy(
             gae=gae,
             clip_coef=clip_coef,
             ent_coef=ent_coef,
-            raw_actions=raw_actions,  # m4: pre-tanh for SquashedNormal recompute
+            raw_actions=raw_actions,
             entropy_key=entropy_key,
         )
         actor_batch = {
@@ -122,7 +123,7 @@ def update_policy(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            extension_key,
             total_timesteps,
         )
         return loss + extra, aux
@@ -156,7 +157,7 @@ def value_loss_function(
     observations: jax.Array,
     value_targets: jax.Array,
     nu: float,
-    b: float,
+    b: float | jax.Array,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """The differential value loss ``0.5 (V(s) - (target - nu b))^2``.
 
@@ -180,11 +181,13 @@ def update_value_functions(
     observations: jax.Array,
     value_targets: jax.Array,
     nu: float,
-    b: float,
+    b: jax.Array,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    extension_key: jax.Array,
 ) -> Tuple[APOState, ValueAuxiliaries]:
-    """The critic step on one minibatch."""
+    """The critic step on one minibatch, the extensions' terms folded on
+    ``extension_key``."""
     critic_state = agent_state.critic_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
@@ -201,7 +204,7 @@ def update_value_functions(
             agent_state,
             loss_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            extension_key,
             total_timesteps,
         )
         return loss + extra, aux
@@ -254,9 +257,7 @@ def update_agent(
         gae_lambda=agent_config.gae_lambda,
     )
 
-    # Extension on_target: reshape the value targets after GAE. APO is
-    # average-reward: gamma None says so. A key is drawn only with
-    # extensions.
+    # A key is drawn only with extensions.
     if extension_stack:
         target_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
@@ -280,9 +281,9 @@ def update_agent(
             total_timesteps,
         )
 
-    # Normalise advantages ONCE over the full rollout (brax PPO's
-    # convention): per-minibatch normalisation uses noisy mean/std
-    # estimates on tiny minibatches.
+    # Normalise advantages ONCE over the full rollout (PPO here normalises
+    # per minibatch, as brax's loss does; unverified): per-minibatch
+    # normalisation uses noisy mean/std estimates on tiny minibatches.
     if agent_config.normalize_advantage:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
 
@@ -302,14 +303,17 @@ def update_agent(
 
     def minibatches(key: jax.Array) -> dict:
         """One epoch's partition of the rollout, each minibatch with a key
-        for its entropy sample, derived from the epoch's key so the agent's
-        own key stream is drawn as before."""
+        for its entropy sample and one for the extensions' loss terms,
+        derived from the epoch's key so the agent's own key stream is drawn
+        as before."""
         parts = get_minibatches_from_batch(batch, key, num_minibatches)
         keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
-        return parts | {"entropy_key": keys}
+        ext_keys = jax.random.split(jax.random.fold_in(key, 2), num_minibatches)
+        return parts | {"entropy_key": keys, "extension_key": ext_keys}
 
     def step(agent_state: APOState, mb: dict) -> Tuple[APOState, AuxiliaryLogs]:
         """A critic, then an actor step on one minibatch."""
+        critic_key, actor_key = jax.random.split(mb["extension_key"])
         agent_state, aux_value = update_value_functions(
             agent_state,
             mb["obs"],
@@ -318,6 +322,7 @@ def update_agent(
             b,
             extension_stack,
             total_timesteps,
+            critic_key,
         )
         agent_state, aux_policy = update_policy(
             agent_state,
@@ -329,6 +334,7 @@ def update_agent(
             agent_config.ent_coef,
             extension_stack,
             total_timesteps,
+            actor_key,
             raw_observations=mb["raw_obs"],
             raw_actions=mb["raw_actions"],
             entropy_key=mb["entropy_key"],
@@ -352,12 +358,17 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """APO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
+    }
+    extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -368,21 +379,13 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> APOState:
-        agent_state = init_APO(
+    def init(key: jax.Array) -> APOState:
+        return init_APO(
             key,
             env_args,
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
-        )
-        return pretrain_on_expert(
-            agent_state,
-            pretrain_key,
-            cloning_args,
-            expert_policy,
-            env_args,
-            actor_optimizer_args,
         )
 
     def update(agent_state: APOState, rollout: Transition, _start: APOState) -> Any:

@@ -11,7 +11,7 @@ from ajax.environments.system_class import (
     UniformPerturbation,
     broadcast_env_params,
     env_params_is_batched,
-    select_env_params,
+    n_systems,
 )
 
 N = 6
@@ -42,7 +42,8 @@ def test_broadcast_and_select_round_trip(pendulum):
             batched,
         )
     )
-    single = select_env_params(batched, 2)
+    assert n_systems(batched) == N
+    single = jax.tree.map(lambda leaf: leaf[2], batched)
     assert not env_params_is_batched(single)
     assert float(single.m) == float(params.m)
 
@@ -153,4 +154,32 @@ def test_matrix_valued_unbatched_params_are_not_mistaken_for_a_batch(pendulum):
     batched = broadcast_env_params(single, 4)
     assert env_params_is_batched(batched)
     assert batched.A.shape == (4, 3, 3) and batched.max_steps_in_episode.shape == (4,)
-    assert not env_params_is_batched(select_env_params(batched, 1))
+    assert n_systems(batched) == 4
+    assert not env_params_is_batched(jax.tree.map(lambda leaf: leaf[1], batched))
+
+
+@pytest.mark.parametrize("n", [3, 4])
+def test_uniform_perturbation_scales_vector_fields_per_system(n):
+    """One relative factor per system scales a whole vector field; a field
+    whose length equals ``n`` must not be mistaken for the batch axis."""
+    from flax import struct
+    from gymnax.environments.environment import EnvParams
+
+    @struct.dataclass
+    class ModelParams(EnvParams):
+        max_steps_in_episode: int = 10
+        k: float = 2.0
+        b: jax.Array = struct.field(
+            default_factory=lambda: jnp.array([1.0, 2.0, 3.0, 4.0])
+        )
+
+    nominal = ModelParams()
+    batched = UniformPerturbation(nominal, fields=("k", "b"), scale=0.1).sample(
+        jax.random.PRNGKey(0), n
+    )
+    assert env_params_is_batched(batched)
+    assert batched.b.shape == (n, 4)
+    factors = batched.b / nominal.b
+    assert jnp.allclose(factors, factors[:, :1])  # one factor per system
+    assert jnp.all(jnp.abs(factors - 1.0) <= 0.1 + 1e-6)
+    assert batched.k.shape == (n,)

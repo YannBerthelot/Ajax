@@ -168,6 +168,30 @@ def test_a_replay_buffer_saved_without_raw_next_obs_restores_with_the_next_rows(
     np.testing.assert_array_equal(got["raw_next_obs"][..., -1, :], raw[..., 0, :])
 
 
+def test_a_replay_buffer_saved_with_fields_no_reader_needs_resumes(sac_run, tmp_path):
+    """A checkpoint from before the replay stored raw_obs and is_expert only
+    for an expert restores with them, and the resumed run keeps writing
+    every field its buffer holds."""
+    agent, (state, metrics) = sac_run.agent, sac_run.out
+    buffer = state.collector_state.buffer_state
+    assert "raw_obs" not in buffer.experience  # no expert, no reader
+    rows = dict(buffer.experience)
+    rows["raw_obs"] = np.ones_like(rows["obs"])
+    rows["is_expert"] = np.zeros_like(rows["reward"])
+    old = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint((state.replace(collector_state=old), metrics), path)
+    restored = restore_into(sac_run.out, path)
+    assert {"raw_obs", "is_expert"} <= set(
+        restored[0].collector_state.buffer_state.experience
+    )
+    resumed, _ = agent.train(
+        seed=[0], n_timesteps=40, num_episode_test=1, initial_state=restored
+    )
+    raw = np.asarray(resumed.collector_state.buffer_state.experience["raw_obs"])
+    assert np.isfinite(raw).all() and (raw != 1.0).any()  # new rows written
+
+
 def test_agent_train_returns_tuple_shape(sac_run):
     """Regression: ``agent.train(...)`` returns a ``(state, metrics)`` 2-tuple,
     not a bare ``BaseAgentState``. The resume path in ``agents/base.py`` must
@@ -176,9 +200,9 @@ def test_agent_train_returns_tuple_shape(sac_run):
     build_agent_and_train wrapper) will break in subtle ways.
     """
     out = sac_run.out
-    assert isinstance(
-        out, tuple
-    ), f"agent.train() was expected to return a 2-tuple; got {type(out)}"
+    assert isinstance(out, tuple), (
+        f"agent.train() was expected to return a 2-tuple; got {type(out)}"
+    )
     assert len(out) == 2, f"expected (state, metrics); got length {len(out)}"
     state, _metrics = out
     assert state.actor_state is not None

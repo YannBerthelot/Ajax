@@ -51,15 +51,17 @@ from ajax.environments.interaction import (
     reset,
 )
 from ajax.environments.utils import (
-    check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
+    env_keys,
 )
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
     predict_value_sequence,
+    state_value,
 )
 from ajax.state import (
     EnvironmentConfig,
@@ -78,11 +80,7 @@ def init_PPO(
     network_args: NetworkConfig,
 ) -> PPOState:
     """The initial actor, critic and collector."""
-    (
-        rng,
-        init_key,
-        collector_key,
-    ) = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     continuous = check_if_environment_has_continuous_actions(
         env_args.env, env_params=env_args.env_params
@@ -97,22 +95,13 @@ def init_PPO(
         action_value=False,
         squash=network_args.squash,
         num_critics=1,
-        log_std_state_independent=network_args.log_std_state_independent,
-        log_std_init=network_args.log_std_init,
-        mean_kernel_init=network_args.mean_kernel_init,
-        actor_kernel_init=network_args.actor_kernel_init,
-        actor_bias_init=network_args.actor_bias_init,
-        critic_kernel_init=network_args.critic_kernel_init,
-        critic_bias_init=network_args.critic_bias_init,
-        encoder_kernel_init=network_args.encoder_kernel_init,
-        encoder_bias_init=network_args.encoder_bias_init,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)
 
     return PPOState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         collector_state=collector_state,
@@ -135,6 +124,7 @@ def value_loss_function(
     term. A recurrent critic replays the sequence from ``initial_hidden``,
     ``resets`` flagging the observations that start an episode."""
     if recurrent:
+        assert resets is not None and initial_hidden is not None
         v_preds, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_params,
@@ -186,6 +176,7 @@ def policy_loss_function(
     sequence from ``initial_hidden`` (the live carry on ``actor_state`` has
     advanced past this rollout), ``resets`` flagging episode starts."""
     if recurrent:
+        assert resets is not None
         pi, _ = get_pi_sequence(
             actor_state=actor_state,
             actor_params=actor_params,
@@ -218,20 +209,16 @@ def policy_loss_function(
     )
 
 
-# ---------------------------------------------------------------------------
-# Extension-stack loss terms
-# ---------------------------------------------------------------------------
 def _stack_critic_loss(
-    extension_stack: Optional[ExtensionStack],
+    extension_stack: ExtensionStack,
     agent_state: PPOState,
+    key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The stack's additive critic-loss term as a ``value_loss_function``
-    ``extra_loss_fn``: ``(critic_params, critic_states, observations,
-    value_targets) -> scalar``; ``None`` for an empty stack.
-
-    ``agent_state`` (the iteration-time state, captured by closure) is
-    what the extensions read ``ext_state`` from.
+    """The stack's additive critic-loss term on ``key`` as a
+    ``value_loss_function`` ``extra_loss_fn``: ``(critic_params,
+    critic_states, observations, value_targets) -> scalar``; ``None`` for an
+    empty stack. The extensions read their state from ``agent_state``.
     """
     if not extension_stack:
         return None
@@ -247,7 +234,7 @@ def _stack_critic_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            key,
             total_timesteps,
         )
 
@@ -255,13 +242,14 @@ def _stack_critic_loss(
 
 
 def _stack_actor_loss(
-    extension_stack: Optional[ExtensionStack],
+    extension_stack: ExtensionStack,
     agent_state: PPOState,
+    key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The stack's additive actor-loss term as a ``policy_loss_function``
-    ``extra_loss_fn``: ``(actor_params, actor_state) -> scalar``; ``None``
-    for an empty stack."""
+    """The stack's additive actor-loss term on ``key`` as a
+    ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
+    actor_state) -> scalar``; ``None`` for an empty stack."""
     if not extension_stack:
         return None
 
@@ -274,16 +262,13 @@ def _stack_actor_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            key,
             total_timesteps,
         )
 
     return actor_loss
 
 
-# ---------------------------------------------------------------------------
-# Minibatch geometry
-# ---------------------------------------------------------------------------
 @dataclasses.dataclass(frozen=True)
 class Geometry:
     """How an update minibatches its rollout (the module docstring)."""
@@ -370,6 +355,7 @@ def _recurrent_values(
         )
         return carry_next, (values, carry)
 
+    assert start.critic_state.hidden_state is not None
     critic_end, (seq_values, critic_starts) = jax.lax.scan(
         critic_chunk,
         jax.lax.stop_gradient(start.critic_state.hidden_state),
@@ -479,13 +465,13 @@ def _force_reset(
     normalises it, is normalised with them instead. Gymnax keeps one
     normaliser per env (each restarts from its own observation), brax one
     for the batch. The cut episodes are abandoned, not finished: the next
-    return starts from zero.
+    return starts from zero, and they are flagged truncated, so a recurrent
+    actor and critic restart their memory on the reset observation, as at
+    any episode start.
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
-    reset_keys = (
-        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
-    )
+    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     if saved is not None:
         layers = strip_ajax_wrappers(env_args.env)[1]
@@ -504,15 +490,16 @@ def _force_reset(
     returns = returns.replace(
         cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
     )
-    new_collector = agent_state.collector_state.replace(
-        _env_state=new_env_state, last_obs=new_obs, episodic_return_state=returns
+    collector = agent_state.collector_state
+    new_collector = collector.replace(
+        _env_state=new_env_state,
+        last_obs=new_obs,
+        episodic_return_state=returns,
+        last_truncated=jnp.ones_like(collector.last_truncated),
     )
     return agent_state.replace(collector_state=new_collector, rng=new_rng)
 
 
-# ---------------------------------------------------------------------------
-# The update
-# ---------------------------------------------------------------------------
 def update_agent(
     agent_state: PPOState,
     rollout: Transition,
@@ -524,15 +511,13 @@ def update_agent(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     total_n_updates: int,
-    reward_shaping_fn: Optional[Callable] = None,
 ) -> tuple[PPOState, AuxiliaryLogs]:
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
     from ``start``: ``n_epochs`` passes over its minibatches, then brax's
     periodic forced reset."""
     rewards = rollout.reward
-    if reward_shaping_fn is not None:
-        rewards = rewards + reward_shaping_fn(agent_state, rollout)
-    geometry = minibatch_geometry(agent_config, *rollout.obs.shape[:2], recurrent)
+    n_steps, n_envs = rollout.obs.shape[:2]
+    geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
     batch = {
         "obs": rollout.obs,
@@ -611,15 +596,19 @@ def update_agent(
             return _sequence_minibatches(batch, carries, key, k, length)
         return get_minibatches_from_batch(batch, key, k)
 
-    # The extensions' loss terms read the state the epochs start from.
-    critic_extra = _stack_critic_loss(extension_stack, agent_state, total_timesteps)
-    actor_extra = _stack_actor_loss(extension_stack, agent_state, total_timesteps)
-
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
         """A critic and an actor step, both from the state before either."""
-        ent_rng, on_target_rng, new_rng = jax.random.split(agent_state.rng, 3)
+        ent_rng, ext_rng, new_rng = jax.random.split(agent_state.rng, 3)
         agent_state = agent_state.replace(rng=new_rng)
         critic, actor = agent_state.critic_state, agent_state.actor_state
+        # The extensions' target and loss terms, each on a key of its own.
+        target_key, critic_key, actor_key = jax.random.split(ext_rng, 3)
+        critic_extra = _stack_critic_loss(
+            extension_stack, agent_state, critic_key, total_timesteps
+        )
+        actor_extra = _stack_actor_loss(
+            extension_stack, agent_state, actor_key, total_timesteps
+        )
 
         if geometry.kind == "time":
             # brax's compute_ppo_loss: GAE from the current critic, held
@@ -664,7 +653,7 @@ def update_agent(
                     target_batch,
                     value_targets,
                     agent_state.collector_state.timestep,
-                    on_target_rng,
+                    target_key,
                     total_timesteps,
                 )
         else:
@@ -749,7 +738,6 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    reward_shaping_fn: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
@@ -767,7 +755,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> PPOState:
+    def init(key: jax.Array) -> PPOState:
         return init_PPO(
             key,
             env_args,
@@ -790,7 +778,6 @@ def make_train(
             loop.stack,
             total_timesteps,
             loop.n_rollouts(agent_config.n_steps),
-            reward_shaping_fn,
         )
 
     return loop.on_policy(
@@ -799,4 +786,5 @@ def make_train(
         agent_config.n_steps,
         recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
+        eval_kwargs={"value_estimate": ValueEstimate(state_value, agent_config.gamma)},
     )

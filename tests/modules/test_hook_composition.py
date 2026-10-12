@@ -2,24 +2,22 @@
 
 The Extension framework (``extensions=``) is the surface for research
 features. A few ``Optional[Callable]`` hooks remain, each with a live user:
-TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants), PPO's
-``reward_shaping_fn``, and the DQN / PQN variants (Double DQN, Huber).
+TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants) and the DQN /
+PQN variants (Double DQN, Huber).
 
 These are API-contract tests: construct each agent with each hook (and
-``None``) and confirm construction succeeds and the attribute is stored and
-forwarded to ``make_train``. They do not run training.
+``None``) and confirm construction succeeds and the hook is forwarded to
+``make_train``. They do not run training.
 """
 
 import pytest
 
 from ajax.agents.DQN.DQN import DQN
-from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.TD3 import TD3
 
 AGENT_HOOKS = {
     TD3: ("action_pipeline",),
-    PPO: ("reward_shaping_fn",),
     # Variants (Double DQN, Huber) are exposed as Optional[Callable] hooks.
     DQN: ("td_target_fn", "td_loss_fn"),
     PQN: ("td_loss_fn",),
@@ -67,45 +65,30 @@ def _instantiate(agent_cls, **kwargs):
     if agent_cls is TD3:
         common["buffer_size"] = 1024
         common["batch_size"] = 32
-    if agent_cls is PPO:
-        common["n_steps"] = 32
-        common["batch_size"] = 32
-        common["n_epochs"] = 1
     common.update(kwargs)
     return agent_cls(**common)
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_default_hooks_are_none(agent_cls):
-    """By default every hook attribute is None (feature inactive)."""
-    agent = _instantiate(agent_cls)
+    """By default every hook make_train receives is None (feature inactive)."""
+    keywords = _instantiate(agent_cls).get_make_train().keywords
     for hook in AGENT_HOOKS[agent_cls]:
-        assert (
-            getattr(agent, hook) is None
-        ), f"{agent_cls.__name__}.{hook} should default to None"
-
-
-@pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
-def test_hooks_are_stored(agent_cls):
-    """Passed-in hooks are retained on the instance (for get_make_train)."""
-    hook_kwargs = {h: _identity_hook for h in AGENT_HOOKS[agent_cls]}
-    agent = _instantiate(agent_cls, **hook_kwargs)
-    for h, fn in hook_kwargs.items():
-        assert (
-            getattr(agent, h) is fn
-        ), f"{agent_cls.__name__}.{h} should store the hook it was given"
+        assert keywords[hook] is None, (
+            f"{agent_cls.__name__}.{hook} should default to None"
+        )
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_get_make_train_forwards_hooks(agent_cls):
     """get_make_train wraps make_train in a partial that carries the hooks."""
-    hook_kwargs = {h: _identity_hook for h in AGENT_HOOKS[agent_cls]}
+    hook_kwargs = dict.fromkeys(AGENT_HOOKS[agent_cls], _identity_hook)
     agent = _instantiate(agent_cls, **hook_kwargs)
     make_train_partial = agent.get_make_train()
     # functools.partial stores kwargs on .keywords
     keywords = getattr(make_train_partial, "keywords", {})
     for h, fn in hook_kwargs.items():
-        assert (
-            h in keywords
-        ), f"{agent_cls.__name__}.get_make_train() should forward {h}"
+        assert h in keywords, (
+            f"{agent_cls.__name__}.get_make_train() should forward {h}"
+        )
         assert keywords[h] is fn

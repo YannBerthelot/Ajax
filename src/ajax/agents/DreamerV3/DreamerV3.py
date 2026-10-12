@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from functools import partial
 from typing import Any, Callable, Optional, Union
 
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DreamerV3.replay import bytes_per_row, grow_rings
 from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
@@ -77,33 +76,18 @@ class DreamerV3(ActorCritic):
             ``'400m'``: model dimension ``d`` with ``units = hidden = d``,
             ``deter = 8 d``, ``classes = d / 16``
             (:data:`~ajax.agents.DreamerV3.state.MODEL_SIZES`).
-        units, deter, hidden, classes: explicit widths, overriding the
+        units: explicit MLP width ``d``, overriding the preset's.
+        deter: explicit width of the deterministic state, overriding the
             preset's.
-        stoch, blocks, enc_layers, dec_layers, rew_layers, con_layers,
-        actor_layers, critic_layers, bins: the remaining network sizes
-            (:class:`~ajax.agents.DreamerV3.state.DreamerV3Config`).
-        free_nats, unimix, actor_unimix: world-model free bits and the
-            latents' and discrete actor's uniform mixtures.
-        dyn_scale, rep_scale, rec_scale, rew_scale, con_scale, actor_scale,
-        critic_scale, repval_scale: loss scales (Table 4).
+        hidden: explicit width of the RSSM's hidden layers, overriding the
+            preset's.
+        classes: explicit classes per latent, overriding the preset's.
         train_ratio: replayed steps trained per collected row (an update
             every ``batch_size * batch_length / train_ratio`` rows after the
             training start; dreamerv3_spec 6.1-6.2).
-        batch_size, batch_length: ``B`` windows of ``T`` trained rows (each
-            window has one more row, the replay context; spec 5.8).
-        imag_horizon: imagined steps ``H``.
-        return_horizon: ``1 / (1 - gamma)``, the reference's ``horizon``
-            (333): ``gamma = 1 - 1 / return_horizon`` scales the continue
-            target and discounts the replay critic.
-        lam, repval_lam: lambda of the imagination and replay returns.
-        actent, slowreg, slow_rate: actor entropy scale, slow-critic
-            regulariser weight and EMA rate.
-        retnorm_rate, retnorm_limit: return-normaliser EMA rate and floor.
-        minstd, maxstd: range of the continuous actor's standard deviation.
-        learning_rate: a float or a schedule of the update count (the
-            1000-update linear warmup multiplies it).
-        agc, agc_pmin, beta1, beta2, eps, warmup: LaProp with adaptive
-            gradient clipping (dreamerv3_spec 4.3-4.8).
+        batch_size: ``B``, the windows of a batch.
+        batch_length: ``T``, the trained rows of a window (each window has
+            one more row, the replay context; spec 5.8).
         replay_capacity: rows kept, over all envs (Table 4: 5e6); see
             "Replay memory" below.
         episode_length: simulator steps per episode of brax /
@@ -114,6 +98,10 @@ class DreamerV3(ActorCritic):
         extensions: Extensions folding the phases ``pretrain``,
             ``post_update`` (after every update) and ``eval_metrics``;
             others are rejected at construction.
+
+    Every other argument is the
+    :class:`~ajax.agents.DreamerV3.state.DreamerV3Config` field of the same
+    name and default, documented there.
 
     Static hyperparameters (fixing shapes or the program, so changing them
     recompiles): every width, depth and count, ``bins``, ``imag_horizon``,
@@ -140,6 +128,7 @@ class DreamerV3(ActorCritic):
 
     name: str = "DreamerV3"
     supported_extension_phases: frozenset = LOOP_PHASES
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -197,10 +186,7 @@ class DreamerV3(ActorCritic):
         env_params: Optional[EnvParams] = None,
         extensions: Sequence[Extension] = (),
     ) -> None:
-        self.config = {
-            k: v for k, v in locals().items() if k not in ("self", "__class__")
-        }
-        self.config.update({"algo_name": "DreamerV3"})
+        self.config = run_config(locals(), self.name)
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -209,52 +195,14 @@ class DreamerV3(ActorCritic):
             action_repeat=action_repeat,
             extensions=extensions,
         )
-        self.dreamer_config = DreamerV3Config.from_model_size(
-            model_size,
-            units=units,
-            hidden=hidden,
-            deter=deter,
-            classes=classes,
-            stoch=stoch,
-            blocks=blocks,
-            enc_layers=enc_layers,
-            dec_layers=dec_layers,
-            rew_layers=rew_layers,
-            con_layers=con_layers,
-            bins=bins,
-            unimix=unimix,
-            free_nats=free_nats,
-            rec_scale=rec_scale,
-            rew_scale=rew_scale,
-            con_scale=con_scale,
-            dyn_scale=dyn_scale,
-            rep_scale=rep_scale,
-            return_horizon=float(return_horizon),
-            actor_layers=actor_layers,
-            critic_layers=critic_layers,
-            actor_unimix=actor_unimix,
-            minstd=minstd,
-            maxstd=maxstd,
-            imag_horizon=imag_horizon,
-            lam=lam,
-            repval_lam=repval_lam,
-            actent=actent,
-            slowreg=slowreg,
-            slow_rate=slow_rate,
-            retnorm_rate=retnorm_rate,
-            retnorm_limit=retnorm_limit,
-            actor_scale=actor_scale,
-            critic_scale=critic_scale,
-            repval_scale=repval_scale,
-            learning_rate=learning_rate,
-            agc=agc,
-            agc_pmin=agc_pmin,
-            beta1=beta1,
-            beta2=beta2,
-            eps=eps,
-            warmup=warmup,
+        self.dreamer_config = DreamerV3Config.from_arguments(
+            {**self.config, "return_horizon": float(return_horizon)}
         )
-        self.agent_config = DreamerV3AgentConfig(
+        self.train_kwargs = {"config": self.dreamer_config}
+        # The values actually used, next to the constructor arguments (whose
+        # None widths the preset resolves), for the loggers' run config.
+        self.config.update(self.dreamer_config.resolved())
+        self.agent_config: DreamerV3AgentConfig = DreamerV3AgentConfig(
             train_ratio=train_ratio,
             batch_size=batch_size,
             batch_length=batch_length,
@@ -277,8 +225,6 @@ class DreamerV3(ActorCritic):
             )
         #: Ring length ``C`` (rows per env) of the latest train() call.
         self.replay_rows_per_env: Optional[int] = None
-
-    # ------------------------------------------------------------------ replay
 
     def _ring_rows(self, n_timesteps: int) -> int:
         """``C`` for a run of ``n_timesteps`` rows in all.
@@ -345,6 +291,9 @@ class DreamerV3(ActorCritic):
 
     def _record_replay_rows(self, rows: int) -> None:
         self.replay_rows_per_env = rows
+        self.config.update(
+            replay_rows_per_env=rows, replay_bytes_per_seed=self.replay_bytes_per_seed
+        )
         logger.info(
             "DreamerV3 replay: %d rows per env x %d envs, %.3f GB per seed"
             " (the replay rings; the training step's working set comes on top)",
@@ -364,8 +313,6 @@ class DreamerV3(ActorCritic):
             spec.obs_dim, spec.action_dim, spec.discrete, c.deter, c.stoch, c.classes
         )
         return row * self.replay_rows_per_env * self.env_args.n_envs
-
-    # ------------------------------------------------------------------ train
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
         """The absolute tick of a resumed run, equal across seeds
@@ -407,13 +354,6 @@ class DreamerV3(ActorCritic):
             initial_state=state,
             replay_rows_per_env=rows,
             **kwargs,
-        )
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            config=self.dreamer_config,
-            extensions=tuple(self.extension_stack.extensions),
         )
 
 

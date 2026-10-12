@@ -3,17 +3,17 @@
 These reshape the SAC Bellman target before it enters the critic loss
 (the ``on_target`` phase):
 
-* :class:`IBRL`               — ``ibrl_bootstrap``: add the positive gap
+* :class:`IBRL`               — add the positive gap
   ``γ(1-d)·max(Q_expert - Q_policy, 0)`` so the value function matches an
   argmax action-selection policy.
-* :class:`LCBGatedBootstrap`  — ``lcb_gated_bootstrap``: soft-blend the
-  policy and expert TD targets by an LCB-scored sigmoid gate.
-* :class:`CriticBlend`        — ``use_critic_blend``: warmup-decaying
-  blend of the Bellman target with the frozen expert critic's.
-* :class:`MCVarianceCorrection` — ``mc_variance_threshold``: replace
-  high-ensemble-variance Bellman targets with the MC-pretrained oracle.
-* :class:`ValueBox`           — ``use_box``: value-threshold expert
-  action override during collection (the ``action`` phase).
+* :class:`LCBGatedBootstrap`  — soft-blend the policy and expert TD
+  targets by an LCB-scored sigmoid gate.
+* :class:`CriticBlend`        — warmup-decaying blend of the Bellman target
+  with the frozen expert critic's.
+* :class:`MCVarianceCorrection` — replace high-ensemble-variance Bellman
+  targets with the MC-pretrained oracle.
+* :class:`ValueBox`           — value-threshold expert action override
+  during collection (the ``action`` phase).
 
 The ``batch`` argument to ``on_target`` is the dict SAC's
 ``update_value_functions`` builds: ``observations``, ``actions``,
@@ -25,6 +25,7 @@ SAC keeps them when an extension carries an expert) and ``recurrent``.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional, Tuple
 
@@ -33,8 +34,9 @@ import jax.numpy as jnp
 
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.extensions.exploration import lcb_beta, lcb_score
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import phi_star_critic_state, predict_value
 
 
 def blend_modify_target(
@@ -59,7 +61,7 @@ def mc_correction_modify_target(
     uncertain_mask = q_var > mc_variance_threshold
     q_mc_target = jnp.min(
         predict_value(
-            critic_state=critic_state,
+            critic_state=phi_star_critic_state(critic_state),
             critic_params=critic_params_mc,
             x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
         ),
@@ -73,8 +75,8 @@ def mc_correction_modify_target(
 
 
 def box_compute_threshold(
-    v_min: jax.Array,
-    v_max: jax.Array,
+    v_min: jax.Array | float,
+    v_max: jax.Array | float,
     train_frac: jax.Array,
 ) -> jax.Array:
     """Curriculum threshold: v_min + (v_max - v_min) * train_frac."""
@@ -96,7 +98,7 @@ def box_compute_state(
     """
     v_box = jnp.min(
         predict_value(
-            critic_state=critic_state,
+            critic_state=phi_star_critic_state(critic_state),
             critic_params=expert_critic_params,
             x=jnp.concatenate([obs, a_exp], axis=-1),
         ),
@@ -125,7 +127,7 @@ def box_action_override(
 
 
 def _next_target_q(
-    expert_policy: Callable, agent_state: Any, batch: dict
+    ext: Any, agent_state: Any, batch: dict
 ) -> tuple[jax.Array, jax.Array]:
     """The target critics' ensemble at ``s'`` for the expert's action and
     for a policy sample: ``(Q_target(s', a_E), Q_target(s', a'))``."""
@@ -136,8 +138,9 @@ def _next_target_q(
         x = jnp.concatenate((next_observations, actions), axis=-1)
         return predict_value(critic_state, critic_state.target_params, x)
 
-    raw_next = batch["raw_next_observations"]
-    next_expert_actions = jax.lax.stop_gradient(expert_policy(raw_next))
+    next_expert_actions = expert_next_actions(
+        ext, batch["raw_next_observations"], batch["next_a_expert"]
+    )
     next_pi, _ = get_pi(
         actor_state=agent_state.actor_state,
         actor_params=agent_state.actor_state.params,
@@ -152,7 +155,7 @@ def _next_target_q(
 
 @dataclass(frozen=True)
 class IBRL(Extension):
-    """IBRL bootstrap (``ibrl_bootstrap``).
+    """IBRL bootstrap.
 
     Adds ``γ(1-d)·max(min Q_target(s', a_expert') - min Q_target(s', a_π'),
     0)`` to the Bellman target so the value function is consistent with an
@@ -160,8 +163,19 @@ class IBRL(Extension):
     """
 
     expert_policy: Callable
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
+
+    def bind_to_agent(self, **agent_context: Any) -> "IBRL":
+        """Read the expert's stored actions when it is the agent's."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        return dataclasses.replace(self, reads_stored_expert=stored)
 
     def on_target(
         self,
@@ -173,7 +187,7 @@ class IBRL(Extension):
     ) -> jax.Array:
         del ext_state, ctx
         dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self.expert_policy, agent_state, batch)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch)
         min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
         min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
         gap = jax.lax.stop_gradient(
@@ -184,7 +198,7 @@ class IBRL(Extension):
 
 @dataclass(frozen=True)
 class LCBGatedBootstrap(Extension):
-    """LCB-gated bootstrap (``lcb_gated_bootstrap``).
+    """LCB-gated bootstrap.
 
     Scores the policy and expert next-actions by an LCB rule and
     soft-blends the two TD targets with ``p_expert =
@@ -195,8 +209,19 @@ class LCBGatedBootstrap(Extension):
     lcb_beta_init: float = 1.0
     lcb_beta_decay_k: float = 2.0
     lcb_temperature: float = 1.0
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
+
+    def bind_to_agent(self, **agent_context: Any) -> "LCBGatedBootstrap":
+        """Read the expert's stored actions when it is the agent's."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        return dataclasses.replace(self, reads_stored_expert=stored)
 
     def on_target(
         self,
@@ -207,12 +232,9 @@ class LCBGatedBootstrap(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state
-        # Score each next action by its LCB (beta annealed as the EDGE
-        # gate's, on the collector's timestep), then soft-blend the policy
-        # and expert TD targets by
-        #   P_expert = σ((score_e - score_p) / lcb_temperature).
+        # beta anneals as the EDGE gate's, on the collector's timestep.
         dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self.expert_policy, agent_state, batch)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch)
         beta = lcb_beta(
             agent_state.collector_state.timestep,
             ctx.total_steps,
@@ -239,16 +261,30 @@ class CriticBlend(Extension):
 
     ``(1-α)·y_bellman + α·y_expert`` with ``y_expert = r + γ(1-d)·V_E(s')``,
     the one-step target on the frozen expert critic ``V_E(s') = φ*(s',
-    a_E(s'))``, so the blend stays a Bellman target (``use_critic_blend``
-    blended ``V_E(s')`` alone: no reward, discount or terminal mask). ``α``
-    decays linearly to 0 over ``critic_warmup_frac`` of training. Requires a
-    frozen expert critic (MC pre-training).
+    a_E(s'))``, so the blend stays a Bellman target (``V_E(s')`` alone has
+    no reward, discount or terminal mask). ``α`` decays linearly to 0 over
+    ``critic_warmup_frac`` of training. Requires the frozen expert critic
+    :class:`MCPretrain` fits (refused without it).
     """
 
     expert_policy: Callable
     critic_warmup_frac: float = 0.15
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
+
+    def reads_phi_star(self) -> bool:
+        return True
+
+    def bind_to_agent(self, **agent_context: Any) -> "CriticBlend":
+        """Read the expert's stored actions when it is the agent's."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        return dataclasses.replace(self, reads_stored_expert=stored)
 
     def on_target(
         self,
@@ -259,19 +295,14 @@ class CriticBlend(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state
-        # No-op when the frozen expert critic has not been populated (no
-        # MC pre-training in the stack). Matches the pre-refactor guard
-        # `if has_blend and agent_state.expert_critic_params is not None`.
-        if agent_state.expert_critic_params is None:
-            return target
-
         next_observations = batch["next_observations"]
-        raw_next = batch["raw_next_observations"]
-        a_expert_next = jax.lax.stop_gradient(self.expert_policy(raw_next))
+        a_expert_next = expert_next_actions(
+            self, batch["raw_next_observations"], batch["next_a_expert"]
+        )
         v_expert_next = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(
-                    critic_state=agent_state.critic_state,
+                    critic_state=phi_star_critic_state(agent_state.critic_state),
                     critic_params=agent_state.expert_critic_params,
                     x=jnp.concatenate([next_observations, a_expert_next], axis=-1),
                 ),
@@ -293,13 +324,16 @@ class CriticBlend(Extension):
 class MCVarianceCorrection(Extension):
     """Replace high-variance Bellman targets with the MC oracle.
 
-    Equivalent to ``mc_variance_threshold``: where the inter-critic
-    variance exceeds ``threshold`` the Bellman target is swapped for the
-    MC-pretrained expert critic's estimate. Requires MC pre-training.
+    Where the inter-critic variance exceeds ``threshold`` the Bellman
+    target is swapped for the MC-pretrained expert critic's estimate.
+    Requires :class:`MCPretrain` (refused without it).
     """
 
     threshold: float
     name: str = "mc_variance_correction"
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def on_target(
         self,
@@ -310,10 +344,6 @@ class MCVarianceCorrection(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state, ctx
-        # Same guard as the legacy `has_mc and expert_critic_params is not
-        # None` branch — silent no-op without MC pre-training.
-        if agent_state.expert_critic_params is None:
-            return target
         observations = batch["observations"]
         actions = batch["actions"]
         q_preds = batch["q_preds"]
@@ -331,29 +361,29 @@ class MCVarianceCorrection(Extension):
 
 @dataclass(frozen=True)
 class ValueBox(Extension):
-    """Value-threshold expert-action override (``use_box``).
+    """Value-threshold expert-action override.
 
     During collection, override the policy action with the expert's
     whenever the frozen-expert value ``V_expert(s)`` exceeds a curriculum
     threshold that ramps from ``v_min`` to ``v_max`` over training.
-    Requires MC pre-training (which supplies ``v_min`` / ``v_max``).
+    Requires :class:`MCPretrain` (which supplies phi*, ``v_min`` and
+    ``v_max``; refused without it).
 
-    The :meth:`action` phase owns the override math. It reads the
-    pre-computed per-step quantities off the SAC action pipeline's batch
-    dict (``env_action``, ``expert_action``, the action of SAC's
+    The :meth:`action` phase reads the SAC action pipeline's per-step dict
+    (``env_action``, ``expert_action``, the action of SAC's
     ``expert_policy``, at which it also measures the expert's value, and
-    ``observations``, the critics' input, augmented when it is), the
-    box bounds off the agent state (so a resumed run keeps them) and
-    writes ``in_value_box`` / ``entry_bonus``
-    back into the dict so the pipeline can record them on the
-    transition. The substitution itself is
-    ``box_action_override`` above and is
-    applied AFTER the warmup/post-warmup choice — matching the legacy
-    ``make_action_pipeline`` ordering byte-for-byte.
+    ``observations``, the critics' input, augmented when it is) and the box
+    bounds off the agent state (so a resumed run keeps them), and writes
+    ``in_value_box`` / ``entry_bonus`` back into the dict for the pipeline
+    to record on the transition. The override (:func:`box_action_override`)
+    comes after the warmup / post-warmup choice (``action_slot``).
     """
 
     name: str = "value_box"
     action_slot: ClassVar[str] = "post_warmup"
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def action(
         self,
@@ -363,22 +393,17 @@ class ValueBox(Extension):
         rng: jax.Array,
         ctx: ExtensionContext,
     ) -> jax.Array | None:
-        """Override with ``a_expert`` inside the value box.
-
-        ``obs`` is the SAC action pipeline's per-step batch dict (see
-        :mod:`ajax.extensions.exploration` for the convention). The box
-        bounds are the MC-pretrain v_min/v_max stored on
-        :class:`SACState`. Returns the action with the in-box rows
-        replaced by the expert action; writes ``in_value_box`` and
-        ``entry_bonus`` into ``obs`` for pipeline-side bookkeeping
-        (buffer-write suppression, reward shaping, ``is_expert_flag``).
+        """Override with ``a_expert`` inside the value box, its bounds the
+        MC-pretrain v_min/v_max on :class:`SACState`; writes
+        ``in_value_box`` and ``entry_bonus`` into ``obs`` for the pipeline's
+        bookkeeping (buffer-write suppression, reward shaping,
+        ``is_expert_flag``).
         """
-        del ext_state, rng, ctx
+        del ext_state, rng
         env_action = obs["env_action"]
         expert_action = obs["expert_action"]
-        total_timesteps = obs["total_timesteps"]
 
-        train_frac = agent_state.collector_state.timestep / total_timesteps
+        train_frac = ctx.step / ctx.total_steps
         threshold = box_compute_threshold(
             agent_state.expert_v_min, agent_state.expert_v_max, train_frac
         )
@@ -392,16 +417,13 @@ class ValueBox(Extension):
         )
         obs["in_value_box"] = in_value_box
         obs["entry_bonus"] = entry_bonus
-        # ValueBox lives at the end of the action chain (legacy ordering:
-        # AFTER the warmup vs post-warmup ``jax.lax.cond``). It rewrites
-        # ``env_action`` directly.
         return box_action_override(env_action, expert_action, in_value_box)
 
 
 __all__ = [
     "IBRL",
-    "LCBGatedBootstrap",
     "CriticBlend",
+    "LCBGatedBootstrap",
     "MCVarianceCorrection",
     "ValueBox",
 ]

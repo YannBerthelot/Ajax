@@ -24,6 +24,7 @@ own (MJX) gradient story.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Callable, Optional, Tuple
 
 import jax
@@ -31,7 +32,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.environments.interaction import reset, step
-from ajax.environments.system_class import env_params_is_batched
+from ajax.environments.system_class import env_params_is_batched, n_systems
 
 # (carry, obs (B, obs_dim), resets (B,) bool) -> (action (B, act_dim), new_carry)
 PolicyStepFn = Callable[[Any, jax.Array, jax.Array], Tuple[jax.Array, Any]]
@@ -68,12 +69,8 @@ def with_transition_gradients(env: Any) -> Any:
     """
     inner = getattr(env, "_env", None)
     if inner is not None:
-        # Shallow-copy by hand: ``copy.copy`` probes ``__setstate__`` on the
-        # half-built copy, which ``GymnaxWrapper.__getattr__`` forwards to
-        # a not-yet-set ``_env`` and recurses forever.
-        rewrapped = object.__new__(type(env))
-        rewrapped.__dict__.update(env.__dict__)
-        rewrapped.__dict__["_env"] = with_transition_gradients(inner)
+        rewrapped = copy.copy(env)
+        rewrapped._env = with_transition_gradients(inner)
         return rewrapped
     if not getattr(env, "supports_transition_gradients", False):
         raise ValueError(
@@ -110,7 +107,6 @@ def closed_loop_rollout(
         env_params: unbatched ``EnvParams`` (broadcast to every env) or
             batched ones from a :class:`~ajax.environments.system_class.
             SystemClass` (one system per env, ``B`` inferred from them).
-        horizon: number of steps.
         n_envs: number of parallel envs; required when ``env_params`` is
             unbatched, inferred (and must match) otherwise.
 
@@ -118,7 +114,7 @@ def closed_loop_rollout(
         ``(rollout, final_carry)``; ``rollout`` leaves are ``(horizon, B, ...)``.
     """
     if env_params_is_batched(env_params):
-        batch = int(jax.tree.leaves(env_params)[0].shape[0])
+        batch = n_systems(env_params)
         if n_envs is not None and n_envs != batch:
             raise ValueError(
                 f"n_envs={n_envs} but env_params carry a batch of {batch} systems"

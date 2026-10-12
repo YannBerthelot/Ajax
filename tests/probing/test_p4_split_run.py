@@ -87,7 +87,7 @@ SAC_KW = {**NETS, "buffer_size": 1000, "batch_size": 32, **dict.fromkeys(STARTS,
 EPS = {"architecture": N32, "epsilon_start": 0.3, "epsilon_end": 0.3}
 DQN_KW = {**EPS, "buffer_size": 1000, "batch_size": 32}
 UDRL_KW = {"n_envs": 1, "actor_architecture": N32, "n_steps": 8, "batch_size": 8}
-UDRL_KW |= {"n_epochs": 1, "n_updates_per_iter": 4}
+UDRL_KW |= {"n_updates_per_iter": 4}
 EQUIVALENT = {
     "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200),
     "DQN": Split(_make("DQN", PV, DQN_KW), 400, 200, 200),
@@ -130,8 +130,10 @@ def test_the_agent_resumes_from_a_checkpoint(name: str, tmp_path: Path) -> None:
     first = runs.train(build(), SEEDS, 64, **TEST)
     split = runs.resume(first, second, str(tmp_path), build(), **TEST).state
     full = runs.train(first.agent, SEEDS, 128, **TEST).state
-    steps = (np.asarray(s.collector_state.timestep) for s in (split, full))
-    np.testing.assert_array_equal(*steps)
+    split_steps, full_steps = (
+        np.asarray(s.collector_state.timestep) for s in (split, full)
+    )
+    np.testing.assert_array_equal(split_steps, full_steps)
 
 
 def test_every_agent_is_checked_for_resume() -> None:

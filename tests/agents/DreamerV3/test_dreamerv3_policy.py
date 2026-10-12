@@ -10,6 +10,7 @@ computed (``:142-144``). Small networks, no training: a few seconds.
 from __future__ import annotations
 
 import dataclasses
+import functools
 
 import jax
 import jax.numpy as jnp
@@ -33,9 +34,11 @@ ONE_CLASS = dataclasses.replace(TINY, classes=1)
 ACTIONS = 2
 
 
+@functools.lru_cache(maxsize=None)
 def params(config: DreamerV3Config, discrete: bool, seed: int = 0):
     """Perturbed world-model and actor parameters (no degenerate layer: one
-    observe step from a reset gives a non-zero ``deter``)."""
+    observe step from a reset gives a non-zero ``deter``), built once per
+    argument set."""
     wm_key, actor_key = jax.random.split(jax.random.PRNGKey(seed))
     world_model = init_world_model(wm_key, config, OBS_DIM, ACTIONS)
     actor = init_actor(actor_key, config, ACTIONS, discrete)

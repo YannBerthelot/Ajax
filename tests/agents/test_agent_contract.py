@@ -4,30 +4,48 @@ refuses the other; a default run (one scalar seed, one env) keeps no
 extension state and no rollout; a run over two seeds and two envs, logged
 without a backend, folds two counters in step, adds an extension's metric
 to every evaluation and, where the agent exposes it, keeps the last rollout.
+The instrumentation extensions, left to auto-detect, measure the critic of
+every agent that has one.
 
 The two runs use different env modes (brax ``fast`` and gymnax) where the
 agent acts in both. The maths of each agent is tested in its own directory.
 """
 
+import importlib
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from extension_stubs import METRIC, CounterExt, MetricExt
 from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
+from ajax.agents import base
+from ajax.agents.APG.APG import APG
+from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.agents.UDRL.state import UDRLConfig
+from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
+from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
+from ajax.extensions.base import Extension
+from ajax.extensions.instrumentation import (
+    COND_METRIC_KEYS,
+    EVAREST_DECOMP_KEYS,
+    BiasVoreDecomposition,
+    ConditioningMetrics,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     AlphaConfig,
@@ -35,6 +53,8 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
+from tests.environments import paid_action
 
 CONTINUOUS, DISCRETE = ("fast", "Pendulum-v1"), ("CartPole-v1",)
 NET = ("16", "relu")
@@ -56,13 +76,14 @@ ON_POLICY = {
 
 @dataclass(frozen=True)
 class Case:
-    cls: type
+    cls: type[ActorCritic]
     kwargs: dict[str, Any]
     # The env ids it acts in: the default run uses the first, the other the last.
     envs: tuple[str, ...]
     rollout: int | None = None  # length of the rollout it exposes, if it does
     alpha: bool = False  # has a temperature (alpha_args)
     buffer: bool = False  # has a replay buffer
+    critic: bool = True  # has a value or action-value network
     n_timesteps: int = 64
     # Overrides for the extensions' run only.
     extended: dict[str, Any] = field(default_factory=dict)
@@ -128,6 +149,7 @@ CASES = {
         },
         CONTINUOUS + DISCRETE,
         n_timesteps=128,
+        critic=False,
     ),
 }
 AGENTS = pytest.mark.parametrize("name", sorted(CASES))
@@ -151,6 +173,18 @@ def test_an_agent_builds_its_configs(name: str, env_id: str) -> None:
     assert isinstance(getattr(agent, "alpha_args", None), AlphaConfig) == case.alpha
     # An on-policy agent keeps no replay buffer.
     assert isinstance(getattr(agent, "buffer", None), TrajectoryBuffer) == case.buffer
+    # The run config holds the constructor's arguments and the agent's name.
+    assert agent.config["env_id"] == env_id
+    assert agent.config["algo_name"] == agent.name == name
+    assert not {"self", "__class__"} & set(agent.config)
+
+
+def test_the_run_config_drops_the_instance_and_the_excluded() -> None:
+    class Agent:
+        def __init__(self, a: int, b: int = 2) -> None:
+            self.config = run_config(locals(), "X", exclude=("b",))
+
+    assert Agent(1).config == {"a": 1, "algo_name": "X"}
 
 
 @pytest.mark.parametrize(
@@ -180,7 +214,9 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
     """Two counters advance in step on every seed; every evaluation carries
     the stub's metric; an exposed rollout is (T, n_envs) and finite."""
     case = CASES[name]
-    exposed = {} if case.rollout is None else {"expose_recent_rollout": True}
+    exposed: dict[str, Any] = (
+        {} if case.rollout is None else {"expose_recent_rollout": True}
+    )
     agent = case.cls(
         env_id=case.envs[-1],
         n_envs=2,
@@ -203,6 +239,221 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
     if case.rollout is None:
         assert state.last_rollout is None
         return
+    assert state.last_rollout is not None
     obs = state.last_rollout.obs
     assert obs.shape[:3] == (2, case.rollout, 2), obs.shape
     assert jnp.isfinite(obs).all()
+
+
+@AGENTS
+def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
+    """ConditioningMetrics and BiasVoreDecomposition, with no per-agent
+    setting, find the critic (on critic_state, taking the observation or
+    the observation and action, or a Q-network on actor_state) and their
+    batch (the replay buffer or the exposed rollout): each evaluation of an
+    agent with a critic carries all their keys, finite; one without (UDRL)
+    carries none."""
+    case = CASES[name]
+    exposed: dict[str, Any] = (
+        {} if case.rollout is None else {"expose_recent_rollout": True}
+    )
+    kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed, **case.kwargs}
+    buffer = getattr(case.cls(**kwargs), "buffer", None)
+    agent = case.cls(
+        **kwargs,
+        extensions=[
+            ConditioningMetrics(buffer=buffer),
+            BiasVoreDecomposition(buffer=buffer),
+        ],
+    )
+    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    _, out = agent.train(
+        seed=42,
+        n_timesteps=case.n_timesteps,
+        num_episode_test=1,
+        logging_config=logging,
+    )
+    keys = COND_METRIC_KEYS + EVAREST_DECOMP_KEYS
+    if not case.critic:
+        assert not set(keys) & set(out), sorted(out)
+        return
+    evaluated = np.asarray(out["timestep"]) >= 0
+    for key in keys:
+        assert np.isfinite(np.asarray(out[key])[evaluated]).all(), key
+
+
+@AGENTS
+def test_the_evaluation_key_is_apart_from_the_training_key(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The initial state's ``eval_rng`` is split from the run's key apart
+    from ``rng``, which every training draw descends from: an evaluation
+    repeats none of them."""
+    import ajax.agents.loop as loop
+
+    seen, fresh_state = [], loop.fresh_state
+
+    def recording(*args: Any) -> Any:
+        state = fresh_state(*args)
+        record = lambda *keys: seen.append([np.asarray(k) for k in keys])  # noqa: E731
+        jax.debug.callback(record, state.rng, state.eval_rng)
+        return state
+
+    monkeypatch.setattr(loop, "fresh_state", recording)
+    case = CASES[name]
+    case.cls(env_id=case.envs[0], n_envs=1, **case.kwargs).train(seed=0, n_timesteps=0)
+    (rng, eval_rng), *_ = seen
+    assert not np.array_equal(rng, eval_rng)
+
+
+#: The keys the evaluations of one run hand the policy's evaluation and the
+#: extensions' ``eval_metrics``, in order.
+_EVAL_KEYS: dict[str, list] = {"policy": [], "extensions": []}
+
+
+def _record(kind: str) -> Any:
+    return lambda key: _EVAL_KEYS[kind].append(np.asarray(key).tobytes())
+
+
+@dataclass(frozen=True)
+class _KeyExt(Extension):
+    """Records the key its ``eval_metrics`` is handed."""
+
+    name: str = "key"
+
+    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+        jax.debug.callback(_record("extensions"), rng)
+        return {}
+
+
+@AGENTS
+def test_each_evaluation_draws_fresh_keys(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The policy's evaluation (the shared evaluate(), wherever it is
+    called from) and the extensions' ``eval_metrics`` draw new keys at each
+    evaluation of a run (``eval_rng`` folded with the count of evaluations
+    so far): fresh initial states and noise every time."""
+
+    shared = evaluate
+
+    def recording(env: Any, actor_state: Any, num_episodes: int, rng: Any, *a, **kw):
+        jax.debug.callback(_record("policy"), rng)
+        return shared(env, actor_state, num_episodes, rng, *a, **kw)
+
+    for module in list(sys.modules.values()):
+        if getattr(module, "evaluate", None) is shared:
+            monkeypatch.setattr(module, "evaluate", recording)
+    for keys in _EVAL_KEYS.values():
+        keys.clear()
+    case = CASES[name]
+    agent = case.cls(
+        env_id=case.envs[0], n_envs=1, extensions=[_KeyExt()], **case.kwargs
+    )
+    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    _, out = agent.train(
+        seed=0, n_timesteps=case.n_timesteps, num_episode_test=1, logging_config=logging
+    )
+    jax.effects_barrier()
+    evaluations = int((np.asarray(out["timestep"]) >= 0).sum())
+    assert evaluations >= 2
+    for kind in ("policy", "extensions"):
+        keys = _EVAL_KEYS[kind]
+        assert len(keys) == evaluations, (kind, len(keys))
+        assert len(set(keys)) == evaluations, kind
+
+
+# --------------------------------------------------------------------------
+# Continuous agents act on the env's whole box
+# --------------------------------------------------------------------------
+#: Each continuous agent on a Box(-2, 2) env paying the action it receives:
+#: SAC's and TD3's first 64 steps warm up.
+ON_THE_BOX = ("APG", "APO", "ASAC", "AVG", "PPO", "REDQ", "SAC", "TD3", "UDRL")
+WARM_UP = {"learning_starts": 64, "buffer_size": 128}
+
+
+def _paid_rows(name: str, state: Any) -> tuple[np.ndarray, np.ndarray]:
+    """The stored agent actions and the rewards of every collected row."""
+    if name == "UDRL":  # its episode segments
+        rows = state.buffer.actions, state.buffer.rewards
+    elif CASES[name].buffer:
+        experience = state.collector_state.buffer_state.experience
+        rows = experience["action"], experience["reward"]
+    else:  # the exposed rollout
+        rows = state.last_rollout.action, state.last_rollout.reward
+    return tuple(np.asarray(x).reshape(-1) for x in rows)  # type: ignore[return-value]
+
+
+@pytest.mark.parametrize("name", ON_THE_BOX)
+def test_an_agent_acts_on_the_whole_box(name: str) -> None:
+    """Agent actions in [-1, 1] are mapped onto the env's bounds: every
+    collected row is paid 2 * clip(a, -1, 1) for its stored action a, and
+    evaluate() the deterministic action's (APG: its closed loop's). SAC's
+    and TD3's uniform warm-up covers the box (half their |paid| > 1)."""
+    env, params = paid_action.make()
+    if name == "APG":
+        apg = APG(env, env_params=params, n_envs=4, horizon=1, pid=None)
+        seeds, _ = apg.train(seed=0, n_timesteps=0)
+        state: Any = jax.tree.map(lambda x: x[0], seeds)
+        actor = state.actor_state
+        _, rollout = rollout_returns(
+            state, actor.params, jax.random.PRNGKey(1), apg.env_args, None, 1, 4
+        )
+        policy_step = make_policy_step(actor, actor.params, False)
+        own, _ = policy_step(None, rollout.obs[0], rollout.resets[0])
+        np.testing.assert_allclose(
+            rollout.reward[0], paid_action.mapped(own)[:, 0], rtol=1e-6
+        )
+        return
+    case = CASES[name]
+    exposed = {"expose_recent_rollout": True} if case.rollout is not None else {}
+    kwargs = case.kwargs | exposed | (WARM_UP if case.buffer else {})
+    agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)
+    state, _ = agent.train(seed=0, n_timesteps=96 if case.buffer else 128)
+    actions, rewards = _paid_rows(name, state)
+    assert np.abs(actions).max() > 0.01, "no action was collected"
+    np.testing.assert_allclose(rewards, paid_action.mapped(actions), rtol=1e-6)
+    if name in ("SAC", "TD3"):
+        assert (np.abs(rewards[:64]) > 1.0).mean() > 0.25
+    seed = jax.tree.map(lambda x: x[0], state)
+    obs, extra = paid_action.OBS[None], {}
+    if name == "UDRL":  # it acts on its observation and its command
+        config = agent.agent_config
+        assert isinstance(config, UDRLConfig)
+        command = EvalCommand(config.command_scale_r, config.command_scale_h)
+        obs = command.actor_input(obs, command.initial(seed, 1))
+        extra = {"agent_state": seed, "command": command}
+    key = jax.random.PRNGKey(1)
+    paid = evaluate(env, seed.actor_state, 2, key, params, **extra)[0]
+    act = get_deterministic_action_and_entropy_fn(seed.actor_state, False, True)
+    own, _, _ = act(obs, None, None)
+    np.testing.assert_allclose(paid, paid_action.mapped(own)[0, 0], rtol=1e-6)
+
+
+#: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
+ACTOR_CRITICS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
+
+
+class _Built(Exception):
+    """Stops a constructor once its env is asked for."""
+
+
+@pytest.mark.parametrize("name", ACTOR_CRITICS.split())
+def test_an_agent_forwards_its_episode_length_and_action_repeat(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every agent hands the env builder the episode length and the action
+    repeat it is given (brax / playground envs honour both)."""
+    seen: dict[str, Any] = {}
+
+    def prepare_env(env_id: Any, **kwargs: Any) -> None:
+        seen.update(kwargs)
+        raise _Built
+
+    monkeypatch.setattr(base, "prepare_env", prepare_env)
+    module = importlib.import_module(f"ajax.agents.{name}.{name}")
+    with pytest.raises(_Built):
+        getattr(module, name)("fast", episode_length=123, action_repeat=3)
+    assert (seen["episode_length"], seen["action_repeat"]) == (123, 3)
+    found = {c.__name__ for c in base.ActorCritic.__subclasses__()}
+    assert found <= set(ACTOR_CRITICS.split()), "add the new agent to ACTOR_CRITICS"

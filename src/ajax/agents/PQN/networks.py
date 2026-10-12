@@ -16,7 +16,7 @@ import jax
 from flax.linen.initializers import constant, orthogonal
 
 from ajax.agents.DQN.networks import GreedyQPolicy
-from ajax.networks.networks import build_cnn_encoder
+from ajax.networks.networks import CNNEncoder, CNNSpec
 from ajax.networks.utils import parse_activation
 from ajax.types import ActivationFunction
 
@@ -44,14 +44,14 @@ class PQNNetwork(nn.Module):
     # LayerNorm-MLP stack below runs on those features.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
-    cnn_spec: Optional[tuple] = None
+    cnn_spec: Optional[CNNSpec] = None
 
     @nn.compact
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         if self.cnn_image_shape is not None:
-            x = build_cnn_encoder(
-                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
-            )(obs)
+            x = CNNEncoder(self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec)(
+                obs
+            )
         else:
             x = obs
         for layer in self.input_architecture:

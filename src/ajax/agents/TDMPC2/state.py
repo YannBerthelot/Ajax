@@ -23,7 +23,6 @@ directly.
 
 from __future__ import annotations
 
-import functools
 import inspect
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional
@@ -36,6 +35,7 @@ from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import RunningScale
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.types import Replaceable
 
 if TYPE_CHECKING:  # buffer.py builds core.TDMPC2Batch; core imports this module
     from ajax.agents.TDMPC2.buffer import EpisodeBufferState, EpisodicBufferState
@@ -46,7 +46,7 @@ def _static(default: Any) -> Any:
     return struct.field(pytree_node=False, default=default)
 
 
-@functools.partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TDMPC2Config(BaseAgentConfig):
     """Static TD-MPC2 hyperparameters (defaults: the 5M single-task model).
 
@@ -206,7 +206,7 @@ class TDMPC2Config(BaseAgentConfig):
 
 
 @struct.dataclass
-class TDMPC2UpdateState:
+class TDMPC2UpdateState(Replaceable):
     """What one TD-MPC2 update reads and writes.
 
     Attributes:
@@ -227,7 +227,7 @@ class TDMPC2UpdateState:
     pi_gradnorm_sq: jax.Array
 
 
-@functools.partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TDMPC2State(BaseAgentState):
     """The TD-MPC2 agent state (``DESIGN.md`` §4.5).
 
@@ -236,13 +236,7 @@ class TDMPC2State(BaseAgentState):
     attributes, so :func:`ajax.agents.TDMPC2.core.update` takes it directly.
 
     Attributes:
-        actor_state: the policy prior and its Adam state.
         critic_state: ``None``; the Q ensemble belongs to the world model.
-        world_model_state: encoder, dynamics, reward head and Q ensemble with
-            their Adam state; ``target_params`` is the target Q ensemble.
-        q_scale: the RunningScale of the policy loss.
-        pi_gradnorm_sq: squared norm of the previous update's post-clip
-            policy gradient (paper-era world-model clip norm).
         collector_state: the row collector's state; ``policy_carry`` is the
             planner's per-env warm-start mean ``prev_mean [n_envs, H, A]``.
             ``collector_state.timestep`` counts env (agent) steps.
@@ -270,9 +264,9 @@ class TDMPC2State(BaseAgentState):
     n_terminations: jax.Array
 
 
-@functools.partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TDMPC2MultiTaskState(BaseAgentState):
-    """The offline multi-task TD-MPC2 state (``DESIGN.md`` §7; M8).
+    """The offline multi-task TD-MPC2 state (``DESIGN.md`` §7).
 
     :class:`TDMPC2State` without the env interaction: the dataset is not part
     of the state (it is shared by every seed, an argument of the jitted
@@ -281,15 +275,12 @@ class TDMPC2MultiTaskState(BaseAgentState):
     :func:`ajax.agents.TDMPC2.core.update` takes it directly.
 
     Attributes:
-        actor_state: the policy prior and its Adam state.
         critic_state: ``None``; the Q ensemble belongs to the world model.
         collector_state: ``None``; offline training collects nothing.
         world_model_state: encoder, dynamics, reward head, Q ensemble and the
             task-embedding table (``params[core.TASK_EMB]``) with their Adam
             state; ``target_params`` is the target Q ensemble.
         q_scale: the RunningScale of the policy loss (one for all tasks).
-        pi_gradnorm_sq: squared norm of the previous update's post-clip
-            policy gradient (paper-era world-model clip norm).
         update_metrics: the last update's logged quantities.
         n_updates: updates done, the run's clock (``n_timesteps`` counts
             updates, as the reference's offline iterations).

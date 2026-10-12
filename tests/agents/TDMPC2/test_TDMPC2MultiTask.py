@@ -26,8 +26,9 @@ from ajax.agents.TDMPC2 import core, multitask, train_TDMPC2MultiTask
 from ajax.agents.TDMPC2.core import TASK_EMB
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset, TaskEpisodes, pool_tasks
 from ajax.agents.TDMPC2.state import TDMPC2Config
-from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.extension_stubs import TargetTweak
 
 from .common import TINY_AGENT
 from .toy_envs import TargetEnv
@@ -105,14 +106,6 @@ class MetricExt(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
         return {"ext_smoke/updates": jnp.asarray(ctx.step, jnp.float32)}
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    name: str = "target-tweak"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
 
 
 @pytest.fixture(scope="module")
@@ -338,7 +331,7 @@ def test_update_step_updates_on_the_sampled_batch_and_its_tasks(monkeypatch):
             train_TDMPC2MultiTask.update_step,
             config=config,
             tasks=tasks,
-            extension_stack=None,
+            extension_stack=ExtensionStack(),
             total_timesteps=1,
         )
     )(state, dataset)
@@ -506,7 +499,7 @@ def test_evaluation_plans_per_task_without_changing_the_state(runs):
     for key in out:
         np.testing.assert_array_equal(out[key], again[key])
     assert set(out) >= {f"Eval/{name}/mean episodic length" for name in NAMES}
-    # Each evaluation starts from fresh initial states (n_logs is folded in).
+    # Each evaluation draws fresh keys (ajax.log.evaluation_keys).
     later = agent.evaluate(state.replace(n_logs=state.n_logs + 1), num_episodes=2)
     assert not np.array_equal(
         later["Eval/reach/episodic mean reward"], out["Eval/reach/episodic mean reward"]

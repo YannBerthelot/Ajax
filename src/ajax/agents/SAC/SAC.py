@@ -1,16 +1,15 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import CloningConfig
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
+from ajax.deprecation import warn_inert
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
@@ -24,20 +23,11 @@ from ajax.types import EnvType
 class SAC(ActorCritic):
     """Soft Actor-Critic agent for continuous action spaces.
 
-    Phase-5 surface: the legacy ~75-kwarg back-compat shim
-    (``ibrl_bootstrap`` / ``use_critic_blend`` / ``use_online_bc`` /
-    ``use_phi_refresh`` / ``use_mc_critic_pretrain`` /
-    ``use_expert_guided_exploration`` / the ``exploration_*`` +
-    ``lcb_*`` family / ``jsrl_episode_length`` + ``jsrl_decay_frac`` /
-    ``mc_pretrain_n_mc_*`` / ``online_critic_pretrain_*`` /
-    ``mc_variance_threshold`` / ``lcb_gated_bootstrap`` /
-    ``phi_refresh_interval`` / ``phi_refresh_steps`` /
-    ``critic_warmup_frac`` / ``bc_coef``) was stripped. ``extensions=``
-    is now the sole surface for composing research features.
+    ``extensions=`` is the sole surface for composing research features.
 
-    Several kwargs survived because they thread into network init,
+    Several kwargs remain because they thread into network init,
     collection, or the action pipeline at a level the extension
-    framework doesn't reach (``jsrl_curriculum``, ``use_pid_policy``,
+    framework doesn't reach (``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
     ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``).
     They mirror the matching extension's "static" flag.
@@ -54,6 +44,8 @@ class SAC(ActorCritic):
         "action",
     }
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    stores_expert_actions: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -90,25 +82,15 @@ class SAC(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # Cloning / pre-train kwargs (kept: route through CloningConfig)
-        actor_cloning_epochs: int = 10,
-        actor_cloning_lr: float = 1e-3,
-        actor_cloning_batch_size: int = 64,
-        pre_train_n_steps: int = 0,
         # Expert objects: still used by collection / cloning / a fair
         # number of action-pipeline call sites. ``expert_policy=`` is
         # also accepted by individual Extensions and SHOULD be supplied
-        # to them too — passing it here is shorthand for the legacy
-        # "experts everywhere" path used by AjaxExperiments.
+        # to them too.
         expert_policy: Optional[Callable] = None,
         eval_expert_policy: Optional[Callable] = None,  # for eval logging only
-        # Ignored, never had an effect (evaluation does not read it); still
-        # accepted because AjaxExperiments passes ``action_scale=1.0``.
-        action_scale: float = 1.0,
-        # JSRL: kept because ``jsrl_curriculum=True`` gates the
-        # per-env ``step_in_episode`` counter init in :func:`init_SAC`.
-        # The curriculum math lives on :class:`JSRLCurriculum`.action.
-        jsrl_curriculum: bool = False,
+        # Deprecated, no effect: SAC counts each env's steps in its episode
+        # when an extension reads them (JSRLCurriculum).
+        jsrl_curriculum: Optional[bool] = None,
         # PID policy: gain-mode short-circuit in the action pipeline,
         # changes the action_dim of actor/critic/buffer.
         use_pid_policy: bool = False,
@@ -124,7 +106,6 @@ class SAC(ActorCritic):
         # Train-fraction conditioning: append timestep/total_timesteps
         # to obs (changes the network input dim).
         use_train_frac: bool = False,
-        # Update start thresholds
         policy_update_start: int = 2_000,
         alpha_update_start: int = 2_000,
         # Warmup expert-vs-uniform mix fraction (gates uniform sampling
@@ -141,25 +122,24 @@ class SAC(ActorCritic):
         # Off-policy-correctness ablation: store the policy's sampled
         # action in the buffer instead of the executed action.
         store_policy_action: bool = False,
-        # target_entropy time ramp (threaded into
-        # ``temperature_loss_function``).
+        # target_entropy time ramp (update_agent).
         target_entropy_initial_per_dim: Optional[float] = None,
         target_entropy_ramp_frac: float = 0.5,
-        # Actor BC controls (route through CloningConfig)
-        skip_actor_pretrain: bool = False,
         # Deliberate transitional shim (CLAUDE.md rule 10, expand then
         # contract): the critic pretraining this switched off is gone, so
         # True is a no-op and False cannot be honoured. AjaxExperiments
         # still passes it; remove it once AjaxExperiments stops.
         skip_critic_pretrain: bool = True,
-        reset_log_std_after_bc: bool = False,
-        reset_actor_head_after_bc: bool = False,
-        # --- Composable research features ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "SAC"})
+        self.config = run_config(locals(), self.name)
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -174,6 +154,8 @@ class SAC(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
         self.alpha_args = AlphaConfig(
@@ -188,21 +170,28 @@ class SAC(ActorCritic):
 
         # Gain-policy mode: actor outputs PID gains (see make_action_pipeline).
         # Critic / buffer / target_entropy then operate in gain-space.
-        self.action_dim_override: Optional[int] = None
+        action_dim_override: Optional[int] = None
         if use_pid_policy:
             if expert_policy is None or not hasattr(expert_policy, "learnable_fields"):
                 raise ValueError(
                     "use_pid_policy=True requires a FunctionalExpertPolicy with"
                     " learnable_fields (registered via register_learnable_gains)."
                 )
-            self.action_dim_override = len(expert_policy.learnable_fields)
+            action_dim_override = len(expert_policy.learnable_fields)
+            if augment_obs_with_expert_action:
+                raise ValueError(
+                    "use_pid_policy=True cannot take augment_obs_with_expert_action"
+                    "=True: the actor's output sets the gains the expert acts"
+                    " with, so the expert's action does not exist before the"
+                    " actor reads its observation."
+                )
 
         action_dim = (
-            self.action_dim_override
-            if self.action_dim_override is not None
+            action_dim_override
+            if action_dim_override is not None
             else get_action_dim(self.env_args.env, env_params)
         )
-        self.agent_config = SACConfig(
+        self.agent_config: SACConfig = SACConfig(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,
@@ -215,76 +204,47 @@ class SAC(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-        self.num_critics = num_critics
         if not skip_critic_pretrain:
             raise ValueError(
                 "SAC no longer pretrains its critic on the cloning dataset; "
                 "use the MCPretrain extension."
             )
-        self.cloning_config = CloningConfig(
-            actor_epochs=actor_cloning_epochs,
-            actor_lr=actor_cloning_lr,
-            actor_batch_size=actor_cloning_batch_size,
-            pre_train_n_steps=pre_train_n_steps,
-            skip_actor_pretrain=skip_actor_pretrain,
-            reset_log_std_after_bc=reset_log_std_after_bc,
-            reset_actor_head_after_bc=reset_actor_head_after_bc,
+        self.eval_expert_policy = self._in_agent_units(eval_expert_policy)
+        warn_inert(
+            "SAC",
+            "SAC counts each env's steps in its episode when an extension reads"
+            " them (JSRLCurriculum).",
+            jsrl_curriculum=jsrl_curriculum,
         )
-        self.expert_policy = expert_policy
-        self.eval_expert_policy = eval_expert_policy
-        self.jsrl_curriculum = jsrl_curriculum
-        self.use_pid_policy = use_pid_policy
-        self.fixed_alpha = fixed_alpha
-        self.num_critic_updates = num_critic_updates
-        self.expert_buffer_n_steps = expert_buffer_n_steps
-        self.augment_obs_with_expert_action = augment_obs_with_expert_action
-        self.use_train_frac = use_train_frac
-        self.policy_update_start = policy_update_start
-        self.alpha_update_start = alpha_update_start
-        self.expert_fraction = expert_fraction
-        self.augment_obs_with_expert_state = augment_obs_with_expert_state
-        self.store_policy_action = store_policy_action
-        self.normalize_obs_running = normalize_obs_running
-        # Resolve the static expert_state_aug_dim once. 0 for stateless or
-        # when the augmentation is off.
+        expert_state_aug_dim = 0
         if augment_obs_with_expert_state and expert_policy is not None:
             from ajax.environments.interaction import expert_state_dim
 
-            self.expert_state_aug_dim = expert_state_dim(expert_policy)
-        else:
-            self.expert_state_aug_dim = 0
-        self.target_entropy_initial = (
-            target_entropy_initial_per_dim * action_dim
-            if target_entropy_initial_per_dim is not None
-            else None
-        )
-        self.target_entropy_ramp_frac = target_entropy_ramp_frac
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            alpha_args=self.alpha_args,
-            cloning_args=self.cloning_config,
-            expert_policy=self.expert_policy,
-            eval_expert_policy=self.eval_expert_policy,
-            use_pid_policy=self.use_pid_policy,
-            fixed_alpha=self.fixed_alpha,
-            num_critics=self.num_critics,
-            num_critic_updates=self.num_critic_updates,
-            expert_buffer_n_steps=self.expert_buffer_n_steps,
-            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
-            use_train_frac=self.use_train_frac,
-            policy_update_start=self.policy_update_start,
-            alpha_update_start=self.alpha_update_start,
-            expert_fraction=self.expert_fraction,
-            augment_obs_with_expert_state=self.augment_obs_with_expert_state,
-            store_policy_action=self.store_policy_action,
-            expert_state_aug_dim=self.expert_state_aug_dim,
-            normalize_obs_running=self.normalize_obs_running,
-            target_entropy_initial=self.target_entropy_initial,
-            target_entropy_ramp_frac=self.target_entropy_ramp_frac,
-            jsrl_curriculum=self.jsrl_curriculum,
-            action_dim_override=self.action_dim_override,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+            expert_state_aug_dim = expert_state_dim(expert_policy)
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "alpha_args": self.alpha_args,
+            "expert_policy": self.expert_policy,
+            "eval_expert_policy": self.eval_expert_policy,
+            "use_pid_policy": use_pid_policy,
+            "fixed_alpha": fixed_alpha,
+            "num_critics": num_critics,
+            "num_critic_updates": num_critic_updates,
+            "expert_buffer_n_steps": expert_buffer_n_steps,
+            "augment_obs_with_expert_action": augment_obs_with_expert_action,
+            "use_train_frac": use_train_frac,
+            "policy_update_start": policy_update_start,
+            "alpha_update_start": alpha_update_start,
+            "expert_fraction": expert_fraction,
+            "augment_obs_with_expert_state": augment_obs_with_expert_state,
+            "store_policy_action": store_policy_action,
+            "expert_state_aug_dim": expert_state_aug_dim,
+            "normalize_obs_running": normalize_obs_running,
+            "target_entropy_initial": (
+                target_entropy_initial_per_dim * action_dim
+                if target_entropy_initial_per_dim is not None
+                else None
+            ),
+            "target_entropy_ramp_frac": target_entropy_ramp_frac,
+            "action_dim_override": action_dim_override,
+        }

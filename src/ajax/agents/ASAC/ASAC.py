@@ -1,12 +1,11 @@
 from collections.abc import Sequence
-from functools import partial
-from typing import Callable, Optional, Union
+from typing import Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.ASAC.state import ASACConfig
 from ajax.agents.ASAC.train_ASAC import make_train
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import (
@@ -29,10 +28,11 @@ class ASAC(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 1,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
@@ -65,31 +65,20 @@ class ASAC(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the ASAC agent.
 
         Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "ASAC"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,
@@ -105,6 +94,8 @@ class ASAC(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -116,7 +107,7 @@ class ASAC(ActorCritic):
             raise ValueError("ASAC only supports continuous action spaces.")
         action_dim = get_action_dim(self.env_args.env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
-        self.agent_config = ASACConfig(
+        self.agent_config: ASACConfig = ASACConfig(
             tau=tau,
             learning_starts=learning_starts,
             target_entropy=target_entropy,
@@ -129,17 +120,4 @@ class ASAC(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the ASAC agent.
-
-        Returns:
-            Callable: A function that trains the ASAC agent.
-        """
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            alpha_args=self.alpha_args,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {"buffer": self.buffer, "alpha_args": self.alpha_args}

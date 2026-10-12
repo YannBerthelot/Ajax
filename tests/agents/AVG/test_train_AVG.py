@@ -25,10 +25,10 @@ from ajax.state import AlphaConfig, NetworkConfig, OptimizerConfig
 
 
 @pytest.fixture
-def avg_state(env_config):
+def avg_state(gymnax_env_config):
     return init_AVG(
         key=jax.random.PRNGKey(0),
-        env_args=env_config,
+        env_args=gymnax_env_config,
         actor_optimizer_args=OptimizerConfig(learning_rate=3e-4),
         critic_optimizer_args=OptimizerConfig(learning_rate=3e-4),
         network_args=NetworkConfig(
@@ -46,21 +46,23 @@ def avg_state(env_config):
     [(0.0, False, 0.99), (1.0, True, 0.0)],
     ids=["running", "terminal"],
 )
-def test_update_AVG_values(env_config, avg_state, terminated, return_folds, gamma_mean):
+def test_update_AVG_values(
+    gymnax_env_config, avg_state, terminated, return_folds, gamma_mean
+):
     """Every step folds its entropy-regularised reward and its discount (0 at
     a termination) into their statistics; only an episode end folds the
     return."""
-    observation_shape, action_shape = get_state_action_shapes(env_config.env)
+    observation_shape, action_shape = get_state_action_shapes(gymnax_env_config.env)
     rollout = Transition(
-        obs=jnp.ones((env_config.n_envs, *observation_shape)),
-        action=jnp.ones((env_config.n_envs, *action_shape)),
-        next_obs=jnp.ones((env_config.n_envs, *observation_shape)),
+        obs=jnp.ones((gymnax_env_config.n_envs, *observation_shape)),
+        action=jnp.ones((gymnax_env_config.n_envs, *action_shape)),
+        next_obs=jnp.ones((gymnax_env_config.n_envs, *observation_shape)),
         reward=jnp.array([[1.0]]),
         terminated=jnp.array([[terminated]]),
         truncated=jnp.array([[0.0]]),
         log_prob=jnp.array([[-1.0]]),
     )
-    agent_config = AVGConfig(gamma=0.99, target_entropy=-1.0)
+    agent_config = AVGConfig(gamma=0.99)
 
     updated_state = update_AVG_values(avg_state, rollout, agent_config)
     alpha = jnp.exp(updated_state.alpha.params["log_alpha"])

@@ -19,28 +19,17 @@ from ajax.extensions.target_mods import (
     box_compute_threshold,
 )
 
-
-def _fake_critic_state(fn):
-    return SimpleNamespace(
-        apply_fn=lambda params, x: fn(params, x),
-        params={"online": 1.0},
-        target_params={"target": 1.0},
-    )
-
-
 # ---------------------------------------------------------------------------
 # EDGE: value gap
 # ---------------------------------------------------------------------------
 
 
-def test_edge_value_gap_positive_when_expert_is_better():
-    def apply_fn(params, x):
-        # Action concatenated after obs in last 2 dims. If action > 0, return
-        # +1 (pretend expert preferred); otherwise return -1.
-        q = jnp.where(x[..., -2:].sum(-1, keepdims=True) > 0, 1.0, -1.0)
-        return jnp.stack([q], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
+def test_edge_value_gap_positive_when_expert_is_better(critic_stub):
+    # Action concatenated after obs in last 2 dims. If action > 0, return
+    # +1 (pretend expert preferred); otherwise return -1.
+    critic_state = critic_stub(
+        lambda x: jnp.where(x[..., -2:].sum(-1, keepdims=True) > 0, 1.0, -1.0)
+    )
     obs = jnp.zeros((3, 4))
     policy_action = -jnp.ones((3, 2))
     expert_action = jnp.ones((3, 2))
@@ -138,12 +127,8 @@ def test_box_compute_threshold_interpolates_linearly():
 # ---------------------------------------------------------------------------
 
 
-def test_box_compute_state_initializes_last_in_box_when_none():
-    def apply_fn(params, x):
-        batch = jnp.ones((x.shape[0], 1)) * 5.0
-        return jnp.stack([batch], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
+def test_box_compute_state_initializes_last_in_box_when_none(critic_stub):
+    critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 5.0))
 
     in_box, entry_bonus, v_box = box_compute_state(
         obs=jnp.zeros((3, 4)),
@@ -159,12 +144,8 @@ def test_box_compute_state_initializes_last_in_box_when_none():
     assert jnp.allclose(entry_bonus, v_box)
 
 
-def test_box_compute_state_no_bonus_when_already_inside():
-    def apply_fn(params, x):
-        batch = jnp.ones((x.shape[0], 1)) * 5.0
-        return jnp.stack([batch], axis=0)
-
-    critic_state = _fake_critic_state(apply_fn)
+def test_box_compute_state_no_bonus_when_already_inside(critic_stub):
+    critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 5.0))
 
     _, entry_bonus, _ = box_compute_state(
         obs=jnp.zeros((2, 4)),

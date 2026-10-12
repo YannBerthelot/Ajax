@@ -1,6 +1,6 @@
-import time
 from collections.abc import Sequence
-from typing import Any, Callable, Optional, Union
+from functools import partial
+from typing import Any, Callable, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -8,6 +8,7 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.environments.create import prepare_env
+from ajax.environments.utils import ExpertInAgentUnits
 from ajax.extensions.base import (
     Extension,
     ExtensionStack,
@@ -20,6 +21,7 @@ from ajax.logging.wandb_logging import (
     stop_async_logging,
 )
 from ajax.networks.memory import MemoryConfig, parse_memory_config
+from ajax.networks.networks import CNNSpec
 from ajax.state import (
     BaseAgentConfig,
     BaseAgentState,
@@ -30,20 +32,37 @@ from ajax.state import (
 from ajax.types import EnvType, InitializationFunction
 
 
+def run_config(
+    arguments: dict[str, Any], name: str, exclude: Sequence[str] = ()
+) -> dict[str, Any]:
+    """The run config the loggers record (:meth:`ActorCritic.train`): an
+    agent constructor's ``arguments`` (its ``locals()``) but ``self``,
+    ``__class__`` (present once the constructor calls ``super()``) and
+    ``exclude``, and the agent's ``algo_name``."""
+    dropped = {"self", "__class__", *exclude}
+    config = {k: v for k, v in arguments.items() if k not in dropped}
+    return config | {"algo_name": name}
+
+
 def shared_counters(state: Any) -> dict[str, jax.Array]:
     """The counters of a resumed ``state`` (leading seed axis) its seeds
-    share, as unbatched scalars: the collector's timestep and the number of
-    evaluations logged (``{}`` for a state without them).
+    share, as unbatched scalars: the collector's timestep, the number of
+    evaluations logged and, when every seed has done as many, the number of
+    updates (``{}`` for a state without them).
 
-    They gate the evaluations (:func:`ajax.log.evaluate_and_log`). A fresh
-    run computes them from constants, unbatched under the seed vmap; left
-    batched, a resumed run's gate would turn ``lax.cond`` into a select that
-    evaluates on every iteration.
+    They gate the evaluations (:func:`ajax.log.evaluate_and_log`) and the
+    updates' schedules (TD3's policy delay, DQN's target refresh, PPO's
+    forced resets). A fresh run computes them from constants, unbatched
+    under the seed vmap; left batched, a resumed run's gate would turn
+    ``lax.cond`` into a select that runs both branches on every iteration.
+    The update counts may differ across seeds (TD-MPC2's wait on each
+    seed's episodes); they then stay batched.
     """
     collector = getattr(state, "collector_state", None)
     found = {
         "timestep": getattr(collector, "timestep", None),
         "n_logs": getattr(state, "n_logs", None),
+        "n_updates": getattr(state, "n_updates", None),
     }
     out = {}
     for name, value in found.items():
@@ -51,6 +70,8 @@ def shared_counters(state: Any) -> dict[str, jax.Array]:
             continue
         seeds = np.asarray(jax.device_get(value)).reshape(-1)
         if seeds.size == 0 or np.any(seeds != seeds[0]):
+            if name == "n_updates":
+                continue
             raise ValueError(
                 f"cannot resume: the seeds' {name} differ ({seeds.tolist()});"
                 " every seed of a resumed run must stand at the same point"
@@ -61,8 +82,9 @@ def shared_counters(state: Any) -> dict[str, jax.Array]:
 
 def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
     """``state`` with the counters of :func:`shared_counters`."""
-    if "n_logs" in counters:
-        state = state.replace(n_logs=counters["n_logs"])
+    for name in ("n_logs", "n_updates"):
+        if name in counters:
+            state = state.replace(**{name: counters[name]})
     if "timestep" in counters:
         collector = state.collector_state.replace(timestep=counters["timestep"])
         state = state.replace(collector_state=collector)
@@ -70,6 +92,11 @@ def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
 
 
 class ActorCritic:
+    #: The agent's name, its run config's ``algo_name``.
+    name: str
+    #: The run config the loggers record, from the constructor's arguments
+    #: (:func:`run_config`), with the values the agent resolves from them.
+    config: dict[str, Any]
     # Agents that implement recurrent (memory-augmented) training set this
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
@@ -84,10 +111,18 @@ class ActorCritic:
     # extension's declaration (Extension.buffer_fields); any other is
     # rejected at construction.
     supported_buffer_fields: frozenset = frozenset()
+    # Whether the agent stores its expert_policy's actions from the expert's
+    # state (a_expert, next_a_expert), which extensions may read
+    # (check_extension_experts).
+    stores_expert_actions: bool = False
+    # Set, before this initialiser, by the agents that take an expert.
+    expert_policy: Any
+    #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
+    make_train: Callable[..., Callable]
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 4,
         actor_learning_rate: Union[float, Callable[[int], float]] = 3e-4,
         critic_learning_rate: Union[float, Callable[[int], float]] = 3e-4,
@@ -99,16 +134,13 @@ class ActorCritic:
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
-        # Brax-style actor head knobs (see NetworkConfig). Default = legacy.
+        cnn_spec: Optional[CNNSpec] = None,
+        # Brax-style actor head knobs (see NetworkConfig).
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -120,24 +152,13 @@ class ActorCritic:
         extensions: Sequence[Extension] = (),
     ) -> None:
         """
-        Initialize the PPO agent.
+        Initialize the agent.
 
         Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            learning_rate (float): Learning rate for optimizers.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
-            alpha_init (float): Initial value for the temperature parameter.
-            target_entropy_per_dim (float): Target entropy per action dimension.
+            actor_learning_rate (float | Callable[[int], float]): Learning
+                rate for the actor's optimizer, or its schedule.
+            critic_learning_rate (float | Callable[[int], float]): Learning
+                rate for the critic's optimizer, or its schedule.
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
             normalize_rewards (bool): divide the rewards the agent learns
@@ -190,12 +211,9 @@ class ActorCritic:
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
             memory=memory,
-            actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
-            critic_kernel_init=critic_kernel_init,
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
-            encoder_bias_init=encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
@@ -209,15 +227,16 @@ class ActorCritic:
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
             max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
         )
         self.critic_optimizer_args = OptimizerConfig(
             learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
-            clipped=max_grad_norm is not None,
         )
 
         self.agent_config = BaseAgentConfig()
+        #: ``make_train``'s keyword arguments proper to the agent, beyond the
+        #: ones every agent's takes (:meth:`train`); each agent fills it.
+        self.train_kwargs: dict[str, Any] = {}
 
         # Composable research features (expert guidance, instrumentation,
         # …). The stack is static — agents thread it into make_train as a
@@ -226,6 +245,27 @@ class ActorCritic:
         # `ajax.extensions.base`.
         self.extension_stack = ExtensionStack(extensions)
         self._check_extension_phases()
+        # The expert door: an expert speaks env units, the agent reads it in
+        # agent units, [-1, 1], as its own actions (checked raw above).
+        self._experts_in_agent_units: dict[int, tuple[Any, Any]] = {}
+        expert = getattr(self, "expert_policy", None)
+        if expert is not None:
+            self.expert_policy = self._in_agent_units(expert)
+        self.extension_stack = self.extension_stack.with_experts(self._in_agent_units)
+
+    def _in_agent_units(self, expert: Any) -> Any:
+        """``expert`` read in agent units (:class:`ExpertInAgentUnits`),
+        one wrapper per expert: an extension holding the agent's expert
+        keeps holding the same object (``reads_stored_expert_actions``)."""
+        if expert is None:
+            return None
+        if id(expert) not in self._experts_in_agent_units:
+            wrapped = ExpertInAgentUnits.wrap(
+                expert, self.env_args.env, self.env_args.env_params
+            )
+            # The raw expert is kept so its id is not reused.
+            self._experts_in_agent_units[id(expert)] = (expert, wrapped)
+        return self._experts_in_agent_units[id(expert)][1]
 
     def _check_extension_phases(self) -> None:
         """Reject extensions implementing phases this agent never folds, or
@@ -235,6 +275,9 @@ class ActorCritic:
             self.extension_stack,
             self.supported_extension_phases,
             self.supported_buffer_fields,
+            # Set before this initialiser by the agents that take one.
+            agent_expert=getattr(self, "expert_policy", None),
+            stores_expert_actions=self.stores_expert_actions,
         )
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
@@ -251,7 +294,14 @@ class ActorCritic:
         return 0
 
     def get_make_train(self) -> Callable:
-        raise NotImplementedError
+        """:attr:`make_train` with the agent's own arguments
+        (:attr:`train_kwargs`) and its extensions; :meth:`train` passes the
+        rest."""
+        return partial(
+            self.make_train,
+            **self.train_kwargs,
+            extensions=tuple(self.extension_stack.extensions),
+        )
 
     def train(
         self,
@@ -267,7 +317,6 @@ class ActorCritic:
         Train the agent, every seed at once.
 
         Args:
-            seed (int | Sequence[int]): Random seed(s) for training.
             n_timesteps (int): Timesteps this call trains for.
             num_episode_test (int): Number of episodes for evaluation during training.
             initial_state: a state (or ``(state, out)``) ``train`` returned,
@@ -316,46 +365,35 @@ class ActorCritic:
             **kwargs,
         )
 
+        index = jnp.arange(len(seed))
+        keys = jax.vmap(jax.random.PRNGKey)(jnp.array(seed))
         if initial_state is None:
-
-            def set_key_and_train(seed, index):
-                key = jax.random.PRNGKey(seed)
-                return train_jit(key, index)
-
-            index = jnp.arange(len(seed))
-            seed = jnp.array(seed)
-            _t0 = time.time()
-            result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+            result = jax.vmap(train_jit)(keys, index)
         else:
             # Only passed when non-zero: the default (0) keeps the call --
             # and the train functions that predate the offset -- unchanged.
             iteration_offset = int(self.resume_iteration_offset(initial_state))
             offset_kwargs = (
-                {} if iteration_offset == 0 else {"iteration_offset": iteration_offset}
+                {}
+                if iteration_offset == 0
+                else {"iteration_offset": jnp.asarray(iteration_offset, jnp.int32)}
             )
 
-            def set_key_and_train_resume(seed, index, state, counters, offset_kwargs):
-                key = jax.random.PRNGKey(seed)
+            def resume(key, index, state, counters, offset_kwargs):
+                state = with_shared_counters(state, counters)
                 return train_jit(
                     key,
                     index,
-                    initial_state=with_shared_counters(state, counters),
+                    initial_state=state,
                     resume_from_state=True,
                     **offset_kwargs,
                 )
 
-            index = jnp.arange(len(seed))
-            seed = jnp.array(seed)
-            _t0 = time.time()
             # The offset and the shared counters are unbatched (in_axes
             # None): every schedule and gate derived from them must stay
             # unbatched under the vmap.
-            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None, None))(
-                seed,
-                index,
-                initial_state,
-                counters,
-                jax.tree.map(lambda o: jnp.asarray(o, jnp.int32), offset_kwargs),
+            result = jax.vmap(resume, in_axes=(0, 0, 0, None, None))(
+                keys, index, initial_state, counters, offset_kwargs
             )
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()

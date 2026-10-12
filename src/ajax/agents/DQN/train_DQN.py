@@ -29,12 +29,17 @@ import optax
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.agents.DQN.networks import get_initialized_q_network, predict_q
+from ajax.agents.DQN.networks import (
+    get_initialized_q_network,
+    predict_q,
+    q_network_value,
+)
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import ActionPipelineResult, init_collector_state
-from ajax.environments.utils import check_env_is_gymnax, get_action_dim
+from ajax.environments.utils import get_action_dim
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
@@ -46,10 +51,6 @@ from ajax.state import (
 )
 from ajax.types import BufferType
 
-# ---------------------------------------------------------------------------
-# Auxiliary dataclass (for logging)
-# ---------------------------------------------------------------------------
-
 
 @struct.dataclass
 class ValueAuxiliaries:
@@ -60,15 +61,9 @@ class ValueAuxiliaries:
 
 @struct.dataclass
 class AuxiliaryLogs:
-    # Nested one level deep on purpose: ajax.log.flatten_dict only
-    # collapses (1,)-shaped leaves to scalars for nested aux dataclasses,
-    # which is what ajax.log._make_no_op fills the skipped branch with.
+    # Nested one level deep so ajax.log.flatten_dict names the metrics
+    # ``value/<field>``, as the other agents' auxiliaries are named.
     value: ValueAuxiliaries
-
-
-# ---------------------------------------------------------------------------
-# Epsilon-greedy action pipeline
-# ---------------------------------------------------------------------------
 
 
 def make_epsilon_greedy_pipeline(
@@ -94,7 +89,6 @@ def make_epsilon_greedy_pipeline(
         )
         greedy_action = jnp.argmax(q_values, axis=-1).astype(jnp.int32)
 
-        # Linear epsilon schedule on the training fraction.
         timestep = agent_state.collector_state.timestep
         train_frac = timestep / total_timesteps
         decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
@@ -107,7 +101,6 @@ def make_epsilon_greedy_pipeline(
         explore = jax.random.uniform(explore_key, shape=greedy_action.shape) < epsilon
         eps_greedy_action = jnp.where(explore, random_action, greedy_action)
 
-        # Warmup: ignore the policy entirely and act uniformly at random.
         env_action = jax.lax.cond(
             uniform, lambda: random_action, lambda: eps_greedy_action
         )
@@ -129,11 +122,6 @@ def make_epsilon_greedy_pipeline(
     return pipeline
 
 
-# ---------------------------------------------------------------------------
-# Initialization
-# ---------------------------------------------------------------------------
-
-
 def init_DQN(
     key: jax.Array,
     env_args: EnvironmentConfig,
@@ -146,7 +134,7 @@ def init_DQN(
 ) -> Any:
     """The Q-network and the collector (writing to ``buffer``, if any) in a
     ``state_cls``: DQN's, or a descendant's (PQN: no buffer)."""
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     q_state = get_initialized_q_network(
         key=init_key,
@@ -156,7 +144,7 @@ def init_DQN(
         n_actions=n_actions,
         q_network_cls=q_network_cls,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
@@ -167,16 +155,11 @@ def init_DQN(
     # works); critic_state mirrors it at init and is never updated.
     return state_cls(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=q_state,
         critic_state=q_state,
         collector_state=collector_state,
     )
-
-
-# ---------------------------------------------------------------------------
-# TD target + Q loss
-# ---------------------------------------------------------------------------
 
 
 def compute_dqn_td_target(
@@ -276,10 +259,12 @@ def q_gradient_step(
     targets: jax.Array,
     td_loss_fn: Callable,
     extension_stack: ExtensionStack,
+    key: Optional[jax.Array],
     total_timesteps: int,
 ) -> Tuple[LoadedTrainState, ValueAuxiliaries]:
     """One step of the Q-network (``agent_state.actor_state``) down the TD
-    loss plus the extensions' critic-loss terms. Returns the stepped
+    loss plus the extensions' critic-loss terms, folded on ``key`` (drawn
+    for them alone; ``None`` without extensions). Returns the stepped
     Q-network and the loss's metrics."""
     q_state = agent_state.actor_state
 
@@ -288,6 +273,7 @@ def q_gradient_step(
             params, q_state, observations, actions, targets, td_loss_fn
         )
         if extension_stack:
+            assert key is not None
             batch = {
                 "observations": observations,
                 "actions": actions,
@@ -300,17 +286,12 @@ def q_gradient_step(
                 agent_state,
                 batch,
                 agent_state.collector_state.timestep,
-                agent_state.rng,
+                key,
                 total_timesteps,
             )
         return loss, aux
 
     return gradient_step(q_state, loss_fn)
-
-
-# ---------------------------------------------------------------------------
-# Per-iteration agent update (one Q step + periodic target refresh)
-# ---------------------------------------------------------------------------
 
 
 @partial(
@@ -343,20 +324,11 @@ def update_agent(
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
-    (
-        observations,
-        terminated,
-        truncated,
-        next_observations,
-        rewards,
-        actions,
-        _,
-        _,
-    ) = get_batch_from_buffer(
-        buffer,
-        agent_state.collector_state.buffer_state,
-        sample_key,
+    batch = get_batch_from_buffer(
+        buffer, agent_state.collector_state.buffer_state, sample_key
     )
+    observations, actions, rewards = batch.obs, batch.action, batch.reward
+    terminated, next_observations = batch.terminated, batch.next_obs
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = terminated.astype(jnp.float32)
 
@@ -369,12 +341,13 @@ def update_agent(
         reward_scale=reward_scale,
     )
 
-    # Extension fold: TD-target shaping (analogous to SAC's
-    # ``stack.on_target``). Empty stack ⇒ identity. Each extension reads
-    # the standard DQN target operands off the batch dict.
+    # The extensions reshape the target, then add their loss terms, each on
+    # a key of its own (drawn only with extensions).
+    loss_key = None
     if extension_stack:
-        _tgt_rng, rng2 = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng2)
+        ext_key, rng = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=rng)
+        target_key, loss_key = jax.random.split(ext_key)
         _tgt_batch = {
             "observations": observations,
             "actions": actions,
@@ -389,7 +362,7 @@ def update_agent(
             _tgt_batch,
             target_q,
             agent_state.collector_state.timestep,
-            _tgt_rng,
+            target_key,
             total_timesteps,
         )
 
@@ -400,10 +373,10 @@ def update_agent(
         target_q,
         td_loss_fn,
         extension_stack,
+        loss_key,
         total_timesteps,
     )
 
-    # Periodic target refresh: hard update is tau=1.0, Polyak is tau<1.
     do_target_update = (agent_state.n_updates % target_update_interval) == 0
     q_state = jax.lax.cond(
         do_target_update,
@@ -417,11 +390,6 @@ def update_agent(
         n_updates=agent_state.n_updates + 1,
     )
     return agent_state, AuxiliaryLogs(value=value_aux)
-
-
-# ---------------------------------------------------------------------------
-# Training factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(
@@ -457,11 +425,10 @@ def make_train(
         start_timestep=start_timestep,
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
-    # Resolve composable hooks to their vanilla-DQN defaults when unset.
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> DQNState:
+    def init(key: jax.Array) -> DQNState:
         return init_DQN(
             key,
             env_args,
@@ -504,4 +471,9 @@ def make_train(
         AuxiliaryLogs,
         agent_config.learning_starts,
         collect_kwargs={"buffer": buffer, "action_pipeline": action_pipeline},
+        eval_kwargs={
+            "value_estimate": ValueEstimate(
+                q_network_value, agent_config.gamma, agent_config.reward_scale
+            )
+        },
     )

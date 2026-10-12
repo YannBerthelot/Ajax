@@ -23,6 +23,7 @@ from ajax.agents.TDMPC2.buffer import EpisodicBuffer, EpisodicBufferState
 from ajax.agents.TDMPC2.networks import make_world_model
 from ajax.agents.TDMPC2.state import TDMPC2Config
 from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule
+from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.environments.row_collector import Row
 
 from .common import random_heads, td_target_of
@@ -59,7 +60,8 @@ def state() -> core.TDMPC2UpdateState:
     state = core.create_update_state(jax.random.PRNGKey(0), EPISODIC, OBS, ACT)
     wm = state.world_model_state
     # Non-zero reward and Q heads, so values and targets differ by sample.
-    params = random_heads(wm.params, *jax.random.split(jax.random.PRNGKey(1)), 0.3)
+    reward_key, q_key = jax.random.split(jax.random.PRNGKey(1))
+    params = random_heads(wm.params, reward_key, q_key, 0.3)
     wm = wm.replace(params=params, target_params=params["q"])
     return state.replace(world_model_state=wm)
 
@@ -405,6 +407,31 @@ def test_an_overwritten_episode_keeps_its_remaining_rows():
     assert e.any() and set(step[e].astype(int)) == {3, 4}
 
 
+@pytest.mark.parametrize("carried, capacity", [(13, 16), (20, 16), (16, 10)])
+def test_adopted_rings_hold_and_draw_what_rings_written_from_the_start_do(
+    carried, capacity
+):
+    """Rings carried to a resume at tick 13 (13, 20 or 16 rows per env)
+    and adopted by rings of another length hold the rows, zeros included,
+    and draw the slices of rings of that length written from the start."""
+    rings = EpisodicBuffer(n_envs=2, capacity=capacity, obs_dim=3, action_dim=1)
+    old = EpisodicBuffer(n_envs=2, capacity=carried, obs_dim=3, action_dim=1)
+    adopted, written = rings.adopt(_fill(old), TICKS), _fill(rings)
+    jax.tree.map(np.testing.assert_array_equal, adopted, written)
+    for state in (adopted, written):
+        batch = rings.sample(state, jax.random.PRNGKey(0), TICKS - 1, 64, 2)
+        np.testing.assert_array_equal(batch.obs, _draws(rings, 64).obs)
+
+
+def test_rings_that_lost_a_row_the_adopting_ones_read_are_refused():
+    """Rings of 10 rows hold ticks 3 .. 12 only: rings of 16 resuming at
+    tick 13 would read ticks 0 .. 2 too."""
+    rings = EpisodicBuffer(n_envs=2, capacity=16, obs_dim=3, action_dim=1)
+    old = EpisodicBuffer(n_envs=2, capacity=10, obs_dim=3, action_dim=1)
+    with pytest.raises(ValueError, match="smaller buffer_size"):
+        rings.adopt(_fill(old), TICKS)
+
+
 # ------------------------------------------------------------ the whole agent
 
 
@@ -557,11 +584,14 @@ def test_an_episodic_run_updates_once_per_env_step(episodic_chain):
 
 
 def test_the_episodic_ring_holds_the_collected_episodes(episodic_chain):
-    """Every written row's observation is ``one_hot(step)``; the last rows
-    are the terminal ``s3`` after 3 steps; the reset rows have no reward."""
-    _, state = episodic_chain
-    # Seed 0, the 700 rows of each env's ring written so far.
-    replay = jax.tree.map(lambda x: np.asarray(x[0, :, :700]), state.buffer_state)
+    """The rings hold the run's 700 rows per env, ``min(buffer_size,
+    rows) / n_envs`` (the reference's clamp to the run), not 2000. Every
+    row's observation is ``one_hot(step)``; the last rows are the terminal
+    ``s3`` after 3 steps; the reset rows have no reward."""
+    agent, state = episodic_chain
+    assert agent.replay_capacity == ROWS
+    assert state.buffer_state.obs.shape[-2] == ROWS // 2
+    replay = jax.tree.map(lambda x: np.asarray(x[0]), state.buffer_state)  # seed 0
     np.testing.assert_array_equal(replay.obs, np.eye(4)[replay.step])
     np.testing.assert_array_equal(replay.last, replay.step == 3)
     np.testing.assert_array_equal(replay.terminal, replay.last)
@@ -588,17 +618,31 @@ def test_an_episodic_run_takes_its_updates_per_step():
         np.testing.assert_array_equal(count, expected)
 
 
-def test_an_episodic_run_resumes_as_the_uninterrupted_run():
-    """The rings are not sized for the run, so a resumed run carries the
-    same ones and continues the ticks: it computes what one call does. The
-    replayed rows and every count are equal; the parameters agree up to the
-    float32 rounding of the differently compiled programs, which the
-    updates amplify, far below one Adam step (``learning_rate`` 1e-3)."""
+def test_an_episodic_run_resumes_as_the_uninterrupted_run(tmp_path):
+    """The first call's rings hold its 30 rows per env. A new agent restores
+    its checkpoint into an ``n_timesteps=0`` skeleton (rings of one row,
+    ``ajax.checkpoint``'s flow); the resumed call adopts the 30 rows into
+    rings of 50 (``buffer_size`` 100 over 2 envs) and continues the ticks:
+    it computes what one call does. The replayed rows
+    and every count are equal; the parameters agree up to the float32
+    rounding of the differently compiled programs, which the updates
+    amplify, far below one Adam step (``learning_rate`` 1e-3). Rings of 90
+    (``buffer_size`` 200) cannot resume the full run's, which lost ticks
+    0 .. 9."""
     small = {**CHAIN, "seed_steps": 20}
     agent = TDMPC2(ChainEnv(), episodic=True, buffer_size=100, **small)
     first, _ = agent.train(seed=0, n_timesteps=60, num_episode_test=1)
-    resumed, _ = agent.train(
-        seed=0, n_timesteps=60, num_episode_test=1, initial_state=first
+    assert first.buffer_state.obs.shape[-2] == 30
+    path = str(tmp_path / "first.pkl")
+    save_checkpoint(first, path)
+    resumer = TDMPC2(ChainEnv(), episodic=True, buffer_size=100, **small)
+    skeleton, _ = resumer.train(seed=0, n_timesteps=0, num_episode_test=1)
+    assert skeleton.buffer_state.obs.shape[-2] == 1
+    resumed, _ = resumer.train(
+        seed=0,
+        n_timesteps=60,
+        num_episode_test=1,
+        initial_state=restore_into(skeleton, path),
     )
     full, _ = agent.train(seed=0, n_timesteps=120, num_episode_test=1)
     np.testing.assert_array_equal(resumed.n_updates, full.n_updates)
@@ -613,7 +657,7 @@ def test_an_episodic_run_resumes_as_the_uninterrupted_run():
     ):
         for x, y in zip(jax.tree.leaves(a), jax.tree.leaves(b), strict=True):
             np.testing.assert_allclose(x, y, atol=1e-4)
-    with pytest.raises(ValueError, match="replay obs"):
+    with pytest.raises(ValueError, match="smaller buffer_size"):
         TDMPC2(ChainEnv(), episodic=True, buffer_size=200, **small).train(
             seed=0, n_timesteps=60, num_episode_test=1, initial_state=full
         )

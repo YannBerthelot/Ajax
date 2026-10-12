@@ -7,9 +7,13 @@ import pytest
 from flax import struct
 from gymnax.environments import environment, spaces
 
-from ajax.agents.obs_norm import apply_obs_norm, init_agent_obs_norm, update_obs_norm
 from ajax.environments.create import add_ajax_wrappers
 from ajax.environments.interaction import reset, step
+from ajax.environments.obs_norm import (
+    apply_obs_norm,
+    init_agent_obs_norm,
+    update_obs_norm,
+)
 from ajax.environments.pid_terms import PIDTermsWrapper, split_pid_terms
 from ajax.environments.utils import raw_obs_columns
 from ajax.evaluate import setup_environment

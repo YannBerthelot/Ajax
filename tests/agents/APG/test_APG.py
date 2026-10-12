@@ -3,7 +3,6 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from extension_stubs import CounterExt
 from gymnax import make as make_gymnax_env
 
 from ajax import APG
@@ -16,6 +15,7 @@ from ajax.agents.APG import (
 from ajax.agents.APG.train_APG import (
     evaluate_apg,
     init_APG,
+    make_policy_step,
     reset_optimizer,
     rollout_returns,
 )
@@ -27,6 +27,7 @@ from ajax.environments.model_reference import (
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
 from ajax.networks.memory import MemoryConfig
 from ajax.wrappers import InitialStateWrapper
+from tests.agents.extension_stubs import CounterExt
 
 HORIZON = 16
 N_ENVS = 4
@@ -50,10 +51,14 @@ def tracking_env():
     return wrapped, params
 
 
+def tracking_class(params):
+    return UniformPerturbation(params, fields=("m", "l"), scale=0.1)
+
+
 @pytest.fixture
 def env_and_class():
     env, params = tracking_env()
-    return env, UniformPerturbation(params, fields=("m", "l"), scale=0.1)
+    return env, tracking_class(params)
 
 
 def make_agent(env, system_class, **kwargs):
@@ -69,11 +74,22 @@ def make_agent(env, system_class, **kwargs):
     return APG(env, **defaults)
 
 
+@pytest.fixture(scope="module")
+def default_run():
+    """The default agent's one-update run, shared by the tests that only
+    read it: ``(agent, system_class, state, aux)``."""
+    env, params = tracking_env()
+    sc = tracking_class(params)
+    agent = make_agent(env, sc)
+    state, aux = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
+    return agent, sc, state, aux
+
+
 def test_gradient_clipping_is_on_by_default_and_can_be_disabled(env_and_class):
     env, sc = env_and_class
-    assert make_agent(env, sc).actor_optimizer_args.clipped
+    assert make_agent(env, sc).actor_optimizer_args.max_grad_norm is not None
     off = make_agent(env, sc, max_grad_norm=None)
-    assert not off.actor_optimizer_args.clipped
+    assert off.actor_optimizer_args.max_grad_norm is None
 
 
 def test_rejects_non_differentiable_env():
@@ -81,11 +97,9 @@ def test_rejects_non_differentiable_env():
         APG("CartPole-v1")
 
 
-def test_initial_state_has_no_critic_and_flows_through_env(env_and_class):
-    env, sc = env_and_class
-    agent = make_agent(env, sc)
+def test_initial_state_has_no_critic_and_flows_through_env(default_run):
+    agent, _, state, aux = default_run
     assert agent.env_args.env._env.transition_gradients_enabled
-    state, aux = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
     assert state.critic_state is None
     assert not state.actor_state.recurrent
     assert aux.loss.shape == (1, 1)
@@ -168,8 +182,7 @@ def test_contextual_controller_configuration(env_and_class):
         kind="transformer", hidden_size=8, num_layers=1, num_heads=2, window=8
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
-    assert agent.lr_schedule == "warmup_cosine"
-    assert agent.actor_optimizer_args.clipped
+    assert agent.train_kwargs["lr_schedule"] == "warmup_cosine"
     assert agent.actor_optimizer_args.max_grad_norm == 1.0
     assert agent.actor_optimizer_args.weight_decay == 0.01
     state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8)
@@ -193,10 +206,19 @@ def test_warmup_cosine_schedule_is_wired_and_validated(env_and_class):
     assert jnp.isfinite(aux.loss).all()
     with pytest.raises(ValueError, match="lr_schedule"):
         make_agent(env, sc, lr_schedule="linear").train(seed=0, n_timesteps=64)
-    # a warmup longer than the run is clamped, leaving one decay step
+    # A warmup longer than the run is clamped, leaving one decay step:
+    # warmup_cosine_schedule rejects warmup_steps >= total_steps when the
+    # train function is built, before anything is traced.
     short = make_agent(env, sc, lr_schedule="warmup_cosine", warmup_steps=50)
-    _, aux = short.train(seed=0, n_timesteps=2 * N_ENVS * HORIZON)
-    assert jnp.isfinite(aux.loss).all()
+    short.get_make_train()(
+        env_args=short.env_args,
+        actor_optimizer_args=short.actor_optimizer_args,
+        critic_optimizer_args=short.critic_optimizer_args,
+        network_args=short.network_args,
+        agent_config=short.agent_config,
+        total_timesteps=2 * N_ENVS * HORIZON,
+        num_episode_test=1,
+    )
 
 
 def test_resume_keeps_params_and_resets_optimizer(env_and_class):
@@ -218,6 +240,17 @@ def test_resume_keeps_params_and_resets_optimizer(env_and_class):
         reset_optimizer_on_resume=False,
     )
     assert int(state3.actor_state.step[0]) == 5
+
+
+def test_the_validation_set_is_drawn_apart_from_training(env_and_class):
+    """``eval_rng`` is split from the init key apart from ``rng``, which
+    every training draw descends from: the validation systems are not
+    training ones."""
+    env, sc = env_and_class
+    agent = make_agent(env, sc)
+    args = (agent.env_args, agent.actor_optimizer_args, agent.network_args)
+    state = init_APG(jax.random.PRNGKey(0), *args, agent.pid, agent.squash)
+    assert not jnp.array_equal(state.eval_rng, state.rng)
 
 
 def test_reset_optimizer_keeps_the_parameters_and_restarts_adam(env_and_class):
@@ -244,9 +277,8 @@ def test_reset_optimizer_keeps_the_parameters_and_restarts_adam(env_and_class):
 
 def test_curriculum_chains_stages(env_and_class):
     env, sc = env_and_class
-    _, params = tracking_env()
     stage1 = CurriculumStage(
-        make_agent(env, FixedSystem(params)), 2 * N_ENVS * HORIZON, "nominal"
+        make_agent(env, FixedSystem(sc.nominal)), 2 * N_ENVS * HORIZON, "nominal"
     )
     stage2 = CurriculumStage(make_agent(env, sc), 3 * N_ENVS * HORIZON, "class")
     results = train_curriculum([stage1, stage2], seed=0)
@@ -278,10 +310,8 @@ def test_curriculum_rejects_incompatible_stages(env_and_class):
         train_curriculum([])
 
 
-def test_evaluate_reports_m_rmse_on_fresh_systems(env_and_class):
-    env, sc = env_and_class
-    agent = make_agent(env, sc)
-    state, _ = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
+def test_evaluate_reports_m_rmse_on_fresh_systems(default_run):
+    agent, sc, state, _ = default_run
     single = jax.tree.map(lambda x: x[0], state)
     metrics = evaluate_apg(
         single, jax.random.PRNGKey(0), agent.env_args, sc, HORIZON, 5
@@ -356,3 +386,37 @@ def test_the_downstream_training_and_evaluation_contract(env_and_class):
         stateful=True,
     )
     assert returns.shape == (5,) and jnp.isfinite(returns).all()
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "MountainCarContinuous-v0"])
+def test_the_controller_output_is_mapped_onto_the_torque_bounds(env_id):
+    """Inside the differentiable rollout the controller's [-1, 1] output is
+    mapped onto the env's bounds: on Pendulum's [-2, 2] the executed torque
+    and its gradient are twice the output's; on MountainCarContinuous's
+    [-1, 1] they are the output's own (to float rounding: the two programs
+    compile apart)."""
+    agent = APG(env_id, n_envs=4, horizon=2, pid=None, actor_architecture=("8", "tanh"))
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    state = jax.tree.map(lambda x: x[0], state)
+    key = jax.random.PRNGKey(1)
+
+    def executed(params):
+        _, rollout = rollout_returns(state, params, key, agent.env_args, None, 2, 4)
+        return rollout.action[0, :, 0].sum(), rollout
+
+    params = state.actor_state.params
+    (total, rollout), grad_executed = jax.value_and_grad(executed, has_aux=True)(params)
+
+    def own(params):
+        step = make_policy_step(state.actor_state, params, False)
+        return step(None, rollout.obs[0], rollout.resets[0])[0][:, 0].sum()
+
+    scale = 2.0 if env_id == "Pendulum-v1" else 1.0
+    out, grad_own = jax.value_and_grad(own)(params)
+    assert jnp.allclose(total, scale * out, rtol=1e-6)
+    close = jax.tree.map(
+        lambda a, b: jnp.allclose(a, scale * b, rtol=1e-5, atol=1e-7),
+        grad_executed,
+        grad_own,
+    )
+    assert jax.tree.all(close)

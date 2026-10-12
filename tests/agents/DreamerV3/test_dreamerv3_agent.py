@@ -14,7 +14,8 @@ posterior written back.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import dataclasses
+import inspect
 from types import SimpleNamespace
 from typing import Any
 
@@ -29,11 +30,11 @@ from ajax import DreamerV3
 from ajax.agents import loop
 from ajax.agents.DreamerV3 import train_DreamerV3
 from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
-from ajax.agents.DreamerV3.state import MODEL_SIZES
+from ajax.agents.DreamerV3.state import MODEL_SIZES, WIDTHS
 from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
 from ajax.checkpoint import restore_into, save_checkpoint
-from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, TargetTweak
 
 from .reference_loop import reference_train_loop
 
@@ -63,39 +64,6 @@ TRAIN_RATIO = 32  # 1 update per transition with 4 x 8 batches: 4 per tick
 LOG_EVERY = N_ENVS * 30  # rows
 
 
-@dataclass(frozen=True)
-class Counter(Extension):
-    """Counts the ``post_update`` folds."""
-
-    name: str = "counter"
-
-    def init_state(self, agent_state, rng):
-        return jnp.zeros((), jnp.int32)
-
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 1
-
-
-@dataclass(frozen=True)
-class Metric(Extension):
-    """Adds one evaluation metric."""
-
-    name: str = "metric"
-
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
-        return {"ext/x": jnp.asarray(1.0)}
-
-
-@dataclass(frozen=True)
-class TargetTweak(Extension):
-    """A phase DreamerV3 does not fold."""
-
-    name: str = "target"
-
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target
-
-
 def cartpole_agent(**kwargs) -> DreamerV3:
     return DreamerV3(
         "CartPole-v1",
@@ -118,7 +86,7 @@ def _recorder(records: list) -> Any:
 
 @pytest.fixture(scope="module")
 def cartpole():
-    """CartPole with a Counter and a Metric, logging every 30 ticks.
+    """CartPole with a counter and a metric extension, logging every 30 ticks.
 
     The logging worker is not started and the log callback records what it
     is sent, so the run is hermetic. Spies record, per update and per seed
@@ -128,7 +96,7 @@ def cartpole():
     the written-back windows and latents (``write_back``). They call the
     originals, so the run is the unspied one.
     """
-    agent = cartpole_agent(extensions=[Counter(), Metric()])
+    agent = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     logged: list = []
     spied = SimpleNamespace(batches=[], samples=[], writes=[])
     train_step = train_DreamerV3.train_step
@@ -250,7 +218,7 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
         "Train/opt_loss",
         "Train/rec_loss",
         "Train/actor_loss",
-        "ext/x",
+        METRIC,
     ):
         assert key in last, key
     assert int(last["env_frames"]) == int(last["timestep"])  # action_repeat 1
@@ -259,7 +227,7 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
         metrics["timestep"], [[(t + 1) * N_ENVS for t in ticks]] * 2
     )
     assert np.all(np.isfinite(np.asarray(metrics["Eval/episodic mean reward"])))
-    np.testing.assert_array_equal(np.asarray(metrics["ext/x"]), 1.0)
+    np.testing.assert_array_equal(np.asarray(metrics[METRIC]), 1.0)
     # Episodes last at least one step and at most CartPole's 500.
     length = np.asarray(metrics["Eval/mean episodic length"])
     assert np.all((length >= 1) & (length <= 500))
@@ -270,6 +238,29 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
     # the run ends on a logging tick, so it holds nothing.
     assert np.all(np.isfinite(np.asarray(metrics["Train/opt_loss"])))
     np.testing.assert_array_equal(cartpole.state.train_metrics.count, [0, 0])
+
+
+def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
+    """The episodes draw from the key the shared path hands the evaluation,
+    fresh at each one (``ajax.log.evaluation_keys``), not from a key of
+    their own."""
+    keys: list = []
+
+    def spy(env_args, policy, init_carry, num_episodes, key):
+        keys.append(np.asarray(key))
+        return jnp.zeros(()), jnp.zeros(())
+
+    monkeypatch.setattr(train_DreamerV3, "evaluate_policy", spy)
+    agent, key = cartpole.agent, jax.random.PRNGKey(3)
+    train_DreamerV3.evaluate_dreamer(
+        jax.tree.map(lambda x: x[0], cartpole.state),
+        key,
+        env_args=agent.env_args,
+        config=agent.dreamer_config,
+        spec=train_DreamerV3.env_spec(agent.env_args),
+        num_episode_test=1,
+    )
+    np.testing.assert_array_equal(keys, [key])
 
 
 def _per_update(records: list, n_updates: int) -> list:
@@ -357,13 +348,13 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     rows, with the same extensions (whose ``post_update`` keys come from the
     agent's stream; the logging of the uninterrupted run does not touch the
     training state)."""
-    agent = cartpole_agent(extensions=[Counter(), Metric()])
+    agent = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
     path = str(tmp_path / "half.pkl")
     save_checkpoint(half, path)
-    resumer = cartpole_agent(extensions=[Counter(), Metric()])
+    resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     skeleton = resumer.train(seed=SEEDS, n_timesteps=0)
     state, _ = resumer.train(
         seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restore_into(skeleton, path)
@@ -381,8 +372,14 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
         strict=False,
     ):
         np.testing.assert_allclose(ours, theirs, rtol=1e-5, atol=1e-6)
+    # Exact: CartPole's observations depend on the networks only through the
+    # discrete actions, and a flipped action would break the params check too.
     np.testing.assert_array_equal(state.replay_state.obs, full.replay_state.obs)
-    np.testing.assert_allclose(state.replay_state.deter, full.replay_state.deter)
+    # The policy's deter, like the params, comes from two differently
+    # compiled programs: equal to float32 rounding, not to the last ulp.
+    np.testing.assert_allclose(
+        state.replay_state.deter, full.replay_state.deter, rtol=1e-5, atol=1e-6
+    )
     # A checkpoint skeleton (a 0-tick run) gets the latest run's ring.
     assert resumer._resolve_replay(0, None) == (100, None)
 
@@ -420,6 +417,9 @@ def test_each_call_resolves_its_ring():
     assert agent.replay_rows_per_env is None
     assert agent._resolve_replay(N_ENVS * 20, None) == (20, None)
     assert agent._resolve_replay(N_ENVS * 300, None) == (300, None)
+    # The run config records the resolved ring (DESIGN.md section 5.6).
+    assert agent.config["replay_rows_per_env"] == 300
+    assert agent.config["replay_bytes_per_seed"] == agent.replay_bytes_per_seed > 0
     assert agent._resolve_replay(N_ENVS * 5000, None) == (1000, None)
     assert agent._resolve_replay(0, None) == (1000, None)
 
@@ -506,6 +506,10 @@ def test_construction_resolves_the_configuration():
     c = agent.dreamer_config
     d = MODEL_SIZES["25m"]
     assert (c.units, c.hidden, c.deter, c.classes) == (d, d, 96, d // 16)
+    resolved = {
+        f"resolved_{k}": v for k, v in zip(WIDTHS, (d, d, 96, d // 16), strict=False)
+    }
+    assert agent.config.items() >= resolved.items()
     assert c.gamma == pytest.approx(0.98)
     assert agent.config["algo_name"] == "DreamerV3"
     assert agent.config["model_size"] == "25m"
@@ -526,6 +530,21 @@ def test_constructor_defaults_are_the_reference_pinned_configs():
     agent = DreamerV3("CartPole-v1")
     assert agent.dreamer_config == DreamerV3Config()
     assert agent.agent_config == DreamerV3AgentConfig()
+
+
+def test_the_config_is_built_from_the_constructor_arguments():
+    """``from_arguments`` takes ``model_size`` and the fields the arguments
+    name, ignoring the others; the constructor names every field, with the
+    field's default (the widths: None, the preset's), so none silently
+    keeps its default."""
+    from ajax.agents.DreamerV3.state import DreamerV3Config
+
+    got = DreamerV3Config.from_arguments({"model_size": "1m", "lam": 0.9, "n_envs": 4})
+    assert got == DreamerV3Config.from_model_size("1m", lam=0.9)
+    parameters = inspect.signature(DreamerV3).parameters
+    for field in dataclasses.fields(DreamerV3Config):
+        default = parameters[field.name].default
+        assert default is None if field.name in WIDTHS else default == field.default
 
 
 def test_image_observations_are_refused_at_construction():

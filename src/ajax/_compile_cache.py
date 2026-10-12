@@ -13,6 +13,8 @@ Behaviour:
     architecture, and the Python, JAX and jaxlib versions.
   * ``AJAX_NO_COMPILE_CACHE=1`` disables the cache and leaves the disk
     untouched.
+  * Nothing bounds its size on import. :func:`prune` trims a root to a
+    size, least recently used entries first (CI runs it once per job).
 
 Why a fingerprint: JAX's cache key covers the HLO, the JAX/jaxlib
 versions and the device kind, but on CPU not the instruction-set
@@ -119,3 +121,28 @@ def configure() -> None:
         # A read-only home or an unusual filesystem must not block
         # importing Ajax; run without the cache instead.
         pass
+
+
+def prune(root: str, max_bytes: int) -> int:
+    """Delete the least recently used files under ``root`` until those left
+    total at most ``max_bytes``; return the bytes deleted.
+
+    JAX's own bound (``jax_compilation_cache_max_size``) lists and stats
+    every entry under a file lock on every write, which doubled the CI test
+    jobs (Ajax caches every compile); this runs once, when called. A file's
+    last use is its last write or, where the filesystem records it, read.
+    """
+    files = []
+    for directory, _, names in os.walk(root):
+        for name in names:
+            path = os.path.join(directory, name)
+            stat = os.stat(path)
+            files.append((max(stat.st_atime, stat.st_mtime), stat.st_size, path))
+    excess = sum(size for _, size, _ in files) - max_bytes
+    deleted = 0
+    for _, size, path in sorted(files):
+        if deleted >= excess:
+            break
+        os.remove(path)
+        deleted += size
+    return deleted

@@ -34,7 +34,8 @@ force the reference's own draws
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from collections.abc import Mapping
+from typing import Any, Callable, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -77,6 +78,7 @@ from ajax.agents.DreamerV3.world_model import (
 )
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import LoadedTrainState
+from ajax.types import Replaceable
 
 sg = jax.lax.stop_gradient
 
@@ -89,7 +91,7 @@ ALL_TERMS = LOSS_TERMS + ACTOR_CRITIC_TERMS
 
 
 @struct.dataclass
-class LearnerState:
+class LearnerState(Replaceable):
     """Everything a training step updates.
 
     The train states keep their module's parameters (applied as
@@ -118,9 +120,9 @@ class LearnerState:
 class Params(NamedTuple):
     """The differentiated parameters: one joint gradient over all three."""
 
-    world_model: dict
-    actor: dict
-    critic: dict
+    world_model: Mapping[str, Any]
+    actor: Mapping[str, Any]
+    critic: Mapping[str, Any]
 
 
 class TrainNoise(NamedTuple):
@@ -277,16 +279,18 @@ def compute_loss(
     model = WorldModel(config, batch.obs.shape[-1])
     twohot = config.two_hot
 
+    apply: Callable[..., Any] = model.apply  # called without mutable
+
     def heads(feat: jax.Array) -> tuple[jax.Array, jax.Array]:
         variables = {"params": params.world_model}
-        reward = model.apply(variables, feat, method=WorldModel.reward_logits)
-        cont = model.apply(variables, feat, method=WorldModel.cont_logit)
+        reward = apply(variables, feat, method=WorldModel.reward_logits)
+        cont = apply(variables, feat, method=WorldModel.cont_logit)
         return twohot.decode(reward), jax.nn.sigmoid(cont)
 
     def actor(feat: jax.Array) -> Policy:
         return state.actor_state.apply_fn({"params": params.actor}, feat)
 
-    def critic(critic_params: dict, feat: jax.Array) -> jax.Array:
+    def critic(critic_params: Mapping[str, Any], feat: jax.Array) -> jax.Array:
         return state.critic_state.apply_fn({"params": critic_params}, feat)
 
     slow_params = state.critic_state.target_params
@@ -470,7 +474,7 @@ def loss_and_grads(
 
 
 def apply_optimizer(
-    train_state: LoadedTrainState, grads: dict
+    train_state: LoadedTrainState, grads: Mapping[str, Any]
 ) -> tuple[LoadedTrainState, dict]:
     """One optimizer update; returns the new state and the applied updates.
 
@@ -489,7 +493,7 @@ def apply_optimizer(
 
 
 def update_slow_critic(
-    critic_state: LoadedTrainState, count: jax.Array, rate: float
+    critic_state: LoadedTrainState, count: int | jax.Array, rate: float
 ) -> LoadedTrainState:
     """The slow critic after an optimizer step (2411f7d ``SlowUpdater``).
 
@@ -515,11 +519,8 @@ def train_step(
 ) -> tuple[LearnerState, PosteriorEntries, dict[str, jax.Array]]:
     """One DreamerV3 update (``Agent.train``, ``29eb964:dreamerv3/agent.py:166-223``).
 
-    :func:`loss_and_grads` at the current parameters, then the three
-    optimizer updates with that one gradient (:func:`apply_optimizer`),
-    then the slow critic (:func:`update_slow_critic`) and the return
-    normaliser's new state. ``config`` must be the configuration the state
-    was built with (:func:`init_learner`); jit it as a static argument.
+    ``config`` must be the configuration the state was built with
+    (:func:`init_learner`); jit it as a static argument.
 
     Returns:
         The new state; the posterior latents of the replayed steps
@@ -542,7 +543,7 @@ def train_step(
         critic_state=critic_state,
         retnorm=aux.imagination.retnorm,
     )
-    metrics = dict(aux.metrics)
+    metrics: dict[str, Any] = dict(aux.metrics)
     metrics["opt_loss"] = total
     metrics["opt_grad_norm"] = optax.global_norm(grads)
     metrics["opt_update_norm"] = optax.global_norm(

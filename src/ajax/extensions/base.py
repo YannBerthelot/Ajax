@@ -38,11 +38,24 @@ Phases
 ``eval_action``  override the evaluation-time action (same rule)
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
+
+Phase batches
+-------------
+The ``batch`` dict of a phase holds the keys :data:`PHASE_BATCH_KEYS`
+lists on every agent that folds it; an agent may add its own (read its
+fold call), and an extension raises on a key it needs and does not find,
+rather than return a no-op. ``gamma`` is ``None`` for an average-reward
+agent, ``dones`` is where the target cut the bootstrap and ``targets`` the
+target, held constant; the critic (DQN's and PQN's ``q_state``) and the
+actor come at the differentiated parameters. The replay agents'
+``raw_observations`` is None in a run without an expert, whose replay
+does not keep them.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import dataclasses
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any, ClassVar
 
 import jax
@@ -77,23 +90,55 @@ PHASES: tuple[str, ...] = (
     "eval_metrics",
 )
 
+#: The keys of each phase's ``batch`` ("Phase batches" above): per phase,
+#: the agents passing them ("*": every agent folding it) -> the keys.
+PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
+    "on_target": {
+        "*": "observations next_observations rewards gamma",
+        "SAC TD3 REDQ ASAC AVG DQN PQN": "actions dones reward_scale",
+        "PQN PPO APO": "terminated truncated",
+        "PPO APO": "gae values",
+    },
+    "critic_loss": {
+        "*": "observations targets",
+        "SAC TD3 REDQ ASAC AVG PPO APO": "critic_params critic_state",
+        "SAC TD3 REDQ ASAC AVG DQN PQN": "actions",
+        "DQN PQN": "q_state",
+    },
+    "actor_loss": {
+        "*": "actor_params",
+        "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state",
+        "SAC TD3 REDQ ASAC AVG APO UDRL": "observations",
+        "SAC TD3 REDQ ASAC APO": "raw_observations pi_mean",
+        "SAC": "a_expert",
+        "UDRL": "actions",
+        "APG": "rollout returns",
+    },
+}
+
 
 def check_extension_phases(
     agent_name: str,
     stack: Iterable["Extension"],
     supported: frozenset,
     supported_fields: frozenset = frozenset(),
+    agent_expert: Any = None,
+    stores_expert_actions: bool = False,
 ) -> None:
     """Reject the extensions of ``stack`` that implement phases outside
-    ``supported`` (the phases ``agent_name``'s training loop folds), or read
+    ``supported`` (the phases ``agent_name``'s training loop folds), read
     buffer fields outside ``supported_fields`` (those the agent stores on
-    an extension's declaration, ``Extension.buffer_fields``).
+    an extension's declaration, ``Extension.buffer_fields``), or call a
+    stateful expert without its state (:func:`check_extension_experts`).
 
     Raises ``ValueError`` naming every offending extension and phase: an
     extension whose phase an agent never folds would otherwise be silently
-    ignored. Agents call it at construction (``ActorCritic.__init__``).
+    ignored; also on a reader of phi* without MCPretrain
+    (:func:`check_phi_star_source`). Agents call it at construction
+    (``ActorCritic.__init__``).
     """
     stack = tuple(stack)
+    check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
     missing = frozenset().union(*(e.buffer_fields for e in stack)) - supported_fields
     if missing:
         raise ValueError(
@@ -111,6 +156,74 @@ def check_extension_phases(
             f"{agent_name} does not support these extension phases: {details}."
             f" Supported phases: {sorted(supported)}."
         )
+    check_phi_star_source(agent_name, stack)
+
+
+def check_phi_star_source(agent_name: str, stack: Sequence["Extension"]) -> None:
+    """Reject extensions reading the frozen expert critic phi* in a stack
+    without one that fits it (MCPretrain): without phi* they would add
+    nothing all run (OnlineBC, CriticBlend, MCVarianceCorrection) or fail at
+    trace time (ValueBox, PhiRefresh)."""
+    readers = [type(ext).__name__ for ext in stack if ext.reads_phi_star()]
+    if readers and not any(ext.fits_phi_star for ext in stack):
+        raise ValueError(
+            f"{', '.join(readers)} read the frozen expert critic phi*, which"
+            f" MCPretrain fits, and {agent_name}'s extensions hold no"
+            " MCPretrain: add MCPretrain(expert_policy=...) to them."
+        )
+
+
+def holds_expert(agent_expert: Any, stack: Iterable["Extension"]) -> bool:
+    """Whether a run has an expert: the agent's ``expert_policy``, or one an
+    extension holds (its ``expert_fields``). Replay keeps the raw
+    observations and the expert flags, which only experts read, for such
+    a run (init_buffer's include_raw_obs, include_is_expert)."""
+    return agent_expert is not None or any(
+        getattr(ext, field, None) is not None
+        for ext in stack
+        for field in ext.expert_fields
+    )
+
+
+def check_extension_experts(
+    agent_name: str,
+    stack: Sequence["Extension"],
+    agent_expert: Any = None,
+    stores_expert_actions: bool = False,
+) -> None:
+    """Reject an extension calling a stateful expert (one with
+    ``init_state``, called ``expert(state, obs)``) without its state.
+
+    An extension calls the experts it declares (:meth:`Extension.experts`)
+    on the observations it is given, where no state of the expert exists:
+    a stateful one is allowed only as the agent's ``expert_policy`` of an
+    agent that stores that expert's actions from its state
+    (``stores_expert_actions``), for an extension that reads them
+    (``reads_agent_expert_actions``). Stateless experts are always allowed.
+    """
+    for ext in stack:
+        for expert in ext.experts():
+            if not hasattr(expert, "init_state"):
+                continue
+            stored = expert is agent_expert and stores_expert_actions
+            if stored and ext.reads_agent_expert_actions:
+                continue
+            raise ValueError(
+                f"{type(ext).__name__} calls its expert without a state, and this"
+                " expert is stateful (it has init_state). An extension uses a"
+                " stateful expert only as the agent's expert_policy, whose"
+                " actions the agent stores from the expert's state, and only"
+                " if the extension reads them; here"
+                + (
+                    f" {type(ext).__name__} does not read them."
+                    if stored
+                    else f" {agent_name} does not store this expert's actions."
+                )
+                + " To keep only the extension's use of the expert, give SAC the"
+                " same expert with expert_buffer_n_steps=0 (no expert prefill)"
+                " and expert_fraction=0.0 (no warm-up mixing); or give the"
+                " extension a stateless expert."
+            )
 
 
 class Extension:
@@ -128,6 +241,18 @@ class Extension:
     #: next observation). An agent stores a field only when an extension of
     #: its stack declares it, and rejects one it cannot provide.
     buffer_fields: ClassVar[frozenset[str]] = frozenset()
+    #: Whether the extension reads the agent's stored actions of its expert
+    #: when that expert is the agent's (check_extension_experts).
+    reads_agent_expert_actions: ClassVar[bool] = False
+    #: The fields holding an expert (raw observations in, env-unit actions
+    #: out), which :meth:`ExtensionStack.with_experts` converts.
+    expert_fields: ClassVar[frozenset[str]] = frozenset()
+    #: Whether the extension fits the frozen expert critic phi* that the
+    #: extensions which :meth:`reads_phi_star` need (MCPretrain does).
+    fits_phi_star: ClassVar[bool] = False
+    #: Whether the extension reads each env's step within its episode
+    #: (``CollectorState.step_in_episode``), which an agent counts only then.
+    reads_step_in_episode: ClassVar[bool] = False
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -218,6 +343,16 @@ class Extension:
         return {}
 
     # -- introspection ---------------------------------------------------
+    def experts(self) -> tuple:
+        """The experts this extension calls itself, on the observations it
+        is given (without a state); none by default."""
+        return ()
+
+    def reads_phi_star(self) -> bool:
+        """Whether the extension reads phi*: a stack holding one and none
+        that ``fits_phi_star`` is refused (:func:`check_phi_star_source`)."""
+        return False
+
     def implemented_phases(self) -> frozenset[str]:
         """The phases this extension actually overrides (vs the no-op base)."""
         return frozenset(
@@ -230,17 +365,12 @@ class Extension:
     def bind_to_agent(self, **agent_context: Any) -> "Extension":
         """Return ``self``, optionally populating closed-over agent context.
 
-        The default is the identity: extensions that don't need agent-
-        factory context (env_args, network_args, buffer, …) ignore every
-        kwarg and stay as-is. Extensions that DO close over factory-
-        resolved values (:class:`MCPretrain`, :class:`PhiRefresh`,
-        :class:`ResidualPolicy`) override
-        this to return a new (frozen) instance with the relevant fields
-        filled in.
-
-        Callers may invoke ``ext.bind_to_agent(env_args=..., buffer=...,
-        ...)`` uniformly across an entire stack without per-extension
-        type checks — see :meth:`ExtensionStack.bind_to_agent`.
+        The default is the identity: an extension ignores every kwarg it
+        does not need. One that closes over values the agent factory
+        resolves (env_args, buffer, …; e.g. :class:`MCPretrain`,
+        :class:`PhiRefresh`) overrides this to return a new frozen instance
+        with them filled in, so a whole stack binds without per-extension
+        type checks (:meth:`ExtensionStack.bind_to_agent`).
         """
         del agent_context
         return self
@@ -287,115 +417,14 @@ class ExtensionStack:
         return frozenset().union(*(e.buffer_fields for e in self.extensions))
 
     def _keys(self, rng: jax.Array) -> tuple[jax.Array, ...]:
-        """One sub-key per extension (≥1 split so an empty stack is safe)."""
-        return tuple(jax.random.split(rng, max(1, len(self.extensions))))
+        """One sub-key per extension (a fold never splits for an empty stack)."""
+        return tuple(jax.random.split(rng, len(self.extensions)))
 
-    # -- init / pretrain -------------------------------------------------
-    def init_states(self, agent_state: Any, rng: jax.Array) -> tuple:
-        """Build the per-extension state tuple for ``BaseAgentState.ext_state``."""
-        keys = self._keys(rng)
-        return tuple(
-            ext.init_state(agent_state, keys[i])
-            for i, ext in enumerate(self.extensions)
-        )
-
-    def pretrain(
-        self, agent_state: Any, ext_states: tuple, ctx: ExtensionContext
-    ) -> tuple[Any, tuple]:
-        new = list(ext_states)
-        for i, ext in enumerate(self.extensions):
-            agent_state, new[i] = ext.pretrain(agent_state, new[i], ctx)
-        return agent_state, tuple(new)
-
-    # -- transforms ------------------------------------------------------
-    def on_target(
-        self,
-        agent_state: Any,
-        ext_states: tuple,
-        batch: Any,
-        target: jax.Array,
-        ctx: ExtensionContext,
-    ) -> jax.Array:
-        for i, ext in enumerate(self.extensions):
-            target = ext.on_target(agent_state, ext_states[i], batch, target, ctx)
-        return target
-
-    # -- additive loss terms --------------------------------------------
-    def critic_loss(
-        self, agent_state: Any, ext_states: tuple, batch: Any, ctx: ExtensionContext
-    ) -> jax.Array | float:
-        total: jax.Array | float = 0.0
-        for i, ext in enumerate(self.extensions):
-            total = total + ext.critic_loss(agent_state, ext_states[i], batch, ctx)
-        return total
-
-    def actor_loss(
-        self, agent_state: Any, ext_states: tuple, batch: Any, ctx: ExtensionContext
-    ) -> jax.Array | float:
-        total: jax.Array | float = 0.0
-        for i, ext in enumerate(self.extensions):
-            total = total + ext.actor_loss(agent_state, ext_states[i], batch, ctx)
-        return total
-
-    # -- action overrides (last non-None wins; None -> agent default) ----
-    def action(
-        self,
-        agent_state: Any,
-        ext_states: tuple,
-        obs: jax.Array,
-        rng: jax.Array,
-        ctx: ExtensionContext,
-    ) -> jax.Array | None:
-        keys = self._keys(rng)
-        chosen: jax.Array | None = None
-        for i, ext in enumerate(self.extensions):
-            proposed = ext.action(agent_state, ext_states[i], obs, keys[i], ctx)
-            if proposed is not None:
-                chosen = proposed
-        return chosen
-
-    def eval_action(
-        self,
-        agent_state: Any,
-        ext_states: tuple,
-        obs: jax.Array,
-        rng: jax.Array,
-        ctx: ExtensionContext,
-    ) -> jax.Array | None:
-        keys = self._keys(rng)
-        chosen: jax.Array | None = None
-        for i, ext in enumerate(self.extensions):
-            proposed = ext.eval_action(agent_state, ext_states[i], obs, keys[i], ctx)
-            if proposed is not None:
-                chosen = proposed
-        return chosen
-
-    # -- state-threading + logging --------------------------------------
-    def post_update(
-        self, agent_state: Any, ext_states: tuple, ctx: ExtensionContext
-    ) -> tuple[Any, tuple]:
-        new = list(ext_states)
-        for i, ext in enumerate(self.extensions):
-            agent_state, new[i] = ext.post_update(agent_state, new[i], ctx)
-        return agent_state, tuple(new)
-
-    def eval_metrics(
-        self, agent_state: Any, ext_states: tuple, rng: jax.Array, ctx: ExtensionContext
-    ) -> dict:
-        out: dict = {}
-        keys = self._keys(rng)
-        for i, ext in enumerate(self.extensions):
-            out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], ctx))
-        return out
-
-    # ------------------------------------------------------------------
-    # ``fold_<phase>``: the phase folded on an agent state
-    # ------------------------------------------------------------------
-    # Each helper builds the phase's :class:`ExtensionContext` and reads
-    # (and, for state-threading phases, writes) ``agent_state.ext_state``.
-    # On an empty stack it returns its input unchanged without building a
-    # context, so an agent without extensions traces nothing extra and an
-    # agent never needs to guard a fold itself.
+    # ``fold_<phase>``: each fold builds the phase's ExtensionContext and
+    # reads (and, for state-threading phases, writes)
+    # ``agent_state.ext_state``, in list order. On an empty stack it returns
+    # its input unchanged without building a context, so an agent without
+    # extensions traces nothing extra and never needs to guard a fold.
 
     def fold_init(self, agent_state: Any, rng: jax.Array, total_steps: int) -> Any:
         """A fresh run's extension setup: every extension's initial state,
@@ -410,13 +439,17 @@ class ExtensionStack:
         )
 
     def fold_init_states(self, agent_state: Any, rng: jax.Array) -> Any:
-        """Initialise ``ext_state`` on a fresh ``agent_state``.
-
-        Empty-stack: returns ``agent_state`` unchanged (no replace).
-        """
+        """``agent_state`` with every extension's initial state (one key
+        each) in its ``ext_state``."""
         if not self.extensions:
             return agent_state
-        return agent_state.replace(ext_state=self.init_states(agent_state, rng))
+        keys = self._keys(rng)
+        return agent_state.replace(
+            ext_state=tuple(
+                ext.init_state(agent_state, keys[i])
+                for i, ext in enumerate(self.extensions)
+            )
+        )
 
     def fold_pretrain(
         self,
@@ -429,10 +462,10 @@ class ExtensionStack:
         if not self.extensions:
             return agent_state
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
-        agent_state, new_ext_state = self.pretrain(
-            agent_state, agent_state.ext_state, ctx
-        )
-        return agent_state.replace(ext_state=new_ext_state)
+        ext_states = list(agent_state.ext_state)
+        for i, ext in enumerate(self.extensions):
+            agent_state, ext_states[i] = ext.pretrain(agent_state, ext_states[i], ctx)
+        return agent_state.replace(ext_state=tuple(ext_states))
 
     def fold_post_update(
         self,
@@ -445,10 +478,12 @@ class ExtensionStack:
         if not self.extensions:
             return agent_state
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
-        agent_state, new_ext_state = self.post_update(
-            agent_state, agent_state.ext_state, ctx
-        )
-        return agent_state.replace(ext_state=new_ext_state)
+        ext_states = list(agent_state.ext_state)
+        for i, ext in enumerate(self.extensions):
+            agent_state, ext_states[i] = ext.post_update(
+                agent_state, ext_states[i], ctx
+            )
+        return agent_state.replace(ext_state=tuple(ext_states))
 
     def fold_on_target(
         self,
@@ -463,7 +498,10 @@ class ExtensionStack:
         if not self.extensions:
             return target
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
-        return self.on_target(agent_state, agent_state.ext_state, batch, target, ctx)
+        ext_states = agent_state.ext_state
+        for i, ext in enumerate(self.extensions):
+            target = ext.on_target(agent_state, ext_states[i], batch, target, ctx)
+        return target
 
     def fold_critic_loss(
         self,
@@ -473,11 +511,15 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> jax.Array | float:
-        """Critic-loss fold; returns the additive critic-loss term."""
+        """Critic-loss fold; returns the summed additive critic-loss term."""
         if not self.extensions:
             return 0.0
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
-        return self.critic_loss(agent_state, agent_state.ext_state, batch, ctx)
+        total: jax.Array | float = 0.0
+        ext_states = agent_state.ext_state
+        for i, ext in enumerate(self.extensions):
+            total = total + ext.critic_loss(agent_state, ext_states[i], batch, ctx)
+        return total
 
     def fold_actor_loss(
         self,
@@ -487,11 +529,15 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> jax.Array | float:
-        """Actor-loss fold; returns the additive actor-loss term."""
+        """Actor-loss fold; returns the summed additive actor-loss term."""
         if not self.extensions:
             return 0.0
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
-        return self.actor_loss(agent_state, agent_state.ext_state, batch, ctx)
+        total: jax.Array | float = 0.0
+        ext_states = agent_state.ext_state
+        for i, ext in enumerate(self.extensions):
+            total = total + ext.actor_loss(agent_state, ext_states[i], batch, ctx)
+        return total
 
     def fold_eval_metrics(
         self,
@@ -500,30 +546,42 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> dict:
-        """Eval-metrics fold; returns the merged extra-eval dict."""
+        """Eval-metrics fold; returns the extensions' merged metrics (each
+        extension gets its own key; the context carries ``rng``)."""
         if not self.extensions:
             return {}
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
-        return self.eval_metrics(agent_state, agent_state.ext_state, rng, ctx)
+        out: dict = {}
+        ext_states, keys = agent_state.ext_state, self._keys(rng)
+        for i, ext in enumerate(self.extensions):
+            out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], ctx))
+        return out
 
-    # ------------------------------------------------------------------
-    # ``bind_to_agent`` — push factory context onto every extension.
-    # ------------------------------------------------------------------
     def bind_to_agent(self, **agent_context: Any) -> "ExtensionStack":
-        """Return a new stack with every extension bound to ``agent_context``.
-
-        Each extension's :meth:`Extension.bind_to_agent` decides which
-        kwargs (if any) it cares about; the base implementation is the
-        identity. This is what lets the SAC factory (and any other
-        agent factory) populate closed-over context on extensions like
-        :class:`MCPretrain` / :class:`PhiRefresh` /
-        :class:`ResidualPolicy` without
-        per-extension type checks.
-
-        Empty stack: returns ``self`` unchanged.
+        """Return a new stack with every extension bound to ``agent_context``
+        (each :meth:`Extension.bind_to_agent` picks the kwargs it needs);
+        each agent factory passes the context it owns. An empty stack
+        returns ``self``.
         """
         if not self.extensions:
             return self
         return ExtensionStack(
             tuple(ext.bind_to_agent(**agent_context) for ext in self.extensions)
         )
+
+    def with_experts(self, convert: Callable[[Any], Any]) -> "ExtensionStack":
+        """The stack with ``convert`` applied to every expert its extensions
+        hold (their ``expert_fields``; one still None is left). A
+        ``convert`` memoised by identity keeps one expert one object, which
+        :func:`ajax.extensions.expert.reads_stored_expert_actions` compares."""
+
+        def converted(ext: Extension) -> Extension:
+            experts = {f: getattr(ext, f) for f in ext.expert_fields}
+            changes = {f: convert(e) for f, e in experts.items() if e is not None}
+            if not changes:
+                return ext
+            # An extension holding an expert is a dataclass (the recommended
+            # frozen form, which the field test enforces); the base is not.
+            return dataclasses.replace(ext, **changes)  # type: ignore[type-var]
+
+        return ExtensionStack(tuple(converted(ext) for ext in self.extensions))

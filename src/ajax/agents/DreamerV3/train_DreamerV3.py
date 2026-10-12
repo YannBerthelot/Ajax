@@ -35,7 +35,7 @@ included); the collector's ``timestep`` advances by ``n_envs`` per tick.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import lru_cache, partial
@@ -75,11 +75,7 @@ from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.evaluate import evaluate_policy
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.state import EnvironmentConfig
-
-# ---------------------------------------------------------------------------
-# Schedule: 2411f7d train.py + when.Ratio
-# ---------------------------------------------------------------------------
+from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 
 @dataclass(frozen=True)
@@ -182,11 +178,6 @@ class TrainRatio:
         return 0 if x < 0 else 1 + int(x * self.ratio)
 
 
-# ---------------------------------------------------------------------------
-# Acting
-# ---------------------------------------------------------------------------
-
-
 class PolicyCarry(NamedTuple):
     """The acting state of ``n`` envs (the reference's ``(lat, act)`` carry).
 
@@ -216,8 +207,8 @@ def initial_policy_carry(
 
 
 def policy_step(
-    world_model_params: dict,
-    actor_params: dict,
+    world_model_params: Mapping[str, Any],
+    actor_params: Mapping[str, Any],
     carry: PolicyCarry,
     obs: jax.Array,
     is_first: jax.Array,
@@ -255,9 +246,8 @@ def policy_step(
         draw_posterior_noise(post_key, config, (n,)),
         method=RSSM.observe_step,
     )
-    policy = Actor(config, action_dim, discrete).apply(
-        {"params": actor_params}, features(state.deter, state.stoch)
-    )
+    actor_apply: Callable[..., Any] = Actor(config, action_dim, discrete).apply
+    policy = actor_apply({"params": actor_params}, features(state.deter, state.stoch))
     sample = policy.sample(draw_action_noise(action_key, (n, action_dim), discrete))
     action = jnp.argmax(sample, -1).astype(jnp.int32) if discrete else sample
     latent = (state.deter, jnp.argmax(state.stoch, -1).astype(jnp.int32))
@@ -279,11 +269,6 @@ def bind_policy(
         action_dim=action_dim,
         discrete=discrete,
     )
-
-
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
 
 
 class EnvSpec(NamedTuple):
@@ -335,7 +320,8 @@ def train_metric_keys(
     """
     f32, length = jnp.float32, batch_length + 1
 
-    def shape(*dims: int, dtype: Any = f32) -> jax.ShapeDtypeStruct:
+    # Abstract arrays: jax.eval_shape takes them where arrays go.
+    def shape(*dims: int, dtype: Any = f32) -> Any:
         return jax.ShapeDtypeStruct(dims, dtype)
 
     key = shape(2, dtype=jnp.uint32)
@@ -406,11 +392,6 @@ def init_dreamer(
     )
 
 
-# ---------------------------------------------------------------------------
-# One update (Algorithm J)
-# ---------------------------------------------------------------------------
-
-
 def update(
     agent_state: DreamerV3State,
     tick: jax.Array,
@@ -460,11 +441,6 @@ def update(
     return agent_state, None
 
 
-# ---------------------------------------------------------------------------
-# Evaluation and logging
-# ---------------------------------------------------------------------------
-
-
 def evaluate_dreamer(
     agent_state: DreamerV3State,
     key: jax.Array,
@@ -478,7 +454,9 @@ def evaluate_dreamer(
 
     The reference's policy samples in every mode (dreamerv3_spec 7.3);
     :func:`ajax.evaluate.evaluate_policy` runs one episode in each of
-    ``num_episode_test`` freshly reset envs with the training action repeat.
+    ``num_episode_test`` freshly reset envs with the training action repeat,
+    from ``key``: fresh at each evaluation (:func:`ajax.log.evaluation_keys`),
+    so each draws new initial states and action noise.
     """
     mean_return, mean_length = evaluate_policy(
         env_args,
@@ -517,11 +495,6 @@ def train_metrics(agent_state: DreamerV3State, aux: Any, *, action_repeat: int) 
         {f"Train/{k}": v for k, v in agent_state.train_metrics.mean().items()}
     )
     return metrics
-
-
-# ---------------------------------------------------------------------------
-# Acting and storing (Algorithm K)
-# ---------------------------------------------------------------------------
 
 
 def collect(
@@ -566,16 +539,11 @@ def restart_train_metrics(
     )
 
 
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
-
-
 def make_train(
     env_args: EnvironmentConfig,
-    actor_optimizer_args: Any,
-    critic_optimizer_args: Any,
-    network_args: Any,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
+    network_args: NetworkConfig,
     agent_config: DreamerV3AgentConfig,
     total_timesteps: int,
     num_episode_test: int,
@@ -630,11 +598,10 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> DreamerV3State:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> DreamerV3State:
         return init_dreamer(key, env_args, config, spec, replay, metric_keys)
 
-    common = {"config": config, "spec": spec, "replay": replay}
+    common: dict[str, Any] = {"config": config, "spec": spec, "replay": replay}
     return loop.off_policy(
         init,
         partial(update, **common),

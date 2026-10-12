@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import struct
 
 from ajax.agents.base import ActorCritic, shared_counters
 from ajax.perf_utils import build_resumable_train
@@ -116,19 +117,70 @@ def test_actor_critic_keeps_the_resume_offset_unbatched_under_the_seed_vmap():
 
 
 def test_a_resume_reads_the_counters_its_seeds_share():
-    """The resumed timestep and logged evaluations, unbatched; none for a
-    state without them; seeds standing at different points are refused."""
+    """The resumed timestep, logged evaluations and update count, unbatched;
+    none for a state without them; seeds standing at different points are
+    refused, while update counts that differ stay batched."""
 
-    def state(timesteps):
+    def state(timesteps, n_updates=(4, 4)):
         collector = SimpleNamespace(timestep=jnp.array(timesteps, jnp.int32))
-        return SimpleNamespace(collector_state=collector, n_logs=jnp.array([2, 2]))
+        return SimpleNamespace(
+            collector_state=collector,
+            n_logs=jnp.array([2, 2]),
+            n_updates=jnp.array(n_updates),
+        )
 
     counters = shared_counters(state([5, 5]))
-    assert {k: int(v) for k, v in counters.items()} == {"timestep": 5, "n_logs": 2}
+    want = {"timestep": 5, "n_logs": 2, "n_updates": 4}
+    assert {k: int(v) for k, v in counters.items()} == want
     assert all(v.shape == () for v in counters.values())
+    assert "n_updates" not in shared_counters(state([5, 5], n_updates=(4, 3)))
     assert shared_counters({"ticks": jnp.array([3, 3])}) == {}
     with pytest.raises(ValueError, match="timestep differ"):
         shared_counters(state([5, 6]))
+
+
+@struct.dataclass
+class Counted:
+    n_updates: jax.Array
+
+
+class CountingAgent(ActorCritic):
+    """A scan whose step ``at`` (counted by ``n_updates``) calls back."""
+
+    def __init__(self, at, record):
+        super().__init__(env_id="CartPole-v1", n_envs=1)
+        self.at, self.record = at, record
+
+    def get_make_train(self):
+        def body(state, i):
+            jax.lax.cond(
+                state.n_updates == self.at,
+                lambda: jax.debug.callback(self.record.append, i),
+                lambda: None,
+            )
+            return state.replace(n_updates=state.n_updates + 1), i
+
+        def make_train(total_timesteps, **_):
+            return build_resumable_train(
+                init_fn=lambda *_: Counted(jnp.zeros((), jnp.int32)),
+                make_scan_fn=lambda *_: body,
+                num_updates=total_timesteps,
+            )
+
+        return make_train
+
+
+def test_a_resumed_update_schedule_stays_a_cond_under_the_seed_vmap():
+    """A schedule gated on the update count (TD3's policy delay, DQN's
+    target refresh) runs its branch once on the resume path, at update 3:
+    a batched count would turn it into a select running the branch on
+    every iteration."""
+    record: list = []
+    agent = CountingAgent(at=3, record=record)
+    state, _ = agent.train(seed=[0, 1], n_timesteps=2)
+    agent.train(seed=[0, 1], n_timesteps=3, initial_state=state)
+    jax.effects_barrier()
+    assert len(record) == 1
 
 
 def test_default_resume_offset_keeps_existing_agents_unchanged():

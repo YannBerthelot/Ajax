@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
 import jax
-import jax.numpy as jnp
+import numpy as np
 from flax.struct import dataclass as flax_dataclass
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
@@ -57,9 +57,6 @@ def new_run_id() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
-# ---------------------------------------------------------------------------
-# Single-process sequential logging worker
-# ---------------------------------------------------------------------------
 # 'spawn' is required: we start the process AFTER JAX has initialised CUDA,
 # so 'fork' would copy a live CUDA context into the child and cause crashes.
 _mp_ctx = mp.get_context("spawn")
@@ -86,10 +83,10 @@ def _logging_worker(q: Any) -> None:
     TensorBoard writers are kept persistently open (no init cost per step).
 
     Message protocol:
-        ("init_wandb", run_id, project, name)      — register run metadata
-        ("init_tb",    run_id, log_dir, config_str) — open TB writer
-        ("log",        run_id, metrics, step)       — buffer one step
-        None                                        — poison pill / shutdown
+        ("init_wandb", run_id, project, name, use_wandb) — register run metadata
+        ("init_tb",    run_id, log_dir, config_str)     — open TB writer
+        ("log",        run_id, metrics, step)           — buffer one step
+        None                                            — poison pill / shutdown
     """
     from tensorboardX import SummaryWriter as _SW
 
@@ -165,12 +162,10 @@ def _logging_worker(q: Any) -> None:
                         tb_writer.add_scalar(key, scalar, step)
                     except Exception:
                         pass
-            # Flush wandb once the batch is full
             if len(buffers[run_id]) >= WANDB_LOG_BATCH_SIZE:
                 flush_run(run_id)
             q.task_done()
 
-    # Shutdown: flush all remaining buffered data, then close TB writers
     for run_id in list(buffers.keys()):
         flush_run(run_id)
     for writer in tb_writers.values():
@@ -197,7 +192,6 @@ def start_async_logging() -> None:
             os.environ.pop("JAX_PLATFORMS", None)
         else:
             os.environ["JAX_PLATFORMS"] = _old
-        # Flush any messages that arrived before the worker started
         for msg in _pending_init_msgs:
             _log_queue.put(msg)
         _pending_init_msgs.clear()
@@ -296,11 +290,10 @@ def vmap_log(
         return None
 
     run_id = run_ids[index]
-    metrics_np = {
-        k: jax.device_get(v)
-        for k, v in log_metrics.items()
-        if not jnp.any(jnp.isnan(v))
-    }
+    # The callback gets CPU arrays: numpy reads them without dispatching
+    # two JAX ops per metric.
+    metrics_np = {k: np.asarray(v) for k, v in log_metrics.items()}
+    metrics_np = {k: v for k, v in metrics_np.items() if not np.isnan(v).any()}
     step = int(metrics_np["timestep"])
 
     _log_queue.put(("log", run_id, metrics_np, step))
@@ -310,7 +303,7 @@ def vmap_log(
 def iter_tfrecord(path):
     """
     Iterate raw record data from a TFRecord-style TensorBoard event file.
-    (Each record = [length][crc_len][data][crc_data])
+    (Each record = ``[length][crc_len][data][crc_data]``)
     """
     with open(path, "rb") as f:
         while True:
@@ -345,7 +338,6 @@ def load_scalars_from_tfevents(log_dir):
                 if v.HasField("simple_value"):
                     all_events[v.tag].append((e.step, v.simple_value))
 
-    # Sort by step
     for tag in all_events:
         all_events[tag].sort(key=lambda x: x[0])
 

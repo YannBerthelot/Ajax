@@ -22,7 +22,7 @@ from probing_environments.gymnax_envs import continuous_actions as continuous
 from ajax import PPO, PQN
 from ajax.extensions.base import PHASES, Extension
 from ajax.extensions.expert import OnlineBC
-from ajax.extensions.pretrain import MCPretrain
+from ajax.extensions.pretrain import CloningPretrain, MCPretrain
 from ajax.extensions.target_mods import IBRL, CriticBlend
 
 from . import agents, envs, runs
@@ -31,13 +31,14 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "99d0216e0c08"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "f4e4fb90895f"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
-# One extension per phase, under a name no agent whitelists. The phase
-# batches are undocumented and differ by agent, so the extensions branch on
-# the keys each agent passes; a documented schema should replace them.
+# One extension per phase, under a name no agent whitelists. The keys every
+# agent puts in a phase's batch are listed in ajax/extensions/base.py; where
+# they leave a choice (a V- or Q-critic, DQN's q_state, the done flags), the
+# extensions branch on the keys each agent passes.
 
 
 @dataclasses.dataclass(frozen=True)
@@ -91,19 +92,16 @@ A0 = -0.5
 class ActorPull(Extension):
     """+ 100 mean((a - A0)^2) on the deterministic action, from half the
     budget when ``gated``. PPO passes no observations (``probe_obs`` stands
-    in), SAC only the pre-squash ``pi_loc``."""
+    in)."""
 
     gated: bool = False
     probe_obs: tuple[float, ...] = (0.0,)
     name: str = "p3_actor_pull"
 
     def actor_loss(self, agent_state, ext_state, batch, ctx):
-        if "actor_params" in batch:
-            obs = batch.get("observations")
-            obs = jnp.asarray([self.probe_obs], jnp.float32) if obs is None else obs
-            a = batch["actor_state"].apply_fn(batch["actor_params"], obs).mean()
-        else:
-            a = jnp.tanh(batch["pi_loc"])
+        obs = batch.get("observations")
+        obs = jnp.asarray([self.probe_obs], jnp.float32) if obs is None else obs
+        a = batch["actor_state"].apply_fn(batch["actor_params"], obs).mean()
         term = 100.0 * jnp.mean((a - A0) ** 2)
         if self.gated:
             term = jnp.where(ctx.step >= ctx.total_steps // 2, term, 0.0)
@@ -496,8 +494,8 @@ ONE = 1e6  # critic_warmup_frac: the blend and clone weights stay at 1 (1e-6)
 
 
 def mc(light: bool = False) -> MCPretrain:
-    """512 MC rows, two regression batches (fewer than 256 rows divide by zero,
-    modules/pretrain.py:178-213), 250 regression steps."""
+    """512 MC rows, two regression batches (fewer than 256 rows divide by zero
+    in extensions/pretrain.py's pretrain_critic_mc), 250 regression steps."""
     return MCPretrain(EXPERT, use_online_light=light, **MC_KW | {"n_steps": 250})
 
 
@@ -534,7 +532,7 @@ def _bc(n: R.Nets) -> dict:
     return {"a(1)": R.action(n, 1.0), "a_E - a(0)": A_E - R.action(n, 0.0)}
 
 
-_UNSCALED = "MC returns left unscaled (modules/pretrain.py:137)"
+_UNSCALED = "MC returns left unscaled (pretrain_critic_mc)"
 _G99 = {"gamma bound from the 0.99 default": 0.99 * RS}
 _LAST = {"range of the last batch only, envs in lockstep": RS}
 PHI = (
@@ -619,14 +617,14 @@ def cloning(agent: str, shift: float) -> Any:
     """1000 expert steps, 10 epochs, budget 0: APO still takes one update
     (TrainLoop.on_policy), kept to one step; SAC's expert prefill off (E11)."""
     kw = {"SAC": {"expert_buffer_n_steps": 0}, "APO": {"n_epochs": 1}}.get(agent, {})
-    kw |= {"pre_train_n_steps": 1000, "actor_cloning_epochs": 10}
     env_cls = ShiftedSignedEnv if shift else envs.SignedActionEnv
 
     def read(n: R.Nets) -> dict:
         return {f"a({x:g})": R.action(n, x) for x in (shift - 1.0, shift + 1.0)}
 
     expert = AgentExpert(ShiftedHalfExpert(shift))
-    return q7_readings(agent, env_cls, read, expert_policy=expert, **kw)
+    clone = CloningPretrain(expert, n_steps=1000, epochs=10)
+    return q7_readings(agent, env_cls, read, (clone,), expert_policy=expert, **kw)
 
 
 _SKIP = {"cloning pre-training skipped": 0.0}

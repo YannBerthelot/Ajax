@@ -1,16 +1,18 @@
 """One-shot pre-training research features as composable :class:`Extension`s.
 
-MCPretrain runs once, before the training loop (the ``pretrain`` phase,
-skipped on resume); PhiRefresh refreshes its critic during training.
+CloningPretrain, MCPretrain and BellmanPretrain run once, before the
+training loop (the ``pretrain`` phase, skipped on resume); PhiRefresh
+refreshes MCPretrain's critic during training.
 
-* :class:`MCPretrain`          — ``use_mc_critic_pretrain``: regress a
-  frozen expert critic on Monte-Carlo returns, then (optionally) lightly
-  nudge the online critic toward it.
-* :class:`BellmanPretrain`     — the legacy Bellman-bootstrapped critic
-  pre-training on the expert buffer (the ``pretrain`` phase).
-* :class:`PhiRefresh`          — ``use_phi_refresh``: periodic
-  self-consistent refresh of the frozen expert critic during training
-  (the ``post_update`` phase).
+* :class:`CloningPretrain`     — behaviour cloning of the actor on an
+  expert's rollouts.
+* :class:`MCPretrain`          — regress a frozen expert critic on
+  Monte-Carlo returns, then (optionally) lightly nudge the online critic
+  toward it.
+* :class:`BellmanPretrain`     — Bellman-bootstrapped critic pre-training
+  on the expert buffer.
+* :class:`PhiRefresh`          — periodic self-consistent refresh of the
+  frozen expert critic during training (the ``post_update`` phase).
 """
 
 from __future__ import annotations
@@ -25,17 +27,19 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.buffers.utils import get_batch_from_buffer, get_raw_next_obs_from_buffer
+from ajax.agents.cloning import pre_train
+from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
-    augment_from_buffer,
+    augment_from_batch,
     augment_obs,
     collect_experience_from_expert_policy,
 )
-from ajax.environments.utils import check_env_is_gymnax
-from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
+from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
+from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
+from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
-from ajax.types import BufferType
+from ajax.types import BufferType, NormalizationInfo
 
 
 @struct.dataclass
@@ -65,6 +69,7 @@ class MCPretrainAux:
         "max_timesteps",
         "batch_size",
         "augment_obs_with_expert_action",
+        "augment_obs_with_expert_state",
     ],
 )
 def pretrain_critic_mc(
@@ -81,6 +86,7 @@ def pretrain_critic_mc(
     batch_size: int = 256,
     max_timesteps: Optional[int] = None,
     augment_obs_with_expert_action: bool = False,
+    augment_obs_with_expert_state: bool = False,
 ) -> Tuple[Any, FrozenDict, jax.Array, jax.Array, MCPretrainAux, LoadedTrainState]:
     """Pre-train critic using Monte Carlo returns from expert trajectories.
 
@@ -89,9 +95,9 @@ def pretrain_critic_mc(
     The critic starts with accurate Q(s, a_expert) near the target from step 1.
 
     Collection strategy: single call with n_mc_steps * n_mc_episodes // n_envs
-    timesteps. The n_envs parallel environments reset to different (initial,
-    target) altitude pairs on each episode boundary, giving the same state-space
-    coverage as separate per-seed rollouts — without any mapping over traced keys
+    timesteps. The n_envs parallel environments reset to different initial
+    states on each episode boundary, giving the same state-space coverage
+    as separate per-seed rollouts — without any mapping over traced keys
     (which fails inside the outer vmap over seeds).
     Total transitions ≈ n_mc_steps * n_mc_episodes regardless of n_envs.
 
@@ -105,6 +111,10 @@ def pretrain_critic_mc(
         mode=mode,
         env_args=env_args,
         n_timesteps=n_total_steps,
+        # The online critic's layout: the training fraction (0 before
+        # training), then the expert's state.
+        augment_obs_with_expert_state=augment_obs_with_expert_state,
+        train_frac=0.0 if max_timesteps is not None else None,
     )
 
     rewards = all_transitions.reward * reward_scale
@@ -129,19 +139,12 @@ def pretrain_critic_mc(
     action_flat = all_transitions.action.reshape(T * n_envs, -1)
     mc_flat = mc_returns.reshape(T * n_envs, 1)
 
-    # Append train_frac=0.0 if max_timesteps was set
-    if max_timesteps is not None:
-        obs_flat = jnp.concatenate(
-            [obs_flat, jnp.zeros((obs_flat.shape[0], 1))], axis=-1
-        )
-
     # Augment obs with the expert's actions as its rollout took them (on raw
     # observations, from its state), as collection stores a_expert.
     if augment_obs_with_expert_action:
         a_expert_flat = all_transitions.a_expert.reshape(T * n_envs, -1)
         obs_flat = augment_obs(obs_flat, expert_action=a_expert_flat)
 
-    # Batch into fixed-size chunks for regression
     n_total = obs_flat.shape[0]
     n_batches = n_total // batch_size
     obs_batched = obs_flat[: n_batches * batch_size].reshape(n_batches, batch_size, -1)
@@ -189,7 +192,6 @@ def pretrain_critic_mc(
     )
     final_loss = loss_history[-1, -1]
 
-    # Hard sync target network of expert critic only
     expert_critic_state = expert_critic_state.soft_update(tau=1.0)
 
     frozen_expert_params = jax.lax.stop_gradient(expert_critic_state.params)
@@ -245,7 +247,7 @@ def pretrain_critic_online_light(
         v_expert = jax.lax.stop_gradient(
             jnp.min(
                 predict_value(
-                    critic_state=agent_state.critic_state,
+                    critic_state=phi_star_critic_state(agent_state.critic_state),
                     critic_params=agent_state.expert_critic_params,
                     x=jnp.concatenate([obs, actions], axis=-1),
                 ),
@@ -281,11 +283,12 @@ def refresh_phi_star(
     phi_refresh_steps: int,
     gamma: float,
     reward_scale: float,
-    expert_policy: Callable,
+    ext: "PhiRefresh",
     augment: bool = False,
 ) -> Any:
     """Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
-    ``augment``: φ* reads observations augmented with SAC's expert actions.
+    ``augment``: φ* reads observations augmented with SAC's expert actions;
+    ``ext``'s expert gives the action at s' (expert_next_actions).
 
     Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
     Non-expert transitions are masked out, so the gradient comes only from
@@ -303,21 +306,19 @@ def refresh_phi_star(
         expert_critic_state, step_key = carry
         sample_key, step_key = jax.random.split(step_key)
 
-        obs, terminated, _, next_obs, rewards, actions, _, is_expert = (
-            get_batch_from_buffer(buffer, buffer_state, sample_key)
-        )
+        batch = get_batch_from_buffer(buffer, buffer_state, sample_key)
+        obs, next_obs, actions = batch.obs, batch.next_obs, batch.action
 
-        expert_mask = is_expert[..., 0]
-        rewards = rewards * reward_scale
-        dones = terminated.astype(jnp.float32)
+        expert_mask = batch.is_expert[..., 0]
+        rewards = batch.reward * reward_scale
+        dones = batch.terminated.astype(jnp.float32)
 
-        # The expert reads the environment's own next observations.
-        raw_next = get_raw_next_obs_from_buffer(buffer, buffer_state, sample_key)
-        a_expert_next = jax.lax.stop_gradient(expert_policy(raw_next))
+        # The expert's action at s': stored (the agent's expert, from its
+        # state), or its call on the raw next observations.
+        stored = batch.next_a_expert if ext.reads_stored_expert else None
+        a_expert_next = expert_next_actions(ext, batch.raw_next_obs, stored)
         if augment:
-            obs, next_obs = augment_from_buffer(
-                buffer, buffer_state, sample_key, obs, next_obs
-            )
+            obs, next_obs = augment_from_batch(batch)
         q_next = predict_value(
             critic_state=expert_critic_state,
             critic_params=expert_critic_state.target_params,
@@ -352,8 +353,147 @@ def refresh_phi_star(
 
 
 @dataclass(frozen=True)
+class CloningPretrain(Extension):
+    """Behaviour cloning of the actor on an expert's rollouts, before training.
+
+    Rolls ``expert_policy`` out for ``n_steps`` steps per env, observing as
+    the agent does, then fits the actor to its actions on observations
+    standardised with the dataset's statistics
+    (:func:`ajax.agents.cloning.pre_train`: ``epochs`` passes in batches of
+    ``batch_size``, at the actor's learning rate). The agent's observation
+    statistics start from the dataset's. ``skip_actor`` leaves the actor as
+    initialised; ``reset_log_std`` and ``reset_actor_head`` re-initialise
+    its log-std head, or both heads, after cloning.
+
+    The fields after ``reset_actor_head`` are the agent's context, filled by
+    :meth:`bind_to_agent` (SAC, REDQ, TD3 and APO do).
+    """
+
+    expert_policy: Callable
+    n_steps: int = 100_000
+    epochs: int = 10
+    batch_size: int = 64
+    skip_actor: bool = False
+    reset_log_std: bool = False
+    reset_actor_head: bool = False
+    # Agent context, bound by bind_to_agent.
+    env_args: Any = None
+    actor_optimizer_args: Any = None
+    augment_obs_with_expert_action: bool = False
+    augment_obs_with_expert_state: bool = False
+    use_train_frac: bool = False
+    name: str = "cloning_pretrain"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+
+    def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
+        """Copy the agent's ``env_args``, ``actor_optimizer_args`` and
+        observation layout (``augment_obs_with_expert_action``,
+        ``augment_obs_with_expert_state``, ``use_train_frac``). Raises
+        ``ValueError`` when the layout carries the agent's expert's action or
+        state and ``expert_policy`` is another expert, or when another
+        pretrain-phase extension comes before it in the stack."""
+        optimizer = agent_context.get("actor_optimizer_args")
+        if self.actor_optimizer_args is not None or optimizer is None:
+            return self
+        # Cloning seeds the observation statistics the critic reads too: a
+        # critic pretrained before it (MCPretrain's nudge, BellmanPretrain)
+        # would then be queried on inputs it was not fitted on.
+        stack = agent_context.get("extensions", ())
+        ahead = next((stack[:i] for i, e in enumerate(stack) if e is self), ())
+        if any("pretrain" in e.implemented_phases() for e in ahead):
+            raise ValueError(
+                "CloningPretrain seeds the observation statistics the critic"
+                " reads: put it before the other pretraining extensions."
+            )
+        augment_action = agent_context.get("augment_obs_with_expert_action", False)
+        augment_state = agent_context.get("augment_obs_with_expert_state", False)
+        agent_expert = agent_context.get("expert_policy")
+        if (augment_action or augment_state) and self.expert_policy is not agent_expert:
+            raise ValueError(
+                "CloningPretrain clones on the agent's observations, which carry"
+                " its expert's action or state (augment_obs_with_expert_*): give"
+                " CloningPretrain the agent's expert_policy."
+            )
+        return dataclasses.replace(
+            self,
+            env_args=agent_context["env_args"],
+            actor_optimizer_args=optimizer,
+            augment_obs_with_expert_action=augment_action,
+            augment_obs_with_expert_state=augment_state,
+            use_train_frac=agent_context.get("use_train_frac", False),
+        )
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+    ) -> tuple[Any, Any]:
+        """Clone the actor on ``ctx.rng`` (:meth:`clone`)."""
+        return self.clone(agent_state, ctx.rng), ext_state
+
+    def clone(self, agent_state: Any, key: jax.Array) -> Any:
+        """``agent_state`` with its actor cloned on rollouts drawn with
+        ``key`` and its observation statistics seeded; raises ``ValueError``
+        when the agent did not bind its context."""
+        if self.actor_optimizer_args is None:
+            raise ValueError(
+                "CloningPretrain needs the agent's env and actor optimizer; the"
+                " agent did not bind them (SAC, REDQ, TD3 and APO do)."
+            )
+        env = self.env_args.env
+        dataset = collect_experience_from_expert_policy(
+            self.expert_policy,
+            rng=key,
+            env_args=self.env_args,
+            mode=self.env_args.mode,
+            n_timesteps=self.n_steps,
+            augment_obs_with_expert_state=self.augment_obs_with_expert_state,
+            train_frac=0.0 if self.use_train_frac else None,
+        )
+        env_obs_dim = get_state_action_shapes(env)[0][-1]
+        actor_state, _metrics, obs_mean, obs_std = pre_train(
+            rng=key,
+            actor_state=agent_state.actor_state,
+            dataset=dataset,
+            actor_lr=self.actor_optimizer_args.learning_rate,
+            actor_epochs=self.epochs,
+            actor_batch_size=self.batch_size,
+            skip_actor=self.skip_actor,
+            reset_log_std=self.reset_log_std,
+            reset_actor_head=self.reset_actor_head,
+            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
+            raw_columns=raw_obs_columns(env),
+            train_frac_column=env_obs_dim if self.use_train_frac else None,
+        )
+        # The actor was just trained on inputs standardised with the
+        # dataset's statistics: the agent's running observation statistics
+        # start from them, so that get_pi / predict_value standardise its
+        # inputs online as cloning did. An agent without running statistics
+        # gets them here (online collection then updates them from this
+        # baseline); without them the cloned actor would be queried on raw
+        # observations.
+        new_state = agent_state.replace(actor_state=actor_state)
+        if self.skip_actor and agent_state.collector_state.obs_norm_info is None:
+            return new_state  # no actor cloned: nothing to keep consistent
+        # Agent-side statistics have a leading axis of size 1
+        # (init_agent_obs_norm).
+        n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
+        var = (obs_std**2).reshape(1, -1)
+        seeded = NormalizationInfo(
+            count=jnp.full((1, 1), n_samples),
+            mean=obs_mean.reshape(1, -1),
+            mean_2=var * n_samples,
+            var=var,
+            returns=None,
+        )
+        return new_state.replace(
+            collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
+            actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
+            critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
+        )
+
+
+@dataclass(frozen=True)
 class MCPretrain(Extension):
-    """Monte-Carlo critic pre-training (``use_mc_critic_pretrain``).
+    """Monte-Carlo critic pre-training.
 
     Regresses a frozen expert critic ``φ*`` on unbiased MC returns from
     expert rollouts, persists ``φ*`` + the value range ``v_min/v_max`` on
@@ -384,19 +524,31 @@ class MCPretrain(Extension):
     reward_scale: Optional[float] = None
     use_train_frac: bool = False
     augment_obs_with_expert_action: bool = False
+    expert_state_aug_dim: int = 0
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+    fits_phi_star: ClassVar[bool] = True
 
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
         ``critic_optimizer_args``, ``num_critics``, ``gamma``,
         ``reward_scale``, ``use_train_frac``,
-        ``augment_obs_with_expert_action``) onto a new instance, and keep
+        ``augment_obs_with_expert_action``, ``expert_state_aug_dim``) onto a
+        new instance, and keep
         ``φ*``'s optimiser when the stack (``extensions``) holds a
         :class:`PhiRefresh`."""
         env_args = agent_context.get("env_args", None)
         if self.env_args is not None or env_args is None:
             return self
+        state_dim = agent_context.get("expert_state_aug_dim", 0)
+        if state_dim and self.expert_policy is not agent_context.get("expert_policy"):
+            raise ValueError(
+                "MCPretrain fits phi* on the agent's observations, which carry"
+                " the state of the agent's expert (augment_obs_with_expert_state):"
+                " its MC rollout must be that expert's. Give MCPretrain the"
+                " agent's expert_policy."
+            )
         return dataclasses.replace(
             self,
             env_args=env_args,
@@ -410,6 +562,7 @@ class MCPretrain(Extension):
                 "augment_obs_with_expert_action",
                 self.augment_obs_with_expert_action,
             ),
+            expert_state_aug_dim=state_dim,
             use_phi_refresh=any(
                 isinstance(e, PhiRefresh) for e in agent_context.get("extensions", ())
             ),
@@ -436,10 +589,6 @@ class MCPretrain(Extension):
                 " the agent did not bind it (only SAC supports MCPretrain)."
             )
 
-        # Local import to avoid a circular ``ajax.networks ↔
-        # ajax.extensions`` import: networks.py doesn't depend on
-        # extensions but the extension's pretrain phase does need the
-        # critic builder.
         from ajax.environments.utils import get_action_dim
         from ajax.networks.networks import get_initialized_critic
 
@@ -452,7 +601,9 @@ class MCPretrain(Extension):
             network_config=self.network_args,
             num_critics=self.num_critics,
             max_timesteps=max_timesteps,
-            extra_obs_dim=(
+            # The online critic's extra columns: the expert's state and action.
+            extra_obs_dim=self.expert_state_aug_dim
+            + (
                 get_action_dim(self.env_args.env, self.env_args.env_params)
                 if self.augment_obs_with_expert_action
                 else 0
@@ -469,7 +620,7 @@ class MCPretrain(Extension):
             agent_state=agent_state,
             expert_critic_state=expert_critic_state,
             expert_policy=self.expert_policy,
-            mode="gymnax" if check_env_is_gymnax(self.env_args.env) else "brax",
+            mode=self.env_args.mode,
             env_args=self.env_args,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
@@ -478,6 +629,7 @@ class MCPretrain(Extension):
             n_steps=self.n_steps,
             max_timesteps=max_timesteps,
             augment_obs_with_expert_action=self.augment_obs_with_expert_action,
+            augment_obs_with_expert_state=self.expert_state_aug_dim > 0,
         )
         agent_state = agent_state.replace(
             expert_critic_params=frozen_expert_params,
@@ -546,36 +698,23 @@ def pretrain_critic_bellman(
         agent_state = carry
         sample_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
-        (
-            observations,
-            terminated,
-            _,
-            next_observations,
-            rewards,
-            actions,
-            raw_observations,
-            _,
-        ) = get_batch_from_buffer(
+        batch = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, sample_key
         )
+        observations, next_observations = batch.obs, batch.next_obs
         if augment:
-            observations, next_observations = augment_from_buffer(
-                buffer,
-                agent_state.collector_state.buffer_state,
-                sample_key,
-                observations,
-                next_observations,
-            )
-        dones = terminated
+            observations, next_observations = augment_from_batch(batch)
+        # The plain Bellman target: no extension's target or loss term.
         agent_state, _ = update_value_fn(
             observations=observations,
-            actions=actions,
+            actions=batch.action,
             next_observations=next_observations,
-            rewards=rewards,
-            dones=dones,
+            rewards=batch.reward,
+            dones=batch.terminated,
             agent_state=agent_state,
             recurrent=recurrent,
             gamma=gamma,
+            extension_stack=ExtensionStack(),
             reward_scale=reward_scale,
         )
         agent_state = update_target_fn(agent_state, tau=5e-4)
@@ -589,7 +728,7 @@ def pretrain_critic_bellman(
 
 @dataclass(frozen=True)
 class BellmanPretrain(Extension):
-    """Legacy Bellman-bootstrapped critic pre-training.
+    """Bellman-bootstrapped critic pre-training.
 
     ``n_steps`` critic updates on the replay buffer before training, which
     then holds the agent's expert prefill. Bootstraps from an untrained
@@ -665,19 +804,15 @@ class BellmanPretrain(Extension):
 class PhiRefresh(Extension):
     """Periodic self-consistent refresh of the frozen expert critic.
 
-    Equivalent to ``use_phi_refresh``: every ``interval`` steps run
-    ``steps`` self-consistent Bellman updates on expert-flagged buffer
-    transitions, keeping ``φ*`` aligned with the live data distribution.
-    Requires :class:`MCPretrain` (which creates the refreshable ``φ*``).
+    Every ``interval`` steps, run ``steps`` self-consistent Bellman
+    updates on expert-flagged buffer transitions, keeping ``φ*`` aligned
+    with the live data distribution.
+    Requires :class:`MCPretrain` (which creates the refreshable ``φ*``;
+    refused without it).
 
-    ``buffer``, ``gamma`` and ``reward_scale`` are populated by the
-    SAC training factory's auto-append shim from
-    ``agent_config.gamma`` / ``agent_config.reward_scale`` / the agent
-    ``buffer``. User-constructed ``PhiRefresh()`` instances leave them
-    ``None``; the SAC factory copies the resolved values onto the
-    instance with ``dataclasses.replace`` so the ``post_update`` math
-    has everything it needs without threading per-step kwargs through
-    the phase API.
+    ``buffer``, ``gamma`` and ``reward_scale`` come from the agent through
+    :meth:`bind_to_agent` (only SAC binds them); unbound, ``post_update``
+    raises ``ValueError``.
     """
 
     expert_policy: Callable
@@ -687,19 +822,22 @@ class PhiRefresh(Extension):
     gamma: Optional[float] = None
     reward_scale: Optional[float] = None
     augment_obs_with_expert_action: bool = False
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
-        """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.
-
-        Self-contained replacement for the legacy SAC-side
-        ``_inject_policy_extensions_context`` helper: the agent factory
-        calls ``stack.bind_to_agent(buffer=..., gamma=..., reward_scale=...,
-        ...)`` and this method copies the kwargs it cares about onto a
-        new frozen instance. Unrecognised kwargs are ignored, so the
-        same call works uniformly across the whole stack.
-        """
+        """Copy the agent's ``buffer``, ``gamma``, ``reward_scale`` and
+        observation augmentation, and whether its expert is the agent's
+        (:func:`reads_stored_expert_actions`)."""
         buffer = agent_context.get("buffer", None)
         gamma = agent_context.get("gamma", None)
         reward_scale = agent_context.get("reward_scale", None)
@@ -712,6 +850,7 @@ class PhiRefresh(Extension):
             gamma=gamma,
             reward_scale=reward_scale,
             augment_obs_with_expert_action=augment,
+            reads_stored_expert=reads_stored_expert_actions(self, agent_context),
         )
 
     def post_update(
@@ -720,21 +859,17 @@ class PhiRefresh(Extension):
         ext_state: Any,
         ctx: ExtensionContext,
     ) -> tuple[Any, Any]:
-        # ``post_update`` runs once per update iteration, after the
-        # update. The interval gate below is byte-equivalent to the
-        # pre-refactor ``make_runtime_maintenance`` callable: refresh
-        # whenever ``timestep % interval == 0``; otherwise pass through
-        # unchanged.
         del ctx
         if self.buffer is None or self.gamma is None or self.reward_scale is None:
-            # Unconfigured PhiRefresh — no-op (the SAC factory's
-            # auto-append shim is what populates these fields).
-            return agent_state, ext_state
+            raise ValueError(
+                "PhiRefresh needs the agent's buffer, gamma and reward_scale to"
+                " refresh phi*; the agent did not bind them (only SAC supports"
+                " PhiRefresh)."
+            )
         interval = self.interval
         steps = self.steps
         gamma = self.gamma
         reward_scale = self.reward_scale
-        expert_policy = self.expert_policy
         buffer = self.buffer
 
         def _do_refresh(s: Any) -> Any:
@@ -744,7 +879,7 @@ class PhiRefresh(Extension):
                 steps,
                 gamma,
                 reward_scale,
-                expert_policy,
+                self,
                 self.augment_obs_with_expert_action,
             )
 
@@ -757,4 +892,4 @@ class PhiRefresh(Extension):
         return new_state, ext_state
 
 
-__all__ = ["BellmanPretrain", "MCPretrain", "PhiRefresh"]
+__all__ = ["BellmanPretrain", "CloningPretrain", "MCPretrain", "PhiRefresh"]

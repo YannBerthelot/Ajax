@@ -1,0 +1,43 @@
+name: Restore the JAX compile cache
+description: >-
+  Ajax's persistent JAX compile cache (src/ajax/_compile_cache.py) as the
+  last push to main left it for this job, on the same host fingerprint.
+
+# Every CI run compiled every program cold: on a quiet Mac a warm cache cut
+# a pins + loop + PPO subset from 133 s to 74 s (CPU time 352 s to 85 s).
+# The saving holds for the programs a change leaves alone; a change to code
+# every agent traces (the loop, the evaluation) recompiles most of them.
+#
+# The key holds the job (and shard), whose programs differ, and the
+# fingerprint subdirectory Ajax keys its entries by (CPU model and flags,
+# Python, JAX and jaxlib versions), so a runner on another CPU starts cold
+# instead of restoring entries it cannot load. The run id makes each save a
+# new entry; the restore takes the latest by prefix. Only pushes to main
+# save (compile-cache-save): a pull request's caches would serve only that
+# pull request and evict main's from the repository's quota.
+#
+# Never JAX_COMPILATION_CACHE_MAX_SIZE: JAX's bound lists and stats every
+# entry on every write, which doubled the test jobs (reverted in 5784bb7).
+# compile-cache-save bounds the cache once, before saving it.
+inputs:
+  job:
+    description: The job and shard whose programs the cache holds.
+    required: true
+outputs:
+  key:
+    description: The key compile-cache-save saves the cache under.
+    value: ${{ steps.key.outputs.key }}
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: |
+        fingerprint=$(AJAX_NO_COMPILE_CACHE=1 uv run python -c "from ajax._compile_cache import cache_dir_for, host_fingerprint; print(cache_dir_for('', host_fingerprint()))")
+        echo "prefix=jax-${{ inputs.job }}-$fingerprint-" >> "$GITHUB_OUTPUT"
+        echo "key=jax-${{ inputs.job }}-$fingerprint-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache/restore@v6
+      with:
+        path: ~/.cache/ajax/jax_compile_cache
+        key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.prefix }}

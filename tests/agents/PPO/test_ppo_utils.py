@@ -10,7 +10,7 @@ from ajax.agents.PPO.utils import (
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
 )
-from ajax.agents.SAC.utils import SquashedNormal
+from ajax.networks.distributions import SquashedNormal
 
 G, L = 0.99, 0.95
 ONES, HALF = [1.0, 1.0, 1.0], [0.5, 0.5, 0.5]
@@ -95,24 +95,46 @@ def test_get_minibatches_from_batch(batch_size, n_envs, num_minibatches, feature
     )
 
     # Validate the number of minibatches
-    assert len(minibatches) == len(
-        batch
-    ), "Minibatches should have the same structure as the input batch."
+    assert len(minibatches) == len(batch), (
+        "Minibatches should have the same structure as the input batch."
+    )
     for minibatch in minibatches:
-        assert (
-            minibatch.shape[0] == num_minibatches
-        ), "Number of minibatches is incorrect."
-        assert (
-            minibatch.shape[1] == batch_size * n_envs // num_minibatches
-        ), "Minibatch size is incorrect."
+        assert minibatch.shape[0] == num_minibatches, (
+            "Number of minibatches is incorrect."
+        )
+        assert minibatch.shape[1] == batch_size * n_envs // num_minibatches, (
+            "Minibatch size is incorrect."
+        )
 
     # Validate that all elements are present in the minibatches
     for original, shuffled in zip(batch, minibatches, strict=False):
         flattened_original = original.flatten()
         flattened_shuffled = shuffled.flatten()
-        assert jnp.all(
-            jnp.sort(flattened_original) == jnp.sort(flattened_shuffled)
-        ), "Minibatches do not contain all elements from the original batch."
+        assert jnp.all(jnp.sort(flattened_original) == jnp.sort(flattened_shuffled)), (
+            "Minibatches do not contain all elements from the original batch."
+        )
+
+
+@pytest.mark.parametrize("n_steps", [8, 4096])
+def test_minibatches_shuffle_every_leaf_as_a_permutation_of_it_would(n_steps):
+    """Every leaf, with or without a feature dim, float or bool, holds what
+    ``jax.random.permutation(rng, leaf, axis=0)`` on the flat rollout holds
+    (the split's original form), bit for bit, under jit."""
+    rng, n_envs = jax.random.PRNGKey(3), 2
+    keys = jax.random.split(jax.random.PRNGKey(0), 3)
+    batch = {
+        "obs": jax.random.normal(keys[0], (n_steps, n_envs, 3)),
+        "reward": jax.random.normal(keys[1], (n_steps, n_envs)),
+        "terminated": jax.random.bernoulli(keys[2], 0.3, (n_steps, n_envs)),
+    }
+    got = jax.jit(get_minibatches_from_batch, static_argnums=2)(batch, rng, 4)
+
+    def reference(x):
+        flat = x.reshape((n_steps * n_envs,) + x.shape[2:])
+        return jax.random.permutation(rng, flat, axis=0).reshape((4, -1) + x.shape[2:])
+
+    for name, want in jax.jit(lambda b: jax.tree.map(reference, b))(batch).items():
+        np.testing.assert_array_equal(got[name], want, err_msg=name)
 
 
 @pytest.mark.parametrize("unroll_length", [4, None])

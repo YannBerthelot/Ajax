@@ -72,7 +72,7 @@ _BOOKKEEPING = {
     "DQN": {**_B_Q, **_B_REPLAY, "target_update_interval": 100},
     "PQN": {**_B_Q, "n_steps": 16, "n_epochs": 2, "num_minibatches": 2},
     "UDRL": {"actor_architecture": SMALL, "n_steps": 32, "batch_size": 32}
-    | {"n_epochs": 2, "n_updates_per_iter": 4, "n_envs": 1},
+    | {"n_updates_per_iter": 4, "n_envs": 1},
     "APG": {"actor_architecture": SMALL, "horizon": 16, "n_envs": 1},
     "DreamerV3": {"model_size": "1m", "units": 16, "hidden": 16, "deter": 32}
     | {"classes": 4, "stoch": 4, "blocks": 4, "imag_horizon": 3, "batch_size": 4}
@@ -102,7 +102,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "8442f391cf52"
+DIGEST = "58bb4a76369e"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 
@@ -125,7 +125,7 @@ def _read_back(agent: Any, key: str) -> Any:
     for name in ("agent_config", "env_args", "network_args"):
         if hasattr(getattr(agent, name, None), key):
             return getattr(getattr(agent, name), key)
-    return getattr(agent, key, _MISSING)
+    return getattr(agent, "train_kwargs", {}).get(key, getattr(agent, key, _MISSING))
 
 
 def make(

@@ -29,7 +29,6 @@ from typing import Any, Optional, Tuple
 import jax
 import jax.numpy as jnp
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import (
     get_batch_from_buffer,
@@ -52,7 +51,7 @@ from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transi
 from ajax.types import BufferType
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class RecurrentReplayConfig(BaseAgentConfig):
     """An off-policy agent's sequence-replay settings, read only when it has
     memory: replayed windows of ``burn_in + sequence_length + 1`` steps."""
@@ -250,10 +249,10 @@ def sample_replay(
         return sample_and_burnin_sequences(
             agent_state, buffer, key, burn_in, burn_target_actor, stored_state
         )
-    obs, terminated, truncated, next_obs, rewards, actions, raw_obs, _ = (
-        get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, key)
+    b = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, key)
+    batch = Transition(
+        b.obs, b.action, b.reward, b.terminated, b.truncated, b.next_obs, b.raw_obs
     )
-    batch = Transition(obs, actions, rewards, terminated, truncated, next_obs, raw_obs)
     return batch, None
 
 
@@ -389,7 +388,6 @@ def make_replay_buffer(
         memory is not None
         and learning_starts // n_envs <= burn_in + sequence_length + 1
     ):
-        # The trajectory buffer must hold one full window per env by then.
         raise ValueError(
             "learning_starts must exceed n_envs * (burn_in +"
             " sequence_length + 1) so the trajectory buffer holds at"

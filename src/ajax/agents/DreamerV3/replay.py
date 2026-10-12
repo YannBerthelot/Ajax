@@ -66,6 +66,7 @@ from flax import struct
 from ajax.agents.DreamerV3.networks import encode_action
 from ajax.agents.DreamerV3.world_model import PosteriorEntries, ReplayContextBatch
 from ajax.environments.row_collector import Row
+from ajax.types import Replaceable
 
 #: Largest number of classes whose indices fit the uint8 storage.
 _UINT8_CLASSES = 256
@@ -77,7 +78,7 @@ def stoch_dtype(classes: int) -> jnp.dtype:
 
 
 @struct.dataclass
-class ReplayState:
+class ReplayState(Replaceable):
     """The per-env rings and the online-queue counter (one seed).
 
     Attributes:
@@ -149,8 +150,6 @@ class StreamReplay:
         """``L = batch_length + 1``: rows per window, context included."""
         return self.batch_length + 1
 
-    # ------------------------------------------------------------- storage
-
     def init(
         self,
         obs_dim: int,
@@ -208,8 +207,6 @@ class StreamReplay:
             stoch=write(state.stoch, stoch),
         )
 
-    # -------------------------------------------------------------- counts
-
     def oldest(self, rows: jax.Array) -> jax.Array:
         """First row index still stored after ``rows`` rows per env."""
         return jnp.maximum(rows - self.capacity, 0)
@@ -242,8 +239,6 @@ class StreamReplay:
         oldest = self.oldest(rows)
         per_env = jnp.maximum(oldest + self.length - 2, 0) // self.length
         return self.n_envs * per_env
-
-    # ------------------------------------------------------------ sampling
 
     def sample(
         self, state: ReplayState, rows: jax.Array, key: jax.Array
@@ -319,8 +314,6 @@ class StreamReplay:
             context_deter=take(state.deter, context),
             context_stoch=take(state.stoch, context).astype(jnp.int32),
         )
-
-    # ---------------------------------------------------------- write-back
 
     def write_back(
         self, state: ReplayState, index: BatchIndex, entries: PosteriorEntries

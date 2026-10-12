@@ -17,7 +17,6 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.cloning import CloningConfig, pretrain_on_expert
 from ajax.agents.loop import TrainLoop, critic_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -28,8 +27,10 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
-from ajax.extensions.base import ExtensionStack
+from ajax.evaluate import ValueEstimate
+from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.networks import action_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     AlphaConfig,
@@ -102,8 +103,9 @@ def init_REDQ(
     number_of_critics: int,
     window_size: int = 10,
     stored_state: bool = False,
+    store_expert_data: bool = False,
 ) -> REDQState:
-    rng, init_key, collector_key = jax.random.split(key, num=3)
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
         init_key,
         collector_key,
@@ -115,10 +117,14 @@ def init_REDQ(
         num_critics=number_of_critics,
         window_size=window_size,
         stored_state=stored_state,
+        collector_extras={
+            "include_raw_obs": store_expert_data,
+            "include_is_expert": store_expert_data,
+        },
     )
     return REDQState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
@@ -176,11 +182,15 @@ def value_loss_function(
     next_log_probs: jax.Array,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """Every critic regresses on the one target."""
+    """Every critic regresses on the one target: the sum over the critics
+    of each one's mean squared error, as REDQ's official
+    ``mse_criterion(q_prediction_cat, y_q) * self.num_Q``
+    (watchernyu/REDQ@7b5d1bf, ``redq/algos/redq_sac.py:207``), whose
+    per-critic Adam optimizers (``:49-51``) each see their critic's own
+    error. A recurrent critic's error is its mean over time and batch."""
     q_preds = q_values(critic_states, critic_params, observations, actions, carries)
     loss = jnp.sum(
         jnp.mean((q_preds - target_q) ** 2, axis=tuple(range(1, q_preds.ndim)))
-        / q_preds.ndim
     )
     q_std, mean_pairwise_q_dist = q_ensemble_divergence(q_preds)
     return loss, ValueAuxiliaries(
@@ -201,7 +211,9 @@ def update_value_functions(
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[REDQState, ValueAuxiliaries]:
     """One critic step of the ensemble on the random-subset target."""
-    key, rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
@@ -236,7 +248,7 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        key,
+        ext_key,
         total_timesteps,
         rewards=batch.reward,
         dones=dones,
@@ -281,10 +293,16 @@ def update_agent(
 ) -> Tuple[REDQState, AuxiliaryLogs]:
     """One update: ``num_critic_updates`` critic and target steps, each on a
     fresh replay batch, then one actor step and one temperature step on the
-    last batch (Chen et al., 2021, Algorithm 1)."""
+    last batch (Chen et al., 2021, Algorithm 1).
+
+    The actor step reads the critics from before the last critic step, as
+    REDQ's official code, which computes the actor loss
+    (watchernyu/REDQ@7b5d1bf, ``redq/algos/redq_sac.py:220``) before the
+    critics' optimizers step (``:242``); Algorithm 1 reads them after."""
 
     def critic_update_step(agent_state: REDQState, _: Any) -> Tuple[REDQState, Any]:
         sample_key, rng = jax.random.split(agent_state.rng)
+        critics_before = agent_state.critic_state.params
         batch, carries = sample_replay(
             agent_state,
             buffer,
@@ -302,20 +320,23 @@ def update_agent(
             carries,
         )
         agent_state = core.update_target_networks(agent_state, agent_config.tau)
-        return agent_state, (aux_value, batch, carries)
+        return agent_state, (aux_value, batch, carries, critics_before)
 
-    # Carry-only scan: only the last critic step's metrics and batch are kept.
-    agent_state, (aux_value, batch, carries) = final_aux_scan(
+    # Carry-only scan: only the last critic step's metrics, batch and
+    # critics before it are kept.
+    agent_state, (aux_value, batch, carries, critics_before) = final_aux_scan(
         critic_update_step, agent_state, length=agent_config.num_critic_updates
     )
+    critic_state = agent_state.critic_state
     agent_state, aux_policy, log_probs = update_policy(
-        agent_state,
+        agent_state.replace(critic_state=critic_state.replace(params=critics_before)),
         batch.obs,
         batch.raw_obs,
         extension_stack,
         total_timesteps,
         carries,
     )
+    agent_state = agent_state.replace(critic_state=critic_state)
     agent_state, aux_temperature = core.update_temperature(
         agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
     )
@@ -336,25 +357,23 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning_args: Optional[CloningConfig] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """REDQ's train function: one step per env, then (from
     ``learning_starts``) one update, per iteration."""
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
+    }
+    extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     recurrent = network_args.memory is not None
     if recurrent:
         unsupported_recurrent_options(
             "REDQ",
             expert_policy=expert_policy,
             extensions=(tuple(extensions) or None),
-            # REDQ always builds a default CloningConfig; only actual
-            # pre-training (pre_train_n_steps > 0) conflicts with memory.
-            cloning_pretrain=(
-                cloning_args
-                if cloning_args is not None and cloning_args.pre_train_n_steps > 0
-                else None
-            ),
         )
     loop = TrainLoop.create(
         env_args,
@@ -366,8 +385,8 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> REDQState:
-        agent_state = init_REDQ(
+    def init(key: jax.Array) -> REDQState:
+        return init_REDQ(
             key,
             env_args,
             actor_optimizer_args,
@@ -377,14 +396,7 @@ def make_train(
             buffer,
             number_of_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
-        )
-        return pretrain_on_expert(
-            agent_state,
-            pretrain_key,
-            cloning_args,
-            expert_policy,
-            env_args,
-            actor_optimizer_args,
+            store_expert_data=holds_expert(expert_policy, loop.stack),
         )
 
     def update(agent_state: REDQState, _transition: Transition) -> Any:
@@ -403,5 +415,10 @@ def make_train(
             "buffer": buffer,
             "store_hidden": recurrent and agent_config.stored_state,
         },
-        eval_kwargs={"expert_policy": expert_policy},
+        eval_kwargs={
+            "expert_policy": expert_policy,
+            "value_estimate": ValueEstimate(
+                action_value, agent_config.gamma, agent_config.reward_scale
+            ),
+        },
     )

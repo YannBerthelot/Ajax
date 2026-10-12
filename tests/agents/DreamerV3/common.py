@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import pathlib
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import jax
@@ -31,7 +31,7 @@ B, T = 2, 8
 ACTION_DIM, NUM_ACTIONS = 7, 6
 
 
-def perturbed(params: dict, seed: int, scale: float = 1.0) -> dict:
+def perturbed(params: Mapping[str, Any], seed: int, scale: float = 1.0) -> dict:
     """``params`` plus seeded Gaussian noise, so that no layer is degenerate.
 
     The zero reward head becomes non-zero and the KL crosses the free bits

@@ -1,16 +1,16 @@
 from collections.abc import Sequence
-from functools import partial
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DQN.state import DQNConfig
 from ajax.agents.DQN.train_DQN import make_train
 from ajax.agents.loop import LOOP_PHASES
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType
 
 
@@ -24,6 +24,7 @@ class DQN(ActorCritic):
 
     name: str = "DQN"
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -49,7 +50,6 @@ class DQN(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # --- DQN variants ---
         # TD target: None -> vanilla DQN. Pass compute_double_dqn_td_target
         # (from train_DQN) for Double DQN.
         td_target_fn: Optional[Callable] = None,
@@ -59,14 +59,16 @@ class DQN(ActorCritic):
         # (from DQN.networks) for the dueling architecture.
         q_network_cls: Optional[type] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
-        # --- New surface: composable research features as Extensions ---
+        cnn_spec: Optional[CNNSpec] = None,
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "DQN"})
+        self.config = run_config(locals(), self.name)
 
         # DQN has a single Q-network; forward `architecture`/`learning_rate`
         # to both actor/critic slots of the base class. The Q-network is
@@ -86,13 +88,15 @@ class DQN(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
         if check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("DQN only supports discrete action spaces.")
 
-        self.agent_config = DQNConfig(
+        self.agent_config: DQNConfig = DQNConfig(
             gamma=gamma,
             tau=tau,
             target_update_interval=target_update_interval,
@@ -103,22 +107,12 @@ class DQN(ActorCritic):
         self.buffer = get_buffer(
             buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs
         )
-        self.epsilon_start = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay_frac = epsilon_decay_frac
-        self.td_target_fn = td_target_fn
-        self.td_loss_fn = td_loss_fn
-        self.q_network_cls = q_network_cls
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            epsilon_start=self.epsilon_start,
-            epsilon_end=self.epsilon_end,
-            epsilon_decay_frac=self.epsilon_decay_frac,
-            td_target_fn=self.td_target_fn,
-            td_loss_fn=self.td_loss_fn,
-            q_network_cls=self.q_network_cls,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "epsilon_start": epsilon_start,
+            "epsilon_end": epsilon_end,
+            "epsilon_decay_frac": epsilon_decay_frac,
+            "td_target_fn": td_target_fn,
+            "td_loss_fn": td_loss_fn,
+            "q_network_cls": q_network_cls,
+        }

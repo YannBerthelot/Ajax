@@ -690,8 +690,7 @@ def main() -> None:
             print(f"  attempt {attempt}: {err}, redrawing the embedding directions")
     else:
         raise RuntimeError(
-            f"no embedding directions with decisions of enough margin in"
-            f" {MAX_ATTEMPTS}"
+            f"no embedding directions with decisions of enough margin in {MAX_ATTEMPTS}"
         )
     decisions["meta/head_std"] = np.array(PLAN_HEAD_STD, np.float32)
     decisions["meta/margin_rel"] = np.array(plan_fixtures.MARGIN_REL)

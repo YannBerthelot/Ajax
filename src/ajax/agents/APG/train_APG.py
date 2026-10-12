@@ -9,14 +9,15 @@ tracking task (:mod:`ajax.environments.model_reference`) that objective
 is exactly the closed-loop matching cost of Busetto et al. 2024, eq. (9),
 and ``sqrt(loss / horizon)`` is their M-RMSE.
 
-Evaluation re-samples ``num_episode_test`` fresh systems (and, through
-the env's reset, fresh references and initial conditions) and reports the
-deterministic closed-loop return and M-RMSE, i.e. the paper's validation
-metric, at the logging frequency.
+Evaluation draws ``num_episode_test`` systems (and, through the env's
+reset, references and initial conditions) from the evaluation key, fresh
+at each evaluation (:func:`ajax.log.evaluation_keys`) and apart from the
+training draws, and reports the deterministic closed-loop return and
+M-RMSE, i.e. the paper's validation metric, at the logging frequency.
 """
 
 from collections.abc import Sequence
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
@@ -31,7 +32,11 @@ from ajax.agents.loop import Evaluation, TrainLoop, fresh_state
 from ajax.environments.differentiable import Rollout, closed_loop_rollout
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.system_class import FixedSystem, SystemClass
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import (
+    agent_action_to_env,
+    get_action_dim,
+    get_state_action_shapes,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import zeros_carry_like
@@ -51,12 +56,7 @@ class APGAuxiliaries:
     loss: jax.Array  # objective actually minimised (incl. extension terms)
     matching_loss: jax.Array  # -mean_i sum_k r_k, the closed-loop cost
     m_rmse: jax.Array  # sqrt(matching_loss / horizon)
-    timestep: jax.Array
-
-
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
+    timestep: Union[int, jax.Array]
 
 
 # A controller factory builds the policy network from the agent's context.
@@ -107,7 +107,7 @@ def init_APG(
     squash: bool,
     controller_factory: Optional[ControllerFactory] = None,
 ) -> APGState:
-    rng, params_key, carry_key, collector_key = jax.random.split(key, 4)
+    rng, params_key, carry_key, collector_key, eval_rng = jax.random.split(key, 5)
     controller = build_controller(
         env_args, network_args, pid, squash, factory=controller_factory
     )
@@ -134,7 +134,7 @@ def init_APG(
     )
     return APGState(
         rng=rng,
-        eval_rng=rng,
+        eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=None,
         collector_state=collector_state,
@@ -154,11 +154,6 @@ def reset_optimizer(agent_state: APGState, optimizer_args: OptimizerConfig) -> A
         tx=tx, opt_state=tx.init(actor_state.params), step=0
     )
     return agent_state.replace(actor_state=actor_state)
-
-
-# ---------------------------------------------------------------------------
-# Closed loop
-# ---------------------------------------------------------------------------
 
 
 def make_policy_step(
@@ -198,6 +193,9 @@ def rollout_returns(
 ) -> Tuple[jax.Array, Rollout]:
     """Closed-loop returns ``(n,)`` of the controller on ``n`` fresh systems
     (the env's own system without a ``system_class``), and the rollout.
+    The controller acts in ``[-1, 1]``, mapped onto each system's action
+    bounds (:func:`agent_action_to_env`, differentiable): ``Rollout.action``
+    is what the env received.
 
     ``stateful`` (a static flag) defaults to whether the actor carries a
     hidden state, which ``init_APG`` sets exactly for a stateful controller.
@@ -211,8 +209,14 @@ def rollout_returns(
     carry = (
         zeros_carry_like(agent_state.actor_state.hidden_state, n) if stateful else None
     )
+    policy_step = make_policy_step(agent_state.actor_state, params, stateful)
+
+    def mapped_step(carry, obs, resets):
+        action, carry = policy_step(carry, obs, resets)
+        return agent_action_to_env(action, env_args.env, env_params), carry
+
     rollout, _ = closed_loop_rollout(
-        make_policy_step(agent_state.actor_state, params, stateful),
+        mapped_step,
         carry,
         roll_key,
         env_args.env,
@@ -220,11 +224,6 @@ def rollout_returns(
         horizon,
     )
     return rollout.reward.sum(0), rollout
-
-
-# ---------------------------------------------------------------------------
-# Evaluation + logging
-# ---------------------------------------------------------------------------
 
 
 def evaluate_apg(
@@ -260,11 +259,6 @@ def _train_metrics(agent_state: APGState, aux: APGAuxiliaries) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# One update
-# ---------------------------------------------------------------------------
-
-
 def training_iteration(
     agent_state: APGState,
     iteration: Any,
@@ -298,15 +292,13 @@ def training_iteration(
             env_args.n_envs,
         )
         matching_loss = -returns.mean()
-        loss = matching_loss
-        if loop.stack:
-            loss = loss + loop.stack.fold_actor_loss(
-                agent_state,
-                {"rollout": rollout, "actor_params": params, "returns": returns},
-                timestep,
-                ext_key,
-                loop.total_timesteps,
-            )
+        loss = matching_loss + loop.stack.fold_actor_loss(
+            agent_state,
+            {"rollout": rollout, "actor_params": params, "returns": returns},
+            timestep,
+            ext_key,
+            loop.total_timesteps,
+        )
         return loss, matching_loss
 
     (loss, matching_loss), grads = jax.value_and_grad(loss_fn, has_aux=True)(
@@ -328,11 +320,6 @@ def training_iteration(
     )
     agent_state, _ = loop.evaluate_every(agent_state, aux, index, iteration, evaluation)
     return agent_state, aux
-
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(
@@ -404,8 +391,7 @@ def make_train(
         ),
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> APGState:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> APGState:
         return init_APG(
             key=key,
             env_args=env_args,

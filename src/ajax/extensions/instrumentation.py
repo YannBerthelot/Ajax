@@ -1,11 +1,7 @@
 """EVarEst measurement / instrumentation as composable :class:`Extension`s.
 
-This module ports the measurement code from
-``/home/yberthel/EVAREST/evarest/rl/`` to the Ajax Extension surface so
-the same plasticity / decomposition diagnostics can be folded
-into any Ajax agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG
-on-policy) without touching the agent code. Each extension is a frozen
-dataclass carrying its own hyperparameters; the user opts in via
+The measurement code of EVAREST's ``evarest/rl/``, foldable into any Ajax
+agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG on-policy):
 ``extensions=[ConditioningMetrics(), BiasVoreDecomposition(...), ...]``.
 
 Coverage
@@ -19,34 +15,26 @@ Coverage
   bias^2 / Var(residual) / MSE / |bias| decomposition of the critic
   objective. Mirrors the math in EVAREST's ``loss.py`` /
   ``mechanism.py``.
-* :class:`DiagnosticSnapshots`     — post_update phase, periodic
-  agent-state snapshot for offline post-mortem analysis (the chunked-
-  training protocol from EVAREST's ``snapshots.py``).
 * :class:`BiasVorePenalty`         — critic_loss phase, the EVarEst
   critic objective itself. ``penalty(alpha) = ((1-2alpha)/alpha) *
   Var(q_preds - target_q)`` added on top of the agent's vanilla MSE.
 
-Each extension owns its own hyperparameters as frozen-dataclass fields
-(no per-extension agent-side kwargs). Empty / mis-shaped state ⇒ the
-extension emits an empty metrics dict so a misconfigured stack is
-loud-failure rather than a wrong-numbers silent failure where possible.
-The math is intentionally kept identical to the EVAREST sources so that
-Phase 4c (EVAREST integration) becomes a thin wiring change.
+Without a measurement batch (no replay buffer, no ``last_rollout`` yet)
+the eval-metric extensions emit no metrics rather than wrong numbers. The
+maths are intentionally kept identical to the EVAREST sources.
 """
 
 from __future__ import annotations
 
-import os
-import pickle
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import action_value_input, predict_value
 
 # Public metric keys — duplicated here so Ajax callers don't need to
 # import from EVAREST. The strings are identical so dashboards built on
@@ -65,9 +53,7 @@ EVAREST_DECOMP_KEYS: Tuple[str, ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Plasticity / conditioning primitives (EVAREST evarest/rl/conditioning.py)
-# ---------------------------------------------------------------------------
+# Plasticity / conditioning primitives (EVAREST evarest/rl/conditioning.py).
 
 
 def srank(feats: jax.Array, delta: float = 0.01) -> jax.Array:
@@ -98,13 +84,7 @@ def _global_l2(tree) -> jax.Array:
     return jnp.sqrt(sum(jnp.sum(jnp.square(x)) for x in leaves))
 
 
-# ---------------------------------------------------------------------------
-# State-batch sourcing helpers
-# ---------------------------------------------------------------------------
-
-
 def _has_buffer(agent_state: Any) -> bool:
-    """True iff the agent carries a flashbax replay buffer."""
     cs = getattr(agent_state, "collector_state", None)
     if cs is None:
         return False
@@ -112,48 +92,113 @@ def _has_buffer(agent_state: Any) -> bool:
 
 
 def _has_last_rollout(agent_state: Any) -> bool:
-    """True iff Gap A exposed a ``last_rollout`` subsample."""
     return getattr(agent_state, "last_rollout", None) is not None
 
 
-def _sample_state_batch(
+def _sample_transitions(
     agent_state: Any,
     rng: jax.Array,
     buffer: Optional[Any],
     on_policy_take: int,
-) -> Tuple[jax.Array, jax.Array]:
-    """Return ``(obs, act)`` for a measurement batch.
+) -> Tuple[jax.Array, ...]:
+    """Return ``(obs, act, reward, next_obs, done)`` for a measurement
+    batch, one ``(N, features)`` row per transition.
 
     Off-policy: sample from the replay buffer via the public
-    ``get_batch_from_buffer`` seam. On-policy: read the fixed-size
-    subsample on ``agent_state.last_rollout`` and slice the first
-    ``on_policy_take`` rows. Raises ``ValueError`` if neither source is
+    ``get_batch_from_buffer`` seam; its ``next_obs`` is the observation a
+    target bootstraps on, so only a termination ends the episode. On-policy:
+    flatten the ``(T, n_envs)`` steps of ``agent_state.last_rollout`` into
+    rows and keep the first ``on_policy_take``; srank and the dormant
+    fraction need one feature row per sample. A rollout's episode ends at a
+    termination or a truncation. Raises ``ValueError`` if neither source is
     populated — extensions need to fail loudly when their state-batch
     contract is broken.
     """
     if _has_buffer(agent_state) and buffer is not None:
-        # Lazy import to keep the rest of the module buffer-agnostic
-        # (DiagnosticSnapshots doesn't need flashbax at import
-        # time so a missing optional dep doesn't break their import).
+        # Lazy import: the rest of the module does not need flashbax.
         from ajax.buffers.utils import get_batch_from_buffer
 
-        batch = get_batch_from_buffer(
+        obs, terminated, _, next_obs, reward, act = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, rng
-        )
-        return batch[0], batch[5]
-    if _has_last_rollout(agent_state):
+        )[:6]
+        rows = (obs, act, reward, next_obs, terminated)
+        take = None
+    elif _has_last_rollout(agent_state):
         sub = agent_state.last_rollout
-        return sub.obs[:on_policy_take], sub.action[:on_policy_take]
+        done = jnp.logical_or(sub.terminated, sub.truncated)
+        rows = (sub.obs, sub.action, sub.reward, sub.next_obs, done)
+        take = on_policy_take
+    else:
+        raise ValueError(
+            "ConditioningMetrics / BiasVoreDecomposition need either a replay "
+            "buffer (off-policy) or agent_state.last_rollout populated via "
+            "BaseAgentConfig.expose_recent_rollout=True (on-policy)."
+        )
+    n = math.prod(rows[0].shape[:-1])
+    return tuple(x.reshape(n, -1)[:take] for x in rows)
+
+
+def _network(train_state: Any) -> Any:
+    """The flax module whose ``apply`` is ``train_state.apply_fn``."""
+    return getattr(getattr(train_state, "apply_fn", None), "__self__", None)
+
+
+def _is_ensemble_critic(train_state: Any) -> bool:
+    """A :class:`~ajax.networks.networks.MultiCritic` exposes its members'
+    encoder features; a Q-network does not."""
+    return hasattr(_network(train_state), "apply_encoder_ensemble")
+
+
+def _takes_action(
+    critic_state: Any, obs: jax.Array, act: jax.Array, rng: jax.Array
+) -> bool:
+    """Whether an ensemble critic reads the observation and action (an
+    action-value critic) or the observation alone (a state-value one).
+
+    The answer is the input its parameters were built on: each candidate
+    goes through the critic's ``init`` abstractly (shapes only, nothing is
+    computed) and the one that rebuilds the critic's parameter shapes wins.
+    A candidate the critic refuses is not it: a CNN encoder checks its
+    input's width (ValueError) where an MLP builds other shapes. Where the
+    batch comes from does not say it: AVG learns an action-value critic
+    from its rollout, without a replay buffer.
+    """
+
+    def shapes(tree: Any) -> list:
+        return [leaf.shape for leaf in jax.tree.leaves(tree)]
+
+    init = _network(critic_state).init
+    with_action = action_value_input(obs, act.astype(obs.dtype))
+    for takes_action, x in ((True, with_action), (False, obs)):
+        try:
+            built = shapes(jax.eval_shape(init, rng, x))
+        except ValueError:
+            continue
+        if built == shapes(critic_state.params):
+            return takes_action
     raise ValueError(
-        "ConditioningMetrics / BiasVoreDecomposition need either a replay "
-        "buffer (off-policy) or agent_state.last_rollout populated via "
-        "BaseAgentConfig.expose_recent_rollout=True (on-policy)."
+        "The critic's parameters fit neither the observation nor the"
+        " observation and action of the measurement batch."
     )
 
 
-# ---------------------------------------------------------------------------
-# Conditioning / plasticity extension
-# ---------------------------------------------------------------------------
+def _critic_kind(
+    agent_state: Any, obs: jax.Array, act: jax.Array, rng: jax.Array
+) -> str:
+    """The agent's critic, read from its networks: ``"q"`` or ``"v"`` for
+    an ensemble critic on ``critic_state`` taking the observation and action
+    or the observation alone, ``"qnet"`` for a Q-network on ``actor_state``
+    (its output carries ``q_values``)."""
+    critic_state = getattr(agent_state, "critic_state", None)
+    if _is_ensemble_critic(critic_state):
+        return "q" if _takes_action(critic_state, obs, act, rng) else "v"
+    actor = agent_state.actor_state
+    if hasattr(actor.apply_fn(actor.params, obs), "q_values"):
+        return "qnet"
+    raise ValueError(
+        f"{type(agent_state).__name__} has neither an ensemble critic on"
+        " critic_state nor a Q-network on actor_state to measure."
+    )
 
 
 def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
@@ -169,8 +214,13 @@ def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
 def _encoder_features_qnet(actor_state: Any, x: jax.Array) -> jax.Array:
     """Penultimate features sown by DQN / PQN Q-networks. ``(1, batch, d)``."""
     _, mv = actor_state.apply_fn(actor_state.params, x, mutable=["intermediates"])
-    feat = mv["intermediates"]["encoder_features"][0]
-    return feat[None]
+    if "encoder_features" not in mv.get("intermediates", {}):
+        raise ValueError(
+            "ConditioningMetrics found neither an ensemble critic on"
+            " critic_state nor a Q-network sowing encoder_features on"
+            " actor_state."
+        )
+    return mv["intermediates"]["encoder_features"][0][None]
 
 
 @dataclass(frozen=True)
@@ -178,24 +228,24 @@ class ConditioningMetrics(Extension):
     """Plasticity diagnostics on a state batch sampled from the agent's
     visited-state distribution.
 
-    Auto-detects the critic location and input convention:
-    * ``critic_loc='critic'`` + ``concat_action=True``  ⇒ SAC-style
-      Q(obs,act) critic on ``critic_state``.
-    * ``critic_loc='critic'`` + ``concat_action=False`` ⇒ PPO-style
-      V(obs) critic on ``critic_state``.
-    * ``critic_loc='actor'``  ⇒ DQN / PQN: Q-network on ``actor_state``,
+    Reads the critic's encoder features:
+    * ``critic_loc='critic'`` + ``concat_action=True``  ⇒ Q(obs,act)
+      ensemble critic on ``critic_state``.
+    * ``critic_loc='critic'`` + ``concat_action=False`` ⇒ V(obs)
+      ensemble critic on ``critic_state``.
+    * ``critic_loc='actor'``  ⇒ Q-network on ``actor_state`` (DQN, PQN),
       penultimate features read via the ``encoder_features`` sow.
 
-    Auto-detection (``critic_loc='auto'``, ``concat_action='auto'``)
-    picks the actor branch when the critic_state has no apply_fn
-    intermediate sow point, the critic branch otherwise; for the
-    critic branch it concats actions iff the on-policy ``last_rollout``
-    action width is compatible with the critic's input dim.
+    ``'auto'`` (the default for both) reads them from the networks, never
+    from the agent's name or the batch source: the critic branch when
+    ``critic_state``'s network is an ensemble critic (it exposes
+    ``apply_encoder_ensemble``), the actor branch otherwise; on the critic
+    branch, the action is concatenated when the critic's parameters were
+    built on the observation and action (:func:`_takes_action`).
 
-    Hyperparameters live on this dataclass (no per-extension agent-side
-    kwargs). Pass ``buffer=agent.buffer`` for off-policy agents whose
-    buffer object isn't on the agent state itself; on-policy agents
-    must set ``BaseAgentConfig.expose_recent_rollout=True``.
+    Pass ``buffer=agent.buffer`` for off-policy agents whose buffer object
+    isn't on the agent state itself; on-policy agents must set
+    ``BaseAgentConfig.expose_recent_rollout=True``.
     """
 
     buffer: Any = None
@@ -204,42 +254,25 @@ class ConditioningMetrics(Extension):
     concat_action: Any = "auto"  # bool | 'auto'
     name: str = "conditioning_metrics"
 
-    def _features(self, agent_state: Any, obs: jax.Array, act: jax.Array) -> jax.Array:
-        loc = self.critic_loc
-        if loc == "auto":
-            # SAC-style MultiCritic critic exposes apply_encoder_ensemble;
-            # DQN/PQN Q-network is on actor_state and sows its features.
-            cs = agent_state.critic_state
-            has_ensemble = hasattr(cs, "apply_fn") and callable(
-                getattr(cs, "apply_fn", None)
-            )
-            loc = "critic" if has_ensemble else "actor"
-        if loc == "actor":
+    def _loc(self, agent_state: Any) -> str:
+        if self.critic_loc != "auto":
+            return self.critic_loc
+        return "critic" if _is_ensemble_critic(agent_state.critic_state) else "actor"
+
+    def _features(
+        self, agent_state: Any, obs: jax.Array, act: jax.Array, rng: jax.Array
+    ) -> jax.Array:
+        if self._loc(agent_state) == "actor":
             return _encoder_features_qnet(agent_state.actor_state, obs)
-        # critic branch: V(obs) (PPO) or Q(obs,act) (SAC). Decide
-        # whether to concat the action via the explicit flag, falling
-        # back to a buffer-vs-on-policy heuristic.
+        critic_state = agent_state.critic_state
         concat = self.concat_action
         if concat == "auto":
-            # Off-policy buffer agents (SAC) carry the (obs, act)
-            # critic; on-policy rollout-only agents (PPO) carry V(obs).
-            concat = bool(_has_buffer(agent_state) and self.buffer is not None)
-        if concat:
-            # Reshape action to match obs's batch convention; the
-            # discrete-action subsample may have a trailing 1-dim or
-            # not, so we flatten it back to (B, action_dim).
-            if act.ndim == obs.ndim - 1:
-                act = act[..., None]
-            x = jnp.concatenate([obs, act.astype(obs.dtype)], axis=-1)
-        else:
-            x = obs
-        return _encoder_features_ppo_sac(agent_state.critic_state, x)
+            concat = _takes_action(critic_state, obs, act, rng)
+        x = action_value_input(obs, act.astype(obs.dtype)) if concat else obs
+        return _encoder_features_ppo_sac(critic_state, x)
 
     def _critic_params(self, agent_state: Any) -> Any:
-        loc = self.critic_loc
-        if loc == "auto":
-            loc = "critic" if hasattr(agent_state.critic_state, "params") else "actor"
-        return getattr(agent_state, f"{loc}_state").params
+        return getattr(agent_state, f"{self._loc(agent_state)}_state").params
 
     def eval_metrics(
         self,
@@ -250,7 +283,7 @@ class ConditioningMetrics(Extension):
     ) -> dict:
         del ext_state, ctx
         try:
-            obs, act = _sample_state_batch(
+            obs, act, *_ = _sample_transitions(
                 agent_state, rng, self.buffer, self.on_policy_batch
             )
         except ValueError:
@@ -258,7 +291,7 @@ class ConditioningMetrics(Extension):
             # the first rollout populates last_rollout), emit an empty
             # dict so the eval log still completes.
             return {}
-        feats = self._features(agent_state, obs, act)
+        feats = self._features(agent_state, obs, act, rng)
         return dict(
             zip(
                 COND_METRIC_KEYS,
@@ -271,11 +304,6 @@ class ConditioningMetrics(Extension):
                 strict=False,
             )
         )
-
-
-# ---------------------------------------------------------------------------
-# Bias / VORE decomposition extension (eval-time)
-# ---------------------------------------------------------------------------
 
 
 def _bias_vore_decomposition_dict(residual: jax.Array) -> dict:
@@ -303,77 +331,71 @@ class BiasVoreDecomposition(Extension):
     ``mechanism.make_evarest_decomposition_metrics``. The residual is
     reconstructed from the agent's *current* critic on a measurement
     batch sampled the same way :class:`ConditioningMetrics` samples
-    (replay buffer for off-policy, ``last_rollout`` for on-policy). The
-    SAC variant uses :func:`ajax.agents.SAC.core.compute_td_target` to
-    rebuild the Bellman target; the PPO variant uses the supplied
-    ``value_target_fn`` callable (kept generic so the extension stays
-    agent-agnostic). When ``value_target_fn`` is None the extension
-    assumes a SAC-style Q-critic.
+    (replay buffer for off-policy, ``last_rollout`` for on-policy).
+
+    By default it is the critic's one-step TD residual under the current
+    policy, ``prediction - (reward_scale * r + gamma (1 - d) next)``, with
+    the critic read from the networks (:func:`_critic_kind`):
+
+    * Q(s, a) ensemble: ``next = min_i Q_i(s', a') - alpha log pi(a'|s')``,
+      ``a' ~ pi(s')``, ``alpha`` the agent's temperature if it has one,
+      else 0;
+    * V(s) ensemble: ``next = min_i V_i(s')``;
+    * Q-network: ``next = max_a' Q(s', a')``.
+
+    The bootstrap uses the critic's current parameters: whether and how an
+    agent keeps a target network (SAC does, AVG and PQN do not) is its own
+    business, as are GAE, Q(lambda) and average-reward targets. Pass
+    ``value_target_fn`` to measure against an agent's exact target.
     """
 
     buffer: Any = None
     on_policy_batch: int = 256
     gamma: float = 0.99
     reward_scale: float = 1.0
-    # Optional override for non-SAC agents:
+    # Optional override for an agent's exact target:
     # ``(agent_state, batch_dict, rng) -> (target, q_preds)``.
     value_target_fn: Optional[Callable] = None
     name: str = "bias_vore_decomposition"
 
-    def _sac_residual(self, agent_state: Any, rng: jax.Array) -> jax.Array:
-        from ajax.agents.SAC import core
-        from ajax.buffers.utils import get_batch_from_buffer
+    def _td_residual(
+        self, agent_state: Any, transitions: Tuple[jax.Array, ...], rng: jax.Array
+    ) -> jax.Array:
+        obs, act, reward, next_obs, done = transitions
+        kind = _critic_kind(agent_state, obs, act, rng)
+        if kind == "qnet":
+            from ajax.agents.DQN.networks import predict_q
 
-        tkey, skey = jax.random.split(rng)
-        batch = get_batch_from_buffer(
-            self.buffer, agent_state.collector_state.buffer_state, skey
-        )
-        obs, terminated, _trunc, next_obs, rewards, act = batch[:6]
-        alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-        target_q = core.compute_td_target(
-            actor_state=agent_state.actor_state,
-            critic_state=agent_state.critic_state,
-            next_observations=next_obs,
-            dones=terminated,
-            rewards=rewards,
-            gamma=self.gamma,
-            alpha=alpha,
-            rng=tkey,
-            recurrent=False,
-            reward_scale=self.reward_scale,
-        )
-        q_preds = predict_value(
-            critic_state=agent_state.critic_state,
-            critic_params=agent_state.critic_state.params,
-            x=jnp.concatenate([obs, act], axis=-1),
-        )
-        return q_preds - target_q
+            q_state = agent_state.actor_state
+            q_values = predict_q(q_state, q_state.params, obs)
+            prediction = jnp.take_along_axis(q_values, act.astype(jnp.int32), axis=-1)
+            next_value = predict_q(q_state, q_state.params, next_obs).max(
+                -1, keepdims=True
+            )
+        else:
+            critic_state = agent_state.critic_state
 
-    def _on_policy_residual(self, agent_state: Any) -> jax.Array:
-        """Generic on-policy residual: V(obs) - mean(reward) bootstrap.
+            def value(x: jax.Array) -> jax.Array:
+                return predict_value(critic_state, critic_state.params, x)
 
-        On-policy agents that opted into Gap A only expose ``(obs, act,
-        reward, next_obs, done)`` -- enough for a single-step TD
-        residual against the agent's *current* value head. The exact
-        target (GAE for PPO, Q(lambda) for PQN, average-reward for APO/
-        AVG) can be supplied via ``value_target_fn``; absent that, we
-        compute ``r + gamma (1-d) V(s') - V(s)`` (one-step TD), which
-        is the universal common subexpression of the four targets.
-        """
-        sub = agent_state.last_rollout
-        cs = agent_state.critic_state
-        v = predict_value(critic_state=cs, critic_params=cs.params, x=sub.obs).squeeze(
-            0
-        )
-        v_next = predict_value(
-            critic_state=cs, critic_params=cs.params, x=sub.next_obs
-        ).squeeze(0)
-        # Broadcast shapes so the subtraction is well-defined. Transition
-        # stores terminated/truncated separately; episode-end ≡ either.
-        reward = sub.reward.reshape(v.shape)
-        done = jnp.logical_or(sub.terminated, sub.truncated).reshape(v.shape)
-        target = reward + self.gamma * (1.0 - done) * v_next.astype(v.dtype)
-        return v - target
+            if kind == "q":
+                from ajax.agents.SAC.core import sample_next_actions
+
+                next_act, log_prob = sample_next_actions(
+                    agent_state.actor_state, next_obs, rng
+                )
+                alpha = getattr(agent_state, "alpha", None)
+                temperature = (
+                    0.0 if alpha is None else jnp.exp(alpha.params["log_alpha"])
+                )
+                prediction = value(action_value_input(obs, act.astype(obs.dtype)))
+                next_q = value(action_value_input(next_obs, next_act)).min(0)
+                next_value = next_q - temperature * log_prob
+            else:
+                prediction = value(obs)
+                next_value = value(next_obs).min(0)
+        target = self.reward_scale * reward + self.gamma * (1.0 - done) * next_value
+        return prediction - target
 
     def eval_metrics(
         self,
@@ -383,146 +405,19 @@ class BiasVoreDecomposition(Extension):
         ctx: ExtensionContext,
     ) -> dict:
         del ext_state, ctx
-        if self.value_target_fn is not None:
-            tkey, skey = jax.random.split(rng)
-            try:
-                obs, act = _sample_state_batch(
-                    agent_state, skey, self.buffer, self.on_policy_batch
-                )
-            except ValueError:
-                return {}
-            batch_dict = {"observations": obs, "actions": act}
-            target, q_preds = self.value_target_fn(agent_state, batch_dict, tkey)
-            resid = q_preds - target
-            return _bias_vore_decomposition_dict(resid)
-
-        if _has_buffer(agent_state) and self.buffer is not None:
-            resid = self._sac_residual(agent_state, rng)
-            return _bias_vore_decomposition_dict(resid)
-        if _has_last_rollout(agent_state):
-            resid = self._on_policy_residual(agent_state)
-            return _bias_vore_decomposition_dict(resid)
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# Diagnostic snapshots (post_update side-effect)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DiagnosticSnapshots(Extension):
-    """Periodic agent-state snapshot for offline post-mortem analysis.
-
-    Ports :mod:`evarest.rl.snapshots` to the post_update phase. At every
-    ``every_n_iters``-th call the extension pickles a chunk containing:
-    * a uniform random subsample of the replay buffer (off-policy) OR
-      the current ``last_rollout`` (on-policy),
-    * the current actor parameters.
-    Files are written under ``directory`` with names
-    ``snapshot_<chunk_idx>.pkl``; ``chunk_idx`` is the per-instance
-    counter stored in ``ext_state``. Snapshots are taken via
-    ``jax.experimental.io_callback`` so the host-side pickle never
-    blocks the JIT'd train loop.
-    """
-
-    directory: str = "./snapshots"
-    every_n_iters: int = 100
-    n_sub: int = 4096
-    buffer: Any = None
-    # Subsample-batch size for buffer sampling; matches EVAREST's
-    # snapshots._SAMPLE_BATCH default.
-    sample_batch: int = 256
-    name: str = "diagnostic_snapshots"
-
-    def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
-        del agent_state, rng
-        os.makedirs(self.directory, exist_ok=True)
-        return jnp.asarray(0, dtype=jnp.int32)
-
-    def _take_transitions(self, agent_state: Any, rng: jax.Array) -> dict:
-        if _has_buffer(agent_state) and self.buffer is not None:
-            from ajax.buffers.utils import get_batch_from_buffer
-
-            n_iter = (self.n_sub + self.sample_batch - 1) // self.sample_batch
-
-            def one(_, k):
-                b = get_batch_from_buffer(
-                    self.buffer, agent_state.collector_state.buffer_state, k
-                )
-                return None, (b[0], b[5], b[4], b[3], b[1])
-
-            _, parts = jax.lax.scan(one, None, jax.random.split(rng, n_iter))
-            obs, act, rew, next_obs, term = jax.tree.map(
-                lambda x: x.reshape((-1,) + x.shape[2:])[: self.n_sub], parts
+        tkey, skey = jax.random.split(rng)
+        try:
+            transitions = _sample_transitions(
+                agent_state, skey, self.buffer, self.on_policy_batch
             )
-            return {
-                "obs": obs,
-                "act": act,
-                "rew": rew,
-                "next_obs": next_obs,
-                "terminated": term,
-            }
-        if _has_last_rollout(agent_state):
-            sub = agent_state.last_rollout
-            return {
-                "obs": sub.obs,
-                "act": sub.action,
-                "rew": sub.reward,
-                "next_obs": sub.next_obs,
-                "terminated": sub.terminated,
-                "truncated": sub.truncated,
-            }
-        return {}
-
-    def _host_save(
-        self,
-        chunk_idx: jax.Array,
-        should_save: jax.Array,
-        transitions: dict,
-        params: Any,
-    ) -> None:
-        # Host-side gate: ``should_save`` is a 0-D bool array. We only
-        # touch disk when True. Doing the gate host-side keeps the
-        # io_callback unconditional, which avoids JAX's
-        # "IO effect not supported in vmap-of-cond" limitation when
-        # this extension runs under ``jax.vmap`` over seeds.
-        if not bool(np.asarray(should_save)):
-            return
-        path = os.path.join(self.directory, f"snapshot_{int(chunk_idx)}.pkl")
-        payload = {
-            "chunk_idx": int(chunk_idx),
-            "transitions": jax.tree.map(lambda x: np.asarray(x), transitions),
-            "actor_params": jax.tree.map(lambda x: np.asarray(x), params),
-        }
-        with open(path, "wb") as f:
-            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def post_update(
-        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
-    ) -> Tuple[Any, Any]:
-        # Snapshot every Nth iteration; ``ext_state`` is the per-instance
-        # call counter so the cadence is robust to compile cache reuse.
-        new_state = ext_state + 1
-        should_save = (new_state % self.every_n_iters) == 0
-
-        transitions = self._take_transitions(agent_state, ctx.rng)
-        # Unconditional io_callback — host-side ``_host_save`` is the
-        # gate, see its docstring.
-        jax.experimental.io_callback(
-            self._host_save,
-            None,
-            new_state,
-            should_save,
-            transitions,
-            agent_state.actor_state.params,
-        )
-        return agent_state, new_state
-
-
-# ---------------------------------------------------------------------------
-# EVarEst critic objective (additive penalty on the critic loss)
-# ---------------------------------------------------------------------------
+        except ValueError:
+            return {}
+        if self.value_target_fn is not None:
+            batch_dict = {"observations": transitions[0], "actions": transitions[1]}
+            target, q_preds = self.value_target_fn(agent_state, batch_dict, tkey)
+            return _bias_vore_decomposition_dict(q_preds - target)
+        resid = self._td_residual(agent_state, transitions, tkey)
+        return _bias_vore_decomposition_dict(resid)
 
 
 def evarest_coeff(alpha: float) -> float:
@@ -552,14 +447,11 @@ class BiasVorePenalty(Extension):
     0 ⇒ identical to vanilla; alpha->0 is the AVEC limit (use a small
     alpha rather than zero). ``coeff_override`` lets callers fix the
     coefficient directly (e.g. to disable the extra penalty entirely
-    without recomputing alpha). Reads ``observations`` and (for SAC)
-    ``actions`` + ``targets`` from the ``batch`` dict the agent threads
-    into the critic-loss fold. The extension is loss-agent-aware:
-    SAC's critic-loss fold passes ``actions`` (Q-critic) while
-    PPO/PQN/DQN pass only ``observations`` + ``targets`` (V-critic
-    or already-gathered q_taken). Both paths reconstruct the same
-    residual the agent's MSE term sees, so the bias/Var math is
-    bit-for-bit consistent.
+    without recomputing alpha). It rebuilds the residual the agent's MSE
+    term sees from the ``critic_loss`` batch: ``observations``,
+    ``targets`` and the critic (``critic_params`` and ``critic_state``,
+    with ``actions`` for a Q-critic; DQN's and PQN's ``q_state`` and
+    ``actions``), and raises on a batch without them rather than add 0.
     """
 
     alpha: float = 0.5
@@ -572,8 +464,6 @@ class BiasVorePenalty(Extension):
     def _coeff(self) -> float:
         if self.coeff_override is not None:
             return float(self.coeff_override)
-        if self.alpha == 0.5:
-            return 0.0
         return evarest_coeff(self.alpha)
 
     def critic_loss(
@@ -588,22 +478,13 @@ class BiasVorePenalty(Extension):
         if coeff == 0.0:
             return jnp.asarray(0.0)
 
-        # Two batch-shape conventions the agents use:
-        # - SAC critic loss fold passes 'critic_params', 'critic_state',
-        #   'observations', 'actions', 'target_q' (or similar) so we
-        #   can rebuild q_preds and residual. PPO fold passes
-        #   'critic_params', 'critic_state', 'observations', 'targets'.
-        # - DQN/PQN fold passes 'q_state', 'observations', 'actions',
-        #   'targets'. Q-network case reconstructs q_taken via
-        #   predict_q + gather.
-        obs = batch.get("observations")
-        if obs is None:
-            return jnp.asarray(0.0)
-        target = batch.get("target_q", batch.get("targets"))
-        if target is None:
-            return jnp.asarray(0.0)
+        missing = [key for key in ("observations", "targets") if key not in batch]
+        if missing:
+            raise ValueError(
+                f"BiasVorePenalty needs {missing} in the critic_loss batch."
+            )
+        obs, target = batch["observations"], batch["targets"]
 
-        # Try the SAC/PPO MultiCritic path first.
         cs = batch.get("critic_state")
         params = batch.get("critic_params")
         actions = batch.get("actions")
@@ -620,15 +501,12 @@ class BiasVorePenalty(Extension):
             resid = q_preds - target
             return self.loss_scale * coeff * jnp.var(resid)
 
-        # DQN / PQN Q-network: q_state in batch.
         q_state = batch.get("q_state")
         if q_state is not None and actions is not None:
             # Reuse the agent's predict_q -> gather to keep numerics aligned
             # with the agent's q_taken.
-            try:
-                from ajax.agents.DQN.networks import predict_q
-            except ImportError:
-                return jnp.asarray(0.0)
+            from ajax.agents.DQN.networks import predict_q
+
             q_all = predict_q(q_state, q_state.params, obs)
             # Match q_loss_fn's gather convention: actions may carry a
             # trailing 1-dim or not.
@@ -637,18 +515,19 @@ class BiasVorePenalty(Extension):
             resid = q_taken - target
             return self.loss_scale * coeff * jnp.var(resid)
 
-        return jnp.asarray(0.0)
+        raise ValueError(
+            "BiasVorePenalty needs the critic in the critic_loss batch:"
+            " critic_params and critic_state, or q_state and actions."
+        )
 
 
-# Public re-exports for downstream importers.
 __all__ = [
-    "ConditioningMetrics",
-    "BiasVoreDecomposition",
-    "DiagnosticSnapshots",
-    "BiasVorePenalty",
     "COND_METRIC_KEYS",
     "EVAREST_DECOMP_KEYS",
+    "BiasVoreDecomposition",
+    "BiasVorePenalty",
+    "ConditioningMetrics",
+    "dormant_fraction",
     "evarest_coeff",
     "srank",
-    "dormant_fraction",
 ]

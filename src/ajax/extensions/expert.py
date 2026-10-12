@@ -1,9 +1,5 @@
 """Expert-guidance research features as composable :class:`Extension`s.
 
-Phase 2 of the agent-architecture rework moves SAC's 14 inline research
-features out of ``train_SAC.py`` into composable :class:`Extension`
-objects. The expert-dependent group lives here:
-
 * :class:`OnlineBC`              — value-weighted decaying BC loss term.
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
@@ -26,7 +22,7 @@ import jax
 import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import phi_star_critic_state, predict_value
 
 
 def residual_action_transform(
@@ -45,7 +41,7 @@ def residual_action_transform(
 
 
 def compute_online_bc_loss(
-    pi_loc: jax.Array,
+    pi_mean: jax.Array,
     a_expert: jax.Array,
     critic_state,
     expert_critic_params,
@@ -65,7 +61,7 @@ def compute_online_bc_loss(
     v_star = jax.lax.stop_gradient(
         jnp.min(
             predict_value(
-                critic_state=critic_state,
+                critic_state=phi_star_critic_state(critic_state),
                 critic_params=expert_critic_params,
                 x=jnp.concatenate([observations, a_expert], axis=-1),
             ),
@@ -80,14 +76,13 @@ def compute_online_bc_loss(
         )
         ** 2
     )
-    mu = jnp.tanh(pi_loc)
     return (
         bc_coef
         * bc_weight
         * (
             v_weight
             * jnp.sum(
-                (mu - jax.lax.stop_gradient(a_expert)) ** 2,
+                (pi_mean - jax.lax.stop_gradient(a_expert)) ** 2,
                 axis=-1,
                 keepdims=True,
             )
@@ -95,29 +90,49 @@ def compute_online_bc_loss(
     )
 
 
+def reads_stored_expert_actions(ext: Any, agent_context: dict) -> bool:
+    """Whether an extension that carries an expert of its own (IBRL,
+    LCBGatedBootstrap, CriticBlend, PhiRefresh) reads that expert's actions
+    as collection stored them (``next_a_expert``): when it is the agent's
+    ``expert_policy``, whose state collection tracks along each trajectory.
+    Another expert is called on the raw observations the extension is
+    given, without a state (a stateful one is refused at construction,
+    ``check_extension_experts``)."""
+    return ext.expert_policy is agent_context.get("expert_policy")
+
+
+def expert_next_actions(ext: Any, raw_next: Any, stored_next: Any) -> jax.Array:
+    """The extension's expert's actions at the replayed rows' s': the
+    stored ones (``reads_stored_expert_actions``), else its call on the
+    raw next observations."""
+    if ext.reads_stored_expert:
+        return jax.lax.stop_gradient(stored_next)
+    return jax.lax.stop_gradient(ext.expert_policy(raw_next))
+
+
 @dataclass(frozen=True)
 class OnlineBC(Extension):
     """Online, value-weighted, warmup-decaying behavioural-cloning term.
 
-    Equivalent to the ``use_online_bc`` additive actor-loss term: a
-    ``bc_coef · w(s) · ||μ_θ(s) - a_expert||²`` penalty that decays to
-    zero once ``train_frac`` exceeds ``critic_warmup_frac``. The
-    behaviour is identical to the pre-refactor ``make_bc_loss_fn``
-    builder: the term is silently skipped when
-    ``agent_state.expert_critic_params is None`` (i.e.
-    :class:`MCPretrain` hasn't run), which keeps a stack with only this
-    extension a no-op rather than an error.
-
-    The actor-loss call site folds every extension via
-    ``stack.actor_loss(...)``; this method reads ``pi_loc``,
-    ``a_expert``, ``observations`` and ``train_frac`` from ``batch``
-    (populated by :func:`policy_loss_function` in
-    ``ajax.agents.SAC.train_SAC`` with SAC's expert action).
+    A ``bc_coef · w(s) · ||μ_θ(s) - a_expert||²`` penalty
+    (:func:`compute_online_bc_loss`) that decays to zero once the training
+    fraction exceeds ``critic_warmup_frac``. It reads the actor's mean
+    action (``pi_mean``), the expert's action (``a_expert``, which SAC puts
+    in its actor-loss batch) and the observations from the batch, and the
+    frozen expert critic phi* with its value range
+    (``expert_critic_params``, ``expert_v_min``, ``expert_v_max``) and the
+    critic phi* is applied with from the agent's state, which
+    :class:`MCPretrain` fits (refused without it). It raises on a batch
+    without ``a_expert`` (an agent other than SAC); while SAC has no expert
+    action (``a_expert`` None), the term is 0.
     """
 
     bc_coef: float = 1.0
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def actor_loss(
         self,
@@ -126,36 +141,25 @@ class OnlineBC(Extension):
         batch: Any,
         ctx: ExtensionContext,
     ) -> Any:
-        del agent_state, ext_state, ctx
-        # ``policy_loss_function`` (in ``ajax.agents.SAC.train_SAC``) is what
-        # populates ``batch`` here. Every operand the legacy
-        # ``compute_online_bc_loss`` consumes is threaded through that
-        # dict so this method needs nothing off ``agent_state`` — see
-        # the Phase 2b commit notes on actor-loss plumbing.
-        expert_critic_params = batch.get("expert_critic_params", None)
-        a_expert = batch.get("a_expert", None)
-        train_frac = batch.get("train_frac", None)
-        # Mirror legacy ``bc_loss_fn is not None and
-        # expert_critic_params is not None`` gate: no-op when MC
-        # pre-training hasn't supplied φ*, or when ``critic_warmup_frac
-        # <= 0`` (the BC term would always be zero anyway).
-        if (
-            expert_critic_params is None
-            or a_expert is None
-            or train_frac is None
-            or self.critic_warmup_frac <= 0
-        ):
+        del ext_state
+        if "a_expert" not in batch:
+            raise ValueError(
+                "OnlineBC needs the expert's action ('a_expert') in the"
+                " actor-loss batch; only SAC provides it."
+            )
+        a_expert = batch["a_expert"]
+        if a_expert is None or self.critic_warmup_frac <= 0:
             return 0.0
         return compute_online_bc_loss(
-            batch["pi_loc"],
+            batch["pi_mean"],
             a_expert,
-            batch["critic_state"],
-            expert_critic_params,
+            agent_state.critic_state,
+            agent_state.expert_critic_params,
             batch["observations"],
-            train_frac,
+            ctx.step / ctx.total_steps,
             self.critic_warmup_frac,
-            batch["expert_v_min"],
-            batch["expert_v_max"],
+            agent_state.expert_v_min,
+            agent_state.expert_v_max,
             self.bc_coef,
         )
 
@@ -172,15 +176,18 @@ class ImitationLoss(Extension):
     actions in ``[-1, 1]`` to ``[0, 1]``. Unlike :class:`OnlineBC` the term
     is unweighted and needs no pre-trained expert critic.
 
-    It replaces the ``imitation_coef`` keyword TD3, REDQ, ASAC and APO used
-    to carry. Those agents put ``pi_mean`` and ``raw_observations`` in their
-    actor-loss batch; an agent whose batch has no ``pi_mean`` (SAC, or a
+    TD3, REDQ, ASAC, APO and SAC put ``pi_mean`` and ``raw_observations``
+    in their actor-loss batch; an agent whose batch has no ``pi_mean`` (a
     discrete-action policy) raises at trace time.
     """
 
     expert_policy: Callable
     coef: float = 1.0
     name: str = "imitation_loss"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+
+    def experts(self) -> tuple:
+        return (self.expert_policy,)  # called on each batch, without a state
 
     def actor_loss(
         self,
@@ -224,17 +231,9 @@ class ResidualPolicy(Extension):
     def build_policy_transform(
         self, expert_policy: Optional[Callable]
     ) -> Optional[Callable]:
-        """Build the actor-loss / TD-target residual transform.
-
-        Self-contained replacement for the legacy SAC-side
-        ``_build_residual_policy_transform`` helper. The actor-loss and
-        TD-target call sites still consume a thin
-        ``(actions, raw_obs, a_expert_precomputed) -> actions`` callable;
-        this method builds it off ``transform_action`` and ``expert_policy``.
-
-        Returns ``None`` when ``expert_policy`` is ``None`` — the
-        actor-loss / TD-target residual transform is deactivated then.
-        """
+        """The actor-loss / TD-target residual transform, ``(actions,
+        raw_obs, a_expert_precomputed) -> actions``; ``None`` (no residual
+        transform) without an ``expert_policy``."""
         if expert_policy is None:
             return None
 
@@ -251,14 +250,9 @@ class ResidualPolicy(Extension):
         return transform
 
     def build_eval_transform(self) -> Callable:
-        """Build the eval-time residual transform.
-
-        Self-contained replacement for the legacy SAC-side
-        ``_build_residual_policy_eval_transform`` helper. The
-        :func:`ajax.evaluate.step_environment` call site still consumes a
-        thin ``(raw, expert, obs, agent_state) -> actions`` callable;
-        this method builds it off ``transform_action``.
-        """
+        """The eval-time residual transform, ``(raw, expert, obs,
+        agent_state) -> actions``, as :func:`ajax.evaluate.step_environment`
+        calls it."""
         scale = self.scale
 
         def transform(raw_actions, expert_actions, obs, agent_state):
@@ -274,8 +268,7 @@ class JSRLCurriculum(Extension):
 
     While ``step_in_episode < H_t`` the expert acts; otherwise the
     learner does. ``H_t`` decays linearly from ``episode_length`` to 0
-    over the first ``decay_frac`` fraction of training. Equivalent to
-    ``jsrl_curriculum`` in ``train_SAC.py``.
+    over the first ``decay_frac`` fraction of training.
 
     The :meth:`action` phase owns the per-episode substitution. It reads
     ``post_warmup_action`` and ``expert_action`` off the SAC action
@@ -290,6 +283,7 @@ class JSRLCurriculum(Extension):
     decay_frac: float = 0.5
     name: str = "jsrl_curriculum"
     action_slot: ClassVar[str] = "pre_warmup"
+    reads_step_in_episode: ClassVar[bool] = True
 
     def action(
         self,
@@ -318,10 +312,10 @@ class JSRLCurriculum(Extension):
 
 
 __all__ = [
-    "OnlineBC",
     "ImitationLoss",
-    "ResidualPolicy",
     "JSRLCurriculum",
+    "OnlineBC",
+    "ResidualPolicy",
 ]
 
 
@@ -335,17 +329,17 @@ class ExpertValueMetrics(Extension):
     ``value/phi_star_q_gap_ood``, the mean ``|min_k Q_φ*(s, a_E) - min_k
     Q(s, a_E)|``.
 
-    SAC computed them on every update's batch, a critic pass of its own (two
-    with ``φ*``) per update for three logged numbers; here one replay batch
-    per evaluation pays for them. ``a_E`` is the expert's action stored at
-    collection. SAC with an ``expert_policy`` binds its replay buffer, its
-    expert and its observation augmentation.
+    One replay batch per evaluation pays for them, not a critic pass (two
+    with ``φ*``) per update for three logged numbers. ``a_E`` is the
+    expert's action stored at collection. SAC with an ``expert_policy``
+    binds its replay buffer, its expert and its observation augmentation.
     """
 
     buffer: Any = None
     expert_policy: Optional[Callable] = None
     augment_obs_with_expert_action: bool = False
     name: str = "expert_value_metrics"
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":
         if self.buffer is not None:
@@ -367,24 +361,23 @@ class ExpertValueMetrics(Extension):
     def eval_metrics(
         self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
     ) -> dict:
-        from ajax.buffers.utils import (
-            get_batch_from_buffer,
-            get_expert_fields_from_buffer,
-        )
+        from ajax.buffers.utils import get_batch_from_buffer
         from ajax.environments.interaction import augment_obs
 
         del ext_state, ctx
-        buffer_state = agent_state.collector_state.buffer_state
-        obs, *_, actions, _, _ = get_batch_from_buffer(self.buffer, buffer_state, rng)
+        batch = get_batch_from_buffer(
+            self.buffer, agent_state.collector_state.buffer_state, rng
+        )
+        obs, actions = batch.obs, batch.action
         # The expert's actions as collection stored them (from its state).
-        a_expert, _ = get_expert_fields_from_buffer(self.buffer, buffer_state, rng)
+        a_expert = batch.a_expert
         if self.augment_obs_with_expert_action:
             obs = augment_obs(obs, expert_action=a_expert)
         critic = agent_state.critic_state
 
-        def q_min(params: Any, a: jax.Array) -> jax.Array:
+        def q_min(params: Any, a: jax.Array, state: Any = critic) -> jax.Array:
             x = jnp.concatenate([obs, a], axis=-1)
-            return jnp.min(predict_value(critic, params, x), axis=0)
+            return jnp.min(predict_value(state, params, x), axis=0)
 
         q_expert = q_min(critic.params, a_expert)
         out = {
@@ -393,6 +386,7 @@ class ExpertValueMetrics(Extension):
         }
         phi_star = getattr(agent_state, "expert_critic_params", None)
         if phi_star is not None:
-            gap = jnp.abs(q_min(phi_star, a_expert) - q_expert).mean()
+            phi = q_min(phi_star, a_expert, phi_star_critic_state(critic))
+            gap = jnp.abs(phi - q_expert).mean()
             out["value/phi_star_q_gap_ood"] = gap
         return out

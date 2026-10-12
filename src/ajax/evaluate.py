@@ -1,11 +1,11 @@
-from typing import Any, Callable, Optional, TypeVar
+import dataclasses
+from typing import Any, Callable, NamedTuple, Optional, TypeVar
 
 import jax
 import jax.numpy as jnp
 from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
-from ajax.agents.SAC.utils import SquashedNormal
 from ajax.environments.interaction import (
     augment_obs,
     flatten_expert_state,
@@ -17,26 +17,77 @@ from ajax.environments.interaction import (
 from ajax.environments.row_collector import PolicyFn, check_unnormalized_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
+    ExpertInAgentUnits,
     agent_action_to_env,
     agent_episode_length,
-    check_env_is_gymnax,
     check_env_is_playground,
     check_if_environment_has_continuous_actions,
     env_action_repeat,
+    env_keys,
     get_env_type,
     get_raw_env,
+    maybe_append_train_frac,
 )
+from ajax.networks.distributions import SquashedNormal
+from ajax.networks.memory import tree_where_reset
 from ajax.state import EnvironmentConfig
+from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo
 
 T = TypeVar("T")  # generic type for pytrees
+
+#: The steps the average-reward mode rolls out (the episodes restart).
+_AVERAGE_REWARD_STEPS = 10_000
+
+
+@dataclasses.dataclass(frozen=True)
+class ValueEstimate:
+    """An agent's critic, read for the value bias :func:`evaluate` returns:
+    ``value(agent_state, obs, action)`` is its estimate (one per env) of the
+    return from ``obs`` taking ``action``, of the rewards times
+    ``reward_scale`` discounted by ``gamma``, as its targets are."""
+
+    value: Callable[[Any, jax.Array, jax.Array], jax.Array]
+    gamma: float
+    reward_scale: float = 1.0
+
+
+def normalised_reward(x: jax.Array, norm_info: Optional[Any]) -> jax.Array:
+    """``x``, a reward or a sum of rewards in the env's units, in the
+    agent's: divided by the scale the training env's reward normaliser
+    holds (``norm_info.reward``, frozen), as collection divides each
+    reward; unchanged without one."""
+    stats = getattr(norm_info, "reward", None)
+    if stats is None:
+        return x
+    return online_normalize(
+        x, stats.count, stats.mean, stats.mean_2, train=False, shift=False
+    )[0]
+
+
+def _value_bias(
+    values: jax.Array, rewards: jax.Array, running: jax.Array, gamma: float
+) -> jax.Array:
+    """The mean over the evaluated steps (``running``; each ``(steps,
+    envs)``) of the value estimate minus the return realised from the step:
+    its reward and the later ones, discounted by ``gamma``, to the episode's
+    end."""
+
+    def back(later: jax.Array, step: tuple) -> tuple[jax.Array, jax.Array]:
+        reward, run = step
+        realised = run * (reward + gamma * later)
+        return realised, realised
+
+    _, realised = jax.lax.scan(
+        back, jnp.zeros_like(rewards[0]), (rewards, running), reverse=True
+    )
+    return jnp.sum(running * (values - realised)) / jnp.maximum(running.sum(), 1.0)
 
 
 def repeat_first_entry(tree: T, num_repeats: int) -> T:
     return jax.tree.map(
         lambda x: jnp.broadcast_to(x[0], (num_repeats, *x.shape[1:])), tree
     )
-    return jax.tree.map(lambda x: jnp.repeat(x[0:1], repeats=num_repeats, axis=0), tree)
 
 
 def setup_environment(
@@ -61,9 +112,9 @@ def setup_environment(
 
     brax / playground tasks are rebuilt from their id with ``num_episodes``
     parallel envs. ``episode_length`` (simulator steps) and
-    ``action_repeat`` are the training env's; the defaults (``None`` -> the
-    env's native episode length, falling back to 1000; repeat 1) are the
-    historical behaviour. gymnax envs do not support ``action_repeat > 1``.
+    ``action_repeat`` are the training env's; the defaults are ``None`` ->
+    the env's native episode length, falling back to 1000, and repeat 1.
+    gymnax envs do not support ``action_repeat > 1``.
     """
     from ajax.environments.create import (
         _build_brax_env,
@@ -73,7 +124,7 @@ def setup_environment(
     )
 
     env, layers = strip_ajax_wrappers(env)
-    mode = "gymnax" if check_env_is_gymnax(env) else "brax"
+    mode = get_env_type(env)
     continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     if mode == "brax":
@@ -81,20 +132,16 @@ def setup_environment(
         if ajax_env_id is None:
             raw = get_raw_env(env)
             ajax_env_id = type(raw).__name__.lower()
-        # Use the env's NATIVE episode_length where possible. Hardcoding
-        # 1000 means eval episodes run up to 1000 steps even when the
-        # env's own truncation is 150 (mujoco_playground manip) -- a
-        # silent eval/train mismatch in episode-budget semantics.
-        # Prefer the underlying env's ``_config.episode_length`` when
-        # exposed (the playground/_make_panda_builder convention); fall
-        # back to 1000 for envs without that attribute.
+        # The env's native episode length (``_config.episode_length``, the
+        # playground convention, found by peeling our wrappers), else 1000.
+        # A fixed 1000 would run eval episodes past the env's own
+        # truncation (150 on mujoco_playground manip), a silent eval/train
+        # mismatch in episode budget.
         _native_ep = getattr(
             getattr(env, "_config", None),
             "episode_length",
             None,
         )
-        # Walk inward to find the original mujoco_playground env
-        # (peeling our wrapper stack).
         _inner = env
         while _native_ep is None and _inner is not None:
             _inner = getattr(_inner, "env", None)
@@ -174,6 +221,58 @@ def _expert_obs(state, env, mode) -> jax.Array:
     return get_raw_obs(env_state=state, env=env, mode=mode).astype(jnp.float32)
 
 
+class _EvalCarry(NamedTuple):
+    """The evaluation scan's carry; per env unless noted."""
+
+    rewards: jax.Array  # the return, accumulated until the env's first done
+    rng: jax.Array
+    obs: jax.Array
+    done: jax.Array  # int8: the env's first done has come
+    state: Any  # the env's
+    entropy_sum: jax.Array  # (1,): summed over steps, meaned over running envs
+    step_count: jax.Array  # (1,): the mean episode length so far
+    last_reward: jax.Array  # this step's reward (the average-reward mode's)
+    value: jax.Array  # this step's value estimate (the value bias's); else 0
+    expert_state: Any  # a stateful expert's; a dummy otherwise
+    actor_hidden: Any  # the actor's memory; a dummy when feedforward
+    command: Any  # a command-conditioned actor's command; a dummy otherwise
+
+
+def _init_eval_carry(
+    num_episodes: int, key, obs, state, expert_state, actor_hidden=None, command=None
+) -> _EvalCarry:
+    return _EvalCarry(
+        rewards=jnp.zeros(num_episodes),
+        rng=key,
+        obs=obs,
+        done=jnp.zeros(num_episodes, dtype=jnp.int8),
+        state=state,
+        entropy_sum=jnp.zeros(1),
+        step_count=jnp.zeros(1),
+        last_reward=jnp.zeros(num_episodes),
+        value=jnp.zeros(num_episodes),
+        expert_state=expert_state,
+        actor_hidden=jnp.zeros((1,)) if actor_hidden is None else actor_hidden,
+        command=jnp.zeros((1,)) if command is None else command,
+    )
+
+
+def _init_expert_state(expert_policy, num_episodes: int):
+    """A stateful expert's (one with ``init_state``) initial state; a dummy
+    without one."""
+    if hasattr(expert_policy, "init_state"):
+        return expert_policy.init_state(num_episodes)
+    return jnp.zeros((1,))
+
+
+def _call_expert(expert_policy, expert_state, expert_obs):
+    """``(action, state)``: a stateful expert called as ``expert_policy(state,
+    obs)``, a stateless one as ``expert_policy(obs)``, its state kept."""
+    if hasattr(expert_policy, "init_state"):
+        return expert_policy(expert_state, expert_obs)
+    return expert_policy(expert_obs), expert_state
+
+
 def step_environment(
     mode,
     env,
@@ -188,11 +287,15 @@ def step_environment(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
+    value_estimate: Optional[ValueEstimate] = None,
+    command: Optional[Any] = None,
+    norm_info: Optional[Any] = None,
 ):
-    """Return a pure function for environment stepping.
+    """Return a pure function stepping the evaluation (an :class:`_EvalCarry`).
 
-    Carry is a 10-tuple; the last slot holds the expert's internal state
-    (e.g. PID integrator). For stateless experts it's an unused dummy.
+    The expert acts in agent units (:class:`ExpertInAgentUnits`), as every
+    action here; the executed one is mapped onto the env's bounds
+    (:func:`agent_action_to_env`), as in collection.
 
     pid_gain_policy: when True, the actor output is interpreted as PID gain
     modulation: env_action = expert.step_with_gains(state, obs, anchor*exp(ln10*a)).
@@ -201,6 +304,15 @@ def step_environment(
     [env_obs, expert_action] as input. The expert is queried statefully
     (matching training) so the policy sees the same augmented obs at eval
     that it saw during training.
+
+    value_estimate: the critic's estimate at the actor's input and the
+    action collection stores, each step: the executed action in agent units,
+    the actor's (the gains') under ``pid_gain_policy``.
+
+    command: a command-conditioned actor's (see :func:`evaluate`): the
+    actor reads ``command.actor_input(obs, c)``, and each step's reward, in
+    the agent's units (``norm_info``, :func:`normalised_reward`), and end
+    update ``c``.
     """
 
     expert_is_stateful = expert_policy is not None and hasattr(
@@ -214,24 +326,11 @@ def step_environment(
         _anchor_gains = expert_policy.anchor_gains
         _gain_log_scale = jnp.log(10.0)
 
-    def fn(carry):
-        (
-            rewards,
-            rng,
-            obs,
-            done,
-            state,
-            entropy_sum,
-            step_count,
-            step_count_2,
-            _,
-            expert_state,
-            actor_hidden,
-        ) = carry
-        rng, step_key = jax.random.split(rng)
-        step_keys = (
-            jax.random.split(step_key, obs.shape[0]) if mode == "gymnax" else step_key
-        )
+    def fn(carry: _EvalCarry) -> _EvalCarry:
+        obs, done, state = carry.obs, carry.done, carry.state
+        expert_state = carry.expert_state
+        rng, step_key = jax.random.split(carry.rng)
+        step_keys = env_keys(step_key, mode, obs.shape[0])
         # The expert acts on the environment's own observations, as in
         # collection: not normalised, without the training-fraction column.
         expert_obs = (
@@ -247,17 +346,12 @@ def step_environment(
         # expert_state-only augmentation eval keeps expert_state frozen
         # at zeros while training saw an evolving integrator, causing a
         # silent train/eval distribution mismatch.
-        _need_expert_call = (
+        if (
             augment_obs_with_expert_action or augment_obs_with_expert_state
-        ) and expert_policy is not None
-        if _need_expert_call:
-            if expert_is_stateful:
-                _aug_expert_action, _aug_new_expert_state = expert_policy(
-                    expert_state, expert_obs
-                )
-            else:
-                _aug_expert_action = expert_policy(expert_obs)
-                _aug_new_expert_state = expert_state
+        ) and expert_policy is not None:
+            _aug_expert_action, _aug_new_expert_state = _call_expert(
+                expert_policy, expert_state, expert_obs
+            )
         else:
             _aug_expert_action, _aug_new_expert_state = None, None
 
@@ -274,11 +368,13 @@ def step_environment(
             ),
             _aug_expert_action if augment_obs_with_expert_action else None,
         )
+        if command is not None:
+            obs_for_actor = command.actor_input(obs_for_actor, carry.command)
 
         raw_actions, entropy, new_actor_hidden = (
-            get_deterministic_action_and_entropy_fn(
-                actor_state, recurrent, continuous
-            )(obs_for_actor, done if recurrent else None, actor_hidden)
+            get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous)(
+                obs_for_actor, done if recurrent else None, carry.actor_hidden
+            )
         )
 
         if pid_gain_policy:
@@ -288,13 +384,9 @@ def step_environment(
             )
         elif eval_action_transform is not None:
             if expert_policy is not None:
-                if expert_is_stateful:
-                    expert_actions, new_expert_state = expert_policy(
-                        expert_state, expert_obs
-                    )
-                else:
-                    expert_actions = expert_policy(expert_obs)
-                    new_expert_state = expert_state
+                expert_actions, new_expert_state = _call_expert(
+                    expert_policy, expert_state, expert_obs
+                )
             else:
                 expert_actions = 0.0
                 new_expert_state = expert_state
@@ -307,57 +399,55 @@ def step_environment(
             # use that updated state so the next step's augmented obs has
             # the correct PID integral; otherwise keep the carry as-is.
             new_expert_state = (
-                _aug_new_expert_state
-                if (
-                    (augment_obs_with_expert_action or augment_obs_with_expert_state)
-                    and _aug_new_expert_state is not None
-                )
-                else expert_state
+                expert_state if _aug_new_expert_state is None else _aug_new_expert_state
             )
+        value = (
+            carry.value
+            if value_estimate is None
+            else value_estimate.value(
+                agent_state,
+                obs_for_actor,
+                raw_actions if pid_gain_policy else actions,
+            )
+        )
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
-            actions,
+            agent_action_to_env(actions, env, env_params),
             env,
             mode,
             env_params,
         )
-        if train_frac is not None:
-            new_col = jnp.full((obs.shape[0], 1), train_frac)
-            obs = jnp.concatenate([obs, new_col], axis=-1)
+        obs = maybe_append_train_frac(obs, train_frac)
 
         new_done = jnp.logical_or(new_term, new_trunc)
         still_running = 1 - done
+        new_command = carry.command
+        if command is not None:
+            new_command = command.update(
+                carry.command, normalised_reward(new_rewards, norm_info), new_done
+            )
 
         # Reset the expert's internal state per-env when the episode just ended
         # (autoreset produces the fresh first obs of the next episode).
         if expert_is_stateful:
-            zero_state = expert_policy.init_state(obs.shape[0])
-            reset_mask = jnp.logical_or(new_term, new_trunc).astype(jnp.bool_)
-            new_expert_state = jax.tree.map(
-                lambda cur, zero: jnp.where(
-                    reset_mask.reshape(
-                        reset_mask.shape + (1,) * (cur.ndim - reset_mask.ndim)
-                    ),
-                    zero,
-                    cur,
-                ),
-                new_expert_state,
-                zero_state,
+            new_expert_state = tree_where_reset(
+                new_done, expert_policy.init_state(obs.shape[0]), new_expert_state
             )
 
-        return (
-            rewards + new_rewards * still_running,
-            rng,
-            obs,
-            done | new_done,
-            new_state,
-            entropy_sum + (entropy.mean() * still_running).mean(),
-            step_count + still_running.mean(),
-            step_count_2 + 1,
-            new_rewards,
-            new_expert_state,
-            new_actor_hidden,
+        return _EvalCarry(
+            rewards=carry.rewards + new_rewards * still_running,
+            rng=rng,
+            obs=obs,
+            done=done | new_done,
+            state=new_state,
+            entropy_sum=carry.entropy_sum + (entropy.mean() * still_running).mean(),
+            step_count=carry.step_count + still_running.mean(),
+            last_reward=new_rewards,
+            value=value,
+            expert_state=new_expert_state,
+            actor_hidden=new_actor_hidden,
+            command=new_command,
         )
 
     return fn
@@ -367,52 +457,40 @@ def step_environment_expert(mode, env, env_params, expert_policy):
     """Step function for the expert's own rollout, called as the agent's
     rollout calls it (:func:`step_environment`): a stateful expert (one with
     ``init_state``) as ``expert_policy(state, obs) -> (action, state)``, a
-    stateless one as ``expert_policy(obs) -> action``."""
-    expert_is_stateful = hasattr(expert_policy, "init_state")
+    stateless one as ``expert_policy(obs) -> action``, in agent units and
+    mapped onto the env's bounds."""
 
-    def fn(carry):
-        (
-            rewards,
-            rng,
-            obs,
-            done,
-            state,
-            entropy_sum,
-            step_count,
-            step_count_2,
-            _,
-            expert_state,
-            actor_hidden,  # unused by the expert; passed through
-        ) = carry
-        rng, step_key = jax.random.split(rng)
+    def fn(carry: _EvalCarry) -> _EvalCarry:
+        rng, step_key = jax.random.split(carry.rng)
         step_keys = (
-            jax.random.split(step_key, obs.shape[0])
-            if mode == "gymnax" and obs.ndim > 1
+            jax.random.split(step_key, carry.obs.shape[0])
+            if mode == "gymnax" and carry.obs.ndim > 1
             else step_key
         )
 
-        expert_obs = _expert_obs(state, env, mode)  # as in step_environment
-        if expert_is_stateful:
-            actions, new_expert_state = expert_policy(expert_state, expert_obs)
-        else:
-            actions, new_expert_state = expert_policy(expert_obs), expert_state
+        expert_obs = _expert_obs(carry.state, env, mode)  # as in step_environment
+        actions, new_expert_state = _call_expert(
+            expert_policy, carry.expert_state, expert_obs
+        )
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
-            step_keys, state, actions, env, mode, env_params
+            step_keys,
+            carry.state,
+            agent_action_to_env(actions, env, env_params),
+            env,
+            mode,
+            env_params,
         )
         new_done = jnp.logical_or(new_term, new_trunc)
-        still_running = 1 - done
-        return (
-            rewards + new_rewards * still_running,
-            rng,
-            obs,
-            done | new_done,
-            new_state,
-            entropy_sum,
-            step_count + still_running.mean(),
-            step_count_2 + 1,
-            new_rewards,
-            new_expert_state,
-            actor_hidden,
+        still_running = 1 - carry.done
+        return carry._replace(
+            rewards=carry.rewards + new_rewards * still_running,
+            rng=rng,
+            obs=obs,
+            done=carry.done | new_done,
+            state=new_state,
+            step_count=carry.step_count + still_running.mean(),
+            last_reward=new_rewards,
+            expert_state=new_expert_state,
         )
 
     return fn
@@ -456,12 +534,15 @@ def _reset_eval_env(env, env_params, num_episodes, norm_info, rng, gamma=0.99):
             else None
         ),
     )
-    key, reset_key = jax.random.split(rng, 2)
-    reset_keys = (
-        jax.random.split(reset_key, num_episodes) if mode == "gymnax" else reset_key
-    )
-    obs, state = reset(reset_keys, env, mode, env_params)
-    return env, mode, continuous, key, obs, state
+    return env, mode, continuous, *_reset_envs(env, mode, env_params, num_episodes, rng)
+
+
+def _reset_envs(env, mode, env_params, num_episodes, rng):
+    """``(key, obs, state)``: the ``num_episodes`` envs reset from one half
+    of ``rng`` (split per env on gymnax), ``key`` the other, the rollout's."""
+    key, reset_key = jax.random.split(rng)
+    reset_keys = env_keys(reset_key, mode, num_episodes)
+    return (key, *reset(reset_keys, env, mode, env_params))
 
 
 def _expert_return(
@@ -470,65 +551,14 @@ def _expert_return(
     """The expert's mean return over ``num_episodes`` episodes from the
     reset ``(obs, state)``, ``length`` steps, each env's after its first
     ``done`` masked."""
-    expert_state = (
-        expert_policy.init_state(num_episodes)
-        if hasattr(expert_policy, "init_state")
-        else jnp.zeros((1,))  # dummy; unused when the expert is stateless
-    )
-    carry = (
-        jnp.zeros(num_episodes),  # rewards
-        key,
-        obs,
-        jnp.zeros(num_episodes, dtype=jnp.int8),  # done
-        state,
-        jnp.zeros(1),  # entropy_sum
-        jnp.zeros(1),  # step_count
-        jnp.zeros(1),  # step_count_2
-        jnp.zeros(num_episodes),  # last reward
-        expert_state,
-        jnp.zeros((1,)),  # actor memory: none
+    carry = _init_eval_carry(
+        num_episodes, key, obs, state, _init_expert_state(expert_policy, num_episodes)
     )
     step_fn = step_environment_expert(mode, env, env_params, expert_policy)
     final, _ = jax.lax.scan(
         lambda carry, _: (step_fn(carry), None), carry, None, length=length
     )
-    return jnp.nanmean(final[0])
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        "env",
-        "num_episodes",
-        "env_params",
-        "expert_policy",
-        "max_eval_steps",
-    ],
-)
-def evaluate_expert(
-    env,
-    num_episodes: int,
-    rng: jax.Array,
-    env_params: Optional[EnvParams],
-    expert_policy: Callable,
-    norm_info: Optional[NormalizationInfo] = None,
-    max_eval_steps: Optional[int] = None,
-) -> jax.Array:
-    """The expert's return that :func:`evaluate` reports for the same
-    arguments: the same episodes from the same reset. Its ``expert_return``
-    takes it, computed once for evaluations that share a key and
-    ``norm_info`` instead of at each one."""
-    env, mode, _, key, obs, state = _reset_eval_env(
-        env, env_params, num_episodes, norm_info, rng
-    )
-    length = (
-        int(max_eval_steps)
-        if max_eval_steps is not None
-        else _infer_max_eval_steps(env, env_params)
-    )
-    return _expert_return(
-        mode, env, env_params, expert_policy, key, obs, state, num_episodes, length
-    )
+    return jnp.nanmean(final.rewards)
 
 
 @partial(
@@ -546,6 +576,8 @@ def evaluate_expert(
         "augment_obs_with_expert_action",
         "augment_obs_with_expert_state",
         "eval_expert_policy",
+        "value_estimate",
+        "command",
     ],
 )
 def evaluate(
@@ -558,7 +590,6 @@ def evaluate(
     gamma: float = 0.99,
     norm_info: Optional[NormalizationInfo] = None,
     avg_reward_mode: bool = False,
-    num_steps_average_reward: int = int(1e4),
     expert_policy: Optional[Callable] = None,
     train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
@@ -567,65 +598,62 @@ def evaluate(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
-    expert_return: Optional[jax.Array] = None,
     eval_expert_policy: Optional[Callable] = None,
-) -> jax.Array:
+    value_estimate: Optional[ValueEstimate] = None,
+    command: Optional[Any] = None,
+) -> tuple[jax.Array | float, ...]:
     """Evaluate the actor's deterministic policy on ``num_episodes``
     episodes; with ``expert_policy`` (the training expert, which builds the
     actor's input) the expert's return too, that of ``eval_expert_policy``
-    when given, rolled out here unless already known (``expert_return``,
-    from :func:`evaluate_expert`)."""
+    when given, on the same episodes (the same reset and key). The experts
+    speak env units: they are read in agent units here
+    (:class:`ExpertInAgentUnits`; an agent's are already).
+
+    ``command`` evaluates a command-conditioned actor (UDRL's desired
+    return and horizon): ``command.initial(agent_state, num_episodes)`` is
+    each episode's first command, the actor reads ``command.actor_input(obs,
+    c)``, and ``command.update(c, reward, done)`` follows each step, the
+    reward in the agent's units, normalised as in training: the units of
+    its targets.
+
+    Returns the mean return, entropy, average reward (``avg_reward_mode``),
+    value bias (``value_estimate``), episode length and expert's return,
+    each NaN without what it needs. The value bias is the mean over the
+    evaluated steps of the critic's estimate (:class:`ValueEstimate`) minus
+    the discounted return realised from the step, in the critic's units:
+    the rewards normalised as in training (:func:`normalised_reward`) and
+    scaled. A recurrent critic's memory is not run here: NaN then.
+    """
+    expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
+    eval_expert_policy = ExpertInAgentUnits.wrap(eval_expert_policy, env, env_params)
     env, mode, continuous, key, obs, state = _reset_eval_env(
         env, env_params, num_episodes, norm_info, rng, gamma
     )
-    if train_frac is not None:
-        new_col = jnp.full((obs.shape[0], 1), train_frac)
-        obs_agent = jnp.concatenate([obs, new_col], axis=-1)
-    else:
-        obs_agent = obs
-
-    # Initial carry
-    _expert_is_stateful = expert_policy is not None and hasattr(
-        expert_policy, "init_state"
-    )
-    if _expert_is_stateful:
-        assert expert_policy is not None
-        _init_agent_expert_state = expert_policy.init_state(num_episodes)
-    else:
-        _init_agent_expert_state = jnp.zeros(
-            (1,)
-        )  # dummy; unused when expert is stateless
     # Fresh actor memory for evaluation: same structure as the live carry,
     # but batch-sized to num_episodes and zeroed (every supported memory
     # cell has a zero initial carry). Without this the eval loop would
     # reuse the training envs' carry, whose batch size doesn't even match.
+    actor_hidden = None  # feedforward: a dummy slot
     if (
         recurrent
         and actor_state is not None
         and getattr(actor_state, "hidden_state", None) is not None
     ):
-        _init_actor_hidden = jax.tree.map(
+        actor_hidden = jax.tree.map(
             lambda x: jnp.zeros((num_episodes,) + x.shape[1:], x.dtype),
             actor_state.hidden_state,
         )
-    else:
-        _init_actor_hidden = jnp.zeros((1,))  # dummy; unused when feedforward
 
-    init_carry_agent = (
-        jnp.zeros(num_episodes),  # rewards
+    init_carry_agent = _init_eval_carry(
+        num_episodes,
         key,
-        obs_agent,
-        jnp.zeros(num_episodes, dtype=jnp.int8),  # done
+        maybe_append_train_frac(obs, train_frac),
         state,
-        jnp.zeros(1),  # entropy_sum
-        jnp.zeros(1),  # step_count
-        jnp.zeros(1),  # step_count_2
-        jnp.zeros(num_episodes),  # last reward
-        _init_agent_expert_state,  # expert_state (used only for stateful experts)
-        _init_actor_hidden,  # actor memory (used only when recurrent)
+        _init_expert_state(expert_policy, num_episodes),
+        actor_hidden,
+        None if command is None else command.initial(agent_state, num_episodes),
     )
 
-    # Choose step function
     step_fn = step_environment(
         mode,
         env,
@@ -640,6 +668,9 @@ def evaluate(
         pid_gain_policy=pid_gain_policy,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
         augment_obs_with_expert_state=augment_obs_with_expert_state,
+        value_estimate=None if recurrent else value_estimate,
+        command=command,
+        norm_info=norm_info,
     )
 
     # Main loop. We use `scan` with a fixed length rather than `while_loop`
@@ -655,18 +686,27 @@ def evaluate(
     )
 
     def _scan_body(carry, _):
-        return step_fn(carry), None
+        stepped = step_fn(carry)
+        evaluated = (1 - carry.done).astype(jnp.float32)
+        return stepped, (stepped.value, stepped.last_reward, evaluated)
 
-    final_carry, _ = jax.lax.scan(
+    final_carry, (values, step_rewards, evaluated) = jax.lax.scan(
         _scan_body, init_carry_agent, None, length=steps_bound
     )
-    rewards, _, _, _, _, entropy_sum, step_count, step_count_2, _, _, _ = final_carry
+    rewards, step_count = final_carry.rewards, final_carry.step_count
 
-    # Optionally compute expert comparison
-    expert_reward = jnp.nan
-    if expert_return is not None:
-        expert_reward = expert_return
-    elif expert_policy is not None or eval_expert_policy is not None:
+    bias: jax.Array | float = jnp.nan
+    if value_estimate is not None and not recurrent:
+        scale = value_estimate.reward_scale
+        bias = _value_bias(
+            values,
+            scale * normalised_reward(step_rewards, norm_info),
+            evaluated,
+            value_estimate.gamma,
+        )
+
+    expert_reward: jax.Array | float = jnp.nan
+    if expert_policy is not None or eval_expert_policy is not None:
         expert_reward = _expert_return(
             mode,
             env,
@@ -679,27 +719,25 @@ def evaluate(
             steps_bound,
         )
 
-    # Optional average-reward mode
-    avg_reward, bias = jnp.nan, jnp.nan
+    avg_reward = jnp.nan
     if avg_reward_mode:
 
         def scan_step(carry, _):
             carry = step_fn(carry)
-            return carry, carry[8]  # per-step reward slot
+            return carry, carry.last_reward
 
         _, rewards_over_time = jax.lax.scan(
-            scan_step, init_carry_agent, None, length=num_steps_average_reward
+            scan_step, init_carry_agent, None, length=_AVERAGE_REWARD_STEPS
         )
         avg_reward = rewards_over_time.mean(axis=0)
-        bias = jnp.nansum(rewards_over_time - avg_reward, axis=0)
 
-    avg_entropy = entropy_sum / jnp.maximum(step_count, 1.0)
+    avg_entropy = final_carry.entropy_sum / jnp.maximum(step_count, 1.0)
 
     return (
         rewards.mean(axis=-1),
         avg_entropy.mean(axis=-1),
         jnp.nanmean(avg_reward),
-        jnp.nanmean(bias),
+        jnp.asarray(bias, jnp.float32),
         step_count.mean(),
         expert_reward,
     )
@@ -762,18 +800,14 @@ def evaluate_policy(
     )
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
 
-    def env_keys(key):
-        return jax.random.split(key, num_episodes) if mode == "gymnax" else key
-
-    key, reset_key = jax.random.split(key)
-    obs, env_state = reset(env_keys(reset_key), env, mode, env_params)
+    key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
 
     def body(carry, _):
         obs, env_state, policy_carry, is_first, done, ret, length, key = carry
         key, policy_key, step_key = jax.random.split(key, 3)
         action, policy_carry, _ = policy_fn(policy_carry, obs, is_first, policy_key)
         obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(step_key),
+            env_keys(step_key, mode, num_episodes),
             env_state,
             agent_action_to_env(action, env, env_params),
             env,

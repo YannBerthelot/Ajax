@@ -1,15 +1,15 @@
 from collections.abc import Sequence
-from functools import partial
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType
 
 
@@ -24,6 +24,7 @@ class PQN(ActorCritic):
 
     name: str = "PQN"
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -50,18 +51,20 @@ class PQN(ActorCritic):
         # TD loss: None -> MSE. Pass make_huber_td_loss(delta) for Huber.
         td_loss_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
-        # --- New surface: composable research features as Extensions ---
+        cnn_spec: Optional[CNNSpec] = None,
         extensions: Sequence[Extension] = (),
-        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "PQN"})
+        self.config = run_config(locals(), self.name)
 
         # PQN has a single Q-network; forward `architecture`/`learning_rate`
         # to both actor/critic slots of the base class.
@@ -80,6 +83,8 @@ class PQN(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -91,7 +96,7 @@ class PQN(ActorCritic):
                 f" rows must be divisible by num_minibatches ({num_minibatches})."
             )
 
-        self.agent_config = PQNConfig(
+        self.agent_config: PQNConfig = PQNConfig(
             gamma=gamma,
             q_lambda=q_lambda,
             n_steps=n_steps,
@@ -100,17 +105,9 @@ class PQN(ActorCritic):
             reward_scale=reward_scale,
             expose_recent_rollout=expose_recent_rollout,
         )
-        self.epsilon_start = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay_frac = epsilon_decay_frac
-        self.td_loss_fn = td_loss_fn
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            epsilon_start=self.epsilon_start,
-            epsilon_end=self.epsilon_end,
-            epsilon_decay_frac=self.epsilon_decay_frac,
-            td_loss_fn=self.td_loss_fn,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "epsilon_start": epsilon_start,
+            "epsilon_end": epsilon_end,
+            "epsilon_decay_frac": epsilon_decay_frac,
+            "td_loss_fn": td_loss_fn,
+        }

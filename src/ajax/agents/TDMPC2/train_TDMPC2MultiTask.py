@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
@@ -100,7 +100,7 @@ def update_step(
     *,
     config: TDMPC2Config,
     tasks: TaskSet,
-    extension_stack: Optional[ExtensionStack],
+    extension_stack: ExtensionStack,
     total_timesteps: int,
 ) -> TDMPC2MultiTaskState:
     """One ``agent.update(buffer)`` on a fresh batch with fresh noise, then
@@ -145,7 +145,7 @@ def make_init(
     """
     extension_stack = ExtensionStack(extensions)
 
-    def init_tdmpc2(key: jax.Array, _pretrain_key: jax.Array) -> TDMPC2MultiTaskState:
+    def init_tdmpc2(key: jax.Array) -> TDMPC2MultiTaskState:
         return init_TDMPC2MultiTask(
             key,
             config,
@@ -240,11 +240,12 @@ def evaluate_task(
     task's own env (``env_args``, its training action repeat and episode
     length) with the planner in ``eval_mode``, ``t0`` on each episode's
     first step and a zero warm start (:func:`multitask.task_planner_policy`:
-    padded observations, the task's prefix of the padded action). The
-    episodes start from fresh initial states, ``key`` being folded with the
-    number of evaluations so far and the task id.
+    padded observations, the task's prefix of the padded action). ``key``,
+    fresh at each evaluation (:func:`ajax.log.evaluation_keys`), is folded
+    with the task id: each task's episodes start from their own initial
+    states.
     """
-    key = jax.random.fold_in(jax.random.fold_in(key, agent_state.n_logs), task)
+    key = jax.random.fold_in(key, task)
     policy = partial(
         multitask.task_planner_policy,
         wm_params=agent_state.world_model_state.params,
@@ -263,11 +264,11 @@ def evaluate_task(
     )
 
 
-def train_metrics(agent_state: TDMPC2MultiTaskState) -> dict[str, jax.Array]:
+def train_metrics(agent_state: TDMPC2MultiTaskState) -> dict[str, Any]:
     """The update count (the run's clock, ``timestep``) and the last update's
     quantities (``offline_trainer.py:78-84``: ``iteration`` and
     ``train_metrics``)."""
-    metrics = {
+    metrics: dict[str, Any] = {
         "timestep": agent_state.n_updates,
         "Train/n_updates": agent_state.n_updates,
     }

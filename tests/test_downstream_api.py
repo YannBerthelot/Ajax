@@ -41,7 +41,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     ),
     "ajax:PPO": ("env_id", "env_params", "n_envs"),
     "ajax:SAC": (
-        "action_scale",
         "actor_architecture",
         "actor_learning_rate",
         "alpha_init",
@@ -175,7 +174,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     ),
     "ajax.networks.memory:init_carry": (),
     "ajax.networks.memory:zeros_carry_like": (),
-    "ajax.plane.plane_exps_utils:get_mode": (),
     "ajax.schedule:warmup_cosine_schedule": (),
     "ajax.wrappers:AutoResetWrapper": (),
     "ajax.wrappers:FinalObsWrapper": (),
@@ -186,13 +184,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
 # Callables whose ``**kwargs`` go to another public callable: the downstream
 # keywords are checked against that callable's signature.
 KWARGS_FORWARDED_TO = {"ajax:APG.contextual_controller": "ajax:APG"}
-
-# Callables that read downstream keywords out of ``**kwargs`` by name. A
-# signature cannot pin those keywords, only that ``**kwargs`` is still taken
-# (making them explicit parameters would let this test pin them).
-KWARGS_READ_BY_NAME = {
-    "ajax.environments.create:build_env_from_id": ("episode_length",)
-}
 
 
 def _resolve(target: str):
@@ -207,7 +198,9 @@ def _keyword_names(obj) -> set[str]:
     """Keyword parameters ``obj`` accepts, following ``**kwargs`` up the MRO."""
     callables = [obj]
     if isinstance(obj, type):
-        callables += [b.__init__ for b in obj.__mro__[1:] if "__init__" in vars(b)]
+        callables += [
+            vars(b)["__init__"] for b in obj.__mro__[1:] if "__init__" in vars(b)
+        ]
     names: set[str] = set()
     for fn in callables:
         params = inspect.signature(fn).parameters.values()
@@ -233,8 +226,5 @@ def test_downstream_symbol_and_keywords_exist(target):
     if target in KWARGS_FORWARDED_TO:
         assert _takes_var_keyword(obj)
         accepted |= _keyword_names(_resolve(KWARGS_FORWARDED_TO[target]))
-    if target in KWARGS_READ_BY_NAME:
-        assert _takes_var_keyword(obj)
-        accepted |= set(KWARGS_READ_BY_NAME[target])
     missing = set(DOWNSTREAM_API[target]) - accepted
     assert not missing, f"{target} no longer accepts {sorted(missing)}"

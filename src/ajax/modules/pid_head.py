@@ -39,13 +39,13 @@ def init_pid_carry(batch_size: int, n_outputs: int) -> PIDCarry:
 class PIDOutputHead(nn.Module):
     """Learnable PID on a time-major signal ``z``; see the module docstring.
 
-    Args:
+    Attributes:
         n_outputs: signal width ``n`` (one gain triple per channel; the
             paper's single-input case is ``n_outputs=1``).
-        use_p / use_i / use_d: enable each term; a disabled term has no
+        use_p: enable the proportional term; a disabled term has no
             parameter. With only ``use_p`` and ``kp_init=1`` the head is
-            the identity at initialisation.
-        kp_init / ki_init / kd_init: initial gains.
+            the identity at initialisation. ``use_i`` and ``use_d`` likewise
+            enable the integral and derivative terms.
         anti_windup: pre-squash output magnitude beyond which the integral
             stops accumulating in the saturating direction (conditional
             integration, the textbook anti-windup). ``None`` disables it.

@@ -14,21 +14,17 @@ from ajax.extensions.target_mods import IBRL, CriticBlend, LCBGatedBootstrap
 
 
 class _RecordingExpert:
-    """A Pendulum expert recording every observation batch it is given; its
-    action reads the last column, the angular velocity (raw in [-8, 8]).
-    Callable stateless, ``expert(obs)``, and stateful, ``expert(state, obs)``."""
+    """A stateless Pendulum expert recording every observation batch it is
+    given; its action reads the last column, the angular velocity (raw in
+    [-8, 8]). Stateless: an extension calls an expert of its own (not the
+    agent's) without a state, and refuses a stateful one."""
 
     def __init__(self) -> None:
         self.seen: list[np.ndarray] = []
 
-    def init_state(self, n_envs: int) -> jax.Array:
-        return jnp.zeros((n_envs, 1))
-
-    def __call__(self, *args):
-        obs = args[-1]
+    def __call__(self, obs):
         jax.debug.callback(lambda o: self.seen.append(np.asarray(o)), obs)
-        action = jnp.clip(-obs[..., -1:] / 8.0, -1.0, 1.0)
-        return (action, args[0]) if len(args) == 2 else action
+        return jnp.clip(-obs[..., -1:] / 8.0, -1.0, 1.0)
 
 
 def _mc(expert: _RecordingExpert) -> MCPretrain:
@@ -121,6 +117,38 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
     state, _ = agent.train(seed=0, n_timesteps=0)
     experience = state.collector_state.buffer_state.experience
     assert ("raw_next_obs" in experience) == stored
+
+
+@pytest.mark.parametrize(
+    "agent_name, expert, extension, stored",
+    [
+        ("SAC", False, False, False),
+        ("SAC", True, False, True),
+        ("SAC", False, True, True),
+        ("TD3", False, False, False),
+        ("TD3", False, True, True),
+    ],
+)
+def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
+    agent_name, expert, extension, stored
+):
+    """raw_obs and is_expert, which only experts read, are allocated for a
+    run that has one: the agent's, or one an extension holds."""
+    import ajax
+    from ajax.extensions.expert import ImitationLoss
+
+    kw: dict = {
+        "actor_architecture": ("8", "relu"),
+        "critic_architecture": ("8", "relu"),
+    }
+    if expert:
+        kw |= {"expert_policy": _RecordingExpert(), "expert_buffer_n_steps": 0}
+    if extension:
+        kw["extensions"] = (ImitationLoss(expert_policy=lambda obs: obs[..., :1]),)
+    agent = getattr(ajax, agent_name)("Pendulum-v1", n_envs=2, **kw)
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    experience = state.collector_state.buffer_state.experience
+    assert ("raw_obs" in experience) == ("is_expert" in experience) == stored
 
 
 def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():

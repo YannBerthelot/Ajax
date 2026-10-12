@@ -184,7 +184,6 @@ src/ajax/compare_sb3/
 todo.md
 pending_runs.json
 *.deb*
-*_test.py
 profile
 *.db
 pyrightconfig.json

@@ -37,7 +37,7 @@ def test_positive_weight_decay_shrinks_params_with_zero_grad():
 
 
 def test_weight_decay_composes_with_clipping_and_rejects_negative():
-    tx = get_adam_tx(1e-2, max_grad_norm=0.5, clipped=True, weight_decay=0.1)
+    tx = get_adam_tx(1e-2, max_grad_norm=0.5, weight_decay=0.1)
     params = {"w": jnp.ones(3)}
     new = _one_step(tx, params, {"w": jnp.full(3, 100.0)})
     assert jnp.all(new["w"] < 1.0) and jnp.all(jnp.isfinite(new["w"]))
@@ -52,12 +52,15 @@ def test_optimizer_config_round_trips_into_get_adam_tx():
     assert jnp.allclose(new["w"], 1.0 - 1e-3 * 0.05)
 
 
-def test_get_adam_tx_clipping_without_norm():
-    """Test get_adam_tx raises ValueError when clipping is requested without max_grad_norm."""
-    with pytest.raises(
-        ValueError, match="Gradient clipping requested but no norm provided."
-    ):
-        get_adam_tx(learning_rate=0.001, max_grad_norm=None, clipped=True)
+def test_get_adam_tx_clips_iff_given_a_norm():
+    """Adam's first step is ``lr * g / (|g| + eps)``: clipping a 1e-4 gradient
+    to norm 1e-6 shrinks it from 1e-4 / (1e-4 + eps) to 1e-6 / (1e-6 + eps)
+    (eps 1e-5)."""
+    params, grads = {"w": jnp.zeros(1)}, {"w": jnp.full(1, 1e-4)}
+    plain = _one_step(get_adam_tx(1.0), params, grads)["w"]
+    clipped = _one_step(get_adam_tx(1.0, max_grad_norm=1e-6), params, grads)["w"]
+    np.testing.assert_allclose(plain, -1e-4 / (1e-4 + 1e-5), rtol=1e-4)
+    np.testing.assert_allclose(clipped, -1e-6 / (1e-6 + 1e-5), rtol=1e-4)
 
 
 # ------------------------
@@ -93,6 +96,11 @@ def test_parse_function_string_valid(input_str, expected_name, expected_value):
     "input_str",
     [
         "func(unknown_var)",
+        # Malformed specs must not silently fall back to the default scale.
+        "orthogonal(2.0",
+        "orthogonal(2.0)junk",
+        "lecun_uniform extra",
+        "np.sqrt(2)",
     ],
 )
 def test_parse_function_string_invalid(input_str):
@@ -149,6 +157,14 @@ def test_parse_initialization_passes_callables_through():
     assert parse_initialization(init_fn) is init_fn
 
 
+def test_parse_initialization_of_none_is_the_default():
+    default = orthogonal(1.0)
+    assert parse_initialization(None, default=default) is default
+    assert parse_initialization("zeros", default=default) is not default
+    with pytest.raises(ValueError, match="no default"):
+        parse_initialization(None)
+
+
 def test_parse_initialization_trunc_normal_fan_in():
     key, shape = jax.random.PRNGKey(0), (64, 32)
     expected = variance_scaling(1.0, "fan_in", "truncated_normal")(key, shape)
@@ -193,5 +209,5 @@ def test_parse_activation_passes_callables_through():
 
 @pytest.mark.parametrize("activation", ["no_such_activation", 3])
 def test_parse_activation_rejects_unknown(activation):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="'mish', 'relu'"):  # it lists the names
         parse_activation(activation)

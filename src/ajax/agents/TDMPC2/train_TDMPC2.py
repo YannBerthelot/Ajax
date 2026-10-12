@@ -79,10 +79,6 @@ from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import FloatOrCallable
 
-# ---------------------------------------------------------------------------
-# Schedule
-# ---------------------------------------------------------------------------
-
 
 @dataclasses.dataclass(frozen=True)
 class Schedule:
@@ -244,11 +240,6 @@ class EpisodicSchedule:
         )
 
 
-# ---------------------------------------------------------------------------
-# Acting
-# ---------------------------------------------------------------------------
-
-
 def planner_policy(
     carry: jax.Array,
     obs: jax.Array,
@@ -268,8 +259,8 @@ def planner_policy(
     axis of ``obs [m, obs_dim]``, ``is_first [m]`` (the reference's ``t0``)
     and the warm-start carry ``prev_mean [m, H, A]``, each env with its own
     draws. Returns ``(action [m, A], new prev_mean, None)``. ``task`` is
-    the multi-task conditioning of one task shared by the envs (M8,
-    :func:`ajax.agents.TDMPC2.multitask.task_planner_policy`); ``None`` is
+    the multi-task conditioning of one task shared by the envs
+    (:func:`ajax.agents.TDMPC2.multitask.task_planner_policy`); ``None`` is
     the single-task planner.
     """
     n, action_dim = carry.shape[0], carry.shape[-1]
@@ -296,11 +287,6 @@ def _policy(
     )
 
 
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
-
-
 def update_metrics_zeros(
     learner: core.TDMPC2UpdateState,
     config: TDMPC2Config,
@@ -310,7 +296,7 @@ def update_metrics_zeros(
     task: Optional[core.TaskContext] = None,
 ) -> dict[str, jax.Array]:
     """Zeros with the structure of :func:`core.update`'s logged quantities
-    (``task``: a batch's multi-task conditioning, M8; ``None``: single
+    (``task``: a batch's multi-task conditioning; ``None``: single
     task)."""
     h, b = config.horizon, config.batch_size
     batch = core.TDMPC2Batch(
@@ -378,11 +364,6 @@ def init_TDMPC2(
     )
 
 
-# ---------------------------------------------------------------------------
-# Evaluation + logging
-# ---------------------------------------------------------------------------
-
-
 def evaluate_tdmpc2(
     agent_state: TDMPC2State,
     key: jax.Array,
@@ -399,9 +380,9 @@ def evaluate_tdmpc2(
     final exploration noise, everything else stochastic as in the reference
     (``online_trainer.py:27-48``, tdmpc2_spec 4.21). The planner carry starts
     at zeros, separate from the training one (deviation T9). ``key`` is
-    folded with the number of evaluations so far (``agent_state.n_logs``):
-    each evaluation starts from fresh initial states, as the reference's
-    resets of its running env do, deterministically per seed.
+    fresh at each evaluation (:func:`ajax.log.evaluation_keys`): each starts
+    from new initial states, as the reference's resets of its running env
+    do.
     """
     action_dim = get_action_dim(env_args.env, env_args.env_params)
     ret, length = evaluate_policy(
@@ -409,14 +390,14 @@ def evaluate_tdmpc2(
         _policy(agent_state, config, gamma, eval_mode=True),
         lambda m: jnp.zeros((m, config.horizon, action_dim)),
         num_episodes,
-        jax.random.fold_in(key, agent_state.n_logs),
+        key,
     )
     return {"Eval/episodic mean reward": ret, "Eval/mean episodic length": length}
 
 
 def train_metrics(
     agent_state: TDMPC2State, aux: Any, *, action_repeat: int
-) -> dict[str, jax.Array]:
+) -> dict[str, Any]:
     """The house keys, ``env_frames`` and the last update's quantities."""
     del aux
     cs = agent_state.collector_state
@@ -430,11 +411,6 @@ def train_metrics(
     }
     metrics.update({f"Train/{k}": v for k, v in agent_state.update_metrics.items()})
     return metrics
-
-
-# ---------------------------------------------------------------------------
-# One tick
-# ---------------------------------------------------------------------------
 
 
 def collect(
@@ -467,6 +443,7 @@ def collect(
         assert isinstance(replay, EpisodicBufferState)
         # The row's index in its episode: a final row (the env held) is
         # its episode's last, after last_episode_length steps.
+        assert cs.step_in_episode is not None
         step = jnp.where(cs.is_last, cs.last_episode_length, cs.step_in_episode)
         replay = buffer.add(replay, row, step, tick)
     else:
@@ -518,11 +495,6 @@ def update(
         n_updates=agent_state.n_updates + 1, update_metrics=metrics
     )
     return agent_state, None
-
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(
@@ -578,8 +550,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> TDMPC2State:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> TDMPC2State:
         return init_TDMPC2(
             key,
             env_args,
@@ -591,7 +562,7 @@ def make_train(
             pi_eps=pi_eps,
         )
 
-    models = {"config": config, "buffer": buffer, "gamma": gamma}
+    models: dict[str, Any] = {"config": config, "buffer": buffer, "gamma": gamma}
     every = loop.log_frequency and max(schedule.num_ticks(loop.log_frequency), 1)
 
     def n_updates(tick: jax.Array, agent_state: TDMPC2State) -> jax.Array:

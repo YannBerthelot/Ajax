@@ -475,9 +475,9 @@ def main() -> None:
     pi = [float(out[f"update{k}/pi_grad_norm"]) for k in range(N_UPDATES)]
     clip = CONFIG["grad_clip_norm"]
     assert wm[0] < clip, "update 0: the world-model clip must not bind"
-    assert any(
-        w > clip and o < clip for w, o in zip(wm, own, strict=False)
-    ), "some update must clip the world model only because of the stale pi grads"
+    assert any(w > clip and o < clip for w, o in zip(wm, own, strict=False)), (
+        "some update must clip the world model only because of the stale pi grads"
+    )
     assert pi[0] > clip and pi[1] > clip, "updates 0-1: the pi clip must bind"
     assert any(p < clip for p in pi[1:-1]), "an unclipped pi gradient must follow"
     assert any(w < clip for w in wm[1:]), "a later non-binding world-model clip"

@@ -16,6 +16,8 @@ These tests catch bugs of the form:
 
 from __future__ import annotations
 
+import jax
+import jax.numpy as jnp
 import pytest
 
 from ajax import PPO
@@ -126,3 +128,22 @@ def test_a_recurrent_rollout_too_small_to_split_warns():
             num_minibatches=2,
             memory=MemoryConfig(kind="gru", hidden_size=4),
         )
+
+
+def test_vf_coef_zero_leaves_the_critic_untrained():
+    """``vf_coef`` scales the value loss the critic steps on: at 0 every
+    critic gradient is exactly 0, so Adam's moments stay 0 while the critic
+    steps. The actor's moments move, so the walk is not vacuous."""
+    rollout = _CFG["n_envs"] * _CFG["n_steps"]
+    state, _ = PPO(**_CFG, vf_coef=0.0).train(
+        seed=[0], n_timesteps=rollout, num_episode_test=1
+    )
+
+    def moments(train_state):
+        leaves = jax.tree.leaves(train_state.opt_state)
+        return [x for x in leaves if jnp.issubdtype(x.dtype, jnp.floating)]
+
+    assert int(state.critic_state.step[0]) > 0
+    assert moments(state.critic_state)
+    assert not any(jnp.any(m) for m in moments(state.critic_state))
+    assert any(jnp.any(m) for m in moments(state.actor_state))

@@ -3,10 +3,13 @@ import jax.numpy as jnp
 import pytest
 from gymnax import make as make_gymnax_env
 
+import ajax.environments.create as create
 from ajax.environments.create import (
     add_ajax_wrappers,
     build_env_from_id,
     prepare_env,
+    register_brax_builder,
+    register_playground_builder,
     strip_ajax_wrappers,
 )
 from ajax.environments.utils import wrapper_chain
@@ -49,40 +52,21 @@ def test_unknown_env_id_raises(env_id):
 def test_prepare_env(
     env_input, normalize_obs, normalize_reward, expected_continuous, mode
 ):
-    gamma = 0.99  # Example gamma value for reward normalization
     env, env_params, env_id_out, continuous = prepare_env(
         env_input,
         normalize_obs=normalize_obs,
         normalize_reward=normalize_reward,
-        gamma=gamma if normalize_reward else None,
+        gamma=0.99 if normalize_reward else None,
     )
-    assert env is not None
     assert env_id_out == env_input
     assert continuous == expected_continuous
-
-    # Test Gymnax environments
-    if env_input in ["CartPole-v1", "Pendulum-v1"]:
-        _, real_env_params = make_gymnax_env(env_input)
-        assert env_params == real_env_params
-        assert hasattr(env, "reset")
-        assert hasattr(env, "step")
-
-    # Test Brax environments
-    if env_input == "fast":
-        assert hasattr(env, "reset")
-        assert hasattr(env, "step")
-
-    # Check if normalization wrappers are applied
-    if normalize_obs or normalize_reward:
-        if mode == "gymnax":
-            assert isinstance(env, NormalizeVecObservationGymnax) or isinstance(
-                env._env, NormalizeVecObservationGymnax
-            )
-
-        else:
-            assert isinstance(env, NormalizeVecObservationBrax) or isinstance(
-                env.env, NormalizeVecObservationBrax
-            )
+    if mode == "gymnax":
+        assert env_params == make_gymnax_env(env_input)[1]
+    normaliser = {
+        "gymnax": NormalizeVecObservationGymnax,
+        "brax": NormalizeVecObservationBrax,
+    }[mode]
+    assert any(isinstance(layer, normaliser) for layer in wrapper_chain(env))
 
 
 def test_build_brax_env_preserves_final_obs():
@@ -162,3 +146,24 @@ def test_env_params_given_with_a_string_id_are_kept():
     assert TDMPC2("Pendulum-v1", env_params=params).agent_episode_length == 10
     with pytest.raises(ValueError, match="env_params"):
         prepare_env("fast", env_params=params)
+
+
+@pytest.mark.parametrize(
+    "register", [register_brax_builder, register_playground_builder]
+)
+def test_a_registered_builder_builds_its_env_id(register, monkeypatch):
+    """An id registered with register_brax_builder or
+    register_playground_builder (as downstream projects do) is built by its
+    builder, called with the env count and the episode length, and takes
+    no env params."""
+    monkeypatch.setattr(create, "_BRAX_BUILDERS", {})
+    monkeypatch.setattr(create, "_PLAYGROUND_BUILDERS", {})
+    built, calls = object(), []
+
+    def builder(n_envs, episode_length):
+        calls.append((n_envs, episode_length))
+        return built
+
+    register("my-task", builder)
+    assert build_env_from_id("my-task", n_envs=3, episode_length=7) == (built, None)
+    assert calls == [(3, 7)]

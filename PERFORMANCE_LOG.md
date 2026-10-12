@@ -50,7 +50,7 @@ Patches:
 1. Agent obs-norm running stats stored with leading shape `(1, *)`
    instead of `(n_envs, *)`. `online_normalize` already broadcasts the
    per-env batch reduction, so the per-env axis carried no information.
-   Files: [obs_norm.py](src/ajax/agents/obs_norm.py),
+   Files: [obs_norm.py](src/ajax/environments/obs_norm.py),
    [cloning.py](src/ajax/agents/cloning.py).
 2. Gate the redundant `q_preds_for_var = predict_value(...)` in the
    critic update behind `target_modifier is not None or expert_q is not
@@ -185,7 +185,7 @@ Patches:
    ([agents/AVG/utils.py:41-55](src/ajax/agents/AVG/utils.py#L41-L55))
    keeps working. Files:
    [utils.py:20-66](src/ajax/utils.py#L20-L66),
-   [obs_norm.py:50-52](src/ajax/agents/obs_norm.py#L50-L52).
+   [obs_norm.py:50-52](src/ajax/environments/obs_norm.py#L50-L52).
 
 Numbers (3 trials each on `stress_sac`, lower is better):
 

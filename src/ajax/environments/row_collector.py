@@ -96,8 +96,10 @@ from ajax.environments.utils import (
     agent_action_to_env,
     check_env_is_playground,
     check_if_environment_has_continuous_actions,
+    env_keys,
     get_action_dim,
     get_env_type,
+    per_env,
     wrapper_chain,
 )
 from ajax.state import CollectorState, EnvironmentConfig
@@ -139,7 +141,7 @@ class Row:
     extras: Any = None
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class RowCollectorState(CollectorState):
     """:class:`CollectorState` plus the row collector's bookkeeping.
 
@@ -204,7 +206,7 @@ def init_row_collector_state(
     mode = get_env_type(env)
     reset_key, rng = jax.random.split(key)
     obs, env_state = reset(
-        _env_keys(reset_key, mode, n_envs), env, mode, env_args.env_params
+        env_keys(reset_key, mode, n_envs), env, mode, env_args.env_params
     )
     zeros_f = jnp.zeros(n_envs, jnp.float32)
     zeros_b = jnp.zeros(n_envs, bool)
@@ -280,9 +282,6 @@ def collect_row(
             phase) does not trace the random branch at all.
         timestep_unit: ``"rows"`` or ``"env_steps"``, what
             ``collector_state.timestep`` counts.
-
-    Returns:
-        ``(new_state, row)``.
     """
     if reset_mode not in ("static", "dynamic"):
         raise ValueError(
@@ -310,7 +309,7 @@ def collect_row(
         random_phase,
         env_args,
     )
-    action = jnp.where(_per_env(cs.is_last, action), jnp.zeros_like(action), action)
+    action = jnp.where(per_env(cs.is_last, action), jnp.zeros_like(action), action)
     row = Row(
         obs=cs.last_obs,
         reward=cs.reward,
@@ -321,7 +320,7 @@ def collect_row(
         extras=extras,
     )
     env_action = agent_action_to_env(action, env, env_params)
-    step_keys = _env_keys(step_key, mode, n_envs)
+    step_keys = env_keys(step_key, mode, n_envs)
 
     if reset_mode == "static":
         assert episode_length is not None  # checked above
@@ -331,7 +330,7 @@ def collect_row(
             episode_length,
             env_action,
             step_keys,
-            _env_keys(reset_key, mode, n_envs),
+            env_keys(reset_key, mode, n_envs),
             env_args,
             mode,
         )
@@ -356,6 +355,7 @@ def collect_row(
     episodic_return_state, episodic_mean_return = update_episodic_return(
         cs.episodic_return_state, step_reward, ended
     )
+    assert cs.step_in_episode is not None
     length = cs.step_in_episode + nxt.stepped.astype(jnp.int32)
     env_steps = cs.env_steps + jnp.sum(nxt.stepped, dtype=jnp.int32)
     rows = cs.rows + n_envs
@@ -381,11 +381,6 @@ def collect_row(
         policy_carry=policy_carry,
     )
     return new_state, row
-
-
-# ---------------------------------------------------------------------------
-# Acting
-# ---------------------------------------------------------------------------
 
 
 def _act(
@@ -424,11 +419,6 @@ def _uniform_action(
         return jax.random.uniform(key, shape, minval=-1.0, maxval=1.0).astype(dtype)
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     return jax.random.randint(key, shape, 0, n_actions).astype(dtype)
-
-
-# ---------------------------------------------------------------------------
-# Env transitions
-# ---------------------------------------------------------------------------
 
 
 def _static_transition(
@@ -478,7 +468,7 @@ def _static_transition(
         return _Next(
             env_state=env_state,
             # off-schedule dones keep the (auto-reset) obs the env continues from
-            obs=jnp.where(_per_env(end, obs), final_obs, obs),
+            obs=jnp.where(per_env(end, obs), final_obs, obs),
             reward=reward.astype(jnp.float32),
             is_first=zeros_b,
             is_last=end,
@@ -517,9 +507,9 @@ def _dynamic_transition(
     )
     env_state = _keep_batch_shared_seed(env_args.env, restored, env_state)
     next_obs = jnp.where(
-        _per_env(held, obs),
+        per_env(held, obs),
         cs.reset_obs,
-        jnp.where(_per_env(done, obs), final_obs, obs),
+        jnp.where(per_env(done, obs), final_obs, obs),
     )
     return _Next(
         env_state=env_state,
@@ -529,7 +519,7 @@ def _dynamic_transition(
         is_last=done,
         is_terminal=done & (terminated > 0),
         # after an episode end the env already holds its auto-reset obs
-        reset_obs=jnp.where(_per_env(done, obs), obs, cs.reset_obs),
+        reset_obs=jnp.where(per_env(done, obs), obs, cs.reset_obs),
         stepped=~held,
         n_offschedule_dones=jnp.zeros((), jnp.int32),
     )
@@ -546,7 +536,7 @@ def _restore_held(
     """
     if jnp.ndim(stepped_leaf) == 0 or jnp.shape(stepped_leaf)[0] != n_envs:
         return stepped_leaf
-    return jnp.where(_per_env(held, stepped_leaf), snapshot_leaf, stepped_leaf)
+    return jnp.where(per_env(held, stepped_leaf), snapshot_leaf, stepped_leaf)
 
 
 def _keep_batch_shared_seed(env: Any, restored: Any, stepped: Any) -> Any:
@@ -569,8 +559,6 @@ def _keep_batch_shared_seed(env: Any, restored: Any, stepped: Any) -> Any:
     return restored.replace(info=info)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
 def resume_tick(collector_state: Any, n_envs: int) -> int:
     """The absolute tick a resumed run starts at (host-side).
 
@@ -587,9 +575,6 @@ def resume_tick(collector_state: Any, n_envs: int) -> int:
     return int(rows[0]) // n_envs
 
 
-# ---------------------------------------------------------------------------
-
-
 def _fresh_containers(tree: Any) -> Any:
     """The same leaves in newly built containers.
 
@@ -600,16 +585,6 @@ def _fresh_containers(tree: Any) -> Any:
     from, the state a ``lax.cond`` branch closes over -- untouched.
     """
     return jax.tree.map(lambda leaf: leaf, tree)
-
-
-def _env_keys(key: jax.Array, mode: str, n_envs: int) -> jax.Array:
-    """One key per env on gymnax (vmapped), a single key on brax / playground."""
-    return jax.random.split(key, n_envs) if mode == "gymnax" else key
-
-
-def _per_env(mask: jax.Array, like: jax.Array) -> jax.Array:
-    """Reshape an ``[n_envs]`` mask to broadcast against ``like``."""
-    return mask.reshape(mask.shape + (1,) * (jnp.ndim(like) - mask.ndim))
 
 
 __all__ = [

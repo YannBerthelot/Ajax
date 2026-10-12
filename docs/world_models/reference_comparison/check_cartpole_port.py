@@ -31,11 +31,11 @@ import sys
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import cartpole_env as ce  # noqa: E402
-import jax  # noqa: E402
-import jax.numpy as jnp  # noqa: E402
-import numpy as np  # noqa: E402
-from gymnax.environments.classic_control.cartpole import (  # noqa: E402
+import cartpole_env as ce
+import jax
+import jax.numpy as jnp
+import numpy as np
+from gymnax.environments.classic_control.cartpole import (
     CartPole,
     EnvState,
 )

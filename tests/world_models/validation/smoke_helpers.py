@@ -1,18 +1,37 @@
-"""Shared by the paper-protocol smoke tests: run a ``--smoke`` entry of
-``paper_protocol.py`` killed after its first chunk's save then resumed from
-disk by the CLI."""
+"""Shared by the validation-script tests: a stand-in for a killed process,
+a run directory written as the scripts write theirs, and a ``--smoke`` entry
+of ``paper_protocol.py`` killed after its first chunk's save then resumed
+from disk by the CLI."""
 
 from __future__ import annotations
 
+import json
 import os
 
 import paper_protocol
 import pytest
-from wm_runs import CURVE_FILE, STATE_FILE, read_records, run_single_task
+from wm_runs import (
+    CURVE_FILE,
+    RUN_FILE,
+    STATE_FILE,
+    jsonable,
+    read_records,
+    run_single_task,
+)
 
 
 class Interrupted(Exception):
     """Stands for a killed process."""
+
+
+def write_run_dir(directory, spec: dict, records) -> None:
+    """A run directory: ``run.json`` holding ``spec`` and one
+    ``curve.jsonl`` line per record."""
+    os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(directory, RUN_FILE), "w") as f:
+        json.dump({"spec": jsonable(spec)}, f)
+    with open(os.path.join(directory, CURVE_FILE), "w") as f:
+        f.writelines(json.dumps(r) + "\n" for r in records)
 
 
 def records(run_dir: str) -> list[dict]:

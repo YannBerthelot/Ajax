@@ -1,15 +1,9 @@
-"""Public UDRL agent class. Mirrors the Ajax convention used by PPO/SAC: a
-thin wrapper over the shared ActorCritic base that builds env / network /
-optimizer configs and forwards them to a per-agent ``make_train``.
-"""
-
 from collections.abc import Sequence
-from functools import partial
 from typing import Optional, Tuple
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import make_train
@@ -19,10 +13,12 @@ from ajax.types import EnvType
 
 class UDRL(ActorCritic):
     """Upside-Down RL (Schmidhuber, 2019). Command-conditioned supervised
-    policy learning. No critic, no replay buffer."""
+    policy learning on a replay buffer of rollout segments; no critic is
+    trained."""
 
     name: str = "UDRL"
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -35,10 +31,6 @@ class UDRL(ActorCritic):
         max_grad_norm: Optional[float] = None,
         n_steps: int = 64,
         batch_size: int = 64,
-        # Ignored: UDRL takes ``n_updates_per_iter`` gradient steps per
-        # iteration (Algorithm 3). Still accepted because the probing
-        # presets pass it (tests/probing/agents.py, test_p4_split_run.py).
-        n_epochs: Optional[int] = None,
         command_return_init: float = 1.0,
         command_horizon_init: float = 100.0,
         command_topk: int = 32,
@@ -48,20 +40,21 @@ class UDRL(ActorCritic):
         command_scale_h: float = 0.01,
         buffer_capacity: int = 64,
         n_updates_per_iter: int = 64,
-        bc_loss_type: str = "nll",
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # If set, use a CNN encoder. Image is assumed to be packed as
-        # ``(*batch, H*W*C + 2)`` flat — the last 2 dims are the UDRL
-        # command, which is concatenated to the CNN embedding after the
-        # convolutions. None keeps the legacy MLP encoder.
+        # If set, use a CNN encoder (NetworkConfig.cnn_image_shape) on the
+        # env's flat (H*W*C,) image; the (d_r, d_h) command UDRL appends
+        # joins the CNN embedding after the convolutions. None keeps the
+        # MLP encoder.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "UDRL"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,
@@ -78,10 +71,13 @@ class UDRL(ActorCritic):
             # Kept from Ajax's earlier networks: a LayerNorm on the policy
             # encoder's output (the shared default is now a plain MLP).
             encoder_layer_norm=True,
+            cnn_image_shape=cnn_image_shape,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
-        self.agent_config = UDRLConfig(
+        self.agent_config: UDRLConfig = UDRLConfig(
             gamma=gamma,
             n_steps=n_steps,
             batch_size=batch_size,
@@ -94,13 +90,4 @@ class UDRL(ActorCritic):
             command_scale_h=command_scale_h,
             buffer_capacity=buffer_capacity,
             n_updates_per_iter=n_updates_per_iter,
-            bc_loss_type=bc_loss_type,
-        )
-        self.cnn_image_shape = cnn_image_shape
-
-    def get_make_train(self):
-        return partial(
-            make_train,
-            cnn_image_shape=self.cnn_image_shape,
-            extensions=tuple(self.extension_stack.extensions),
         )

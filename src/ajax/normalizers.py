@@ -43,6 +43,8 @@ import jax.numpy as jnp
 import optax
 from flax import struct
 
+from ajax.types import Replaceable
+
 # Both papers use the 5th and 95th percentiles (DreamerV3 Table 4,
 # TD-MPC2 Table 8).
 _PERCENTILES = (5.0, 95.0)
@@ -62,7 +64,7 @@ def _percentile_range(x: jax.Array) -> tuple[jax.Array, jax.Array]:
 
 
 @struct.dataclass
-class ReturnNormalizer:
+class ReturnNormalizer(Replaceable):
     """DreamerV3 return normaliser state; see the module docstring.
 
     ``lo`` and ``hi`` are the EMAs of the 5th and 95th percentiles of the
@@ -114,7 +116,7 @@ class ReturnNormalizer:
 
 
 @struct.dataclass
-class RunningScale:
+class RunningScale(Replaceable):
     """TD-MPC2 running Q scale state; see the module docstring.
 
     Use as ``scale = scale.update(q)`` then ``q / scale.scale()`` in the

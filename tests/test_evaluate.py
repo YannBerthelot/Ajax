@@ -12,6 +12,7 @@ from brax.envs import create as create_brax_env
 from flax import struct
 
 from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.buffers.utils import get_buffer
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.state import (
@@ -457,3 +458,42 @@ def test_the_value_bias_reads_a_gain_policy_critic_at_the_gains_action():
         value_estimate=ValueEstimate(_ten_times_the_action, gamma=0.9),
     )[3]
     np.testing.assert_allclose(bias, 1.0, rtol=1e-6)
+
+
+@struct.dataclass
+class _CommandReader(_LinearActor):
+    """An actor acting its command's scaled desired return, column 2 of
+    its input [t, c, d_r / 10, d_h / 100]."""
+
+    def apply(self, params, obs):
+        mean = obs[..., 2:3]
+        return distrax.Normal(mean, jnp.full(mean.shape, STD))
+
+
+@struct.dataclass
+class _Targets:
+    """The command targets a UDRL state carries."""
+
+    command_target_return: Any = 1.0
+    command_target_horizon: Any = 5.0
+
+
+@pytest.mark.parametrize(
+    "c, length", [(0.5, 3), (-0.5, 5)], ids=["terminated", "truncated"]
+)
+def test_a_commanded_actor_acts_on_its_decaying_command(c, length):
+    """UDRL's command from desired return 1, read by the actor as d_r / 10
+    and paid twice that on Box(-2, 2): each step pays d_r / 5, which the
+    command then loses, so the episode returns 1 - 0.8 ** length."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    returns, _, _, _, steps, _ = evaluate(
+        env,
+        _CommandReader(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        agent_state=_Targets(),
+        command=EvalCommand(scale_r=0.1, scale_h=0.01),
+    )
+    np.testing.assert_allclose(returns, 1 - 0.8**length, rtol=1e-5)
+    np.testing.assert_allclose(steps, length, rtol=1e-6)

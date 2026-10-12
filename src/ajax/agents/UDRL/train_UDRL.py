@@ -16,6 +16,7 @@ conditional p(a | s, c) over a wide range of c rather than collapsing to
 the current rollout's narrow distribution.
 """
 
+import dataclasses
 from collections.abc import Sequence
 from typing import Any, Optional, Tuple
 
@@ -47,7 +48,9 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     env_keys,
 )
+from ajax.evaluate import evaluate
 from ajax.extensions.base import ExtensionStack
+from ajax.log import eval_norm_info
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.networks import get_initialized_actor_critic
@@ -427,6 +430,58 @@ def training_iteration(
     return agent_state, aux
 
 
+@dataclasses.dataclass(frozen=True)
+class EvalCommand:
+    """The command UDRL is evaluated with (:func:`ajax.evaluate.evaluate`'s
+    ``command``): each episode starts from the current target return and
+    horizon, without the exploration noise collection adds, then decays as
+    in collection (:func:`update_command`; past an episode's end the
+    evaluation counts nothing), the actor reading it scaled."""
+
+    scale_r: float
+    scale_h: float
+
+    def initial(self, agent_state: UDRLState, n_envs: int) -> jax.Array:
+        target = (agent_state.command_target_return, agent_state.command_target_horizon)
+        return jnp.tile(jnp.stack(target), (n_envs, 1))
+
+    def update(self, command: jax.Array, reward: jax.Array, done: jax.Array):
+        d_r, d_h = command[:, 0], command[:, 1]
+        d_r, d_h = update_command(d_r, d_h, reward, done.astype(jnp.float32), d_r, d_h)
+        return jnp.stack([d_r, d_h], axis=-1)
+
+    def actor_input(self, obs: jax.Array, command: jax.Array) -> jax.Array:
+        obs = jnp.concatenate([obs, command.astype(obs.dtype)], axis=-1)
+        return _scale_obs_command(obs, self.scale_r, self.scale_h)
+
+
+def evaluate_UDRL(
+    agent_state: UDRLState,
+    key: jax.Array,
+    env_args: EnvironmentConfig,
+    agent_config: UDRLConfig,
+    num_episode_test: int,
+) -> dict:
+    """The deterministic policy's return, entropy and length on
+    ``num_episode_test`` episodes of the shared evaluation, commanded by
+    :class:`EvalCommand`."""
+    returns, entropy, _, _, length, _ = evaluate(
+        env_args.env,
+        agent_state.actor_state,
+        num_episode_test,
+        key,
+        env_args.env_params,
+        norm_info=eval_norm_info(agent_state, env_args.mode),
+        agent_state=agent_state,
+        command=EvalCommand(agent_config.command_scale_r, agent_config.command_scale_h),
+    )
+    return {
+        "Eval/episodic mean reward": returns,
+        "Eval/episodic entropy": entropy,
+        "Eval/mean episodic length": length,
+    }
+
+
 def train_metrics(agent_state: UDRLState, aux: UDRLAuxiliaries) -> dict:
     """The logged training metrics: the iteration's segment and updates."""
     del agent_state
@@ -457,10 +512,9 @@ def make_train(
     segments, the command statistics, the updates) on :meth:`TrainLoop.train`.
 
     With a logging config every ``log_frequency`` env steps it logs the
-    iteration's training metrics and the extensions' ``eval_metrics``,
-    whether or not a backend records them, and ``train`` returns them; it
-    has no policy evaluation (a command-conditioned policy needs a command
-    to be evaluated with).
+    iteration's training metrics, its policy's evaluation
+    (:func:`evaluate_UDRL`) and the extensions' ``eval_metrics``, whether or
+    not a backend records them, and ``train`` returns them.
     """
     mode = env_args.mode
     loop = TrainLoop.create(
@@ -477,6 +531,12 @@ def make_train(
     evaluation = Evaluation(
         metrics=train_metrics,
         every=loop.log_frequency and max(loop.log_frequency // per_iter, 1),
+        evaluate=partial(
+            evaluate_UDRL,
+            env_args=env_args,
+            agent_config=agent_config,
+            num_episode_test=num_episode_test,
+        ),
     )
 
     def init(key: jax.Array, pretrain_key: jax.Array) -> UDRLState:

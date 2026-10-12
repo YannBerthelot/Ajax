@@ -239,10 +239,11 @@ class _EvalCarry(NamedTuple):
     value: jax.Array  # this step's value estimate (the value bias's); else 0
     expert_state: Any  # a stateful expert's; a dummy otherwise
     actor_hidden: Any  # the actor's memory; a dummy when feedforward
+    command: Any  # a command-conditioned actor's command; a dummy otherwise
 
 
 def _init_eval_carry(
-    num_episodes: int, key, obs, state, expert_state, actor_hidden=None
+    num_episodes: int, key, obs, state, expert_state, actor_hidden=None, command=None
 ) -> _EvalCarry:
     return _EvalCarry(
         rewards=jnp.zeros(num_episodes),
@@ -256,6 +257,7 @@ def _init_eval_carry(
         value=jnp.zeros(num_episodes),
         expert_state=expert_state,
         actor_hidden=jnp.zeros((1,)) if actor_hidden is None else actor_hidden,
+        command=jnp.zeros((1,)) if command is None else command,
     )
 
 
@@ -290,6 +292,7 @@ def step_environment(
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
     value_estimate: Optional[ValueEstimate] = None,
+    command: Optional[Any] = None,
 ):
     """Return a pure function stepping the evaluation (an :class:`_EvalCarry`).
 
@@ -308,6 +311,10 @@ def step_environment(
     value_estimate: the critic's estimate at the actor's input and the
     action collection stores, each step: the executed action in agent units,
     the actor's (the gains') under ``pid_gain_policy``.
+
+    command: a command-conditioned actor's (see :func:`evaluate`): the
+    actor reads ``command.actor_input(obs, c)``, and each step's reward and
+    end update ``c``.
     """
 
     expert_is_stateful = expert_policy is not None and hasattr(
@@ -363,6 +370,8 @@ def step_environment(
             ),
             _aug_expert_action if augment_obs_with_expert_action else None,
         )
+        if command is not None:
+            obs_for_actor = command.actor_input(obs_for_actor, carry.command)
 
         raw_actions, entropy, new_actor_hidden = (
             get_deterministic_action_and_entropy_fn(
@@ -415,6 +424,9 @@ def step_environment(
 
         new_done = jnp.logical_or(new_term, new_trunc)
         still_running = 1 - done
+        new_command = carry.command
+        if command is not None:
+            new_command = command.update(carry.command, new_rewards, new_done)
 
         # Reset the expert's internal state per-env when the episode just ended
         # (autoreset produces the fresh first obs of the next episode).
@@ -435,6 +447,7 @@ def step_environment(
             value=value,
             expert_state=new_expert_state,
             actor_hidden=new_actor_hidden,
+            command=new_command,
         )
 
     return fn
@@ -564,6 +577,7 @@ def _expert_return(
         "augment_obs_with_expert_state",
         "eval_expert_policy",
         "value_estimate",
+        "command",
     ],
 )
 def evaluate(
@@ -586,6 +600,7 @@ def evaluate(
     augment_obs_with_expert_state: bool = False,
     eval_expert_policy: Optional[Callable] = None,
     value_estimate: Optional[ValueEstimate] = None,
+    command: Optional[Any] = None,
 ) -> tuple[jax.Array, ...]:
     """Evaluate the actor's deterministic policy on ``num_episodes``
     episodes; with ``expert_policy`` (the training expert, which builds the
@@ -593,6 +608,11 @@ def evaluate(
     when given, on the same episodes (the same reset and key). The experts
     speak env units: they are read in agent units here
     (:class:`ExpertInAgentUnits`; an agent's are already).
+
+    ``command`` evaluates a command-conditioned actor (UDRL's desired
+    return and horizon): ``command.initial(agent_state, num_episodes)`` is
+    each episode's first command, the actor reads ``command.actor_input(obs,
+    c)``, and ``command.update(c, reward, done)`` follows each step.
 
     Returns the mean return, entropy, average reward (``avg_reward_mode``),
     value bias (``value_estimate``), episode length and expert's return,
@@ -629,6 +649,7 @@ def evaluate(
         state,
         _init_expert_state(expert_policy, num_episodes),
         actor_hidden,
+        None if command is None else command.initial(agent_state, num_episodes),
     )
 
     # Choose step function
@@ -647,6 +668,7 @@ def evaluate(
         augment_obs_with_expert_action=augment_obs_with_expert_action,
         augment_obs_with_expert_state=augment_obs_with_expert_state,
         value_estimate=None if recurrent else value_estimate,
+        command=command,
     )
 
     # Main loop. We use `scan` with a fixed length rather than `while_loop`

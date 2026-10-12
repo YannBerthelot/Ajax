@@ -38,18 +38,21 @@ def test_UDRL_train_updates_actor_params():
     assert state.collector_state.last_obs.shape[-1] == obs_shape[0] + 2
 
 
-def test_UDRL_logs_its_training_metrics_without_a_backend():
+def test_UDRL_logs_its_training_metrics_and_evaluation_without_a_backend():
     """With a logging config and no backend, ``train`` returns a row per
-    log (every 32 env steps: 4 iterations of 8) of the training metrics;
-    without one, nothing."""
+    log (every 32 env steps: 4 iterations of 8) of the training metrics and
+    the shared evaluation of its policy; without one, nothing."""
     from ajax.logging.wandb_logging import LoggingConfig
 
     agent = UDRL(env_id="CartPole-v1", n_envs=1, n_steps=8, batch_size=8)
     config = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     _, rows = agent.train(seed=[0, 1], n_timesteps=64, logging_config=config)
     assert rows["timestep"].tolist() == [[32, 64], [32, 64]]
-    assert {"Train/actor_loss", "Train/episodic mean reward"} <= set(rows)
-    assert jnp.isfinite(rows["Train/actor_loss"]).all()
+    finite = ("Train/actor_loss", "Eval/episodic mean reward")
+    other = ("Train/episodic mean reward", "Eval/mean episodic length")
+    assert set(finite + other) <= set(rows)
+    for key in finite:
+        assert jnp.isfinite(rows[key]).all(), key
     assert agent.train(seed=0, n_timesteps=64)[1] is None
 
 

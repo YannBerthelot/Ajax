@@ -11,6 +11,7 @@ The two runs use different env modes (brax ``fast`` and gymnax) where the
 agent acts in both. The maths of each agent is tested in its own directory.
 """
 
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,7 +21,6 @@ import numpy as np
 import pytest
 from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
-import ajax.log
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
 from ajax.agents.APO.APO import APO
@@ -32,6 +32,7 @@ from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
 from ajax.extensions.base import Extension
@@ -79,8 +80,6 @@ class Case:
     alpha: bool = False  # has a temperature (alpha_args)
     buffer: bool = False  # has a replay buffer
     critic: bool = True  # has a value or action-value network
-    # Evaluates its policy (UDRL: no command to evaluate it with).
-    evaluates: bool = True
     n_timesteps: int = 64
     # Overrides for the extensions' run only.
     extended: dict[str, Any] = field(default_factory=dict)
@@ -147,7 +146,6 @@ CASES = {
         CONTINUOUS + DISCRETE,
         n_timesteps=128,
         critic=False,
-        evaluates=False,
     ),
 }
 AGENTS = pytest.mark.parametrize("name", sorted(CASES))
@@ -311,16 +309,20 @@ class _KeyExt(Extension):
 def test_each_evaluation_draws_fresh_keys(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The policy's evaluation and the extensions' ``eval_metrics`` draw new
-    keys at each evaluation of a run (``eval_rng`` folded with the count of
-    evaluations so far): fresh initial states and noise every time."""
-    evaluate = ajax.log.evaluate
+    """The policy's evaluation (the shared evaluate(), wherever it is
+    called from) and the extensions' ``eval_metrics`` draw new keys at each
+    evaluation of a run (``eval_rng`` folded with the count of evaluations
+    so far): fresh initial states and noise every time."""
 
-    def recording(*args: Any, rng: Any, **kwargs: Any) -> Any:
+    shared = evaluate
+
+    def recording(env: Any, actor_state: Any, num_episodes: int, rng: Any, *a, **kw):
         jax.debug.callback(_record("policy"), rng)
-        return evaluate(*args, rng=rng, **kwargs)
+        return shared(env, actor_state, num_episodes, rng, *a, **kw)
 
-    monkeypatch.setattr(ajax.log, "evaluate", recording)
+    for module in list(sys.modules.values()):
+        if getattr(module, "evaluate", None) is shared:
+            monkeypatch.setattr(module, "evaluate", recording)
     for keys in _EVAL_KEYS.values():
         keys.clear()
     case = CASES[name]
@@ -334,8 +336,7 @@ def test_each_evaluation_draws_fresh_keys(
     jax.effects_barrier()
     evaluations = int((np.asarray(out["timestep"]) >= 0).sum())
     assert evaluations >= 2
-    kinds = ("policy", "extensions") if case.evaluates else ("extensions",)
-    for kind in kinds:
+    for kind in ("policy", "extensions"):
         keys = _EVAL_KEYS[kind]
         assert len(keys) == evaluations, (kind, len(keys))
         assert len(set(keys)) == evaluations, kind
@@ -393,10 +394,15 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     np.testing.assert_allclose(rewards, paid_action.mapped(actions), rtol=1e-6)
     if name in ("SAC", "TD3"):
         assert (np.abs(rewards[:64]) > 1.0).mean() > 0.25
-    if not case.evaluates:
-        return
-    actor = jax.tree.map(lambda x: x[0], state.actor_state)
-    paid = evaluate(env, actor, 2, jax.random.PRNGKey(1), params)[0]
-    act = get_deterministic_action_and_entropy_fn(actor, False, True)
-    own, _, _ = act(paid_action.OBS[None], None, None)
+    seed = jax.tree.map(lambda x: x[0], state)
+    obs, extra = paid_action.OBS[None], {}
+    if name == "UDRL":  # it acts on its observation and its command
+        config = agent.agent_config
+        command = EvalCommand(config.command_scale_r, config.command_scale_h)
+        obs = command.actor_input(obs, command.initial(seed, 1))
+        extra = {"agent_state": seed, "command": command}
+    key = jax.random.PRNGKey(1)
+    paid = evaluate(env, seed.actor_state, 2, key, params, **extra)[0]
+    act = get_deterministic_action_and_entropy_fn(seed.actor_state, False, True)
+    own, _, _ = act(obs, None, None)
     np.testing.assert_allclose(paid, paid_action.mapped(own)[0, 0], rtol=1e-6)

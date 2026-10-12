@@ -27,9 +27,11 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.networks import action_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     AlphaConfig,
@@ -423,5 +425,10 @@ def make_train(
             "buffer": buffer,
             "store_hidden": recurrent and agent_config.stored_state,
         },
-        eval_kwargs={"expert_policy": expert_policy},
+        eval_kwargs={
+            "expert_policy": expert_policy,
+            "value_estimate": ValueEstimate(
+                action_value, agent_config.gamma, agent_config.reward_scale
+            ),
+        },
     )

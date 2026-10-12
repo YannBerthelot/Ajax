@@ -163,6 +163,15 @@ def predict_q(
     return q_state.apply_fn(q_params, obs).q_values
 
 
+def q_network_value(agent_state, obs: jax.Array, action: jax.Array) -> jax.Array:
+    """``Q(obs, action)`` of the agent's Q-network (its ``actor_state``): an
+    evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
+    q_state = agent_state.actor_state
+    q_values = predict_q(q_state, q_state.params, obs)
+    index = action.astype(jnp.int32).reshape(*q_values.shape[:-1], 1)
+    return jnp.take_along_axis(q_values, index, axis=-1).squeeze(-1)
+
+
 def get_initialized_q_network(
     key: jax.Array,
     env_config: EnvironmentConfig,

@@ -21,7 +21,7 @@ from typing import Any, Callable, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.DQN.networks import predict_q
+from ajax.agents.DQN.networks import predict_q, q_network_value
 from ajax.agents.DQN.train_DQN import (
     AuxiliaryLogs,
     init_DQN,
@@ -35,6 +35,7 @@ from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.utils import get_action_dim
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
@@ -209,4 +210,9 @@ def make_train(
         agent_config.n_steps,
         expose_rollout=agent_config.expose_recent_rollout,
         collect_kwargs={"action_pipeline": action_pipeline},
+        eval_kwargs={
+            "value_estimate": ValueEstimate(
+                q_network_value, agent_config.gamma, agent_config.reward_scale
+            )
+        },
     )

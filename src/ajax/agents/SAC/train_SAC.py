@@ -27,11 +27,12 @@ from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_state_action_shapes
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import SquashedNormal
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import action_value, predict_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
     AlphaConfig,
@@ -936,5 +937,8 @@ def make_train(
             "pid_gain_policy": use_pid_policy,
             "augment_obs_with_expert_action": augment_obs_with_expert_action,
             "augment_obs_with_expert_state": augment_obs_with_expert_state,
+            "value_estimate": ValueEstimate(
+                action_value, agent_config.gamma, agent_config.reward_scale
+            ),
         },
     )

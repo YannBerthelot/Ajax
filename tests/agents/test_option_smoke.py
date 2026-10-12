@@ -210,11 +210,6 @@ ROWS = {name: rows(name) for name in sorted(TABLE)}
 #: Day-one failures: the agent, the options that fail together, the fix's branch.
 FAILING = [
     (
-        "PPO",
-        {"cnn_image_shape", "BiasVoreDecomposition"},
-        "fix/instrumentation-cnn-critic",
-    ),
-    (
         "SAC",
         {"use_pid_policy", "augment_obs_with_expert_action"},
         "fix/gain-policy-expert-action",

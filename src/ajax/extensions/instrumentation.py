@@ -178,8 +178,10 @@ def _takes_action(
     The answer is the input its parameters were built on: each candidate
     goes through the critic's ``init`` abstractly (shapes only, nothing is
     computed) and the one that rebuilds the critic's parameter shapes wins.
-    Where the batch comes from does not say it: AVG learns an action-value
-    critic from its rollout, without a replay buffer.
+    A candidate the critic refuses is not it: a CNN encoder checks its
+    input's width (ValueError) where an MLP builds other shapes. Where the
+    batch comes from does not say it: AVG learns an action-value critic
+    from its rollout, without a replay buffer.
     """
 
     def shapes(tree: Any) -> list:
@@ -188,7 +190,11 @@ def _takes_action(
     init = _network(critic_state).init
     with_action = action_value_input(obs, act.astype(obs.dtype))
     for takes_action, x in ((True, with_action), (False, obs)):
-        if shapes(jax.eval_shape(init, rng, x)) == shapes(critic_state.params):
+        try:
+            built = shapes(jax.eval_shape(init, rng, x))
+        except ValueError:
+            continue
+        if built == shapes(critic_state.params):
             return takes_action
     raise ValueError(
         "The critic's parameters fit neither the observation nor the"

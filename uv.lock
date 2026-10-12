@@ -36,7 +36,6 @@ name = "ajax"
 version = "0.3.1"
 source = { editable = "." }
 dependencies = [
-    { name = "dill" },
     { name = "distrax" },
     { name = "flashbax" },
     { name = "flax" },
@@ -50,7 +49,6 @@ dependencies = [
     { name = "pandas" },
     { name = "playground" },
     { name = "pyarrow" },
-    { name = "python-dotenv" },
     { name = "statsmodels" },
     { name = "tensorboardx" },
     { name = "tqdm" },
@@ -77,7 +75,6 @@ wandb = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dill", specifier = ">=0.4.1,<0.5" },
     { name = "distrax", specifier = ">=0.1.6" },
     { name = "flashbax", specifier = ">=0.1.3,<0.2" },
     { name = "flax", specifier = ">=0.10.7,<0.11" },
@@ -91,7 +88,6 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.1.1,<3" },
     { name = "playground", specifier = ">=0.2.0,<0.3" },
     { name = "pyarrow", specifier = ">=23.0.1,<24" },
-    { name = "python-dotenv", specifier = ">=1.1.1,<2" },
     { name = "statsmodels", specifier = ">=0.14.6,<0.15" },
     { name = "tensorboardx", specifier = ">=2.6.4,<3" },
     { name = "tqdm", specifier = ">=4.65.0,<5" },
@@ -441,15 +437,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/da/93/84fa12f2dc341f8cf5f022ee09e109961055749df2d0c75c5f98746cfe6c/decorator-4.4.2.tar.gz", hash = "sha256:e3a62f0520172440ca0dcc823749319382e377f37f140a0b99ef45fecb84bfe7", size = 33629, upload-time = "2020-02-29T05:24:43.312Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ed/1b/72a1821152d07cf1d8b6fce298aeb06a7eb90f4d6d41acec9861e7cc6df0/decorator-4.4.2-py2.py3-none-any.whl", hash = "sha256:41fa54c2a0cc4ba648be4fd43cff00aedf5b9465c9bf18d64325bc225f08f760", size = 9239, upload-time = "2020-02-29T05:24:45.993Z" },
-]
-
-[[package]]
-name = "dill"
-version = "0.4.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/81/e1/56027a71e31b02ddc53c7d65b01e68edf64dea2932122fe7746a516f75d5/dill-0.4.1.tar.gz", hash = "sha256:423092df4182177d4d8ba8290c8a5b640c66ab35ec7da59ccfa00f6fa3eea5fa", size = 187315, upload-time = "2026-01-19T02:36:56.85Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl", hash = "sha256:1e1ce33e978ae97fcfcff5638477032b801c46c7c65cf717f95fbc2248f79a9d", size = 120019, upload-time = "2026-01-19T02:36:55.663Z" },
 ]
 
 [[package]]

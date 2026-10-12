@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
@@ -37,7 +38,7 @@ class SAC(ActorCritic):
 
     Several kwargs survived because they thread into network init,
     collection, or the action pipeline at a level the extension
-    framework doesn't reach (``jsrl_curriculum``, ``use_pid_policy``,
+    framework doesn't reach (``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
     ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``).
     They mirror the matching extension's "static" flag.
@@ -107,10 +108,9 @@ class SAC(ActorCritic):
         # Ignored, never had an effect (evaluation does not read it); still
         # accepted because AjaxExperiments passes ``action_scale=1.0``.
         action_scale: float = 1.0,
-        # JSRL: kept because ``jsrl_curriculum=True`` gates the
-        # per-env ``step_in_episode`` counter init in :func:`init_SAC`.
-        # The curriculum math lives on :class:`JSRLCurriculum`.action.
-        jsrl_curriculum: bool = False,
+        # Deprecated, no effect: SAC counts each env's steps in its episode
+        # when an extension reads them (JSRLCurriculum).
+        jsrl_curriculum: Optional[bool] = None,
         # PID policy: gain-mode short-circuit in the action pipeline,
         # changes the action_dim of actor/critic/buffer.
         use_pid_policy: bool = False,
@@ -251,6 +251,14 @@ class SAC(ActorCritic):
             reset_actor_head_after_bc=reset_actor_head_after_bc,
         )
         self.eval_expert_policy = self._in_agent_units(eval_expert_policy)
+        if jsrl_curriculum is not None:
+            warnings.warn(
+                "jsrl_curriculum is deprecated and has no effect: SAC counts each"
+                " env's steps in its episode when an extension reads them"
+                " (JSRLCurriculum). It will be removed.",
+                FutureWarning,
+                stacklevel=2,
+            )
         # Resolve the static expert_state_aug_dim once. 0 for stateless or
         # when the augmentation is off.
         expert_state_aug_dim = 0
@@ -284,6 +292,5 @@ class SAC(ActorCritic):
                 else None
             ),
             "target_entropy_ramp_frac": target_entropy_ramp_frac,
-            "jsrl_curriculum": jsrl_curriculum,
             "action_dim_override": action_dim_override,
         }

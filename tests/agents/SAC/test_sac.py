@@ -1,8 +1,12 @@
+import warnings
+
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from tests.agents.test_option_smoke import Expert
+from ajax.extensions.expert import JSRLCurriculum
+from tests.agents.test_option_smoke import Expert, stateless_expert
 
 
 def test_skip_critic_pretrain_is_a_transitional_no_op():
@@ -49,3 +53,22 @@ def test_fixed_alpha_keeps_temperature_at_alpha_init():
     assert not jnp.allclose(
         learned_state.alpha.params["log_alpha"], expected_log_alpha
     ), "sanity check: alpha should move when it is not fixed"
+
+
+def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
+    """JSRLCurriculum reads each env's step within its episode, which SAC
+    counts because the extension declares it reads it: no SAC flag is
+    needed. The deprecated ``jsrl_curriculum`` flag warns, and leaving it
+    out stays quiet."""
+    kw = {"expert_policy": stateless_expert, "expert_buffer_n_steps": 0}
+    kw |= {"learning_starts": 8, "batch_size": 8, "buffer_size": 64}
+    jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5),)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        agent = SAC(env_id="Pendulum-v1", extensions=jsrl, **kw)
+    state, _ = agent.train(seed=0, n_timesteps=12)
+    np.testing.assert_array_equal(state.collector_state.step_in_episode, [[12]])
+    plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=12)
+    assert plain.collector_state.step_in_episode is None
+    with pytest.warns(FutureWarning, match="jsrl_curriculum"):
+        SAC(env_id="Pendulum-v1", jsrl_curriculum=True, extensions=jsrl, **kw)

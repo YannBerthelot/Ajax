@@ -134,9 +134,9 @@ class CollectorState:
     # (EDGEExploration logs it); NaN until the first step.
     last_expert_frac: float = jnp.nan
     # Per-env step counter within the current episode. Incremented on
-    # every env step, reset to 0 on done. Used by jsrl_curriculum to
-    # decide whether the expert acts (step_in_episode < H_t) or the
-    # learner does. Shape: (n_envs,). Zero-initialized.
+    # every env step, reset to 0 on done; None unless an extension reads it
+    # (Extension.reads_step_in_episode: JSRLCurriculum, whose expert acts
+    # while step_in_episode < H_t). Shape: (n_envs,). Zero-initialized.
     step_in_episode: Optional[jnp.ndarray] = None
 
     @property

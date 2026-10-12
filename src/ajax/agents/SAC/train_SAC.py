@@ -105,7 +105,7 @@ def init_SAC(
     expert_state_aug_dim: int = 0,
     action_dim_override: Optional[int] = None,
     normalize_obs_running: bool = False,
-    jsrl_curriculum: bool = False,
+    count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
 ) -> SACState:
@@ -186,10 +186,9 @@ def init_SAC(
             expert_state=expert_policy.init_state(env_args.n_envs)
         )
 
-    # JSRL curriculum needs a per-env step_in_episode counter; initialize
-    # to zeros. Other methods leave step_in_episode=None so the collector
-    # update path skips the reset/increment logic.
-    if jsrl_curriculum:
+    # A per-env step_in_episode counter for the extensions that read it;
+    # left None otherwise, so the collector skips its reset/increment.
+    if count_episode_steps:
         collector_state = collector_state.replace(
             step_in_episode=jnp.zeros((env_args.n_envs,), dtype=jnp.int32)
         )
@@ -747,11 +746,6 @@ def make_train(
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
     store_policy_action: bool = False,
-    # True JSRL (Uchendu et al. 2023): per-episode curriculum handoff.
-    # The flag gates the ``step_in_episode`` counter init in
-    # :func:`init_SAC`; the curriculum math lives on
-    # :class:`JSRLCurriculum`.action.
-    jsrl_curriculum: bool = False,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
@@ -844,7 +838,7 @@ def make_train(
             expert_state_aug_dim=expert_state_aug_dim,
             action_dim_override=action_dim_override,
             normalize_obs_running=normalize_obs_running,
-            jsrl_curriculum=jsrl_curriculum,
+            count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
             store_expert_data=holds_expert(expert_policy, stack),

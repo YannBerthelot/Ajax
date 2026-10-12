@@ -250,6 +250,9 @@ class Extension:
     #: Whether the extension fits the frozen expert critic phi* that the
     #: extensions which :meth:`reads_phi_star` need (MCPretrain does).
     fits_phi_star: ClassVar[bool] = False
+    #: Whether the extension reads each env's step within its episode
+    #: (``CollectorState.step_in_episode``), which an agent counts only then.
+    reads_step_in_episode: ClassVar[bool] = False
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:

@@ -66,9 +66,6 @@ dev = [
 plane = [
     { name = "target-gym" },
 ]
-render = [
-    { name = "imageio", extra = ["ffmpeg"] },
-]
 wandb = [
     { name = "wandb" },
 ]
@@ -103,7 +100,6 @@ dev = [
     { name = "ruff", specifier = ">=0.11.6,<0.12" },
 ]
 plane = [{ name = "target-gym", specifier = ">=0.6.1,<0.7" }]
-render = [{ name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.0,<3" }]
 wandb = [{ name = "wandb", specifier = ">=0.19.9,<0.20" }]
 
 [[package]]
@@ -794,12 +790,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/0c/47/57e897fb7094afb2d26e8b2e4af9a45c7cf1a405acdeeca001fdf2c98501/imageio-2.37.0.tar.gz", hash = "sha256:71b57b3669666272c818497aebba2b4c5f20d5b37c81720e5e1a56d59c492996", size = 389963, upload-time = "2025-01-20T02:42:37.089Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/bd/b394387b598ed84d8d0fa90611a90bee0adc2021820ad5729f7ced74a8e2/imageio-2.37.0-py3-none-any.whl", hash = "sha256:11efa15b87bc7871b61590326b2d635439acc321cf7f8ce996f812543ce10eed", size = 315796, upload-time = "2025-01-20T02:42:34.931Z" },
-]
-
-[package.optional-dependencies]
-ffmpeg = [
-    { name = "imageio-ffmpeg" },
-    { name = "psutil" },
 ]
 
 [[package]]

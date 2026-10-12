@@ -372,6 +372,10 @@ def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
     average = np.mean(np.resize(paid, 10_000))
     expected = (sum(paid), entropy, average, 0.0, length, length)
     names = ("return", "entropy", "average reward", "bias", "length", "expert")
+    # The average reward and the bias reduce 10^4 float32 rewards in an order
+    # XLA picks per platform. Summed one by one, the least precise order, the
+    # average is off by 4e-6 (relative) and the bias by 8e-3 (measured).
+    loose = {"average reward": (1e-4, 0.0), "bias": (0.0, 0.05)}
     for name, got, want in zip(names, out, expected, strict=True):
-        atol = 1e-3 if name == "bias" else 0.0  # 10^4 float32 deviations
-        np.testing.assert_allclose(got, want, rtol=1e-5, atol=atol, err_msg=name)
+        rtol, atol = loose.get(name, (1e-5, 0.0))
+        np.testing.assert_allclose(got, want, rtol=rtol, atol=atol, err_msg=name)

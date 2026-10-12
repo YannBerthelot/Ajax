@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple, Optional, Tuple, Union
 
 import distrax
 import flax.linen as nn
@@ -745,3 +745,19 @@ def predict_value(
     # synced from CollectorState after every online collection step).
     x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(critic_params, x)
+
+
+def state_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
+    """``V(obs)`` of the agent's critic, its ensemble's mean (``action``
+    unused): an evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
+    del action
+    critic = agent_state.critic_state
+    return predict_value(critic, critic.params, obs).mean(0).squeeze(-1)
+
+
+def action_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
+    """``Q(obs, action)`` of the agent's critic, its ensemble's mean: an
+    evaluation's value estimate (:class:`ajax.evaluate.ValueEstimate`)."""
+    critic = agent_state.critic_state
+    x = action_value_input(obs, action.astype(obs.dtype))
+    return predict_value(critic, critic.params, x).mean(0).squeeze(-1)

@@ -6,6 +6,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from ajax.agents.APO.APO import APO
@@ -73,3 +74,25 @@ def test_a_logged_run_traces_the_evaluation(name: str) -> None:
     _, rows = jax.eval_shape(jax.vmap(train), keys, jnp.arange(SEEDS))
     assert rows["Eval/episodic mean reward"].shape == (SEEDS, BUDGET // 32)
     assert rows["timestep"].dtype == jnp.int32
+
+
+#: The agents whose critics estimate an average-reward (differential) value,
+#: not a discounted return: they have no value bias.
+AVERAGE_REWARD = {"APO", "ASAC"}
+
+
+@pytest.mark.parametrize("name", AGENTS)
+def test_an_agent_logs_the_value_bias_of_its_critic(name: str) -> None:
+    """``Eval/mean bias``, the critic's estimate minus the realised
+    discounted return (:func:`ajax.evaluate.evaluate`), is measured for an
+    agent with a discounted critic and NaN for an average-reward one."""
+    cls, kwargs = AGENTS[name]
+    _, rows = cls(**kwargs).train(
+        seed=0, n_timesteps=BUDGET, num_episode_test=1, logging_config=EVALUATE
+    )
+    bias = np.asarray(rows["Eval/mean bias"])
+    assert bias.size == BUDGET // 32
+    if name in AVERAGE_REWARD:
+        assert np.isnan(bias).all()
+    else:
+        assert np.isfinite(bias).all()

@@ -29,12 +29,17 @@ import optax
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.agents.DQN.networks import get_initialized_q_network, predict_q
+from ajax.agents.DQN.networks import (
+    get_initialized_q_network,
+    predict_q,
+    q_network_value,
+)
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import ActionPipelineResult, init_collector_state
 from ajax.environments.utils import get_action_dim
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
@@ -498,4 +503,9 @@ def make_train(
         AuxiliaryLogs,
         agent_config.learning_starts,
         collect_kwargs={"buffer": buffer, "action_pipeline": action_pipeline},
+        eval_kwargs={
+            "value_estimate": ValueEstimate(
+                q_network_value, agent_config.gamma, agent_config.reward_scale
+            )
+        },
     )

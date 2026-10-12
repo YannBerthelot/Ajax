@@ -9,9 +9,8 @@ instrumentation extensions:
 
 wires into the Extension surface on PPO (on-policy, through
 ``agent_state.last_rollout``). BiasVorePenalty's coefficient and penalty
-also have unit checks. The diagnostics' numbers are not checked here --
-the math is ported verbatim from EVAREST (see the per-extension
-docstring); these tests pin the *integration contract*. Every agent's
+also have unit checks, and every logged metric of the two others meets
+its closed form on a known rollout, critic and residual. Every agent's
 critic lookup is checked in tests/agents/test_agent_contract.py.
 """
 
@@ -161,3 +160,62 @@ def test_bias_vore_penalty_alpha_nonhalf_runs():
         [BiasVorePenalty(alpha=0.3, loss_scale=0.5)]
     )
     assert metrics is not None
+
+
+# --------------------------------------------------------------------------
+# Every metric against its closed form
+# --------------------------------------------------------------------------
+#: Live units' activation: under the dormancy threshold unless normalised
+#: by the layer's mean.
+LIVE = 0.1
+#: The critic's features are the observations of a (T=4, n_envs=2) rollout,
+#: rows LIVE (e_0, e_1, e_2, e_0) then zeros: rank 3 (each step's rows,
+#: read apart, give four equal singular values), one dead unit of 4; its
+#: parameters have norm 5; the residual (0.5, -3.5, ...) has mean -1.5 and
+#: variance 4.
+CLOSED_FORM = {
+    "Cond/critic_srank": 3.0,
+    "Cond/critic_dormant_frac": 0.25,
+    "Cond/critic_feat_norm": 4 * LIVE / 8,
+    "Cond/critic_weight_norm": 5.0,
+    "EVarEst/bias_sq": 2.25,
+    "EVarEst/var_resid": 4.0,
+    "EVarEst/mse": 6.25,
+    "EVarEst/abs_bias": 1.5,
+}
+
+
+def test_every_metric_has_a_closed_form():
+    assert set(CLOSED_FORM) == set(COND_METRIC_KEYS + EVAREST_DECOMP_KEYS)
+
+
+@pytest.mark.parametrize("key", COND_METRIC_KEYS + EVAREST_DECOMP_KEYS)
+def test_a_metric_takes_its_closed_form(key):
+    rows = jnp.zeros((8, 4)).at[jnp.arange(4), jnp.array([0, 1, 2, 0])].set(LIVE)
+    obs, flags = rows.reshape(4, 2, 4), jnp.zeros((4, 2), dtype=bool)
+    rollout = Transition(
+        obs=obs,
+        action=jnp.zeros((4, 2, 1)),
+        reward=jnp.zeros((4, 2)),
+        terminated=flags,
+        truncated=flags,
+        next_obs=obs,
+    )
+    critic = SimpleNamespace(
+        params={"w": jnp.array([3.0, 4.0])}, apply_fn=lambda _, x, method: x[None]
+    )
+    state = SimpleNamespace(
+        collector_state=None, last_rollout=rollout, critic_state=critic
+    )
+    residual = jnp.tile(jnp.array([0.5, -3.5]), 4)
+    extensions = (
+        ConditioningMetrics(critic_loc="critic", concat_action=False),
+        BiasVoreDecomposition(value_target_fn=lambda *_: (jnp.zeros(8), residual)),
+    )
+    key0 = jax.random.PRNGKey(0)
+    metrics = {
+        k: v
+        for e in extensions
+        for k, v in e.eval_metrics(state, None, key0, None).items()
+    }
+    assert float(metrics[key]) == pytest.approx(CLOSED_FORM[key], rel=1e-6)

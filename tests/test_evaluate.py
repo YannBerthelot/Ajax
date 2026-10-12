@@ -1,21 +1,29 @@
 import dataclasses
+from functools import partial
+from typing import Any
 
+import distrax
 import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from brax.envs import create as create_brax_env
+from flax import struct
 
 from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.buffers.utils import get_buffer
-from ajax.evaluate import evaluate
+from ajax.evaluate import ValueEstimate, evaluate
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
 )
+from ajax.types import EnvNormalizationInfo, NormalizationInfo
+from ajax.wrappers import InitialStateWrapper
+from tests.environments.identity_env import IdentityEnv
 
 
 def _sac_state(env_config: EnvironmentConfig):
@@ -311,3 +319,210 @@ def test_the_update_reads_the_stateful_experts_actions_from_the_buffer(monkeypat
         assert set(column.tolist()) <= {-0.45, -0.4}, column
     trained = np.concatenate([column for column in played if len(column) == 8])
     assert set(trained.tolist()) == {-0.45, -0.4}
+
+
+# --------------------------------------------------------------------------
+# Every output of evaluate() against its closed form
+# --------------------------------------------------------------------------
+STD = 0.5
+
+
+@struct.dataclass
+class _LinearActor:
+    """An actor state whose policy at observation [t, c] is N(t / 10, STD)."""
+
+    params: Any = None
+    obs_norm_info: Any = None
+    hidden_state: Any = None
+
+    def apply(self, params, obs):
+        mean = obs[..., :1] / 10
+        return distrax.Normal(mean, jnp.full(mean.shape, STD))
+
+
+def _fix_c(key, state, params, c):
+    return state.replace(c=jnp.float32(c))
+
+
+def _pays_one(obs):
+    return jnp.ones(obs.shape[:-1] + (1,))
+
+
+@pytest.mark.parametrize(
+    "c, length, paid",
+    [(0.5, 3, [0.0, 0.2, 0.4]), (-0.5, 5, [0.0, 0.2, 0.4, 0.6, 0.8])],
+    ids=["terminated", "truncated"],
+)
+def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
+    """On the identity task with c fixed, the actor's mean t / 10 is paid
+    2 t / 10 on Box(-2, 2) for ``length`` steps: its return is their sum,
+    its entropy N(., STD)'s, its average reward the mean of the first 10^4
+    steps of their repetition (the episodes restart), the expert's return
+    one per step. Without a critic there is no value bias (NaN)."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    out = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        avg_reward_mode=True,
+        expert_policy=_pays_one,
+    )
+    entropy = 0.5 * np.log(2 * np.pi * np.e * STD**2)
+    average = np.mean(np.resize(paid, 10_000))
+    expected = (sum(paid), entropy, average, np.nan, length, length)
+    names = ("return", "entropy", "average reward", "bias", "length", "expert")
+    # The average reward reduces 10^4 float32 rewards in an order XLA picks
+    # per platform. Summed one by one, the least precise order, it is off by
+    # 4e-6 (relative; measured).
+    loose = {"average reward": (1e-4, 0.0)}
+    for name, got, want in zip(names, out, expected, strict=True):
+        rtol, atol = loose.get(name, (1e-5, 0.0))
+        np.testing.assert_allclose(got, want, rtol=rtol, atol=atol, err_msg=name)
+
+
+def _reward_std_2() -> EnvNormalizationInfo:
+    """A training env's frozen reward statistics of std 2 (variance 16 / 4),
+    for its 2 envs."""
+    return EnvNormalizationInfo(
+        reward=NormalizationInfo(
+            var=jnp.full((2, 1), 4.0),
+            count=jnp.full((2, 1), 4.0),
+            mean=jnp.zeros((2, 1)),
+            mean_2=jnp.full((2, 1), 16.0),
+        )
+    )
+
+
+def _ten_times_the_action(agent_state, obs, action):
+    """A plant critic: Q(s, a) = 10 a, t at the linear actor's action t / 10."""
+    return 10 * action[..., 0]
+
+
+@pytest.mark.parametrize(
+    "c, length", [(0.5, 3), (-0.5, 5)], ids=["terminated", "truncated"]
+)
+def test_the_value_bias_is_the_critic_estimate_minus_the_realised_return(c, length):
+    """The plant critic estimates t at step t; the actor is paid 0.2 t (as
+    above), which the critic sees normalised by the training env's frozen
+    reward scale (std 2) and scaled by 3, so 0.3 t. The
+    value bias is the mean over the episode's steps of t minus the return
+    realised from t, the rewards 0.3 k (k >= t) discounted by 0.9; the steps
+    after the episode's end (the time limit of 5 restarts it) do not count."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    bias = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        norm_info=_reward_std_2(),
+        value_estimate=ValueEstimate(
+            _ten_times_the_action, gamma=0.9, reward_scale=3.0
+        ),
+    )[3]
+    rewards = [0.3 * k for k in range(length)]
+    realised = [
+        sum(0.9 ** (k - t) * rewards[k] for k in range(t, length))
+        for t in range(length)
+    ]
+    expected = np.mean([t - realised[t] for t in range(length)])
+    np.testing.assert_allclose(bias, expected, rtol=1e-5)
+
+
+class _GainExpertPayingZero:
+    """A gain expert (``pid_gain_policy``) whose action is 0 whatever the
+    gains: the actor's action, t / 10, is the gains' log-scale only."""
+
+    learnable_fields = ("kp",)
+    anchor_gains = jnp.array([1.0])
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state, obs):
+        return self.step_with_gains(state, obs, self.anchor_gains)
+
+    def step_with_gains(self, state, obs, gains):
+        return jnp.zeros(obs.shape[:-1] + (1,)), state
+
+
+def test_the_value_bias_reads_a_gain_policy_critic_at_the_gains_action():
+    """Under pid_gain_policy collection stores the actor's action (the
+    gains'), not the expert's executed one, so the critic is read at it: the
+    plant critic estimates t at step t, the expert's action 0 pays 0, and the
+    bias is the mean of t over the 3 steps, 1 (at the executed action, 0)."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=0.5))
+    bias = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        expert_policy=_GainExpertPayingZero(),
+        pid_gain_policy=True,
+        value_estimate=ValueEstimate(_ten_times_the_action, gamma=0.9),
+    )[3]
+    np.testing.assert_allclose(bias, 1.0, rtol=1e-6)
+
+
+@struct.dataclass
+class _CommandReader(_LinearActor):
+    """An actor acting its command's scaled desired return, column 2 of
+    its input [t, c, d_r / 10, d_h / 100]."""
+
+    def apply(self, params, obs):
+        mean = obs[..., 2:3]
+        return distrax.Normal(mean, jnp.full(mean.shape, STD))
+
+
+@struct.dataclass
+class _Targets:
+    """The command targets a UDRL state carries."""
+
+    command_target_return: Any = 1.0
+    command_target_horizon: Any = 5.0
+
+
+@pytest.mark.parametrize(
+    "c, length", [(0.5, 3), (-0.5, 5)], ids=["terminated", "truncated"]
+)
+def test_a_commanded_actor_acts_on_its_decaying_command(c, length):
+    """UDRL's command from desired return 1, read by the actor as d_r / 10
+    and paid twice that on Box(-2, 2): each step pays d_r / 5, which the
+    command then loses, so the episode returns 1 - 0.8 ** length."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    returns, _, _, _, steps, _ = evaluate(
+        env,
+        _CommandReader(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        agent_state=_Targets(),
+        command=EvalCommand(scale_r=0.1, scale_h=0.01),
+    )
+    np.testing.assert_allclose(returns, 1 - 0.8**length, rtol=1e-5)
+    np.testing.assert_allclose(steps, length, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "c, length", [(0.5, 3), (-0.5, 5)], ids=["terminated", "truncated"]
+)
+def test_a_commanded_actor_decays_its_command_by_normalised_rewards(c, length):
+    """With reward normalisation (frozen std 2) UDRL's targets, and so its
+    command, are in normalised units: from the target 1 as it is, each step
+    pays d_r / 5, d_r / 10 normalised, which the command loses. d_r falls by
+    0.9 a step and the episode returns 2 (1 - 0.9 ** length)."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    returns = evaluate(
+        env,
+        _CommandReader(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        norm_info=_reward_std_2(),
+        agent_state=_Targets(),
+        command=EvalCommand(scale_r=0.1, scale_h=0.01),
+    )[0]
+    np.testing.assert_allclose(returns, 2 * (1 - 0.9**length), rtol=1e-5)

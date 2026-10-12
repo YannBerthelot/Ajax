@@ -35,9 +35,11 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
 )
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.networks import action_value
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -441,5 +443,10 @@ def make_train(
             "action_pipeline": action_pipeline,
             "store_hidden": recurrent and agent_config.stored_state,
         },
-        eval_kwargs={"expert_policy": expert_policy},
+        eval_kwargs={
+            "expert_policy": expert_policy,
+            "value_estimate": ValueEstimate(
+                action_value, agent_config.gamma, agent_config.reward_scale
+            ),
+        },
     )

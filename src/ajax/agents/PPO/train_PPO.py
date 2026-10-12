@@ -54,12 +54,14 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     env_keys,
 )
+from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
     predict_value_sequence,
+    state_value,
 )
 from ajax.state import (
     EnvironmentConfig,
@@ -794,4 +796,5 @@ def make_train(
         agent_config.n_steps,
         recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
+        eval_kwargs={"value_estimate": ValueEstimate(state_value, agent_config.gamma)},
     )

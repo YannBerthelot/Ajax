@@ -241,6 +241,9 @@ class DreamerV3(ActorCritic):
         self.dreamer_config = DreamerV3Config.from_arguments(
             {**self.config, "return_horizon": float(return_horizon)}
         )
+        # The values actually used, next to the constructor arguments (whose
+        # None widths the preset resolves), for the loggers' run config.
+        self.config.update(self.dreamer_config.resolved())
         self.agent_config = DreamerV3AgentConfig(
             train_ratio=train_ratio,
             batch_size=batch_size,
@@ -332,6 +335,9 @@ class DreamerV3(ActorCritic):
 
     def _record_replay_rows(self, rows: int) -> None:
         self.replay_rows_per_env = rows
+        self.config.update(
+            replay_rows_per_env=rows, replay_bytes_per_seed=self.replay_bytes_per_seed
+        )
         logger.info(
             "DreamerV3 replay: %d rows per env x %d envs, %.3f GB per seed"
             " (the replay rings; the training step's working set comes on top)",

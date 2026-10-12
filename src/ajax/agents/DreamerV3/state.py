@@ -57,6 +57,10 @@ MODEL_SIZES: dict[str, int] = {
 }
 
 
+#: The widths a ``model_size`` preset sets (:meth:`DreamerV3Config.from_model_size`).
+WIDTHS = ("units", "hidden", "deter", "classes")
+
+
 @dataclass(frozen=True)
 class DreamerV3Config:
     """Static DreamerV3 hyperparameters (frozen, hashable).
@@ -240,6 +244,10 @@ class DreamerV3Config:
         names = inspect.signature(cls).parameters  # the fields
         fields = {k: v for k, v in arguments.items() if k in names}
         return cls.from_model_size(arguments["model_size"], **fields)
+
+    def resolved(self) -> dict[str, int]:
+        """The widths the preset resolves, for the loggers' run config."""
+        return {f"resolved_{k}": getattr(self, k) for k in WIDTHS}
 
     @property
     def feat_dim(self) -> int:

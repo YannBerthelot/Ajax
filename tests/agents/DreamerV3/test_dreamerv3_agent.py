@@ -30,7 +30,7 @@ from ajax import DreamerV3
 from ajax.agents import loop
 from ajax.agents.DreamerV3 import train_DreamerV3
 from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
-from ajax.agents.DreamerV3.state import MODEL_SIZES
+from ajax.agents.DreamerV3.state import MODEL_SIZES, WIDTHS
 from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.logging.wandb_logging import LoggingConfig
@@ -417,6 +417,9 @@ def test_each_call_resolves_its_ring():
     assert agent.replay_rows_per_env is None
     assert agent._resolve_replay(N_ENVS * 20, None) == (20, None)
     assert agent._resolve_replay(N_ENVS * 300, None) == (300, None)
+    # The run config records the resolved ring (DESIGN.md section 5.6).
+    assert agent.config["replay_rows_per_env"] == 300
+    assert agent.config["replay_bytes_per_seed"] == agent.replay_bytes_per_seed > 0
     assert agent._resolve_replay(N_ENVS * 5000, None) == (1000, None)
     assert agent._resolve_replay(0, None) == (1000, None)
 
@@ -503,6 +506,10 @@ def test_construction_resolves_the_configuration():
     c = agent.dreamer_config
     d = MODEL_SIZES["25m"]
     assert (c.units, c.hidden, c.deter, c.classes) == (d, d, 96, d // 16)
+    resolved = {
+        f"resolved_{k}": v for k, v in zip(WIDTHS, (d, d, 96, d // 16), strict=False)
+    }
+    assert agent.config.items() >= resolved.items()
     assert c.gamma == pytest.approx(0.98)
     assert agent.config["algo_name"] == "DreamerV3"
     assert agent.config["model_size"] == "25m"
@@ -537,8 +544,7 @@ def test_the_config_is_built_from_the_constructor_arguments():
     parameters = inspect.signature(DreamerV3).parameters
     for field in dataclasses.fields(DreamerV3Config):
         default = parameters[field.name].default
-        widths = ("units", "hidden", "deter", "classes")
-        assert default is None if field.name in widths else default == field.default
+        assert default is None if field.name in WIDTHS else default == field.default
 
 
 def test_image_observations_are_refused_at_construction():

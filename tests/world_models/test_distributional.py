@@ -346,7 +346,8 @@ def test_interpolation_space_false_friend():
 @pytest.mark.parametrize("value", [0.0, 1.0, -3.3, 50.0])
 def test_decode_of_uniform_logits_is_exactly_zero(two_hot, batch, value):
     """Eagerly and under ``jax.jit``, where XLA fuses multiply-adds; the
-    reference's ``p_i b_i + p_j b_j`` pairs give 0.07 to 0.16 there (CPU)."""
+    reference's ``p_i b_i + p_j b_j`` pairs give a constant that depends on
+    the compiled program there (-0.17 to +0.16 on CPU, deviation D22)."""
     logits = jnp.full((*batch, two_hot.num_bins), value)
     assert np.all(np.asarray(two_hot.decode(logits)) == 0.0)
     assert np.all(np.asarray(jax.jit(two_hot.decode)(logits)) == 0.0)

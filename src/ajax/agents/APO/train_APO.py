@@ -109,7 +109,7 @@ def update_policy(
             gae=gae,
             clip_coef=clip_coef,
             ent_coef=ent_coef,
-            raw_actions=raw_actions,  # m4: pre-tanh for SquashedNormal recompute
+            raw_actions=raw_actions,
             entropy_key=entropy_key,
         )
         actor_batch = {
@@ -257,9 +257,7 @@ def update_agent(
         gae_lambda=agent_config.gae_lambda,
     )
 
-    # Extension on_target: reshape the value targets after GAE. APO is
-    # average-reward: gamma None says so. A key is drawn only with
-    # extensions.
+    # A key is drawn only with extensions.
     if extension_stack:
         target_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
@@ -283,9 +281,9 @@ def update_agent(
             total_timesteps,
         )
 
-    # Normalise advantages ONCE over the full rollout (brax PPO's
-    # convention): per-minibatch normalisation uses noisy mean/std
-    # estimates on tiny minibatches.
+    # Normalise advantages ONCE over the full rollout (PPO here normalises
+    # per minibatch, as brax's loss does; unverified): per-minibatch
+    # normalisation uses noisy mean/std estimates on tiny minibatches.
     if agent_config.normalize_advantage:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
 

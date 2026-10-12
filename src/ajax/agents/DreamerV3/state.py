@@ -116,7 +116,7 @@ class DreamerV3Config:
         retnorm_rate, retnorm_limit: EMA rate and scale floor of the return
             normaliser (``retnorm``).
         actor_scale, critic_scale, repval_scale: loss scales (``loss_scales``:
-            ``actor``, ``critic``, ``replay_critic``).
+            ``actor``, ``critic``, ``replay_critic``; Table 4).
 
     Optimizer (``opt``; dreamerv3_spec 4.3-4.7; :func:`ajax.agents.DreamerV3.
     optim.laprop`):
@@ -215,13 +215,8 @@ class DreamerV3Config:
         classes: Optional[int] = None,
         **kwargs: Any,
     ) -> DreamerV3Config:
-        """The ``model_size`` preset, with explicit widths taking precedence.
-
-        ``d = MODEL_SIZES[model_size]`` gives ``units = hidden = d``,
-        ``deter = 8 d`` and ``classes = d // 16`` (dreamerv3_spec 2.1); any
-        width passed explicitly overrides its preset value, and ``kwargs``
-        set the remaining fields.
-        """
+        """The ``model_size`` preset (module docstring), with explicit widths
+        taking precedence; ``kwargs`` set the remaining fields."""
         if model_size not in MODEL_SIZES:
             raise ValueError(
                 f"Unknown model_size {model_size!r}; choose from {sorted(MODEL_SIZES)}"

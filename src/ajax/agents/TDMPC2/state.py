@@ -236,13 +236,7 @@ class TDMPC2State(BaseAgentState):
     attributes, so :func:`ajax.agents.TDMPC2.core.update` takes it directly.
 
     Attributes:
-        actor_state: the policy prior and its Adam state.
         critic_state: ``None``; the Q ensemble belongs to the world model.
-        world_model_state: encoder, dynamics, reward head and Q ensemble with
-            their Adam state; ``target_params`` is the target Q ensemble.
-        q_scale: the RunningScale of the policy loss.
-        pi_gradnorm_sq: squared norm of the previous update's post-clip
-            policy gradient (paper-era world-model clip norm).
         collector_state: the row collector's state; ``policy_carry`` is the
             planner's per-env warm-start mean ``prev_mean [n_envs, H, A]``.
             ``collector_state.timestep`` counts env (agent) steps.
@@ -281,15 +275,12 @@ class TDMPC2MultiTaskState(BaseAgentState):
     :func:`ajax.agents.TDMPC2.core.update` takes it directly.
 
     Attributes:
-        actor_state: the policy prior and its Adam state.
         critic_state: ``None``; the Q ensemble belongs to the world model.
         collector_state: ``None``; offline training collects nothing.
         world_model_state: encoder, dynamics, reward head, Q ensemble and the
             task-embedding table (``params[core.TASK_EMB]``) with their Adam
             state; ``target_params`` is the target Q ensemble.
         q_scale: the RunningScale of the policy loss (one for all tasks).
-        pi_gradnorm_sq: squared norm of the previous update's post-clip
-            policy gradient (paper-era world-model clip norm).
         update_metrics: the last update's logged quantities.
         n_updates: updates done, the run's clock (``n_timesteps`` counts
             updates, as the reference's offline iterations).

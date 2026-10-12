@@ -82,56 +82,12 @@ class DreamerV3(ActorCritic):
         hidden: explicit width of the RSSM's hidden layers, overriding the
             preset's.
         classes: explicit classes per latent, overriding the preset's.
-        stoch: number of categorical latents. This and the network sizes
-            below are detailed in
-            :class:`~ajax.agents.DreamerV3.state.DreamerV3Config`.
-        blocks: number of GRU blocks.
-        enc_layers: hidden layers of the vector encoder.
-        dec_layers: hidden layers of the vector decoder.
-        rew_layers: hidden layers of the reward head.
-        con_layers: hidden layers of the continue head.
-        actor_layers: hidden layers of the actor.
-        critic_layers: hidden layers of the critic.
-        bins: two-hot bins of the reward head and the critic.
-        free_nats: world-model free bits.
-        unimix: uniform mixture of the latents.
-        actor_unimix: uniform mixture of the discrete actor.
-        dyn_scale: dynamics loss scale (Table 4, as the scales below).
-        rep_scale: representation loss scale.
-        rec_scale: reconstruction loss scale.
-        rew_scale: reward loss scale.
-        con_scale: continue loss scale.
-        actor_scale: actor loss scale.
-        critic_scale: critic loss scale.
-        repval_scale: replay critic loss scale.
         train_ratio: replayed steps trained per collected row (an update
             every ``batch_size * batch_length / train_ratio`` rows after the
             training start; dreamerv3_spec 6.1-6.2).
         batch_size: ``B``, the windows of a batch.
         batch_length: ``T``, the trained rows of a window (each window has
             one more row, the replay context; spec 5.8).
-        imag_horizon: imagined steps ``H``.
-        return_horizon: ``1 / (1 - gamma)``, the reference's ``horizon``
-            (333): ``gamma = 1 - 1 / return_horizon`` scales the continue
-            target and discounts the replay critic.
-        lam: lambda of the imagination return.
-        repval_lam: lambda of the replay return.
-        actent: actor entropy scale.
-        slowreg: slow-critic regulariser weight.
-        slow_rate: slow-critic EMA rate.
-        retnorm_rate: return-normaliser EMA rate.
-        retnorm_limit: return-normaliser floor.
-        minstd: lower bound of the continuous actor's standard deviation.
-        maxstd: upper bound of the continuous actor's standard deviation.
-        learning_rate: a float or a schedule of the update count (the
-            1000-update linear warmup multiplies it).
-        agc: adaptive gradient clipping threshold (the optimizer is LaProp
-            with adaptive gradient clipping, dreamerv3_spec 4.3-4.8).
-        agc_pmin: parameter norm floor of the clipping.
-        beta1: LaProp momentum decay.
-        beta2: LaProp RMS decay.
-        eps: LaProp epsilon, added after the square root.
-        warmup: updates of linear learning-rate warmup from 0.
         replay_capacity: rows kept, over all envs (Table 4: 5e6); see
             "Replay memory" below.
         episode_length: simulator steps per episode of brax /
@@ -142,6 +98,10 @@ class DreamerV3(ActorCritic):
         extensions: Extensions folding the phases ``pretrain``,
             ``post_update`` (after every update) and ``eval_metrics``;
             others are rejected at construction.
+
+    Every other argument is the
+    :class:`~ajax.agents.DreamerV3.state.DreamerV3Config` field of the same
+    name and default, documented there with its reference configuration key.
 
     Static hyperparameters (fixing shapes or the program, so changing them
     recompiles): every width, depth and count, ``bins``, ``imag_horizon``,

@@ -37,11 +37,6 @@ The slice at offset ``s`` is therefore obs rows ``s .. s + H``, action rows
 ``s .. s + H - 1`` and reward rows ``s + 1 .. s + H``: the same
 ``(o_s..o_{s+H}, a_s..a_{s+H-1}, r_s..r_{s+H-1})`` as ``DataPrepTransform``.
 
-Memory per seed: ``R * n * (T + 1) * (obs_dim + A + 1) * 4`` bytes
-(:attr:`EpisodeBuffer.nbytes`); the seed ``vmap`` multiplies it. Paper DMC
-walker (``obs_dim`` 24, ``A`` 6, ``T`` 500, 1M steps, one env): 2001 rounds,
-124 MB per seed.
-
 Capacity (registered as T26 in ``deviations.md``): b67b21c holds
 ``floor(min(buffer_size, steps) / T)`` episodes; Ajax holds
 ``ceil(min(buffer_size, total) / (T n))`` rounds of ``n`` episodes, ``total``

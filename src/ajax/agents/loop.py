@@ -177,14 +177,13 @@ def critic_step(
     Folds the extensions' ``on_target`` into ``target_q`` (held constant),
     then steps the critic down ``value_loss(params, target_q) -> (loss,
     aux)`` plus their ``critic_loss`` terms. ``rewards``, ``dones`` (where
-    the bootstrap is cut), ``gamma`` (None for an average-reward agent),
-    ``reward_scale`` and ``key`` are what the target used. Returns the
-    stepped critic state and ``aux``.
+    the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
+    ``reward_scale`` are what the target used; ``key``, split between the
+    two folds, is one the agent draws nothing else on. Returns the stepped
+    critic state and ``aux``.
     """
     step = agent_state.collector_state.timestep
-    # A key for each fold, derived apart from the draws the target made on
-    # ``key``, so the agent's own key stream is drawn as before.
-    target_key, loss_key = jax.random.split(jax.random.fold_in(key, 1))
+    target_key, loss_key = jax.random.split(key)
     target_batch = {
         "observations": batch.obs,
         "actions": batch.action,

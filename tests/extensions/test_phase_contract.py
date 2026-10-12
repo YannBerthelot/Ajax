@@ -167,17 +167,7 @@ def test_each_batch_holds_the_documented_keys(name: str) -> None:
             assert not documented - keys, (phase, sorted(keys))
 
 
-SHARED_KEYS = pytest.mark.xfail(
-    strict=True,
-    reason="fix/extension-keys: fold_in(k, 1) is split(k)[1], so actor_loss's"
-    " key is TD3's and AVG's next key and UDRL's batch's",
-)
-_SHARED = ("AVG", "TD3", "UDRL")
-
-
-@pytest.mark.parametrize(
-    "name", [pytest.param(n, marks=SHARED_KEYS) if n in _SHARED else n for n in AGENTS]
-)
+@pytest.mark.parametrize("name", AGENTS)
 def test_each_fold_gets_a_key_of_its_own(name: str) -> None:
     """Across phases, folds, epochs and minibatches."""
     run = _run(name)

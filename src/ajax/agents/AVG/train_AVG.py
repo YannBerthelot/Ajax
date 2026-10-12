@@ -224,7 +224,9 @@ def update_value_functions(
     total_timesteps: int,
 ) -> Tuple[AVGState, ValueAuxiliaries]:
     """The critic step on the scaled TD error of ``transition``."""
-    key, rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     critic_state = agent_state.critic_state
     # Only a termination cuts the bootstrap: the official code passes
@@ -262,7 +264,7 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        key,
+        ext_key,
         total_timesteps,
         rewards=transition.reward,
         dones=dones,
@@ -301,8 +303,8 @@ def update_policy(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            # Apart from the agent's own key, which it carries on.
-            jax.random.fold_in(agent_state.rng, 1),
+            # update_value_functions splits the same key in three.
+            jax.random.split(agent_state.rng, 4)[3],
             total_timesteps,
         )
         return loss + extra, aux

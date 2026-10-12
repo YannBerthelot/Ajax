@@ -228,10 +228,10 @@ def update_value_functions(
     raw_next_observations: Optional[jax.Array] = None,
     stored_next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
-    value_loss_key, rng = jax.random.split(agent_state.rng)
-    # A key for each extension fold, derived apart from the target's draws
-    # on value_loss_key, so the agent's own key stream is drawn as before.
-    target_key, loss_key = jax.random.split(jax.random.fold_in(value_loss_key, 1))
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    value_loss_key, rng, ext_key = jax.random.split(agent_state.rng, 3)
+    target_key, loss_key = jax.random.split(ext_key)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
 
     # 1. Core Bellman target (pure SAC). Pass next_action_transform so

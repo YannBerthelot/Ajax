@@ -9,18 +9,21 @@ repos:
         name: Ruff formatter
         language_version: python3.12
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.9.0
+  # mypy runs in the project's environment, so it checks against jax, flax
+  # and the other dependencies at their locked versions, and its own version
+  # is the locked one.
+  - repo: local
     hooks:
       - id: mypy
         name: Mypy type checker
+        entry: uv run mypy
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
         # benchmarks/ holds throwaway benchmark scripts (kwargs-dict
         # unpacking into typed constructors etc.) -- not library code, so
         # not gated on strict typing. ruff still lints them.
         exclude: "^benchmarks/"
-        additional_dependencies:
-          - "types-PyYAML>=6.0.0"
         args:
           - "--config-file=pyproject.toml"
           - "--python-version=3.12"
-        language_version: python3.12

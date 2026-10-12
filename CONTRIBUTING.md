@@ -399,4 +399,5 @@ uv run python benchmarks/agent_bench.py --compare benchmarks/agent_baseline.json
 Pre-commit ([.pre-commit-config.yaml](.pre-commit-config.yaml)) runs on every
 commit and in CI: ruff lint with rules `I F E W B C RUF ARG` (`ARG`, unused
 arguments, is off under `tests/`), ruff-format (settings in
-[pyproject.toml](pyproject.toml)), and mypy on everything but `benchmarks/`.
+[pyproject.toml](pyproject.toml)), and mypy on everything but `benchmarks/`,
+run in the project's environment (`uv run mypy`) so it sees jax and flax.

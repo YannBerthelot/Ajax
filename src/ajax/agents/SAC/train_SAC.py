@@ -51,7 +51,7 @@ class PolicyAuxiliaries:
     log_pi: jax.Array  # entropy proxy; tracks target_entropy
     policy_std: jax.Array  # mean unsquashed std; lower = more deterministic
     q_min: jax.Array  # Q(s, π(s)): what policy optimises
-    bc_term: jax.Array  # decaying online BC loss magnitude (0 after warmup_frac)
+    bc_term: jax.Array  # actor-loss extensions' terms (OnlineBC's: 0 after warmup)
 
 
 @struct.dataclass

@@ -13,7 +13,8 @@ from ajax.types import EnvType, InitializationFunction
 
 class APO(ActorCritic):
     """
-    Average-Policy Optimization (APO, Ma et al. 2021) agent for training and testing in continuous action spaces.
+    Average-Policy Optimization (APO, Ma et al. 2021) for discrete and
+    continuous action spaces.
     See  https://arxiv.org/pdf/2106.03442
     """
 

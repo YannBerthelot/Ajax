@@ -13,7 +13,8 @@ from ajax.types import EnvType
 
 class UDRL(ActorCritic):
     """Upside-Down RL (Schmidhuber, 2019). Command-conditioned supervised
-    policy learning. No critic, no replay buffer."""
+    policy learning on a replay buffer of rollout segments; no critic is
+    trained."""
 
     name: str = "UDRL"
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}

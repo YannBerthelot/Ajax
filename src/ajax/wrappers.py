@@ -445,6 +445,26 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
         return self._with_stats(state, norm_info, extra, obs=obs, reward=reward)
 
 
+#: The normalised state class of each inner gymnax state class.
+_NORMALIZED_STATES: dict[type, type] = {}
+
+
+def normalized_state_class(raw_state: type) -> type:
+    """A normalised gymnax env's state class: its inner state class
+    ``raw_state`` with a ``normalization_info`` field. One per inner class,
+    so a state one normaliser built is another's of the same env, as a
+    resumed run's initial state on a new agent instance requires (a scan
+    carry refuses a same-named class built apart)."""
+    if raw_state not in _NORMALIZED_STATES:
+
+        @struct.dataclass
+        class NormalizedEnvState(raw_state):  # type: ignore[valid-type, misc]
+            normalization_info: Optional[NormalizationInfo] = None
+
+        _NORMALIZED_STATES[raw_state] = NormalizedEnvState
+    return _NORMALIZED_STATES[raw_state]
+
+
 class NormalizeVecObservationGymnax(_OnlineNormalization, GymnaxWrapper):
     """Online normalisation of a gymnax env's observations and rewards. The
     statistics live in the env state, a subclass of the inner env's state
@@ -459,12 +479,7 @@ class NormalizeVecObservationGymnax(_OnlineNormalization, GymnaxWrapper):
             jax.random.PRNGKey(0),
         )
         self._raw_state = type(state)
-
-        @struct.dataclass
-        class NormalizedEnvState(self._raw_state):  # type: ignore[name-defined]
-            normalization_info: Optional[NormalizationInfo] = None
-
-        self.state_class = NormalizedEnvState
+        self.state_class = normalized_state_class(self._raw_state)
         return obs
 
     def _with_stats(self, env_state: Any, norm_info) -> Any:

@@ -403,6 +403,17 @@ def test_normalize_wrapper_on_real_gymnax_env(real_gymnax_env):
     assert not bool(terminated)
 
 
+def test_two_normalisers_of_one_env_build_states_of_one_class(real_gymnax_env):
+    """A state one normaliser built is another's of the same env: a new
+    agent instance resumes the state an earlier one returned."""
+    env, params = real_gymnax_env
+    states = [
+        NormalizeVecObservationGymnax(env).reset(jax.random.PRNGKey(0), params)[1]
+        for _ in range(2)
+    ]
+    assert jax.tree.structure(states[0]) == jax.tree.structure(states[1])
+
+
 @struct.dataclass
 class _LegacyState(gymnax_environment.EnvState):
     pass

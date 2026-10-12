@@ -1,3 +1,0 @@
-{"agent": "SAC", "env": "Pendulum-v1", "trial": 0, "n_envs": 4, "timesteps": 8000, "compile_s": 7.367, "measured_s": 7.249, "steps_per_s": 1103.7, "tag": "baseline", "git_sha": "a4431eb", "jax_backend": "gpu"}
-{"agent": "SAC", "env": "Pendulum-v1", "trial": 1, "n_envs": 4, "timesteps": 8000, "compile_s": 7.367, "measured_s": 5.982, "steps_per_s": 1337.4, "tag": "baseline", "git_sha": "a4431eb", "jax_backend": "gpu"}
-{"agent": "SAC", "env": "Pendulum-v1", "trial": 2, "n_envs": 4, "timesteps": 8000, "compile_s": 7.367, "measured_s": 5.988, "steps_per_s": 1336.0, "tag": "baseline", "git_sha": "a4431eb", "jax_backend": "gpu"}

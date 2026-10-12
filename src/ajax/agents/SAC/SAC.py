@@ -104,9 +104,6 @@ class SAC(ActorCritic):
         # "experts everywhere" path used by AjaxExperiments.
         expert_policy: Optional[Callable] = None,
         eval_expert_policy: Optional[Callable] = None,  # for eval logging only
-        # Ignored, never had an effect (evaluation does not read it); still
-        # accepted because AjaxExperiments passes ``action_scale=1.0``.
-        action_scale: float = 1.0,
         # JSRL: kept because ``jsrl_curriculum=True`` gates the
         # per-env ``step_in_episode`` counter init in :func:`init_SAC`.
         # The curriculum math lives on :class:`JSRLCurriculum`.action.

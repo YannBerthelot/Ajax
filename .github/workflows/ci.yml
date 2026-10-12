@@ -164,19 +164,41 @@ jobs:
         with:
           key: ${{ steps.jax-cache.outputs.key }}
 
+  # The documentation site, built strictly: a page missing from the nav, a
+  # broken link or a docstring that names a parameter the signature no longer
+  # has fails here. mkdocstrings reads the source without importing it, so
+  # the job installs the docs group alone, not the runtime's CUDA wheels.
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.11.28"
+          enable-cache: true
+          prune-cache: true
+      - run: uv sync --locked --only-group docs
+      - run: uv run --no-sync mkdocs build --strict
+
   # The one check branch protection requires: it passes only when every job
   # above passed.
   gate:
     name: Lint and Test
     if: always()
-    needs: [lint, tests, coverage, slow, probing]
+    needs: [lint, tests, coverage, slow, probing, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - run: |
-          echo 'lint=${{ needs.lint.result }} tests=${{ needs.tests.result }} coverage=${{ needs.coverage.result }} slow=${{ needs.slow.result }} probing=${{ needs.probing.result }}'
+          echo 'lint=${{ needs.lint.result }} tests=${{ needs.tests.result }} coverage=${{ needs.coverage.result }} slow=${{ needs.slow.result }} probing=${{ needs.probing.result }} docs=${{ needs.docs.result }}'
           test '${{ needs.lint.result }}' = success
           test '${{ needs.tests.result }}' = success
           test '${{ needs.coverage.result }}' = success
           test '${{ needs.slow.result }}' = success
           test '${{ needs.probing.result }}' = success
+          test '${{ needs.docs.result }}' = success

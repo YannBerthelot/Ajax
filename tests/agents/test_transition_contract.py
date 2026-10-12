@@ -19,6 +19,7 @@ import jax
 import numpy as np
 import pytest
 
+import ajax
 from ajax.extensions.base import Extension
 from ajax.wrappers import _OnlineNormalization
 from tests.agents.test_agent_contract import CASES, DISCRETE
@@ -26,9 +27,13 @@ from tests.environments.identity_env import IdentityEnv, ends
 
 FLAGS = ("dones", "terminated", "truncated")
 KEYS = ("observations", "next_observations", "rewards", *FLAGS, "reward_scale")
-FOLDING = [
-    n for n in sorted(CASES) if "on_target" in CASES[n].cls.supported_extension_phases
-]
+#: Every agent Ajax ships (test_exports: ajax.__all__ names them all) that
+#: folds on_target; one without a row in CASES fails.
+FOLDING = sorted(
+    n
+    for n in ajax.__all__
+    if "on_target" in getattr(getattr(ajax, n), "supported_extension_phases", ())
+)
 BATCHES: list[dict] = []
 
 
@@ -58,6 +63,7 @@ def _column(key: str) -> np.ndarray:
 
 @pytest.mark.parametrize("name", FOLDING)
 def test_on_target_rows_are_their_episodes_transitions(name, monkeypatch):
+    assert name in CASES, f"{name} folds on_target: give it a row in CASES"
     case = CASES[name]
     normalising = "normalize_rewards" in inspect.signature(case.cls).parameters
     produced: list[tuple] = []  # the env's (raw, normalised) rewards

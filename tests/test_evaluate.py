@@ -1,11 +1,15 @@
 import dataclasses
+from functools import partial
+from typing import Any
 
+import distrax
 import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from brax.envs import create as create_brax_env
+from flax import struct
 
 from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.buffers.utils import get_buffer
@@ -16,6 +20,8 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+from ajax.wrappers import InitialStateWrapper
+from tests.environments.identity_env import IdentityEnv
 
 
 def _sac_state(env_config: EnvironmentConfig):
@@ -311,3 +317,61 @@ def test_the_update_reads_the_stateful_experts_actions_from_the_buffer(monkeypat
         assert set(column.tolist()) <= {-0.45, -0.4}, column
     trained = np.concatenate([column for column in played if len(column) == 8])
     assert set(trained.tolist()) == {-0.45, -0.4}
+
+
+# --------------------------------------------------------------------------
+# Every output of evaluate() against its closed form
+# --------------------------------------------------------------------------
+STD = 0.5
+
+
+@struct.dataclass
+class _LinearActor:
+    """An actor state whose policy at observation [t, c] is N(t / 10, STD)."""
+
+    params: Any = None
+    obs_norm_info: Any = None
+    hidden_state: Any = None
+
+    def apply(self, params, obs):
+        mean = obs[..., :1] / 10
+        return distrax.Normal(mean, jnp.full(mean.shape, STD))
+
+
+def _fix_c(key, state, params, c):
+    return state.replace(c=jnp.float32(c))
+
+
+def _pays_one(obs):
+    return jnp.ones(obs.shape[:-1] + (1,))
+
+
+@pytest.mark.parametrize(
+    "c, length, paid",
+    [(0.5, 3, [0.0, 0.2, 0.4]), (-0.5, 5, [0.0, 0.2, 0.4, 0.6, 0.8])],
+    ids=["terminated", "truncated"],
+)
+def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
+    """On the identity task with c fixed, the actor's mean t / 10 is paid
+    2 t / 10 on Box(-2, 2) for ``length`` steps: its return is their sum,
+    its entropy N(., STD)'s, its average reward the mean of the first 10^4
+    steps of their repetition (the episodes restart), the expert's return
+    one per step. The bias, a sum of deviations from their own mean, is 0
+    whatever the rewards."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    out = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        avg_reward_mode=True,
+        expert_policy=_pays_one,
+    )
+    entropy = 0.5 * np.log(2 * np.pi * np.e * STD**2)
+    average = np.mean(np.resize(paid, 10_000))
+    expected = (sum(paid), entropy, average, 0.0, length, length)
+    names = ("return", "entropy", "average reward", "bias", "length", "expert")
+    for name, got, want in zip(names, out, expected, strict=True):
+        atol = 1e-3 if name == "bias" else 0.0  # 10^4 float32 deviations
+        np.testing.assert_allclose(got, want, rtol=1e-5, atol=atol, err_msg=name)

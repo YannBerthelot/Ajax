@@ -119,7 +119,8 @@ rework deleted them. Don't reintroduce that pattern.
 ### Performance no-regression guardrail
 
 Cross-agent perf baseline lives in ``benchmarks/agent_baseline.jsonl``;
-per-phase deltas in ``benchmarks/agent_phaseN.jsonl``. Any agent that
+a change's before/after runs are compared to it with ``agent_bench.py
+--compare``. Any agent that
 regresses beyond ~10% on the standardized ``benchmarks/agent_bench.py``
 run (fixed env, fixed n_envs / n_timesteps / seed) is investigated to
 root cause **before** the change lands. Small explained deltas are

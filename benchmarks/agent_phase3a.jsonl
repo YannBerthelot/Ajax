@@ -1,9 +1,0 @@
-{"agent": "PPO", "env": "CartPole-v1", "trial": 0, "n_envs": 4, "timesteps": 8000, "compile_s": 6.495, "measured_s": 1.618, "steps_per_s": 4943.2, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "PPO", "env": "CartPole-v1", "trial": 1, "n_envs": 4, "timesteps": 8000, "compile_s": 6.495, "measured_s": 1.599, "steps_per_s": 5004.4, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "PPO", "env": "CartPole-v1", "trial": 2, "n_envs": 4, "timesteps": 8000, "compile_s": 6.495, "measured_s": 1.595, "steps_per_s": 5016.3, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "DQN", "env": "CartPole-v1", "trial": 0, "n_envs": 4, "timesteps": 8000, "compile_s": 1.106, "measured_s": 2.352, "steps_per_s": 3400.7, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "DQN", "env": "CartPole-v1", "trial": 1, "n_envs": 4, "timesteps": 8000, "compile_s": 1.106, "measured_s": 2.126, "steps_per_s": 3762.4, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "DQN", "env": "CartPole-v1", "trial": 2, "n_envs": 4, "timesteps": 8000, "compile_s": 1.106, "measured_s": 2.239, "steps_per_s": 3572.9, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "PQN", "env": "CartPole-v1", "trial": 0, "n_envs": 4, "timesteps": 8000, "compile_s": 1.034, "measured_s": 1.328, "steps_per_s": 6024.9, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "PQN", "env": "CartPole-v1", "trial": 1, "n_envs": 4, "timesteps": 8000, "compile_s": 1.034, "measured_s": 1.319, "steps_per_s": 6066.7, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}
-{"agent": "PQN", "env": "CartPole-v1", "trial": 2, "n_envs": 4, "timesteps": 8000, "compile_s": 1.034, "measured_s": 1.301, "steps_per_s": 6146.9, "tag": "phase3a", "git_sha": "eb5ce6b", "jax_backend": "cpu"}

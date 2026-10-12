@@ -53,9 +53,11 @@ Defaults are read from `PQN.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `td_loss_fn` | `None` | the loss; `None` is the squared error, `make_huber_td_loss(delta)` the Huber loss |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations |
 | `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` for extensions |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 A rollout holds `n_steps * n_envs` rows (1,024 by default), which must divide
@@ -72,7 +74,7 @@ evenly into `num_minibatches`; PQN raises otherwise.
   current network, then held fixed for `n_epochs` passes of
   `num_minibatches` gradient steps, the rollout reshuffled each pass.
 - **Why several envs.** Without a buffer, the data's diversity comes from
-  the parallel envs. The probing tests run PQN with 8 envs because with one
+  the parallel envs. The probes run PQN with 8 envs because with one
   env the value of the action it stops exploring drifts.
 - **Exploration.** As DQN: epsilon decays linearly with the training
   fraction; evaluation is greedy.
@@ -85,12 +87,16 @@ evenly into `num_minibatches`; PQN raises otherwise.
 
 ## Results
 
-The repository records no learning curves for PQN yet. The probing tests
-(`tests/probing`) check its Q(lambda) returns, discounting, episode ends,
-extension phases and checkpoint resume on tiny problems with exact answers.
-On the speed benchmark (`benchmarks/agent_bench.py`: CartPole, 4 envs, 8,000
-steps, on a Mac CPU) PQN ran at a median 7,332 steps per second (see
-`PERFORMANCE_REPORT.md`).
+The repository records no learning curves for PQN yet. Unit tests
+(`tests/agents/PQN` and the contracts every agent shares) check its pieces
+against exact contracts, without learning. The probes (`tests/probing`)
+train it briefly on tiny environments with known answers: its Q(lambda)
+returns, discounting, episode ends, extension phases, and a run split by a
+checkpoint matching the run left whole. On the CPU speed benchmark
+(`benchmarks/agent_bench.py`: CartPole, 4 envs, 8,000 steps) PQN ran at
+36,961 steps per second of execution (7,358 with compilation) at main
+`a8a13c2` (see
+[PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
 
 ## API
 

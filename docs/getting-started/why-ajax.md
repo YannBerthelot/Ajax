@@ -17,7 +17,8 @@ JAX implementations. Ajax differs from them in four ways:
 
 This page shows each one, [compares the four libraries](#comparison) and
 says [when another library fits better](#when-to-use-something-else). The
-examples run on a laptop CPU in seconds, except the world-model one.
+examples run on a laptop CPU in under a minute each, except the world-model
+one.
 
 ## End to end on the accelerator
 
@@ -30,8 +31,8 @@ step. This is PureJaxRL's approach, and every Ajax agent trains this way
 except `TDMPC2MultiTask`, which learns offline from a dataset and evaluates
 its tasks from Python between compiled chunks of updates. It needs an
 environment written in JAX: [gymnax, Brax, MuJoCo Playground or
-TargetGym](../guide/environments.md). Logging and a few extensions do call
-back to the host, to hand over their records, save snapshots or print
+TargetGym](../guide/environments.md). Logging and the critic pre-training
+extensions do call back to the host, to hand over their records or print
 progress.
 
 ```python
@@ -86,30 +87,36 @@ These budgets show the calls; Pendulum needs far more steps to be solved.
 Often a controller already exists for the task: a tuned PID, a model
 predictive controller, an earlier policy. In Ajax an *expert* is a JAX
 function from observations to actions (or a stateful one, such as a PID
-carrying its integral), and an agent can learn from it instead of starting
-from scratch. SAC uses it the most: it fills the replay buffer with the
-expert's experience, lets the expert act during warm-up, can clone it before
-training, and takes the expert [extensions](../guide/extensions.md): online
-behaviour cloning, residual policies, JSRL hand-over, IBRL targets and EDGE
-exploration, among others. TD3, REDQ and APO can also clone it before
-training, and TD3, REDQ, ASAC and APO can add an imitation term to the
-actor's loss. An agent given `expert_policy=` also logs the expert's own
-return at each evaluation, so the curves show whether the agent has overtaken
-it. [Expert guidance](../guide/expert-guidance.md) covers every option.
+carrying its integral, which gets its state back at every step), and an
+agent can learn from it instead of starting from scratch. The expert reads
+the environment's raw observations and answers in the environment's action
+units; the agent converts its answers to its own units, `[-1, 1]`.
+
+SAC uses it the most: it fills the replay buffer with the expert's
+experience, lets the expert act during warm-up, and takes the expert
+[extensions](../guide/extensions.md): online behaviour cloning, residual
+policies, JSRL hand-over, IBRL targets and EDGE exploration, among others.
+SAC, TD3, REDQ and APO can clone the expert before training
+(`CloningPretrain`), and SAC, TD3, REDQ, ASAC and APO can add an imitation
+term to the actor's loss (`ImitationLoss`). SAC, TD3, REDQ, APO and AVG,
+given `expert_policy=`, also log the expert's own return at each evaluation,
+so the curves show whether the agent has overtaken it.
+[Expert guidance](../guide/expert-guidance.md) covers every option.
 
 ```python
 import jax.numpy as jnp
 
-from ajax import SAC
-from ajax.agents.TD3.TD3 import TD3
+from ajax import SAC, TD3
 from ajax.extensions.expert import ImitationLoss
+from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 
 
 def pd_expert(obs):
-    """A PD controller on Pendulum's raw observation [cos θ, sin θ, θ̇]."""
+    """A PD controller on Pendulum's raw observation [cos θ, sin θ, θ̇],
+    answering a torque in the environment's units, [-2, 2]."""
     theta = jnp.arctan2(obs[..., 1], obs[..., 0])
-    return jnp.clip(-(2.0 * theta + 0.5 * obs[..., 2]), -1.0, 1.0)[..., None]
+    return jnp.clip(-(2.0 * theta + 0.5 * obs[..., 2]), -2.0, 2.0)[..., None]
 
 
 # SAC writes 1,000 expert steps to its replay buffer before training.
@@ -119,8 +126,12 @@ logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
 state, evaluations = sac.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Eval/expert bias"])  # the agent's return minus the expert's
 
-# TD3 pulls its actor towards the expert's actions with an extra loss term.
-td3 = TD3("Pendulum-v1", learning_starts=1_000, extensions=(ImitationLoss(pd_expert),))
+# TD3 clones the expert on 1,000 of its steps before training, then keeps
+# pulling its actor towards the expert's actions with an extra loss term.
+td3 = TD3("Pendulum-v1", learning_starts=1_000, extensions=(
+    CloningPretrain(pd_expert, n_steps=1_000, epochs=2),
+    ImitationLoss(pd_expert),
+))
 state, _ = td3.train(seed=0, n_timesteps=2_000)
 ```
 
@@ -162,7 +173,7 @@ Ajax cells link to its documentation.
 | Environment stepping inside the compiled program | Yes, for JAX environments ([Environments](../guide/environments.md)) | No: Gymnasium environments ([custom envs][sb3-env]), stepped from Python ([VecEnv][sb3-vec]) | No: Gymnasium environments, through SB3's API ([README][sbx]); its agents subclass SB3's, whose collection loop steps them from Python ([source][sbx-src]) | Yes: the whole pipeline, environment included, is JAX ([README][pjx]) |
 | Vectorised environments | `n_envs` copies stepped as one operation, seeds with `jax.vmap` ([Performance](../guide/performance.md)) | `DummyVecEnv` (one process) and `SubprocVecEnv` (one process per copy) ([VecEnv][sb3-vec]) | Through the SB3 API it shares ([README][sbx]) | `vmap` over environment copies ([`ppo.py`][pjx-ppo]) and over seeds ([README][pjx]) |
 | Average-reward agents | [ASAC](../algorithms/asac.md), [APO](../algorithms/apo.md) | None listed ([algorithms][sb3-algos], [contrib][contrib]) | None listed ([README][sbx]) | None listed ([files][pjx-files]) |
-| Expert-guided agents | SAC with its expert extensions; an imitation term for TD3, REDQ, ASAC and APO ([Expert guidance](../guide/expert-guidance.md)) | None listed in SB3 ([algorithms][sb3-algos]) or sb3-contrib ([contrib][contrib]); the guide points to the separate `imitation` package: behaviour cloning, DAgger, AIRL, GAIL, learning from human preferences ([imitation][sb3-imitation]) | None listed ([README][sbx]) | None listed ([README][pjx]) |
+| Expert-guided agents | SAC with its expert extensions; cloning before training for TD3, REDQ and APO; an imitation term for TD3, REDQ, ASAC and APO ([Expert guidance](../guide/expert-guidance.md)) | None listed in SB3 ([algorithms][sb3-algos]) or sb3-contrib ([contrib][contrib]); the guide points to the separate `imitation` package: behaviour cloning, DAgger, AIRL, GAIL, learning from human preferences ([imitation][sb3-imitation]) | None listed ([README][sbx]) | None listed ([README][pjx]) |
 | World models | [DreamerV3](../algorithms/dreamerv3.md), [TD-MPC2 and its multi-task agent](../algorithms/tdmpc2.md) | None listed ([algorithms][sb3-algos], [contrib][contrib]) | None listed ([README][sbx]) | None listed ([files][pjx-files]) |
 | Recurrent memory | GRU, LSTM, transformer or Mamba for PPO, SAC, TD3, REDQ, ASAC and APG; DreamerV3 is recurrent by design ([Memory](../guide/memory.md)) | RecurrentPPO, an LSTM PPO, in sb3-contrib ([contrib][contrib]) | None listed ([README][sbx]) | A GRU PPO, `ppo_rnn.py`, and an experimental S5 PPO in `experimental/s5` ([files][pjx-files]) |
 | Differentiable-simulation agent | [APG](../algorithms/apg.md) | None listed ([algorithms][sb3-algos], [contrib][contrib]) | None listed ([README][sbx]) | None listed ([files][pjx-files]) |

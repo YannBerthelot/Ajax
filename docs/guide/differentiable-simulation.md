@@ -68,6 +68,10 @@ for i in range(20):
 print(value, gains)
 ```
 
+`closed_loop_rollout` hands the policy's actions to the environment as they
+are, so the policy above returns torques in the environment's units; APG
+maps its controller's `[-1, 1]` actions onto the bounds itself (below).
+
 This path is gymnax only: Brax and MuJoCo Playground environments take no
 per-step parameters and have their own gradient machinery. For those,
 `differentiable_reset=True` in `build_env_from_id` lets gradients flow
@@ -80,9 +84,10 @@ is a distribution over an environment's physical parameters, so training can
 cover a whole family:
 
 - `UniformPerturbation(nominal, fields, scale)` draws each listed parameter as
-  `p · (1 + U(−scale, scale))`, independently, leaving the others nominal.
-  Busetto et al. build their meta-dataset this way, with `scale=0.05`. A
-  misspelt field raises when the class is built.
+  `p · (1 + U(−scale, scale))`, independently, leaving the others nominal;
+  a vector or matrix field is scaled by one factor per system. Busetto et
+  al. build their meta-dataset this way, with `scale=0.05`. A misspelt
+  field raises when the class is built.
 - `FixedSystem(nominal)` always returns the nominal system; it is the first
   stage of a curriculum.
 - Subclass `SystemClass` and implement `sample(rng, n)` for anything else.
@@ -109,7 +114,10 @@ gymnax environment into such a task:
   previous action, `[e, u_prev]` (optionally followed by the plant's own
   observation), and the reward is `−‖y_d − y‖²`. The undiscounted return is
   minus the matching cost, and `sqrt(−return / horizon)` is the paper's
-  M-RMSE.
+  M-RMSE. The error is computed from the observation the plant returns, so
+  sensor noise on the plant (an
+  [`ObservationNoiseWrapper`](environments.md#sensor-noise) under the task)
+  reaches the controller and the reward alike.
 
 All three are plain `jnp`, so the task stays differentiable when the plant
 is. `ajax.wrappers.InitialStateWrapper(env, fn)` sets each episode's initial
@@ -121,7 +129,10 @@ state, for tasks that fix it, as the paper does.
 system class, runs the controller on them for `horizon` steps, and takes one
 optimiser step on minus the mean return. One update consumes
 `n_envs · horizon` of `n_timesteps`. The controller is deterministic and its
-actions are bounded with `tanh` (`squash=True`).
+actions are bounded with `tanh` (`squash=True`), then mapped onto the
+environment's bounds, as every agent's are
+([Actions](environments.md#actions)); an unsquashed controller is clipped to
+`[-1, 1]` first. The map is differentiable, so gradients flow through it.
 
 A controller made of a small MLP and a learnable PID output layer, trained to
 track step references across pendulums whose mass and length vary by 30 %:
@@ -164,7 +175,7 @@ agent = APG(
     pid=PIDHeadConfig(),  # close the controller with a learnable PID layer
 )
 state, aux = agent.train(seed=0, n_timesteps=8 * 100 * 200)  # 200 updates
-print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.6 to 0.3
+print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.7 to 0.45
 ```
 
 `train` always returns every update's `loss`, `matching_loss`, `m_rmse` and
@@ -191,13 +202,15 @@ configuration:
   width 128, context 100), with a linear input embedding
   (`actor_architecture=()`), closed by a PID output layer;
 - one system per update (`n_envs=1`) and a horizon of 100;
-- AdamW with betas (0.9, 0.95), a 5,000-update linear warm-up, then cosine
-  decay to a tenth of the learning rate.
+- Adam with betas (0.9, 0.95) (AdamW once `weight_decay` is above its
+  default of 0), a 5,000-update linear warm-up, then cosine decay to a
+  tenth of the learning rate.
 
 Ajax departs from the reference code in three places, each backed by runs on
 the pendulum tracking test bed: actions are `tanh`-bounded, gradients are
 clipped, and the PID layer starts as the identity (gains 1, 0, 0) rather than
-all ones.
+all ones. Those runs predate the map of actions onto the environment's
+bounds, when the pendulum's torque was capped at 1 of its 2.
 
 The paper trains in stages of growing diversity (its Algorithm 2): one system
 first, then the class. `train_curriculum` chains `CurriculumStage(agent,

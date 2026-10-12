@@ -33,10 +33,11 @@ rebuild the image from it.
 
 ### Brax and Playground
 
-Brax and Playground episodes last `episode_length` simulator steps, 1,000 by
-default. PPO and the world models take `episode_length` as an argument; for
-the other agents, build the environment as below and pass it in. On a CPU,
-Playground environments run MJX's pure-JAX implementation.
+Every agent takes `episode_length` and `action_repeat` for an environment
+built from a Brax or Playground id. `episode_length` counts simulator steps,
+1,000 by default; gymnax environments keep their own time limit, set in
+their parameters (below). On a CPU, Playground environments run MJX's
+pure-JAX implementation.
 
 Playground draws a new initial state for every episode (`fresh_reset=True`),
 as dm_control does. Runs made before this became the default restarted every
@@ -105,8 +106,9 @@ agent = SAC(Plane3DCircle(), n_envs=4, learning_starts=1_000)
 state, _ = agent.train(seed=[0, 1], n_timesteps=20_000)
 ```
 
-Ajax's benchmarks use it ([Performance](performance.md)). The `plane`
-dependency group installs it.
+The Plane3DCircle scenario of `benchmarks/perf_bench.py` trains on it
+([Performance](performance.md)); the per-agent benchmark does not. The
+`plane` dependency group installs it.
 
 ### Wrappers
 
@@ -115,8 +117,7 @@ Ajax ships gymnax wrappers for common changes to a task:
 | Wrapper (`ajax.wrappers`) | What it does |
 | --- | --- |
 | `InitialStateWrapper(env, init_state_fn)` | replaces the reset state, for every episode (fixed or narrowed initial conditions) |
-| `TransformObservation(env, fn)` | applies `fn` to every observation |
-| `TransformReward(env, fn)` | applies `fn` to every reward |
+| `ObservationNoiseWrapper(env, sigma, scale=1.0)` | adds sensor noise to the observations (see [below](#sensor-noise)) |
 | `TerminatedTruncatedWrapper(env)` | splits an old-style `done` into `terminated` and `truncated` (see [time limits](#time-limits)) |
 | `PIDTermsWrapper` (`ajax.environments.pid_terms`) | adds a PID's error terms to the observation (see [below](#pid-error-terms)) |
 
@@ -125,7 +126,7 @@ import gymnax
 import jax.numpy as jnp
 
 from ajax import SAC
-from ajax.wrappers import InitialStateWrapper, TransformReward
+from ajax.wrappers import InitialStateWrapper, ObservationNoiseWrapper
 
 env, params = gymnax.make("Pendulum-v1")
 
@@ -136,8 +137,34 @@ def hanging_down(key, state, params):
 
 
 env = InitialStateWrapper(env, hanging_down)
-env = TransformReward(env, lambda reward: reward / 10.0)
+env = ObservationNoiseWrapper(env, sigma=0.05)
 agent = SAC(env, env_params=params, learning_starts=500)
+state, _ = agent.train(seed=0, n_timesteps=1_000)
+```
+
+For anything else, subclass `ajax.wrappers.GymnaxWrapper`: it forwards
+every method to the wrapped environment (`self._env`), so you override only
+what you change.
+
+```python
+import gymnax
+
+from ajax import SAC
+from ajax.wrappers import GymnaxWrapper
+
+
+class ScaleReward(GymnaxWrapper):
+    """Divide every reward by 10."""
+
+    def step(self, key, state, action, params=None):
+        obs, state, reward, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
+        return obs, state, reward / 10.0, terminated, truncated, info
+
+
+env, params = gymnax.make("Pendulum-v1")
+agent = SAC(ScaleReward(env), env_params=params, learning_starts=500)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
 
@@ -146,6 +173,21 @@ Two more modules turn one environment into a family of tasks:
 and `ajax.environments.system_class` (a distribution over physical
 parameters, one system per copy). [Differentiable simulation](differentiable-simulation.md)
 covers both.
+
+### Sensor noise
+
+`ObservationNoiseWrapper(env, sigma, scale)` adds `sigma * scale * N(0, 1)`
+to every observation, drawn afresh at every reset and step. `scale` is one
+number or one per observation dimension, such as the observations' standard
+deviations. The final observation of an ended episode gets the same draw as
+the step, so a stored transition holds the observation the agent saw. The
+environment's own random draws are unchanged.
+
+The noise sits on the observation only: the state's `get_obs` stays
+noiseless, and that is what an [expert](expert-guidance.md) reads on a
+gymnax environment. `ObservationNoiseWrapperBrax` does the same on a Brax or
+Playground stack built by `build_env_from_id`; since evaluation rebuilds
+those from their id, add it inside a registered builder.
 
 ## Normalisation
 
@@ -215,24 +257,39 @@ reads them.
 
 ## Actions
 
-Ajax clips every continuous action to the environment's bounds and does not
-rescale it otherwise. SAC, TD3, REDQ, ASAC, AVG, APO, UDRL and APG squash
-their continuous actions into `[-1, 1]` with `tanh`; PPO samples an
-unbounded Gaussian unless you pass `squash=True`. On an environment whose
-bounds are wider than
-`[-1, 1]`, a squashed agent reaches only part of the range: on gymnax's
-Pendulum, whose torque goes from -2 to 2, SAC applies at most 1. Every Brax
-and Playground action lies in `[-1, 1]`. DreamerV3 and TD-MPC2 map `[-1, 1]`
-onto the bounds instead, as their papers do.
+Every continuous agent acts in `[-1, 1]` on each action dimension, whatever
+the environment's bounds: these are the agent's units. Before each step,
+Ajax maps the action onto the environment's box `[low, high]`: it clips the
+action to `[-1, 1]`, then sends `c + h * a`, with `c = (high + low) / 2` the
+centre of the box and `h = (high - low) / 2` its half-width (CleanRL's
+`action_bias` and `action_scale`). On gymnax's Pendulum, whose torque goes
+from -2 to 2, an action of 1 applies a torque of 2. A dimension with an
+infinite bound gets the clipped action as it is, and discrete actions pass
+through. Brax and Playground actions already lie in `[-1, 1]`, where the map
+is just the clip. With per-copy parameters from a system class, each copy
+is mapped onto its own system's bounds.
+
+The map is the same for every agent and everywhere an action reaches the
+environment: collection, evaluation and expert rollouts. SAC, TD3, REDQ,
+ASAC, AVG, APO, UDRL and APG (by default) squash their actions into
+`[-1, 1]` with `tanh`; PPO samples an unbounded Gaussian unless you pass
+`squash=True`, and its sample is clipped by the map. The replay buffers and
+rollouts store the action in agent units.
+
+`ajax.environments.utils.agent_action_to_env` is the map and
+`env_action_to_agent` its inverse, which does not clip. An expert policy
+returns actions in the environment's units, and Ajax reads them through the
+inverse: see [Expert guidance](expert-guidance.md).
 
 ### Action repeat
 
-DreamerV3 and TD-MPC2 take `action_repeat`: each agent step runs the
-simulator that many times with the same action and returns the summed
-reward. It works on Brax and Playground environments built from an id;
-`episode_length` then counts simulator steps, so an episode lasts
-`episode_length // action_repeat` agent steps. gymnax environments and
-prebuilt environments support only 1.
+Every agent takes `action_repeat`: each agent step runs the simulator that
+many times with the same action and returns the summed reward. It works on
+Brax and Playground environments built from an id; `episode_length` then
+counts simulator steps, so an episode lasts `episode_length // action_repeat`
+agent steps. gymnax environments and prebuilt environments support only 1
+and raise otherwise. The world models use it for their papers' protocols
+(see [World models](world-models.md)).
 
 ## Time limits
 
@@ -247,18 +304,19 @@ states.
 
 Auto-resetting environments return the next episode's first observation
 when an episode ends. Ajax recovers the last observation of the ended
-episode from the step's `info` (`final_obs` on Brax and Playground, where
-Ajax's wrapper stack records it) and stores it for the bootstrap.
+episode from the step's `info` (`final_observation` on gymnax, `final_obs`
+on Brax and Playground, where Ajax's wrapper stack records it) and stores
+it for the bootstrap.
 
 Each backend reports the two flags its own way:
 
 - **gymnax 1.0** returns `terminated` and `truncated` apart. Ajax uses them
   as they are.
 - **Older gymnax-style environments** return one `done` that folds in the
-  time limit. Ajax recovers the time limit from `info["truncated"]` when the
-  environment publishes it, else from the state's step counter. Wrapping
-  such an environment in `TerminatedTruncatedWrapper` makes the split
-  explicit.
+  time limit, which gymnax hands back as `terminated`: every time limit then
+  looks like the end of the task. Wrap such an environment in
+  `TerminatedTruncatedWrapper`, which keeps `terminated` only where the
+  time limit was not reached.
 - **Brax and Playground** report the time limit in `info["truncation"]`,
   set by their episode wrapper.
 

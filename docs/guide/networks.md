@@ -18,7 +18,7 @@ agent = PPO(
     n_steps=128,
     actor_architecture=("64", "tanh", "64", "tanh"),
     critic_architecture=("256", "relu", "256", "relu"),
-    actor_kernel_init="orthogonal(0.01)",  # a near-zero first policy
+    encoder_kernel_init="orthogonal(np.sqrt(2))",  # the hidden layers' kernels
     critic_bias_init="0.0",  # a number gives a constant initialiser
     encoder_layer_norm=True,  # a LayerNorm after the hidden layers
 )
@@ -46,24 +46,30 @@ specifications: see [World models](world-models.md).
 ### Initialisers
 
 Kernels start from an orthogonal initialiser with gain 1 and biases from
-zero, unless an argument says otherwise. Initialisers are named by string:
+zero, except the policy's mean, whose kernel starts from
+`orthogonal(0.01)`, a near-zero first action (TD3's deterministic actor
+starts its last layer uniform in `±3e-3`, as DDPG does). Initialisers are
+named by string:
 
 - `"orthogonal(0.01)"`, `"lecun_uniform"`, or any other factory in
-  `flax.linen.initializers`, with its argument in brackets;
+  `flax.linen.initializers`, with its argument in brackets (`np`, `jnp` and
+  `math` may appear in it, as in `"orthogonal(np.sqrt(2))"`);
 - `"zeros"`, and `"trunc_normal_fan_in(1.0)"` (DreamerV3's initialiser);
 - a number such as `"0.0"` or `"-1.0"`, for a constant.
 
-PPO and APO take `actor_kernel_init`, `actor_bias_init`,
-`critic_kernel_init`, `critic_bias_init`, `encoder_kernel_init` and
-`encoder_bias_init`.
+PPO and APO take three of them: `encoder_kernel_init` for the hidden
+layers' kernels, `actor_bias_init` for the policy head's bias and
+`critic_bias_init` for the value head's. PPO also takes `mean_kernel_init`
+(below).
 
 ### Layer normalisation
 
 The hidden layers form an encoder that the output heads read.
 `encoder_layer_norm=True` adds a LayerNorm on its output. It is off by
 default, because the SAC, TD3, PPO and DQN papers use plain MLPs. PPO takes
-it as an argument; for the other agents, set it on the network configuration
-before training:
+it as an argument. SAC, ASAC, REDQ, APO and DQN, and TD3's critics (not its
+actor), read it from the network configuration, which you can set before
+training:
 
 ```python
 from ajax import SAC
@@ -73,13 +79,17 @@ agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 ```
 
-UDRL and APG's controller always keep a LayerNorm on their encoder, as
-Ajax's earlier networks did, and AVG normalises its penultimate features, as
-its paper does.
+UDRL turns it on for its policy and APG's controller always keeps a
+LayerNorm on its encoder, as Ajax's earlier networks did. PQN puts one after
+every hidden layer, as its paper does, whatever the setting. AVG normalises
+its penultimate features instead, as its paper does, which overrides the
+setting.
 
 ### The policy head
 
-PPO exposes the policy head's options; APO sets them for continuous control:
+PPO exposes the policy head's options. APO sets them for continuous control
+as Brax's PPO does: one learned log standard deviation per dimension,
+starting at 1 (`log_std_init=0.0`), a `lecun_uniform` mean and `squash=True`.
 
 | Argument | Default (PPO) | Effect |
 | --- | --- | --- |
@@ -205,8 +215,9 @@ with longer training.
 
 - **`gains="fixed"`** makes the gains the actor's only parameters: a linear
   map with no bias and no hidden layer. The trained policy deploys as a
-  plain PID with the gains `pid_gains` reads off it (Lawrence et al., 2022,
-  tune PID gains with reinforcement learning the same way).
+  plain PID with the gains `pid_gains` reads off it, in the agent's units
+  (below) (Lawrence et al., 2022, tune PID gains with reinforcement learning
+  the same way).
 - **`gains="observation"`** predicts the gains from the observation with an
   MLP of `architecture`, as gain scheduling does. Read them for given
   observations with `actor.apply_fn(params, obs, method="gains")`, an array
@@ -214,16 +225,24 @@ with longer training.
 
 `n_errors` is the number of errors the wrapper tracks; with several, each
 action dimension gets its own gain on each error. The gains start at zero:
-the untrained controller does nothing. The stochastic agents explore with a
+the untrained controller commands the centre of the action box, which is
+no action on a symmetric box. The stochastic agents explore with a
 learned standard deviation that does not depend on the observation.
 
 Each agent's own output rule applies to `u`. SAC, TD3, REDQ, ASAC, AVG and
 APO squash it with `tanh`, so the deployed controller is a saturated PID;
-PPO samples around it unsquashed (unless `squash=True`), and the environment
-clips the action.
-Observation normalisation leaves the error terms raw, so the gains stay in
-the environment's units, while the gain network of `gains="observation"`
-reads the rest of the observation normalised.
+PPO samples around it unsquashed (unless `squash=True`), and its action is
+clipped to `[-1, 1]`. Like every action, `u` is in the agent's units and is
+then mapped onto the environment's bounds
+([Actions](environments.md#actions)): the deployed controller is
+`c + h · sat(u)`, with `c` the centre of the action box, `h` its half-width
+and `sat` the agent's `tanh` or clip. The learned gains are therefore
+normalised: a PID written in the environment's units has gains `h · K`
+(for small signals, where `tanh` is close to linear) and the offset `c`.
+Observation normalisation leaves the
+error terms raw, so the gains act on errors in the environment's units,
+while the gain network of `gains="observation"` reads the rest of the
+observation normalised.
 
 A PID policy needs a continuous action space and takes no `memory`: its
 memory is the integral and the difference in the observation.

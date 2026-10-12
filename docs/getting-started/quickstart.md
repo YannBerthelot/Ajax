@@ -1,7 +1,8 @@
 # Quickstart
 
 This page trains an agent, reads its results, runs the trained policy and
-saves it. Each example runs on a laptop CPU in seconds.
+saves it. Each example runs on a laptop CPU in under a minute, compilation
+included.
 
 ## Train an agent
 
@@ -89,7 +90,7 @@ obs, env_state = env.reset(key, params)
 episode_return, done = 0.0, False
 while not done:
     pi, _ = get_pi(actor, actor.params, obs[None])  # a batch of one observation
-    action = pi.mode()[0]  # the most likely action; pi.mean() for continuous ones
+    action = pi.mode()[0]  # the most likely action
     key, step_key = jax.random.split(key)
     obs, env_state, reward, terminated, truncated, _ = env.step(
         step_key, env_state, action, params
@@ -103,6 +104,12 @@ print(episode_return)
 observation normalisation when the agent keeps one. If you trained with the
 environment-side normaliser (`normalize_observations=True`), normalise the
 observation the same way first: see [Environments](../guide/environments.md).
+
+For continuous actions, take `pi.mean()` instead of `pi.mode()`. It is in the
+agent's units, `[-1, 1]`: map it onto the environment's bounds before
+stepping, as training and evaluation do, with
+`agent_action_to_env(pi.mean(), env, params)[0]` from
+`ajax.environments.utils` (Pendulum's torque spans `[-2, 2]`).
 
 ## Save and resume
 

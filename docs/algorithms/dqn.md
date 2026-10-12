@@ -74,10 +74,12 @@ Defaults are read from `DQN.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
 | `td_loss_fn` | `None` | the loss; `None` is the squared error, `make_huber_td_loss(delta)` the Huber loss |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## Notes
@@ -107,12 +109,16 @@ Defaults are read from `DQN.__init__`.
 
 ## Results
 
-The repository records no learning curves for DQN yet. The probing tests
-(`tests/probing`) check its max bootstrap and action indexing, discounting,
-time limits, extension phases and checkpoint resume on tiny problems with
-exact answers. On the speed benchmark (`benchmarks/agent_bench.py`:
-CartPole, 4 envs, 8,000 steps, on a Mac CPU) DQN ran at a median 6,375 steps
-per second, updates included (see `PERFORMANCE_REPORT.md`).
+The repository records no learning curves for DQN yet. Unit tests
+(`tests/agents/DQN` and the contracts every agent shares) check its pieces
+against exact contracts, without learning. The probes (`tests/probing`)
+train it briefly on tiny environments with known answers: its max bootstrap
+and action indexing, discounting, time limits, extension phases, and a run
+split by a checkpoint matching the run left whole. On the CPU speed
+benchmark (`benchmarks/agent_bench.py`: CartPole, 4 envs, 8,000 steps,
+updates from step 1,000) DQN ran at 16,662 steps per second of execution
+(6,395 with compilation) at main `a8a13c2` (see
+[PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
 
 ## API
 

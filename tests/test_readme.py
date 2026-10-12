@@ -9,7 +9,6 @@ agent or a documentation page is added, renamed or removed.
 
 from __future__ import annotations
 
-import importlib
 import pathlib
 import re
 
@@ -25,8 +24,6 @@ BLOCK = re.compile(r"^```python\n(.*?)^```", re.MULTILINE | re.DOTALL)
 LINK = re.compile(r'\]\(([^)\s#]+)|href="([^"#]+)"')
 # The agent column of the README's agent table: "| [`SAC`](docs/...) |".
 AGENT_ROW = re.compile(r"^\| \[`(\w+)`\]\(", re.MULTILINE)
-# The agents ``ajax`` does not export, with the module the README names.
-NOT_EXPORTED = {"TD3": "ajax.agents.TD3.TD3", "UDRL": "ajax.agents.UDRL.UDRL"}
 NUMBER_WORDS = (
     "zero one two three four five six seven eight nine ten eleven twelve"
     " thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
@@ -50,19 +47,15 @@ def test_readme_example_runs(code, tmp_path, monkeypatch):
 
 
 def test_readme_agent_table_is_complete():
-    """The table lists exactly the agents Ajax has, each importable where the
-    README says, and the prose count matches the table."""
+    """The table lists exactly the agents ``ajax`` exports, and the prose
+    count matches the table."""
     readme = README.read_text()
     listed = AGENT_ROW.findall(readme)
     assert len(listed) == len(set(listed)), f"an agent is listed twice: {listed}"
-    assert set(listed) == set(ajax.__all__) | set(NOT_EXPORTED), (
-        f"README agents {sorted(listed)} differ from the package's"
-        f" {sorted(set(ajax.__all__) | set(NOT_EXPORTED))}"
+    assert set(listed) == set(ajax.__all__), (
+        f"README agents {sorted(listed)} differ from ajax.__all__"
+        f" {sorted(ajax.__all__)}"
     )
-    for name, module in NOT_EXPORTED.items():
-        assert name not in ajax.__all__, f"{name} is exported now: update the README"
-        assert f"`{module}`" in readme
-        assert hasattr(importlib.import_module(module), name)
     assert f"{NUMBER_WORDS[len(listed)]} agents" in readme
 
 

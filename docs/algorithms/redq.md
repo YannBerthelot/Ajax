@@ -9,7 +9,8 @@ SAC's, in exchange for many more critic updates per step.
 
 **Paper.** Chen et al., *Randomized Ensembled Double Q-Learning*, 2021
 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)). The update follows its
-Algorithm 1.
+Algorithm 1; where the authors' code (`watchernyu/REDQ` at `7b5d1bf`) is more
+specific, Ajax follows the code (see [Notes](#notes)).
 
 ## Can I use?
 
@@ -19,14 +20,14 @@ Algorithm 1.
 | Discrete actions | No |
 | Learning | Off-policy, replay buffer |
 | Vectorised environments (`n_envs`) | Yes |
-| Recurrent memory (`memory=`) | Yes, without extensions, `expert_policy` or cloning |
+| Recurrent memory (`memory=`) | Yes, without extensions or `expert_policy` |
 | PID policy (`actor_architecture=PIDPolicy(...)`) | Yes |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss` |
 
 ## Example
 
 ```python
-# doc: skip (about 2.5 minutes on a laptop CPU: 20 critic steps per update)
+# doc: skip (20 critic steps of 10 critics per update: minutes on a CPU)
 from ajax import REDQ
 from ajax.logging.wandb_logging import LoggingConfig
 
@@ -64,29 +65,47 @@ Defaults are read from `REDQ.__init__`.
 | `num_critics` | `10` | critics in the ensemble |
 | `subset_size` | `2` | target critics the target takes the minimum over |
 | `num_critic_updates` | `20` | critic steps per update, each on a fresh minibatch |
-| `alpha_init` | `1.0` | initial entropy weight |
-| `target_entropy_per_dim` | `-1.0` | target entropy, times the action dimension |
+| `alpha_init` | `1.0` | initial entropy weight, as in the authors' code |
+| `target_entropy_per_dim` | `-1.0` | target entropy, times the action dimension; `"mbpo"` for MBPO's per-task value |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
-| `expert_policy`, `pre_train_n_steps` | `None`, `0` | behaviour-clone an expert before training; the expert also feeds an evaluation metric |
-| `actor_cloning_epochs`, `actor_cloning_lr`, `actor_cloning_batch_size` | `10`, `1e-3`, `64` | that cloning's settings |
+| `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
+
+Cloning an expert into the actor before training is the `CloningPretrain`
+extension; a cloning term during training is `ImitationLoss`
+([Expert guidance](../guide/expert-guidance.md)).
 
 ## Notes
 
 - **One update.** `num_critic_updates` critic steps, each on a fresh replay
   minibatch and each followed by a target update; then one actor step and
   one temperature step on the last minibatch.
+- **Following the authors' code.** Three choices come from `watchernyu/REDQ`
+  rather than the paper's Algorithm 1. The actor step reads the critics as
+  they were before the last critic step, since the code computes the actor
+  loss before that step's optimizer update; the saved state keeps the
+  updated critics. The critic loss is the sum over the critics of each one's
+  mean squared error. `alpha_init=1.0` matches the code's `log_alpha`
+  starting at 0; the code then uses `alpha=0.2` until its first temperature
+  step, a transient Ajax does not reproduce.
+- **Target entropy.** The default is `-1` per action dimension.
+  `target_entropy_per_dim="mbpo"` takes MBPO's per-task value instead, the
+  authors' default, for the Brax ids `hopper` (-1), `halfcheetah` (-3),
+  `walker2d` (-3), `ant` (-4) and `humanoid` (-2); any other environment
+  raises.
 - **Update-to-data ratio.** Each iteration steps every env once, then makes
   one update, so the ratio of critic steps to environment steps is
   `num_critic_updates / n_envs`: 20 with the defaults.
-- **Cost.** The first example took about 2.5 minutes on a laptop CPU; the
-  same run of SAC took about 8 seconds.
+- **Cost.** On the CPU speed benchmark below, REDQ executed 47 steps per
+  second, against SAC's 2,218 on the same preset.
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
-  `[-1, 1]`, clipped to the environment's bounds, not rescaled; evaluation
-  uses the mean action.
+  `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
+  action.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.
 - **Diagnostics.** REDQ logs how spread out its ensemble is
@@ -96,12 +115,17 @@ Defaults are read from `REDQ.__init__`.
 
 ## Results
 
-The repository records no learning curves for REDQ yet. The probing tests
-(`tests/probing`) check its targets, discounting, time limits, memory,
-extension phases and checkpoint resume on tiny problems with exact answers.
-The speed benchmark (`benchmarks/agent_bench.py`) runs REDQ with its defaults
-for 8,000 steps, below `learning_starts`, so its figure times collection, not
-updates.
+The repository records no learning curves for REDQ yet. Unit tests
+(`tests/agents/REDQ` and the contracts every agent shares) check its pieces
+against exact contracts, without learning: the summed critic loss, the
+random subset, the critics the actor reads and the target entropy. The
+probes (`tests/probing`) train it briefly on tiny environments with known
+answers: its targets, discounting, time limits, memory, extension phases,
+and a run split by a checkpoint matching the run left whole. On the CPU
+speed benchmark (`benchmarks/agent_bench.py`: Pendulum, 4 envs, 8,000 steps,
+updates from step 1,000) REDQ ran at 47 steps per second at main `a8a13c2`
+(see
+[PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
 
 ## API
 

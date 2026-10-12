@@ -19,9 +19,19 @@ uv run python -c "import ajax; print(ajax.__version__)"
 
 ## CPU or GPU
 
-On Apple-silicon Macs, Ajax installs JAX for the CPU. Everywhere else it
-installs `jax[cuda]`, which runs on an NVIDIA GPU when there is one and
-falls back to the CPU when there is not.
+On Apple-silicon Macs, Ajax installs JAX for the CPU. Everywhere else its
+default dependencies still install `jax[cuda]`, which runs on an NVIDIA GPU
+when there is one and falls back to the CPU when there is not.
+
+That default is due to change: it will stop installing `jax[cuda]`, and CUDA
+will come only from Ajax's `cuda` extra (Linux only). To keep the GPU after
+the change, ask for the extra now:
+
+```bash
+uv sync --extra cuda
+```
+
+A project that depends on Ajax asks for `ajax[cuda]` instead.
 
 To keep a run on the CPU on a machine with a GPU, set `JAX_PLATFORMS=cpu`.
 The repository's `make` targets go further and hide the GPU from CUDA as well,
@@ -35,21 +45,24 @@ CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu uv run python my_script.py
 
 ## Dependency groups
 
-`uv sync` installs the runtime and three groups by default. The others are
+`uv sync` installs the runtime and two groups by default. The others are
 opt-in.
 
 | Group | Default | What it adds |
 | --- | --- | --- |
 | `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, and the probing environments the tests train on |
-| `render` | yes | `imageio[ffmpeg]`, to write videos |
 | `wandb` | yes | Weights & Biases, for [logging](../guide/logging.md) |
-| `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle benchmark scenarios |
+| `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
 | `docs` | no | MkDocs and its plugins, to build this site |
 
 ```bash
 uv sync --group plane         # add an opt-in group
 uv sync --no-default-groups   # the runtime alone
 ```
+
+The `docs` group builds the site without the runtime
+(`uv sync --only-group docs`): the API pages are read from the source, not
+imported.
 
 ## Using Ajax from another project
 
@@ -62,7 +75,7 @@ a project that depends on Ajax declares the same source:
 
 ```toml
 [project]
-dependencies = ["ajax"]
+dependencies = ["ajax"]  # "ajax[cuda]" to ask for CUDA
 
 [tool.uv.sources]
 ajax = { git = "https://github.com/YannBerthelot/Ajax.git" }
@@ -96,6 +109,8 @@ run that uses it. Runs that keep their results in memory, as in the
 ## Working on Ajax
 
 After `uv sync`, run `uv run pre-commit install` once, so ruff and mypy check
-every commit. `make docs-serve` serves this site at `http://127.0.0.1:8000`
-and rebuilds it on save. [Contributing](../developer/contributing.md) covers
-the rest.
+every commit. `make docs` builds this site as CI does
+(`uv run --group docs mkdocs build --strict`: a broken link or a docstring
+naming a parameter the code does not have fails it), and `make docs-serve`
+serves it at `http://127.0.0.1:8000`, rebuilt on save.
+[Contributing](../developer/contributing.md) covers the rest.

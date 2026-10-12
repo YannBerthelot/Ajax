@@ -1,10 +1,13 @@
 # Networks and modules
 
-The actor and critic networks, the pluggable memory block, the PID policy and
-the blocks the world models share. See [Networks](../guide/networks.md) and
+The actor and critic networks, the tanh-squashed Gaussian the squashing
+actors sample from, the pluggable memory block, the PID policy and the blocks
+the world models share. See [Networks](../guide/networks.md) and
 [Memory](../guide/memory.md).
 
 ::: ajax.networks.networks
+
+::: ajax.networks.distributions
 
 ::: ajax.networks.utils
 

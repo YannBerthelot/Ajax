@@ -59,8 +59,10 @@ uv sync   # creates .venv with the locked dependencies
 
 Use uv rather than pip: gymnax currently comes from a fork pinned in
 `pyproject.toml` (`[tool.uv.sources]`), which pip does not read. On
-Apple-silicon Macs, uv installs JAX for the CPU; elsewhere it installs
-`jax[cuda]`, which falls back to the CPU when there is no GPU.
+Apple-silicon Macs, uv installs JAX for the CPU; elsewhere the default still
+installs `jax[cuda]`, which falls back to the CPU when there is no GPU. On a
+Linux machine with an NVIDIA GPU, also ask for CUDA by name with
+`uv sync --extra cuda`: the default is due to stop installing it.
 [Installation](docs/getting-started/installation.md) covers the optional
 dependency groups.
 
@@ -79,10 +81,10 @@ print(evaluations["timestep"][0])                # when each evaluation ran
 print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
 ```
 
-The three seeds train together, and the run takes about ten seconds on a laptop
-CPU. `evaluations` maps each logged name to an array of shape
-`(seeds, evaluations)`; `"Eval/episodic mean reward"` is the mean return of
-10 test episodes (`num_episode_test`). With `use_wandb=True` (the default) or
+The three seeds train together, and the run takes about fifteen seconds on a
+laptop CPU, compilation included. `evaluations` maps each logged name to an
+array of shape `(seeds, evaluations)`; `"Eval/episodic mean reward"` is the
+mean return of 10 test episodes (`num_episode_test`). With `use_wandb=True` (the default) or
 `use_tensorboard=True`, the same records also go to Weights & Biases or
 TensorBoard. To train further, pass the state back:
 `agent.train(seed=[1, 2, 3], n_timesteps=more, initial_state=state)`.
@@ -127,22 +129,23 @@ The [quickstart guide](docs/getting-started/quickstart.md) goes on from here.
 | [`TDMPC2MultiTask`](docs/algorithms/tdmpc2.md) | world model, offline | The same paper's multi-task agent: one model trained offline on the data of several tasks | continuous | no |
 
 *Memory* says whether the agent accepts `memory=`; DreamerV3's world model is
-recurrent by design. Every agent is importable from `ajax` except `TD3` and
-`UDRL`: import them from `ajax.agents.TD3.TD3` and `ajax.agents.UDRL.UDRL`.
-The [algorithms overview](docs/algorithms/index.md) helps choose one.
+recurrent by design. Every agent is importable from `ajax`
+(`from ajax import TD3`). The [algorithms overview](docs/algorithms/index.md)
+helps choose one.
 
 ---
 
 ## What else is in the box
 
 - **[Extensions](docs/guide/extensions.md)**: nineteen of them, for expert
-  guidance, exploration, critic-target changes, critic pre-training, ensemble
-  diversity and critic diagnostics, passed as `extensions=(...)`; the
-  catalogue says which agents run each one.
+  guidance, exploration, critic-target changes, actor and critic
+  pre-training, ensemble diversity and critic diagnostics, passed as
+  `extensions=(...)`; the catalogue says which agents run each one.
 - **[Expert guidance](docs/guide/expert-guidance.md)**: learn from an existing
   controller by behaviour cloning, imitation, residual policies, JSRL hand-over,
-  IBRL targets or EDGE exploration; when the expert acts, it reads the
-  environment's raw units.
+  IBRL targets or EDGE exploration. The expert reads the environment's raw
+  observations and answers in the environment's action units; an expert with
+  a state, such as a PID's integral, gets it back at every step.
 - **[Recurrent memory](docs/guide/memory.md)**: a GRU, LSTM, transformer or
   Mamba block for PPO, SAC, TD3, REDQ, ASAC and APG, with R2D2-style sequence
   replay (burn-in, stored state) for the replay agents.
@@ -161,21 +164,27 @@ The [algorithms overview](docs/algorithms/index.md) helps choose one.
   gains scheduled on the observation.
 - **[Environments](docs/guide/environments.md)**: gymnax, Brax and MuJoCo
   Playground by id, `n_envs` copies in parallel, terminations kept apart from
-  time limits (a truncated episode still bootstraps), and wrappers for
-  normalisation, fixed initial states, model-reference tracking, PID error
-  terms and action repeat.
+  time limits (a truncated episode still bootstraps), `episode_length` and
+  `action_repeat` on every agent, and wrappers for normalisation, observation
+  noise, fixed initial states, model-reference tracking and PID error terms.
+  Every continuous agent acts in `[-1, 1]`, mapped onto the environment's
+  action bounds.
 - **[Logging](docs/guide/logging.md)**: `train` returns every evaluation as
   arrays, and a background worker sends them to Weights & Biases or
   TensorBoard.
 - **[Checkpoints and resuming](docs/guide/checkpoints.md)**: pass a state back
   to train further, or save it and resume in another process; the tests
   check that a split run matches the run left whole.
-- **[Probing tests](docs/developer/testing.md)**: each agent trains on tiny
-  problems with known answers, and failures name the mistake (a discount applied
-  twice, say); a catalogue of planted bugs checks that the probes catch them.
+- **[Tests](docs/developer/testing.md)**: unit tests check one component
+  against an exact contract with no learning, written once for every agent or
+  extension that shares the contract. Probes are tiny generic environments
+  with known answers: each agent trains on them briefly, and each probe checks
+  one capability of the whole agent; a catalogue of planted bugs checks that
+  the probes catch them. A mismatch of convention with a reference
+  implementation is left to code review.
 - **[Performance](docs/guide/performance.md)**: seeds vectorised with
-  `jax.vmap`, a persistent compile cache per host, and a per-agent benchmark
-  that flags any slowdown over 10%.
+  `jax.vmap`, a persistent compile cache, one per machine and JAX version, and
+  a per-agent benchmark that flags any slowdown over 10%.
 
 ---
 
@@ -201,15 +210,17 @@ GitHub.
 ## Related projects
 
 - **[TargetGym](https://github.com/YannBerthelot/TargetGym)**: JAX environments
-  for reaching and holding a setpoint, with tuned PID and MPC baselines. Ajax's
-  speed benchmarks use one of its aircraft tasks (`uv sync --group plane`).
+  for reaching and holding a setpoint, with tuned PID and MPC baselines. A
+  scenario of Ajax's `benchmarks/perf_bench.py` trains on one of its aircraft
+  tasks (`uv sync --group plane`).
 - **[ProbingEnvironments](https://github.com/YannBerthelot/ProbingEnvironments)**:
   small environments with known answers, used by Ajax's probing tests.
 - **[gymnax](https://github.com/RobertTLange/gymnax)**,
   **[Brax](https://github.com/google/brax)** and
   **[MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**:
   the environment libraries Ajax trains on.
-- **[flashbax](https://github.com/instadeepai/flashbax)**: the replay buffers.
+- **[flashbax](https://github.com/instadeepai/flashbax)**: the replay buffers of
+  SAC, ASAC, REDQ, TD3 and DQN (UDRL and the world models keep their own).
 
 ---
 
@@ -219,8 +230,9 @@ Bug reports, new agents and new extensions are welcome. After installing, run
 `uv run pre-commit install` once, so ruff and mypy check every commit.
 [CONTRIBUTING.md](CONTRIBUTING.md) explains where the code lives, how to add an
 agent or an extension, and how the tests check them. CI runs pre-commit, the
-tests with coverage, the slow tests and the probing tests on every pull request;
-`make ci` runs the same locally (about an hour of CPU).
+tests with coverage, the slow tests, the probing tests and a strict build of
+the documentation site on every pull request; `make ci` runs the same locally
+(about an hour of CPU).
 
 ## Citation
 

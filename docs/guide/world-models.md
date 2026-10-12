@@ -66,7 +66,7 @@ tasks, with a learned task embedding; it does not plan while training.
 | Who acts | the actor, learned in imagination: one network pass per step | the planner: 512 candidate sequences, 6 refinements per step by default, some proposed by a learned policy |
 | Several tasks in one model | no | `TDMPC2MultiTask`, offline |
 | Model sizes | `model_size="1m"` to `"400m"` (default `"12m"`) | `model_size=1, 5, 19, 48, 317` (millions of parameters; default 5) |
-| `n_timesteps` counts | rows: one per environment per step, reset rows included | agent steps |
+| `n_timesteps` counts | rows: one per environment per step, reset rows included | agent steps (rows, one more per finished episode, with `episodic=True`) |
 | Default `n_envs` | 16 | 1 |
 
 In short:
@@ -84,8 +84,14 @@ In short:
 Both take flat observation vectors only, and want the environment's raw
 observations and rewards: do not normalise them, the agents do their own
 scaling as their papers do. Both run gymnax, Brax and MuJoCo Playground
-environments. Both take extensions in the phases every agent runs
-(`pretrain`, `post_update`, `eval_metrics`) and no others.
+environments, and act in `[-1, 1]` mapped onto the environment's bounds,
+as their papers and every Ajax agent do ([Actions](environments.md#actions)).
+Both take `action_repeat` and `episode_length` for their papers' DeepMind
+Control protocol (`action_repeat=2`, `episode_length=1000` simulator
+steps). Both evaluate on fresh episodes at each evaluation, as every agent
+does ([Training](training.md#evaluation)). Both take extensions in the
+phases every agent runs (`pretrain`, `post_update`, `eval_metrics`) and no
+others.
 
 ## Examples
 
@@ -132,9 +138,12 @@ Memory grows with the replay. DreamerV3 stores about 8 KB per row at `"12m"`
 on a 24-dimensional observation: the paper's DeepMind Control protocol
 (250,000 rows) needs about 2 GB of replay per seed, and about 3 GB with the
 training step's working set. TD-MPC2's whole-episode replay is smaller: about
-124 MB per seed for a million steps of DMC Walker. Seeds trained together
-multiply these figures. Each agent reports its own figure for a configuration
-as `replay_bytes_per_seed`.
+124 MB per seed for a million steps of DMC Walker. It holds at most the
+run's steps (`min(buffer_size, steps)`, as the reference clamps it), so a
+short run allocates less. Seeds trained together multiply these figures.
+Each agent reports its own figure for a configuration as
+`replay_bytes_per_seed`, which the loggers also record with the run's
+configuration.
 
 ## Fidelity
 

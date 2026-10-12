@@ -57,11 +57,14 @@ Defaults are read from `ASAC.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
-ASAC has no expert or cloning options: expert guidance goes through
-extensions.
+ASAC has no `expert_policy`: an expert reaches it through the `ImitationLoss`
+extension, which holds its own ([Expert guidance](../guide/expert-guidance.md)).
+`CloningPretrain` does not work with ASAC: it raises when training starts.
 
 ## Notes
 
@@ -84,17 +87,22 @@ extensions.
 - **Extensions.** ASAC tells its extensions there is no discount: they
   receive `gamma=None`.
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
-  `[-1, 1]`, clipped to the environment's bounds, not rescaled; evaluation
-  uses the mean action. The logged evaluation return is the usual episodic sum.
+  `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
+  action. The logged evaluation return is the usual episodic sum. ASAC
+  reports no `Eval/mean bias`.
 
 ## Results
 
-The repository records no learning curves for ASAC yet. The probing tests
-(`tests/probing`) check its differential target and its average-reward
-bookkeeping (reward scale, episode ends), memory and checkpoint resume on
-tiny problems with exact answers. The speed benchmark
-(`benchmarks/agent_bench.py`) runs ASAC with its defaults for 8,000 steps,
-below `learning_starts`, so its figure times collection, not updates.
+The repository records no learning curves for ASAC yet. Unit tests
+(`tests/agents/ASAC` and the contracts every agent shares) check its pieces
+against exact contracts, without learning. The probes (`tests/probing`)
+train it briefly on tiny environments with known answers: its differential
+target, its average-reward bookkeeping (reward scale, episode ends), memory,
+and a run split by a checkpoint matching the run left whole. On the CPU
+speed benchmark (`benchmarks/agent_bench.py`: Pendulum, 4 envs, 8,000 steps,
+updates from step 1,000) ASAC ran at 1,254 steps per second of execution
+(1,032 with compilation) at main `a8a13c2` (see
+[PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
 
 ## API
 

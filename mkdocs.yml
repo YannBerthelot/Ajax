@@ -49,8 +49,6 @@ theme:
 # belongs on the site. The hook is build code, not a page.
 exclude_docs: |
   /hooks.py
-  /griffe_namespace_folders.py
-  /docstring_debt.py
   __pycache__/
   /world_models/**
   !/world_models/**/*.md
@@ -82,8 +80,6 @@ markdown_extensions:
 
 hooks:
   - docs/hooks.py
-  # Workaround until the source docstrings it lists are fixed.
-  - docs/docstring_debt.py
 
 plugins:
   - search
@@ -92,14 +88,10 @@ plugins:
         python:
           paths: [src]
           options:
-            # Workaround until every folder under src/ajax has an __init__.py.
-            extensions:
-              - docs/griffe_namespace_folders.py:NamespaceFolders
             docstring_style: google
             docstring_options:
               # Types live in the signatures' annotations, not the docstrings.
-              # A documented parameter missing from the signature still fails,
-              # outside the files docs/docstring_debt.py lists.
+              # A documented parameter missing from the signature still fails.
               warn_missing_types: false
             show_source: false
             show_root_heading: true

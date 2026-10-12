@@ -17,13 +17,13 @@ Optimization Algorithms*, 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06
 | --- | --- |
 | Discrete actions | yes |
 | Continuous actions | yes (Gaussian; `squash=True` for a tanh-bounded one) |
-| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba ([Memory](../guide/memory.md)) |
+| Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba ([Memory](../guide/memory.md)), without extensions |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | PID policy | yes, `actor_architecture=PIDPolicy(...)` ([Networks](../guide/networks.md)) |
 | Several seeds in one call | yes, `train(seed=[...])` |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss` |
-| Resume and checkpoints | yes; a split run equals the uninterrupted one (probing test) |
+| Resume and checkpoints | yes; a split run equals the uninterrupted one (probe and resume contract) |
 
 ## Example
 
@@ -59,7 +59,7 @@ Defaults are those of the constructor.
 | `n_steps` | 2048 | steps per environment in each rollout |
 | `batch_size` | 64 | sets the number of minibatches (see the notes) |
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
-| `n_epochs` | 10 | passes over the rollout per update |
+| `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
 | `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes (each a float or a schedule) |
 | `adam_eps` | 1e-8 | Adam's epsilon |
 | `gamma` | 0.99 | discount |
@@ -71,8 +71,14 @@ Defaults are those of the constructor.
 | `normalize_advantage` | True | advantages standardised in each minibatch |
 | `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
+| `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks |
+| `unroll_length` | None | cut each env's rollout into fragments of this length (feedforward only) |
+| `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
+| `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
+| `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## Notes
 
@@ -82,45 +88,54 @@ Defaults are those of the constructor.
   minibatches. With the defaults that is 32 minibatches of 256 samples
   (`batch_size * n_envs`). This differs from Stable-Baselines3, where
   `batch_size` is the minibatch size.
+- **Shuffling.** Every epoch draws a new split of the rollout into
+  minibatches, as OpenAI Baselines' and CleanRL's PPO do.
 - **Where the advantages are computed.** When the environments split evenly
   into the minibatches, each minibatch holds whole rollout fragments and its
   advantages are recomputed with the current critic, as Brax's PPO does.
   `unroll_length` cuts the rollout into shorter fragments that bootstrap at
-  their ends. Otherwise the advantages are computed once on the whole rollout
-  and the samples are shuffled flat; that is the case with the defaults (4
-  environments, 32 minibatches) and with a single environment.
-- **Brax-style options.** `use_vtrace_gae` (zero TD error at truncations),
-  `fused_grad_clip` (one clip over actor and critic gradients),
-  `log_std_state_independent`, `log_std_init`, `mean_kernel_init`, `squash`,
-  `num_resets_per_eval` and `num_evals` reproduce choices of Brax's PPO. They
-  are off by default.
+  their ends; PPO refuses at construction a length that does not split the
+  rollout evenly. Otherwise the advantages are computed once on the whole
+  rollout and the samples are shuffled flat; that is the case with the
+  defaults (4 environments, 32 minibatches) and with a single environment.
+- **Actions.** A continuous PPO samples an unbounded Gaussian by default;
+  Ajax clips the sample to `[-1, 1]` and maps that range onto the
+  environment's bounds, so on gymnax Pendulum (torque in `[-2, 2]`) one unit
+  of the Gaussian is two units of torque. `squash=True` bounds it with
+  `tanh` instead. Evaluation uses the mean action.
+- **Brax-style options.** `fused_grad_clip` (one clip over actor and critic
+  gradients), `log_std_state_independent`, `log_std_init`,
+  `mean_kernel_init`, `squash`, `num_resets_per_eval` and `num_evals`
+  reproduce choices of Brax's PPO. They are off by default, as is
+  `encoder_layer_norm` (a LayerNorm on the encoder's output).
 - **Separate networks.** The actor and the critic are separate networks with
   separate optimizers; the value loss is not clipped. An entropy bonus on a
   squashed policy is a one-sample estimate of the executed action's entropy,
   as in Brax.
 - **Normalisation.** With `normalize_observations=True` the loss sees the
   observations normalised with the statistics of the step that collected them,
-  as SB3's `VecNormalize` and CleanRL do. `reward_normalization_gamma` divides
-  rewards by the running spread of the discounted return instead of the
-  single-step reward's.
-- **Reward shaping.** `reward_shaping_fn(agent_state, rollout)` returns a bonus
-  added to the rewards before the advantages are computed.
+  as SB3's `VecNormalize` and CleanRL do.
 - **Extensions.** PPO folds the loss and target phases, so instrumentation such
   as `ConditioningMetrics` works on it (pass `expose_recent_rollout=True` so it
   can read the latest rollout). It has no `action` phase: extensions that act
-  during collection need SAC. See [Extensions](../guide/extensions.md).
+  during collection need SAC. A recurrent PPO refuses extensions. See
+  [Extensions](../guide/extensions.md).
 - A recurrent PPO whose sequences do not split into the requested minibatches
   trains on one minibatch and warns. `unroll_length` is for feedforward
   policies; recurrent ones use `bptt_length`.
 
 ## Results
 
-No learning curves are published for PPO yet. The probing tests
-(`tests/probing`) check that it learns the exact values of small problems
-whose answers are known, and that a run split by a checkpoint equals the run
-left whole. On the CPU speed benchmark (`benchmarks/agent_bench.py`, 4
-environments, 8,000 steps) PPO ran at about 4,300 steps per second at main
-`91ee10f` ([PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
+No learning curves are published for PPO yet. Unit tests (`tests/agents/PPO`
+and the contracts every agent shares) check its pieces against exact
+contracts, without learning, such as the fresh split of each epoch. The
+probes (`tests/probing`) train it briefly on tiny environments with known
+answers: the exact values of small problems, episode ends, memory, extension
+phases, and a run split by a checkpoint matching the run left whole. On the
+CPU speed benchmark (`benchmarks/agent_bench.py`: CartPole, 4 environments,
+8,000 steps) PPO ran at 17,817 steps per second of execution (4,298 with
+compilation) at main `a8a13c2`
+([PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
 
 ## API
 

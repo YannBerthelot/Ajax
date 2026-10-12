@@ -29,10 +29,6 @@ way for every agent. An agent supplies only its `init` and `update`.
     options:
       heading_level: 3
 
-::: ajax.state.BufferConfig
-    options:
-      heading_level: 3
-
-::: ajax.agents.cloning.CloningConfig
+::: ajax.state.EnvironmentConfig
     options:
       heading_level: 3

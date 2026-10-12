@@ -33,14 +33,22 @@ and one `architecture` for their Q-network instead of an actor and a critic.
 | `actor_learning_rate`, `critic_learning_rate` | a number, or a schedule of the optimiser step | below |
 | `actor_architecture`, `critic_architecture` | hidden layers, or a PID policy for the actor | [Networks](networks.md) |
 | `env_params` | gymnax environment parameters | [Environments](environments.md) |
+| `episode_length`, `action_repeat` | episode length and repeat of a Brax or Playground id | [Environments](environments.md) |
 | `normalize_observations`, `normalize_rewards` | running normalisation | [Environments](environments.md) |
 | `max_grad_norm` | global-norm gradient clipping (`None`: off) | |
 | `memory` | a recurrent memory block | [Memory](memory.md) |
 | `extensions` | research features: experts, exploration, diagnostics | [Extensions](extensions.md) |
 
 An agent refuses what it cannot do when you build it, not halfway through a
-run: `memory` on an agent without memory support, an extension that needs a
-step the agent's loop never runs, SAC on a discrete action space.
+run: `memory` on an agent without memory support, SAC on a discrete action
+space, `action_repeat` on a gymnax environment, an extension that needs a
+step the agent's loop never runs or data its replay does not keep (the
+[extension checks](extensions.md#what-is-checked-and-when) list them all).
+
+Each agent also records its run configuration in `agent.config`: every
+constructor argument by name (`TDMPC2MultiTask` leaves out its dataset and
+evaluation environments), plus `algo_name`. The loggers store it with each
+run ([Logging](logging.md)).
 
 ## `train`
 
@@ -104,14 +112,20 @@ The defaults differ by agent:
 ### Evaluation
 
 With a `logging_config`, the agent is evaluated every `log_frequency`
-steps on `num_episode_test` episodes of a separate copy of the environment.
-The policy acts deterministically: the mean action of a continuous policy,
-the most likely one of a discrete policy. The evaluation key is fixed when
-the run starts, so every evaluation of a seed starts from the same initial
-conditions and two evaluations differ only because the policy changed.
+steps on `num_episode_test` episodes, run in parallel in a separate copy of
+the environment. The policy acts deterministically: the mean action of a
+continuous policy, the most likely one of a discrete policy.
 
-The world models and UDRL evaluate their own way (DreamerV3 and TD-MPC2 act
-through their planner or latent policy); their pages say how.
+Each evaluation draws fresh initial states and noise. Its key is folded
+from the number of evaluations made so far, out of an evaluation key split
+apart from the training key when the run starts. So two evaluations of a
+seed see different episodes, the same seed always sees the same ones, and
+evaluating repeats none of the random draws the training makes. Every agent
+follows this, the world models included.
+
+UDRL evaluates through the same code, with the command (desired return and
+horizon) it would collect with; DreamerV3 and TD-MPC2 act through their own
+latent policy or planner. Their pages say what they log.
 
 ### What `train` returns
 
@@ -130,7 +144,8 @@ The logged names are listed in [Logging](logging.md).
 `state` is the agent's whole state: `actor_state` and `critic_state` (the
 networks, their optimisers and parameters), `collector_state` (the
 environments, the replay buffer, the step counter `timestep`), the random
-keys, and each extension's state.
+keys (`rng` for training, `eval_rng` for evaluation), the evaluation count
+`n_logs`, and each extension's state.
 
 ## Continuing a run
 
@@ -203,9 +218,12 @@ repeat:     collect one step per environment (off-policy)
 
 The world models (DreamerV3, TD-MPC2) act through their own planner or
 latent policy and decide how many updates to make per step, but they plug
-those pieces into the same loop, in the same order. APG, UDRL and the offline
+those pieces into the same loop, in the same order. UDRL runs its own
+iteration (a segment, its replay of segments, its command statistics, its
+updates) inside the loop's train function. APG and the offline
 TDMPC2MultiTask, whose iterations differ more, reuse the loop's pieces
-rather than the loop itself.
+(the fresh state, the extensions' folds, the evaluation) rather than the
+loop itself.
 
 Why one loop: collection, the `learning_starts` gate, the extensions,
 evaluation, logging and resuming then behave identically across agents and

@@ -20,13 +20,13 @@ tracking history closed by a PID layer, trained across a family of systems.
 | Feature | APG |
 | --- | --- |
 | Discrete actions | no |
-| Continuous actions | yes, tanh-bounded by default (`squash=True`) |
+| Continuous actions | yes, tanh-bounded by default (`squash=True`), mapped onto the environment's bounds |
 | Memory (`memory=`) | yes: GRU, LSTM, transformer, Mamba |
 | Environments | gymnax environments with transition gradients: Pendulum, MountainCarContinuous, PointRobot, Reacher, Swimmer |
 | Families of systems | yes, `system_class=` |
 | Several seeds in one call | yes, `train(seed=[...])` |
 | Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` |
-| Resume and checkpoints | yes; a split run equals the uninterrupted one (probing test) |
+| Resume and checkpoints | yes; a split run equals the uninterrupted one (probe, and the resume contract with memory) |
 
 Brax and Playground environments are not supported: they take no per-step
 parameters and have their own gradient path. An environment that cannot
@@ -52,9 +52,9 @@ print(aux.matching_loss[:, ::20])  # minus the closed-loop return
 `train` returns `(state, aux)` whatever the logging: `aux` holds every
 update's `loss`, `matching_loss` (minus the mean closed-loop return),
 `m_rmse` and `timestep`. With a `logging_config`, every `log_frequency` steps
-it also evaluates the controller on `num_episode_test` freshly drawn systems
-and sends `Eval/episodic mean reward` and `Eval/m_rmse` to the logging
-backend.
+it also evaluates the controller on `num_episode_test` systems, drawn
+afresh at each evaluation, and sends `Eval/episodic mean reward` and
+`Eval/m_rmse` to the logging backend.
 
 The in-context controller of Busetto et al., trained in stages on a
 reference-tracking task (`train_curriculum`, the paper's Algorithm 2):
@@ -100,26 +100,34 @@ stages = [  # the nominal pendulum first, then the whole family
 | `actor_architecture` | `("128", "relu", "128", "relu")` | MLP in front of the memory or output; `()` for a linear embedding |
 | `memory` | None | memory block (`MemoryConfig` or a dict) |
 | `pid` | None | `PIDHeadConfig`: close the controller with a learnable PID layer |
-| `squash` | True | bound actions to [-1, 1] with tanh |
+| `squash` | True | bound actions to [-1, 1] with tanh; without it they are clipped there |
 | `system_class` | None | distribution over the environment's parameters; `None` trains on `env_params` only |
 | `controller_factory` | None | builds a custom controller module (see `Controller` in `ajax.agents.APG.networks`) |
+| `episode_length`, `action_repeat` | None, 1 | accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1 |
 
 `APG.contextual_controller(env, system_class, ...)` sets the paper's values:
 8 layers, 4 heads, width 128, context 100, one system per update
-(`n_envs=1`), horizon 100, AdamW betas (0.9, 0.95), 5,000 warmup updates
-then cosine decay to a tenth of the rate, and a PID output layer.
+(`n_envs=1`), horizon 100, betas (0.9, 0.95) with `weight_decay=0` (plain
+Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, and a
+PID output layer.
 
 ## Notes
 
 - **Budget.** One update uses `n_envs * horizon` steps of `n_timesteps`.
+- **Actions.** Squashed or clipped, the controller's `[-1, 1]` action is
+  mapped onto the environment's bounds inside the differentiated rollout, so
+  on gymnax Pendulum (torque in `[-2, 2]`) the controller reaches the whole
+  range.
 - **Deviations from Busetto et al.**, each backed by runs on the pendulum
   tracking task (see the `APG` docstrings): actions are tanh-bounded (the
   reference leaves them unbounded); gradients are clipped, since BPTT over 100
   steps across a family of systems diverged without it; the PID layer starts
   as the identity (`K_P = 1`, `K_I = K_D = 0`) instead of all three gains at 1,
   which trained markedly worse under the bounded action (fresh-system M-RMSE
-  0.33 against 0.25). The paper trains each curriculum stage to a loss
-  tolerance; Ajax gives each stage a fixed `n_timesteps`.
+  0.33 against 0.25). These runs predate the mapping of actions onto the
+  environment's bounds: the pendulum's torque was then capped at 1 of its
+  2. The paper trains each curriculum stage to a loss tolerance; Ajax gives
+  each stage a fixed `n_timesteps`.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
   one's parameters and, by default, restarts the optimizer and its schedule
   at each stage. All stages must share `n_envs`, the network and the PID
@@ -134,10 +142,15 @@ then cosine decay to a tenth of the rate, and a PID output layer.
 
 ## Results
 
-The probing tests check that APG reaches the exact optimum of a small
-problem whose best action is reachable only through the transition's
-gradient, and that a split run equals the run left whole. On the CPU speed benchmark (`benchmarks/agent_bench.py`) APG ran at
-about 5,500 steps per second at main `91ee10f`
+Unit tests (`tests/agents/APG`) check its pieces against exact contracts,
+without learning, including the curriculum. The probes (`tests/probing`)
+train it briefly on tiny environments with known answers: it reaches the
+exact optimum of a small problem whose best action is reachable only
+through the transition's gradient, and a run split by a checkpoint equals
+the run left whole. On the CPU speed benchmark
+(`benchmarks/agent_bench.py`: Pendulum tracking, 4 environments, 8,000
+steps) APG ran at 34,958 steps per second of execution (5,339 with
+compilation) at main `a8a13c2`
 ([PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
 
 ## API

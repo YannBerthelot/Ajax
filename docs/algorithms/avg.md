@@ -61,13 +61,15 @@ Defaults are read from `AVG.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `expose_recent_rollout` | `False` | keep the last transition on `state.last_rollout` for extensions |
-| `expert_policy` | `None` | an expert used only for an evaluation metric |
+| `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
+| `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
-`alpha_learning_rate` and `target_entropy_per_dim` are accepted but change
-nothing: AVG never tunes `alpha`. There is no `normalize_observations`
-argument, since AVG always normalises its observations, and no reward
-normalisation.
+`alpha_learning_rate` and `target_entropy_per_dim` are deprecated: they
+default to `None`, change nothing and warn (`FutureWarning`) when set, since
+AVG keeps `alpha` fixed, as the authors' code does. There is no
+`normalize_observations` argument, since AVG always normalises its
+observations, and no reward normalisation.
 
 ## Notes
 
@@ -91,17 +93,20 @@ normalisation.
 - **Several envs.** The paper trains on one environment. With `n_envs > 1`,
   each update uses the transitions of all envs from the same step.
 - **Actions and evaluation.** A `tanh`-squashed Gaussian in `[-1, 1]`,
-  clipped to the environment's bounds, not rescaled; evaluation uses the
-  mean action.
+  mapped onto the environment's bounds; evaluation uses the mean action.
 
 ## Results
 
-The repository records no learning curves for AVG yet. The probing tests
-(`tests/probing`) check its target, discounting, time limits, observation
-normalisation and checkpoint resume on tiny problems with exact answers. On
-the speed benchmark (`benchmarks/agent_bench.py`: Pendulum, 4 envs, 8,000
-steps, on a Mac CPU) AVG ran at a median 4,056 steps per second, updates
-included (see `PERFORMANCE_REPORT.md`).
+The repository records no learning curves for AVG yet. Unit tests
+(`tests/agents/AVG` and the contracts every agent shares) check its pieces
+against exact contracts, without learning. The probes (`tests/probing`)
+train it briefly on tiny environments with known answers: its target,
+discounting, time limits, observation normalisation, and a run split by a
+checkpoint matching the run left whole. On the CPU speed benchmark
+(`benchmarks/agent_bench.py`: Pendulum, 4 envs, 8,000 steps) AVG ran at
+9,460 steps per second of execution (4,027 with compilation), updates
+included, at main `a8a13c2` (see
+[PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md)).
 
 ## API
 

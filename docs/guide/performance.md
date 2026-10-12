@@ -6,7 +6,8 @@ runs, the second. This page says what Ajax does about each and how to get
 the most out of a machine. The numbers come from
 [PERFORMANCE_REPORT.md](../../PERFORMANCE_REPORT.md), where every
 measurement is described in full. They belong to the machine they were
-measured on: use them for orders of magnitude, not as promises.
+measured on: use them for orders of magnitude, not as promises. They are
+CPU measurements unless a line says otherwise.
 
 ## The compile cache
 
@@ -16,25 +17,29 @@ it every time. So `import ajax` points JAX's persistent compile cache at
 `~/.cache/ajax/jax_compile_cache`: a later process that compiles the same
 program loads it from disk instead.
 
-On the report's Plane3DCircle SAC scenario, a second launch of the same
-script took 3.35 s instead of 16.26 s, compile and warm-up fell from 21.5 s
+On the report's Plane3DCircle SAC scenario, run on a GPU, a second launch
+of the same script took 3.35 s instead of 16.26 s, compile and warm-up fell from 21.5 s
 to 4.9 s, and peak GPU memory fell from 302 MB to 15 MB, because the
-compiler's scratch memory is never allocated. It matters most where every
-trial is a new process, as in a hyperparameter sweep.
+compiler's scratch memory is never allocated.
 
 What to know about it:
 
+- **It serves relaunches, not new trials.** A rerun of the same script, or
+  a repeated or resumed trial, loads its program from the cache. A new trial
+  of a hyperparameter sweep is a different program: its hyperparameters are
+  compiled in as constants, so it compiles from scratch. The budget, the
+  agent's settings and the shapes are all part of the program.
 - **A logged run is not cached.** JAX never stores a program that contains
   a host callback, and the [logging worker](logging.md) is fed by one. A run
   with a `LoggingConfig` compiles in every new process.
-- **A different run is a different program.** The budget, the agent's
-  settings and the shapes are part of the program, so changing any of them
-  compiles again. A repeated identical run hits the cache.
 - **One subdirectory per machine and version.** Entries are kept per CPU
   model, architecture, and Python, JAX and jaxlib versions, so environments
   with different versions, or machines sharing a home directory, do not
-  load each other's programs. Nothing is ever deleted: clear the directory
-  yourself if it grows too large.
+  load each other's programs.
+- **Nothing trims it on its own.** Clear the directory yourself if it grows
+  too large, or call `ajax._compile_cache.prune(root, max_bytes)`, which
+  deletes the least recently used files until the rest fit (the repository's
+  CI does this once per job).
 - `AJAX_JAX_COMPILE_CACHE_DIR` moves the cache; `AJAX_NO_COMPILE_CACHE=1`
   turns it off.
 
@@ -42,7 +47,7 @@ What to know about it:
 
 `train` runs all seeds as one vmapped program. Up to the point where the
 device is busy, more seeds cost almost no extra time. On the report's
-benchmarks:
+benchmarks, run on a GPU:
 
 | Seeds | Pendulum, wall time | Plane3DCircle, wall time |
 | --- | --- | --- |
@@ -75,12 +80,12 @@ learning you want, then use seeds to fill the device.
 
 ## CPU or GPU
 
-Small networks on gymnax tasks train well on a CPU: every benchmark number
-below is a CPU number. A GPU pays off when each step holds more parallel
-work: many seeds, many environment copies, wide networks, or a physics
-simulator such as Brax or Playground. The logging worker always runs on the
-CPU, so it never takes GPU memory. On a CPU, Playground uses MJX's pure-JAX
-implementation.
+Small networks on gymnax tasks train well on a CPU: every agent-speed
+number below is a CPU number, and Ajax makes no claim about its speed on a
+GPU. A GPU has more room for parallel work: many seeds, many environment
+copies, wide networks, or a physics simulator such as Brax or Playground.
+The logging worker always runs on the CPU, so it never takes GPU memory. On
+a CPU, Playground uses MJX's pure-JAX implementation.
 
 To keep a run on the CPU of a machine with a GPU, set `JAX_PLATFORMS=cpu`
 (and `CUDA_VISIBLE_DEVICES=""` to hide the GPU entirely). The repository's
@@ -96,45 +101,54 @@ program can be cached.
 
 ## Agent speeds
 
-`benchmarks/agent_bench.py` times every agent but UDRL on a fixed task
-(CartPole for DQN, PQN, PPO and DreamerV3, a Pendulum tracking task for APG,
-Pendulum for the others), 4 environment copies, 8,000 steps, 3 trials, the
-compile cache off, on a Mac's CPU. Median training speed and compile time,
-after the 2026 refactoring:
+`benchmarks/agent_bench.py` times every agent on a fixed task (CartPole for
+DQN, PQN, PPO and DreamerV3, a Pendulum tracking task for APG, Pendulum for
+the others), 4 environment copies, 8,000 steps, one seed, 3 trials, the
+compile cache off, on a Mac's CPU. Every agent updates within the run: SAC,
+TD3, REDQ and ASAC start at step 1,000 instead of their default 10,000.
+Medians of the three trials, from the baseline recorded on 2026-10-12:
 
-| Agent | Steps per second | Compile and warm-up (s) |
-| --- | --- | --- |
-| PQN | 7,332 | 1.01 |
-| DQN | 6,375 | 0.94 |
-| TD3 | 6,163 | 1.30 |
-| APG | 5,494 | 1.48 |
-| SAC | 5,051 | 4.71 |
-| ASAC | 5,006 | 1.55 |
-| REDQ | 4,868 | 1.58 |
-| APO | 4,486 | 2.03 |
-| PPO | 4,281 | 1.98 |
-| AVG | 4,056 | 1.58 |
-| DreamerV3 | 273 | 12.31 |
-| TDMPC2 | 243 | 7.25 |
+| Agent | Steps per second, execution | Steps per second, whole run | Compile and warm-up (s) |
+| --- | --- | --- | --- |
+| PQN | 36,961 | 7,358 | 1.0 |
+| APG | 34,958 | 5,339 | 1.6 |
+| PPO | 17,817 | 4,298 | 2.0 |
+| DQN | 16,662 | 6,395 | 0.9 |
+| APO | 16,390 | 4,024 | 2.0 |
+| UDRL | 12,575 | 4,441 | 1.4 |
+| AVG | 9,460 | 4,027 | 1.5 |
+| TD3 | 2,659 | 1,961 | 1.4 |
+| SAC | 2,218 | 1,635 | 3.8 |
+| ASAC | 1,254 | 1,032 | 1.6 |
+| DreamerV3 | 367 | 275 | 12.9 |
+| TDMPC2 | 292 | 245 | 7.3 |
+| REDQ | 47 | 47 | 1.7 |
 
-DreamerV3 and TD-MPC2 run at reduced presets here (DreamerV3's smallest
-size, `"1m"`; a TD-MPC2 narrowed to 64-unit layers and a smaller planner).
-SAC, TD3, REDQ and ASAC run below their default `learning_starts` of 10,000,
-so their figures time collection, not updates. At its paper's
-defaults TD-MPC2 would take minutes per bench run on a CPU: it updates its
-model and plans at every environment step. Speeds on your machine will
-differ; the ratios between agents are the useful part.
-[Developer performance](../developer/performance.md) explains how to run
-the benchmark and the 10% no-regression rule every change follows.
+"Execution" leaves out the time JAX spends tracing, lowering and compiling
+the program; "whole run" includes it, because every trial builds a fresh
+agent, whose program is traced again. REDQ is slow by design: from step
+1,000 it makes 20 updates of 10 critics per environment step. UDRL's trials
+spread the most. DreamerV3 and TD-MPC2 run at reduced presets (DreamerV3's
+smallest size, `"1m"`; a TD-MPC2 narrowed to 64-unit layers and a smaller
+planner); at its paper's defaults TD-MPC2 would take minutes per bench run
+on a CPU, since it updates its model and plans at every environment step.
+Speeds on your machine will differ; the ratios between agents are the
+useful part. [Developer performance](../developer/performance.md) explains
+how to run the benchmark and the 10% no-regression rule every change
+follows.
 
 ## Other measured costs
 
+- **The action map.** Mapping every continuous action onto the
+  environment's bounds ([Actions](environments.md#actions)) cost nothing
+  measurable: SAC +0.1%, TD3 +2.8% and PPO +1.0% steps per second, within
+  noise.
 - **Playground fresh resets.** Drawing a new initial state per episode
   (the default) costs a reset per episode. On CheetahRun, whose reset runs a
   200-step stabilisation, SAC's iterations took about 2% longer, and compile
   plus first run grew from 36 s to 59 s per cold process.
 - **Brax resets.** Ajax's Brax wrapper computes a reset only on steps where
   some copy's episode ended. `differentiable_reset=True` computes one every
-  step, which cost about 7-13% of a step's time on CPU in the report's
+  step, which cost about 7-13% of a step's time in the report's
   measurement.
 - **Memory blocks** in the replay agents: see [Memory](memory.md).

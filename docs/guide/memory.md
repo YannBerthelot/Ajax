@@ -110,16 +110,22 @@ learned steps from the memory it had when it acted; the critics, which do
 not run while acting, are still burned in from zero. Kapturowski et al.
 found stored state better than a zero start with burn-in at keeping the
 replayed memory close to the one the policy had. The defaults are
-`burn_in=8`, `sequence_length=16`, `stored_state=False`.
+`burn_in=8`, `sequence_length=16`, `stored_state=False`. The agent refuses
+at construction a `learning_starts` that would not leave each copy one
+whole sequence before the first update (`learning_starts // n_envs` must
+exceed `burn_in + sequence_length + 1`), and `stored_state=True` without
+`memory=`.
 
 A recurrent critic's memory reads each step's observation and the action
 taken before it. The action the loss asks about joins after the memory, at
 the critic's head, so asking about another action does not change what the
 critic remembers (the recurrent off-policy critic of Ni et al., 2022).
 
-With memory, the replay agents accept no extensions, no expert policy and no
-behaviour-cloning pre-training yet: they raise an error rather than run
-untested combinations.
+With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
+(behaviour cloning included, which is the `CloningPretrain` extension), and
+ASAC and PPO no extensions, yet: they raise an error when training starts
+rather than run untested combinations. APG takes memory and extensions
+together.
 
 ## Evaluation and deployment
 

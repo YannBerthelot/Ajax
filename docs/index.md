@@ -76,10 +76,11 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 ## What else is in the box
 
 - [Extensions](guide/extensions.md): expert guidance, exploration, critic-target
-  changes, critic pre-training and diagnostics, each usable with the agents
-  that run the training phases it touches.
+  changes, actor and critic pre-training and diagnostics, each usable with
+  the agents that run the training phases it touches.
 - [Expert guidance](guide/expert-guidance.md): learn from an existing
-  controller; when the expert acts, it reads the environment's raw units.
+  controller, which reads the environment's raw observations and answers in
+  its action units.
 - [Memory](guide/memory.md): GRU, LSTM, transformer or Mamba blocks, with
   R2D2-style sequence replay.
 - [PID policy](guide/networks.md): a PID controller as the actor, whose learned
@@ -89,11 +90,13 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 - [World models](guide/world-models.md): DreamerV3 and TD-MPC2, following the
   paper-era official code.
 - [Environments](guide/environments.md): gymnax, Brax and MuJoCo Playground by
-  id, with wrappers for normalisation, reference tracking and more.
+  id, with wrappers for normalisation, observation noise, reference tracking
+  and more; every continuous agent's `[-1, 1]` actions are mapped onto the
+  environment's bounds.
 - [Logging](guide/logging.md) and [checkpoints](guide/checkpoints.md):
   evaluations as arrays, W&B or TensorBoard, resuming in another process.
 - [Performance](guide/performance.md): every seed in one program, a persistent
-  compile cache per host.
+  compile cache, one per machine and JAX version.
 
 ## Documentation
 

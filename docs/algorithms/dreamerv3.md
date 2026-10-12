@@ -93,7 +93,12 @@ below.
   action_repeat` is logged next to it.
 - **The score.** The paper reports the returns of the stochastic policy's
   training episodes, logged as `Train/episodic mean reward`. The evaluation
-  also samples its actions, since the reference has no deterministic mode.
+  also samples its actions, since the reference has no deterministic mode,
+  and draws fresh keys at each evaluation (new initial states and action
+  noise); a rerun of the same seed draws the same ones.
+- **Actions.** Continuous actions are clipped to `[-1, 1]` and mapped onto
+  the environment's bounds, the reference's `ClipAction` and
+  `NormalizeAction`.
 - **Memory use.** Each replay row stores the observation, the action, the
   reward, the flags and the posterior latent: about 8.3 KB at 12M on a
   24-dimensional observation, so the 250K rows of the DMC protocol take about
@@ -116,15 +121,23 @@ below.
 ## Results
 
 Recorded on CPU in [PERFORMANCE_REPORT.md](https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md),
-with the 1M preset and 20,000 rows: Pendulum swings up from 12,000 rows on
-(final evaluation -222, against about -1,200 at the start). On CartPole Ajax
+with the 1M preset and 20,000 rows, before evaluations drew fresh keys:
+Pendulum swings up from 12,000 rows on (final evaluation -222, against about
+-1,200 at the start). On CartPole Ajax
 was compared with the reference code itself on the same protocol, over three
 pre-registered rounds; once both used the same two-hot expectation, the
 training statistics' seed ranges overlapped the reference's in at least 52 of
 58 windows, and all five Ajax seeds passed the redefined CartPole check, as did
 all five of the reference's. The GPU validation against the published DMC
 curves is specified in [VALIDATION.md](../world_models/VALIDATION.md) and has
-not been run yet.
+not been run yet. The probes (`tests/probing`) train DreamerV3 briefly on
+tiny environments with known answers (discounting, a continuous advantage,
+and a risky-or-safe choice it can only weigh in imagination), and its own
+tests (`tests/agents/DreamerV3`) check that a run split by a checkpoint
+equals the run left whole. On the
+CPU speed benchmark (`benchmarks/agent_bench.py`: CartPole, 4 environments,
+8,000 rows, a smaller model than the paper's) DreamerV3 ran at 367 rows per
+second of execution (275 with compilation) at main `a8a13c2`.
 
 ## API
 

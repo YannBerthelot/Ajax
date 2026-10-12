@@ -51,12 +51,9 @@ class APO(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        actor_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        critic_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        encoder_bias_init: Optional[Union[str, InitializationFunction]] = None,
         # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
         actor_cloning_epochs: Optional[int] = None,
         actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
@@ -103,12 +100,9 @@ class APO(ActorCritic):
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
-            actor_kernel_init=actor_kernel_init,
             actor_bias_init=actor_bias_init,
-            critic_kernel_init=critic_kernel_init,
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
-            encoder_bias_init=encoder_bias_init,
             # Continuous APO on bounded control envs (brax, playground)
             # saturates an unbounded Gaussian at the action clip, as PPO
             # does: the squashed policy stays in [-1, 1] with a correct

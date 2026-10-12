@@ -144,10 +144,8 @@ class Actor(nn.Module):
     continuous: bool = False
     squash: bool = False
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
     # When True, log_std is a single learnable scalar Param per action
     # dim (state-independent), matching brax PPO's ``noise_std_type=
     # 'scalar'``. When False (default), log_std is a Dense layer over
@@ -201,10 +199,9 @@ class Actor(nn.Module):
                 input_architecture=self.input_architecture,
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
-                bias_init=self.encoder_bias_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        kernel_init = parse_initialization(self.kernel_init, default=orthogonal(1.0))
+        kernel_init = orthogonal(1.0)
         bias_init = parse_initialization(self.bias_init, default=constant(0.0))
 
         if self.continuous:
@@ -288,10 +285,8 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
     # When set, the encoder is a `CNNEncoder` over flat image obs rather
@@ -322,7 +317,6 @@ class Critic(nn.Module):
                 self.head = Encoder(
                     input_architecture=self.input_architecture,
                     kernel_init=self.encoder_kernel_init,
-                    bias_init=self.encoder_bias_init,
                     layer_norm=self.encoder_layer_norm,
                 )
         if self.cnn_image_shape is not None:
@@ -334,12 +328,11 @@ class Critic(nn.Module):
                 input_architecture=self.input_architecture,
                 penultimate_normalization=self.penultimate_normalization,
                 kernel_init=self.encoder_kernel_init,
-                bias_init=self.encoder_bias_init,
                 layer_norm=self.encoder_layer_norm,
             )
         self.model = nn.Dense(
             1,
-            kernel_init=parse_initialization(self.kernel_init, default=orthogonal(1.0)),
+            kernel_init=orthogonal(1.0),
             bias_init=parse_initialization(self.bias_init, default=constant(0.0)),
         )
 
@@ -377,10 +370,8 @@ class MultiCritic(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     num: int = 4
     penultimate_normalization: bool = False
-    kernel_init: Optional[Union[str, InitializationFunction]] = None
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_layer_norm: bool = False
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
@@ -409,10 +400,8 @@ class MultiCritic(nn.Module):
         self.ensemble = Vmapped(
             input_architecture=self.input_architecture,
             penultimate_normalization=self.penultimate_normalization,
-            kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             encoder_kernel_init=self.encoder_kernel_init,
-            encoder_bias_init=self.encoder_bias_init,
             encoder_layer_norm=self.encoder_layer_norm,
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
@@ -519,10 +508,8 @@ def get_initialized_actor_critic(
             continuous=continuous,
             squash=squash,
             penultimate_normalization=network_config.penultimate_normalization,
-            kernel_init=network_config.actor_kernel_init,
             bias_init=network_config.actor_bias_init,
             encoder_kernel_init=network_config.encoder_kernel_init,
-            encoder_bias_init=network_config.encoder_bias_init,
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
@@ -536,10 +523,8 @@ def get_initialized_actor_critic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
         num=num_critics,
-        kernel_init=network_config.critic_kernel_init,
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
-        encoder_bias_init=network_config.encoder_bias_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=critic_cnn_image_shape,
         cnn_extra_obs_dim=cnn_extra_obs_dim,

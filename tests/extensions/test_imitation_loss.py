@@ -64,6 +64,13 @@ def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
     np.testing.assert_allclose(float(again), expected, rtol=1e-6)
 
 
+def test_agent_without_policy_mean_raises() -> None:
+    """With the observations (test_no_silent_noop's empty batch has none)."""
+    batch = {"observations": jnp.zeros((2, 3))}
+    with pytest.raises(ValueError, match="pi_mean"):
+        ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX)
+
+
 def _ext_state(state: Any, stack: ExtensionStack) -> Any:
     """What make_train does before training: one ext_state per extension."""
     return stack.fold_init_states(state, KEY)

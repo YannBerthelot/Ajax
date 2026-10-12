@@ -71,8 +71,17 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
     assert float(jnp.abs(moved).max()) > 0.0
 
 
-def test_the_penalty_raises_on_a_batch_without_the_critic() -> None:
-    """Without its other operands too (test_no_silent_noop)."""
-    batch = {"observations": jnp.zeros((2, 1)), "targets": jnp.zeros((2, 1))}
-    with pytest.raises(ValueError, match="BiasVorePenalty needs the critic"):
+@pytest.mark.parametrize(
+    "batch, missing",
+    [
+        ({"observations": jnp.zeros((2, 1))}, "targets"),
+        ({"observations": jnp.zeros((2, 1)), "targets": jnp.zeros((2, 1))}, "critic"),
+    ],
+    ids=["no-targets", "no-critic"],
+)
+def test_the_penalty_raises_on_a_batch_without_one_operand(
+    batch: dict, missing: str
+) -> None:
+    """test_no_silent_noop's empty batch stops at the first check."""
+    with pytest.raises(ValueError, match=f"BiasVorePenalty needs .*{missing}"):
         PENALTY.critic_loss(None, (), batch, CTX)

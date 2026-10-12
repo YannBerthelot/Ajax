@@ -50,14 +50,18 @@ CTX = ExtensionContext(step=jnp.asarray(0), rng=KEY)
 def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
     pi_mean = jnp.array([[0.1], [-0.3]])
     obs = jnp.zeros((2, 3))
-    batch = {"pi_mean": pi_mean, "raw_observations": obs}
+    batch: dict[str, Any] = {"pi_mean": pi_mean, "raw_observations": obs}
     term = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
         None, (), batch, CTX
     )
     expected = 2.0 * np.mean((np.array([0.1, -0.3]) - 0.9) ** 2) / 4.0
     np.testing.assert_allclose(float(term), expected, rtol=1e-6)
     # Without raw observations the expert reads the agent's observations.
-    batch = {"pi_mean": pi_mean, "raw_observations": None, "observations": obs}
+    batch = {
+        "pi_mean": pi_mean,
+        "raw_observations": None,
+        "observations": obs,
+    }
     again = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
         None, (), batch, CTX
     )

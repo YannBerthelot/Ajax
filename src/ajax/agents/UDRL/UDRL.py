@@ -81,7 +81,7 @@ class UDRL(ActorCritic):
             extensions=extensions,
         )
 
-        self.agent_config = UDRLConfig(
+        self.agent_config: UDRLConfig = UDRLConfig(
             gamma=gamma,
             n_steps=n_steps,
             batch_size=batch_size,

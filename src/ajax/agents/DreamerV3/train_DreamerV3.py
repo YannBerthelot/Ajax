@@ -35,7 +35,7 @@ included); the collector's ``timestep`` advances by ``n_envs`` per tick.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import lru_cache, partial
@@ -216,8 +216,8 @@ def initial_policy_carry(
 
 
 def policy_step(
-    world_model_params: dict,
-    actor_params: dict,
+    world_model_params: Mapping[str, Any],
+    actor_params: Mapping[str, Any],
     carry: PolicyCarry,
     obs: jax.Array,
     is_first: jax.Array,
@@ -255,9 +255,8 @@ def policy_step(
         draw_posterior_noise(post_key, config, (n,)),
         method=RSSM.observe_step,
     )
-    policy = Actor(config, action_dim, discrete).apply(
-        {"params": actor_params}, features(state.deter, state.stoch)
-    )
+    actor_apply: Callable[..., Any] = Actor(config, action_dim, discrete).apply
+    policy = actor_apply({"params": actor_params}, features(state.deter, state.stoch))
     sample = policy.sample(draw_action_noise(action_key, (n, action_dim), discrete))
     action = jnp.argmax(sample, -1).astype(jnp.int32) if discrete else sample
     latent = (state.deter, jnp.argmax(state.stoch, -1).astype(jnp.int32))
@@ -335,7 +334,8 @@ def train_metric_keys(
     """
     f32, length = jnp.float32, batch_length + 1
 
-    def shape(*dims: int, dtype: Any = f32) -> jax.ShapeDtypeStruct:
+    # Abstract arrays: jax.eval_shape takes them where arrays go.
+    def shape(*dims: int, dtype: Any = f32) -> Any:
         return jax.ShapeDtypeStruct(dims, dtype)
 
     key = shape(2, dtype=jnp.uint32)
@@ -636,7 +636,7 @@ def make_train(
         del pretrain_key  # no pretraining of its own
         return init_dreamer(key, env_args, config, spec, replay, metric_keys)
 
-    common = {"config": config, "spec": spec, "replay": replay}
+    common: dict[str, Any] = {"config": config, "spec": spec, "replay": replay}
     return loop.off_policy(
         init,
         partial(update, **common),

@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 from flax import struct
 
@@ -13,10 +14,10 @@ class RunningMoments(Replaceable):
     squared return) and its running ``count``, ``mean`` and ``mean_2``;
     not the observation normaliser's :class:`ajax.types.NormalizationInfo`."""
 
-    value: jnp.array
-    count: jnp.array
-    mean: jnp.array
-    mean_2: jnp.array
+    value: jax.Array
+    count: jax.Array
+    mean: jax.Array
+    mean_2: jax.Array
 
 
 @struct.dataclass(kw_only=True)

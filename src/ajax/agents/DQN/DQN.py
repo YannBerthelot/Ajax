@@ -11,6 +11,7 @@ from ajax.agents.loop import LOOP_PHASES
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType
 
 
@@ -61,7 +62,7 @@ class DQN(ActorCritic):
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -92,7 +93,7 @@ class DQN(ActorCritic):
         if check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("DQN only supports discrete action spaces.")
 
-        self.agent_config = DQNConfig(
+        self.agent_config: DQNConfig = DQNConfig(
             gamma=gamma,
             tau=tau,
             target_update_interval=target_update_interval,

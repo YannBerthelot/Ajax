@@ -193,7 +193,9 @@ def export_episodes(
         obs_dim=obs.shape[-1],
         action_dim=action.shape[-1],
     )
-    ring.check_layout(EpisodeBufferState(obs=obs, action=action, reward=reward))
+    # Host copies, not device arrays: the layout check reads shapes only.
+    host_state = EpisodeBufferState(obs=obs, action=action, reward=reward)  # type: ignore[arg-type]
+    ring.check_layout(host_state)
     ticks = int(rows) // n_envs
     slots, evicted = ring.committed_slots(ticks - 1)
     if slots.size == 0:

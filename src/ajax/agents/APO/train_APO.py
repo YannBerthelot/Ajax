@@ -158,7 +158,7 @@ def value_loss_function(
     observations: jax.Array,
     value_targets: jax.Array,
     nu: float,
-    b: float,
+    b: float | jax.Array,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """The differential value loss ``0.5 (V(s) - (target - nu b))^2``.
 
@@ -182,7 +182,7 @@ def update_value_functions(
     observations: jax.Array,
     value_targets: jax.Array,
     nu: float,
-    b: float,
+    b: jax.Array,
     extension_stack: ExtensionStack,
     total_timesteps: int,
     extension_key: jax.Array,

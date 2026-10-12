@@ -11,17 +11,17 @@ from jax.tree_util import Partial as partial
     static_argnames=["train", "eps", "shift", "nan_safe", "raw_columns"],
 )
 def online_normalize(
-    x: jnp.array,
-    count: int,
-    mean: float,
-    mean_2: float,
+    x: jax.Array,
+    count: jax.Array,
+    mean: jax.Array,
+    mean_2: jax.Array,
     eps: float = 1e-8,
     train: bool = True,
     shift: bool = True,
     returns: Optional[jax.Array] = None,
     nan_safe: bool = True,
     raw_columns: int = 0,
-) -> tuple[jnp.array, int, float, float, float]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
     """Welford-style running mean / var update.
 
     ``nan_safe`` (static): when True (default), reductions skip NaN

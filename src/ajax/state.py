@@ -23,6 +23,7 @@ from ajax.wrappers import NormalizationInfo
 
 if TYPE_CHECKING:
     from ajax.modules.pid_actor import PIDPolicy
+    from ajax.networks.networks import CNNSpec
 
 
 @struct.dataclass
@@ -113,8 +114,8 @@ class CollectorState(Replaceable):
     last_terminated: jnp.ndarray
     last_truncated: jnp.ndarray
     episodic_return_state: RollinEpisodicMeanRewardState
-    episodic_mean_return: float = jnp.nan
-    timestep: int = 0
+    episodic_mean_return: Union[float, jax.Array] = jnp.nan
+    timestep: Union[int, jax.Array] = 0
     buffer_state: Optional[fbx.flat_buffer.TrajectoryBufferState] = None
     rollout: Optional[Transition] = None
     max_timesteps: Optional[int] = None
@@ -131,7 +132,7 @@ class CollectorState(Replaceable):
     obs_norm_info: Optional[NormalizationInfo] = None
     # Fraction of envs an expert drove on the latest collection step
     # (EDGEExploration logs it); NaN until the first step.
-    last_expert_frac: float = jnp.nan
+    last_expert_frac: Union[float, jax.Array] = jnp.nan
     # Per-env step counter within the current episode. Incremented on
     # every env step, reset to 0 on done. Used by jsrl_curriculum to
     # decide whether the expert acts (step_in_episode < H_t) or the
@@ -139,7 +140,7 @@ class CollectorState(Replaceable):
     step_in_episode: Optional[jnp.ndarray] = None
 
     @property
-    def train_time_fraction(self) -> Optional[float]:
+    def train_time_fraction(self) -> Optional[Union[float, jax.Array]]:
         if self.max_timesteps is None:
             return None
         return self.timestep / self.max_timesteps
@@ -199,8 +200,8 @@ class BaseAgentState(Replaceable):
     # keys are those of the split without it (threefry is partitionable:
     # ``split(k, n + 1)[:n] == split(k, n)``).
     eval_rng: jax.Array
-    n_updates: int = 0
-    n_logs: int = 0
+    n_updates: Union[int, jax.Array] = 0
+    n_logs: Union[int, jax.Array] = 0
     index: Optional[int] = None
     # Per-extension pytree state (one entry per Extension in the agent's
     # ExtensionStack; `()` -> no extensions / all stateless). See
@@ -250,7 +251,7 @@ class NetworkConfig(Replaceable):
     # Hidden layers, or a PIDPolicy: the actor is then a PID controller
     # (ajax.modules.pid_actor).
     actor_architecture: Union[Tuple[str, ...], "PIDPolicy"]
-    critic_architecture: Tuple[str]
+    critic_architecture: Tuple[str, ...]
     # Pluggable memory block (encoder -> memory -> heads); None keeps the
     # network feedforward. Static (hashable) so trace-time branching on it
     # never leaks into the compiled graph. See ajax.networks.memory.
@@ -268,10 +269,10 @@ class NetworkConfig(Replaceable):
     # after. None keeps the legacy MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
-    # Conv architecture for the CNN encoder (a `networks.CNNSpec`, kept as
-    # a loose `tuple` annotation to avoid a networks<->state import cycle).
-    # None -> CNNEncoder's default architecture.
-    cnn_spec: Optional[tuple] = None
+    # Conv architecture for the CNN encoder (imported for type checking
+    # only, to avoid a networks<->state import cycle). None ->
+    # CNNEncoder's default architecture.
+    cnn_spec: Optional["CNNSpec"] = None
     # Actor head knobs (Actor in networks.py). Default = legacy Ajax.
     # Set per-env to match brax/playground convention for envs that
     # need it (e.g. mujoco_playground manip uses scalar state-indep

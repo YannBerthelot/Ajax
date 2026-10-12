@@ -1,6 +1,6 @@
 import inspect
 import warnings
-from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Callable, NamedTuple, Optional, Tuple
 
 import chex
 import distrax
@@ -364,8 +364,9 @@ def get_pi(
     # after every online collection step. None disables normalisation.
     obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
     obs = maybe_add_axis(obs, recurrent)
-    done = maybe_add_axis(done, recurrent)
     if recurrent:
+        assert done is not None
+        done = maybe_add_axis(done, recurrent)
         pi, new_actor_hidden_state = actor_state.apply(
             actor_params,
             obs,
@@ -827,14 +828,13 @@ def collect_experience(
     # starts from: its initial state where the episode ended (the pipeline
     # resets it on this step's done flag), else the post-step one.
     if augmented:
+        assert _next_state_aug is not None
         _start_state_aug = _next_state_aug
         if result.initial_expert_state is not None:
             _ended = jnp.logical_or(terminated, truncated).reshape(-1, 1)
-            _start_state_aug = jnp.where(
-                _ended,
-                flatten_expert_state(result.initial_expert_state),
-                _next_state_aug,
-            )
+            _initial_state_aug = flatten_expert_state(result.initial_expert_state)
+            assert _initial_state_aug is not None
+            _start_state_aug = jnp.where(_ended, _initial_state_aug, _next_state_aug)
         new_last_obs = augment_obs(obsv, _start_state_aug)
     else:
         new_last_obs = obsv
@@ -941,14 +941,14 @@ def collect_experience(
     ],
 )
 def collect_experience_from_expert_policy(
-    expert_policy: Callable[[jnp.ndarray], jnp.ndarray],
+    expert_policy: Any,
     rng: jax.Array,
     mode: str,
     env_args: EnvironmentConfig,
     n_timesteps: int = int(1e5),
     augment_obs_with_expert_state: bool = False,
     train_frac: Optional[float] = None,
-) -> Sequence[Transition]:
+) -> Transition:
     """Collect experience by running an expert policy in the environment.
 
     Stateful experts (those with an ``init_state`` attribute, e.g. PID) are

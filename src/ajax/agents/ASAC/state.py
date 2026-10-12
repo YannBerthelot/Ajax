@@ -1,3 +1,6 @@
+from typing import Union
+
+import jax
 from flax import struct
 
 from ajax.agents.recurrent import RecurrentReplayConfig
@@ -9,8 +12,8 @@ class ASACState(SoftACState):
     """ASAC's state: a soft actor-critic's plus the reward rate and the
     termination penalty."""
 
-    episode_termination_penalty: float
-    theta: float
+    episode_termination_penalty: jax.Array
+    theta: Union[float, jax.Array]
 
 
 @struct.dataclass(kw_only=True)

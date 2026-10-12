@@ -160,7 +160,7 @@ def torch_to_ajax(
     sd = {k[len(prefix) :]: v for k, v in fx.items() if k.startswith(prefix)}
     names = [str(n) for n in fx["meta/q_param_names"]]
     hidden = max(config.num_enc_layers - 1, 1)
-    wm = {
+    wm: dict[str, Any] = {
         "encoder": {
             "trunk": _trunk(sd, "_encoder.state", hidden),
             "head": _normed_linear(sd, f"_encoder.state.{hidden}"),
@@ -233,7 +233,8 @@ def with_reference_params(
         (target_q, state.world_model_state.target_params),
         (pi, state.actor_state.params),
     ):
-        assert jax.tree.structure(mapped) == jax.tree.structure(ajax)
+        # jaxlib does not type PyTreeDef's equality.
+        assert jax.tree.structure(mapped) == jax.tree.structure(ajax)  # type: ignore[operator]
         assert jax.tree.map(jnp.shape, mapped) == jax.tree.map(jnp.shape, ajax)
     wm_state, pi_state = state.world_model_state, state.actor_state
     return state.replace(

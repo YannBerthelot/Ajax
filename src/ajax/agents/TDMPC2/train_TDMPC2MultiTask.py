@@ -264,11 +264,11 @@ def evaluate_task(
     )
 
 
-def train_metrics(agent_state: TDMPC2MultiTaskState) -> dict[str, jax.Array]:
+def train_metrics(agent_state: TDMPC2MultiTaskState) -> dict[str, Any]:
     """The update count (the run's clock, ``timestep``) and the last update's
     quantities (``offline_trainer.py:78-84``: ``iteration`` and
     ``train_metrics``)."""
-    metrics = {
+    metrics: dict[str, Any] = {
         "timestep": agent_state.n_updates,
         "Train/n_updates": agent_state.n_updates,
     }

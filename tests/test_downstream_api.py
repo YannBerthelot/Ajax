@@ -200,7 +200,9 @@ def _keyword_names(obj) -> set[str]:
     """Keyword parameters ``obj`` accepts, following ``**kwargs`` up the MRO."""
     callables = [obj]
     if isinstance(obj, type):
-        callables += [b.__init__ for b in obj.__mro__[1:] if "__init__" in vars(b)]
+        callables += [
+            vars(b)["__init__"] for b in obj.__mro__[1:] if "__init__" in vars(b)
+        ]
     names: set[str] = set()
     for fn in callables:
         params = inspect.signature(fn).parameters.values()

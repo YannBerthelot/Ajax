@@ -101,7 +101,7 @@ def resolve_num_minibatches(agent_config: Any) -> int:
     return max(sizes) // min(sizes)
 
 
-def resolve_clip_coef(agent_config: Any, timestep: jax.Array) -> Any:
+def resolve_clip_coef(agent_config: Any, timestep: int | jax.Array) -> Any:
     """The clip range, a constant or a schedule of the timestep."""
     clip_range = agent_config.clip_range
     return clip_range(timestep) if callable(clip_range) else clip_range

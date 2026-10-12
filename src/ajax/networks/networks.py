@@ -646,7 +646,7 @@ def init_network_state(
     batch-sized to ``n_envs``.
     """
     if memory is None:
-        params = FrozenDict(network.init(key, init_x))
+        params: FrozenDict[str, Any] = FrozenDict(network.init(key, init_x))
         hidden_state = None
     else:
         init_key, carry_key = jax.random.split(key)

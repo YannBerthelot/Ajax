@@ -283,7 +283,7 @@ class DreamerV3(ActorCritic):
             eps=eps,
             warmup=warmup,
         )
-        self.agent_config = DreamerV3AgentConfig(
+        self.agent_config: DreamerV3AgentConfig = DreamerV3AgentConfig(
             train_ratio=train_ratio,
             batch_size=batch_size,
             batch_length=batch_length,

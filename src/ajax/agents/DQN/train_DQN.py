@@ -294,6 +294,7 @@ def q_gradient_step(
             params, q_state, observations, actions, targets, td_loss_fn
         )
         if extension_stack:
+            assert key is not None
             batch = {
                 "observations": observations,
                 "actions": actions,

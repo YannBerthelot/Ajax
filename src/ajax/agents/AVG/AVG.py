@@ -117,7 +117,7 @@ class AVG(ActorCritic):
             alpha_init=alpha_init,
         )
         action_dim = get_action_dim(self.env_args.env, self.env_args.env_params)
-        self.agent_config = AVGConfig(
+        self.agent_config: AVGConfig = AVGConfig(
             gamma=gamma,
             learning_starts=learning_starts,
             target_entropy=target_entropy_per_dim * action_dim,

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import jax
 import numpy as np
@@ -24,7 +24,7 @@ from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodicBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
-from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule, Schedule, make_train
 from ajax.environments.row_collector import resume_tick
 from ajax.environments.utils import (
@@ -219,7 +219,7 @@ class TDMPC2(ActorCritic):
         if not self.env_args.continuous:
             raise ValueError("TD-MPC2 only supports continuous action spaces.")
 
-        self.agent_config = TDMPC2Config.from_arguments(self.config)
+        self.agent_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
         env, params = self.env_args.env, self.env_args.env_params
         obs_shape, _ = get_state_action_shapes(env)
         if len(obs_shape) != 1:
@@ -369,9 +369,10 @@ class TDMPC2(ActorCritic):
         )
         buffer = self._replay_buffer(per_env * self.env_args.n_envs)
         if initial_state is not None:
-            initial_state = initial_state.replace(
-                buffer_state=buffer.adopt(initial_state.buffer_state, start_tick)
-            )
+            state = cast(TDMPC2State, initial_state)
+            # The carried ring is of this buffer's kind (episodic or not).
+            replay = buffer.adopt(state.buffer_state, start_tick)  # type: ignore[arg-type]
+            initial_state = state.replace(buffer_state=replay)
         result: Any = super().train(
             seed=seed,
             n_timesteps=n_timesteps,

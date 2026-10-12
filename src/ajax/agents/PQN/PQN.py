@@ -10,6 +10,7 @@ from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType
 
 
@@ -52,7 +53,7 @@ class PQN(ActorCritic):
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
@@ -91,7 +92,7 @@ class PQN(ActorCritic):
                 f" rows must be divisible by num_minibatches ({num_minibatches})."
             )
 
-        self.agent_config = PQNConfig(
+        self.agent_config: PQNConfig = PQNConfig(
             gamma=gamma,
             q_lambda=q_lambda,
             n_steps=n_steps,

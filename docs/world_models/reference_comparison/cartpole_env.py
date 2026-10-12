@@ -90,7 +90,7 @@ def step_state(state: np.ndarray, action: int) -> np.ndarray:
     return out
 
 
-class CartPolePort(_EnvBase):  # type: ignore[valid-type]  # embodied.Env or object
+class CartPolePort(_EnvBase):  # type: ignore[valid-type, misc]  # embodied.Env or object
     """gymnax CartPole-v1 as an ``embodied.Env`` (PROTOCOL.md 2.2).
 
     Args:

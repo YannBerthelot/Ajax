@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeAlias, Union
 
 import flashbax as fbx
+import jax
 import jax.numpy as jnp
 from brax.envs import Env as BraxEnv
 from brax.envs.base import State as BraxEnvState
@@ -39,11 +40,11 @@ else:
 
 @struct.dataclass
 class NormalizationInfo:
-    var: jnp.array
-    count: jnp.array
-    mean: jnp.array
-    mean_2: jnp.array
-    returns: Optional[jnp.array] = None  # For reward normalization, returns are needed
+    var: jax.Array
+    count: jax.Array
+    mean: jax.Array
+    mean_2: jax.Array
+    returns: Optional[jax.Array] = None  # For reward normalization, returns are needed
 
 
 @struct.dataclass

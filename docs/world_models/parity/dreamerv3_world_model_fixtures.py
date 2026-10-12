@@ -99,7 +99,7 @@ jax.config.update("jax_default_matmul_precision", "highest")
 WORLD_MODEL = ("agent/enc/", "agent/dyn/", "agent/dec/", "agent/rew/", "agent/con/")
 OBS_DIM = 5
 BATCH, LENGTH = 2, 9  # 8 trained steps + replay_context 1
-TINY = {
+TINY: dict[str, Any] = {
     "jax.platform": "cpu",
     "jax.compute_dtype": "float32",
     "jax.param_dtype": "float32",

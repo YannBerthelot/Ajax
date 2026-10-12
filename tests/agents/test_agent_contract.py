@@ -26,12 +26,14 @@ from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.base import ActorCritic
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
@@ -72,7 +74,7 @@ ON_POLICY = {
 
 @dataclass(frozen=True)
 class Case:
-    cls: type
+    cls: type[ActorCritic]
     kwargs: dict[str, Any]
     # The env ids it acts in: the default run uses the first, the other the last.
     envs: tuple[str, ...]
@@ -198,7 +200,9 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
     """Two counters advance in step on every seed; every evaluation carries
     the stub's metric; an exposed rollout is (T, n_envs) and finite."""
     case = CASES[name]
-    exposed = {} if case.rollout is None else {"expose_recent_rollout": True}
+    exposed: dict[str, Any] = (
+        {} if case.rollout is None else {"expose_recent_rollout": True}
+    )
     agent = case.cls(
         env_id=case.envs[-1],
         n_envs=2,
@@ -221,6 +225,7 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
     if case.rollout is None:
         assert state.last_rollout is None
         return
+    assert state.last_rollout is not None
     obs = state.last_rollout.obs
     assert obs.shape[:3] == (2, case.rollout, 2), obs.shape
     assert jnp.isfinite(obs).all()
@@ -235,7 +240,9 @@ def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
     agent with a critic carries all their keys, finite; one without (UDRL)
     carries none."""
     case = CASES[name]
-    exposed = {} if case.rollout is None else {"expose_recent_rollout": True}
+    exposed: dict[str, Any] = (
+        {} if case.rollout is None else {"expose_recent_rollout": True}
+    )
     kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed, **case.kwargs}
     buffer = getattr(case.cls(**kwargs), "buffer", None)
     agent = case.cls(
@@ -371,12 +378,12 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     and TD3's uniform warm-up covers the box (half their |paid| > 1)."""
     env, params = paid_action.make()
     if name == "APG":
-        agent = APG(env, env_params=params, n_envs=4, horizon=1, pid=None)
-        seeds, _ = agent.train(seed=0, n_timesteps=0)
+        apg = APG(env, env_params=params, n_envs=4, horizon=1, pid=None)
+        seeds, _ = apg.train(seed=0, n_timesteps=0)
         state: Any = jax.tree.map(lambda x: x[0], seeds)
         actor = state.actor_state
         _, rollout = rollout_returns(
-            state, actor.params, jax.random.PRNGKey(1), agent.env_args, None, 1, 4
+            state, actor.params, jax.random.PRNGKey(1), apg.env_args, None, 1, 4
         )
         policy_step = make_policy_step(actor, actor.params, False)
         own, _ = policy_step(None, rollout.obs[0], rollout.resets[0])
@@ -398,6 +405,7 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     obs, extra = paid_action.OBS[None], {}
     if name == "UDRL":  # it acts on its observation and its command
         config = agent.agent_config
+        assert isinstance(config, UDRLConfig)
         command = EvalCommand(config.command_scale_r, config.command_scale_h)
         obs = command.actor_input(obs, command.initial(seed, 1))
         extra = {"agent_state": seed, "command": command}

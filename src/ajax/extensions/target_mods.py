@@ -75,8 +75,8 @@ def mc_correction_modify_target(
 
 
 def box_compute_threshold(
-    v_min: jax.Array,
-    v_max: jax.Array,
+    v_min: jax.Array | float,
+    v_max: jax.Array | float,
     train_frac: jax.Array,
 ) -> jax.Array:
     """Curriculum threshold: v_min + (v_max - v_min) * train_frac."""

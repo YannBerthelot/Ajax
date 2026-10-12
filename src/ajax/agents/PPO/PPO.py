@@ -12,6 +12,7 @@ from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -108,7 +109,7 @@ class PPO(ActorCritic):
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
@@ -168,7 +169,7 @@ class PPO(ActorCritic):
             extensions=extensions,
         )
 
-        self.agent_config = config = PPOConfig(
+        config = PPOConfig(
             gamma=gamma,
             ent_coef=ent_coef,
             clip_range=clip_range,
@@ -186,6 +187,7 @@ class PPO(ActorCritic):
             num_evals=num_evals,
             expose_recent_rollout=expose_recent_rollout,
         )
+        self.agent_config: PPOConfig = config
 
         if bptt_length is not None:
             if self.network_args.memory is None:

@@ -18,7 +18,7 @@ the current rollout's narrow distribution.
 
 import dataclasses
 from collections.abc import Sequence
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import distrax
 import jax
@@ -70,11 +70,11 @@ class UDRLAuxiliaries:
     mean_horizon: jnp.ndarray
     # The house training return (update_episodic_return): each env's
     # rolling mean of whole-episode returns, averaged over envs.
-    episodic_return: jnp.ndarray
+    episodic_return: Union[float, jax.Array]
     # Episodes that ended in the iteration's segment.
     n_completed_episodes: jnp.ndarray
     # Total env timesteps consumed up to and including this iter.
-    timestep: jnp.ndarray
+    timestep: Union[int, jax.Array]
 
 
 def init_UDRL(
@@ -341,7 +341,7 @@ def training_iteration(
     topk_r, topk_std, topk_h = topk_command_stats(stream, k=agent_config.command_topk)
     tau = agent_config.command_target_tau
 
-    def _refresh(old: jax.Array, proposal: jax.Array) -> jax.Array:
+    def _refresh(old: jax.Array | float, proposal: jax.Array) -> jax.Array:
         return (1.0 - tau) * old + tau * jnp.where(jnp.isnan(proposal), old, proposal)
 
     new_target_r = _refresh(

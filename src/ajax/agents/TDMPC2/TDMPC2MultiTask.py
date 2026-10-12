@@ -211,7 +211,7 @@ class TDMPC2MultiTask:
             discount_max=discount_max,
         )
         self.task_dim = int(task_dim)
-        self.agent_config = TDMPC2Config.from_arguments(self.config)
+        self.agent_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)
         self.pi_eps = float(pi_eps)

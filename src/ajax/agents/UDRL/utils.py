@@ -12,8 +12,8 @@ def update_command(
     prev_d_h: jax.Array,
     reward: jax.Array,
     done: jax.Array,
-    return_init: float,
-    horizon_init: float,
+    return_init: jax.Array,
+    horizon_init: jax.Array,
 ) -> Tuple[jax.Array, jax.Array]:
     """Per-step update of the (desired_return, desired_horizon) command vector.
 

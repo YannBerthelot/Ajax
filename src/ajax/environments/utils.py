@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -160,7 +160,7 @@ def get_env_type(env: EnvType) -> str:
 
 def maybe_append_train_frac(
     obs: jax.Array,
-    train_frac: Optional[float],
+    train_frac: Optional[Union[float, jax.Array]],
 ) -> jax.Array:
     """
     Append train_time_fraction as a final observation dimension if provided.
@@ -358,7 +358,7 @@ class ExpertInAgentUnits:
         self, expert: Any, env: EnvType, env_params: Optional[EnvParams] = None
     ) -> None:
         with jax.ensure_compile_time_eval():
-            bounds = _action_bounds(env, env_params)
+            bounds: Optional[tuple[Any, ...]] = _action_bounds(env, env_params)
         if bounds is not None:
             bounds = tuple(np.asarray(x) for x in bounds)
         if bounds is not None and env_params_is_batched(env_params):

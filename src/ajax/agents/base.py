@@ -21,6 +21,7 @@ from ajax.logging.wandb_logging import (
     stop_async_logging,
 )
 from ajax.networks.memory import MemoryConfig, parse_memory_config
+from ajax.networks.networks import CNNSpec
 from ajax.state import (
     BaseAgentConfig,
     BaseAgentState,
@@ -99,6 +100,9 @@ class ActorCritic:
     stores_expert_actions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
+    # The run's hyperparameters, set by each agent's initialiser; train()
+    # logs them with the run.
+    config: dict[str, Any]
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -119,7 +123,7 @@ class ActorCritic:
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # Brax-style actor head knobs (see NetworkConfig). Default = legacy.
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
@@ -349,9 +353,9 @@ class ActorCritic:
                 return train_jit(key, index)
 
             index = jnp.arange(len(seed))
-            seed = jnp.array(seed)
+            seeds = jnp.array(seed)
             _t0 = time.time()
-            result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+            result = jax.vmap(set_key_and_train, in_axes=0)(seeds, index)
         else:
             # Only passed when non-zero: the default (0) keeps the call --
             # and the train functions that predate the offset -- unchanged.
@@ -371,13 +375,13 @@ class ActorCritic:
                 )
 
             index = jnp.arange(len(seed))
-            seed = jnp.array(seed)
+            seeds = jnp.array(seed)
             _t0 = time.time()
             # The offset and the shared counters are unbatched (in_axes
             # None): every schedule and gate derived from them must stay
             # unbatched under the vmap.
             result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None, None))(
-                seed,
+                seeds,
                 index,
                 initial_state,
                 counters,

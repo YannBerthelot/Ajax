@@ -194,8 +194,8 @@ def test_critic_loss_gets_the_target_on_target_returns(name: str) -> None:
     assert by_step
     for step, (returned, got) in by_step.items():
         assert returned and got, step
-        returned, got = (np.sort(np.concatenate(x)) for x in (returned, got))
-        np.testing.assert_allclose(got, returned, rtol=1e-6, err_msg=str(step))
+        want, have = (np.sort(np.concatenate(x)) for x in (returned, got))
+        np.testing.assert_allclose(have, want, rtol=1e-6, err_msg=str(step))
 
 
 def _flat(params: Any) -> np.ndarray:

@@ -34,9 +34,10 @@ src/ajax/
 the public class (the paper's hyperparameters and `extensions=`; it names
 its `make_train` and fills `train_kwargs`, which `get_make_train()` binds);
 `train_<AGENT>.py`, the algorithm and a `make_train` that hands its
-initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and `<AGENT>Config`. SAC, PPO and
-TDMPC2 also have a `core.py`: the maths their descendants import instead of
-copying (ASAC, REDQ and AVG from SAC; APO from PPO; TDMPC2MultiTask from it).
+initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and
+`<AGENT>Config`. SAC, PPO and TDMPC2 also have a `core.py`: the maths their
+descendants import instead of copying (ASAC, REDQ and AVG from SAC; APO from
+PPO; TDMPC2MultiTask from it).
 
 ## The shared training loop
 

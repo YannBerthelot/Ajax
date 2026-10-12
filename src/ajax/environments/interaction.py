@@ -290,9 +290,9 @@ def get_pi(
     Returns:
         The policy distribution and the updated actor state.
     """
-    # Agent-side obs normalisation. Stats are synced into
-    # actor_state.obs_norm_info after every online collection step. None
-    # disables normalisation.
+    # Agent-side obs normalisation, applied here rather than by each caller
+    # of get_pi. Stats are synced into actor_state.obs_norm_info after every
+    # online collection step. None disables normalisation.
     obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
     obs = maybe_add_axis(obs, recurrent)
     if recurrent:
@@ -873,7 +873,6 @@ def collect_experience_from_expert_policy(
     ``train_frac`` appended when given, then, with
     ``augment_obs_with_expert_state``, the expert's state before its call
     at s and after it at s' (the state an episode end resets comes after).
-
     """
     expert_policy = ExpertInAgentUnits.wrap(
         expert_policy, env_args.env, env_args.env_params

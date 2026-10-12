@@ -77,10 +77,6 @@ from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
-# ---------------------------------------------------------------------------
-# Schedule: 2411f7d train.py + when.Ratio
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class TrainRatio:
@@ -182,11 +178,6 @@ class TrainRatio:
         return 0 if x < 0 else 1 + int(x * self.ratio)
 
 
-# ---------------------------------------------------------------------------
-# Acting
-# ---------------------------------------------------------------------------
-
-
 class PolicyCarry(NamedTuple):
     """The acting state of ``n`` envs (the reference's ``(lat, act)`` carry).
 
@@ -278,11 +269,6 @@ def bind_policy(
         action_dim=action_dim,
         discrete=discrete,
     )
-
-
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
 
 
 class EnvSpec(NamedTuple):
@@ -406,11 +392,6 @@ def init_dreamer(
     )
 
 
-# ---------------------------------------------------------------------------
-# One update (Algorithm J)
-# ---------------------------------------------------------------------------
-
-
 def update(
     agent_state: DreamerV3State,
     tick: jax.Array,
@@ -458,11 +439,6 @@ def update(
         train_metrics=agent_state.train_metrics.add(metrics),
     )
     return agent_state, None
-
-
-# ---------------------------------------------------------------------------
-# Evaluation and logging
-# ---------------------------------------------------------------------------
 
 
 def evaluate_dreamer(
@@ -521,11 +497,6 @@ def train_metrics(agent_state: DreamerV3State, aux: Any, *, action_repeat: int) 
     return metrics
 
 
-# ---------------------------------------------------------------------------
-# Acting and storing (Algorithm K)
-# ---------------------------------------------------------------------------
-
-
 def collect(
     agent_state: DreamerV3State,
     tick: jax.Array,
@@ -566,11 +537,6 @@ def restart_train_metrics(
     return agent_state.replace(
         train_metrics=agent_state.train_metrics.reset_where(logged)
     )
-
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(

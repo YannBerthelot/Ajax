@@ -145,9 +145,6 @@ def pre_train(
         obs = augment_obs(obs, expert_action=actions)
     metrics = {"actor_loss": jnp.zeros((actor_epochs,))}
 
-    # --------------------------
-    # Actor pre-training
-    # --------------------------
     bc_actor_state = train_state.TrainState.create(
         apply_fn=actor_state.apply_fn,
         params=actor_state.params,
@@ -218,11 +215,6 @@ def pre_train(
             actor_epoch_step, bc_actor_state, rng_epochs
         )
         metrics["actor_loss"] = actor_losses
-        # Optional: reset head subtree(s) of the actor after BC training.
-        # ``reset_log_std``: reset only log_std (preserves BC'd mean)
-        # ``reset_actor_head``: reset BOTH mean and log_std (keeps
-        #   only the encoder BC-warmed; head is random → natural entropy
-        #   → α stays sane; trunk features encode expert-relevant info)
         if reset_log_std or reset_actor_head:
             rng, reset_key = jax.random.split(rng)
             bc_actor_state = _reset_actor_heads(
@@ -232,7 +224,6 @@ def pre_train(
                 reset_actor_head,
             )
 
-    # Skip the write-back when actor pretraining was bypassed.
     if not skip_actor:
         actor_state = actor_state.replace(params=bc_actor_state.params)
     return actor_state, metrics, obs_mean, obs_std

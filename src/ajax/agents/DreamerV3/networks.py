@@ -182,12 +182,6 @@ class BlockLinear(nn.Module):
 class RSSM(nn.Module):
     """Block-GRU recurrent state-space model (dreamerv3_spec 2.1-2.8).
 
-    The methods follow the spec's algorithms: :meth:`core` (the sequence
-    model ``h_t = f(h_{t-1}, z_{t-1}, a_{t-1})``, Algorithm A),
-    :meth:`observe_step` (filtering, Algorithm B), :meth:`imagine_step`
-    (Algorithm C), then the two latent heads :meth:`posterior_logits`
-    (``q(z_t | h_t, e_t)``) and :meth:`prior_logits` (``p(z_t | h_t)``).
-
     It is the world model's ``rssm`` submodule and is applied on its own
     parameter subtree: ``RSSM(config).apply({"params": params["rssm"]}, ...,
     method=RSSM.observe_step)`` (:func:`observe`).
@@ -343,10 +337,8 @@ class MLPHead(nn.Module):
 class WorldModel(nn.Module):
     """DreamerV3 world model for a flat vector observation.
 
-    Submodules ``enc`` (vector encoder), ``rssm`` (:class:`RSSM`), ``dec``
-    (vector decoder), ``rew`` (two-hot reward head) and ``con`` (continue
-    head); see the module docstring for the parameter tree. One decoder head
-    covers the whole observation vector (deviation D5). ``__call__`` touches
+    The module docstring gives its parameter tree. One decoder head covers
+    the whole observation vector (deviation D5). ``__call__`` touches
     every parameter and exists for ``init`` (:func:`init_world_model`); the
     methods are applied with ``model.apply({'params': p}, ...,
     method=WorldModel.<name>)``, the RSSM's on ``p['rssm']`` (:class:`RSSM`).

@@ -174,7 +174,6 @@ def world_model_loss(
 
     Args:
         model: the :class:`WorldModel` (its ``config`` holds the scales).
-        params: its parameters.
         batch: ``[B, T + 1]`` replay rows, index 0 being context, and the
             context's stored latent.
         noise: ``[B, T, S, C]`` Gumbel noise of the posterior samples

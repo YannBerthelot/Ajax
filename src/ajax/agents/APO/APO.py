@@ -13,7 +13,8 @@ from ajax.types import EnvType, InitializationFunction
 
 class APO(ActorCritic):
     """
-    Average-Policy Optimization (APO, Ma et al. 2021) agent for training and testing in continuous action spaces.
+    Average-Policy Optimization (APO, Ma et al. 2021) for discrete and
+    continuous action spaces.
     See  https://arxiv.org/pdf/2106.03442
     """
 
@@ -25,9 +26,9 @@ class APO(ActorCritic):
     }
     make_train = staticmethod(make_train)
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 4,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
@@ -55,31 +56,16 @@ class APO(ActorCritic):
         # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
         episode_length: Optional[int] = None,
         action_repeat: int = 1,
     ) -> None:
-        """
-        Initialize the APO agent.
-
-        Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            actor_learning_rate (float): Learning rate for the actor's optimizer.
-            critic_learning_rate (float): Learning rate for the critic's optimizer.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            batch_size (int): Batch size for training.
-        """
         self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.

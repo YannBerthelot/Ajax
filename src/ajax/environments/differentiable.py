@@ -107,7 +107,6 @@ def closed_loop_rollout(
         env_params: unbatched ``EnvParams`` (broadcast to every env) or
             batched ones from a :class:`~ajax.environments.system_class.
             SystemClass` (one system per env, ``B`` inferred from them).
-        horizon: number of steps.
         n_envs: number of parallel envs; required when ``env_params`` is
             unbatched, inferred (and must match) otherwise.
 

@@ -235,7 +235,6 @@ class TDMPC2MultiTask:
             }
         )
 
-    # -- setup -----------------------------------------------------------
     def _eval_envs(
         self,
         eval_envs: Sequence[str | EnvType],
@@ -297,7 +296,6 @@ class TDMPC2MultiTask:
             )
         return int(done[0])
 
-    # -- jitted programs -------------------------------------------------
     def _train_fn(self, num_updates: int, total: int) -> Callable:
         """The jitted, seed-vmapped program of a chunk (cached per length).
 
@@ -432,7 +430,6 @@ class TDMPC2MultiTask:
             self._extra_eval_fns[total] = jax.jit(jax.vmap(extra))
         return self._extra_eval_fns[total]
 
-    # -- training --------------------------------------------------------
     def train(
         self,
         seed: int | Sequence[int] = 42,

@@ -7,11 +7,6 @@ Those closures are rebuilt at load time by re-initializing a skeleton
 state from the same agent config; the loaded data is then grafted onto
 the skeleton via ``flax.serialization.from_state_dict``.
 
-Minimal API:
-    save_checkpoint(state, path)
-    state = restore_into(skeleton_state, path)
-    checkpoint_exists(path)
-
 Typical resume flow (``resume`` in tests/probing/runs.py runs it):
     skeleton = agent.train(seed=seeds, n_timesteps=0)       # init only
     if checkpoint_exists(path):
@@ -69,7 +64,6 @@ def restore_into(skeleton: Any, path: str) -> Any:
     )
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
-    # Push data back onto device
     return jax.tree.map(
         lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
         restored,

@@ -209,9 +209,6 @@ def policy_loss_function(
     )
 
 
-# ---------------------------------------------------------------------------
-# Extension-stack loss terms
-# ---------------------------------------------------------------------------
 def _stack_critic_loss(
     extension_stack: ExtensionStack,
     agent_state: PPOState,
@@ -272,9 +269,6 @@ def _stack_actor_loss(
     return actor_loss
 
 
-# ---------------------------------------------------------------------------
-# Minibatch geometry
-# ---------------------------------------------------------------------------
 @dataclasses.dataclass(frozen=True)
 class Geometry:
     """How an update minibatches its rollout (the module docstring)."""
@@ -506,9 +500,6 @@ def _force_reset(
     return agent_state.replace(collector_state=new_collector, rng=new_rng)
 
 
-# ---------------------------------------------------------------------------
-# The update
-# ---------------------------------------------------------------------------
 def update_agent(
     agent_state: PPOState,
     rollout: Transition,

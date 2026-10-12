@@ -44,12 +44,8 @@ class PIDOutputHead(nn.Module):
             paper's single-input case is ``n_outputs=1``).
         use_p: enable the proportional term; a disabled term has no
             parameter. With only ``use_p`` and ``kp_init=1`` the head is
-            the identity at initialisation.
-        use_i: enable the integral term.
-        use_d: enable the derivative term.
-        kp_init: initial proportional gain.
-        ki_init: initial integral gain.
-        kd_init: initial derivative gain.
+            the identity at initialisation. ``use_i`` and ``use_d`` likewise
+            enable the integral and derivative terms.
         anti_windup: pre-squash output magnitude beyond which the integral
             stops accumulating in the saturating direction (conditional
             integration, the textbook anti-windup). ``None`` disables it.

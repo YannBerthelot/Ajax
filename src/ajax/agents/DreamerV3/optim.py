@@ -67,14 +67,8 @@ from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 
 
 def scale_by_agc(clip: float = 0.3, pmin: float = 1e-3) -> optax.GradientTransformation:
-    """Adaptive gradient clipping per tensor (dreamerv3_spec 4.4).
-
-    Each update tensor ``g`` is scaled by ``1 / max(1, |g| / (clip max(pmin,
-    |p|)))`` with ``|.|`` the Euclidean norm of the whole flattened tensor and
-    ``p`` its current parameters (``jaxutils.py:660-674``): not the per-row
-    unit-wise clipping of NFNets (``optax.adaptive_grad_clip``). Needs
-    ``params``. Stateless.
-    """
+    """Adaptive gradient clipping per tensor (dreamerv3_spec 4.4; step 1 of
+    the module docstring). Needs ``params``. Stateless."""
 
     def clip_tensor(update: jax.Array, param: Optional[jax.Array]) -> jax.Array:
         if param is None:

@@ -12,7 +12,7 @@ class APOState(BaseAgentState):
 
 @struct.dataclass
 class APOConfig(BaseAgentConfig):
-    """The agent properties to be carried over iterations of environment interaction and updates"""
+    """APO's hyperparameters."""
 
     ent_coef: float = 0.0
     clip_range: float = 0.2

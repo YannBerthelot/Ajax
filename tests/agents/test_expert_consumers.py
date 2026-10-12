@@ -36,6 +36,8 @@ EXPERT_AGENTS = sorted(
     for n in ajax.__all__
     if "expert_policy" in inspect.signature(getattr(ajax, n)).parameters
 )
+#: The agents binding CloningPretrain's context (their train_*.py).
+CLONING_AGENTS = {"APO", "REDQ", "SAC", "TD3"}
 
 
 def expert_action(t):
@@ -63,7 +65,7 @@ def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypa
     assert name in CASES, f"{name} takes an expert: give it a row in CASES"
     case, expert, env = CASES[name], StrictExpert(), IdentityEnv()
     takes = inspect.signature(case.cls).parameters
-    clones = "pre_train_n_steps" in takes  # the agents binding CloningPretrain
+    clones = name in CLONING_AGENTS
     datasets: list[tuple[np.ndarray, np.ndarray]] = []
     pre_train = ajax.extensions.pretrain.pre_train
 

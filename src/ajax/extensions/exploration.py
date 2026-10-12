@@ -2,25 +2,20 @@
 
 EDGE (Expert Decayed Guided Exploration) substitutes the expert action
 for the policy action during collection, gated by a value comparison
-that decays over training. The six gating variants of the pre-refactor
-``train_SAC.py`` are exposed here as a single :class:`EDGEExploration`
-extension parametrised by ``gate``; the gate math is the functions below.
-
-* :class:`EDGEExploration` — one extension parametrised by ``gate``:
-  ``"fixed"`` / ``"argmax"`` / ``"boltzmann"`` (value-gap gates) or
-  ``"lcb"`` / ``"argmax_lcb"`` / ``"thompson"`` (quality-aware gates).
+that decays over training. :class:`EDGEExploration` selects one of six
+gates with ``gate``: ``"fixed"`` / ``"argmax"`` / ``"boltzmann"``
+(value-gap gates) or ``"lcb"`` / ``"argmax_lcb"`` / ``"thompson"``
+(quality-aware gates); the gate maths are the functions below.
 
 The SAC action pipeline pre-computes the per-step quantities every gate
 needs (``policy_action``, ``expert_action``, ``observations``, ...) and
-threads them through the ``obs`` argument as a dict — mirroring the
-``batch``-dict convention the ``on_target`` / ``actor_loss`` phases
-already use to plumb call-site context into extension methods. The
-Extension's job is to PICK an action (or return ``None`` to defer); the
-SAC pipeline owns the surrounding bookkeeping (``is_expert_flag``,
-``buffer_action``, expert-state threading). Gate randomness is threaded
-through ``obs["gate_rng"]`` (read+overwritten in place) so the rng tree
-matches the pre-refactor pipeline byte-for-byte — the framework's
-per-extension ``rng`` split (``stack._keys``) would otherwise diverge.
+passes them through the ``obs`` argument as a dict, as the ``batch`` dict
+of the ``on_target`` / ``actor_loss`` phases. The extension picks an
+action (or returns ``None`` to defer); the pipeline owns the bookkeeping
+(``is_expert_flag``, ``buffer_action``, expert-state threading). Gate
+randomness is threaded through ``obs["gate_rng"]`` (read and overwritten
+in place), the pipeline's own stream, not the framework's per-extension
+``rng`` split (``stack._keys``).
 """
 
 from __future__ import annotations
@@ -285,7 +280,7 @@ class EDGEExploration(Extension):
     """Expert Decayed Guided Exploration during collection.
 
     ``gate`` selects the substitution rule (see module docstring). The
-    remaining fields mirror the ``train_SAC.py`` flags one-for-one:
+    other fields:
 
     * ``decay_frac``      — value-gap gates decay to 0 over this fraction.
     * ``tau``             — Boltzmann temperature on the value gap.
@@ -328,25 +323,18 @@ class EDGEExploration(Extension):
     ) -> jax.Array | None:
         """Apply the configured EDGE gate to substitute the policy action.
 
-        ``obs`` is the SAC action pipeline's per-step batch dict (a
-        Python ``dict``, not a tensor — duck-typed; mirrors the
-        ``batch``-dict convention of the ``on_target`` / ``actor_loss``
-        phases). The pipeline pre-computes every operand the six gate
-        variants share: ``policy_action``, ``expert_action``,
-        ``observations`` (the critics' input, augmented with the
-        expert-action dims under ``augment_obs_with_expert_action``),
-        ``critic_params`` and ``critic_state`` (the frozen expert critic
-        if MC pretraining ran, else the live critic), the running
-        ``post_warmup_action``, and the
-        gate's mutable rng (``gate_rng``) — updated in-place so the
-        pre-refactor rng tree is preserved byte-for-byte (the
-        framework's per-extension ``rng`` split would otherwise diverge).
+        ``obs`` is the SAC action pipeline's per-step dict (the module
+        docstring): ``policy_action``, ``expert_action``, ``observations``
+        (the critics' input, augmented with the expert-action dims under
+        ``augment_obs_with_expert_action``), ``critic_params`` and
+        ``critic_state`` (the frozen expert critic if MC pretraining ran,
+        else the live critic), ``post_warmup_action`` and ``gate_rng``.
 
         Side effects: writes ``_edge_use_expert`` back into ``obs`` for
         the pipeline's ``is_expert_flag`` bookkeeping, and updates
         ``obs["gate_rng"]`` for any downstream gate.
         """
-        del ext_state, rng  # see docstring on rng plumbing.
+        del ext_state, rng  # the gates draw from obs["gate_rng"]
         policy_action = obs["policy_action"]
         expert_action = obs["expert_action"]
         observations = obs["observations"]
@@ -375,7 +363,6 @@ class EDGEExploration(Extension):
                 epsilon_floor=self.epsilon_floor,
             )
         elif gate in ("lcb", "argmax_lcb"):
-            # Quality-aware: LCB (or asymmetric LCB/UCB) scores + gate.
             beta = lcb_beta(
                 agent_state.collector_state.timestep,
                 ctx.total_steps,
@@ -421,11 +408,7 @@ class EDGEExploration(Extension):
                     gap, decay, gate_rng, self.fixed_prob
                 )
 
-        # Thread the gate's updated rng back to the pipeline + record
-        # the substitution mask so the pipeline can fold it into
-        # ``is_expert_flag``. Dict-write side effects are explicit at
-        # the call site (the pipeline reads these keys after every
-        # ``action`` call).
+        # The pipeline reads both keys after every ``action`` call.
         obs["gate_rng"] = gate_rng
         obs["_edge_use_expert"] = use_expert_edge.astype(jnp.bool_)
         return jnp.where(use_expert_edge, expert_action, post_warmup_action)

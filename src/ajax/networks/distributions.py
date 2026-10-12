@@ -26,10 +26,7 @@ class SquashedNormal(distrax.Transformed):
         return self.distribution.entropy()
 
     def log_determinant(self, u):
-        """
-        Numerically stable version of log(1 - tanh^2(u)).
-        This represents how much the tanh 'squashes' the probability volume.
-        """
+        """Numerically stable ``log(1 - tanh(u)^2)``: the tanh's log volume change."""
         return -2.0 * (u + jax.nn.softplus(-2.0 * u) - jnp.log(2.0))
 
     def log_prob_from_raw(self, raw_action):
@@ -40,18 +37,13 @@ class SquashedNormal(distrax.Transformed):
         ).sum(-1, keepdims=True)
 
     def effective_entropy(self, key, num_samples=1):
-        """
-        Calculates the entropy proxy for the temperature (alpha) loss.
-        Combines analytical Gaussian entropy with a sampled volume correction.
-        """
-        # 1. Analytical entropy of the latent Gaussian (The 'Alive' signal)
+        """The executed (squashed) action's entropy, estimated as brax does:
+        the latent Gaussian's analytical entropy plus the tanh log-det-Jacobian
+        averaged over ``num_samples`` latent samples drawn with ``key``."""
         latent_h = self.distribution.entropy().sum(-1)
 
-        # 2. Sample latent values 'u' to calculate the squash correction
         u = self.distribution.sample(seed=key, sample_shape=(num_samples,))
 
-        # 3. Calculate volume change (Log-Det Jacobian)
         correction = self.log_determinant(u).sum(-1).mean(axis=0)
 
-        # Result is scaled to your target_entropy (e.g., -2.0)
         return latent_h + correction

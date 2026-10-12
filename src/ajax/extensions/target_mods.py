@@ -298,12 +298,6 @@ class CriticBlend(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state
-        # No-op when the frozen expert critic has not been populated (no
-        # MC pre-training in the stack). Matches the pre-refactor guard
-        # `if has_blend and agent_state.expert_critic_params is not None`.
-        if agent_state.expert_critic_params is None:
-            return target
-
         next_observations = batch["next_observations"]
         a_expert_next = expert_next_actions(
             self, batch["raw_next_observations"], batch["next_a_expert"]
@@ -354,10 +348,6 @@ class MCVarianceCorrection(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state, ctx
-        # Same guard as the legacy `has_mc and expert_critic_params is not
-        # None` branch — silent no-op without MC pre-training.
-        if agent_state.expert_critic_params is None:
-            return target
         observations = batch["observations"]
         actions = batch["actions"]
         q_preds = batch["q_preds"]

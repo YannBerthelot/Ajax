@@ -24,6 +24,8 @@ the train ratio, the batch geometry and the replay capacity --
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
@@ -53,6 +55,10 @@ MODEL_SIZES: dict[str, int] = {
     "200m": 1024,
     "400m": 1536,
 }
+
+
+#: The widths a ``model_size`` preset sets (:meth:`DreamerV3Config.from_model_size`).
+WIDTHS = ("units", "hidden", "deter", "classes")
 
 
 @dataclass(frozen=True)
@@ -228,6 +234,20 @@ class DreamerV3Config:
             classes=d // 16 if classes is None else classes,
             **kwargs,
         )
+
+    @classmethod
+    def from_arguments(cls, arguments: Mapping[str, Any]) -> DreamerV3Config:
+        """:meth:`from_model_size` of the agent constructor's arguments:
+        ``model_size`` and every field they name (the constructor names its
+        hyperparameters as the fields); the other fields keep their
+        defaults."""
+        names = inspect.signature(cls).parameters  # the fields
+        fields = {k: v for k, v in arguments.items() if k in names}
+        return cls.from_model_size(arguments["model_size"], **fields)
+
+    def resolved(self) -> dict[str, int]:
+        """The widths the preset resolves, for the loggers' run config."""
+        return {f"resolved_{k}": getattr(self, k) for k in WIDTHS}
 
     @property
     def feat_dim(self) -> int:

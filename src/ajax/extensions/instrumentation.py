@@ -1,11 +1,7 @@
 """EVarEst measurement / instrumentation as composable :class:`Extension`s.
 
-This module ports the measurement code of EVAREST's ``evarest/rl/`` to
-the Ajax Extension surface so the same plasticity / decomposition
-diagnostics can be folded into any Ajax agent (SAC, DQN, REDQ, TD3
-off-policy; PPO, PQN, APO, AVG on-policy) without touching the agent
-code. Each extension is a frozen dataclass carrying its own
-hyperparameters; the user opts in via
+The measurement code of EVAREST's ``evarest/rl/``, foldable into any Ajax
+agent (SAC, DQN, REDQ, TD3 off-policy; PPO, PQN, APO, AVG on-policy):
 ``extensions=[ConditioningMetrics(), BiasVoreDecomposition(...), ...]``.
 
 Coverage
@@ -23,11 +19,9 @@ Coverage
   critic objective itself. ``penalty(alpha) = ((1-2alpha)/alpha) *
   Var(q_preds - target_q)`` added on top of the agent's vanilla MSE.
 
-Each extension owns its own hyperparameters as frozen-dataclass fields
-(no per-extension agent-side kwargs). Empty / mis-shaped state ⇒ the
-extension emits an empty metrics dict so a misconfigured stack is
-loud-failure rather than a wrong-numbers silent failure where possible.
-The math is intentionally kept identical to the EVAREST sources.
+Without a measurement batch (no replay buffer, no ``last_rollout`` yet)
+the eval-metric extensions emit no metrics rather than wrong numbers. The
+maths are intentionally kept identical to the EVAREST sources.
 """
 
 from __future__ import annotations
@@ -59,9 +53,7 @@ EVAREST_DECOMP_KEYS: Tuple[str, ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Plasticity / conditioning primitives (EVAREST evarest/rl/conditioning.py)
-# ---------------------------------------------------------------------------
+# Plasticity / conditioning primitives (EVAREST evarest/rl/conditioning.py).
 
 
 def srank(feats: jax.Array, delta: float = 0.01) -> jax.Array:
@@ -92,13 +84,7 @@ def _global_l2(tree) -> jax.Array:
     return jnp.sqrt(sum(jnp.sum(jnp.square(x)) for x in leaves))
 
 
-# ---------------------------------------------------------------------------
-# State-batch sourcing helpers
-# ---------------------------------------------------------------------------
-
-
 def _has_buffer(agent_state: Any) -> bool:
-    """True iff the agent carries a flashbax replay buffer."""
     cs = getattr(agent_state, "collector_state", None)
     if cs is None:
         return False
@@ -106,7 +92,6 @@ def _has_buffer(agent_state: Any) -> bool:
 
 
 def _has_last_rollout(agent_state: Any) -> bool:
-    """True iff Gap A exposed a ``last_rollout`` subsample."""
     return getattr(agent_state, "last_rollout", None) is not None
 
 
@@ -151,11 +136,6 @@ def _sample_transitions(
         )
     n = math.prod(rows[0].shape[:-1])
     return tuple(x.reshape(n, -1)[:take] for x in rows)
-
-
-# ---------------------------------------------------------------------------
-# Finding the critic
-# ---------------------------------------------------------------------------
 
 
 def _network(train_state: Any) -> Any:
@@ -221,11 +201,6 @@ def _critic_kind(
     )
 
 
-# ---------------------------------------------------------------------------
-# Conditioning / plasticity extension
-# ---------------------------------------------------------------------------
-
-
 def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
     """Per-ensemble-member encoder features for SAC/PPO MultiCritic.
 
@@ -268,10 +243,9 @@ class ConditioningMetrics(Extension):
     branch, the action is concatenated when the critic's parameters were
     built on the observation and action (:func:`_takes_action`).
 
-    Hyperparameters live on this dataclass (no per-extension agent-side
-    kwargs). Pass ``buffer=agent.buffer`` for off-policy agents whose
-    buffer object isn't on the agent state itself; on-policy agents
-    must set ``BaseAgentConfig.expose_recent_rollout=True``.
+    Pass ``buffer=agent.buffer`` for off-policy agents whose buffer object
+    isn't on the agent state itself; on-policy agents must set
+    ``BaseAgentConfig.expose_recent_rollout=True``.
     """
 
     buffer: Any = None
@@ -330,11 +304,6 @@ class ConditioningMetrics(Extension):
                 strict=False,
             )
         )
-
-
-# ---------------------------------------------------------------------------
-# Bias / VORE decomposition extension (eval-time)
-# ---------------------------------------------------------------------------
 
 
 def _bias_vore_decomposition_dict(residual: jax.Array) -> dict:
@@ -451,11 +420,6 @@ class BiasVoreDecomposition(Extension):
         return _bias_vore_decomposition_dict(resid)
 
 
-# ---------------------------------------------------------------------------
-# EVarEst critic objective (additive penalty on the critic loss)
-# ---------------------------------------------------------------------------
-
-
 def evarest_coeff(alpha: float) -> float:
     """The eq. (6) coefficient ``(1 - 2 alpha) / alpha``."""
     if alpha <= 0.0:
@@ -521,7 +485,6 @@ class BiasVorePenalty(Extension):
             )
         obs, target = batch["observations"], batch["targets"]
 
-        # Try the SAC/PPO MultiCritic path first.
         cs = batch.get("critic_state")
         params = batch.get("critic_params")
         actions = batch.get("actions")
@@ -538,7 +501,6 @@ class BiasVorePenalty(Extension):
             resid = q_preds - target
             return self.loss_scale * coeff * jnp.var(resid)
 
-        # DQN / PQN Q-network: q_state in batch.
         q_state = batch.get("q_state")
         if q_state is not None and actions is not None:
             # Reuse the agent's predict_q -> gather to keep numerics aligned
@@ -559,7 +521,6 @@ class BiasVorePenalty(Extension):
         )
 
 
-# Public re-exports for downstream importers.
 __all__ = [
     "COND_METRIC_KEYS",
     "EVAREST_DECOMP_KEYS",

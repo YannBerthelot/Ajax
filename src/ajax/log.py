@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
-from ajax.evaluate import evaluate
+from ajax.evaluate import ValueEstimate, evaluate
 from ajax.state import BaseAgentState, EnvironmentConfig
 
 if TYPE_CHECKING:
@@ -232,6 +232,7 @@ def _make_no_op(extra_eval_metrics=None):
         "pid_gain_policy",
         "augment_obs_with_expert_action",
         "augment_obs_with_expert_state",
+        "value_estimate",
     ],
 )
 def evaluate_and_log(
@@ -255,6 +256,7 @@ def evaluate_and_log(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
+    value_estimate: Optional[ValueEstimate] = None,
 ) -> tuple[BaseAgentState, Optional[dict]]:
     """Evaluate and log every ``log_frequency`` collected steps, each
     evaluation from fresh keys (:func:`evaluation_keys`); returns the
@@ -287,7 +289,7 @@ def evaluate_and_log(
             eval_rewards,
             eval_entropy,
             avg_avg_reward,
-            avg_bias,
+            value_bias,
             step_count,
             expert_rewards,
         ) = evaluate(
@@ -309,6 +311,7 @@ def evaluate_and_log(
             pid_gain_policy=pid_gain_policy,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             augment_obs_with_expert_state=augment_obs_with_expert_state,
+            value_estimate=value_estimate,
         )
         metrics_to_log = {
             "timestep": timestep,
@@ -317,7 +320,8 @@ def evaluate_and_log(
             "Eval/expert bias": eval_rewards.mean() - expert_rewards.mean(),
             "Eval/mean average reward": avg_avg_reward,
             "Eval/mean episodic length": step_count,
-            "Eval/mean bias": avg_bias,
+            # The critic's estimate minus the realised return (evaluate()).
+            "Eval/mean bias": value_bias,
             "Eval/episodic entropy": eval_entropy,
             "Train/episodic mean reward": (
                 agent_state.collector_state.episodic_mean_return

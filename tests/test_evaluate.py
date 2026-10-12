@@ -13,13 +13,14 @@ from flax import struct
 
 from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.buffers.utils import get_buffer
-from ajax.evaluate import evaluate
+from ajax.evaluate import ValueEstimate, evaluate
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
 )
+from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.wrappers import InitialStateWrapper
 from tests.environments.identity_env import IdentityEnv
 
@@ -356,8 +357,7 @@ def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
     2 t / 10 on Box(-2, 2) for ``length`` steps: its return is their sum,
     its entropy N(., STD)'s, its average reward the mean of the first 10^4
     steps of their repetition (the episodes restart), the expert's return
-    one per step. The bias, a sum of deviations from their own mean, is 0
-    whatever the rewards."""
+    one per step. Without a critic there is no value bias (NaN)."""
     env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
     out = evaluate(
         env,
@@ -370,12 +370,54 @@ def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
     )
     entropy = 0.5 * np.log(2 * np.pi * np.e * STD**2)
     average = np.mean(np.resize(paid, 10_000))
-    expected = (sum(paid), entropy, average, 0.0, length, length)
+    expected = (sum(paid), entropy, average, np.nan, length, length)
     names = ("return", "entropy", "average reward", "bias", "length", "expert")
-    # The average reward and the bias reduce 10^4 float32 rewards in an order
-    # XLA picks per platform. Summed one by one, the least precise order, the
-    # average is off by 4e-6 (relative) and the bias by 8e-3 (measured).
-    loose = {"average reward": (1e-4, 0.0), "bias": (0.0, 0.05)}
+    # The average reward reduces 10^4 float32 rewards in an order XLA picks
+    # per platform. Summed one by one, the least precise order, it is off by
+    # 4e-6 (relative; measured).
+    loose = {"average reward": (1e-4, 0.0)}
     for name, got, want in zip(names, out, expected, strict=True):
         rtol, atol = loose.get(name, (1e-5, 0.0))
         np.testing.assert_allclose(got, want, rtol=rtol, atol=atol, err_msg=name)
+
+
+def _ten_times_the_action(agent_state, obs, action):
+    """A plant critic: Q(s, a) = 10 a, t at the linear actor's action t / 10."""
+    return 10 * action[..., 0]
+
+
+@pytest.mark.parametrize(
+    "c, length", [(0.5, 3), (-0.5, 5)], ids=["terminated", "truncated"]
+)
+def test_the_value_bias_is_the_critic_estimate_minus_the_realised_return(c, length):
+    """The plant critic estimates t at step t; the actor is paid 0.2 t (as
+    above), which the critic sees normalised by the training env's frozen
+    reward scale (std 2: variance 16 / 4) and scaled by 3, so 0.3 t. The
+    value bias is the mean over the episode's steps of t minus the return
+    realised from t, the rewards 0.3 k (k >= t) discounted by 0.9; the steps
+    after the episode's end (the time limit of 5 restarts it) do not count."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    stats = NormalizationInfo(
+        var=jnp.full((2, 1), 4.0),
+        count=jnp.full((2, 1), 4.0),
+        mean=jnp.zeros((2, 1)),
+        mean_2=jnp.full((2, 1), 16.0),
+    )
+    bias = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        norm_info=EnvNormalizationInfo(reward=stats),
+        value_estimate=ValueEstimate(
+            _ten_times_the_action, gamma=0.9, reward_scale=3.0
+        ),
+    )[3]
+    rewards = [0.3 * k for k in range(length)]
+    realised = [
+        sum(0.9 ** (k - t) * rewards[k] for k in range(t, length))
+        for t in range(length)
+    ]
+    expected = np.mean([t - realised[t] for t in range(length)])
+    np.testing.assert_allclose(bias, expected, rtol=1e-5)

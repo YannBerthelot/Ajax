@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any, Callable, NamedTuple, Optional, TypeVar
 
 import jax
@@ -30,12 +31,57 @@ from ajax.environments.utils import (
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import tree_where_reset
 from ajax.state import EnvironmentConfig
+from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo
 
 T = TypeVar("T")  # generic type for pytrees
 
 #: The steps the average-reward mode rolls out (the episodes restart).
 _AVERAGE_REWARD_STEPS = 10_000
+
+
+@dataclasses.dataclass(frozen=True)
+class ValueEstimate:
+    """An agent's critic, read for the value bias :func:`evaluate` returns:
+    ``value(agent_state, obs, action)`` is its estimate (one per env) of the
+    return from ``obs`` taking ``action``, of the rewards times
+    ``reward_scale`` discounted by ``gamma``, as its targets are."""
+
+    value: Callable[[Any, jax.Array, jax.Array], jax.Array]
+    gamma: float
+    reward_scale: float = 1.0
+
+
+def normalised_reward(x: jax.Array, norm_info: Optional[Any]) -> jax.Array:
+    """``x``, a reward or a sum of rewards in the env's units, in the
+    agent's: divided by the scale the training env's reward normaliser
+    holds (``norm_info.reward``, frozen), as collection divides each
+    reward; unchanged without one."""
+    stats = getattr(norm_info, "reward", None)
+    if stats is None:
+        return x
+    return online_normalize(
+        x, stats.count, stats.mean, stats.mean_2, train=False, shift=False
+    )[0]
+
+
+def _value_bias(
+    values: jax.Array, rewards: jax.Array, running: jax.Array, gamma: float
+) -> jax.Array:
+    """The mean over the evaluated steps (``running``; each ``(steps,
+    envs)``) of the value estimate minus the return realised from the step:
+    its reward and the later ones, discounted by ``gamma``, to the episode's
+    end."""
+
+    def back(later: jax.Array, step: tuple) -> tuple[jax.Array, jax.Array]:
+        reward, run = step
+        realised = run * (reward + gamma * later)
+        return realised, realised
+
+    _, realised = jax.lax.scan(
+        back, jnp.zeros_like(rewards[0]), (rewards, running), reverse=True
+    )
+    return jnp.sum(running * (values - realised)) / jnp.maximum(running.sum(), 1.0)
 
 
 def repeat_first_entry(tree: T, num_repeats: int) -> T:
@@ -190,6 +236,7 @@ class _EvalCarry(NamedTuple):
     entropy_sum: jax.Array  # (1,): summed over steps, meaned over running envs
     step_count: jax.Array  # (1,): the mean episode length so far
     last_reward: jax.Array  # this step's reward (the average-reward mode's)
+    value: jax.Array  # this step's value estimate (the value bias's); else 0
     expert_state: Any  # a stateful expert's; a dummy otherwise
     actor_hidden: Any  # the actor's memory; a dummy when feedforward
 
@@ -206,6 +253,7 @@ def _init_eval_carry(
         entropy_sum=jnp.zeros(1),
         step_count=jnp.zeros(1),
         last_reward=jnp.zeros(num_episodes),
+        value=jnp.zeros(num_episodes),
         expert_state=expert_state,
         actor_hidden=jnp.zeros((1,)) if actor_hidden is None else actor_hidden,
     )
@@ -241,6 +289,7 @@ def step_environment(
     pid_gain_policy: bool = False,
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
+    value_estimate: Optional[ValueEstimate] = None,
 ):
     """Return a pure function stepping the evaluation (an :class:`_EvalCarry`).
 
@@ -255,6 +304,9 @@ def step_environment(
     [env_obs, expert_action] as input. The expert is queried statefully
     (matching training) so the policy sees the same augmented obs at eval
     that it saw during training.
+
+    value_estimate: the critic's estimate at the actor's input and the
+    executed action in agent units (what collection stores), each step.
     """
 
     expert_is_stateful = expert_policy is not None and hasattr(
@@ -341,6 +393,11 @@ def step_environment(
             new_expert_state = (
                 expert_state if _aug_new_expert_state is None else _aug_new_expert_state
             )
+        value = (
+            carry.value
+            if value_estimate is None
+            else value_estimate.value(agent_state, obs_for_actor, actions)
+        )
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             state,
@@ -370,6 +427,7 @@ def step_environment(
             entropy_sum=carry.entropy_sum + (entropy.mean() * still_running).mean(),
             step_count=carry.step_count + still_running.mean(),
             last_reward=new_rewards,
+            value=value,
             expert_state=new_expert_state,
             actor_hidden=new_actor_hidden,
         )
@@ -500,6 +558,7 @@ def _expert_return(
         "augment_obs_with_expert_action",
         "augment_obs_with_expert_state",
         "eval_expert_policy",
+        "value_estimate",
     ],
 )
 def evaluate(
@@ -521,13 +580,23 @@ def evaluate(
     augment_obs_with_expert_action: bool = False,
     augment_obs_with_expert_state: bool = False,
     eval_expert_policy: Optional[Callable] = None,
-) -> jax.Array:
+    value_estimate: Optional[ValueEstimate] = None,
+) -> tuple[jax.Array, ...]:
     """Evaluate the actor's deterministic policy on ``num_episodes``
     episodes; with ``expert_policy`` (the training expert, which builds the
     actor's input) the expert's return too, that of ``eval_expert_policy``
     when given, on the same episodes (the same reset and key). The experts
     speak env units: they are read in agent units here
-    (:class:`ExpertInAgentUnits`; an agent's are already)."""
+    (:class:`ExpertInAgentUnits`; an agent's are already).
+
+    Returns the mean return, entropy, average reward (``avg_reward_mode``),
+    value bias (``value_estimate``), episode length and expert's return,
+    each NaN without what it needs. The value bias is the mean over the
+    evaluated steps of the critic's estimate (:class:`ValueEstimate`) minus
+    the discounted return realised from the step, in the critic's units:
+    the rewards normalised as in training (:func:`normalised_reward`) and
+    scaled. A recurrent critic's memory is not run here: NaN then.
+    """
     expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
     eval_expert_policy = ExpertInAgentUnits.wrap(eval_expert_policy, env, env_params)
     env, mode, continuous, key, obs, state = _reset_eval_env(
@@ -572,6 +641,7 @@ def evaluate(
         pid_gain_policy=pid_gain_policy,
         augment_obs_with_expert_action=augment_obs_with_expert_action,
         augment_obs_with_expert_state=augment_obs_with_expert_state,
+        value_estimate=None if recurrent else value_estimate,
     )
 
     # Main loop. We use `scan` with a fixed length rather than `while_loop`
@@ -587,12 +657,25 @@ def evaluate(
     )
 
     def _scan_body(carry, _):
-        return step_fn(carry), None
+        stepped = step_fn(carry)
+        # The step's value estimate and reward, and whether it was evaluated.
+        evaluated = (1 - carry.done).astype(jnp.float32)
+        return stepped, (stepped.value, stepped.last_reward, evaluated)
 
-    final_carry, _ = jax.lax.scan(
+    final_carry, (values, step_rewards, evaluated) = jax.lax.scan(
         _scan_body, init_carry_agent, None, length=steps_bound
     )
     rewards, step_count = final_carry.rewards, final_carry.step_count
+
+    bias = jnp.nan
+    if value_estimate is not None and not recurrent:
+        scale = value_estimate.reward_scale
+        bias = _value_bias(
+            values,
+            scale * normalised_reward(step_rewards, norm_info),
+            evaluated,
+            value_estimate.gamma,
+        )
 
     # Optionally compute expert comparison
     expert_reward = jnp.nan
@@ -610,7 +693,7 @@ def evaluate(
         )
 
     # Optional average-reward mode
-    avg_reward, bias = jnp.nan, jnp.nan
+    avg_reward = jnp.nan
     if avg_reward_mode:
 
         def scan_step(carry, _):
@@ -621,7 +704,6 @@ def evaluate(
             scan_step, init_carry_agent, None, length=_AVERAGE_REWARD_STEPS
         )
         avg_reward = rewards_over_time.mean(axis=0)
-        bias = jnp.nansum(rewards_over_time - avg_reward, axis=0)
 
     avg_entropy = final_carry.entropy_sum / jnp.maximum(step_count, 1.0)
 
@@ -629,7 +711,7 @@ def evaluate(
         rewards.mean(axis=-1),
         avg_entropy.mean(axis=-1),
         jnp.nanmean(avg_reward),
-        jnp.nanmean(bias),
+        jnp.asarray(bias, jnp.float32),
         step_count.mean(),
         expert_reward,
     )

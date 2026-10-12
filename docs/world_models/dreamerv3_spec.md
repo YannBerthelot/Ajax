@@ -469,6 +469,8 @@ while step < total_agent_steps:                       # 250K agent steps = 500K 
 
 Each question gives the recommended default in the final table in **bold**. The user's call is needed where marked.
 
+Resolved since: the user's answers are the fidelity rule of `DESIGN.md` §0 and the choices in `deviations.md` §1 and §3, which win over the recommendations below (notably 6 and 7, where Ajax follows 2411f7d).
+
 1. **DMC-proprio protocol (user call).** The paper (Table 2) and 2411f7d use size12m, replay ratio 512, action repeat 2, 16 envs and 500K env steps. 2411f7d actually ran 3e5 agent steps = 600K env steps. HEAD (since f8817c4, Dec 2024) uses size1m, ratio 1024, repeat 1 and 1.1M env steps. This choice fixes every network width. Reproducing Table 11 needs the paper / 2411f7d setting. **Recommended: paper (12M / 512 / repeat 2 / 500K).**
 2. **LaProp β₂ (user call).** The paper text says 0.99 ("its default parameters"); both code versions use 0.999, which produced the published curves. The LaProp reference's own defaults were not verified here (no literature fetch). **Recommended: 0.999, with 0.99 as a config option.**
 3. **Symlog MSE ½ factor.** Paper Eq. 8 has ½; both code versions have none, so the code's reconstruction gradient is 2× the paper formula's. **Recommended: code (no ½).**
@@ -488,7 +490,7 @@ Each question gives the recommended default in the final table in **bold**. The 
 
 ## Hyperparameter defaults (revised / Nature recipe, vector observations, DMC-proprio paper protocol)
 
-"Value" is the recommended Ajax reference default. "Source" gives where it comes from. "Alternative / note" gives the HEAD value when it differs, and other conflicts. Open-question numbers refer to the list above.
+"Value" is the default recommended before implementation; `deviations.md` §1 wins where it chose otherwise (OQ 6, 7). "Source" gives where it comes from. "Alternative / note" gives the HEAD value when it differs, and other conflicts. Open-question numbers refer to the list above.
 
 | Name | Value | Source | Alternative / note |
 |---|---|---|---|

@@ -77,6 +77,7 @@ from ajax.agents.DreamerV3.world_model import (
 )
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import LoadedTrainState
+from ajax.types import Replaceable
 
 sg = jax.lax.stop_gradient
 
@@ -89,7 +90,7 @@ ALL_TERMS = LOSS_TERMS + ACTOR_CRITIC_TERMS
 
 
 @struct.dataclass
-class LearnerState:
+class LearnerState(Replaceable):
     """Everything a training step updates.
 
     The train states keep their module's parameters (applied as

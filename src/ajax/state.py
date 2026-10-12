@@ -18,7 +18,7 @@ from gymnax import EnvParams
 
 from ajax.environments.utils import get_env_type
 from ajax.networks.memory import MemoryConfig
-from ajax.types import EnvStateType, EnvType, InitializationFunction
+from ajax.types import EnvStateType, EnvType, InitializationFunction, Replaceable
 from ajax.wrappers import NormalizationInfo
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 @struct.dataclass
-class Transition:
+class Transition(Replaceable):
     obs: jnp.ndarray
     action: jnp.ndarray
     reward: jnp.ndarray
@@ -74,7 +74,7 @@ def zeros_like_abstract_pytree(abstract_tree: Any) -> Any:
 
 
 @struct.dataclass
-class EnvironmentConfig:
+class EnvironmentConfig(Replaceable):
     env: EnvType
     env_params: EnvParams
     n_envs: int
@@ -92,7 +92,7 @@ class EnvironmentConfig:
 
 
 @struct.dataclass
-class RollinEpisodicMeanRewardState:
+class RollinEpisodicMeanRewardState(Replaceable):
     """Each env's rolling window of its last episode returns."""
 
     buffer: jnp.ndarray  # (window_size, n_envs, 1)
@@ -104,7 +104,7 @@ class RollinEpisodicMeanRewardState:
 
 
 @struct.dataclass
-class CollectorState:
+class CollectorState(Replaceable):
     """The variables necessary to interact with the environment and collect the transitions"""
 
     rng: jax.Array
@@ -187,7 +187,7 @@ class LoadedTrainState(TrainState):
 
 
 @struct.dataclass
-class BaseAgentState:
+class BaseAgentState(Replaceable):
     rng: jax.Array
     actor_state: LoadedTrainState
     critic_state: LoadedTrainState
@@ -231,13 +231,9 @@ class BaseAgentState:
     # and do not touch this field.
     last_rollout: Optional[Any] = None
 
-    def replace(self, *args, **kwargs):  # To make mypy happy
-        """Replace fields in the dataclass with new values."""
-        return struct.replace(self, *args, **kwargs)
-
 
 @struct.dataclass
-class BaseAgentConfig:
+class BaseAgentConfig(Replaceable):
     # Opt-in flag for on-policy agents (PPO, PQN, APO, AVG) to write the
     # most recent ``(T, n_envs, ...)`` rollout transition onto
     # ``BaseAgentState.last_rollout`` after each collection. Off by
@@ -250,7 +246,7 @@ class BaseAgentConfig:
 
 
 @struct.dataclass
-class NetworkConfig:
+class NetworkConfig(Replaceable):
     # Hidden layers, or a PIDPolicy: the actor is then a PID controller
     # (ajax.modules.pid_actor).
     actor_architecture: Union[Tuple[str, ...], "PIDPolicy"]
@@ -293,7 +289,7 @@ class NetworkConfig:
 
 
 @struct.dataclass
-class OptimizerConfig:
+class OptimizerConfig(Replaceable):
     learning_rate: float | Callable[[int], float]
     max_grad_norm: Optional[float] = None
     beta_1: float = 0.9

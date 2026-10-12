@@ -35,6 +35,7 @@ from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import RunningScale
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.types import Replaceable
 
 if TYPE_CHECKING:  # buffer.py builds core.TDMPC2Batch; core imports this module
     from ajax.agents.TDMPC2.buffer import EpisodeBufferState, EpisodicBufferState
@@ -205,7 +206,7 @@ class TDMPC2Config(BaseAgentConfig):
 
 
 @struct.dataclass
-class TDMPC2UpdateState:
+class TDMPC2UpdateState(Replaceable):
     """What one TD-MPC2 update reads and writes.
 
     Attributes:

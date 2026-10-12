@@ -4,10 +4,11 @@ from flax import struct
 from ajax.agents.SAC.state import SoftACState
 from ajax.deprecation import moved_names
 from ajax.state import BaseAgentConfig
+from ajax.types import Replaceable
 
 
 @struct.dataclass
-class RunningMoments:
+class RunningMoments(Replaceable):
     """The latest ``value`` of one scalar stream (AVG's reward, discount or
     squared return) and its running ``count``, ``mean`` and ``mean_2``;
     not the observation normaliser's :class:`ajax.types.NormalizationInfo`."""

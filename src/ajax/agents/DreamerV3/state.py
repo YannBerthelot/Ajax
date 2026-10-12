@@ -35,6 +35,7 @@ from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.types import Replaceable
 
 if TYPE_CHECKING:
     from ajax.agents.DreamerV3.replay import ReplayState
@@ -292,7 +293,7 @@ class DreamerV3AgentConfig(BaseAgentConfig):
 
 
 @struct.dataclass
-class MetricsAccumulator:
+class MetricsAccumulator(Replaceable):
     """Sums of the training-step metrics since the last log, and their count.
 
     The reference logs the mean of each training metric over the updates

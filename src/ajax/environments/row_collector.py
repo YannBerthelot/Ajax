@@ -141,7 +141,7 @@ class Row:
     extras: Any = None
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class RowCollectorState(CollectorState):
     """:class:`CollectorState` plus the row collector's bookkeeping.
 

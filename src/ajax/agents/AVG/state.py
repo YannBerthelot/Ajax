@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.state import SoftACState
 from ajax.deprecation import moved_names
@@ -19,7 +18,7 @@ class RunningMoments:
     mean_2: jnp.array
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class AVGState(SoftACState):
     """AVG's state: a soft actor-critic's plus the TD-error scale statistics."""
 
@@ -29,7 +28,7 @@ class AVGState(SoftACState):
     scaling_coef: jnp.ndarray
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class AVGConfig(BaseAgentConfig):
     """The agent properties to be carried over iterations of environment interaction and updates"""
 

@@ -25,7 +25,6 @@ the train ratio, the batch geometry and the replay capacity --
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import jax
@@ -267,7 +266,7 @@ class DreamerV3Config:
         return TwoHot.dreamerv3(self.bins)
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DreamerV3AgentConfig(BaseAgentConfig):
     """Hyperparameters of the DreamerV3 training loop (static).
 
@@ -330,7 +329,7 @@ class MetricsAccumulator:
         return jax.tree.map(lambda x: jnp.where(flag, jnp.zeros_like(x), x), self)
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class DreamerV3State(BaseAgentState):
     """The DreamerV3 agent's state (``docs/world_models/DESIGN.md`` section 6.6).
 

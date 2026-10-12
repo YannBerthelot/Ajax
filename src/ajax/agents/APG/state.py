@@ -1,12 +1,11 @@
 from typing import Optional
 
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class APGState(BaseAgentState):
     """APG carries no value function: ``critic_state`` is ``None``.
 
@@ -17,7 +16,7 @@ class APGState(BaseAgentState):
     critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class APGConfig(BaseAgentConfig):
     """Hyper-parameters of the analytic-policy-gradient trainer.
 

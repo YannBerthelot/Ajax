@@ -15,7 +15,6 @@ import optax
 from flax import struct
 from flax.training.train_state import TrainState
 from gymnax import EnvParams
-from jax.tree_util import Partial as partial
 
 from ajax.environments.utils import get_env_type
 from ajax.networks.memory import MemoryConfig
@@ -152,7 +151,7 @@ class CollectorState:
         return self._env_state
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class LoadedTrainState(TrainState):
     hidden_state: Optional[Any] = None
     recurrent: bool = False

@@ -37,12 +37,6 @@ BUILD: dict[type, Callable[[], Extension]] = {
     target_mods.CriticBlend: lambda: target_mods.CriticBlend(expert_policy=_expert),
     target_mods.MCVarianceCorrection: lambda: target_mods.MCVarianceCorrection(1.0),
 }
-SILENT = {
-    (expert.OnlineBC, "actor_loss"): pytest.mark.xfail(
-        strict=True,
-        reason="fix/online-bc-raises: 0 without a_expert, which only SAC passes",
-    )
-}
 
 
 def _phases() -> list[Any]:
@@ -56,9 +50,8 @@ def _phases() -> list[Any]:
             own = cls.__module__ == module.__name__  # not an import
             for phase in ("on_target", "critic_loss", "actor_loss"):
                 if own and getattr(cls, phase) is not getattr(Extension, phase):
-                    marks = SILENT.get((cls, phase), ())
                     id_ = f"{cls.__name__}-{phase}"
-                    cases.append(pytest.param(cls, phase, marks=marks, id=id_))
+                    cases.append(pytest.param(cls, phase, id=id_))
     return cases
 
 

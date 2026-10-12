@@ -1,4 +1,3 @@
-import warnings
 from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
@@ -10,6 +9,7 @@ from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
+from ajax.deprecation import warn_inert
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     get_action_dim,
@@ -225,14 +225,12 @@ class SAC(ActorCritic):
                 "use the MCPretrain extension."
             )
         self.eval_expert_policy = self._in_agent_units(eval_expert_policy)
-        if jsrl_curriculum is not None:
-            warnings.warn(
-                "jsrl_curriculum is deprecated and has no effect: SAC counts each"
-                " env's steps in its episode when an extension reads them"
-                " (JSRLCurriculum). It will be removed.",
-                FutureWarning,
-                stacklevel=2,
-            )
+        warn_inert(
+            "SAC",
+            "SAC counts each env's steps in its episode when an extension reads"
+            " them (JSRLCurriculum).",
+            jsrl_curriculum=jsrl_curriculum,
+        )
         # Resolve the static expert_state_aug_dim once. 0 for stateless or
         # when the augmentation is off.
         expert_state_aug_dim = 0

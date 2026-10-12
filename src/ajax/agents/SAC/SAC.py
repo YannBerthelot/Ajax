@@ -103,9 +103,6 @@ class SAC(ActorCritic):
         # "experts everywhere" path used by AjaxExperiments.
         expert_policy: Optional[Callable] = None,
         eval_expert_policy: Optional[Callable] = None,  # for eval logging only
-        # Ignored, never had an effect (evaluation does not read it); still
-        # accepted because AjaxExperiments passes ``action_scale=1.0``.
-        action_scale: float = 1.0,
         # Deprecated, no effect: SAC counts each env's steps in its episode
         # when an extension reads them (JSRLCurriculum).
         jsrl_curriculum: Optional[bool] = None,

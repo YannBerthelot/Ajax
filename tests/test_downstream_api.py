@@ -41,7 +41,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     ),
     "ajax:PPO": ("env_id", "env_params", "n_envs"),
     "ajax:SAC": (
-        "action_scale",
         "actor_architecture",
         "actor_learning_rate",
         "alpha_init",

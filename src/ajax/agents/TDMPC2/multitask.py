@@ -1,4 +1,4 @@
-"""TD-MPC2 multi-task mechanisms (M8), paper-era ``nicklashansen/tdmpc2@5f6fade``.
+"""TD-MPC2 multi-task mechanisms, paper-era ``nicklashansen/tdmpc2@5f6fade``.
 
 The multi-task machinery of the paper (Hansen et al., ICLR 2024, Sec. 3.3,
 App. A; ``docs/world_models/DESIGN.md`` §7; tdmpc2_spec 1.21-1.23, 2.18, 2.20,

@@ -272,7 +272,7 @@ class TDMPC2State(BaseAgentState):
 
 @struct.dataclass(kw_only=True)
 class TDMPC2MultiTaskState(BaseAgentState):
-    """The offline multi-task TD-MPC2 state (``DESIGN.md`` §7; M8).
+    """The offline multi-task TD-MPC2 state (``DESIGN.md`` §7).
 
     :class:`TDMPC2State` without the env interaction: the dataset is not part
     of the state (it is shared by every seed, an argument of the jitted

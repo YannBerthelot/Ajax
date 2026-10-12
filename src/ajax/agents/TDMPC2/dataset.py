@@ -1,4 +1,4 @@
-"""Offline multi-task TD-MPC2 datasets: schema, export, pooling, sampling (M8).
+"""Offline multi-task TD-MPC2 datasets: schema, export, pooling, sampling.
 
 The paper's multi-task models train offline on the pooled replay of
 single-task agents (Sec. 4.1; tdmpc2_spec 4.18-4.19; ``DESIGN.md`` §7). This

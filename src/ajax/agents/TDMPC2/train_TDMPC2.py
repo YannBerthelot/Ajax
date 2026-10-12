@@ -268,8 +268,8 @@ def planner_policy(
     axis of ``obs [m, obs_dim]``, ``is_first [m]`` (the reference's ``t0``)
     and the warm-start carry ``prev_mean [m, H, A]``, each env with its own
     draws. Returns ``(action [m, A], new prev_mean, None)``. ``task`` is
-    the multi-task conditioning of one task shared by the envs (M8,
-    :func:`ajax.agents.TDMPC2.multitask.task_planner_policy`); ``None`` is
+    the multi-task conditioning of one task shared by the envs
+    (:func:`ajax.agents.TDMPC2.multitask.task_planner_policy`); ``None`` is
     the single-task planner.
     """
     n, action_dim = carry.shape[0], carry.shape[-1]
@@ -310,7 +310,7 @@ def update_metrics_zeros(
     task: Optional[core.TaskContext] = None,
 ) -> dict[str, jax.Array]:
     """Zeros with the structure of :func:`core.update`'s logged quantities
-    (``task``: a batch's multi-task conditioning, M8; ``None``: single
+    (``task``: a batch's multi-task conditioning; ``None``: single
     task)."""
     h, b = config.horizon, config.batch_size
     batch = core.TDMPC2Batch(

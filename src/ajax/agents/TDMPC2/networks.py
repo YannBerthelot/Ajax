@@ -31,7 +31,7 @@ policy prior   ``[z, e]``                      2 hidden, plain ``Linear`` to
                                                (spec 1.8)
 =============  ==============================  ================================
 
-``e`` is an optional task embedding (multi-task, M8); single-task passes
+``e`` is an optional task embedding (multi-task); single-task passes
 ``None`` and the inputs are exactly ``obs``, ``[z, a]`` and ``z``. There is no
 embedding table here. Biases are zero and LayerNorm scales one at
 initialisation (``common/init.py:4-17``); target Q is a copy of the online Q

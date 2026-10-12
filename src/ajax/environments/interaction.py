@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 
 import chex
@@ -9,15 +10,17 @@ from flax.core import FrozenDict
 from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
-from ajax.buffers.utils import get_expert_fields_from_buffer, init_buffer
+from ajax.buffers.utils import ReplayBatch, init_buffer
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import (
     ExpertInAgentUnits,
     agent_action_to_env,
+    env_keys,
     get_state_action_shapes,
     maybe_append_train_frac,
     raw_obs_columns,
 )
+from ajax.networks.memory import flatten_carry, tree_where_reset
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -28,34 +31,22 @@ from ajax.state import (
     zeros_like_abstract_pytree,
 )
 from ajax.types import BufferType
-from ajax.wrappers import RAW_FINAL_OBS_KEY, RAW_OBS_KEY, RAW_REWARD_KEY
+from ajax.wrappers import (
+    _FINAL_OBS_KEYS,
+    RAW_FINAL_OBS_KEY,
+    RAW_OBS_KEY,
+    RAW_REWARD_KEY,
+)
 
 
-def flatten_expert_state(expert_state) -> jnp.ndarray:
-    """Pack a stateful expert's pytree state into a flat (..., dim) array.
-
-    Used to augment obs with `expert_state` (the missing Markov component
-    when the expert has hidden state — e.g. PID integrator). All leaves
-    must have a leading batch axis; the function concatenates along the
-    last axis. Returns a zero-shape array if the state is None or empty,
-    so the caller can fall back gracefully for stateless experts.
-    """
-    if expert_state is None:
+def flatten_expert_state(expert_state: Any) -> Optional[jax.Array]:
+    """A stateful expert's state as one ``(n_envs, D)`` array
+    (:func:`~ajax.networks.memory.flatten_carry`): the Markov component an
+    observation augmented with it carries (a PID's integrator). None for a
+    stateless expert (no state, or an empty one)."""
+    if expert_state is None or not jax.tree.leaves(expert_state):
         return None
-    leaves = jax.tree_util.tree_leaves(expert_state)
-    if not leaves:
-        return None
-    cols = []
-    for leaf in leaves:
-        leaf = jnp.asarray(leaf)
-        if leaf.ndim == 0:
-            cols.append(leaf[None])
-        elif leaf.ndim == 1:
-            # (n_envs,) -> (n_envs, 1)
-            cols.append(leaf[..., None])
-        else:
-            cols.append(leaf)
-    return jnp.concatenate(cols, axis=-1)
+    return flatten_carry(expert_state)
 
 
 def augment_obs(
@@ -74,17 +65,13 @@ def augment_obs(
     return jnp.concatenate([obs, *map(jax.lax.stop_gradient, extra)], axis=-1)
 
 
-def augment_from_buffer(
-    buffer: Any, buffer_state: Any, key: jax.Array, obs: jax.Array, next_obs: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
-    """``obs`` and ``next_obs`` of the replay batch ``key`` samples, augmented
-    (:func:`augment_obs`) with the expert's actions collection stored for
-    them: ``a_expert`` and ``next_a_expert``, from raw observations and the
-    expert's state."""
-    a_expert, next_a_expert = get_expert_fields_from_buffer(buffer, buffer_state, key)
+def augment_from_batch(batch: ReplayBatch) -> Tuple[jax.Array, jax.Array]:
+    """A replay batch's ``obs`` and ``next_obs`` augmented (:func:`augment_obs`)
+    with the expert's actions collection stored for them: ``a_expert`` and
+    ``next_a_expert``, from raw observations and the expert's state."""
     return (
-        augment_obs(obs, expert_action=a_expert),
-        augment_obs(next_obs, expert_action=next_a_expert),
+        augment_obs(batch.obs, expert_action=batch.a_expert),
+        augment_obs(batch.next_obs, expert_action=batch.next_a_expert),
     )
 
 
@@ -112,40 +99,6 @@ def init_rolling_mean(
         cumulative_reward=cumulative_reward,
         last_return=last_return,
     )
-
-
-def update_rolling_mean(
-    state: RollinEpisodicMeanRewardState, new_value: jax.Array
-) -> tuple[RollinEpisodicMeanRewardState, jax.Array]:
-    rows = state.index.flatten()  # [2, 3]
-    cols = jnp.arange(new_value.shape[0])  # column indices
-
-    old_value = state.buffer[rows, cols]
-
-    new_sum = state.sum - old_value + new_value  # remove oldest value to add new one
-    buffer = state.buffer.at[rows, cols].set(new_value)
-    new_index = (state.index + 1) % buffer.shape[0]
-    new_count = jnp.minimum(state.count + 1, buffer.shape[0])
-
-    new_state = RollinEpisodicMeanRewardState(
-        buffer=buffer,
-        index=new_index,
-        count=new_count,
-        sum=new_sum,
-        cumulative_reward=state.cumulative_reward,
-        last_return=state.last_return,
-    )
-    mean = new_sum / new_count
-    return new_state, mean
-
-
-# Keys under which the supported backends expose the pre-reset ("final")
-# observation of a transition. Ajax's brax/playground stack writes
-# ``final_obs`` (see :class:`ajax.wrappers.FinalObsWrapper`); gymnax >= 1.0
-# writes ``final_observation``; ``obs_st`` was the name used by the pre-1.0
-# gymnax fork Ajax used to pin, kept so envs still on it keep bootstrapping
-# correctly.
-_FINAL_OBS_KEYS = ("final_obs", "final_observation", "obs_st")
 
 
 def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
@@ -271,12 +224,10 @@ def step(
             state: EnvState,
             action: jax.Array,
             env_params: EnvParams,
-        ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, Any]:
+        ) -> Tuple[jax.Array, EnvState, jax.Array, jax.Array, jax.Array, Any]:
             """Wrapper to step the environment."""
             return env.step(key=rng, state=state, action=action, params=env_params)
 
-        time = state.time if hasattr(state, "time") else state.t
-        truncated = time >= env_params.max_steps_in_episode - 1  # type: ignore[union-attr]
         params_axis = 0 if env_params_is_batched(env_params) else None
         if rng.ndim > 1:
             out = jax.vmap(
@@ -285,20 +236,10 @@ def step(
             )(rng, state, action, env_params)
         else:
             out = step_wrapper(rng, state, action, env_params)
-
-        if len(out) == 5:
-            # Pre-1.0 five-value contract: a single ``done`` that folds the
-            # time limit into termination. Prefer the env's own ``truncated``
-            # when it publishes one -- some emit only {"discount": ...} -- else
-            # fall back to the time-based estimate computed before the step
-            # call above, then subtract it back out of ``done``.
-            obsv, env_state, reward, done, info = out
-            truncated = info.get("truncated", truncated)
-            terminated = done * (1 - truncated)
-        else:
-            # Gymnax >= 1.0 six-value contract: the env reports the split
-            # itself, so take it at face value.
-            obsv, env_state, reward, terminated, truncated, info = out
+        # Gymnax >= 1.0 reports terminated and truncated apart; an env still
+        # folding the time limit into one ``done`` needs
+        # :class:`ajax.wrappers.TerminatedTruncatedWrapper`.
+        obsv, env_state, reward, terminated, truncated, info = out
         terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
         if "normalization_info" in env_state.__dict__:
             obs_norm_info = jax.tree.map(
@@ -363,6 +304,15 @@ def _maybe_noise_obs(env, obsv, env_state, rng):
     sigma = getattr(env, "_obs_noise_sigma", 0.0)
     if sigma is None or float(sigma) <= 0.0:
         return obsv, env_state
+    # Expand-then-contract (CLAUDE.md, rule 10): the hook goes once
+    # AjaxExperiments' degradation worker wraps its env instead.
+    warnings.warn(
+        "env._obs_noise_sigma is deprecated: wrap the env in"
+        " ajax.wrappers.ObservationNoiseWrapper (gymnax) or"
+        " ObservationNoiseWrapperBrax (brax / playground) instead.",
+        FutureWarning,
+        stacklevel=3,
+    )
     obs_std = getattr(env, "_obs_noise_obs_std", 1.0)
     # Per-call independent noise: derive a noise key from the input rng via
     # fold_in (so we don't accidentally consume the env's own randomness).
@@ -532,12 +482,6 @@ def get_action_and_new_agent_state(
     )
 
 
-def assert_shape(x, expected_shape, name="tensor"):
-    assert (
-        x.shape == expected_shape
-    ), f"{name} has shape {x.shape}, expected {expected_shape}"
-
-
 def update_episodic_return(
     episodic_return_state: RollinEpisodicMeanRewardState,
     reward: jnp.ndarray,
@@ -551,53 +495,27 @@ def update_episodic_return(
     of each env's rolling mean (NaN until every env finished an episode),
     the house ``Train/episodic mean reward``.
     """
-    new_cumulative_reward = episodic_return_state.cumulative_reward + reward.reshape(
-        reward.shape[0], 1
-    )
-    last_return = jax.lax.select(
-        done.reshape(done.shape[0], 1),
-        new_cumulative_reward,
-        episodic_return_state.last_return,
-    )  # nan if no episode has finished yet
-    updated_episodic_return_state, updated_episodic_mean_return = update_rolling_mean(
-        episodic_return_state,
-        last_return,
-    )
-    previous_episodic_mean_return = (
-        episodic_return_state.sum / episodic_return_state.count
-    )
-
-    episodic_mean_return = jax.lax.select(
-        done.reshape(done.shape[0], 1),
-        updated_episodic_mean_return,
-        previous_episodic_mean_return,
-    )
-
-    def broadcast_and_select(done, new_val, old_val):
-        # Compute broadcastable shape
-        # `done` is (2,1) — reshape to [2, 1, 1, ..., 1] to match new_val.ndim
-        extra_dims = new_val.ndim - done.ndim
-        broadcast_shape = (1,) * extra_dims + done.shape
-        done_broadcasted = jnp.reshape(done, broadcast_shape)
-        # Broadcast done to new_val's shape (safely)
-        done_broadcasted = jnp.broadcast_to(done_broadcasted, new_val.shape)
-
-        return jax.lax.select(done_broadcasted, new_val, old_val)
-
-    new_episodic_return_state = jax.tree_util.tree_map(
-        lambda new_val, old_val: broadcast_and_select(
-            done.reshape(done.shape[0], 1), new_val, old_val
-        ),
-        updated_episodic_return_state,
-        episodic_return_state,
-    )
-
-    new_episodic_return_state = new_episodic_return_state.replace(
-        cumulative_reward=new_cumulative_reward * (1 - done.reshape(done.shape[0], 1)),
+    state = episodic_return_state
+    done = done.reshape(done.shape[0], 1)
+    new_cumulative_reward = state.cumulative_reward + reward.reshape(reward.shape[0], 1)
+    # NaN until the env's first episode ends.
+    last_return = jnp.where(done, new_cumulative_reward, state.last_return)
+    # A done env writes its return over its window's oldest one; the others
+    # leave their window, sum, count and index as they are.
+    rows, cols = state.index.flatten(), jnp.arange(done.shape[0])
+    oldest = state.buffer[rows, cols]
+    window = state.buffer.shape[0]
+    total = jnp.where(done, state.sum - oldest + last_return, state.sum)
+    count = jnp.where(done, jnp.minimum(state.count + 1, window), state.count)
+    new_state = state.replace(
+        buffer=state.buffer.at[rows, cols].set(jnp.where(done, last_return, oldest)),
+        index=jnp.where(done, (state.index + 1) % window, state.index),
+        count=count,
+        sum=total,
+        cumulative_reward=new_cumulative_reward * (1 - done),
         last_return=last_return,
     )
-
-    return new_episodic_return_state, jnp.mean(episodic_mean_return)
+    return new_state, jnp.mean(total / count)
 
 
 def get_action_and_log_probs(
@@ -673,10 +591,6 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
     return maybe_vmap(env._get_obs, vmap_on)(env_state.pipeline_state)
 
 
-def identity(*args):
-    return args
-
-
 class ActionPipelineResult(NamedTuple):
     """What an ``action_pipeline`` hands :func:`collect_experience`.
 
@@ -709,6 +623,46 @@ class ActionPipelineResult(NamedTuple):
     # A stateful expert's state at an episode start (its init_state): the
     # state the next row's observation carries where this step ended one.
     initial_expert_state: Optional[Any] = None
+    # The pre-tanh sample PPO/APO recompute a log-prob from. Without it the
+    # transition stores the action itself (pipelines act post-tanh, and no
+    # agent with a pipeline of its own recomputes log-probs).
+    raw_action: Optional[jax.Array] = None
+
+
+def _policy_pipeline(
+    agent_state: BaseAgentState,
+    _raw_obs: jax.Array,
+    rng: jax.Array,
+    uniform: jax.Array,
+    mix_key: jax.Array,
+    action_key: jax.Array,
+    *,
+    recurrent: bool,
+    n_envs: int,
+) -> ActionPipelineResult:
+    """The default action pipeline: the policy's action, or a uniform one
+    in [-1, 1] while ``uniform`` (the warm-up)."""
+    action, log_probs, raw_action, agent_state = get_action_and_log_probs(
+        action_key=action_key, agent_state=agent_state, recurrent=recurrent
+    )
+    uniform_action = jax.random.uniform(
+        mix_key, minval=-1.0, maxval=1.0, shape=action.shape
+    )
+    # A discrete policy's action is stepped and stored as a float, the
+    # uniform draw's dtype, which the cond needs both branches to share.
+    action = action.astype(uniform_action.dtype)
+    no_box = jnp.zeros((n_envs, 1), dtype=jnp.float32)
+    return ActionPipelineResult(
+        env_action=jax.lax.cond(uniform, lambda: uniform_action, lambda: action),
+        policy_action=action,
+        log_probs=log_probs,
+        is_expert_flag=jnp.zeros_like(action[..., :1], dtype=jnp.float32),
+        in_value_box=no_box,
+        entry_bonus=no_box,
+        rng=rng,
+        new_actor_hidden=agent_state.actor_state.hidden_state,
+        raw_action=raw_action,
+    )
 
 
 @partial(
@@ -740,22 +694,19 @@ def collect_experience(
     Args:
         action_pipeline: Optional callable that handles agent-specific action
             selection (obs augmentation, expert exploration, residual RL, etc.).
-            When None, uses vanilla behavior: uniform during warmup, policy after.
+            When None, the policy's (:func:`_policy_pipeline`): uniform during
+            the warm-up, the policy's action after.
             Signature: (agent_state, raw_obs, rng, uniform, mix_key, action_key)
                 -> :class:`ActionPipelineResult`.
     """
     rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
 
-    rng_step = (
-        jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
-    )
+    rng_step = env_keys(step_key, mode, env_args.n_envs)
 
     # R2D2-style stored-state replay: the actor's carry BEFORE this step is
     # the hidden state valid for last_obs (the transition's obs). Snapshot
     # it now — the action selection below advances the live carry.
     if store_hidden:
-        from ajax.networks.memory import flatten_carry
-
         _pre_actor_carry_flat = jax.lax.stop_gradient(
             flatten_carry(agent_state.actor_state.hidden_state)
         )
@@ -789,69 +740,29 @@ def collect_experience(
         mode=mode,
     ).astype(jnp.float32)
 
-    if action_pipeline is not None:
-        # Agent-specific action pipeline (SAC with expert, EDGE, box, etc.)
-        result = action_pipeline(
-            agent_state, raw_obs, rng, uniform, mix_key, action_key
-        )
-        env_action = result.env_action
-        action = result.policy_action
-        log_probs = result.log_probs
-        is_expert_flag = result.is_expert_flag
-        in_value_box = result.in_value_box
-        entry_bonus = result.entry_bonus
-        rng = result.rng
-        new_expert_state = getattr(result, "new_expert_state", None)
-        _initial_expert_state = getattr(result, "initial_expert_state", None)
-        _buffer_action_override = getattr(result, "buffer_action", None)
-        _a_expert = getattr(result, "a_expert", None)
-        # Recurrent actors: pipelines that run the policy themselves must
-        # hand back the advanced carry, else the actor's memory would stay
-        # frozen for the whole collection phase.
-        _new_actor_hidden = getattr(result, "new_actor_hidden", None)
-        if _new_actor_hidden is not None:
-            agent_state = agent_state.replace(
-                actor_state=agent_state.actor_state.replace(
-                    hidden_state=_new_actor_hidden
-                )
-            )
-        # action_pipelines (SAC + expert, EDGE, etc.) don't expose a
-        # pre-tanh sample. The action is post-tanh -- feeding it to
-        # ``pi.log_prob_from_raw(raw_action)`` later would produce a
-        # wrong log_prob (arctanh of a clipped value, not a Gaussian
-        # sample). Use ``action`` as a shape-preserving placeholder so
-        # the Transition pytree shape stays stable; callers that
-        # actually need ``raw_action`` for log_prob recompute must
-        # check ``isinstance(pi, SquashedNormal)`` AND verify they're
-        # not on the action_pipeline path (SAC never recomputes
-        # log_prob so it's safe; PPO/APO never use action_pipeline so
-        # they don't reach here).
-        raw_action = action
-    else:
-        new_expert_state = None
-        _initial_expert_state = None
-        _buffer_action_override = None
-        _a_expert = None
-        # Vanilla: uniform during warmup, policy action after
-        action, log_probs, raw_action, agent_state = get_action_and_log_probs(
-            action_key=action_key,
-            agent_state=agent_state,
-            recurrent=recurrent,
-        )
-        uniform_action = jax.random.uniform(
-            mix_key, minval=-1.0, maxval=1.0, shape=action.shape
-        )
-        # A discrete policy's action is stepped and stored as a float, the
-        # uniform draw's dtype, which the cond needs both branches to share.
-        action = action.astype(uniform_action.dtype)
-        env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
-        is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
-        in_value_box = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
-        entry_bonus = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
-
-    buffer_action = (
-        _buffer_action_override if _buffer_action_override is not None else env_action
+    # The agent's own pipeline (SAC's expert, EDGE, the value box, ...) or
+    # the policy's.
+    pipeline = action_pipeline or partial(
+        _policy_pipeline, recurrent=recurrent, n_envs=env_args.n_envs
     )
+    result = pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+    env_action = result.env_action
+    action = result.policy_action
+    log_probs = result.log_probs
+    is_expert_flag = result.is_expert_flag
+    in_value_box = result.in_value_box
+    entry_bonus = result.entry_bonus
+    rng = result.rng
+    new_expert_state = result.new_expert_state
+    # A recurrent actor's memory would stay frozen without its advanced carry.
+    if result.new_actor_hidden is not None:
+        agent_state = agent_state.replace(
+            actor_state=agent_state.actor_state.replace(
+                hidden_state=result.new_actor_hidden
+            )
+        )
+    raw_action = action if result.raw_action is None else result.raw_action
+    buffer_action = env_action if result.buffer_action is None else result.buffer_action
 
     # --- Step environment ---
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
@@ -893,7 +804,9 @@ def collect_experience(
     # (SAC with expert_policy). Other agents leave them out so their
     # buffer schema stays unchanged.
     _a_expert_for_buf = (
-        _a_expert if _a_expert is not None else jnp.zeros_like(buffer_action)
+        result.a_expert
+        if result.a_expert is not None
+        else jnp.zeros_like(buffer_action)
     )
     if next_expert_fn is not None:
         _next_a_expert_for_buf = jax.lax.stop_gradient(
@@ -923,10 +836,12 @@ def collect_experience(
     # resets it on this step's done flag), else the post-step one.
     if augmented:
         _start_state_aug = _next_state_aug
-        if _initial_expert_state is not None:
+        if result.initial_expert_state is not None:
             _ended = jnp.logical_or(terminated, truncated).reshape(-1, 1)
             _start_state_aug = jnp.where(
-                _ended, flatten_expert_state(_initial_expert_state), _next_state_aug
+                _ended,
+                flatten_expert_state(result.initial_expert_state),
+                _next_state_aug,
             )
         new_last_obs = augment_obs(obsv, _start_state_aug)
     else:
@@ -939,7 +854,7 @@ def collect_experience(
         final_obs = maybe_append_train_frac(final_obs, train_frac=train_frac)
         if augmented:
             final_obs = augment_obs(final_obs, _next_state_aug)
-        _transition = {
+        row = {
             "obs": agent_state.collector_state.last_obs,
             "action": buffer_action,
             "reward": reward[:, None],
@@ -948,15 +863,18 @@ def collect_experience(
             "next_obs": bootstrap_obs(new_last_obs, final_obs, terminated, truncated),
             "raw_obs": raw_obs,
             "is_expert": is_expert_flag,
+            "a_expert": _a_expert_for_buf,
+            "next_a_expert": _next_a_expert_for_buf,
+            "raw_next_obs": raw_final_obs.astype(jnp.float32),
         }
-        if next_expert_fn is not None:
-            _transition["a_expert"] = _a_expert_for_buf
-            _transition["next_a_expert"] = _next_a_expert_for_buf
-        if "raw_next_obs" in buffer_state.experience:
-            _transition["raw_next_obs"] = raw_final_obs.astype(jnp.float32)
         if store_hidden:
-            _transition["actor_carry"] = _pre_actor_carry_flat
-        buffer_state = buffer.add(buffer_state, _transition)
+            row["actor_carry"] = _pre_actor_carry_flat
+        # The fields the buffer holds: those a reader asked for
+        # (init_buffer), or all a checkpoint from before kept.
+        schema = buffer_state.experience
+        buffer_state = buffer.add(
+            buffer_state, {k: v for k, v in row.items() if k in schema}
+        )
 
     transition = Transition(
         obs=agent_state.collector_state.last_obs,
@@ -1011,11 +929,7 @@ def collect_experience(
         episodic_mean_return=episodic_mean_return,
         buffer_state=buffer_state,
         last_expert_frac=jnp.mean(is_expert_flag),
-        **(
-            {"last_in_box": in_value_box.astype(jnp.float32)}
-            if action_pipeline is not None
-            else {}
-        ),
+        last_in_box=in_value_box.astype(jnp.float32),
         **({"expert_state": new_expert_state} if new_expert_state is not None else {}),
         **({"step_in_episode": _new_step_in_ep} if _new_step_in_ep is not None else {}),
     )
@@ -1068,9 +982,7 @@ def collect_experience_from_expert_policy(
     reset_key, step_key, rng = jax.random.split(rng, 3)
 
     # Reset environment
-    reset_keys = (
-        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
-    )
+    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
 
     expert_is_stateful = hasattr(expert_policy, "init_state")
@@ -1082,13 +994,10 @@ def collect_experience_from_expert_policy(
 
     def step_fn(carry, _):
         env_state, rng, last_obs, expert_state = carry
-        # Prepare RNGs for stepping
-        rng_step, new_rng = jax.random.split(rng)
-        rng_step = (
-            jax.random.split(rng_step, env_args.n_envs)
-            if mode == "gymnax"
-            else rng_step
-        )
+        # The step's key is also the one carried to the next step: the
+        # stream the goldens pin.
+        rng = jax.random.split(rng)[0]
+        rng_step = env_keys(rng, mode, env_args.n_envs)
 
         # Compute action using expert policy. Stateful experts get the
         # running PID/etc state and return an updated state; stateless
@@ -1135,16 +1044,10 @@ def collect_experience_from_expert_policy(
         # at the start of the next episode (autoreset has already produced
         # a fresh first obs in `obsv`).
         if expert_is_stateful:
-            zero_state = expert_policy.init_state(env_args.n_envs)
-            done = jnp.logical_or(terminated, truncated)
-            new_expert_state = jax.tree.map(
-                lambda cur, zero: jnp.where(
-                    done.reshape(done.shape + (1,) * (cur.ndim - done.ndim)),
-                    zero,
-                    cur,
-                ),
+            new_expert_state = tree_where_reset(
+                jnp.logical_or(terminated, truncated),
+                expert_policy.init_state(env_args.n_envs),
                 new_expert_state,
-                zero_state,
             )
 
         # The live collector's layout (augment_obs): the training fraction,
@@ -1171,8 +1074,7 @@ def collect_experience_from_expert_policy(
             raw_next_obs=raw_next_obs,
         )
 
-        new_rng, _ = jax.random.split(rng)
-        carry = (new_env_state, new_rng, obsv, new_expert_state)
+        carry = (new_env_state, rng, obsv, new_expert_state)
         return carry, transition
 
     # Run for n_timesteps and collect transitions
@@ -1217,6 +1119,8 @@ def init_collector_state(
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
+    include_raw_obs: bool = False,
+    include_is_expert: bool = False,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -1226,29 +1130,22 @@ def init_collector_state(
     last_done = jnp.zeros(env_args.n_envs)
 
     reset_key, rng = jax.random.split(rng)
-    reset_keys = (
-        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
-    )
+    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
     if action_dim_override is not None:
         action_shape = (action_dim_override,)
 
-    if max_timesteps is not None:
-        _obs_shape = list(obs_shape)
-        _obs_shape[-1] += 1
-        obs_shape = tuple(
-            _obs_shape
-        )  # To account for the schedule observation for the agent
-        new_col = jnp.full((last_obs.shape[0], 1), 0)
-        last_obs = jnp.concatenate([last_obs, new_col], axis=-1)
-
+    # The training fraction's column (the schedule's observation), then the
+    # expert's state, as collection appends them (augment_obs).
+    add_train_frac = max_timesteps is not None
+    last_obs = maybe_append_train_frac(last_obs, 0.0 if add_train_frac else None)
     if expert_state_aug_dim > 0:
-        _obs_shape = list(obs_shape)
-        _obs_shape[-1] += expert_state_aug_dim
-        obs_shape = tuple(_obs_shape)
         zero_aug = jnp.zeros((last_obs.shape[0], expert_state_aug_dim))
         last_obs = augment_obs(last_obs, zero_aug)
+    extra = add_train_frac + expert_state_aug_dim
+    if extra:
+        obs_shape = (*obs_shape[:-1], obs_shape[-1] + extra)
 
     transition = Transition(
         obs=jnp.ones((env_args.n_envs, *obs_shape)),
@@ -1273,19 +1170,18 @@ def init_collector_state(
         last_return=jnp.nan * jnp.zeros((env_args.n_envs, 1)),
     )
 
-    add_train_frac = max_timesteps is not None
-
     buffer_state = (
         init_buffer(
             buffer,
             env_args,
-            max_timesteps,
             add_train_frac=add_train_frac,
             action_dim_override=action_dim_override,
             expert_state_aug_dim=expert_state_aug_dim,
             include_expert_fields=include_expert_fields,
             actor_carry_dim=actor_carry_dim,
             include_raw_next_obs=include_raw_next_obs,
+            include_raw_obs=include_raw_obs,
+            include_is_expert=include_is_expert,
         )
         if buffer is not None
         else None
@@ -1312,38 +1208,6 @@ def init_collector_state(
     )
 
 
-@jax.jit
-def _select_uniform_action(uniform_action, _):
-    return uniform_action
-
-
-@jax.jit
-def _select_policy_action(_, action):
-    return action
-
-
-@jax.jit
-def _return_true(_):
-    return True
-
-
-@jax.jit
-def _return_false(_):
-    return False
-
-
-@jax.jit
-def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> bool:
-    """Check if we should use uniform sampling based on timestep and learning starts.
-
-    Args:
-        timestep: Current timestep
-        learning_starts: Number of timesteps before learning starts
-
-    Returns:
-        bool: Whether to use uniform sampling
-    """
-
-    return jnp.where(
-        timestep < learning_starts, jnp.ones_like(timestep), jnp.zeros_like(timestep)
-    )
+def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> jax.Array:
+    """Whether the collector acts uniformly: before ``learning_starts``."""
+    return timestep < learning_starts

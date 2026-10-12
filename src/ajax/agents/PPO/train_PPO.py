@@ -51,8 +51,8 @@ from ajax.environments.interaction import (
     reset,
 )
 from ajax.environments.utils import (
-    check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
+    env_keys,
 )
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
@@ -103,7 +103,7 @@ def init_PPO(
         encoder_kernel_init=network_args.encoder_kernel_init,
         encoder_bias_init=network_args.encoder_bias_init,
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)
 
     return PPOState(
@@ -481,9 +481,7 @@ def _force_reset(
     """
     reset_key, new_rng = jax.random.split(agent_state.rng)
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
-    reset_keys = (
-        jax.random.split(reset_key, env_args.n_envs) if mode == "gymnax" else reset_key
-    )
+    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     if saved is not None:
         layers = strip_ajax_wrappers(env_args.env)[1]

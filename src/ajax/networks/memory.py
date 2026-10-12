@@ -36,7 +36,7 @@ Kinds and their compute/memory profile:
 
 import functools
 from dataclasses import dataclass
-from math import prod as np_prod
+from math import prod
 from typing import Any, Optional, Union
 
 import flax.linen as nn
@@ -189,7 +189,7 @@ def unflatten_carry(flat: jax.Array, template: Carry) -> Carry:
     batch = flat.shape[0]
     out, offset = [], 0
     for leaf in leaves:
-        size = int(np_prod(leaf.shape[1:]))
+        size = int(prod(leaf.shape[1:]))
         chunk = flat[:, offset : offset + size]
         out.append(chunk.reshape(batch, *leaf.shape[1:]).astype(leaf.dtype))
         offset += size
@@ -202,16 +202,18 @@ def flat_carry_dim(config: MemoryConfig) -> int:
     return int(flatten_carry(carry).shape[-1])
 
 
-def _mask_reset(resets: jax.Array, fresh: Carry, carry: Carry) -> Carry:
-    """Replace ``carry`` with ``fresh`` for every batch entry where
-    ``resets`` is set. ``resets`` has shape (B,) (or (B, 1))."""
+def tree_where_reset(resets: jax.Array, fresh: Any, tree: Any) -> Any:
+    """``tree`` with ``fresh`` in every batch entry where ``resets`` is set:
+    a recurrent carry, or a stateful expert's state, restarting with its
+    episode. ``resets`` has shape (B,) (or (B, 1)); every leaf leads with
+    the batch axis."""
     resets = resets.reshape((resets.shape[0],)).astype(bool)
 
-    def select(fresh_leaf, carry_leaf):
-        mask = resets.reshape((-1,) + (1,) * (carry_leaf.ndim - 1))
-        return jnp.where(mask, fresh_leaf, carry_leaf)
+    def select(fresh_leaf, leaf):
+        mask = resets.reshape((-1,) + (1,) * (leaf.ndim - 1))
+        return jnp.where(mask, fresh_leaf, leaf)
 
-    return jax.tree.map(select, fresh, carry)
+    return jax.tree.map(select, fresh, tree)
 
 
 def _segment_ids(resets: jax.Array) -> jax.Array:
@@ -235,7 +237,7 @@ class _RecurrentCore(nn.Module):
     @nn.compact
     def __call__(self, carry, x, resets):
         fresh = init_carry(self.config, jax.random.PRNGKey(0), x.shape[0])
-        carry = _mask_reset(resets, fresh, carry)
+        carry = tree_where_reset(resets, fresh, carry)
 
         cell_cls = _RNN_CELL_CLASSES[self.config.kind]
         if self.config.gradient_checkpoint:
@@ -285,8 +287,7 @@ class _TransformerCore(nn.Module):
         # Query position t / key position p masks, key stream = cache ++ chunk.
         t_idx = jnp.arange(T)
         # sequence-key part: causal, windowed, same episode
-        s_idx = jnp.arange(T)
-        dist_seq = t_idx[:, None] - s_idx[None, :]  # (T, T)
+        dist_seq = t_idx[:, None] - t_idx[None, :]  # (T, T)
         seq_ok = (dist_seq >= 0) & (dist_seq < W)  # causal + window
         same_ep = seg_bt[:, :, None] == seg_bt[:, None, :]  # (B, T, T)
         mask_seq = seq_ok[None] & same_ep  # (B, T, T)

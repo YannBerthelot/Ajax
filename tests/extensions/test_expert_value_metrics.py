@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from ajax import SAC
-from ajax.buffers.utils import get_batch_from_buffer, get_expert_fields_from_buffer
+from ajax.buffers.utils import get_batch_from_buffer
 from ajax.extensions.expert import ExpertValueMetrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
@@ -67,8 +67,8 @@ def test_the_metrics_read_the_critic_at_the_stored_expert_actions() -> None:
     with_phi = state.replace(expert_critic_params=critic.params)
     got = ext.eval_metrics(with_phi, None, key, None)  # type: ignore[arg-type]
     buffer_state = state.collector_state.buffer_state
-    obs, *_, actions, _, _ = get_batch_from_buffer(agent.buffer, buffer_state, key)
-    a_expert, _ = get_expert_fields_from_buffer(agent.buffer, buffer_state, key)
+    batch = get_batch_from_buffer(agent.buffer, buffer_state, key)
+    obs, actions, a_expert = batch.obs, batch.action, batch.a_expert
     # The expert's torque on Pendulum's [-2, 2], stored in agent units.
     np.testing.assert_allclose(a_expert, jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0) / 2)
 

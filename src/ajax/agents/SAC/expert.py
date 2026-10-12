@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 
 from ajax.environments.interaction import collect_experience_from_expert_policy
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType
 
@@ -28,7 +27,7 @@ def collect_and_store_expert_transitions(
     actions at s and s' as ``a_expert`` and ``next_a_expert``, and the
     collector's observation layout (the training fraction, 0 before
     training, then the expert's state)."""
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     transitions = collect_experience_from_expert_policy(
         expert_policy=expert_policy,
         rng=rng,
@@ -55,10 +54,10 @@ def collect_and_store_expert_transitions(
             "is_expert": jnp.ones_like(step.reward),
             "a_expert": step.a_expert,
             "next_a_expert": step.next_a_expert,
+            "raw_next_obs": step.raw_next_obs,
         }
-        if "raw_next_obs" in schema:
-            row["raw_next_obs"] = step.raw_next_obs
-        row = {k: v.astype(schema[k].dtype) for k, v in row.items()}
+        # The fields the buffer holds (init_buffer).
+        row = {k: v.astype(schema[k].dtype) for k, v in row.items() if k in schema}
         return buffer.add(buffer_state, row), None
 
     buffer_state, _ = jax.lax.scan(add_step, buffer_state, transitions)

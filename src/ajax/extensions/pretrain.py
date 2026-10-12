@@ -25,17 +25,12 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.buffers.utils import (
-    get_batch_from_buffer,
-    get_expert_fields_from_buffer,
-    get_raw_next_obs_from_buffer,
-)
+from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
-    augment_from_buffer,
+    augment_from_batch,
     augment_obs,
     collect_experience_from_expert_policy,
 )
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
@@ -309,27 +304,19 @@ def refresh_phi_star(
         expert_critic_state, step_key = carry
         sample_key, step_key = jax.random.split(step_key)
 
-        obs, terminated, _, next_obs, rewards, actions, _, is_expert = (
-            get_batch_from_buffer(buffer, buffer_state, sample_key)
-        )
+        batch = get_batch_from_buffer(buffer, buffer_state, sample_key)
+        obs, next_obs, actions = batch.obs, batch.next_obs, batch.action
 
-        expert_mask = is_expert[..., 0]
-        rewards = rewards * reward_scale
-        dones = terminated.astype(jnp.float32)
+        expert_mask = batch.is_expert[..., 0]
+        rewards = batch.reward * reward_scale
+        dones = batch.terminated.astype(jnp.float32)
 
         # The expert's action at s': stored (the agent's expert, from its
         # state), or its call on the raw next observations.
-        raw_next = get_raw_next_obs_from_buffer(buffer, buffer_state, sample_key)
-        stored = (
-            get_expert_fields_from_buffer(buffer, buffer_state, sample_key)[1]
-            if ext.reads_stored_expert
-            else None
-        )
-        a_expert_next = expert_next_actions(ext, raw_next, stored)
+        stored = batch.next_a_expert if ext.reads_stored_expert else None
+        a_expert_next = expert_next_actions(ext, batch.raw_next_obs, stored)
         if augment:
-            obs, next_obs = augment_from_buffer(
-                buffer, buffer_state, sample_key, obs, next_obs
-            )
+            obs, next_obs = augment_from_batch(batch)
         q_next = predict_value(
             critic_state=expert_critic_state,
             critic_params=expert_critic_state.target_params,
@@ -495,7 +482,7 @@ class MCPretrain(Extension):
             agent_state=agent_state,
             expert_critic_state=expert_critic_state,
             expert_policy=self.expert_policy,
-            mode="gymnax" if check_env_is_gymnax(self.env_args.env) else "brax",
+            mode=self.env_args.mode,
             env_args=self.env_args,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
@@ -573,33 +560,18 @@ def pretrain_critic_bellman(
         agent_state = carry
         sample_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
-        (
-            observations,
-            terminated,
-            _,
-            next_observations,
-            rewards,
-            actions,
-            raw_observations,
-            _,
-        ) = get_batch_from_buffer(
+        batch = get_batch_from_buffer(
             buffer, agent_state.collector_state.buffer_state, sample_key
         )
+        observations, next_observations = batch.obs, batch.next_obs
         if augment:
-            observations, next_observations = augment_from_buffer(
-                buffer,
-                agent_state.collector_state.buffer_state,
-                sample_key,
-                observations,
-                next_observations,
-            )
-        dones = terminated
+            observations, next_observations = augment_from_batch(batch)
         agent_state, _ = update_value_fn(
             observations=observations,
-            actions=actions,
+            actions=batch.action,
             next_observations=next_observations,
-            rewards=rewards,
-            dones=dones,
+            rewards=batch.reward,
+            dones=batch.terminated,
             agent_state=agent_state,
             recurrent=recurrent,
             gamma=gamma,

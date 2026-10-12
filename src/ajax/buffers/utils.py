@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import flashbax as fbx
 import jax
@@ -54,44 +54,40 @@ def get_buffer(
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
-    max_timesteps: Optional[int] = None,
-    add_train_frac: Optional[bool] = None,
+    add_train_frac: bool = False,
     action_dim_override: Optional[int] = None,
     expert_state_aug_dim: int = 0,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
+    include_raw_obs: bool = False,
+    include_is_expert: bool = False,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
 
+    Observations are flat (``build_env_from_id`` flattens gymnax ones).
+
     add_train_frac: whether to append the train_time_fraction scalar as the
-      last observation dimension. If None (default), inferred from max_timesteps
-      for backward compatibility. Prefer passing explicitly.
+      last observation dimension.
     expert_state_aug_dim: extra trailing obs dims reserved for the
       flattened expert internal state when running with
       `augment_obs_with_expert_state=True`. 0 disables.
-    include_raw_next_obs: also keep the environment's own next observation
-      (the final one where an episode ended), ``raw_next_obs``, as
-      ``raw_obs`` keeps the current one, for an expert to read.
+    include_raw_obs, include_raw_next_obs: also keep the environment's own
+      observation, ``raw_obs``, and next observation (the final one where
+      an episode ended), ``raw_next_obs``, for an expert to read.
+    include_is_expert: also keep whether an expert acted, ``is_expert``.
+
+    A field is stored only for a reader: a row is about 40% raw
+    observation, which a run without an expert never reads.
     """
     observation_shape, action_shape = get_state_action_shapes(env_args.env)
     if action_dim_override is not None:
         action_shape = (action_dim_override,)
     raw_observation_shape = observation_shape
-
-    # Determine whether to add the train_frac dimension
-    if add_train_frac is None:
-        add_train_frac = max_timesteps is not None
-
-    if add_train_frac:
-        observation_shape = (*observation_shape[:-1], observation_shape[-1] + 1)
-
-    if expert_state_aug_dim > 0:
-        observation_shape = (
-            *observation_shape[:-1],
-            observation_shape[-1] + expert_state_aug_dim,
-        )
+    extra = add_train_frac + expert_state_aug_dim
+    if extra:
+        observation_shape = (*observation_shape[:-1], observation_shape[-1] + extra)
 
     action = jnp.zeros(
         (action_shape[0],),
@@ -109,16 +105,13 @@ def init_buffer(
         "terminated": done,
         "truncated": done,
         "next_obs": obsv,
-        "raw_obs": raw_obsv,
-        "is_expert": jnp.zeros((1,), dtype=jnp.float32),
     }
+    if include_raw_obs:
+        schema["raw_obs"] = raw_obsv
+    if include_is_expert:
+        schema["is_expert"] = jnp.zeros((1,), dtype=jnp.float32)
     if include_expert_fields:
-        a_expert = jnp.zeros(
-            (action_shape[0],),
-            dtype=jnp.float32 if env_args.continuous else jnp.int32,
-        )
-        schema["a_expert"] = a_expert
-        schema["next_a_expert"] = a_expert
+        schema["a_expert"] = schema["next_a_expert"] = action
     if include_raw_next_obs:
         schema["raw_next_obs"] = raw_obsv
     if actor_carry_dim > 0:
@@ -128,30 +121,44 @@ def init_buffer(
     return buffer.init(schema)
 
 
-def assert_shape(x, expected_shape, name="tensor"):
-    assert (
-        x.shape == expected_shape
-    ), f"{name} has shape {x.shape}, expected {expected_shape}"
+class ReplayBatch(NamedTuple):
+    """One replay sample: its rows' fields, the optional ones None where
+    the buffer does not store them (:func:`init_buffer`)."""
+
+    obs: jax.Array
+    terminated: jax.Array
+    truncated: jax.Array
+    next_obs: jax.Array
+    reward: jax.Array
+    action: jax.Array
+    raw_obs: Optional[jax.Array] = None
+    is_expert: Optional[jax.Array] = None
+    # The expert's action at s and s' (include_expert_fields).
+    a_expert: Optional[jax.Array] = None
+    next_a_expert: Optional[jax.Array] = None
+    # The env's own next observation (include_raw_next_obs).
+    raw_next_obs: Optional[jax.Array] = None
 
 
 @partial(jax.jit, static_argnames=["buffer"])
-def get_batch_from_buffer(
-    buffer: BufferType,
-    buffer_state,
-    key,
-):
+def get_batch_from_buffer(buffer: BufferType, buffer_state, key) -> ReplayBatch:
     batch = buffer.sample(buffer_state, key).experience
-    obs = batch.first["obs"]
-    act = batch.first["action"]
-    rew = batch.first["reward"]
-    # Not the next row's obs: after a time limit that is the reset one,
-    # and the target bootstraps on the final one (interaction.bootstrap_obs).
-    next_obs = batch.first["next_obs"]
-    terminated = batch.first["terminated"]
-    truncated = batch.first["truncated"]
-    raw_observations = batch.first["raw_obs"]
-    is_expert = batch.first["is_expert"]
-    return obs, terminated, truncated, next_obs, rew, act, raw_observations, is_expert
+    first = batch.first
+    return ReplayBatch(
+        obs=first["obs"],
+        # Not the next row's obs: after a time limit that is the reset one,
+        # and the target bootstraps on the final one (interaction.bootstrap_obs).
+        next_obs=first["next_obs"],
+        terminated=first["terminated"],
+        truncated=first["truncated"],
+        reward=first["reward"],
+        action=first["action"],
+        raw_obs=first.get("raw_obs"),
+        is_expert=first.get("is_expert"),
+        a_expert=first.get("a_expert"),
+        next_a_expert=first.get("next_a_expert"),
+        raw_next_obs=first.get("raw_next_obs"),
+    )
 
 
 @partial(jax.jit, static_argnames=["buffer"])
@@ -168,27 +175,3 @@ def get_sequence_batch_from_buffer(
     """
     batch = buffer.sample(buffer_state, key).experience  # (B, L, ...)
     return jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), batch)
-
-
-@partial(jax.jit, static_argnames=["buffer"])
-def get_raw_next_obs_from_buffer(buffer: BufferType, buffer_state, key):
-    """The environment's own next observations of the batch ``key`` samples
-    (the key of the matching :func:`get_batch_from_buffer` call)."""
-    return buffer.sample(buffer_state, key).experience.first["raw_next_obs"]
-
-
-@partial(jax.jit, static_argnames=["buffer"])
-def get_expert_fields_from_buffer(
-    buffer: BufferType,
-    buffer_state,
-    key,
-):
-    """Sample (a_expert, next_a_expert) for one batch from the buffer.
-
-    Caller must use the SAME ``key`` as the matching
-    get_batch_from_buffer call to get aligned slices. Buffers without
-    these fields raise KeyError; SAC initialises the buffer with
-    ``include_expert_fields=True`` when expert_policy is provided.
-    """
-    batch = buffer.sample(buffer_state, key).experience
-    return batch.first["a_expert"], batch.first["next_a_expert"]

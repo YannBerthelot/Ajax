@@ -35,8 +35,7 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
 )
-from ajax.environments.utils import check_env_is_gymnax
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     EnvironmentConfig,
@@ -117,6 +116,7 @@ def init_TD3(
     window_size: int = 10,
     stored_state: bool = False,
     expert_policy: Optional[Callable] = None,
+    store_expert_data: bool = False,
 ) -> TD3State:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state = get_initialized_td3_actor_critic(
@@ -130,10 +130,12 @@ def init_TD3(
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
+        mode=env_args.mode,
         buffer=buffer,
         window_size=window_size,
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
+        include_raw_obs=store_expert_data,
+        include_is_expert=store_expert_data,
     )
     # A stateful expert (PID integrator, CPG phase) threads its state
     # through collection; seed it so the scan carry keeps one shape.
@@ -421,6 +423,7 @@ def make_train(
             num_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
             expert_policy=expert_policy,
+            store_expert_data=holds_expert(expert_policy, loop.stack),
         )
         return pretrain_on_expert(
             agent_state,

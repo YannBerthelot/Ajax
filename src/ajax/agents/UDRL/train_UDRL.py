@@ -45,8 +45,8 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import (
     agent_action_to_env,
-    check_env_is_gymnax,
     check_if_environment_has_continuous_actions,
+    env_keys,
 )
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
@@ -99,7 +99,7 @@ def init_UDRL(
         num_critics=1,
         extra_obs_dim=2,  # the (d_r, d_h) command is appended to obs
     )
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
@@ -175,9 +175,7 @@ def _udrl_collect_step(
     """
     cs = agent_state.collector_state
     rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
-    rng_step = (
-        jax.random.split(step_key, env_args.n_envs) if mode == "gymnax" else step_key
-    )
+    rng_step = env_keys(step_key, mode, env_args.n_envs)
 
     last_obs = cs.last_obs  # (n_envs, raw_obs_dim + 2)
     # Scale (dr, dh) before the actor's forward pass (paper §appendix). The
@@ -466,7 +464,7 @@ def make_train(
     has no policy evaluation (a command-conditioned policy needs a command
     to be evaluated with).
     """
-    mode = "gymnax" if check_env_is_gymnax(env_args.env) else "brax"
+    mode = env_args.mode
     loop = TrainLoop.create(
         env_args,
         total_timesteps,

@@ -24,7 +24,6 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.SAC.state import SoftACState
 from ajax.environments.interaction import init_collector_state
-from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
@@ -109,7 +108,7 @@ def init_soft_actor_critic(
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
-        mode="gymnax" if check_env_is_gymnax(env_args.env) else "brax",
+        mode=env_args.mode,
         buffer=buffer,
         window_size=window_size,
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),

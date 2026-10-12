@@ -1,7 +1,7 @@
 """Wrappers for environment"""
 
 import dataclasses
-from functools import cached_property, partial
+from functools import cache, cached_property, partial
 from typing import Any, Callable, Optional, Tuple
 
 import chex
@@ -445,6 +445,20 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
         return self._with_stats(state, norm_info, extra, obs=obs, reward=reward)
 
 
+@cache
+def _with_statistics(raw_state: type) -> type:
+    """``raw_state`` with a ``normalization_info`` field, the state of an
+    env under :class:`NormalizeVecObservationGymnax`: one class per inner
+    state class. Built here, not kept on the wrapper, which pickle could
+    then not save (it cannot name a class built inside a function)."""
+
+    @struct.dataclass
+    class NormalizedEnvState(raw_state):  # type: ignore[valid-type, misc]
+        normalization_info: Optional[NormalizationInfo] = None
+
+    return NormalizedEnvState
+
+
 class NormalizeVecObservationGymnax(_OnlineNormalization, GymnaxWrapper):
     """Online normalisation of a gymnax env's observations and rewards. The
     statistics live in the env state, a subclass of the inner env's state
@@ -458,17 +472,12 @@ class NormalizeVecObservationGymnax(_OnlineNormalization, GymnaxWrapper):
             lambda key: self._env.reset(key, params=self._env.default_params),
             jax.random.PRNGKey(0),
         )
-        self._raw_state = type(state)
-
-        @struct.dataclass
-        class NormalizedEnvState(self._raw_state):  # type: ignore[name-defined]
-            normalization_info: Optional[NormalizationInfo] = None
-
-        self.state_class = NormalizedEnvState
+        self._raw_state: Any = type(state)
         return obs
 
     def _with_stats(self, env_state: Any, norm_info) -> Any:
-        return self.state_class(**_fields(env_state), normalization_info=norm_info)
+        state_class = _with_statistics(self._raw_state)
+        return state_class(**_fields(env_state), normalization_info=norm_info)
 
     def reset(self, key, params=None):
         obs, env_state = self._env.reset(key, params)

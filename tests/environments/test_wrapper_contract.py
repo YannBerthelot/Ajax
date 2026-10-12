@@ -169,21 +169,13 @@ def _pickled(env):
     return pickle.loads(pickle.dumps(env))
 
 
-#: Day-one findings: the gymnax normaliser builds its state class inside a
-#: method, which pickle cannot name.
-UNPICKLABLE = {"NormalizeVecObservationGymnax", "gymnax"}
-
-
 @pytest.mark.parametrize(
     "duplicate",
     [copy.copy, copy.deepcopy, _pickled],
     ids=["copy", "deepcopy", "pickle"],
 )
 @pytest.mark.parametrize("name", sorted(BUILDERS))
-def test_a_wrapper_duplicates(name, duplicate, request):
-    if duplicate is _pickled and name in UNPICKLABLE:
-        reason = "fixed on fix/gymnax-normaliser-pickles"
-        request.applymarker(pytest.mark.xfail(strict=True, reason=reason))
+def test_a_wrapper_duplicates(name, duplicate):
     env = BUILDERS[name]()
     twin = duplicate(env)
     assert type(twin) is type(env)

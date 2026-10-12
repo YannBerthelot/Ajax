@@ -1,7 +1,7 @@
 import warnings
 from collections.abc import Sequence
 from functools import partial
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -12,6 +12,7 @@ from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -106,9 +107,9 @@ class PPO(ActorCritic):
         squash: bool = False,
         episode_length: Optional[int] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``

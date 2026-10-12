@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import ajax
 import ajax.extensions
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
@@ -85,7 +86,7 @@ OPTIONS |= {
     "eval_expert_policy": {"eval_expert_policy": EXPERT},
     "expert_buffer_n_steps": {"expert_buffer_n_steps": 16},  # the expert prefill
     "target_entropy_initial_per_dim": {"target_entropy_initial_per_dim": 0.0},
-    "action_pipeline": {"action_pipeline": make_default_action_pipeline(False, 0.1)},
+    "action_pipeline": {"action_pipeline": None},  # TD3's, for the row's actor
     "n_gradient_steps": {"n_gradient_steps": 2},
     "n_epochs": {"n_epochs": 2},
     "cnn_image_shape": {"cnn_image_shape": None},
@@ -160,13 +161,16 @@ EXPERTS = {"expert_policy", "eval_expert_policy"}
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
 EXCLUSIVE = [
-    # Recurrent agents refuse experts and extensions (recurrent.py).
-    (MEMORY, EXPERTS | set(EXTENSIONS) | {"action_pipeline", "unroll_length"}),
+    # Recurrent agents refuse experts and extensions (recurrent.py), PPO
+    # its feedforward fragments.
+    (MEMORY, EXPERTS | set(EXTENSIONS) | {"unroll_length"}),
     ({"use_pid_policy"}, ACTING),  # the gain policy bypasses SAC's action slots
     # Experts act in continuous spaces; ImitationLoss reads a mean action.
     ({"CartPole-v1"}, EXPERTS | {"ImitationLoss"}),
 ]
 TABLE = CASES | {"APG": Case(APG, {"horizon": 1, "pid": None}, ())}
+#: The exported agents off TABLE, and the tests that run their options.
+OWN_TESTS = {"DreamerV3": "DreamerV3", "TDMPC2": "TDMPC2", "TDMPC2MultiTask": "TDMPC2"}
 
 
 def _options(name: str) -> list[str]:
@@ -240,6 +244,8 @@ def _build(name: str, row: frozenset[str]) -> Any:
         kw["squash"] = not params["squash"].default
     if "cnn_image_shape" in kw:
         kw["cnn_image_shape"] = CNN[env]
+    if "action_pipeline" in kw:
+        kw["action_pipeline"] = make_default_action_pipeline("memory" in kw, 0.1)
     exts = [build() for e, (build, _) in EXTENSIONS.items() if e in row]
     if case.cls is APG:
         env, kw["env_params"] = paid_action.make()
@@ -285,3 +291,9 @@ def test_every_src_extension_has_a_builder() -> None:
             todo.append(sub)
             found |= {sub.__name__} if sub.__module__.startswith("ajax.") else set()
     assert found == set(EXTENSIONS)
+
+
+def test_every_agent_has_rows_or_its_own_option_tests() -> None:
+    """A new agent joins TABLE (test_agent_contract.CASES) or names its tests."""
+    assert set(TABLE) | set(OWN_TESTS) == set(ajax.__all__)
+    assert all((Path(__file__).parent / d).is_dir() for d in OWN_TESTS.values())

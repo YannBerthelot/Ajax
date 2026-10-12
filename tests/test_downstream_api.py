@@ -174,7 +174,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     ),
     "ajax.networks.memory:init_carry": (),
     "ajax.networks.memory:zeros_carry_like": (),
-    "ajax.plane.plane_exps_utils:get_mode": (),
     "ajax.schedule:warmup_cosine_schedule": (),
     "ajax.wrappers:AutoResetWrapper": (),
     "ajax.wrappers:FinalObsWrapper": (),

@@ -59,11 +59,6 @@ class APGAuxiliaries:
     timestep: Union[int, jax.Array]
 
 
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
-
-
 # A controller factory builds the policy network from the agent's context.
 # It must return a flax module honouring the Controller contract: a static
 # ``stateful`` attribute, ``initialize_carry(rng, batch_size)`` when
@@ -161,11 +156,6 @@ def reset_optimizer(agent_state: APGState, optimizer_args: OptimizerConfig) -> A
     return agent_state.replace(actor_state=actor_state)
 
 
-# ---------------------------------------------------------------------------
-# Closed loop
-# ---------------------------------------------------------------------------
-
-
 def make_policy_step(
     actor_state: LoadedTrainState, params: Any, stateful: bool
 ) -> Callable:
@@ -236,11 +226,6 @@ def rollout_returns(
     return rollout.reward.sum(0), rollout
 
 
-# ---------------------------------------------------------------------------
-# Evaluation + logging
-# ---------------------------------------------------------------------------
-
-
 def evaluate_apg(
     agent_state: APGState,
     rng: jax.Array,
@@ -272,11 +257,6 @@ def _train_metrics(agent_state: APGState, aux: APGAuxiliaries) -> dict:
         "Train/matching_loss": aux.matching_loss,
         "Train/m_rmse": aux.m_rmse,
     }
-
-
-# ---------------------------------------------------------------------------
-# One update
-# ---------------------------------------------------------------------------
 
 
 def training_iteration(
@@ -340,11 +320,6 @@ def training_iteration(
     )
     agent_state, _ = loop.evaluate_every(agent_state, aux, index, iteration, evaluation)
     return agent_state, aux
-
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(

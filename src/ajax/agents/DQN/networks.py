@@ -5,12 +5,6 @@ that takes ``concat(obs, action)`` as input), DQN's network is a
 state-value-vector ``Q(s) -> R^{n_actions}``. The greedy policy is the
 argmax over that vector; epsilon-greedy exploration is layered on at
 collection time via a custom ``action_pipeline``.
-
-``QNetwork.__call__`` returns a :class:`GreedyQPolicy` -- a tiny
-distrax-compatible wrapper (mirroring TD3's ``Deterministic``) so the
-shared evaluation loop (``ajax.evaluate.evaluate`` -> ``get_pi``) can call
-``.mode()`` / ``.entropy()`` on it unchanged, while DQN's own loss reads
-the raw Q-vector via ``.q_values``.
 """
 
 from collections.abc import Sequence
@@ -86,7 +80,7 @@ class GreedyQPolicy:
 def _build_q_encoder(module: nn.Module) -> nn.Module:
     """Encoder for a Q-network: a `CNNEncoder` over flat image obs when
     `cnn_image_shape` is set (architecture from `cnn_spec`), else the
-    legacy MLP `Encoder`."""
+    MLP `Encoder`."""
     if module.cnn_image_shape is not None:
         return CNNEncoder(
             module.cnn_image_shape, module.cnn_extra_obs_dim, module.cnn_spec

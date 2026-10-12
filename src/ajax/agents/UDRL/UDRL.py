@@ -1,8 +1,3 @@
-"""Public UDRL agent class. Mirrors the Ajax convention used by PPO/SAC: a
-thin wrapper over the shared ActorCritic base that builds env / network /
-optimizer configs and forwards them to a per-agent ``make_train``.
-"""
-
 from collections.abc import Sequence
 from typing import Optional, Tuple
 
@@ -52,7 +47,6 @@ class UDRL(ActorCritic):
         # joins the CNN embedding after the convolutions. None keeps the
         # MLP encoder.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).

@@ -37,7 +37,7 @@ class AVG(ActorCritic):
     }
     make_train = staticmethod(make_train)
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
         env_id: str | EnvType,
         n_envs: int = 1,
@@ -59,11 +59,10 @@ class AVG(ActorCritic):
         num_critics: int = 1,
         # Expert for the eval expert-bias metric only.
         expert_policy: Optional[Callable] = None,
-        # Gap A (Phase 4a): expose the most recent ``(T=1, n_envs, ...)``
+        # Expose the most recent ``(T=1, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -74,20 +73,8 @@ class AVG(ActorCritic):
         Initialize the AVG agent.
 
         Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            actor_learning_rate (float): Adam step size of the actor.
-            critic_learning_rate (float): Adam step size of the critic.
-            actor_architecture (tuple): Layers of the actor network.
-            critic_architecture (tuple): Layers of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            learning_starts (int): Timesteps before training starts.
-            reward_scale (float): Scaling factor for rewards.
             alpha_init (float): The (fixed) entropy coefficient.
             beta_1 (float): Adam's first-moment decay (AVG uses 0).
-            beta_2 (float): Adam's second-moment decay.
         """
         self.config = run_config(locals(), self.name)
         warn_inert(

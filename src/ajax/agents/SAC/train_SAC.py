@@ -43,25 +43,14 @@ from ajax.state import (
 )
 from ajax.types import BufferType
 
-# ---------------------------------------------------------------------------
-# Auxiliary dataclasses for logging
-# ---------------------------------------------------------------------------
-
 
 @struct.dataclass
 class PolicyAuxiliaries:
-    # Core loss
     raw_loss: jax.Array  # α·log π - Q: pure SAC gradient
-    policy_loss: jax.Array  # raw_loss + value constraint terms
-
-    # Entropy diagnostics
+    policy_loss: jax.Array  # raw_loss + the actor-loss extensions' terms
     log_pi: jax.Array  # entropy proxy; tracks target_entropy
     policy_std: jax.Array  # mean unsquashed std; lower = more deterministic
-
-    # Q-value diagnostics
     q_min: jax.Array  # Q(s, π(s)): what policy optimises
-
-    # Online decaying BC term
     bc_term: jax.Array  # decaying online BC loss magnitude (0 after warmup_frac)
 
 
@@ -78,11 +67,6 @@ class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
-
-
-# ---------------------------------------------------------------------------
-# SAC initialization
-# ---------------------------------------------------------------------------
 
 
 def init_SAC(
@@ -200,13 +184,6 @@ def init_SAC(
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
     )
-
-
-# ---------------------------------------------------------------------------
-# Critic update
-# ---------------------------------------------------------------------------
-# Uses core.compute_td_target for the base Bellman target, then applies
-# expert target modifiers (IBRL, blend, MC correction) before the loss.
 
 
 def update_value_functions(
@@ -329,11 +306,6 @@ def update_value_functions(
     return agent_state.replace(rng=rng, critic_state=updated_critic_state), aux
 
 
-# ---------------------------------------------------------------------------
-# Policy update — SAC + value constraint
-# ---------------------------------------------------------------------------
-
-
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
@@ -350,13 +322,7 @@ def policy_loss_function(
     agent_state: Any = None,
     total_timesteps: int = 1,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
-    """SAC actor loss with composable expert modifiers.
-
-    Structure mirrors the critic side: core SAC loss + layered expert additions.
-    1. Core: forward pass → sample → Q eval → α·log π - Q
-    2. Modifier: policy_action_transform (residual RL before Q eval)
-    3. Modifier: extension_stack.fold_actor_loss (e.g. OnlineBC term)
-    """
+    """SAC actor loss with composable expert modifiers."""
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
     )
@@ -406,8 +372,6 @@ def policy_loss_function(
     else:
         a_expert = None
 
-    # Additive actor-loss terms, on core.soft_actor_step's batch plus the
-    # expert's action (OnlineBC's target; None before phi* exists).
     ext_batch = {
         "observations": observations,
         # The replay keeps them only for a run with an expert: None
@@ -451,8 +415,9 @@ def update_policy(
     total_timesteps: int = 1,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
-    """Returns (new_state, aux, log_probs) — log_probs reused by update_temperature
-    to avoid a redundant actor forward pass."""
+    """Returns (new_state, aux, log_probs): log_probs from a fresh pass of the
+    updated actor, for update_temperature (CleanRL's SAC order; cited from
+    memory, unverified)."""
     rng, policy_key = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
 
@@ -477,7 +442,6 @@ def update_policy(
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
 
-    # Recompute log_probs from updated actor for temperature update reuse
     temp_rng, temp_sample_key = jax.random.split(rng)
     pi = actor_dist(
         updated_actor_state, updated_actor_state.params, observations, carries
@@ -488,11 +452,6 @@ def update_policy(
         aux,
         jax.lax.stop_gradient(log_probs),
     )
-
-
-# ---------------------------------------------------------------------------
-# Agent update (one gradient step)
-# ---------------------------------------------------------------------------
 
 
 def update_agent(
@@ -522,7 +481,6 @@ def update_agent(
     sample_key, _, rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
 
-    # --- Sample from buffer ---
     carries = None
     if recurrent:
         # Sequence replay with burned-in carries (R2D2-style); expert
@@ -582,9 +540,6 @@ def update_agent(
         )
         transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
 
-    # --- The expert's action, once, for the policy update ---
-    # The critic's values at it (q_expert_mean, q_gap, phi_star_q_gap_ood)
-    # are an extension's eval metrics (ajax.extensions.expert.ExpertValueMetrics).
     a_expert_precomputed = None
     # The actor-loss extensions (OnlineBC) take the expert action from
     # here, phi* or not.
@@ -642,7 +597,6 @@ def update_agent(
         length=num_critic_updates,
     )
 
-    # --- Policy update — returns log_probs for temperature reuse ---
     new_agent_state, aux_policy, policy_log_probs = update_policy(
         observations=transition.obs,
         agent_state=agent_state,
@@ -681,7 +635,6 @@ def update_agent(
     else:
         effective_target_entropy = jnp.asarray(target_entropy)
 
-    # --- Temperature update — reuses log_probs, no redundant actor forward pass ---
     # ``fixed_alpha`` keeps alpha pinned at ``alpha_init`` for the whole run
     # (the temperature loss is still computed for its logged auxiliaries,
     # only the gradient step is dropped).
@@ -705,11 +658,6 @@ def update_agent(
         value=aux_value.replace(expert_frac_in_buffer=expert_frac_in_buffer),
     )
     return agent_state, aux
-
-
-# ---------------------------------------------------------------------------
-# Training factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(
@@ -736,7 +684,6 @@ def make_train(
     augment_obs_with_expert_action: bool = False,
     # Train-fraction conditioning: append timestep/total_timesteps to obs
     use_train_frac: bool = False,
-    # Update start thresholds
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     expert_fraction: float = 0.7,
@@ -750,7 +697,6 @@ def make_train(
     use_pid_policy: bool = False,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
     action_dim_override: Optional[int] = None,
-    # --- Extension framework (the research-features surface) ---
     extensions: Sequence = (),
 ):
     """SAC's train function on :meth:`TrainLoop.off_policy`.

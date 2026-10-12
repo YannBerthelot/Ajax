@@ -50,7 +50,6 @@ class DQN(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # --- DQN variants ---
         # TD target: None -> vanilla DQN. Pass compute_double_dqn_td_target
         # (from train_DQN) for Double DQN.
         td_target_fn: Optional[Callable] = None,
@@ -63,7 +62,6 @@ class DQN(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[CNNSpec] = None,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).

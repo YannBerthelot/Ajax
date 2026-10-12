@@ -3,7 +3,6 @@ from flax import struct
 from jax.tree_util import Partial as partial
 
 from ajax.agents.SAC.state import SoftACState
-from ajax.deprecation import moved_names
 from ajax.state import BaseAgentConfig
 
 
@@ -38,6 +37,3 @@ class AVGConfig(BaseAgentConfig):
     learning_starts: int = 0
     reward_scale: float = 1
     num_critics: int = 1  # to switch from single to double-q (or more if you want)
-
-
-__getattr__ = moved_names(__name__, NormalizationInfo=RunningMoments)

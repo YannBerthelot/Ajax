@@ -44,7 +44,6 @@ dependencies = [
     { name = "gymnasium" },
     { name = "gymnax" },
     { name = "jax" },
-    { name = "jax", extra = ["cuda"], marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'darwin'" },
     { name = "matplotlib" },
     { name = "mujoco" },
     { name = "mujoco-mjx" },
@@ -90,8 +89,7 @@ requires-dist = [
     { name = "flax", specifier = ">=0.10.7,<0.11" },
     { name = "gymnasium", specifier = ">=1.2.0,<2" },
     { name = "gymnax", git = "https://github.com/YannBerthelot/gymnax.git?branch=chore%2Frelax-runtime-pins" },
-    { name = "jax", marker = "(platform_machine == 'aarch64' and sys_platform == 'darwin') or (platform_machine == 'arm64' and sys_platform == 'darwin')", specifier = ">=0.6.2" },
-    { name = "jax", extras = ["cuda"], marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'darwin'", specifier = ">=0.6.2" },
+    { name = "jax", specifier = ">=0.6.2" },
     { name = "jax", extras = ["cuda"], marker = "sys_platform == 'linux' and extra == 'cuda'", specifier = ">=0.6.2" },
     { name = "matplotlib", specifier = ">=3.8.0,<4" },
     { name = "mujoco", specifier = ">=3.1.4,<4" },
@@ -937,18 +935,18 @@ wheels = [
 
 [package.optional-dependencies]
 with-cuda = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cuda-cupti-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cuda-nvcc-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cuda-nvrtc-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cuda-runtime-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cudnn-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cufft-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cusolver-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-cusparse-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-nccl-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform == 'linux'" },
-    { name = "nvidia-nvshmem-cu12", marker = "sys_platform == 'linux'" },
+    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cuda-cupti-cu12" },
+    { name = "nvidia-cuda-nvcc-cu12" },
+    { name = "nvidia-cuda-nvrtc-cu12" },
+    { name = "nvidia-cuda-runtime-cu12" },
+    { name = "nvidia-cudnn-cu12" },
+    { name = "nvidia-cufft-cu12" },
+    { name = "nvidia-cusolver-cu12" },
+    { name = "nvidia-cusparse-cu12" },
+    { name = "nvidia-nccl-cu12" },
+    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvshmem-cu12" },
 ]
 
 [[package]]

@@ -1,12 +1,12 @@
 name: Set up Python and uv
 description: Python 3.12, uv, and the project installed with its locked dependencies.
 
-# No virtualenv cache: on Linux the environment holds the CUDA wheels
-# (about 2.5 GB compressed), so restoring it would save little over the
-# install while filling the repository's cache quota. The uv cache is kept
-# but pruned before saving (prune-cache), which drops every wheel downloaded
-# pre-built, the CUDA ones included: only what uv built itself (the two git
-# dependencies) is stored.
+# The CPU runners install no CUDA: it is the optional `cuda` extra. No
+# virtualenv cache: it was ruled out when the environment held the CUDA
+# wheels (about 2.5 GB compressed); whether one pays without them is not
+# measured. The uv cache is kept but pruned before saving (prune-cache),
+# which drops every wheel downloaded pre-built: only what uv built itself
+# (the two git dependencies) is stored.
 runs:
   using: composite
   steps:

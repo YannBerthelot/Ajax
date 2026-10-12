@@ -6,7 +6,6 @@ from gymnax import EnvParams
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.cloning import warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
 from ajax.extensions.pretrain import CloningPretrain
@@ -56,7 +55,6 @@ class APO(ActorCritic):
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
         actor_cloning_epochs: Optional[int] = None,
-        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
         actor_cloning_batch_size: Optional[int] = None,
         pre_train_n_steps: Optional[int] = None,
         # Expert for the cloning pre-training and the eval expert-bias
@@ -148,7 +146,6 @@ class APO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        warn_actor_cloning_lr(actor_cloning_lr)
         self.cloning = CloningPretrain.from_deprecated_kwargs(
             self.expert_policy,
             self.extension_stack.extensions,

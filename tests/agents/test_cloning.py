@@ -178,17 +178,12 @@ def test_cloning_pretraining_leaves_jax_caches_alone():
 
 
 @pytest.mark.parametrize("agent_name", ["APO", "REDQ", "SAC", "TD3"])
-def test_actor_cloning_lr_is_deprecated(agent_name):
-    """Cloning trains at the actor's learning rate and never read
-    ``actor_cloning_lr``: setting it warns instead of being silently
-    ignored, and leaving it out stays quiet."""
+def test_actor_cloning_lr_is_removed(agent_name):
+    """``actor_cloning_lr`` was never read (cloning trains at the actor's
+    learning rate) and warned from 5affdaa; it is now refused."""
     module = importlib.import_module(f"ajax.agents.{agent_name}.{agent_name}")
-    agent_cls = getattr(module, agent_name)
-    with pytest.warns(FutureWarning, match="actor_cloning_lr"):
-        agent_cls("Pendulum-v1", actor_cloning_lr=1e-3)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        agent_cls("Pendulum-v1")
+    with pytest.raises(TypeError, match="actor_cloning_lr"):
+        getattr(module, agent_name)("Pendulum-v1", actor_cloning_lr=1e-3)
 
 
 def _agent_class(agent_name):

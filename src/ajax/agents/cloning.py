@@ -1,4 +1,3 @@
-import warnings
 from typing import Dict, Optional, Sequence, Tuple
 
 import distrax
@@ -11,23 +10,6 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import augment_obs
 from ajax.networks.distributions import SquashedNormal
-
-
-def warn_actor_cloning_lr(actor_cloning_lr: Optional[float]) -> None:
-    """Warn that ``actor_cloning_lr`` is deprecated and ignored.
-
-    Cloning has always trained at the actor's learning rate: the keyword
-    was never read. No downstream project sets it (scan of 2026-10-11), so
-    it goes expand-then-contract: this warning now, then a follow-up
-    removes the keyword from SAC, TD3, REDQ and APO.
-    """
-    if actor_cloning_lr is not None:
-        warnings.warn(
-            "actor_cloning_lr is deprecated and ignored: behaviour cloning"
-            " trains at actor_learning_rate. It will be removed.",
-            FutureWarning,
-            stacklevel=3,
-        )
 
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:

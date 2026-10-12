@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import make_train
@@ -59,8 +59,7 @@ class UDRL(ActorCritic):
         episode_length: Optional[int] = None,
         action_repeat: int = 1,
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "UDRL"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,

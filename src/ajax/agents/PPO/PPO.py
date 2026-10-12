@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Union
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PPO.core import resolve_num_minibatches
 from ajax.agents.PPO.state import PPOConfig
@@ -137,8 +137,7 @@ class PPO(ActorCritic):
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             batch_size (int): Batch size for training.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "PPO"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,

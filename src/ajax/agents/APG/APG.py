@@ -26,7 +26,7 @@ from gymnax import EnvParams
 from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.APG.state import APGConfig
 from ajax.agents.APG.train_APG import make_train
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.environments.differentiable import with_transition_gradients
 from ajax.environments.system_class import SystemClass
@@ -118,8 +118,7 @@ class APG(ActorCritic):
             extensions: composable research features (see
                 :mod:`ajax.extensions`).
         """
-        self.config = {k: v for k, v in locals().items() if k != "self"}
-        self.config.update({"algo_name": "APG"})
+        self.config = run_config(locals(), self.name)
 
         # No critic; the actor's optimizer is built below.
         super().__init__(

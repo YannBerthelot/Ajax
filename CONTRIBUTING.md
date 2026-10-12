@@ -237,8 +237,7 @@ class FOO(ActorCritic):
         buffer_size: int = int(1e6), batch_size: int = 100, learning_starts: int = int(1e4),
         extensions: Sequence[Extension] = (),
     ) -> None:
-        self.config = {**locals()}  # what train() logs with the run
-        self.config.update({"algo_name": "FOO"})
+        self.config = run_config(locals(), self.name)  # what train() logs with the run
         super().__init__(env_id=env_id, n_envs=n_envs, extensions=extensions)
         self.agent_config = FOOConfig(gamma=gamma, learning_starts=learning_starts)
         self.buffer = make_replay_buffer(

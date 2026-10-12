@@ -21,6 +21,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ajax.agents.base import run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import PAPER_TASK_DIM, TaskSet
@@ -182,12 +183,7 @@ class TDMPC2MultiTask:
         :class:`~ajax.agents.TDMPC2.TDMPC2.TDMPC2` (``5f6fade``'s
         ``config.yaml``), with the paper's multi-task batch size 1024.
         """
-        self.config = {
-            k: v
-            for k, v in locals().items()
-            if k not in ("self", "__class__", "dataset", "eval_envs")
-        }
-        self.config.update({"algo_name": "TDMPC2MultiTask"})
+        self.config = run_config(locals(), self.name, ("dataset", "eval_envs"))
         self.extension_stack = ExtensionStack(extensions)
         check_extension_phases(
             type(self).__name__, self.extension_stack, self.supported_extension_phases

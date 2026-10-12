@@ -5,7 +5,7 @@ from gymnax import EnvParams
 
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.cloning import warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
@@ -87,8 +87,7 @@ class APO(ActorCritic):
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             batch_size (int): Batch size for training.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "APO"})
+        self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy

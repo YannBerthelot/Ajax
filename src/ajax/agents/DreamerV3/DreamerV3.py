@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional, Union
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DreamerV3.replay import bytes_per_row, grow_rings
 from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
@@ -226,10 +226,7 @@ class DreamerV3(ActorCritic):
         env_params: Optional[EnvParams] = None,
         extensions: Sequence[Extension] = (),
     ) -> None:
-        self.config = {
-            k: v for k, v in locals().items() if k not in ("self", "__class__")
-        }
-        self.config.update({"algo_name": "DreamerV3"})
+        self.config = run_config(locals(), self.name)
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,

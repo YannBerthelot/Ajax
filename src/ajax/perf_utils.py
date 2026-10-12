@@ -1,17 +1,8 @@
 """Shared JAX-pure performance helpers for Ajax agents.
 
-These primitives encapsulate patterns the Round-1/Round-2/Round-3 perf
-audit found across multiple agents (see ``PERFORMANCE_LOG.md``). Use
-them from any agent's ``train_*.py`` so a fix lands in one place
-instead of being duplicated per-agent.
-
-Public API:
-    build_resumable_train
-                         Builds the canonical init-or-resume + lax.scan
-                         inner train function shared by every agent
-                         (directly, or through ``ajax.agents.loop``).
-    final_aux_scan       lax.scan that exposes only the last-step aux,
-                         without materializing the full ys axis.
+Patterns the perf audits found across agents (``PERFORMANCE_LOG.md``),
+written once so a fix lands in one place instead of in every agent's
+``train_*.py``.
 """
 
 from functools import partial
@@ -21,9 +12,6 @@ import jax
 import jax.numpy as jnp
 
 
-# ---------------------------------------------------------------------------
-# build_resumable_train
-# ---------------------------------------------------------------------------
 def build_resumable_train(
     *,
     init_fn: Callable[[Any, Any], Any],
@@ -34,23 +22,14 @@ def build_resumable_train(
 ) -> Callable:
     """Build the canonical init-or-resume + ``lax.scan`` inner train fn.
 
-    Every Ajax agent shares the exact same training-loop skeleton:
-
-      1. either build a fresh ``agent_state`` from the agent's ``init_*``
-         function (its one-shot initialisation included, so it is not
-         re-run when continuing a previous run), or — when
-         ``resume_from_state=True`` — reuse the ``initial_state`` handed
-         in from a checkpoint;
-      2. ``jax.lax.scan`` the per-iteration scan body for
-         ``num_updates`` steps, feeding it the iteration index as ``x``;
-      3. return ``(agent_state, out)``.
-
-    This helper owns that skeleton so it is written exactly once instead
-    of being duplicated (and drifting) across every agent's
-    ``train_*.py``. Each agent's ``make_train`` keeps its own setup
-    (network/optimizer/action-pipeline construction, the per-iteration
-    partial, the ``num_updates`` computation, logging) and simply hands
-    the resulting pieces to this function.
+    Every Ajax agent shares this skeleton, written once here so it cannot
+    drift between agents: build a fresh ``agent_state`` with ``init_fn``
+    (its one-shot initialisation included, so a continued run does not
+    re-run it) or, with ``resume_from_state=True``, reuse the
+    ``initial_state`` handed in from a checkpoint; then ``jax.lax.scan``
+    the per-iteration body ``num_updates`` times, its input the iteration
+    index. Each agent's ``make_train`` keeps its own setup (networks,
+    optimisers, action pipeline, logging) and hands the pieces over.
 
     The returned ``train`` function has the signature
 
@@ -72,7 +51,7 @@ def build_resumable_train(
     unbatched -- pass it through ``jax.vmap`` with ``in_axes=None`` -- so
     the index, and every predicate derived from it, stays unbatched under
     the seed vmap. The default (the Python int 0, not passed) adds nothing
-    to the program: it is exactly the one before offsets existed.
+    to the program.
 
     ``shared`` is an optional pytree the body reads but never carries -- an
     offline dataset, say -- handed to ``make_scan_fn`` as the keyword
@@ -106,9 +85,6 @@ def build_resumable_train(
             instead of stacking one per iteration. The body then maps
             ``((agent_state, out), x)`` to ``((agent_state, out), None)``
             and ``train`` returns the final ``(agent_state, out)``.
-
-    Returns:
-        The jit-decorated inner ``train`` function.
     """
 
     @partial(
@@ -154,9 +130,6 @@ def build_resumable_train(
     return train
 
 
-# ---------------------------------------------------------------------------
-# final_aux_scan
-# ---------------------------------------------------------------------------
 def final_aux_scan(
     body: Callable[[Any, Any], Tuple[Any, Any]],
     init_carry: Any,
@@ -175,15 +148,10 @@ def final_aux_scan(
     the discarded ys dimension would otherwise grow as
     ``[seeds, length, *aux_shape]`` purely to be thrown away.
 
-    The body must follow the standard ``(carry, x) -> (new_carry, aux)``
-    signature where ``aux`` is a pytree of arrays (any structure). We
-    use ``jax.eval_shape`` to derive a zeros placeholder for the
-    initial aux carry without actually executing the body.
+    The body maps ``(carry, x) -> (new_carry, aux)``, ``aux`` a pytree of
+    arrays (any structure).
 
     Args:
-        body: ``(carry, x) -> (new_carry, aux)``.
-        init_carry: initial scan carry.
-        length: number of scan iterations (static int).
         xs: optional pytree of per-step inputs; if None, the body
             receives ``None`` as ``x`` each step (matches scan semantics).
 
@@ -197,7 +165,6 @@ def final_aux_scan(
         new_carry, aux = body(carry, x)
         return (new_carry, aux), None
 
-    # Sample xs at index 0 if it is a per-step pytree, otherwise use None.
     sample_x = jax.tree.map(lambda a: a[0], xs) if xs is not None else None
     aux_shape = jax.eval_shape(lambda c: body(c, sample_x)[1], init_carry)
     init_aux = jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), aux_shape)

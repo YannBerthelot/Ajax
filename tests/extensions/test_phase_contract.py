@@ -3,16 +3,17 @@ tiny run per agent with a recorder implementing each phase it folds of
 ``on_target``, ``critic_loss``, ``actor_loss`` and ``post_update``:
 
 (a) each batch holds the keys ``PHASE_BATCH_KEYS`` documents;
-(b) each fold gets a key no other fold gets, and never the one the agent
-    carries on to draw its own;
+(b) each fold gets a key no other fold gets, and none the agent draws on
+    itself (a key it hands ``jax.random``) or carries on;
 (c) ``critic_loss`` gets as its targets what ``on_target`` returned;
 (d) a loss term reaches the optimizer of the network it names, and that
     one only: ``SLOPE * sum(theta)`` on every parameter moves each by one
     common amount (Adam steps by the gradient's sign), the critic's term
     down and the actor's (``-SLOPE * sum(theta)``) up.
 
-The agents are test_agent_contract's table and APG; a new agent joins by
-its row there, its phases read from ``supported_extension_phases``.
+The agents are test_agent_contract's table and APG, their phases read from
+``supported_extension_phases``; an agent of ``ajax`` folding one of these
+phases without a run here fails.
 """
 
 from __future__ import annotations
@@ -21,11 +22,13 @@ import functools
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
+from unittest import mock
 
 import jax
 import numpy as np
 import pytest
 
+import ajax
 from ajax.agents.APG.APG import APG
 from ajax.extensions.base import PHASE_BATCH_KEYS, Extension
 from tests.agents.test_agent_contract import CASES
@@ -35,6 +38,10 @@ SHIFT = 10.0  # what on_target adds to the target
 SLOPE = 1e6  # a loss term's gradient on each parameter of its network
 BATCH_KEYS: dict[str, set] = defaultdict(set)  # phase -> key sets, at trace time
 ROWS: list[tuple] = []  # (phase, step, ctx.rng, agent's rng, *values) per fold
+DRAWN: list[np.ndarray] = []  # every key the run hands jax.random's functions
+#: jax.random's functions the agents (and distrax, flax) draw or derive keys with.
+DRAWS = "split fold_in normal uniform randint permutation choice bernoulli"
+DRAWS += " categorical gumbel bits truncated_normal exponential"
 
 
 def _record(phase: str, agent_state: Any, batch: Any, ctx: Any, *values: Any) -> None:
@@ -42,6 +49,14 @@ def _record(phase: str, agent_state: Any, batch: Any, ctx: Any, *values: Any) ->
         BATCH_KEYS[phase].add(frozenset(batch))
     row = lambda *a: ROWS.append((phase, *map(np.asarray, a)))  # noqa: E731
     jax.debug.callback(row, ctx.step, ctx.rng, agent_state.rng, *values)
+
+
+def _spy(draw: Any) -> Any:
+    def spied(key: Any, *args: Any, **kwargs: Any) -> Any:
+        jax.debug.callback(lambda k: DRAWN.append(np.asarray(k)), key)
+        return draw(key, *args, **kwargs)
+
+    return spied
 
 
 def _total(params: Any) -> Any:
@@ -93,6 +108,16 @@ OVERRIDES: dict[str, dict] = {
     "PQN": {"n_epochs": 1, "num_minibatches": 1},
 }
 AGENTS = [*sorted(CASES), "APG"]
+#: World models fold post_update alone, through loop.fold_post_update as the
+#: runs here do; a run of theirs would cost more than these eleven together.
+POST_UPDATE_ONLY = {"DreamerV3", "TDMPC2", "TDMPC2MultiTask"}
+
+
+def test_every_agent_folding_a_phase_has_a_run() -> None:
+    for name in ajax.__all__:
+        phases = set(PHASES) & getattr(ajax, name).supported_extension_phases
+        if phases and not (name in POST_UPDATE_ONLY and phases == {"post_update"}):
+            assert name in AGENTS, f"{name} folds {sorted(phases)}: add its run"
 
 
 @functools.cache
@@ -110,11 +135,19 @@ def _run(name: str) -> SimpleNamespace:
     recorder = type("Recorder", (Recorder,), {p: globals()[p] for p in phases})()
     BATCH_KEYS.clear()
     ROWS.clear()
-    agent = cls(env_id, **kwargs, extensions=(recorder,))
-    state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
-    jax.effects_barrier()
+    DRAWN.clear()
+    spies = {name: _spy(getattr(jax.random, name)) for name in DRAWS.split()}
+    with mock.patch.multiple(jax.random, **spies):
+        agent = cls(env_id, **kwargs, extensions=(recorder,))
+        state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
+        jax.effects_barrier()
+    drawn = {tuple(k) for d in DRAWN for k in np.reshape(d, (-1, 2)).tolist()}
     return SimpleNamespace(
-        phases=phases, batch_keys=dict(BATCH_KEYS), rows=list(ROWS), state=state
+        phases=phases,
+        batch_keys=dict(BATCH_KEYS),
+        rows=list(ROWS),
+        drawn=drawn,
+        state=state,
     )
 
 
@@ -135,9 +168,10 @@ def test_each_batch_holds_the_documented_keys(name: str) -> None:
 SHARED_KEYS = pytest.mark.xfail(
     strict=True,
     reason="fix/extension-keys: on_target and critic_loss share the TD target's"
-    " key (TD3 and AVG fold actor_loss on the agent's own)",
+    " key, actor_loss the policy sample's (TD3 and AVG the agent's own, UDRL"
+    " its batch's)",
 )
-_SHARED = ("ASAC", "AVG", "REDQ", "SAC", "TD3")
+_SHARED = ("ASAC", "AVG", "REDQ", "SAC", "TD3", "UDRL")
 
 
 @pytest.mark.parametrize(
@@ -154,6 +188,8 @@ def test_each_fold_gets_a_key_of_its_own(name: str) -> None:
     shared = len(keys) - len(np.unique(keys, axis=0))
     assert not shared, f"{shared} of {len(keys)} folds got a key another fold got"
     assert not (keys == own).all(axis=1).any(), "a fold got the agent's own key"
+    drawn = sum(key in run.drawn for key in map(tuple, keys.tolist()))
+    assert not drawn, f"the agent draws on {drawn} of {len(keys)} fold keys itself"
 
 
 @pytest.mark.parametrize("name", [n for n in AGENTS if n not in ("APG", "UDRL")])

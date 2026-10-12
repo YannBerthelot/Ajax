@@ -1,9 +1,11 @@
+import functools
 import importlib
 import warnings
 
 import distrax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import pytest
 from flax import linen as nn
@@ -217,3 +219,50 @@ def test_cloning_pretrain_seeds_the_agents_statistics(agent_name):
     agent = getattr(module, agent_name)("Pendulum-v1", extensions=(cloning,), **kw)
     state = agent.train(seed=0, n_timesteps=0)[0]
     assert state.actor_state.obs_norm_info is not None
+
+
+def _sac_actor(*extensions):
+    """SAC's actor parameters after its pretrain phase (a run of 0 steps
+    updates nothing)."""
+    from ajax import SAC
+
+    tiny = ("8", "relu")
+    agent = SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        actor_architecture=tiny,
+        critic_architecture=tiny,
+        expert_policy=_half_torque,
+        expert_buffer_n_steps=0,
+        extensions=extensions,
+    )
+    return agent.train(seed=0, n_timesteps=0)[0].actor_state.params["params"]
+
+
+def _close(a, b):
+    pairs = zip(jax.tree.leaves(a), jax.tree.leaves(b), strict=True)
+    return all(np.allclose(x, y, rtol=1e-5, atol=1e-7) for x, y in pairs)
+
+
+def test_cloning_pretrain_resets_the_heads_it_is_told_to():
+    """``reset_log_std`` puts the cloned actor's log-std head back at its
+    initial values; ``reset_actor_head`` re-initialises the mean head too
+    (orthogonal(0.01): a unit column scaled to 0.01, zero bias), the trunk
+    staying cloned; without either, both heads keep their cloned values."""
+    clone = functools.partial(
+        CloningPretrain, _half_torque, n_steps=16, epochs=2, batch_size=8
+    )
+    initial, cloned = _sac_actor(), _sac_actor(clone())
+    log_std = _sac_actor(clone(reset_log_std=True))
+    head = _sac_actor(clone(reset_actor_head=True))
+    assert not _close(cloned["mean"], initial["mean"])
+    assert not _close(cloned["log_std"], initial["log_std"])
+    assert _close(log_std["log_std"], initial["log_std"])
+    assert _close(log_std["mean"], cloned["mean"])
+    assert _close(head["log_std"], initial["log_std"])
+    kernel = head["mean"]["kernel"]
+    np.testing.assert_allclose(np.linalg.norm(kernel), 0.01, rtol=1e-5)
+    np.testing.assert_array_equal(head["mean"]["bias"], 0.0)
+    assert not _close(kernel, cloned["mean"]["kernel"])
+    trunk = [k for k in cloned if k not in ("mean", "log_std")]
+    assert trunk and all(_close(head[k], cloned[k]) for k in trunk)

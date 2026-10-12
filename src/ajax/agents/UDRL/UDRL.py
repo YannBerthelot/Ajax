@@ -35,10 +35,6 @@ class UDRL(ActorCritic):
         max_grad_norm: Optional[float] = None,
         n_steps: int = 64,
         batch_size: int = 64,
-        # Ignored: UDRL takes ``n_updates_per_iter`` gradient steps per
-        # iteration (Algorithm 3). Still accepted because the probing
-        # presets pass it (tests/probing/agents.py, test_p4_split_run.py).
-        n_epochs: Optional[int] = None,
         command_return_init: float = 1.0,
         command_horizon_init: float = 100.0,
         command_topk: int = 32,

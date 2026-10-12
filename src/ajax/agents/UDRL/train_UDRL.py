@@ -537,8 +537,7 @@ def make_train(
         ),
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> UDRLState:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> UDRLState:
         return init_UDRL(
             key=key,
             env_args=env_args,

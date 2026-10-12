@@ -815,7 +815,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> SACState:
+    def init(key: jax.Array) -> SACState:
         return init_SAC(
             key=key,
             env_args=env_args,

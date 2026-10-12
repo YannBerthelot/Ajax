@@ -384,7 +384,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> AVGState:
+    def init(key: jax.Array) -> AVGState:
         return init_AVG(
             key,
             env_args,

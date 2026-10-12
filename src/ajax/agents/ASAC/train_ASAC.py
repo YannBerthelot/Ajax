@@ -411,7 +411,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> ASACState:
+    def init(key: jax.Array) -> ASACState:
         return init_ASAC(
             key,
             env_args,

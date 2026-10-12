@@ -381,7 +381,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> APOState:
+    def init(key: jax.Array) -> APOState:
         return init_APO(
             key,
             env_args,

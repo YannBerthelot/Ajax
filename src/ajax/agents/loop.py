@@ -4,8 +4,8 @@ An agent's ``make_train`` builds a :class:`TrainLoop` and hands it what
 makes the agent its algorithm: how to initialise its state and how to
 update it. The loop owns everything else, the same for every agent::
 
-    fresh run:  state = init(key, pretrain_key), then every extension's
-                initial state and one-shot pretraining
+    fresh run:  state = init(key), then every extension's initial state
+                and one-shot pretraining
     resumed:    state = the checkpointed state
     iterate:    collect one step per env (off-policy) or a rollout (on-policy)
                 if timestep >= learning_starts (on-policy: always):
@@ -71,10 +71,9 @@ from ajax.utils import fill_with_nan
 #: update folds (``ActorCritic.supported_extension_phases``).
 LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics"})
 
-#: ``init(key, pretrain_key) -> agent_state``: a fresh agent state. The
-#: extensions' one-shot pretraining (behaviour cloning included) draws on keys
-#: the loop derives from ``pretrain_key``; no agent's own init draws on it.
-Init = Callable[[jax.Array, jax.Array], Any]
+#: ``init(key) -> agent_state``: a fresh agent state. One-shot pretraining
+#: (behaviour cloning) is an extension's, on a key the loop splits off.
+Init = Callable[[jax.Array], Any]
 #: ``update(agent_state, experience) -> (agent_state, aux)``: one update on
 #: the experience just collected (a replay agent samples its buffer instead).
 Update = Callable[[Any, Any], tuple[Any, Any]]
@@ -130,12 +129,11 @@ def record(rows: dict, count: jax.Array, metrics: dict) -> tuple[dict, jax.Array
 
 
 def fresh_state(init: Init, stack: ExtensionStack, total_steps: int, key: Any) -> Any:
-    """A fresh run's state: ``init(init_key, pretrain_key)`` on
-    ``split(key)``, then the extensions' initial states and one-shot
-    pretraining on ``pretrain_key`` (:meth:`ExtensionStack.fold_init`)."""
-    init_key, pretrain_key = jax.random.split(key)
-    agent_state = init(init_key, pretrain_key)
-    return stack.fold_init(agent_state, pretrain_key, total_steps)
+    """A fresh run's state: ``init(init_key)`` on ``split(key)``, then the
+    extensions' initial states and one-shot pretraining on
+    ``extension_key`` (:meth:`ExtensionStack.fold_init`)."""
+    init_key, extension_key = jax.random.split(key)
+    return stack.fold_init(init(init_key), extension_key, total_steps)
 
 
 def fold_post_update(

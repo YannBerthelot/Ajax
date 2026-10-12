@@ -385,7 +385,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> REDQState:
+    def init(key: jax.Array) -> REDQState:
         return init_REDQ(
             key,
             env_args,

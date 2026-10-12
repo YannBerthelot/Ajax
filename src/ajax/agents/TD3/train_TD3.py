@@ -403,7 +403,7 @@ def make_train(
             recurrent, agent_config.exploration_noise
         )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> TD3State:
+    def init(key: jax.Array) -> TD3State:
         return init_TD3(
             key,
             env_args,

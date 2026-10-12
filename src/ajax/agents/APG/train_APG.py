@@ -416,8 +416,7 @@ def make_train(
         ),
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> APGState:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> APGState:
         return init_APG(
             key=key,
             env_args=env_args,

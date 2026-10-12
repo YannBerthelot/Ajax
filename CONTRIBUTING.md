@@ -45,9 +45,8 @@ The agents share one loop, `TrainLoop`, so collecting experience, waiting for
 work the same way everywhere and are fixed in one place. An agent supplies
 only its algorithm:
 
-- `init(key, pretrain_key) -> agent_state`: a fresh state. The extensions'
-  one-shot pretraining (behaviour cloning included) draws on keys the loop
-  derives from `pretrain_key`; no agent's own init draws on it.
+- `init(key) -> agent_state`: a fresh state. One-shot pretraining (behaviour
+  cloning) is an extension's, on a key the loop splits off.
 - `update(...) -> (agent_state, aux)`: one update. `aux` holds the metrics as
   flax dataclasses nested exactly one level, as TD3's
   `AuxiliaryLogs(policy=..., value=...)`, logged as `value/critic_loss`; the
@@ -199,7 +198,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key, pretrain_key):
+    def init(key):
         return init_FOO(key, env_args, actor_optimizer_args, critic_optimizer_args, network_args, buffer)
 
     def update(agent_state, _transition):

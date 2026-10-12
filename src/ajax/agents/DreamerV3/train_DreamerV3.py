@@ -632,8 +632,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> DreamerV3State:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> DreamerV3State:
         return init_dreamer(key, env_args, config, spec, replay, metric_keys)
 
     common = {"config": config, "spec": spec, "replay": replay}

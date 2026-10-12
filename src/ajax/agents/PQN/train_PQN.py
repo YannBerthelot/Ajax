@@ -179,7 +179,7 @@ def make_train(
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> PQNState:
+    def init(key: jax.Array) -> PQNState:
         return init_DQN(
             key,
             env_args,

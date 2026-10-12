@@ -73,6 +73,9 @@ class APG(ActorCritic):
         episode_length: Optional[int] = None,
         controller_factory: Optional[Callable[..., Any]] = None,
         extensions: Sequence[Extension] = (),
+        # Simulator steps per agent step on brax / playground envs
+        # (ActorCritic).
+        action_repeat: int = 1,
     ) -> None:
         """
         Args:
@@ -126,6 +129,7 @@ class APG(ActorCritic):
             env_params=env_params,
             memory=memory,
             episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
         if not check_env_is_gymnax(self.env_args.env):

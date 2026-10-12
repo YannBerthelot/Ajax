@@ -58,6 +58,10 @@ class UDRL(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "UDRL"})
@@ -78,6 +82,8 @@ class UDRL(ActorCritic):
             # encoder's output (the shared default is now a plain MLP).
             encoder_layer_norm=True,
             cnn_image_shape=cnn_image_shape,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 

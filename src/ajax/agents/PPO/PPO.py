@@ -117,6 +117,9 @@ class PPO(ActorCritic):
         # without forcing a fresh rollout per eval. Off by default —
         # see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # Simulator steps per agent step on brax / playground envs
+        # (ActorCritic).
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -161,6 +164,7 @@ class PPO(ActorCritic):
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
             episode_length=episode_length,
+            action_repeat=action_repeat,
             # The env's normaliser hands every observation normalised
             # with the statistics of its step, and the rollout keeps it
             # so: the loss sees what the policy acted on (the ratio is 1

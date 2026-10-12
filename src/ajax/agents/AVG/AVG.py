@@ -60,6 +60,10 @@ class AVG(ActorCritic):
         expose_recent_rollout: bool = False,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the AVG agent.
@@ -99,6 +103,8 @@ class AVG(ActorCritic):
             max_grad_norm=max_grad_norm,
             normalize_observations=True,
             squash=True,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
         if not check_if_environment_has_continuous_actions(self.env_args.env):

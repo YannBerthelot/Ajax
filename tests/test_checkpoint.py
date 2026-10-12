@@ -200,9 +200,9 @@ def test_agent_train_returns_tuple_shape(sac_run):
     build_agent_and_train wrapper) will break in subtle ways.
     """
     out = sac_run.out
-    assert isinstance(
-        out, tuple
-    ), f"agent.train() was expected to return a 2-tuple; got {type(out)}"
+    assert isinstance(out, tuple), (
+        f"agent.train() was expected to return a 2-tuple; got {type(out)}"
+    )
     assert len(out) == 2, f"expected (state, metrics); got length {len(out)}"
     state, _metrics = out
     assert state.actor_state is not None

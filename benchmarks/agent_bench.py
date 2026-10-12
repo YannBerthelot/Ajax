@@ -349,8 +349,7 @@ def capture(
         for r in all_rows:
             f.write(json.dumps(r) + "\n")
     print(
-        f"baseline -> {out_path}  ({len(all_rows)} rows, "
-        f"git={sha}, backend={backend})",
+        f"baseline -> {out_path}  ({len(all_rows)} rows, git={sha}, backend={backend})",
         flush=True,
     )
 

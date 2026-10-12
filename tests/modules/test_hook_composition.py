@@ -74,32 +74,32 @@ def test_default_hooks_are_none(agent_cls):
     """By default every hook attribute is None (feature inactive)."""
     agent = _instantiate(agent_cls)
     for hook in AGENT_HOOKS[agent_cls]:
-        assert (
-            getattr(agent, hook) is None
-        ), f"{agent_cls.__name__}.{hook} should default to None"
+        assert getattr(agent, hook) is None, (
+            f"{agent_cls.__name__}.{hook} should default to None"
+        )
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_hooks_are_stored(agent_cls):
     """Passed-in hooks are retained on the instance (for get_make_train)."""
-    hook_kwargs = {h: _identity_hook for h in AGENT_HOOKS[agent_cls]}
+    hook_kwargs = dict.fromkeys(AGENT_HOOKS[agent_cls], _identity_hook)
     agent = _instantiate(agent_cls, **hook_kwargs)
     for h, fn in hook_kwargs.items():
-        assert (
-            getattr(agent, h) is fn
-        ), f"{agent_cls.__name__}.{h} should store the hook it was given"
+        assert getattr(agent, h) is fn, (
+            f"{agent_cls.__name__}.{h} should store the hook it was given"
+        )
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_get_make_train_forwards_hooks(agent_cls):
     """get_make_train wraps make_train in a partial that carries the hooks."""
-    hook_kwargs = {h: _identity_hook for h in AGENT_HOOKS[agent_cls]}
+    hook_kwargs = dict.fromkeys(AGENT_HOOKS[agent_cls], _identity_hook)
     agent = _instantiate(agent_cls, **hook_kwargs)
     make_train_partial = agent.get_make_train()
     # functools.partial stores kwargs on .keywords
     keywords = getattr(make_train_partial, "keywords", {})
     for h, fn in hook_kwargs.items():
-        assert (
-            h in keywords
-        ), f"{agent_cls.__name__}.get_make_train() should forward {h}"
+        assert h in keywords, (
+            f"{agent_cls.__name__}.get_make_train() should forward {h}"
+        )
         assert keywords[h] is fn

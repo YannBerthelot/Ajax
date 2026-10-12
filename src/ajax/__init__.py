@@ -26,14 +26,14 @@ __all__ = [
     "ASAC",
     "AVG",
     "DQN",
-    "DreamerV3",
     "PPO",
     "PQN",
     "REDQ",
     "SAC",
     "TD3",
     "TDMPC2",
-    "TDMPC2MultiTask",
     "UDRL",
+    "DreamerV3",
+    "TDMPC2MultiTask",
 ]
 __version__ = version("ajax")

@@ -65,9 +65,9 @@ def policy_loss_function(
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)
     ratio = jnp.exp(new_log_probs - log_probs)
-    assert (
-        ratio.shape[0] == gae.shape[0]
-    ), f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    assert ratio.shape[0] == gae.shape[0], (
+        f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
+    )
     loss_actor, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
     total_loss = (loss_actor - ent_coef * entropy.mean()).mean()
     aux = PolicyAuxiliaries(

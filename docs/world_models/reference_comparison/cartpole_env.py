@@ -152,9 +152,9 @@ class CartPolePort(_EnvBase):  # type: ignore[valid-type, misc]  # embodied.Env 
             self._length = 0
             self._done = False
             return self._obs(F32(0.0), True, False, False)
-        assert (
-            self._state is not None and not self._done
-        ), "stepped past is_last without a reset"
+        assert self._state is not None and not self._done, (
+            "stepped past is_last without a reset"
+        )
         a = int(action["action"])
         assert a in (0, 1), a
         prev_terminal = terminated(self._state)

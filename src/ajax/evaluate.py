@@ -376,9 +376,9 @@ def step_environment(
             obs_for_actor = command.actor_input(obs_for_actor, carry.command)
 
         raw_actions, entropy, new_actor_hidden = (
-            get_deterministic_action_and_entropy_fn(
-                actor_state, recurrent, continuous
-            )(obs_for_actor, done if recurrent else None, carry.actor_hidden)
+            get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous)(
+                obs_for_actor, done if recurrent else None, carry.actor_hidden
+            )
         )
 
         if pid_gain_policy:

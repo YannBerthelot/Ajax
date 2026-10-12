@@ -437,8 +437,8 @@ class ValueBox(Extension):
 
 __all__ = [
     "IBRL",
-    "LCBGatedBootstrap",
     "CriticBlend",
+    "LCBGatedBootstrap",
     "MCVarianceCorrection",
     "ValueBox",
 ]

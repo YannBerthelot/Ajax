@@ -351,7 +351,7 @@ class ExpertInAgentUnits:
     boxes that differ raise.
     """
 
-    __slots__ = ("expert", "_bounds")
+    __slots__ = ("_bounds", "expert")
     _FORWARDED = frozenset({"init_state", "learnable_fields", "anchor_gains"})
 
     def __init__(

@@ -13,4 +13,4 @@ from ajax.extensions.base import (
     ExtensionStack,
 )
 
-__all__ = ["Extension", "ExtensionContext", "ExtensionStack", "PHASES"]
+__all__ = ["PHASES", "Extension", "ExtensionContext", "ExtensionStack"]

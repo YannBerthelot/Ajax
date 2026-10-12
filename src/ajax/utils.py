@@ -74,9 +74,9 @@ def online_normalize(
         # Set, not computed: a compiler free to fuse the division by the
         # averaged std may otherwise move them by an ulp.
         x_norm = x_norm.at[..., :raw_columns].set(input_x[..., :raw_columns])
-    assert (
-        x_norm.shape == input_x.shape
-    ), f"x_norm shape {x_norm.shape} does not match input_x shape {input_x.shape}"
+    assert x_norm.shape == input_x.shape, (
+        f"x_norm shape {x_norm.shape} does not match input_x shape {input_x.shape}"
+    )
 
     return (
         x_norm,

@@ -26,6 +26,7 @@ from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.base import run_config
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
@@ -169,6 +170,18 @@ def test_an_agent_builds_its_configs(name: str, env_id: str) -> None:
     assert isinstance(getattr(agent, "alpha_args", None), AlphaConfig) == case.alpha
     # An on-policy agent keeps no replay buffer.
     assert isinstance(getattr(agent, "buffer", None), TrajectoryBuffer) == case.buffer
+    # The run config holds the constructor's arguments and the agent's name.
+    assert agent.config["env_id"] == env_id
+    assert agent.config["algo_name"] == agent.name == name
+    assert not {"self", "__class__"} & set(agent.config)
+
+
+def test_the_run_config_drops_the_instance_and_the_excluded() -> None:
+    class Agent:
+        def __init__(self, a: int, b: int = 2) -> None:
+            self.config = run_config(locals(), "X", exclude=("b",))
+
+    assert Agent(1).config == {"a": 1, "algo_name": "X"}
 
 
 @pytest.mark.parametrize(

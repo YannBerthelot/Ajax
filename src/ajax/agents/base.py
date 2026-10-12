@@ -31,6 +31,18 @@ from ajax.state import (
 from ajax.types import EnvType, InitializationFunction
 
 
+def run_config(
+    arguments: dict[str, Any], name: str, exclude: Sequence[str] = ()
+) -> dict[str, Any]:
+    """The run config the loggers record (:meth:`ActorCritic.train`): an
+    agent constructor's ``arguments`` (its ``locals()``) but ``self``,
+    ``__class__`` (present once the constructor calls ``super()``) and
+    ``exclude``, and the agent's ``algo_name``."""
+    dropped = {"self", "__class__", *exclude}
+    config = {k: v for k, v in arguments.items() if k not in dropped}
+    return config | {"algo_name": name}
+
+
 def shared_counters(state: Any) -> dict[str, jax.Array]:
     """The counters of a resumed ``state`` (leading seed axis) its seeds
     share, as unbatched scalars: the collector's timestep, the number of
@@ -79,6 +91,11 @@ def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
 
 
 class ActorCritic:
+    #: The agent's name, its run config's ``algo_name``.
+    name: str
+    #: The run config the loggers record, from the constructor's arguments
+    #: (:func:`run_config`), with the values the agent resolves from them.
+    config: dict[str, Any]
     # Agents that implement recurrent (memory-augmented) training set this
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.

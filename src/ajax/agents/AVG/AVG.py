@@ -6,7 +6,7 @@ from gymnax import EnvParams
 
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
@@ -81,8 +81,7 @@ class AVG(ActorCritic):
             beta_1 (float): Adam's first-moment decay (AVG uses 0).
             beta_2 (float): Adam's second-moment decay.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "AVG"})
+        self.config = run_config(locals(), self.name)
 
         # AVG normalises its observations (never its rewards) and squashes
         # its actions.

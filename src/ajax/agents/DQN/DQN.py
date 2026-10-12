@@ -4,7 +4,7 @@ from typing import Callable, Optional
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DQN.state import DQNConfig
 from ajax.agents.DQN.train_DQN import make_train
 from ajax.agents.loop import LOOP_PHASES
@@ -65,8 +65,7 @@ class DQN(ActorCritic):
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "DQN"})
+        self.config = run_config(locals(), self.name)
 
         # DQN has a single Q-network; forward `architecture`/`learning_rate`
         # to both actor/critic slots of the base class. The Q-network is

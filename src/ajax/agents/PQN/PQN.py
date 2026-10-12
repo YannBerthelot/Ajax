@@ -4,7 +4,7 @@ from typing import Callable, Optional
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
@@ -60,8 +60,7 @@ class PQN(ActorCritic):
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "PQN"})
+        self.config = run_config(locals(), self.name)
 
         # PQN has a single Q-network; forward `architecture`/`learning_rate`
         # to both actor/critic slots of the base class.

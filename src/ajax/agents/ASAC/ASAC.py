@@ -6,7 +6,7 @@ from gymnax import EnvParams
 
 from ajax.agents.ASAC.state import ASACConfig
 from ajax.agents.ASAC.train_ASAC import make_train
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import (
@@ -90,8 +90,7 @@ class ASAC(ActorCritic):
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "ASAC"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,

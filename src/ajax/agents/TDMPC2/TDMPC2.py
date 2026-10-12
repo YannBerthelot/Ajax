@@ -20,7 +20,7 @@ import jax
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodicBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
@@ -201,10 +201,7 @@ class TDMPC2(ActorCritic):
         ``learning_rate``), with its paper default; see the class docstring
         for the static ones and the derived defaults.
         """
-        self.config = {
-            k: v for k, v in locals().items() if k not in ("self", "__class__")
-        }
-        self.config.update({"algo_name": "TDMPC2"})
+        self.config = run_config(locals(), self.name)
 
         # The base class's actor / critic optimizer and network configs do
         # not apply: core.create_update_state builds TD-MPC2's optimizers.

@@ -4,7 +4,7 @@ from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.cloning import warn_actor_cloning_lr
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
@@ -159,8 +159,7 @@ class SAC(ActorCritic):
         # --- Composable research features ---
         extensions: Sequence[Extension] = (),
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "SAC"})
+        self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy

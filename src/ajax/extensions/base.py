@@ -41,28 +41,15 @@ Phases
 
 Phase batches
 -------------
-The ``batch`` dict of a phase holds these keys on every agent that folds
-it; an agent may add its own (read its fold call), and an extension
-raises on a key it needs and does not find, rather than return a no-op.
-
-``on_target``    ``observations``, ``next_observations``, ``rewards`` and
-                 ``gamma`` (``None`` for an average-reward agent); the
-                 replay agents and PQN add ``actions``, ``dones`` (where
-                 the target cut the bootstrap) and ``reward_scale``, PQN
-                 also ``terminated`` and ``truncated``, PPO and APO
-                 ``terminated``, ``truncated``, ``gae`` and ``values``
-``critic_loss``  ``observations`` and ``targets`` (the target, held
-                 constant), with the critic at the differentiated
-                 parameters: ``critic_params`` and ``critic_state`` (and
-                 ``actions`` for a Q-critic), or DQN's and PQN's
-                 ``q_state`` and ``actions``
-``actor_loss``   ``actor_params`` (differentiated) and ``actor_state``,
-                 plus ``observations``, ``raw_observations`` and
-                 ``pi_mean`` on SAC, ASAC, REDQ, TD3 and APO (SAC adds
-                 the expert's action ``a_expert``), but on APG (its
-                 ``rollout``, ``returns`` and ``actor_params``). The
-                 replay agents' ``raw_observations`` is None in a run
-                 without an expert, whose replay does not keep them
+The ``batch`` dict of a phase holds the keys :data:`PHASE_BATCH_KEYS`
+lists on every agent that folds it; an agent may add its own (read its
+fold call), and an extension raises on a key it needs and does not find,
+rather than return a no-op. ``gamma`` is ``None`` for an average-reward
+agent, ``dones`` is where the target cut the bootstrap and ``targets`` the
+target, held constant; the critic (DQN's and PQN's ``q_state``) and the
+actor come at the differentiated parameters. The replay agents'
+``raw_observations`` is None in a run without an expert, whose replay
+does not keep them.
 """
 
 from __future__ import annotations
@@ -103,6 +90,32 @@ PHASES: tuple[str, ...] = (
     "eval_metrics",
 )
 
+#: The keys of each phase's ``batch`` ("Phase batches" above): per phase,
+#: the agents passing them ("*": every agent folding it) -> the keys.
+PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
+    "on_target": {
+        "*": "observations next_observations rewards gamma",
+        "SAC TD3 REDQ ASAC AVG DQN PQN": "actions dones reward_scale",
+        "PQN PPO APO": "terminated truncated",
+        "PPO APO": "gae values",
+    },
+    "critic_loss": {
+        "*": "observations targets",
+        "SAC TD3 REDQ ASAC AVG PPO APO": "critic_params critic_state",
+        "SAC TD3 REDQ ASAC AVG DQN PQN": "actions",
+        "DQN PQN": "q_state",
+    },
+    "actor_loss": {
+        "*": "actor_params",
+        "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state",
+        "SAC TD3 REDQ ASAC AVG APO UDRL": "observations",
+        "SAC TD3 REDQ ASAC APO": "raw_observations pi_mean",
+        "SAC": "a_expert",
+        "UDRL": "actions",
+        "APG": "rollout returns",
+    },
+}
+
 
 def check_extension_phases(
     agent_name: str,
@@ -120,7 +133,9 @@ def check_extension_phases(
 
     Raises ``ValueError`` naming every offending extension and phase: an
     extension whose phase an agent never folds would otherwise be silently
-    ignored. Agents call it at construction (``ActorCritic.__init__``).
+    ignored; also on a reader of phi* without MCPretrain
+    (:func:`check_phi_star_source`). Agents call it at construction
+    (``ActorCritic.__init__``).
     """
     stack = tuple(stack)
     check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
@@ -140,6 +155,21 @@ def check_extension_phases(
         raise ValueError(
             f"{agent_name} does not support these extension phases: {details}."
             f" Supported phases: {sorted(supported)}."
+        )
+    check_phi_star_source(agent_name, stack)
+
+
+def check_phi_star_source(agent_name: str, stack: Sequence["Extension"]) -> None:
+    """Reject extensions reading the frozen expert critic phi* in a stack
+    without one that fits it (MCPretrain): without phi* they would add
+    nothing all run (OnlineBC, CriticBlend, MCVarianceCorrection) or fail at
+    trace time (ValueBox, PhiRefresh)."""
+    readers = [type(ext).__name__ for ext in stack if ext.reads_phi_star()]
+    if readers and not any(ext.fits_phi_star for ext in stack):
+        raise ValueError(
+            f"{', '.join(readers)} read the frozen expert critic phi*, which"
+            f" MCPretrain fits, and {agent_name}'s extensions hold no"
+            " MCPretrain: add MCPretrain(expert_policy=...) to them."
         )
 
 
@@ -217,6 +247,9 @@ class Extension:
     #: The fields holding an expert (raw observations in, env-unit actions
     #: out), which :meth:`ExtensionStack.with_experts` converts.
     expert_fields: ClassVar[frozenset[str]] = frozenset()
+    #: Whether the extension fits the frozen expert critic phi* that the
+    #: extensions which :meth:`reads_phi_star` need (MCPretrain does).
+    fits_phi_star: ClassVar[bool] = False
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -311,6 +344,11 @@ class Extension:
         """The experts this extension calls itself, on the observations it
         is given (without a state); none by default."""
         return ()
+
+    def reads_phi_star(self) -> bool:
+        """Whether the extension reads phi*: a stack holding one and none
+        that ``fits_phi_star`` is refused (:func:`check_phi_star_source`)."""
+        return False
 
     def implemented_phases(self) -> frozenset[str]:
         """The phases this extension actually overrides (vs the no-op base)."""

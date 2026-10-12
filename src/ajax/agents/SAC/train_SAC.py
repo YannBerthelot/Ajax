@@ -228,7 +228,10 @@ def update_value_functions(
     raw_next_observations: Optional[jax.Array] = None,
     stored_next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries]:
-    value_loss_key, rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    value_loss_key, rng, ext_key = jax.random.split(agent_state.rng, 3)
+    target_key, loss_key = jax.random.split(ext_key)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
 
     # 1. Core Bellman target (pure SAC). Pass next_action_transform so
@@ -268,6 +271,8 @@ def update_value_functions(
             "rewards": rewards,
             "reward_scale": reward_scale,
             "dones": dones,
+            # The target's own key: IBRL and LCBGatedBootstrap redraw its
+            # next-action sample.
             "rng_key": value_loss_key,
             "q_preds": q_preds_for_var,
             "gamma": gamma,
@@ -281,7 +286,7 @@ def update_value_functions(
             batch,
             target_q,
             agent_state.collector_state.timestep,
-            value_loss_key,
+            target_key,
             total_timesteps,
         )
 
@@ -305,7 +310,7 @@ def update_value_functions(
             agent_state,
             loss_batch,
             agent_state.collector_state.timestep,
-            value_loss_key,
+            loss_key,
             total_timesteps,
         )
         return loss, core_aux

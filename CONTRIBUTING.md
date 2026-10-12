@@ -370,6 +370,9 @@ fewer fail, otherwise seeds 8-15 run and 13 of 16 must pass. `faults.py` and
 naming the tests that must catch it. The `test_*.py` modules group the cases
 by subject (value chains, episode ends, bookkeeping, extensions, memory, world
 models, resuming a split run); `test_framework.py` tests the harness.
+A planted fault quotes the source it edits, so any change under `src/ajax`
+can break one: such a change runs `tests/probing/test_framework.py` locally
+before the push (text and collection only, no training).
 
 A new case's budget and tolerances come from calibration on seeds no check
 uses (`uv run python -m tests.probing.verdict ladder|choose|certify ...`;

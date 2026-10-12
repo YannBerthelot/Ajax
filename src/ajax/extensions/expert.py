@@ -125,14 +125,18 @@ class OnlineBC(Extension):
     in its actor-loss batch) and the observations from the batch, and the
     frozen expert critic phi* with its value range
     (``expert_critic_params``, ``expert_v_min``, ``expert_v_max``) and the
-    critic phi* is applied with from the agent's state. Until
-    :class:`MCPretrain` fits phi*, or without the expert's action, the term
-    is 0.
+    critic phi* is applied with from the agent's state, which
+    :class:`MCPretrain` fits (refused without it). It raises on a batch
+    without ``a_expert`` (an agent other than SAC); while SAC has no expert
+    action (``a_expert`` None), the term is 0.
     """
 
     bc_coef: float = 1.0
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def actor_loss(
         self,
@@ -142,15 +146,19 @@ class OnlineBC(Extension):
         ctx: ExtensionContext,
     ) -> Any:
         del ext_state
-        phi_star = getattr(agent_state, "expert_critic_params", None)
-        a_expert = batch.get("a_expert")
-        if phi_star is None or a_expert is None or self.critic_warmup_frac <= 0:
+        if "a_expert" not in batch:
+            raise ValueError(
+                "OnlineBC needs the expert's action ('a_expert') in the"
+                " actor-loss batch; only SAC provides it."
+            )
+        a_expert = batch["a_expert"]
+        if a_expert is None or self.critic_warmup_frac <= 0:
             return 0.0
         return compute_online_bc_loss(
             batch["pi_mean"],
             a_expert,
             agent_state.critic_state,
-            phi_star,
+            agent_state.expert_critic_params,
             batch["observations"],
             ctx.step / ctx.total_steps,
             self.critic_warmup_frac,

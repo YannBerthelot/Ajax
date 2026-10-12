@@ -275,7 +275,9 @@ def soft_actor_step(
     """One actor step on :func:`soft_policy_loss` plus the extensions'
     actor-loss terms. Returns the state and ``(loss, log_probs, q)``, the
     SAC loss before the extensions' terms."""
-    rng, policy_key = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    rng, policy_key, ext_key = jax.random.split(agent_state.rng, 3)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state = agent_state.actor_state
 
@@ -301,7 +303,7 @@ def soft_actor_step(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            policy_key,
+            ext_key,
             total_timesteps,
         )
         return loss + extra, (loss, log_probs, q)

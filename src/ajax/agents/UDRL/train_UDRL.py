@@ -358,11 +358,13 @@ def training_iteration(
 
     # 4. Train: sample (s, a, dr, dh) from the buffer and fit the actor with
     #    a fixed number of gradient updates per iteration (Algorithm 3).
-    rng, train_rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    rng, train_rng, ext_rng = jax.random.split(agent_state.rng, 3)
     agent_state = agent_state.replace(rng=rng)
 
-    def update_step(carry, key):
-        a_state = carry
+    def update_step(carry, keys):
+        a_state, (key, ext_key) = carry, keys
         obs_b, act_b, _dr, _dh = sample_training_batch(
             key, new_buffer, stream, agent_config.batch_size
         )
@@ -386,7 +388,7 @@ def training_iteration(
                 a_state,
                 _al_batch,
                 a_state.collector_state.timestep,
-                key,
+                ext_key,
                 total_timesteps,
             )
 
@@ -394,8 +396,12 @@ def training_iteration(
         new_actor_state = a_state.actor_state.apply_gradients(grads=grads)
         return a_state.replace(actor_state=new_actor_state), loss
 
-    update_keys = jax.random.split(train_rng, agent_config.n_updates_per_iter)
-    agent_state, update_losses = jax.lax.scan(update_step, agent_state, update_keys)
+    n_updates = agent_config.n_updates_per_iter
+    update_keys = jax.random.split(train_rng, n_updates)
+    ext_keys = jax.random.split(ext_rng, n_updates)
+    agent_state, update_losses = jax.lax.scan(
+        update_step, agent_state, (update_keys, ext_keys)
+    )
 
     # Extension post_update, folded after the per-iteration update loop.
     agent_state = fold_post_update(

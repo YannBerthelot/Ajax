@@ -9,8 +9,12 @@ test suite is expensive (about an hour of CPU), so it runs in GitHub CI on
 the pull request, not locally before each commit. Before committing, run
 the cheap checks locally: pre-commit (step 1), `uv run pytest
 --collect-only -q`, and the test files that exercise what you changed.
-Then push and let CI run the rest; fix anything it reports on the same
-branch. The checks:
+A change under `src/ajax` also runs `uv run pytest
+tests/probing/test_framework.py` (no training): planted faults quote
+source lines, so any source edit can break one. A change to an agent's
+training runs all of that agent's probe cells (`-k <Agent>` over
+`tests/probing`). Then push and let CI run the rest; fix anything it
+reports on the same branch. The checks:
 
 1. **pre-commit** (`make ci-precommit`) — `uv run pre-commit run
    --all-files` (ruff lint, ruff-format, mypy).

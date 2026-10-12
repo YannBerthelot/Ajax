@@ -1,6 +1,5 @@
+import functools
 import importlib
-import warnings
-from dataclasses import dataclass
 
 import distrax
 import jax
@@ -12,7 +11,6 @@ from flax import linen as nn
 from flax.training import train_state
 
 from ajax.agents.cloning import pre_train
-from ajax.extensions.base import Extension
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.state import Transition
 
@@ -186,74 +184,8 @@ def test_actor_cloning_lr_is_removed(agent_name):
         getattr(module, agent_name)("Pendulum-v1", actor_cloning_lr=1e-3)
 
 
-def _agent_class(agent_name):
-    module = importlib.import_module(f"ajax.agents.{agent_name}.{agent_name}")
-    return getattr(module, agent_name)
-
-
 def _half_torque(obs):
     return jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0)
-
-
-@pytest.mark.parametrize("agent_name", ["APO", "REDQ", "SAC", "TD3"])
-def test_the_cloning_keywords_are_deprecated(agent_name):
-    """Passing a cloning keyword warns, even one that clones nothing (it
-    will be removed all the same); leaving them out stays quiet."""
-    agent_cls = _agent_class(agent_name)
-    with pytest.warns(FutureWarning, match="CloningPretrain"):
-        agent_cls("Pendulum-v1", pre_train_n_steps=0, actor_cloning_epochs=3)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        assert agent_cls("Pendulum-v1").cloning is None
-
-
-def test_the_cloning_keywords_build_a_cloning_pretrain():
-    """The cloning keywords set the fields of the CloningPretrain the agent
-    runs; 0 steps clone nothing; without an expert, or with a
-    CloningPretrain extension (cloning twice), they raise."""
-    from ajax import SAC
-
-    keywords = {
-        "pre_train_n_steps": 5,
-        "actor_cloning_epochs": 3,
-        "actor_cloning_batch_size": 7,
-        "skip_actor_pretrain": True,
-        "reset_log_std_after_bc": True,
-        "reset_actor_head_after_bc": True,
-    }
-    with pytest.warns(FutureWarning, match="pre_train_n_steps"):
-        agent = SAC("Pendulum-v1", expert_policy=_half_torque, **keywords)
-    fields = {"n_steps": 5, "epochs": 3, "batch_size": 7, "skip_actor": True}
-    fields |= {"reset_log_std": True, "reset_actor_head": True}
-    assert agent.cloning == CloningPretrain(agent.expert_policy, **fields)
-    with pytest.raises(ValueError, match="expert_policy"), pytest.warns(FutureWarning):
-        SAC("Pendulum-v1", pre_train_n_steps=5)
-    with pytest.raises(ValueError, match="extension only"), pytest.warns(FutureWarning):
-        SAC(
-            "Pendulum-v1",
-            expert_policy=_half_torque,
-            pre_train_n_steps=5,
-            extensions=(CloningPretrain(_half_torque),),
-        )
-
-
-@dataclass(frozen=True)
-class _OnTheKeywordsKey(CloningPretrain):
-    """Clones on the key the cloning keywords clone on: the pretrain key the
-    loop splits from the seed's, of which the pretrain phase gets a split."""
-
-    seed: int = 0
-
-    def pretrain(self, agent_state, ext_state, ctx):
-        del ctx
-        key = jax.random.split(jax.random.PRNGKey(self.seed))[1]
-        return self.clone(agent_state, key), ext_state
-
-
-@dataclass(frozen=True)
-class _Inert(Extension):
-    """No phase: a stack as long as the extension's, so that both agents
-    draw the same keys after init (APO updates once even at 0 steps)."""
 
 
 # SAC clones with its observation layout: the expert's action and the
@@ -269,30 +201,62 @@ _LAYOUT = {
 
 
 @pytest.mark.parametrize("agent_name", ["APO", "REDQ", "SAC", "TD3"])
-def test_cloning_pretrain_clones_as_the_cloning_keywords(agent_name):
-    """The cloning keywords clone at init on the pretrain key, a
-    CloningPretrain extension in the pretrain phase: on the same key they
-    give the same state (its observation statistics seeded), up to the
-    rounding of the two places of the compiled program (an ulp on SAC)."""
+def test_cloning_pretrain_seeds_the_agents_statistics(agent_name):
+    """Each agent binding CloningPretrain clones in the pretrain phase, with
+    its observation layout, and starts its observation statistics from the
+    dataset's."""
     tiny = ("8", "relu")
     kw = {"n_envs": 2, "actor_architecture": tiny, "critic_architecture": tiny}
     kw |= {"expert_policy": _half_torque, **_LAYOUT.get(agent_name, {})}
-    agent_cls = _agent_class(agent_name)
-    with pytest.warns(FutureWarning):
-        by_keywords = agent_cls(
-            "Pendulum-v1",
-            pre_train_n_steps=16,
-            actor_cloning_epochs=2,
-            actor_cloning_batch_size=8,
-            extensions=(_Inert(),),
-            **kw,
-        )
-    cloning = _OnTheKeywordsKey(_half_torque, n_steps=16, epochs=2, batch_size=8)
-    by_extension = agent_cls("Pendulum-v1", extensions=(cloning,), **kw)
-    states = [
-        agent.train(seed=0, n_timesteps=0)[0] for agent in (by_keywords, by_extension)
-    ]
-    assert states[1].actor_state.obs_norm_info is not None
-    leaves = [jax.tree.leaves(state) for state in states]
-    for a, b in zip(*leaves, strict=True):
-        np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-8)
+    module = importlib.import_module(f"ajax.agents.{agent_name}.{agent_name}")
+    cloning = CloningPretrain(_half_torque, n_steps=16, epochs=2, batch_size=8)
+    agent = getattr(module, agent_name)("Pendulum-v1", extensions=(cloning,), **kw)
+    state = agent.train(seed=0, n_timesteps=0)[0]
+    assert state.actor_state.obs_norm_info is not None
+
+
+def _sac_actor(*extensions):
+    """SAC's actor parameters after its pretrain phase (a run of 0 steps
+    updates nothing)."""
+    from ajax import SAC
+
+    tiny = ("8", "relu")
+    agent = SAC(
+        "Pendulum-v1",
+        n_envs=2,
+        actor_architecture=tiny,
+        critic_architecture=tiny,
+        expert_policy=_half_torque,
+        expert_buffer_n_steps=0,
+        extensions=extensions,
+    )
+    return agent.train(seed=0, n_timesteps=0)[0].actor_state.params["params"]
+
+
+def _close(a, b):
+    pairs = zip(jax.tree.leaves(a), jax.tree.leaves(b), strict=True)
+    return all(np.allclose(x, y, rtol=1e-5, atol=1e-7) for x, y in pairs)
+
+
+def test_cloning_pretrain_resets_the_heads_it_is_told_to():
+    """``reset_log_std`` puts the cloned actor's log-std head back at its
+    initial values; ``reset_actor_head`` re-initialises the mean head too
+    (orthogonal(0.01): a unit column scaled to 0.01, zero bias), the trunk
+    staying cloned; without either, both heads keep their cloned values."""
+    clone = functools.partial(
+        CloningPretrain, _half_torque, n_steps=16, epochs=2, batch_size=8
+    )
+    initial, cloned = _sac_actor(), _sac_actor(clone())
+    log_std = _sac_actor(clone(reset_log_std=True))
+    head = _sac_actor(clone(reset_actor_head=True))
+    assert not _close(cloned["mean"], initial["mean"])
+    assert not _close(cloned["log_std"], initial["log_std"])
+    assert _close(log_std["log_std"], initial["log_std"])
+    assert _close(log_std["mean"], cloned["mean"])
+    assert _close(head["log_std"], initial["log_std"])
+    kernel = head["mean"]["kernel"]
+    np.testing.assert_allclose(np.linalg.norm(kernel), 0.01, rtol=1e-5)
+    np.testing.assert_array_equal(head["mean"]["bias"], 0.0)
+    assert not _close(kernel, cloned["mean"]["kernel"])
+    trunk = [k for k in cloned if k not in ("mean", "log_std")]
+    assert trunk and all(_close(head[k], cloned[k]) for k in trunk)

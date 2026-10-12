@@ -22,7 +22,7 @@ from probing_environments.gymnax_envs import continuous_actions as continuous
 from ajax import PPO, PQN
 from ajax.extensions.base import PHASES, Extension
 from ajax.extensions.expert import OnlineBC
-from ajax.extensions.pretrain import MCPretrain
+from ajax.extensions.pretrain import CloningPretrain, MCPretrain
 from ajax.extensions.target_mods import IBRL, CriticBlend
 
 from . import agents, envs, runs
@@ -617,14 +617,14 @@ def cloning(agent: str, shift: float) -> Any:
     """1000 expert steps, 10 epochs, budget 0: APO still takes one update
     (TrainLoop.on_policy), kept to one step; SAC's expert prefill off (E11)."""
     kw = {"SAC": {"expert_buffer_n_steps": 0}, "APO": {"n_epochs": 1}}.get(agent, {})
-    kw |= {"pre_train_n_steps": 1000, "actor_cloning_epochs": 10}
     env_cls = ShiftedSignedEnv if shift else envs.SignedActionEnv
 
     def read(n: R.Nets) -> dict:
         return {f"a({x:g})": R.action(n, x) for x in (shift - 1.0, shift + 1.0)}
 
     expert = AgentExpert(ShiftedHalfExpert(shift))
-    return q7_readings(agent, env_cls, read, expert_policy=expert, **kw)
+    clone = CloningPretrain(expert, n_steps=1000, epochs=10)
+    return q7_readings(agent, env_cls, read, (clone,), expert_policy=expert, **kw)
 
 
 _SKIP = {"cloning pre-training skipped": 0.0}

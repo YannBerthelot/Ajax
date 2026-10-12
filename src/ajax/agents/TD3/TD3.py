@@ -10,7 +10,6 @@ from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType
 
@@ -71,12 +70,8 @@ class TD3(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # --- Deprecated cloning keywords: extensions=(CloningPretrain(...),);
-        # online BC is the ImitationLoss extension ---
-        actor_cloning_epochs: Optional[int] = None,
-        skip_actor_pretrain: Optional[bool] = None,
-        actor_cloning_batch_size: Optional[int] = None,
-        pre_train_n_steps: Optional[int] = None,
+        # Expert for the CloningPretrain extension and the eval expert-bias
+        # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
         # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,
@@ -130,17 +125,8 @@ class TD3(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-        self.cloning = CloningPretrain.from_deprecated_kwargs(
-            self.expert_policy,
-            self.extension_stack.extensions,
-            pre_train_n_steps=pre_train_n_steps,
-            actor_cloning_epochs=actor_cloning_epochs,
-            actor_cloning_batch_size=actor_cloning_batch_size,
-            skip_actor_pretrain=skip_actor_pretrain,
-        )
         self.train_kwargs = {
             "buffer": self.buffer,
-            "cloning": self.cloning,
             "expert_policy": self.expert_policy,
             "action_pipeline": action_pipeline,
         }

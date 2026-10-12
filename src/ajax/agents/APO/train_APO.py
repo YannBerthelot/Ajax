@@ -33,7 +33,6 @@ from ajax.agents.PPO.train_PPO import init_PPO
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
 from ajax.state import (
@@ -361,21 +360,17 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """APO's train function: an ``n_steps`` rollout per env, then one
-    update, per iteration. ``cloning``: the deprecated cloning keywords'
-    CloningPretrain, run at init on the pretrain key."""
+    update, per iteration."""
     agent_context = {
         "env_args": env_args,
         "actor_optimizer_args": actor_optimizer_args,
         "expert_policy": expert_policy,
     }
     extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
-    if cloning is not None:
-        cloning = cloning.bind_to_agent(**agent_context)
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -386,17 +381,14 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> APOState:
-        agent_state = init_APO(
+    def init(key: jax.Array) -> APOState:
+        return init_APO(
             key,
             env_args,
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
         )
-        if cloning is None:
-            return agent_state
-        return cloning.clone(agent_state, pretrain_key)
 
     def update(agent_state: APOState, rollout: Transition, _start: APOState) -> Any:
         return update_agent(

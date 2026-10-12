@@ -306,7 +306,8 @@ def step_environment(
     that it saw during training.
 
     value_estimate: the critic's estimate at the actor's input and the
-    executed action in agent units (what collection stores), each step.
+    action collection stores, each step: the executed action in agent units,
+    the actor's (the gains') under ``pid_gain_policy``.
     """
 
     expert_is_stateful = expert_policy is not None and hasattr(
@@ -396,7 +397,11 @@ def step_environment(
         value = (
             carry.value
             if value_estimate is None
-            else value_estimate.value(agent_state, obs_for_actor, actions)
+            else value_estimate.value(
+                agent_state,
+                obs_for_actor,
+                raw_actions if pid_gain_policy else actions,
+            )
         )
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,

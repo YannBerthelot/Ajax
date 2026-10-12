@@ -421,3 +421,39 @@ def test_the_value_bias_is_the_critic_estimate_minus_the_realised_return(c, leng
     ]
     expected = np.mean([t - realised[t] for t in range(length)])
     np.testing.assert_allclose(bias, expected, rtol=1e-5)
+
+
+class _GainExpertPayingZero:
+    """A gain expert (``pid_gain_policy``) whose action is 0 whatever the
+    gains: the actor's action, t / 10, is the gains' log-scale only."""
+
+    learnable_fields = ("kp",)
+    anchor_gains = jnp.array([1.0])
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state, obs):
+        return self.step_with_gains(state, obs, self.anchor_gains)
+
+    def step_with_gains(self, state, obs, gains):
+        return jnp.zeros(obs.shape[:-1] + (1,)), state
+
+
+def test_the_value_bias_reads_a_gain_policy_critic_at_the_gains_action():
+    """Under pid_gain_policy collection stores the actor's action (the
+    gains'), not the expert's executed one, so the critic is read at it: the
+    plant critic estimates t at step t, the expert's action 0 pays 0, and the
+    bias is the mean of t over the 3 steps, 1 (at the executed action, 0)."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=0.5))
+    bias = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        expert_policy=_GainExpertPayingZero(),
+        pid_gain_policy=True,
+        value_estimate=ValueEstimate(_ten_times_the_action, gamma=0.9),
+    )[3]
+    np.testing.assert_allclose(bias, 1.0, rtol=1e-6)

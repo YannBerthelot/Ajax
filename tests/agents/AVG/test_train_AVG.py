@@ -62,7 +62,7 @@ def test_update_AVG_values(
         truncated=jnp.array([[0.0]]),
         log_prob=jnp.array([[-1.0]]),
     )
-    agent_config = AVGConfig(gamma=0.99, target_entropy=-1.0)
+    agent_config = AVGConfig(gamma=0.99)
 
     updated_state = update_AVG_values(avg_state, rollout, agent_config)
     alpha = jnp.exp(updated_state.alpha.params["log_alpha"])

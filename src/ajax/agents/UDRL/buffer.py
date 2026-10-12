@@ -118,7 +118,7 @@ def sample_training_batch(
     buffer: SegmentBuffer,
     stream: EpisodeStream,
     batch_size: int,
-) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Sample a training batch following UDRL Algorithm 3 (interval-based).
 
     For each (env, t1) drawn uniformly among the stream's filled steps
@@ -130,7 +130,7 @@ def sample_training_batch(
     The state at t1 has its trailing 2 command dims overwritten with (dr, dh)
     so the actor is supervised on the realised command.
 
-    Returns (obs_with_cmd, action, dr, dh) each with leading axis ``batch_size``.
+    Returns (obs_with_cmd, action), each with leading axis ``batch_size``.
     """
     T, n_envs = buffer.obs.shape[1], buffer.obs.shape[2]
     k_env, k_t1, k_t2 = jax.random.split(rng, 3)
@@ -150,7 +150,7 @@ def sample_training_batch(
     state_no_cmd = state[..., :-2]
     new_cmd = jnp.stack([dr, dh], axis=-1)
     state = jnp.concatenate([state_no_cmd, new_cmd], axis=-1)
-    return state, action, dr, dh
+    return state, action
 
 
 @struct.dataclass

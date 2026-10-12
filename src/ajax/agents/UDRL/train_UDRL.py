@@ -359,7 +359,7 @@ def training_iteration(
 
     def update_step(carry, keys):
         a_state, (key, ext_key) = carry, keys
-        obs_b, act_b, _dr, _dh = sample_training_batch(
+        obs_b, act_b = sample_training_batch(
             key, new_buffer, stream, agent_config.batch_size
         )
         # Scale the (dr, dh) portion of obs to match what the actor sees

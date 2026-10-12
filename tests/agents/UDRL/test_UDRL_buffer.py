@@ -69,13 +69,13 @@ def test_the_sampler_draws_intervals_inside_episodes_across_segments(
     command of the observation at its start."""
     buffer = _buffer(capacity, segments, dones_at, reward_is_step=True)
     stream = episode_stream(buffer)
-    obs, action, dr, dh = jax.jit(sample_training_batch, static_argnums=3)(
+    obs, action = jax.jit(sample_training_batch, static_argnums=3)(
         jax.random.PRNGKey(0), buffer, stream, 6000
     )
-    t1, dh = np.asarray(obs[:, 0]), np.asarray(dh).astype(int)
+    t1, dr, dh = np.asarray(obs).T  # the command is (dr, dh)
+    dh = dh.astype(int)
     t2 = t1 + dh  # exclusive
     np.testing.assert_array_equal(np.asarray(action[:, 0]), t1)
-    np.testing.assert_array_equal(np.asarray(obs[:, 1:]), np.stack([dr, dh], -1))
     np.testing.assert_allclose(dr, (t1 + t2 - 1) * dh / 2)  # sum of t1 .. t2 - 1
     counts = np.bincount(t1.astype(int) - held[0], minlength=len(held))
     assert len(counts) == len(held) and counts.min() > 6000 / len(held) * 0.8

@@ -216,7 +216,9 @@ def update_value_functions(
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[TD3State, ValueAuxiliaries]:
     """The critic step on the smoothed, clipped double-Q target."""
-    key, rng = jax.random.split(agent_state.rng)
+    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
+    # default partitionable threefry, so the agent's own draws are unchanged.
+    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
     target_q = compute_td3_td_target(
@@ -250,7 +252,7 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        key,
+        ext_key,
         total_timesteps,
         rewards=batch.reward,
         dones=dones,
@@ -286,7 +288,8 @@ def update_policy(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            agent_state.rng,
+            # The next update splits the agent's key in two (update_agent).
+            jax.random.split(agent_state.rng, 3)[2],
             total_timesteps,
         )
         return loss + extra, aux

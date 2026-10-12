@@ -178,10 +178,12 @@ def critic_step(
     then steps the critic down ``value_loss(params, target_q) -> (loss,
     aux)`` plus their ``critic_loss`` terms. ``rewards``, ``dones`` (where
     the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
-    ``reward_scale`` are what the target used. Returns the stepped critic
-    state and ``aux``.
+    ``reward_scale`` are what the target used; ``key``, split between the
+    two folds, is one the agent draws nothing else on. Returns the stepped
+    critic state and ``aux``.
     """
     step = agent_state.collector_state.timestep
+    target_key, loss_key = jax.random.split(key)
     target_batch = {
         "observations": batch.obs,
         "actions": batch.action,
@@ -193,7 +195,7 @@ def critic_step(
     }
     target_q = jax.lax.stop_gradient(
         extension_stack.fold_on_target(
-            agent_state, target_batch, target_q, step, key, total_timesteps
+            agent_state, target_batch, target_q, step, target_key, total_timesteps
         )
     )
     critic_state = agent_state.critic_state
@@ -208,7 +210,7 @@ def critic_step(
             "critic_state": critic_state,
         }
         extra = extension_stack.fold_critic_loss(
-            agent_state, loss_batch, step, key, total_timesteps
+            agent_state, loss_batch, step, loss_key, total_timesteps
         )
         return loss + extra, aux
 

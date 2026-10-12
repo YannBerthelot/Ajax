@@ -133,7 +133,9 @@ def check_extension_phases(
 
     Raises ``ValueError`` naming every offending extension and phase: an
     extension whose phase an agent never folds would otherwise be silently
-    ignored. Agents call it at construction (``ActorCritic.__init__``).
+    ignored; also on a reader of phi* without MCPretrain
+    (:func:`check_phi_star_source`). Agents call it at construction
+    (``ActorCritic.__init__``).
     """
     stack = tuple(stack)
     check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
@@ -153,6 +155,21 @@ def check_extension_phases(
         raise ValueError(
             f"{agent_name} does not support these extension phases: {details}."
             f" Supported phases: {sorted(supported)}."
+        )
+    check_phi_star_source(agent_name, stack)
+
+
+def check_phi_star_source(agent_name: str, stack: Sequence["Extension"]) -> None:
+    """Reject extensions reading the frozen expert critic phi* in a stack
+    without one that fits it (MCPretrain): without phi* they would add
+    nothing all run (OnlineBC, CriticBlend, MCVarianceCorrection) or fail at
+    trace time (ValueBox, PhiRefresh)."""
+    readers = [type(ext).__name__ for ext in stack if ext.reads_phi_star()]
+    if readers and not any(ext.fits_phi_star for ext in stack):
+        raise ValueError(
+            f"{', '.join(readers)} read the frozen expert critic phi*, which"
+            f" MCPretrain fits, and {agent_name}'s extensions hold no"
+            " MCPretrain: add MCPretrain(expert_policy=...) to them."
         )
 
 
@@ -230,6 +247,9 @@ class Extension:
     #: The fields holding an expert (raw observations in, env-unit actions
     #: out), which :meth:`ExtensionStack.with_experts` converts.
     expert_fields: ClassVar[frozenset[str]] = frozenset()
+    #: Whether the extension fits the frozen expert critic phi* that the
+    #: extensions which :meth:`reads_phi_star` need (MCPretrain does).
+    fits_phi_star: ClassVar[bool] = False
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -324,6 +344,11 @@ class Extension:
         """The experts this extension calls itself, on the observations it
         is given (without a state); none by default."""
         return ()
+
+    def reads_phi_star(self) -> bool:
+        """Whether the extension reads phi*: a stack holding one and none
+        that ``fits_phi_star`` is refused (:func:`check_phi_star_source`)."""
+        return False
 
     def implemented_phases(self) -> frozenset[str]:
         """The phases this extension actually overrides (vs the no-op base)."""

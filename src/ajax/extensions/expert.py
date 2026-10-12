@@ -135,6 +135,9 @@ class OnlineBC(Extension):
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
 
+    def reads_phi_star(self) -> bool:
+        return True
+
     def actor_loss(
         self,
         agent_state: Any,

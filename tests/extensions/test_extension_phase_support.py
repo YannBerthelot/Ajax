@@ -15,7 +15,9 @@ from ajax.extensions.base import (
     ExtensionStack,
     check_extension_phases,
 )
-from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
+from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
+from ajax.extensions.pretrain import MCPretrain, PhiRefresh
+from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, ValueBox
 
 AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split()
 
@@ -147,3 +149,29 @@ def test_the_phase_check_applies_to_any_stack():
         check_extension_phases("Offline", [Instrument(), TargetTweak()], supported)
     assert "Offline does not support" in str(error.value)
     assert "'target-tweak'" in str(error.value) and "on_target" in str(error.value)
+
+
+#: The extensions reading the frozen expert critic phi*, which MCPretrain fits.
+PHI_STAR_READERS = {
+    "OnlineBC": OnlineBC(),
+    "CriticBlend": CriticBlend(expert_policy=_expert),
+    "MCVarianceCorrection": MCVarianceCorrection(threshold=1.0),
+    "ValueBox": ValueBox(),
+    "PhiRefresh": PhiRefresh(expert_policy=_expert),
+}
+
+
+@pytest.mark.parametrize("name", list(PHI_STAR_READERS))
+def test_a_reader_of_phi_star_needs_mc_pretrain(name: str) -> None:
+    """Refused in a stack without MCPretrain (it would add nothing all run,
+    or fail mid-trace), accepted with one."""
+    reader, fields = PHI_STAR_READERS[name], frozenset({"raw_next_obs"})
+    with pytest.raises(ValueError, match=f"^{name} read the frozen expert critic"):
+        check_extension_phases("SAC", [reader], frozenset(PHASES), fields)
+    stack = [MCPretrain(expert_policy=_expert), reader]
+    check_extension_phases("SAC", stack, frozenset(PHASES), fields)
+
+
+def test_an_agent_refuses_a_reader_of_phi_star_without_mc_pretrain() -> None:
+    with pytest.raises(ValueError, match="SAC's extensions hold no MCPretrain"):
+        SAC("Pendulum-v1", expert_policy=_expert, extensions=[OnlineBC()])

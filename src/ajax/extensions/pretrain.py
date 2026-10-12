@@ -587,6 +587,7 @@ class MCPretrain(Extension):
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+    fits_phi_star: ClassVar[bool] = True
 
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
@@ -869,7 +870,8 @@ class PhiRefresh(Extension):
     Equivalent to ``use_phi_refresh``: every ``interval`` steps run
     ``steps`` self-consistent Bellman updates on expert-flagged buffer
     transitions, keeping ``φ*`` aligned with the live data distribution.
-    Requires :class:`MCPretrain` (which creates the refreshable ``φ*``).
+    Requires :class:`MCPretrain` (which creates the refreshable ``φ*``;
+    refused without it).
 
     ``buffer``, ``gamma`` and ``reward_scale`` come from the agent through
     :meth:`bind_to_agent` (only SAC binds them); unbound, ``post_update``
@@ -891,6 +893,9 @@ class PhiRefresh(Extension):
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
+
+    def reads_phi_star(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.

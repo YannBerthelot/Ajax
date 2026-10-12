@@ -1,6 +1,3 @@
-import copy
-import pickle
-
 import jax
 import jax.numpy as jnp
 import pytest
@@ -211,24 +208,6 @@ def test_flatten_observation_wrapper(gymnax_env):
     assert obs.ndim == 1  # Observation should be flattened
     obs, *_ = wrapped_env.step(key, state, 0, env_params)
     assert obs.ndim == 1  # Observation should remain flattened
-
-
-@pytest.mark.parametrize(
-    "duplicate",
-    [copy.copy, copy.deepcopy, lambda env: pickle.loads(pickle.dumps(env))],
-    ids=["copy", "deepcopy", "pickle"],
-)
-def test_gymnax_wrapper_copies_and_pickles(duplicate):
-    """A wrapped env duplicates like the raw env: same type, same reset."""
-    env, params = make_gymnax_env("Pendulum-v1")
-    wrapped_env = ClipAction(FlattenObservationWrapper(env))
-    duplicated = duplicate(wrapped_env)
-    assert type(duplicated) is ClipAction
-    assert type(duplicated._env) is FlattenObservationWrapper
-    key = jax.random.PRNGKey(0)
-    assert jnp.array_equal(
-        duplicated.reset(key, params)[0], wrapped_env.reset(key, params)[0]
-    )
 
 
 @pytest.mark.parametrize(

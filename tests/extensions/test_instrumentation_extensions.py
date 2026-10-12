@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import gymnax
 import jax
 import jax.numpy as jnp
 import pytest
@@ -31,10 +32,12 @@ from ajax.extensions.instrumentation import (
     BiasVorePenalty,
     ConditioningMetrics,
     _sample_transitions,
+    _takes_action,
     evarest_coeff,
 )
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.state import Transition
+from ajax.networks.networks import get_initialized_actor_critic
+from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig, Transition
 
 # Evaluate (and return the evaluations) without a logging backend.
 EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
@@ -161,3 +164,18 @@ def test_bias_vore_penalty_alpha_nonhalf_runs():
         [BiasVorePenalty(alpha=0.3, loss_scale=0.5)]
     )
     assert metrics is not None
+
+
+def test_a_cnn_critic_reads_the_observation_alone():
+    """A CNN state-value critic refuses an input one column wide too (the
+    action appended), where an MLP builds other shapes: the instrumentation
+    reads it as a state-value critic all the same."""
+    env, params = gymnax.make("CartPole-v1")
+    env_config = EnvironmentConfig(env, params, n_envs=1, continuous=False)
+    network = NetworkConfig(("8", "relu"), ("8", "relu"), cnn_image_shape=(2, 2, 1))
+    adam = OptimizerConfig(learning_rate=1e-3)
+    key = jax.random.PRNGKey(0)
+    _, critic = get_initialized_actor_critic(
+        key, env_config, adam, adam, network, continuous=False, num_critics=1
+    )
+    assert not _takes_action(critic, jnp.zeros((2, 4)), jnp.zeros((2, 1)), key)

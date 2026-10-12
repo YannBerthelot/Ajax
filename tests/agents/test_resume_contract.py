@@ -51,14 +51,9 @@ def _row(name: str, memory: bool) -> tuple[Any, int, dict]:
     return lambda: case.cls(env_id=case.envs[-1], n_envs=2, **kw), case.n_timesteps, {}
 
 
-# Day one: a new instance's gymnax normaliser defines its own state class,
-# which the resumed scan's carry refuses.
-NEW_CLASS = pytest.mark.xfail(
-    strict=True, raises=TypeError, reason="fix/resume-normalised-new-instance"
-)
-ROWS = [pytest.param(n, False, id=n, marks=NEW_CLASS) for n in sorted(CASES)]
+ROWS = [pytest.param(n, False, id=n) for n in sorted(CASES)]
 ROWS += [
-    pytest.param(n, True, id=f"{n}-memory", marks=NEW_CLASS)
+    pytest.param(n, True, id=f"{n}-memory")
     for n in sorted(CASES)
     if CASES[n].cls.supports_memory
 ]

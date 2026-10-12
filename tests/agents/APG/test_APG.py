@@ -182,7 +182,7 @@ def test_contextual_controller_configuration(env_and_class):
         kind="transformer", hidden_size=8, num_layers=1, num_heads=2, window=8
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
-    assert agent.lr_schedule == "warmup_cosine"
+    assert agent.train_kwargs["lr_schedule"] == "warmup_cosine"
     assert agent.actor_optimizer_args.max_grad_norm == 1.0
     assert agent.actor_optimizer_args.weight_decay == 0.01
     state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8)

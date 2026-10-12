@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Literal, Optional, Union
 
 from gymnax import EnvParams
@@ -63,6 +62,7 @@ class REDQ(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -202,19 +202,9 @@ class REDQ(ActorCritic):
             actor_cloning_epochs=actor_cloning_epochs,
             actor_cloning_batch_size=actor_cloning_batch_size,
         )
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the REDQ agent.
-
-        Returns:
-            Callable: A function that trains the REDQ agent.
-        """
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            alpha_args=self.alpha_args,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "alpha_args": self.alpha_args,
+            "cloning": self.cloning,
+            "expert_policy": self.expert_policy,
+        }

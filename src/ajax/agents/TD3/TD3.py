@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -37,6 +36,7 @@ class TD3(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -136,14 +136,9 @@ class TD3(ActorCritic):
             actor_cloning_batch_size=actor_cloning_batch_size,
             skip_actor_pretrain=skip_actor_pretrain,
         )
-        self.action_pipeline = action_pipeline
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            action_pipeline=self.action_pipeline,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "cloning": self.cloning,
+            "expert_policy": self.expert_policy,
+            "action_pipeline": action_pipeline,
+        }

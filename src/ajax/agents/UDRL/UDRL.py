@@ -4,7 +4,6 @@ optimizer configs and forwards them to a per-agent ``make_train``.
 """
 
 from collections.abc import Sequence
-from functools import partial
 from typing import Optional, Tuple
 
 from gymnax import EnvParams
@@ -23,6 +22,7 @@ class UDRL(ActorCritic):
 
     name: str = "UDRL"
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -95,6 +95,3 @@ class UDRL(ActorCritic):
             buffer_capacity=buffer_capacity,
             n_updates_per_iter=n_updates_per_iter,
         )
-
-    def get_make_train(self):
-        return partial(make_train, extensions=tuple(self.extension_stack.extensions))

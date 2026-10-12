@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -56,6 +55,7 @@ class SAC(ActorCritic):
     }
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
     stores_expert_actions: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -192,14 +192,14 @@ class SAC(ActorCritic):
 
         # Gain-policy mode: actor outputs PID gains (see make_action_pipeline).
         # Critic / buffer / target_entropy then operate in gain-space.
-        self.action_dim_override: Optional[int] = None
+        action_dim_override: Optional[int] = None
         if use_pid_policy:
             if expert_policy is None or not hasattr(expert_policy, "learnable_fields"):
                 raise ValueError(
                     "use_pid_policy=True requires a FunctionalExpertPolicy with"
                     " learnable_fields (registered via register_learnable_gains)."
                 )
-            self.action_dim_override = len(expert_policy.learnable_fields)
+            action_dim_override = len(expert_policy.learnable_fields)
             if augment_obs_with_expert_action:
                 # The expert's action is what the actor's gains make it, after
                 # the actor has read its observation.
@@ -211,8 +211,8 @@ class SAC(ActorCritic):
                 )
 
         action_dim = (
-            self.action_dim_override
-            if self.action_dim_override is not None
+            action_dim_override
+            if action_dim_override is not None
             else get_action_dim(self.env_args.env, env_params)
         )
         self.agent_config = SACConfig(
@@ -228,7 +228,6 @@ class SAC(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-        self.num_critics = num_critics
         if not skip_critic_pretrain:
             raise ValueError(
                 "SAC no longer pretrains its critic on the cloning dataset; "
@@ -246,59 +245,39 @@ class SAC(ActorCritic):
             reset_actor_head_after_bc=reset_actor_head_after_bc,
         )
         self.eval_expert_policy = self._in_agent_units(eval_expert_policy)
-        self.jsrl_curriculum = jsrl_curriculum
-        self.use_pid_policy = use_pid_policy
-        self.fixed_alpha = fixed_alpha
-        self.num_critic_updates = num_critic_updates
-        self.expert_buffer_n_steps = expert_buffer_n_steps
-        self.augment_obs_with_expert_action = augment_obs_with_expert_action
-        self.use_train_frac = use_train_frac
-        self.policy_update_start = policy_update_start
-        self.alpha_update_start = alpha_update_start
-        self.expert_fraction = expert_fraction
-        self.augment_obs_with_expert_state = augment_obs_with_expert_state
-        self.store_policy_action = store_policy_action
-        self.normalize_obs_running = normalize_obs_running
         # Resolve the static expert_state_aug_dim once. 0 for stateless or
         # when the augmentation is off.
+        expert_state_aug_dim = 0
         if augment_obs_with_expert_state and expert_policy is not None:
             from ajax.environments.interaction import expert_state_dim
 
-            self.expert_state_aug_dim = expert_state_dim(expert_policy)
-        else:
-            self.expert_state_aug_dim = 0
-        self.target_entropy_initial = (
-            target_entropy_initial_per_dim * action_dim
-            if target_entropy_initial_per_dim is not None
-            else None
-        )
-        self.target_entropy_ramp_frac = target_entropy_ramp_frac
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            alpha_args=self.alpha_args,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            eval_expert_policy=self.eval_expert_policy,
-            use_pid_policy=self.use_pid_policy,
-            fixed_alpha=self.fixed_alpha,
-            num_critics=self.num_critics,
-            num_critic_updates=self.num_critic_updates,
-            expert_buffer_n_steps=self.expert_buffer_n_steps,
-            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
-            use_train_frac=self.use_train_frac,
-            policy_update_start=self.policy_update_start,
-            alpha_update_start=self.alpha_update_start,
-            expert_fraction=self.expert_fraction,
-            augment_obs_with_expert_state=self.augment_obs_with_expert_state,
-            store_policy_action=self.store_policy_action,
-            expert_state_aug_dim=self.expert_state_aug_dim,
-            normalize_obs_running=self.normalize_obs_running,
-            target_entropy_initial=self.target_entropy_initial,
-            target_entropy_ramp_frac=self.target_entropy_ramp_frac,
-            jsrl_curriculum=self.jsrl_curriculum,
-            action_dim_override=self.action_dim_override,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+            expert_state_aug_dim = expert_state_dim(expert_policy)
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "alpha_args": self.alpha_args,
+            "cloning": self.cloning,
+            "expert_policy": self.expert_policy,
+            "eval_expert_policy": self.eval_expert_policy,
+            "use_pid_policy": use_pid_policy,
+            "fixed_alpha": fixed_alpha,
+            "num_critics": num_critics,
+            "num_critic_updates": num_critic_updates,
+            "expert_buffer_n_steps": expert_buffer_n_steps,
+            "augment_obs_with_expert_action": augment_obs_with_expert_action,
+            "use_train_frac": use_train_frac,
+            "policy_update_start": policy_update_start,
+            "alpha_update_start": alpha_update_start,
+            "expert_fraction": expert_fraction,
+            "augment_obs_with_expert_state": augment_obs_with_expert_state,
+            "store_policy_action": store_policy_action,
+            "expert_state_aug_dim": expert_state_aug_dim,
+            "normalize_obs_running": normalize_obs_running,
+            "target_entropy_initial": (
+                target_entropy_initial_per_dim * action_dim
+                if target_entropy_initial_per_dim is not None
+                else None
+            ),
+            "target_entropy_ramp_frac": target_entropy_ramp_frac,
+            "jsrl_curriculum": jsrl_curriculum,
+            "action_dim_override": action_dim_override,
+        }

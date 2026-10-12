@@ -6,8 +6,8 @@ TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants) and the DQN /
 PQN variants (Double DQN, Huber).
 
 These are API-contract tests: construct each agent with each hook (and
-``None``) and confirm construction succeeds and the attribute is stored and
-forwarded to ``make_train``. They do not run training.
+``None``) and confirm construction succeeds and the hook is forwarded to
+``make_train``. They do not run training.
 """
 
 import pytest
@@ -71,23 +71,12 @@ def _instantiate(agent_cls, **kwargs):
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_default_hooks_are_none(agent_cls):
-    """By default every hook attribute is None (feature inactive)."""
-    agent = _instantiate(agent_cls)
+    """By default every hook make_train receives is None (feature inactive)."""
+    keywords = _instantiate(agent_cls).get_make_train().keywords
     for hook in AGENT_HOOKS[agent_cls]:
         assert (
-            getattr(agent, hook) is None
+            keywords[hook] is None
         ), f"{agent_cls.__name__}.{hook} should default to None"
-
-
-@pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
-def test_hooks_are_stored(agent_cls):
-    """Passed-in hooks are retained on the instance (for get_make_train)."""
-    hook_kwargs = {h: _identity_hook for h in AGENT_HOOKS[agent_cls]}
-    agent = _instantiate(agent_cls, **hook_kwargs)
-    for h, fn in hook_kwargs.items():
-        assert (
-            getattr(agent, h) is fn
-        ), f"{agent_cls.__name__}.{h} should store the hook it was given"
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)

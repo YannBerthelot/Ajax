@@ -1,7 +1,6 @@
 import warnings
 from collections.abc import Sequence
-from functools import partial
-from typing import Callable, Optional, Union
+from typing import Optional, Union
 
 from gymnax import EnvParams
 
@@ -53,6 +52,7 @@ class PPO(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -204,15 +204,3 @@ class PPO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the PPO agent.
-
-        Returns:
-            Callable: A function that trains the PPO agent.
-        """
-        return partial(
-            make_train,
-            extensions=tuple(self.extension_stack.extensions),
-        )

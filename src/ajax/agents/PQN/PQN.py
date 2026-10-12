@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional
 
 from gymnax import EnvParams
@@ -24,6 +23,7 @@ class PQN(ActorCritic):
 
     name: str = "PQN"
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -100,17 +100,9 @@ class PQN(ActorCritic):
             reward_scale=reward_scale,
             expose_recent_rollout=expose_recent_rollout,
         )
-        self.epsilon_start = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay_frac = epsilon_decay_frac
-        self.td_loss_fn = td_loss_fn
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            epsilon_start=self.epsilon_start,
-            epsilon_end=self.epsilon_end,
-            epsilon_decay_frac=self.epsilon_decay_frac,
-            td_loss_fn=self.td_loss_fn,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "epsilon_start": epsilon_start,
+            "epsilon_end": epsilon_end,
+            "epsilon_decay_frac": epsilon_decay_frac,
+            "td_loss_fn": td_loss_fn,
+        }

@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional
 
 from gymnax import EnvParams
@@ -32,6 +31,7 @@ class AVG(ActorCritic):
         "critic_loss",
         "actor_loss",
     }
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -125,11 +125,7 @@ class AVG(ActorCritic):
             num_critics=num_critics,
             expose_recent_rollout=expose_recent_rollout,
         )
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            alpha_args=self.alpha_args,
-            expert_policy=self.expert_policy,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "alpha_args": self.alpha_args,
+            "expert_policy": self.expert_policy,
+        }

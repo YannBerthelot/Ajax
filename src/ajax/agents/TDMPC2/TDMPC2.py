@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from functools import partial
 from typing import Any, Callable, Optional
 
 import jax
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodicBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
@@ -124,6 +123,7 @@ class TDMPC2(ActorCritic):
 
     name: str = "TDMPC2"
     supported_extension_phases: frozenset = LOOP_PHASES
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -201,10 +201,7 @@ class TDMPC2(ActorCritic):
         ``learning_rate``), with its paper default; see the class docstring
         for the static ones and the derived defaults.
         """
-        self.config = {
-            k: v for k, v in locals().items() if k not in ("self", "__class__")
-        }
-        self.config.update({"algo_name": "TDMPC2"})
+        self.config = run_config(locals(), self.name)
 
         # The base class's actor / critic optimizer and network configs do
         # not apply: core.create_update_state builds TD-MPC2's optimizers.
@@ -263,9 +260,13 @@ class TDMPC2(ActorCritic):
             if episodic
             else Schedule(**schedule, updates_per_step=ratio)
         )
-        self.learning_rate = learning_rate
-        self.enc_lr_scale = float(enc_lr_scale)
-        self.pi_eps = float(pi_eps)
+        self.train_kwargs = {
+            "gamma": self.gamma,
+            "schedule": self.schedule,
+            "learning_rate": learning_rate,
+            "enc_lr_scale": float(enc_lr_scale),
+            "pi_eps": float(pi_eps),
+        }
         # Sized at every train() call (see the class docstring).
         self.replay_capacity: Optional[int] = None
         self.replay_bytes_per_seed: Optional[int] = None
@@ -278,17 +279,6 @@ class TDMPC2(ActorCritic):
                 "resolved_seed_steps": self.seed_steps,
                 **self.agent_config.resolved(self.action_dim),
             }
-        )
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            gamma=self.gamma,
-            schedule=self.schedule,
-            learning_rate=self.learning_rate,
-            enc_lr_scale=self.enc_lr_scale,
-            pi_eps=self.pi_eps,
-            extensions=tuple(self.extension_stack.extensions),
         )
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:

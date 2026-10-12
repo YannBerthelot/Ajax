@@ -15,6 +15,7 @@ from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import (
+    Carry,
     MemoryCell,
     MemoryConfig,
     init_carry,
@@ -31,14 +32,14 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import ActivationFunction, HiddenState, InitializationFunction
+from ajax.types import ActivationFunction, InitializationFunction
 
 
 class Encoder(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     penultimate_normalization: bool = False
-    kernel_init: Optional[str] = None
-    bias_init: Optional[str] = None
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    bias_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the output features. Off by default: the SAC,
     # TD3, PPO and DQN papers use plain MLPs. Ignored under
     # penultimate_normalization, which takes precedence.
@@ -690,8 +691,8 @@ def predict_value_sequence(
     critic_params: FrozenDict,
     x: jax.Array,
     resets: jax.Array,
-    initial_hidden: HiddenState,
-) -> Tuple[jax.Array, HiddenState]:
+    initial_hidden: Carry,
+) -> Tuple[jax.Array, Carry]:
     """Run a recurrent critic over a time-major sequence.
 
     Args:

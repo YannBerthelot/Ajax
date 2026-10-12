@@ -1,17 +1,17 @@
 import warnings
 from collections.abc import Sequence
-from functools import partial
-from typing import Callable, Optional, Union
+from typing import Optional, Tuple, Union
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.PPO.core import resolve_num_minibatches
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -53,6 +53,7 @@ class PPO(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -106,9 +107,9 @@ class PPO(ActorCritic):
         squash: bool = False,
         episode_length: Optional[int] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
@@ -117,6 +118,9 @@ class PPO(ActorCritic):
         # without forcing a fresh rollout per eval. Off by default —
         # see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # Simulator steps per agent step on brax / playground envs
+        # (ActorCritic).
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the PPO agent.
@@ -133,8 +137,7 @@ class PPO(ActorCritic):
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             batch_size (int): Batch size for training.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "PPO"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,
@@ -161,6 +164,7 @@ class PPO(ActorCritic):
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
             episode_length=episode_length,
+            action_repeat=action_repeat,
             # The env's normaliser hands every observation normalised
             # with the statistics of its step, and the rollout keeps it
             # so: the loss sees what the policy acted on (the ratio is 1
@@ -204,15 +208,3 @@ class PPO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the PPO agent.
-
-        Returns:
-            Callable: A function that trains the PPO agent.
-        """
-        return partial(
-            make_train,
-            extensions=tuple(self.extension_stack.extensions),
-        )

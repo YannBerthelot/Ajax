@@ -2,13 +2,12 @@ import jax
 import jax.numpy as jnp
 
 from ajax.agents.AVG.state import RunningMoments
-from ajax.deprecation import moved_names
 from ajax.utils import online_normalize
 
 
 def _normalize_and_update(
     info: RunningMoments, square_value: bool
-) -> tuple[RunningMoments, jnp.array]:
+) -> tuple[RunningMoments, jax.Array]:
     """Fold ``info.value`` (squared when ``square_value``) into its running
     statistics; returns them and the running variance."""
     value = jnp.square(info.value) if square_value else info.value
@@ -22,7 +21,7 @@ def compute_td_error_scaling(
     reward: RunningMoments,
     gamma: RunningMoments,
     G_return: RunningMoments,
-) -> tuple[jnp.array, RunningMoments, RunningMoments, RunningMoments]:
+) -> tuple[jax.Array, RunningMoments, RunningMoments, RunningMoments]:
     """AVG's TD-error scale ``sqrt(var(r) + E[G^2] var(gamma))`` (1 until two
     returns were seen), with the reward, discount and squared-return
     statistics updated; ``G_return.value`` is NaN unless an episode just
@@ -37,7 +36,3 @@ def compute_td_error_scaling(
     scaling = jnp.sqrt(variance_reward + G_return.mean * variance_gamma)
     td_error_scaling = jnp.where(G_return.count > 1, scaling, jnp.ones_like(scaling))
     return td_error_scaling, reward, gamma, G_return
-
-
-# The old name was importable from here too (the tests imported it here).
-__getattr__ = moved_names(__name__, NormalizationInfo=RunningMoments)

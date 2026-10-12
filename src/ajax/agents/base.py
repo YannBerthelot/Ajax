@@ -1,6 +1,6 @@
-import time
 from collections.abc import Sequence
-from typing import Any, Callable, Optional, Union
+from functools import partial
+from typing import Any, Callable, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -21,6 +21,7 @@ from ajax.logging.wandb_logging import (
     stop_async_logging,
 )
 from ajax.networks.memory import MemoryConfig, parse_memory_config
+from ajax.networks.networks import CNNSpec
 from ajax.state import (
     BaseAgentConfig,
     BaseAgentState,
@@ -29,6 +30,18 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import EnvType, InitializationFunction
+
+
+def run_config(
+    arguments: dict[str, Any], name: str, exclude: Sequence[str] = ()
+) -> dict[str, Any]:
+    """The run config the loggers record (:meth:`ActorCritic.train`): an
+    agent constructor's ``arguments`` (its ``locals()``) but ``self``,
+    ``__class__`` (present once the constructor calls ``super()``) and
+    ``exclude``, and the agent's ``algo_name``."""
+    dropped = {"self", "__class__", *exclude}
+    config = {k: v for k, v in arguments.items() if k not in dropped}
+    return config | {"algo_name": name}
 
 
 def shared_counters(state: Any) -> dict[str, jax.Array]:
@@ -79,6 +92,11 @@ def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
 
 
 class ActorCritic:
+    #: The agent's name, its run config's ``algo_name``.
+    name: str
+    #: The run config the loggers record, from the constructor's arguments
+    #: (:func:`run_config`), with the values the agent resolves from them.
+    config: dict[str, Any]
     # Agents that implement recurrent (memory-augmented) training set this
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
@@ -99,10 +117,12 @@ class ActorCritic:
     stores_expert_actions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
+    #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
+    make_train: Callable[..., Callable]
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 4,
         actor_learning_rate: Union[float, Callable[[int], float]] = 3e-4,
         critic_learning_rate: Union[float, Callable[[int], float]] = 3e-4,
@@ -117,9 +137,9 @@ class ActorCritic:
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        cnn_image_shape: Optional[tuple] = None,
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
-        cnn_spec: Optional[tuple] = None,
+        cnn_spec: Optional[CNNSpec] = None,
         # Brax-style actor head knobs (see NetworkConfig). Default = legacy.
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
@@ -220,6 +240,9 @@ class ActorCritic:
         )
 
         self.agent_config = BaseAgentConfig()
+        #: ``make_train``'s keyword arguments proper to the agent, beyond the
+        #: ones every agent's takes (:meth:`train`); each agent fills it.
+        self.train_kwargs: dict[str, Any] = {}
 
         # Composable research features (expert guidance, instrumentation,
         # …). The stack is static — agents thread it into make_train as a
@@ -277,7 +300,14 @@ class ActorCritic:
         return 0
 
     def get_make_train(self) -> Callable:
-        raise NotImplementedError
+        """:attr:`make_train` with the agent's own arguments
+        (:attr:`train_kwargs`) and its extensions; :meth:`train` passes the
+        rest."""
+        return partial(
+            self.make_train,
+            **self.train_kwargs,
+            extensions=tuple(self.extension_stack.extensions),
+        )
 
     def train(
         self,
@@ -342,46 +372,35 @@ class ActorCritic:
             **kwargs,
         )
 
+        index = jnp.arange(len(seed))
+        keys = jax.vmap(jax.random.PRNGKey)(jnp.array(seed))
         if initial_state is None:
-
-            def set_key_and_train(seed, index):
-                key = jax.random.PRNGKey(seed)
-                return train_jit(key, index)
-
-            index = jnp.arange(len(seed))
-            seed = jnp.array(seed)
-            _t0 = time.time()
-            result = jax.vmap(set_key_and_train, in_axes=0)(seed, index)
+            result = jax.vmap(train_jit)(keys, index)
         else:
             # Only passed when non-zero: the default (0) keeps the call --
             # and the train functions that predate the offset -- unchanged.
             iteration_offset = int(self.resume_iteration_offset(initial_state))
             offset_kwargs = (
-                {} if iteration_offset == 0 else {"iteration_offset": iteration_offset}
+                {}
+                if iteration_offset == 0
+                else {"iteration_offset": jnp.asarray(iteration_offset, jnp.int32)}
             )
 
-            def set_key_and_train_resume(seed, index, state, counters, offset_kwargs):
-                key = jax.random.PRNGKey(seed)
+            def resume(key, index, state, counters, offset_kwargs):
+                state = with_shared_counters(state, counters)
                 return train_jit(
                     key,
                     index,
-                    initial_state=with_shared_counters(state, counters),
+                    initial_state=state,
                     resume_from_state=True,
                     **offset_kwargs,
                 )
 
-            index = jnp.arange(len(seed))
-            seed = jnp.array(seed)
-            _t0 = time.time()
             # The offset and the shared counters are unbatched (in_axes
             # None): every schedule and gate derived from them must stay
             # unbatched under the vmap.
-            result = jax.vmap(set_key_and_train_resume, in_axes=(0, 0, 0, None, None))(
-                seed,
-                index,
-                initial_state,
-                counters,
-                jax.tree.map(lambda o: jnp.asarray(o, jnp.int32), offset_kwargs),
+            result = jax.vmap(resume, in_axes=(0, 0, 0, None, None))(
+                keys, index, initial_state, counters, offset_kwargs
             )
         # Block until all XLA computation and debug.callbacks complete, then
         # drain and stop the logging worker.  Calling stop_async_logging()

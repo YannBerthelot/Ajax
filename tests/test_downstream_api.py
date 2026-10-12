@@ -41,7 +41,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     ),
     "ajax:PPO": ("env_id", "env_params", "n_envs"),
     "ajax:SAC": (
-        "action_scale",
         "actor_architecture",
         "actor_learning_rate",
         "alpha_init",
@@ -175,7 +174,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     ),
     "ajax.networks.memory:init_carry": (),
     "ajax.networks.memory:zeros_carry_like": (),
-    "ajax.plane.plane_exps_utils:get_mode": (),
     "ajax.schedule:warmup_cosine_schedule": (),
     "ajax.wrappers:AutoResetWrapper": (),
     "ajax.wrappers:FinalObsWrapper": (),

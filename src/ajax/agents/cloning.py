@@ -1,4 +1,3 @@
-import warnings
 from typing import Dict, Optional, Sequence, Tuple
 
 import distrax
@@ -11,23 +10,6 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import augment_obs
 from ajax.networks.distributions import SquashedNormal
-
-
-def warn_actor_cloning_lr(actor_cloning_lr: Optional[float]) -> None:
-    """Warn that ``actor_cloning_lr`` is deprecated and ignored.
-
-    Cloning has always trained at the actor's learning rate: the keyword
-    was never read. No downstream project sets it (scan of 2026-10-11), so
-    it goes expand-then-contract: this warning now, then a follow-up
-    removes the keyword from SAC, TD3, REDQ and APO.
-    """
-    if actor_cloning_lr is not None:
-        warnings.warn(
-            "actor_cloning_lr is deprecated and ignored: behaviour cloning"
-            " trains at actor_learning_rate. It will be removed.",
-            FutureWarning,
-            stacklevel=3,
-        )
 
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
@@ -43,8 +25,8 @@ def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
 def _reset_actor_heads(
     bc_actor_state: train_state.TrainState,
     rng: jax.Array,
-    reset_log_std_after_bc: bool,
-    reset_actor_head_after_bc: bool,
+    reset_log_std: bool,
+    reset_actor_head: bool,
 ) -> train_state.TrainState:
     """Reset the log_std and/or mean head subtrees of an actor TrainState.
 
@@ -62,7 +44,7 @@ def _reset_actor_heads(
             if (
                 k == "log_std"
                 and isinstance(v, dict)
-                and (reset_log_std_after_bc or reset_actor_head_after_bc)
+                and (reset_log_std or reset_actor_head)
             ):
                 new_sub = {}
                 for sub_k, sub_v in v.items():
@@ -73,7 +55,7 @@ def _reset_actor_heads(
                     else:
                         new_sub[sub_k] = sub_v
                 out[k] = new_sub
-            elif k == "mean" and isinstance(v, dict) and reset_actor_head_after_bc:
+            elif k == "mean" and isinstance(v, dict) and reset_actor_head:
                 new_sub = {}
                 for sub_k, sub_v in v.items():
                     if sub_k == "kernel":
@@ -104,8 +86,8 @@ def _reset_actor_heads(
         "actor_epochs",
         "actor_batch_size",
         "skip_actor",
-        "reset_log_std_after_bc",
-        "reset_actor_head_after_bc",
+        "reset_log_std",
+        "reset_actor_head",
         "augment_obs_with_expert_action",
         "raw_columns",
     ],
@@ -121,14 +103,14 @@ def pre_train(
     # If True, after BC training the SAC actor's mean (and encoder), reset
     # the ``log_std`` head's params to its init values (zeros kernel,
     # constant -1.0 bias → std ≈ 0.37). Preserves the BC'd mean.
-    reset_log_std_after_bc: bool = False,
+    reset_log_std: bool = False,
     # If True, after BC reset BOTH ``mean`` and ``log_std`` head subtrees
     # to fresh init. Keeps only the encoder (trunk) BC-warmed: trunk
     # features encode expert-relevant state representations, but the
     # action map is random. Online RL re-learns the head fast on top of
     # informative features without any sharp policy break (since the
     # actor outputs are random-init scale, no entropy compression).
-    reset_actor_head_after_bc: bool = False,
+    reset_actor_head: bool = False,
     augment_obs_with_expert_action: bool = False,
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
@@ -236,17 +218,17 @@ def pre_train(
         )
         metrics["actor_loss"] = actor_losses
         # Optional: reset head subtree(s) of the actor after BC training.
-        # ``reset_log_std_after_bc``: reset only log_std (preserves BC'd mean)
-        # ``reset_actor_head_after_bc``: reset BOTH mean and log_std (keeps
+        # ``reset_log_std``: reset only log_std (preserves BC'd mean)
+        # ``reset_actor_head``: reset BOTH mean and log_std (keeps
         #   only the encoder BC-warmed; head is random → natural entropy
         #   → α stays sane; trunk features encode expert-relevant info)
-        if reset_log_std_after_bc or reset_actor_head_after_bc:
+        if reset_log_std or reset_actor_head:
             rng, reset_key = jax.random.split(rng)
             bc_actor_state = _reset_actor_heads(
                 bc_actor_state,
                 reset_key,
-                reset_log_std_after_bc,
-                reset_actor_head_after_bc,
+                reset_log_std,
+                reset_actor_head,
             )
 
     # Skip the write-back when actor pretraining was bypassed.

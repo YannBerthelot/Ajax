@@ -11,7 +11,7 @@ from jax.tree_util import Partial as partial
     static_argnames=["train", "eps", "shift", "nan_safe", "raw_columns"],
 )
 def online_normalize(
-    x: jnp.array,
+    x: jax.Array,
     count: int,
     mean: float,
     mean_2: float,
@@ -21,7 +21,7 @@ def online_normalize(
     returns: Optional[jax.Array] = None,
     nan_safe: bool = True,
     raw_columns: int = 0,
-) -> tuple[jnp.array, int, float, float, float]:
+) -> tuple[jax.Array, int, float, float, float]:
     """Welford-style running mean / var update.
 
     ``nan_safe`` (static): when True (default), reductions skip NaN

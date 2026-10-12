@@ -1,18 +1,15 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import warn_actor_cloning_lr
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.networks.memory import MemoryConfig
 from ajax.types import EnvType
 
@@ -37,6 +34,7 @@ class TD3(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -72,21 +70,19 @@ class TD3(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # --- Deprecated cloning keywords: extensions=(CloningPretrain(...),);
-        # online BC is the ImitationLoss extension ---
-        actor_cloning_epochs: Optional[int] = None,
-        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        skip_actor_pretrain: Optional[bool] = None,
-        actor_cloning_batch_size: Optional[int] = None,
-        pre_train_n_steps: Optional[int] = None,
+        # Expert for the CloningPretrain extension and the eval expert-bias
+        # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
         # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
-        self.config = {**locals()}
-        self.config.update({"algo_name": "TD3"})
+        self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
@@ -104,6 +100,8 @@ class TD3(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -127,23 +125,8 @@ class TD3(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-        warn_actor_cloning_lr(actor_cloning_lr)
-        self.cloning = CloningPretrain.from_deprecated_kwargs(
-            self.expert_policy,
-            self.extension_stack.extensions,
-            pre_train_n_steps=pre_train_n_steps,
-            actor_cloning_epochs=actor_cloning_epochs,
-            actor_cloning_batch_size=actor_cloning_batch_size,
-            skip_actor_pretrain=skip_actor_pretrain,
-        )
-        self.action_pipeline = action_pipeline
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            action_pipeline=self.action_pipeline,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "expert_policy": self.expert_policy,
+            "action_pipeline": action_pipeline,
+        }

@@ -460,7 +460,7 @@ def make_train(
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> DQNState:
+    def init(key: jax.Array) -> DQNState:
         return init_DQN(
             key,
             env_args,

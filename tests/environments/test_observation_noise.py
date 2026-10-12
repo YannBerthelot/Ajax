@@ -1,12 +1,10 @@
-"""Observation noise: ObservationNoiseWrapper (gymnax), its brax variant,
-and the deprecated ``env._obs_noise_sigma`` hook they replace."""
+"""Observation noise: ObservationNoiseWrapper (gymnax) and its brax variant."""
 
 import itertools
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 from gymnax import make as make_gymnax_env
 
 from ajax.environments.create import build_env_from_id
@@ -97,17 +95,3 @@ def test_an_agent_trains_on_a_noisy_env():
     )
     state, _ = agent.train(seed=0, n_timesteps=32)
     assert all(np.isfinite(x).all() for x in jax.tree.leaves(state.actor_state.params))
-
-
-def test_the_noise_hook_warns_and_still_noises():
-    """The deprecated hook (interaction._maybe_noise_obs), kept until
-    AjaxExperiments wraps its env: a FutureWarning, and the noise."""
-    env, params = make_gymnax_env("Pendulum-v1")
-    keys = jax.random.split(jax.random.PRNGKey(0), 2)
-    clean, _ = reset(keys, env, "gymnax", params)
-    hooked, _ = make_gymnax_env("Pendulum-v1")  # a new jit cache entry
-    hooked._obs_noise_sigma = 0.1
-    with pytest.warns(FutureWarning, match="ObservationNoiseWrapper"):
-        obs, _ = reset(keys, hooked, "gymnax", params)
-    noise = jax.vmap(lambda k: _draw(k, (3,), sigma=0.1) / SCALE)(keys)
-    np.testing.assert_allclose(obs, clean + noise, rtol=1e-6)

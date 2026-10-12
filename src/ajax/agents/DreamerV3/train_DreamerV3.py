@@ -75,7 +75,7 @@ from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.evaluate import evaluate_policy
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.state import EnvironmentConfig
+from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 # ---------------------------------------------------------------------------
 # Schedule: 2411f7d train.py + when.Ratio
@@ -575,9 +575,9 @@ def restart_train_metrics(
 
 def make_train(
     env_args: EnvironmentConfig,
-    actor_optimizer_args: Any,
-    critic_optimizer_args: Any,
-    network_args: Any,
+    actor_optimizer_args: OptimizerConfig,
+    critic_optimizer_args: OptimizerConfig,
+    network_args: NetworkConfig,
     agent_config: DreamerV3AgentConfig,
     total_timesteps: int,
     num_episode_test: int,
@@ -632,8 +632,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> DreamerV3State:
-        del pretrain_key  # no pretraining of its own
+    def init(key: jax.Array) -> DreamerV3State:
         return init_dreamer(key, env_args, config, spec, replay, metric_keys)
 
     common = {"config": config, "spec": spec, "replay": replay}

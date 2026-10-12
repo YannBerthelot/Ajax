@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from ajax.agents.UDRL.train_UDRL import init_UDRL
 from ajax.agents.UDRL.UDRL import UDRL
@@ -76,3 +77,10 @@ def test_UDRL_logs_the_returns_of_whole_episodes():
     np.testing.assert_allclose(
         rows["Train/episodic mean reward"][0, -1], np.mean(means)
     )
+
+
+def test_UDRL_refuses_n_epochs():
+    """UDRL takes ``n_updates_per_iter`` gradient steps per iteration
+    (Algorithm 3); the ``n_epochs`` it once accepted and ignored is gone."""
+    with pytest.raises(TypeError, match="n_epochs"):
+        UDRL(env_id="Pendulum-v1", n_epochs=2)

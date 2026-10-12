@@ -145,7 +145,7 @@ def make_init(
     """
     extension_stack = ExtensionStack(extensions)
 
-    def init_tdmpc2(key: jax.Array, _pretrain_key: jax.Array) -> TDMPC2MultiTaskState:
+    def init_tdmpc2(key: jax.Array) -> TDMPC2MultiTaskState:
         return init_TDMPC2MultiTask(
             key,
             config,

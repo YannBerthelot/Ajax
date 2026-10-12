@@ -155,10 +155,10 @@ CASES: dict[str, dict[str, Any]] = {
     "test_residual_policy_matches_legacy_use_residual_rl": _expert(
         ResidualPolicy(scale=0.5)
     ),
-    # ``jsrl_curriculum`` on SAC still gates the per-env ``step_in_episode``
-    # counter init in init_SAC.
+    # SAC counts the per-env ``step_in_episode`` the curriculum reads: the
+    # golden was recorded with the retired ``jsrl_curriculum=True`` flag.
     "test_jsrl_curriculum_matches_legacy_flag": _expert(
-        JSRLCurriculum(episode_length=50, decay_frac=0.5), jsrl_curriculum=True
+        JSRLCurriculum(episode_length=50, decay_frac=0.5)
     ),
     "test_ibrl_matches_legacy_flag": _expert(IBRL(expert_policy=_EXPERT)),
     # Each EDGE gate is a different action-pipeline gate function.

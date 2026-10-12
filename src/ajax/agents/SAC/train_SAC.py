@@ -29,7 +29,6 @@ from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.networks import action_value, predict_value
@@ -105,7 +104,7 @@ def init_SAC(
     expert_state_aug_dim: int = 0,
     action_dim_override: Optional[int] = None,
     normalize_obs_running: bool = False,
-    jsrl_curriculum: bool = False,
+    count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
 ) -> SACState:
@@ -186,10 +185,9 @@ def init_SAC(
             expert_state=expert_policy.init_state(env_args.n_envs)
         )
 
-    # JSRL curriculum needs a per-env step_in_episode counter; initialize
-    # to zeros. Other methods leave step_in_episode=None so the collector
-    # update path skips the reset/increment logic.
-    if jsrl_curriculum:
+    # A per-env step_in_episode counter for the extensions that read it;
+    # left None otherwise, so the collector skips its reset/increment.
+    if count_episode_steps:
         collector_state = collector_state.replace(
             step_in_episode=jnp.zeros((env_args.n_envs,), dtype=jnp.int32)
         )
@@ -725,7 +723,6 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
     fixed_alpha: bool = False,
@@ -747,11 +744,6 @@ def make_train(
     expert_state_aug_dim: int = 0,
     normalize_obs_running: bool = False,
     store_policy_action: bool = False,
-    # True JSRL (Uchendu et al. 2023): per-episode curriculum handoff.
-    # The flag gates the ``step_in_episode`` counter init in
-    # :func:`init_SAC`; the curriculum math lives on
-    # :class:`JSRLCurriculum`.action.
-    jsrl_curriculum: bool = False,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
@@ -768,9 +760,6 @@ def make_train(
                         Defaults to ``expert_policy`` if unset.
     extensions:         composable research features (see
                         :mod:`ajax.extensions`), bound to SAC's context.
-    cloning:            the deprecated cloning keywords' CloningPretrain
-                        (CloningPretrain.from_deprecated_kwargs), run at
-                        init on the pretrain key.
 
     The flags above thread into init, collection or the action pipeline at
     a level the extension framework does not reach yet; they mirror the
@@ -801,8 +790,6 @@ def make_train(
         "augment_obs_with_expert_state": augment_obs_with_expert_state,
     }
     stack = ExtensionStack(extensions).bind_to_agent(**agent_context)
-    if cloning is not None:
-        cloning = cloning.bind_to_agent(**agent_context)
     if recurrent:
         # Expert-guidance features (and their Extension replacements) are
         # orthogonal to memory and untested with sequence replay; fail
@@ -811,7 +798,6 @@ def make_train(
             "SAC",
             expert_policy=expert_policy,
             extensions=(stack.extensions or None),
-            cloning_pretrain=cloning,
         )
     loop = TrainLoop.create(
         env_args,
@@ -823,8 +809,8 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> SACState:
-        agent_state = init_SAC(
+    def init(key: jax.Array) -> SACState:
+        return init_SAC(
             key=key,
             env_args=env_args,
             actor_optimizer_args=actor_optimizer_args,
@@ -844,14 +830,11 @@ def make_train(
             expert_state_aug_dim=expert_state_aug_dim,
             action_dim_override=action_dim_override,
             normalize_obs_running=normalize_obs_running,
-            jsrl_curriculum=jsrl_curriculum,
+            count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
             store_expert_data=holds_expert(expert_policy, stack),
         )
-        if cloning is None:
-            return agent_state
-        return cloning.clone(agent_state, pretrain_key)
 
     # An extension with ``build_policy_transform`` (ResidualPolicy) makes
     # the executed action residual: in collection (the action pipeline),

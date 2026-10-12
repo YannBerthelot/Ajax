@@ -31,12 +31,13 @@ src/ajax/
 ```
 
 **Agent anatomy.** Each folder `src/ajax/agents/<AGENT>/` holds `<AGENT>.py`,
-the public class (the paper's hyperparameters and `extensions=`;
-`get_make_train()` returns `make_train` with them bound); `train_<AGENT>.py`,
-the algorithm and a `make_train` that hands its initialisation and update to
-`TrainLoop`; and `state.py`, `<AGENT>State` and `<AGENT>Config`. SAC, PPO and
-TDMPC2 also have a `core.py`: the maths their descendants import instead of
-copying (ASAC, REDQ and AVG from SAC; APO from PPO; TDMPC2MultiTask from it).
+the public class (the paper's hyperparameters and `extensions=`; it names
+its `make_train` and fills `train_kwargs`, which `get_make_train()` binds);
+`train_<AGENT>.py`, the algorithm and a `make_train` that hands its
+initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and
+`<AGENT>Config`. SAC, PPO and TDMPC2 also have a `core.py`: the maths their
+descendants import instead of copying (ASAC, REDQ and AVG from SAC; APO from
+PPO; TDMPC2MultiTask from it).
 
 ## The shared training loop
 
@@ -45,8 +46,8 @@ The agents share one loop, `TrainLoop`, so collecting experience, waiting for
 work the same way everywhere and are fixed in one place. An agent supplies
 only its algorithm:
 
-- `init(key, pretrain_key) -> agent_state`: a fresh state; the deprecated
-  cloning keywords' behaviour cloning draws on `pretrain_key`.
+- `init(key) -> agent_state`: a fresh state. One-shot pretraining (behaviour
+  cloning) is an extension's, on a key the loop splits off.
 - `update(...) -> (agent_state, aux)`: one update. `aux` holds the metrics as
   flax dataclasses nested exactly one level, as TD3's
   `AuxiliaryLogs(policy=..., value=...)`, logged as `value/critic_loss`; the
@@ -198,7 +199,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key, pretrain_key):
+    def init(key):
         return init_FOO(key, env_args, actor_optimizer_args, critic_optimizer_args, network_args, buffer)
 
     def update(agent_state, _transition):
@@ -230,22 +231,21 @@ class FOO(ActorCritic):
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target", "critic_loss", "actor_loss"
     }
+    make_train = staticmethod(make_train)  # ActorCritic.get_make_train binds it
 
     def __init__(
         self, env_id: str | EnvType, n_envs: int = 1, gamma: float = 0.99,
         buffer_size: int = int(1e6), batch_size: int = 100, learning_starts: int = int(1e4),
         extensions: Sequence[Extension] = (),
     ) -> None:
-        self.config = {**locals()}  # what train() logs with the run
-        self.config.update({"algo_name": "FOO"})
+        self.config = run_config(locals(), self.name)  # what train() logs with the run
         super().__init__(env_id=env_id, n_envs=n_envs, extensions=extensions)
         self.agent_config = FOOConfig(gamma=gamma, learning_starts=learning_starts)
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-
-    def get_make_train(self) -> Callable:
-        return partial(make_train, buffer=self.buffer, extensions=tuple(self.extension_stack.extensions))
+        # make_train's own keywords, beyond those every agent's takes.
+        self.train_kwargs = {"buffer": self.buffer}
 ```
 
 Do **not** add a keyword for a feature (`use_critic_blend=True`, ...): it

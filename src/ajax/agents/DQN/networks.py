@@ -23,7 +23,7 @@ from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_state_action_shapes
-from ajax.networks.networks import CNNEncoder, Encoder, init_network_state
+from ajax.networks.networks import CNNEncoder, CNNSpec, Encoder, init_network_state
 from ajax.networks.utils import get_adam_tx
 from ajax.state import (
     EnvironmentConfig,
@@ -109,7 +109,7 @@ class QNetwork(nn.Module):
     # Optional CNN encoder for image obs -- see `NetworkConfig.cnn_image_shape`.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
-    cnn_spec: Optional[tuple] = None
+    cnn_spec: Optional[CNNSpec] = None
 
     def setup(self):
         self.encoder = _build_q_encoder(self)

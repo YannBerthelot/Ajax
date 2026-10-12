@@ -60,7 +60,7 @@ EXPERT, GRU = Expert(), MemoryConfig(kind="gru", hidden_size=8)
 BASE = {"learning_starts": 16, "burn_in": 2, "sequence_length": 4}
 BASE |= {"expert_buffer_n_steps": 0, "policy_update_start": 8, "alpha_update_start": 8}
 FLAGS = "normalize_observations normalize_rewards normalize_obs_running use_train_frac"
-FLAGS += " fixed_alpha jsrl_curriculum store_policy_action fused_grad_clip"
+FLAGS += " fixed_alpha store_policy_action fused_grad_clip"
 FLAGS += " expose_recent_rollout log_std_state_independent encoder_layer_norm"
 FLAGS += " augment_obs_with_expert_action augment_obs_with_expert_state use_pid_policy"
 ENVS = ("Pendulum-v1", "fast", "CartPole-v1")
@@ -100,13 +100,10 @@ OPTIONS |= {
 }
 CNN = {"Pendulum-v1": (1, 3, 1), "fast": (1, 2, 1), "CartPole-v1": (2, 2, 1)}
 #: The switches other tests run (tests/...).
-ELSEWHERE = dict.fromkeys(
-    "actor_cloning_epochs actor_cloning_lr actor_cloning_batch_size pre_train_n_steps"
-    " skip_actor_pretrain reset_log_std_after_bc reset_actor_head_after_bc".split(),
-    "agents/test_cloning.py",  # deprecated for CloningPretrain, run here
-) | {
+ELSEWHERE = {
     "env_params": "agents/test_agent_contract.py",
     "skip_critic_pretrain": "agents/SAC/test_sac.py",
+    "jsrl_curriculum": "agents/SAC/test_sac.py",  # deprecated
     "td_target_fn": "agents/DQN/test_DQN.py",
     "td_loss_fn": "agents/PQN/test_PQN.py",
     "q_network_cls": "agents/DQN/test_DQN.py",
@@ -114,6 +111,9 @@ ELSEWHERE = dict.fromkeys(
     "episode_length": "environments/test_create.py",
     "system_class": "agents/APG/test_APG.py",
     "controller_factory": "agents/APG/test_APG.py",
+    # AVG's inert temperature keywords, warned until removed.
+    "alpha_learning_rate": "agents/AVG/test_AVG.py",
+    "target_entropy_per_dim": "agents/AVG/test_AVG.py",
 }
 #: Each src extension's builder and the agents whose rows take it, in stack
 #: order (cloning seeds the statistics the other pretraining reads).
@@ -147,13 +147,12 @@ PHI_STAR = (
 )
 NEEDS_EXPERT = "augment_obs_with_expert_action augment_obs_with_expert_state"
 NEEDS_EXPERT += " use_pid_policy expert_buffer_n_steps IBRL LCBGatedBootstrap"
-NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy"
+NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy JSRLCurriculum"
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
 REQUIRES |= {o: {"expert_policy"} for o in NEEDS_EXPERT.split()}
 REQUIRES |= {"MCPretrain": {"expert_policy", "expert_buffer_n_steps"}}
-REQUIRES |= {"JSRLCurriculum": {"jsrl_curriculum", "expert_policy"}}
 REQUIRES |= {
     o: {"expose_recent_rollout"}
     for o in ("ConditioningMetrics", "BiasVoreDecomposition")

@@ -1,12 +1,11 @@
 from collections.abc import Sequence
-from functools import partial
-from typing import Callable, Optional, Union
+from typing import Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.ASAC.state import ASACConfig
 from ajax.agents.ASAC.train_ASAC import make_train
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import (
@@ -29,6 +28,7 @@ class ASAC(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -67,6 +67,10 @@ class ASAC(ActorCritic):
         reward_normalization_gamma: Optional[float] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the ASAC agent.
@@ -90,8 +94,7 @@ class ASAC(ActorCritic):
             alpha_init (float): Initial value for the temperature parameter.
             target_entropy_per_dim (float): Target entropy per action dimension.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "ASAC"})
+        self.config = run_config(locals(), self.name)
 
         super().__init__(
             env_id=env_id,
@@ -107,6 +110,8 @@ class ASAC(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -131,17 +136,4 @@ class ASAC(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the ASAC agent.
-
-        Returns:
-            Callable: A function that trains the ASAC agent.
-        """
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            alpha_args=self.alpha_args,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {"buffer": self.buffer, "alpha_args": self.alpha_args}

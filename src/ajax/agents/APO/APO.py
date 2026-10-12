@@ -1,16 +1,13 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.APO.state import APOConfig
 from ajax.agents.APO.train_APO import make_train
-from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import warn_actor_cloning_lr
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -26,6 +23,7 @@ class APO(ActorCritic):
         "critic_loss",
         "actor_loss",
     }
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -54,12 +52,7 @@ class APO(ActorCritic):
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
-        actor_cloning_epochs: Optional[int] = None,
-        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        actor_cloning_batch_size: Optional[int] = None,
-        pre_train_n_steps: Optional[int] = None,
-        # Expert for the cloning pre-training and the eval expert-bias
+        # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
         # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
@@ -68,6 +61,10 @@ class APO(ActorCritic):
         expose_recent_rollout: bool = False,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the APO agent.
@@ -83,8 +80,7 @@ class APO(ActorCritic):
             max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             batch_size (int): Batch size for training.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "APO"})
+        self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
@@ -117,6 +113,8 @@ class APO(ActorCritic):
             log_std_state_independent=True,
             log_std_init=0.0,
             mean_kernel_init="lecun_uniform",
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -143,25 +141,6 @@ class APO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        warn_actor_cloning_lr(actor_cloning_lr)
-        self.cloning = CloningPretrain.from_deprecated_kwargs(
-            self.expert_policy,
-            self.extension_stack.extensions,
-            pre_train_n_steps=pre_train_n_steps,
-            actor_cloning_epochs=actor_cloning_epochs,
-            actor_cloning_batch_size=actor_cloning_batch_size,
-        )
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the APO agent.
-
-        Returns:
-            Callable: A function that trains the APO agent.
-        """
-        return partial(
-            make_train,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "expert_policy": self.expert_policy,
+        }

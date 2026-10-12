@@ -444,8 +444,7 @@ def test_q14_actor_sees_the_same_command_when_acting_and_training(
         return get_pi(actor_state, actor_params, obs, **kw)
 
     def batch(key: Any, buffer: Any, view: Any, size: int) -> tuple:
-        obs = jnp.tile(jnp.asarray(raw), (size, 1))
-        return obs, jnp.zeros((size, 1), jnp.int32), obs[:, -2], obs[:, -1]
+        return jnp.tile(jnp.asarray(raw), (size, 1)), jnp.zeros((size, 1), jnp.int32)
 
     monkeypatch.setattr(udrl, "get_pi", recording)
     monkeypatch.setattr(udrl, "sample_training_batch", batch)

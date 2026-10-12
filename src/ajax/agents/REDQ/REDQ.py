@@ -1,11 +1,9 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Literal, Optional, Union
 
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
-from ajax.agents.cloning import warn_actor_cloning_lr
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
@@ -15,7 +13,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -63,6 +60,7 @@ class REDQ(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -99,16 +97,15 @@ class REDQ(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
-        actor_cloning_epochs: Optional[int] = None,
-        actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        actor_cloning_batch_size: Optional[int] = None,
-        pre_train_n_steps: Optional[int] = None,
-        # Expert for the cloning pre-training and the eval expert-bias
+        # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the REDQ agent.
@@ -145,8 +142,7 @@ class REDQ(ActorCritic):
                 entropy (:data:`MBPO_TARGET_ENTROPY`), the default of REDQ's
                 official code; an env id outside that table raises.
         """
-        self.config = {**locals()}
-        self.config.update({"algo_name": "REDQ"})
+        self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
@@ -164,6 +160,8 @@ class REDQ(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -194,27 +192,8 @@ class REDQ(ActorCritic):
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
 
-        warn_actor_cloning_lr(actor_cloning_lr)
-        self.cloning = CloningPretrain.from_deprecated_kwargs(
-            self.expert_policy,
-            self.extension_stack.extensions,
-            pre_train_n_steps=pre_train_n_steps,
-            actor_cloning_epochs=actor_cloning_epochs,
-            actor_cloning_batch_size=actor_cloning_batch_size,
-        )
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the REDQ agent.
-
-        Returns:
-            Callable: A function that trains the REDQ agent.
-        """
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            alpha_args=self.alpha_args,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "alpha_args": self.alpha_args,
+            "expert_policy": self.expert_policy,
+        }

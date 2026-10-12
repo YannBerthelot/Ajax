@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from functools import partial
 from typing import Any, Callable, Optional, Union
 
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DreamerV3.replay import bytes_per_row, grow_rings
 from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
@@ -169,6 +168,7 @@ class DreamerV3(ActorCritic):
 
     name: str = "DreamerV3"
     supported_extension_phases: frozenset = LOOP_PHASES
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -226,10 +226,7 @@ class DreamerV3(ActorCritic):
         env_params: Optional[EnvParams] = None,
         extensions: Sequence[Extension] = (),
     ) -> None:
-        self.config = {
-            k: v for k, v in locals().items() if k not in ("self", "__class__")
-        }
-        self.config.update({"algo_name": "DreamerV3"})
+        self.config = run_config(locals(), self.name)
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -238,51 +235,13 @@ class DreamerV3(ActorCritic):
             action_repeat=action_repeat,
             extensions=extensions,
         )
-        self.dreamer_config = DreamerV3Config.from_model_size(
-            model_size,
-            units=units,
-            hidden=hidden,
-            deter=deter,
-            classes=classes,
-            stoch=stoch,
-            blocks=blocks,
-            enc_layers=enc_layers,
-            dec_layers=dec_layers,
-            rew_layers=rew_layers,
-            con_layers=con_layers,
-            bins=bins,
-            unimix=unimix,
-            free_nats=free_nats,
-            rec_scale=rec_scale,
-            rew_scale=rew_scale,
-            con_scale=con_scale,
-            dyn_scale=dyn_scale,
-            rep_scale=rep_scale,
-            return_horizon=float(return_horizon),
-            actor_layers=actor_layers,
-            critic_layers=critic_layers,
-            actor_unimix=actor_unimix,
-            minstd=minstd,
-            maxstd=maxstd,
-            imag_horizon=imag_horizon,
-            lam=lam,
-            repval_lam=repval_lam,
-            actent=actent,
-            slowreg=slowreg,
-            slow_rate=slow_rate,
-            retnorm_rate=retnorm_rate,
-            retnorm_limit=retnorm_limit,
-            actor_scale=actor_scale,
-            critic_scale=critic_scale,
-            repval_scale=repval_scale,
-            learning_rate=learning_rate,
-            agc=agc,
-            agc_pmin=agc_pmin,
-            beta1=beta1,
-            beta2=beta2,
-            eps=eps,
-            warmup=warmup,
+        self.dreamer_config = DreamerV3Config.from_arguments(
+            {**self.config, "return_horizon": float(return_horizon)}
         )
+        self.train_kwargs = {"config": self.dreamer_config}
+        # The values actually used, next to the constructor arguments (whose
+        # None widths the preset resolves), for the loggers' run config.
+        self.config.update(self.dreamer_config.resolved())
         self.agent_config = DreamerV3AgentConfig(
             train_ratio=train_ratio,
             batch_size=batch_size,
@@ -374,6 +333,9 @@ class DreamerV3(ActorCritic):
 
     def _record_replay_rows(self, rows: int) -> None:
         self.replay_rows_per_env = rows
+        self.config.update(
+            replay_rows_per_env=rows, replay_bytes_per_seed=self.replay_bytes_per_seed
+        )
         logger.info(
             "DreamerV3 replay: %d rows per env x %d envs, %.3f GB per seed"
             " (the replay rings; the training step's working set comes on top)",
@@ -436,13 +398,6 @@ class DreamerV3(ActorCritic):
             initial_state=state,
             replay_rows_per_env=rows,
             **kwargs,
-        )
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            config=self.dreamer_config,
-            extensions=tuple(self.extension_stack.extensions),
         )
 
 

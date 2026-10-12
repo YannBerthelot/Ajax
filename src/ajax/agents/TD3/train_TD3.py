@@ -37,7 +37,6 @@ from ajax.environments.interaction import (
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value
 from ajax.state import (
@@ -371,29 +370,24 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     action_pipeline: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """TD3's train function: one step per env, then (from ``learning_starts``)
-    one update, per iteration. ``cloning``: the deprecated cloning keywords'
-    CloningPretrain, run at init on the pretrain key."""
+    one update, per iteration."""
     agent_context = {
         "env_args": env_args,
         "actor_optimizer_args": actor_optimizer_args,
         "expert_policy": expert_policy,
     }
     extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
-    if cloning is not None:
-        cloning = cloning.bind_to_agent(**agent_context)
     recurrent = network_args.memory is not None
     if recurrent:
         unsupported_recurrent_options(
             "TD3",
             expert_policy=expert_policy,
             extensions=(tuple(extensions) or None),
-            cloning_pretrain=cloning,
         )
     loop = TrainLoop.create(
         env_args,
@@ -409,8 +403,8 @@ def make_train(
             recurrent, agent_config.exploration_noise
         )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> TD3State:
-        agent_state = init_TD3(
+    def init(key: jax.Array) -> TD3State:
+        return init_TD3(
             key,
             env_args,
             actor_optimizer_args,
@@ -422,9 +416,6 @@ def make_train(
             expert_policy=expert_policy,
             store_expert_data=holds_expert(expert_policy, loop.stack),
         )
-        if cloning is None:
-            return agent_state
-        return cloning.clone(agent_state, pretrain_key)
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:
         # The step just collected is in the buffer: TD3 samples it from there.

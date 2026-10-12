@@ -22,7 +22,12 @@ import ajax.extensions.target_mods
 from ajax import SAC
 from ajax.environments.obs_norm import apply_obs_norm, init_agent_obs_norm
 from ajax.extensions.expert import ExpertValueMetrics
-from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
+from ajax.extensions.pretrain import (
+    BellmanPretrain,
+    CloningPretrain,
+    MCPretrain,
+    PhiRefresh,
+)
 from ajax.extensions.target_mods import IBRL, ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
 
@@ -306,35 +311,34 @@ def test_cloning_statistics_leave_the_training_fraction_column_raw():
     assert std[0] > 1.0  # the other columns are standardised
 
 
-@pytest.mark.parametrize(
-    "kw",
-    [
-        {"normalize_obs_running": True, "use_train_frac": True},
-        {"pre_train_n_steps": 64, "use_train_frac": True},
-    ],
-    ids=["running", "cloning"],
-)
-def test_normalised_agents_train_with_augmentation(monkeypatch, kw):
+def own_statistics(kind: str, expert: Any, *extensions: Any) -> dict:
+    """The agent's own observation statistics: running, or seeded by
+    cloning (CloningPretrain, ahead of the other pretraining)."""
+    if kind == "running":
+        return {"normalize_obs_running": True, "extensions": extensions}
+    return {"extensions": (CloningPretrain(expert, n_steps=64), *extensions)}
+
+
+@pytest.mark.parametrize("kind", ["running", "cloning"])
+def test_normalised_agents_train_with_augmentation(monkeypatch, kind):
     """With the agent's own normaliser (running, or seeded by cloning) and
     augmentation, the statistics cover the agent's observation (with the
     training fraction); the expert's column reaches the actor unnormalised,
     in agent units (its -0.9 torque of Pendulum's [-2, 2]: -0.45)."""
     seen = actor_inputs(monkeypatch)
+    expert = RecordingExpert(action=-0.9)
     train(
-        expert_policy=RecordingExpert(action=-0.9),
+        expert_policy=expert,
         augment_obs_with_expert_action=True,
-        **kw,
+        use_train_frac=True,
+        **own_statistics(kind, expert),
     )
     for x in seen:
         np.testing.assert_allclose(x[..., -1], -0.45)
 
 
-@pytest.mark.parametrize(
-    "kw",
-    [{"normalize_obs_running": True}, {"pre_train_n_steps": 64}],
-    ids=["running", "cloning"],
-)
-def test_phi_star_is_queried_as_it_was_fitted(kw):
+@pytest.mark.parametrize("kind", ["running", "cloning"])
+def test_phi_star_is_queried_as_it_was_fitted(kind):
     """With the agent's own observation statistics (running, or seeded by
     cloning), phi* is still fitted on observations as stored; ValueBox's
     expert value and MCVarianceCorrection's target read it the same way."""
@@ -345,7 +349,7 @@ def test_phi_star_is_queried_as_it_was_fitted(kw):
     from ajax.networks.networks import predict_value
 
     expert = RecordingExpert(action=-0.5)
-    state = train(expert_policy=expert, extensions=(_mc(expert),), **kw)
+    state = train(expert_policy=expert, **own_statistics(kind, expert, _mc(expert)))
     first = lambda tree: jax.tree.map(lambda x: x[0], tree)  # noqa: E731
     critic, phi = first(state.critic_state), first(state.expert_critic_params)
     assert critic.obs_norm_info is not None

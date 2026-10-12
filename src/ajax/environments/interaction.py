@@ -1,5 +1,4 @@
 import inspect
-import warnings
 from typing import Any, Callable, NamedTuple, Optional, Sequence, Tuple
 
 import chex
@@ -181,7 +180,6 @@ def reset(
     else:
         env_state = env.reset(rng)  # ✅ no vmap
         obsv = env_state.obs
-    obsv, env_state = _maybe_noise_obs(env, obsv, env_state, rng)
     # Observations feed neural networks and a float32-schema replay buffer.
     # Some envs (e.g. the discrete probing envs) emit integer observations;
     # coerce to float32 here so every downstream consumer is consistent.
@@ -279,7 +277,6 @@ def step(
     else:
         raise ValueError(f"Unrecognized mode for step {mode}")
 
-    obsv, env_state = _maybe_noise_obs(env, obsv, env_state, rng)
     # See reset(): keep observations float32 regardless of the env's
     # native obs dtype so networks and the replay buffer stay consistent.
     # The reward is coerced too -- some envs emit integer rewards, which
@@ -287,56 +284,6 @@ def step(
     obsv = obsv.astype(jnp.float32)
     reward = reward.astype(jnp.float32)
     return obsv, env_state, reward, terminated, truncated, info
-
-
-def _maybe_noise_obs(env, obsv, env_state, rng):
-    """Optional Gaussian-noise hook on obs returned by reset/step.
-
-    Activated only if ``env`` carries the attribute ``_obs_noise_sigma > 0``
-    (set by AjaxExperiments' degradation v2 worker before training).
-    Reads:
-      - ``env._obs_noise_sigma``    : float, noise std multiplier.
-      - ``env._obs_noise_obs_std``  : (obs_dim,) per-dim std for scaling, or
-                                       a Python scalar (default 1.0).
-    Noise is keyed off the input ``rng`` via ``jax.random.fold_in`` so that
-    each step gets an independent draw. Both ``obsv`` and ``env_state.obs``
-    are noised consistently so that downstream consumers (actor, expert)
-    see the same value.
-
-    Default-off: when ``env`` has no ``_obs_noise_sigma`` attribute or it is
-    zero, this is a Python-time no-op evaluated at trace time, leaving the
-    compiled step/reset graph identical to the unmodified version.
-    """
-    sigma = getattr(env, "_obs_noise_sigma", 0.0)
-    if sigma is None or float(sigma) <= 0.0:
-        return obsv, env_state
-    # Expand-then-contract (CLAUDE.md, rule 10): the hook goes once
-    # AjaxExperiments' degradation worker wraps its env instead.
-    warnings.warn(
-        "env._obs_noise_sigma is deprecated: wrap the env in"
-        " ajax.wrappers.ObservationNoiseWrapper (gymnax) or"
-        " ObservationNoiseWrapperBrax (brax / playground) instead.",
-        FutureWarning,
-        stacklevel=3,
-    )
-    obs_std = getattr(env, "_obs_noise_obs_std", 1.0)
-    # Per-call independent noise: derive a noise key from the input rng via
-    # fold_in (so we don't accidentally consume the env's own randomness).
-    # Handle both single-key (rng.ndim == 1, e.g. brax/Playground path) and
-    # vmapped-key (rng.ndim == 2, gymnax/target_gym path) cases.
-    if rng.ndim == 1:
-        noise_key = jax.random.fold_in(rng, jnp.int32(0))
-        noise = jax.random.normal(noise_key, shape=obsv.shape)
-    else:
-        noise_key_per_env = jax.vmap(lambda k: jax.random.fold_in(k, jnp.int32(0)))(rng)
-        per_env_obs_shape = obsv.shape[1:]
-        noise = jax.vmap(lambda k: jax.random.normal(k, shape=per_env_obs_shape))(
-            noise_key_per_env
-        )
-    noisy_obs = obsv + jnp.asarray(sigma) * jnp.asarray(obs_std) * noise
-    if hasattr(env_state, "replace") and hasattr(env_state, "obs"):
-        env_state = env_state.replace(obs=noisy_obs)
-    return noisy_obs, env_state
 
 
 def get_pi(

@@ -760,7 +760,7 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, _pretrain_key: jax.Array) -> PPOState:
+    def init(key: jax.Array) -> PPOState:
         return init_PPO(
             key,
             env_args,

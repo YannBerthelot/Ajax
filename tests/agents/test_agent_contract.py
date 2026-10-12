@@ -11,6 +11,8 @@ The two runs use different env modes (brax ``fast`` and gymnax) where the
 agent acts in both. The maths of each agent is tested in its own directory.
 """
 
+import importlib
+import pkgutil
 import sys
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,11 +23,14 @@ import numpy as np
 import pytest
 from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
+import ajax.agents
+from ajax.agents import base
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.base import run_config
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
@@ -169,6 +174,18 @@ def test_an_agent_builds_its_configs(name: str, env_id: str) -> None:
     assert isinstance(getattr(agent, "alpha_args", None), AlphaConfig) == case.alpha
     # An on-policy agent keeps no replay buffer.
     assert isinstance(getattr(agent, "buffer", None), TrajectoryBuffer) == case.buffer
+    # The run config holds the constructor's arguments and the agent's name.
+    assert agent.config["env_id"] == env_id
+    assert agent.config["algo_name"] == agent.name == name
+    assert not {"self", "__class__"} & set(agent.config)
+
+
+def test_the_run_config_drops_the_instance_and_the_excluded() -> None:
+    class Agent:
+        def __init__(self, a: int, b: int = 2) -> None:
+            self.config = run_config(locals(), "X", exclude=("b",))
+
+    assert Agent(1).config == {"a": 1, "algo_name": "X"}
 
 
 @pytest.mark.parametrize(
@@ -406,3 +423,43 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     act = get_deterministic_action_and_entropy_fn(seed.actor_state, False, True)
     own, _, _ = act(obs, None, None)
     np.testing.assert_allclose(paid, paid_action.mapped(own)[0, 0], rtol=1e-6)
+
+
+#: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
+ACTOR_CRITICS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
+
+
+class _Built(Exception):
+    """Stops a constructor once its env is asked for."""
+
+
+@pytest.mark.parametrize("name", ACTOR_CRITICS.split())
+def test_an_agent_forwards_its_episode_length_and_action_repeat(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every agent hands the env builder the episode length and the action
+    repeat it is given (brax / playground envs honour both)."""
+    seen: dict[str, Any] = {}
+
+    def prepare_env(env_id: Any, **kwargs: Any) -> None:
+        seen.update(kwargs)
+        raise _Built
+
+    monkeypatch.setattr(base, "prepare_env", prepare_env)
+    module = importlib.import_module(f"ajax.agents.{name}.{name}")
+    with pytest.raises(_Built):
+        getattr(module, name)("fast", episode_length=123, action_repeat=3)
+    assert (seen["episode_length"], seen["action_repeat"]) == (123, 3)
+
+
+def test_every_src_agent_is_in_actor_critics() -> None:
+    """Test files subclass ActorCritic too, so only ``ajax.`` classes count."""
+    for module in pkgutil.iter_modules(ajax.agents.__path__):
+        if module.ispkg:
+            importlib.import_module(f"ajax.agents.{module.name}.{module.name}")
+    found = {
+        c.__name__
+        for c in base.ActorCritic.__subclasses__()
+        if c.__module__.startswith("ajax.")
+    }
+    assert found == set(ACTOR_CRITICS.split()), "add the new agent to ACTOR_CRITICS"

@@ -87,7 +87,7 @@ SAC_KW = {**NETS, "buffer_size": 1000, "batch_size": 32, **dict.fromkeys(STARTS,
 EPS = {"architecture": N32, "epsilon_start": 0.3, "epsilon_end": 0.3}
 DQN_KW = {**EPS, "buffer_size": 1000, "batch_size": 32}
 UDRL_KW = {"n_envs": 1, "actor_architecture": N32, "n_steps": 8, "batch_size": 8}
-UDRL_KW |= {"n_epochs": 1, "n_updates_per_iter": 4}
+UDRL_KW |= {"n_updates_per_iter": 4}
 EQUIVALENT = {
     "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200),
     "DQN": Split(_make("DQN", PV, DQN_KW), 400, 200, 200),

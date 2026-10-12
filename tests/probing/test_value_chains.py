@@ -742,7 +742,11 @@ _SMOOTH = {"target_policy_noise": 2.0, "target_noise_clip": 0.8}
 P8_AGENTS: dict[str, dict[str, Any]] = {  # a 50,000-row buffer but for AVG
     "SAC": {"fixed_alpha": True, "alpha_init": 1.0},
     "REDQ": _LR0 | {"num_critic_updates": 5},
-    "AVG": _LR0 | {"actor_learning_rate": 3e-4, "critic_learning_rate": 3e-4},
+    "AVG": {
+        "alpha_init": 1.0,
+        "actor_learning_rate": 3e-4,
+        "critic_learning_rate": 3e-4,
+    },
     "TD3": _SMOOTH | {"exploration_noise": 0.4},
 }
 

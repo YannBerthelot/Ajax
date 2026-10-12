@@ -34,6 +34,9 @@ from ajax.wrappers import NormalizationInfo
 
 T = TypeVar("T")  # generic type for pytrees
 
+#: The steps the average-reward mode rolls out (the episodes restart).
+_AVERAGE_REWARD_STEPS = 10_000
+
 
 def repeat_first_entry(tree: T, num_repeats: int) -> T:
     return jax.tree.map(
@@ -509,7 +512,6 @@ def evaluate(
     gamma: float = 0.99,
     norm_info: Optional[NormalizationInfo] = None,
     avg_reward_mode: bool = False,
-    num_steps_average_reward: int = int(1e4),
     expert_policy: Optional[Callable] = None,
     train_frac: Optional[float] = None,
     eval_action_transform: Optional[Callable] = None,
@@ -616,7 +618,7 @@ def evaluate(
             return carry, carry.last_reward
 
         _, rewards_over_time = jax.lax.scan(
-            scan_step, init_carry_agent, None, length=num_steps_average_reward
+            scan_step, init_carry_agent, None, length=_AVERAGE_REWARD_STEPS
         )
         avg_reward = rewards_over_time.mean(axis=0)
         bias = jnp.nansum(rewards_over_time - avg_reward, axis=0)

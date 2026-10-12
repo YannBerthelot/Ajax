@@ -48,7 +48,6 @@ class UDRL(ActorCritic):
         command_scale_h: float = 0.01,
         buffer_capacity: int = 64,
         n_updates_per_iter: int = 64,
-        bc_loss_type: str = "nll",
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
@@ -95,7 +94,6 @@ class UDRL(ActorCritic):
             command_scale_h=command_scale_h,
             buffer_capacity=buffer_capacity,
             n_updates_per_iter=n_updates_per_iter,
-            bc_loss_type=bc_loss_type,
         )
 
     def get_make_train(self):

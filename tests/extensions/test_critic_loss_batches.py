@@ -72,14 +72,16 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
 
 
 @pytest.mark.parametrize(
-    "batch",
+    "batch, missing",
     [
-        {"targets": jnp.zeros((2, 1))},
-        {"observations": jnp.zeros((2, 1))},
-        {"observations": jnp.zeros((2, 1)), "targets": jnp.zeros((2, 1))},
+        ({"observations": jnp.zeros((2, 1))}, "targets"),
+        ({"observations": jnp.zeros((2, 1)), "targets": jnp.zeros((2, 1))}, "critic"),
     ],
-    ids=["no-observations", "no-targets", "no-critic"],
+    ids=["no-targets", "no-critic"],
 )
-def test_the_penalty_raises_on_a_batch_without_its_operands(batch: dict) -> None:
-    with pytest.raises(ValueError, match="BiasVorePenalty"):
+def test_the_penalty_raises_on_a_batch_without_one_operand(
+    batch: dict, missing: str
+) -> None:
+    """test_no_silent_noop's empty batch stops at the first check."""
+    with pytest.raises(ValueError, match=f"BiasVorePenalty needs .*{missing}"):
         PENALTY.critic_loss(None, (), batch, CTX)

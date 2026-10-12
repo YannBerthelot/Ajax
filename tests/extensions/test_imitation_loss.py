@@ -65,6 +65,7 @@ def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
 
 
 def test_agent_without_policy_mean_raises() -> None:
+    """With the observations (test_no_silent_noop's empty batch has none)."""
     batch = {"observations": jnp.zeros((2, 3))}
     with pytest.raises(ValueError, match="pi_mean"):
         ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX)

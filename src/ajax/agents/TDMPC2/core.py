@@ -3,8 +3,8 @@
 Reproduces one ``TDMPC2.update()`` of ``nicklashansen/tdmpc2@5f6fade``
 (``tdmpc2/tdmpc2.py:173-290``; agent algorithm identical to b67b21c, the commit
 behind the paper's curves) with the version choices of
-``docs/world_models/deviations.md`` §2. Single-task agent (M4) and the
-multi-task trainer (M8) both import from here (lineage rule).
+``docs/world_models/deviations.md`` §2. The single-task agent and the
+multi-task trainer both import from here (lineage rule).
 
 Every function is pure and jittable. Randomness is an explicit input: one
 update consumes an :class:`UpdateNoise` drawn by :func:`draw_update_noise`
@@ -49,7 +49,7 @@ at the rollout latents ``z_1 .. z_H``, a mean over the horizon and batch
 without ``rho`` weights. Off (the default), every function computes the
 paper-era update, unchanged.
 
-Multi-task conditioning (M8; the paper-era ``cfg.multitask`` branches of the
+Multi-task conditioning (the paper-era ``cfg.multitask`` branches of the
 same functions, ``world_model.py:19-23, 78-148``, ``tdmpc2.py:26, 32-34,
 215``). Every function takes an optional :class:`TaskContext` (``None``, the
 default, is the single-task computation, unchanged):
@@ -211,7 +211,7 @@ def draw_update_noise(
 
 @struct.dataclass
 class TaskContext:
-    """The multi-task conditioning of a batch or of one decision (M8).
+    """The multi-task conditioning of a batch or of one decision.
 
     Built by :meth:`ajax.agents.TDMPC2.multitask.TaskSet.context` from task
     ids (tdmpc2_spec 1.22, 1.23).
@@ -805,7 +805,7 @@ def update(
 
     Args:
         state: a :class:`TDMPC2UpdateState`, or any state with its four
-            attributes and ``replace`` (the M4 agent state).
+            attributes and ``replace`` (the agent states).
         batch: ``obs [H + 1, B, S]``, ``action [H, B, A]``, ``reward [H, B]``
             and, episodic mode, ``terminated [H, B]``.
         noise: the update's random draws (:func:`draw_update_noise`).

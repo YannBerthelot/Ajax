@@ -4,7 +4,6 @@ optimizer configs and forwards them to a per-agent ``make_train``.
 """
 
 from collections.abc import Sequence
-from functools import partial
 from typing import Optional, Tuple
 
 from gymnax import EnvParams
@@ -23,6 +22,7 @@ class UDRL(ActorCritic):
 
     name: str = "UDRL"
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -58,6 +58,10 @@ class UDRL(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "UDRL"})
@@ -78,6 +82,8 @@ class UDRL(ActorCritic):
             # encoder's output (the shared default is now a plain MLP).
             encoder_layer_norm=True,
             cnn_image_shape=cnn_image_shape,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -95,6 +101,3 @@ class UDRL(ActorCritic):
             buffer_capacity=buffer_capacity,
             n_updates_per_iter=n_updates_per_iter,
         )
-
-    def get_make_train(self):
-        return partial(make_train, extensions=tuple(self.extension_stack.extensions))

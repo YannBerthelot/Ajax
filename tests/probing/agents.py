@@ -125,7 +125,7 @@ def _read_back(agent: Any, key: str) -> Any:
     for name in ("agent_config", "env_args", "network_args"):
         if hasattr(getattr(agent, name, None), key):
             return getattr(getattr(agent, name), key)
-    return getattr(agent, key, _MISSING)
+    return getattr(agent, "train_kwargs", {}).get(key, getattr(agent, key, _MISSING))
 
 
 def make(

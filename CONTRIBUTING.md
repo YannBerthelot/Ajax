@@ -31,10 +31,10 @@ src/ajax/
 ```
 
 **Agent anatomy.** Each folder `src/ajax/agents/<AGENT>/` holds `<AGENT>.py`,
-the public class (the paper's hyperparameters and `extensions=`;
-`get_make_train()` returns `make_train` with them bound); `train_<AGENT>.py`,
-the algorithm and a `make_train` that hands its initialisation and update to
-`TrainLoop`; and `state.py`, `<AGENT>State` and `<AGENT>Config`. SAC, PPO and
+the public class (the paper's hyperparameters and `extensions=`; it names
+its `make_train` and fills `train_kwargs`, which `get_make_train()` binds);
+`train_<AGENT>.py`, the algorithm and a `make_train` that hands its
+initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and `<AGENT>Config`. SAC, PPO and
 TDMPC2 also have a `core.py`: the maths their descendants import instead of
 copying (ASAC, REDQ and AVG from SAC; APO from PPO; TDMPC2MultiTask from it).
 
@@ -230,6 +230,7 @@ class FOO(ActorCritic):
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target", "critic_loss", "actor_loss"
     }
+    make_train = staticmethod(make_train)  # ActorCritic.get_make_train binds it
 
     def __init__(
         self, env_id: str | EnvType, n_envs: int = 1, gamma: float = 0.99,
@@ -243,9 +244,8 @@ class FOO(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-
-    def get_make_train(self) -> Callable:
-        return partial(make_train, buffer=self.buffer, extensions=tuple(self.extension_stack.extensions))
+        # make_train's own keywords, beyond those every agent's takes.
+        self.train_kwargs = {"buffer": self.buffer}
 ```
 
 Do **not** add a keyword for a feature (`use_critic_blend=True`, ...): it

@@ -1,5 +1,6 @@
 import time
 from collections.abc import Sequence
+from functools import partial
 from typing import Any, Callable, Optional, Union
 
 import jax
@@ -99,6 +100,8 @@ class ActorCritic:
     stores_expert_actions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
+    #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
+    make_train: Callable[..., Callable]
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -220,6 +223,9 @@ class ActorCritic:
         )
 
         self.agent_config = BaseAgentConfig()
+        #: ``make_train``'s keyword arguments proper to the agent, beyond the
+        #: ones every agent's takes (:meth:`train`); each agent fills it.
+        self.train_kwargs: dict[str, Any] = {}
 
         # Composable research features (expert guidance, instrumentation,
         # …). The stack is static — agents thread it into make_train as a
@@ -277,7 +283,14 @@ class ActorCritic:
         return 0
 
     def get_make_train(self) -> Callable:
-        raise NotImplementedError
+        """:attr:`make_train` with the agent's own arguments
+        (:attr:`train_kwargs`) and its extensions; :meth:`train` passes the
+        rest."""
+        return partial(
+            self.make_train,
+            **self.train_kwargs,
+            extensions=tuple(self.extension_stack.extensions),
+        )
 
     def train(
         self,

@@ -60,7 +60,7 @@ EXPERT, GRU = Expert(), MemoryConfig(kind="gru", hidden_size=8)
 BASE = {"learning_starts": 16, "burn_in": 2, "sequence_length": 4}
 BASE |= {"expert_buffer_n_steps": 0, "policy_update_start": 8, "alpha_update_start": 8}
 FLAGS = "normalize_observations normalize_rewards normalize_obs_running use_train_frac"
-FLAGS += " fixed_alpha jsrl_curriculum store_policy_action fused_grad_clip"
+FLAGS += " fixed_alpha store_policy_action fused_grad_clip"
 FLAGS += " expose_recent_rollout log_std_state_independent encoder_layer_norm"
 FLAGS += " augment_obs_with_expert_action augment_obs_with_expert_state use_pid_policy"
 ENVS = ("Pendulum-v1", "fast", "CartPole-v1")
@@ -107,6 +107,7 @@ ELSEWHERE = dict.fromkeys(
 ) | {
     "env_params": "agents/test_agent_contract.py",
     "skip_critic_pretrain": "agents/SAC/test_sac.py",
+    "jsrl_curriculum": "agents/SAC/test_sac.py",  # deprecated
     "td_target_fn": "agents/DQN/test_DQN.py",
     "td_loss_fn": "agents/PQN/test_PQN.py",
     "q_network_cls": "agents/DQN/test_DQN.py",
@@ -147,13 +148,12 @@ PHI_STAR = (
 )
 NEEDS_EXPERT = "augment_obs_with_expert_action augment_obs_with_expert_state"
 NEEDS_EXPERT += " use_pid_policy expert_buffer_n_steps IBRL LCBGatedBootstrap"
-NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy"
+NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy JSRLCurriculum"
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
 REQUIRES |= {o: {"expert_policy"} for o in NEEDS_EXPERT.split()}
 REQUIRES |= {"MCPretrain": {"expert_policy", "expert_buffer_n_steps"}}
-REQUIRES |= {"JSRLCurriculum": {"jsrl_curriculum", "expert_policy"}}
 REQUIRES |= {
     o: {"expose_recent_rollout"}
     for o in ("ConditioningMetrics", "BiasVoreDecomposition")

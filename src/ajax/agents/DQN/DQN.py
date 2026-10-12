@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional
 
 from gymnax import EnvParams
@@ -24,6 +23,7 @@ class DQN(ActorCritic):
 
     name: str = "DQN"
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -64,6 +64,10 @@ class DQN(ActorCritic):
         cnn_spec: Optional[tuple] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "DQN"})
@@ -86,6 +90,8 @@ class DQN(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -103,22 +109,12 @@ class DQN(ActorCritic):
         self.buffer = get_buffer(
             buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs
         )
-        self.epsilon_start = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay_frac = epsilon_decay_frac
-        self.td_target_fn = td_target_fn
-        self.td_loss_fn = td_loss_fn
-        self.q_network_cls = q_network_cls
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            epsilon_start=self.epsilon_start,
-            epsilon_end=self.epsilon_end,
-            epsilon_decay_frac=self.epsilon_decay_frac,
-            td_target_fn=self.td_target_fn,
-            td_loss_fn=self.td_loss_fn,
-            q_network_cls=self.q_network_cls,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "epsilon_start": epsilon_start,
+            "epsilon_end": epsilon_end,
+            "epsilon_decay_frac": epsilon_decay_frac,
+            "td_target_fn": td_target_fn,
+            "td_loss_fn": td_loss_fn,
+            "q_network_cls": q_network_cls,
+        }

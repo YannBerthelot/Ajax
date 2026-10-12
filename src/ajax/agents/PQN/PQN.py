@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional
 
 from gymnax import EnvParams
@@ -24,6 +23,7 @@ class PQN(ActorCritic):
 
     name: str = "PQN"
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -59,6 +59,10 @@ class PQN(ActorCritic):
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         self.config = {**locals()}
         self.config.update({"algo_name": "PQN"})
@@ -80,6 +84,8 @@ class PQN(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -100,17 +106,9 @@ class PQN(ActorCritic):
             reward_scale=reward_scale,
             expose_recent_rollout=expose_recent_rollout,
         )
-        self.epsilon_start = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay_frac = epsilon_decay_frac
-        self.td_loss_fn = td_loss_fn
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            epsilon_start=self.epsilon_start,
-            epsilon_end=self.epsilon_end,
-            epsilon_decay_frac=self.epsilon_decay_frac,
-            td_loss_fn=self.td_loss_fn,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "epsilon_start": epsilon_start,
+            "epsilon_end": epsilon_end,
+            "epsilon_decay_frac": epsilon_decay_frac,
+            "td_loss_fn": td_loss_fn,
+        }

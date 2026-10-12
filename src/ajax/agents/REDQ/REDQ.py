@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Literal, Optional, Union
 
 from gymnax import EnvParams
@@ -63,6 +62,7 @@ class REDQ(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -109,6 +109,10 @@ class REDQ(ActorCritic):
         expert_policy: Optional[Callable] = None,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the REDQ agent.
@@ -164,6 +168,8 @@ class REDQ(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -202,19 +208,9 @@ class REDQ(ActorCritic):
             actor_cloning_epochs=actor_cloning_epochs,
             actor_cloning_batch_size=actor_cloning_batch_size,
         )
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the REDQ agent.
-
-        Returns:
-            Callable: A function that trains the REDQ agent.
-        """
-        return partial(
-            make_train,
-            buffer=self.buffer,
-            alpha_args=self.alpha_args,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "alpha_args": self.alpha_args,
+            "cloning": self.cloning,
+            "expert_policy": self.expert_policy,
+        }

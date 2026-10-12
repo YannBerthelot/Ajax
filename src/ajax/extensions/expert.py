@@ -286,8 +286,7 @@ class JSRLCurriculum(Extension):
 
     While ``step_in_episode < H_t`` the expert acts; otherwise the
     learner does. ``H_t`` decays linearly from ``episode_length`` to 0
-    over the first ``decay_frac`` fraction of training. Equivalent to
-    ``jsrl_curriculum`` in ``train_SAC.py``.
+    over the first ``decay_frac`` fraction of training.
 
     The :meth:`action` phase owns the per-episode substitution. It reads
     ``post_warmup_action`` and ``expert_action`` off the SAC action
@@ -302,6 +301,7 @@ class JSRLCurriculum(Extension):
     decay_frac: float = 0.5
     name: str = "jsrl_curriculum"
     action_slot: ClassVar[str] = "pre_warmup"
+    reads_step_in_episode: ClassVar[bool] = True
 
     def action(
         self,

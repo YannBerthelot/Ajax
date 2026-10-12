@@ -19,7 +19,6 @@ for the paper's staged training.
 """
 
 from collections.abc import Sequence
-from functools import partial
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -50,6 +49,7 @@ class APG(ActorCritic):
     name: str = "APG"
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
     supports_memory: bool = True
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -73,6 +73,9 @@ class APG(ActorCritic):
         episode_length: Optional[int] = None,
         controller_factory: Optional[Callable[..., Any]] = None,
         extensions: Sequence[Extension] = (),
+        # Simulator steps per agent step on brax / playground envs
+        # (ActorCritic).
+        action_repeat: int = 1,
     ) -> None:
         """
         Args:
@@ -126,6 +129,7 @@ class APG(ActorCritic):
             env_params=env_params,
             memory=memory,
             episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
         if not check_env_is_gymnax(self.env_args.env):
@@ -144,23 +148,16 @@ class APG(ActorCritic):
         self.pid = pid
         self.squash = squash
         self.system_class = system_class
-        self.lr_schedule = lr_schedule
-        self.warmup_steps = warmup_steps
-        self.lr_end_fraction = lr_end_fraction
         self.controller_factory = controller_factory
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            system_class=self.system_class,
-            pid=self.pid,
-            squash=self.squash,
-            lr_schedule=self.lr_schedule,
-            warmup_steps=self.warmup_steps,
-            lr_end_fraction=self.lr_end_fraction,
-            controller_factory=self.controller_factory,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "system_class": system_class,
+            "pid": pid,
+            "squash": squash,
+            "lr_schedule": lr_schedule,
+            "warmup_steps": warmup_steps,
+            "lr_end_fraction": lr_end_fraction,
+            "controller_factory": controller_factory,
+        }
 
     @classmethod
     def contextual_controller(

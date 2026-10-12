@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from functools import partial
 from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -26,6 +25,7 @@ class APO(ActorCritic):
         "critic_loss",
         "actor_loss",
     }
+    make_train = staticmethod(make_train)
 
     def __init__(  # pylint: disable=W0102, R0913
         self,
@@ -68,6 +68,10 @@ class APO(ActorCritic):
         expose_recent_rollout: bool = False,
         # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
+        # Simulator steps per episode and per agent step on brax / playground
+        # envs (ActorCritic).
+        episode_length: Optional[int] = None,
+        action_repeat: int = 1,
     ) -> None:
         """
         Initialize the APO agent.
@@ -117,6 +121,8 @@ class APO(ActorCritic):
             log_std_state_independent=True,
             log_std_init=0.0,
             mean_kernel_init="lecun_uniform",
+            episode_length=episode_length,
+            action_repeat=action_repeat,
             extensions=extensions,
         )
 
@@ -151,17 +157,7 @@ class APO(ActorCritic):
             actor_cloning_epochs=actor_cloning_epochs,
             actor_cloning_batch_size=actor_cloning_batch_size,
         )
-
-    def get_make_train(self) -> Callable:
-        """
-        Create a training function for the APO agent.
-
-        Returns:
-            Callable: A function that trains the APO agent.
-        """
-        return partial(
-            make_train,
-            cloning=self.cloning,
-            expert_policy=self.expert_policy,
-            extensions=tuple(self.extension_stack.extensions),
-        )
+        self.train_kwargs = {
+            "cloning": self.cloning,
+            "expert_policy": self.expert_policy,
+        }

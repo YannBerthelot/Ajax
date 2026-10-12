@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from functools import partial
 from typing import Any, Callable, Optional, Union
 
 import numpy as np
@@ -169,6 +168,7 @@ class DreamerV3(ActorCritic):
 
     name: str = "DreamerV3"
     supported_extension_phases: frozenset = LOOP_PHASES
+    make_train = staticmethod(make_train)
 
     def __init__(
         self,
@@ -283,6 +283,7 @@ class DreamerV3(ActorCritic):
             eps=eps,
             warmup=warmup,
         )
+        self.train_kwargs = {"config": self.dreamer_config}
         self.agent_config = DreamerV3AgentConfig(
             train_ratio=train_ratio,
             batch_size=batch_size,
@@ -436,13 +437,6 @@ class DreamerV3(ActorCritic):
             initial_state=state,
             replay_rows_per_env=rows,
             **kwargs,
-        )
-
-    def get_make_train(self) -> Callable:
-        return partial(
-            make_train,
-            config=self.dreamer_config,
-            extensions=tuple(self.extension_stack.extensions),
         )
 
 

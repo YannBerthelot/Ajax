@@ -166,7 +166,9 @@ EXCLUSIVE = [
     # Recurrent agents refuse experts and extensions (recurrent.py), PPO
     # its feedforward fragments.
     (MEMORY, EXPERTS | set(EXTENSIONS) | {"unroll_length"}),
-    ({"use_pid_policy"}, ACTING),  # the gain policy bypasses SAC's action slots
+    # The gain policy bypasses SAC's action slots, and the expert acts on its
+    # output (SAC refuses its action in the observation).
+    ({"use_pid_policy"}, ACTING | {"augment_obs_with_expert_action"}),
     # Experts act in continuous spaces; ImitationLoss reads a mean action.
     ({"CartPole-v1"}, EXPERTS | {"ImitationLoss"}),
 ]
@@ -207,27 +209,8 @@ def rows(name: str) -> list[frozenset[str]]:
 
 
 ROWS = {name: rows(name) for name in sorted(TABLE)}
-#: Day-one failures: the agent, the options that fail together, the fix's branch.
-FAILING = [
-    (
-        "SAC",
-        {"use_pid_policy", "augment_obs_with_expert_action"},
-        "fix/gain-policy-expert-action",
-    ),
-]
 PARAMS = [
-    pytest.param(
-        n,
-        r,
-        id=f"{n}-{i}",
-        marks=[
-            pytest.mark.xfail(strict=True, reason=fix)
-            for agent, options, fix in FAILING
-            if agent == n and options <= r
-        ],
-    )
-    for n in ROWS
-    for i, r in enumerate(ROWS[n])
+    pytest.param(n, r, id=f"{n}-{i}") for n in ROWS for i, r in enumerate(ROWS[n])
 ]
 
 

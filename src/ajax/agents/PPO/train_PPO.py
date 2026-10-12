@@ -515,14 +515,11 @@ def update_agent(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     total_n_updates: int,
-    reward_shaping_fn: Optional[Callable] = None,
 ) -> tuple[PPOState, AuxiliaryLogs]:
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
     from ``start``: ``n_epochs`` passes over its minibatches, then brax's
     periodic forced reset."""
     rewards = rollout.reward
-    if reward_shaping_fn is not None:
-        rewards = rewards + reward_shaping_fn(agent_state, rollout)
     geometry = minibatch_geometry(agent_config, *rollout.obs.shape[:2], recurrent)
     actions, log_probs = rollout_actions(rollout)
     batch = {
@@ -744,7 +741,6 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    reward_shaping_fn: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
@@ -785,7 +781,6 @@ def make_train(
             loop.stack,
             total_timesteps,
             loop.n_rollouts(agent_config.n_steps),
-            reward_shaping_fn,
         )
 
     return loop.on_policy(

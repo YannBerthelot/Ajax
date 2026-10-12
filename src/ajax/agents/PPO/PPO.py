@@ -108,8 +108,6 @@ class PPO(ActorCritic):
         # env's bounds (agent_action_to_env), clipped there first.
         squash: bool = False,
         episode_length: Optional[int] = None,
-        # (agent_state, rollout) -> reward bonus added before GAE.
-        reward_shaping_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[tuple] = None,
         cnn_extra_obs_dim: int = 0,
@@ -212,7 +210,6 @@ class PPO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        self.reward_shaping_fn = reward_shaping_fn
 
     def get_make_train(self) -> Callable:
         """
@@ -223,6 +220,5 @@ class PPO(ActorCritic):
         """
         return partial(
             make_train,
-            reward_shaping_fn=self.reward_shaping_fn,
             extensions=tuple(self.extension_stack.extensions),
         )

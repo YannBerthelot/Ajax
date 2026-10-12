@@ -41,28 +41,15 @@ Phases
 
 Phase batches
 -------------
-The ``batch`` dict of a phase holds these keys on every agent that folds
-it; an agent may add its own (read its fold call), and an extension
-raises on a key it needs and does not find, rather than return a no-op.
-
-``on_target``    ``observations``, ``next_observations``, ``rewards`` and
-                 ``gamma`` (``None`` for an average-reward agent); the
-                 replay agents and PQN add ``actions``, ``dones`` (where
-                 the target cut the bootstrap) and ``reward_scale``, PQN
-                 also ``terminated`` and ``truncated``, PPO and APO
-                 ``terminated``, ``truncated``, ``gae`` and ``values``
-``critic_loss``  ``observations`` and ``targets`` (the target, held
-                 constant), with the critic at the differentiated
-                 parameters: ``critic_params`` and ``critic_state`` (and
-                 ``actions`` for a Q-critic), or DQN's and PQN's
-                 ``q_state`` and ``actions``
-``actor_loss``   ``actor_params`` (differentiated) and ``actor_state``,
-                 plus ``observations``, ``raw_observations`` and
-                 ``pi_mean`` on SAC, ASAC, REDQ, TD3 and APO (SAC adds
-                 the expert's action ``a_expert``), but on APG (its
-                 ``rollout``, ``returns`` and ``actor_params``). The
-                 replay agents' ``raw_observations`` is None in a run
-                 without an expert, whose replay does not keep them
+The ``batch`` dict of a phase holds the keys :data:`PHASE_BATCH_KEYS`
+lists on every agent that folds it; an agent may add its own (read its
+fold call), and an extension raises on a key it needs and does not find,
+rather than return a no-op. ``gamma`` is ``None`` for an average-reward
+agent, ``dones`` is where the target cut the bootstrap and ``targets`` the
+target, held constant; the critic (DQN's and PQN's ``q_state``) and the
+actor come at the differentiated parameters. The replay agents'
+``raw_observations`` is None in a run without an expert, whose replay
+does not keep them.
 """
 
 from __future__ import annotations
@@ -102,6 +89,32 @@ PHASES: tuple[str, ...] = (
     "post_update",
     "eval_metrics",
 )
+
+#: The keys of each phase's ``batch`` ("Phase batches" above): per phase,
+#: the agents passing them ("*": every agent folding it) -> the keys.
+PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
+    "on_target": {
+        "*": "observations next_observations rewards gamma",
+        "SAC TD3 REDQ ASAC AVG DQN PQN": "actions dones reward_scale",
+        "PQN PPO APO": "terminated truncated",
+        "PPO APO": "gae values",
+    },
+    "critic_loss": {
+        "*": "observations targets",
+        "SAC TD3 REDQ ASAC AVG PPO APO": "critic_params critic_state",
+        "SAC TD3 REDQ ASAC AVG DQN PQN": "actions",
+        "DQN PQN": "q_state",
+    },
+    "actor_loss": {
+        "*": "actor_params",
+        "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state",
+        "SAC TD3 REDQ ASAC AVG APO UDRL": "observations",
+        "SAC TD3 REDQ ASAC APO": "raw_observations pi_mean",
+        "SAC": "a_expert",
+        "UDRL": "actions",
+        "APG": "rollout returns",
+    },
+}
 
 
 def check_extension_phases(

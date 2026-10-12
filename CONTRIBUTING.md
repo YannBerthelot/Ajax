@@ -312,9 +312,10 @@ print(evaluations["Counter/updates"])  # per seed, at each evaluation: [2. 4. 6.
    paper says (a metric appears, a term moves the loss the right way).
 
 **Callable hooks.** A few `Optional[Callable]` keywords predate extensions and
-stay because downstream projects use them: TD3's `action_pipeline`, PPO's
-`reward_shaping_fn`, DQN's `td_target_fn` and `td_loss_fn`, PQN's
-`td_loss_fn`. `tests/modules/test_hook_composition.py` pins them. Add none.
+stay: TD3's `action_pipeline` (AjaxExperiments' TD3 variants), DQN's
+`td_target_fn` and `td_loss_fn` and PQN's `td_loss_fn` (Double DQN and
+Huber, which their agents' tests run). `tests/modules/test_hook_composition.py`
+pins them. Add none.
 
 ## Testing
 

@@ -263,12 +263,9 @@ class NetworkConfig:
         pytree_node=False, default=None
     )
     penultimate_normalization: bool = False
-    actor_kernel_init: Optional[Union[str, InitializationFunction]] = None
     actor_bias_init: Optional[Union[str, InitializationFunction]] = None
-    critic_kernel_init: Optional[Union[str, InitializationFunction]] = None
     critic_bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    encoder_bias_init: Optional[Union[str, InitializationFunction]] = None
     # Optional CNN encoder for image observations. When `cnn_image_shape`
     # is set, networks treat obs as a flat `(H*W*C + cnn_extra_obs_dim,)`
     # vector: the image portion is reshaped to NHWC and run through a conv

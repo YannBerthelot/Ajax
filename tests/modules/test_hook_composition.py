@@ -2,8 +2,8 @@
 
 The Extension framework (``extensions=``) is the surface for research
 features. A few ``Optional[Callable]`` hooks remain, each with a live user:
-TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants), PPO's
-``reward_shaping_fn``, and the DQN / PQN variants (Double DQN, Huber).
+TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants) and the DQN /
+PQN variants (Double DQN, Huber).
 
 These are API-contract tests: construct each agent with each hook (and
 ``None``) and confirm construction succeeds and the attribute is stored and
@@ -13,13 +13,11 @@ forwarded to ``make_train``. They do not run training.
 import pytest
 
 from ajax.agents.DQN.DQN import DQN
-from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.TD3 import TD3
 
 AGENT_HOOKS = {
     TD3: ("action_pipeline",),
-    PPO: ("reward_shaping_fn",),
     # Variants (Double DQN, Huber) are exposed as Optional[Callable] hooks.
     DQN: ("td_target_fn", "td_loss_fn"),
     PQN: ("td_loss_fn",),
@@ -67,10 +65,6 @@ def _instantiate(agent_cls, **kwargs):
     if agent_cls is TD3:
         common["buffer_size"] = 1024
         common["batch_size"] = 32
-    if agent_cls is PPO:
-        common["n_steps"] = 32
-        common["batch_size"] = 32
-        common["n_epochs"] = 1
     common.update(kwargs)
     return agent_cls(**common)
 

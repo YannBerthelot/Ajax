@@ -279,7 +279,6 @@ def actor_loss_fn(
     actor_state: LoadedTrainState,
     obs_with_realised_command: jax.Array,
     actions: jax.Array,
-    bc_loss_type: str,
 ) -> jax.Array:
     pi, _ = get_pi(
         actor_state=actor_state,
@@ -294,14 +293,6 @@ def actor_loss_fn(
             actions = actions.squeeze(-1)
         log_p = pi.log_prob(actions)
         return -log_p.mean()
-
-    if bc_loss_type == "mse":
-        if hasattr(pi, "unsquashed_mean"):
-            mu = pi.unsquashed_mean()
-        else:
-            mu = pi.mean()
-        target = jnp.arctanh(jnp.clip(actions, -0.999, 0.999))
-        return jnp.mean((mu - target) ** 2)
 
     # NLL on the squashed-normal / normal
     if isinstance(pi, SquashedNormal):
@@ -378,9 +369,7 @@ def training_iteration(
         )
 
         def _loss(params):
-            loss = actor_loss_fn(
-                params, a_state.actor_state, obs_b, act_b, agent_config.bc_loss_type
-            )
+            loss = actor_loss_fn(params, a_state.actor_state, obs_b, act_b)
             _al_batch = {
                 "observations": obs_b,
                 "actions": act_b,

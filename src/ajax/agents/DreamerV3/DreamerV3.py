@@ -242,7 +242,7 @@ class DreamerV3(ActorCritic):
         # The values actually used, next to the constructor arguments (whose
         # None widths the preset resolves), for the loggers' run config.
         self.config.update(self.dreamer_config.resolved())
-        self.agent_config = DreamerV3AgentConfig(
+        self.agent_config: DreamerV3AgentConfig = DreamerV3AgentConfig(
             train_ratio=train_ratio,
             batch_size=batch_size,
             batch_length=batch_length,

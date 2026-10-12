@@ -143,7 +143,7 @@ class APG(ActorCritic):
             beta_2=beta_2,
             weight_decay=weight_decay,
         )
-        self.agent_config = APGConfig(horizon=horizon)
+        self.agent_config: APGConfig = APGConfig(horizon=horizon)
         self.pid = pid
         self.squash = squash
         self.system_class = system_class

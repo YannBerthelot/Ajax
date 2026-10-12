@@ -31,7 +31,7 @@ def test_no_case_insensitive_path_collisions():
 
     collisions = {k: v for k, v in by_folded.items() if len(v) > 1}
     assert not collisions, (
-        "Tracked paths collide on case-insensitive filesystems:" f" {collisions}"
+        f"Tracked paths collide on case-insensitive filesystems: {collisions}"
     )
 
 

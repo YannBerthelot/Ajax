@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, Optional, Tuple
 
 import distrax
 import jax
@@ -10,6 +10,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import augment_obs
 from ajax.networks.distributions import SquashedNormal
+from ajax.state import Transition
 
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
@@ -95,7 +96,7 @@ def _reset_actor_heads(
 def pre_train(
     rng: jax.Array,
     actor_state: train_state.TrainState,
-    dataset: Sequence,  # Sequence[Transition]
+    dataset: Transition,
     actor_lr: float = 1e-3,
     actor_epochs: int = 10,
     actor_batch_size: int = 64,

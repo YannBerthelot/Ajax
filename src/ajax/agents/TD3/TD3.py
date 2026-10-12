@@ -108,7 +108,7 @@ class TD3(ActorCritic):
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("TD3 only supports continuous action spaces.")
 
-        self.agent_config = TD3Config(
+        self.agent_config: TD3Config = TD3Config(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,

@@ -141,7 +141,7 @@ class Row:
     extras: Any = None
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class RowCollectorState(CollectorState):
     """:class:`CollectorState` plus the row collector's bookkeeping.
 
@@ -358,6 +358,7 @@ def collect_row(
     episodic_return_state, episodic_mean_return = update_episodic_return(
         cs.episodic_return_state, step_reward, ended
     )
+    assert cs.step_in_episode is not None
     length = cs.step_in_episode + nxt.stepped.astype(jnp.int32)
     env_steps = cs.env_steps + jnp.sum(nxt.stepped, dtype=jnp.int32)
     rows = cs.rows + n_envs

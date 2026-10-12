@@ -23,7 +23,6 @@ directly.
 
 from __future__ import annotations
 
-import functools
 import inspect
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional
@@ -36,6 +35,7 @@ from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import RunningScale
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.types import Replaceable
 
 if TYPE_CHECKING:  # buffer.py builds core.TDMPC2Batch; core imports this module
     from ajax.agents.TDMPC2.buffer import EpisodeBufferState, EpisodicBufferState
@@ -46,7 +46,7 @@ def _static(default: Any) -> Any:
     return struct.field(pytree_node=False, default=default)
 
 
-@functools.partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TDMPC2Config(BaseAgentConfig):
     """Static TD-MPC2 hyperparameters (defaults: the 5M single-task model).
 
@@ -206,7 +206,7 @@ class TDMPC2Config(BaseAgentConfig):
 
 
 @struct.dataclass
-class TDMPC2UpdateState:
+class TDMPC2UpdateState(Replaceable):
     """What one TD-MPC2 update reads and writes.
 
     Attributes:
@@ -227,7 +227,7 @@ class TDMPC2UpdateState:
     pi_gradnorm_sq: jax.Array
 
 
-@functools.partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TDMPC2State(BaseAgentState):
     """The TD-MPC2 agent state (``DESIGN.md`` §4.5).
 
@@ -270,7 +270,7 @@ class TDMPC2State(BaseAgentState):
     n_terminations: jax.Array
 
 
-@functools.partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TDMPC2MultiTaskState(BaseAgentState):
     """The offline multi-task TD-MPC2 state (``DESIGN.md`` §7; M8).
 

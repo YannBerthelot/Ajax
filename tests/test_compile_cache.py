@@ -55,9 +55,9 @@ def test_fingerprint_names_cpu_and_versions():
     fingerprint = _compile_cache.host_fingerprint()
     fields = dict(part.split("=", 1) for part in fingerprint.split("|"))
     assert set(fields) == {"cpu", "arch", "py", "jax", "jaxlib"}
-    assert fields[
-        "cpu"
-    ], "the CPU must be identified, or entries built on another CPU could load"
+    assert fields["cpu"], (
+        "the CPU must be identified, or entries built on another CPU could load"
+    )
     assert fields["jax"] == jax.__version__
 
 

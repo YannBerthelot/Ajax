@@ -97,7 +97,7 @@ class PQN(ActorCritic):
                 f" rows must be divisible by num_minibatches ({num_minibatches})."
             )
 
-        self.agent_config = PQNConfig(
+        self.agent_config: PQNConfig = PQNConfig(
             gamma=gamma,
             q_lambda=q_lambda,
             n_steps=n_steps,

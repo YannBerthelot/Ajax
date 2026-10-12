@@ -87,7 +87,7 @@ def _q10_values(agent: Any, wm: Any, target_q: Any, pi: Any, key: Any) -> dict:
         params = core.renorm_task_embedding(wm, ctx.ids)
         emb = core.task_embedding(params, ctx)
         z = apply({"params": params}, obs, emb, method="encode")
-        z2, zs = (jnp.broadcast_to(z, (n, z.shape[-1])) for n in (2, 256))
+        z2, zs = (jnp.broadcast_to(z, (n, z.shape[-1])) for n in (2, 256))  # type: ignore[arg-type, union-attr]
         q = decode(core.q_logits(apply, params, z2, ends, task_emb=emb)).mean(0)
         eps = jax.random.normal(jax.random.fold_in(key, task), (256, 1))
         a = core.policy_sample(pi_apply, pi, zs, eps, config, emb, ctx.mask).action
@@ -351,7 +351,7 @@ def _p_safe(run: runs.Run) -> dict:
         step = (h0, x, a0, jnp.ones(1, bool), jnp.zeros((1, c.stoch, c.classes)))
         h = rssm.apply({"params": wm["rssm"]}, *step, method="observe_step")[0]
         z = dreamer.features(h.deter, h.stoch)
-        return jnp.exp(dreamer.Actor(c, 2, True).apply({"params": pi}, z).logits[0, 0])
+        return jnp.exp(dreamer.Actor(c, 2, True).apply({"params": pi}, z).logits[0, 0])  # type: ignore[union-attr]
 
     return {SAFE.name: jax.vmap(one)(s.world_model_state.params, s.actor_state.params)}
 
@@ -411,7 +411,7 @@ def _filtered(c: Any, wm: dict, pi: dict, xs: tuple[float, ...]) -> tuple:
         step = (h, token, a, jnp.asarray([i == 0]), noise)
         h = rssm.apply({"params": wm["rssm"]}, *step, method="observe_step")[0]
         feat = dreamer.features(h.deter, h.stoch)
-        a = dreamer.Actor(c, 1, False).apply({"params": pi}, feat).mean
+        a = dreamer.Actor(c, 1, False).apply({"params": pi}, feat).mean  # type: ignore[union-attr]
     return feat, a[0, 0]
 
 

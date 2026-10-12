@@ -1,16 +1,15 @@
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.agents.recurrent import RecurrentReplayConfig
 from ajax.state import BaseAgentState
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TD3State(BaseAgentState):
     """TD3 carries only actor + critic + collector (no temperature, no expert state)."""
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class TD3Config(RecurrentReplayConfig):
     gamma: float
     tau: float = 0.005

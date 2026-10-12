@@ -869,7 +869,9 @@ def _q6_agent(agent: str, bandit: str, c: float, **kw: Any) -> Any:
 def _executed(p: Any, env_args: Any) -> tuple[jax.Array, jax.Array]:
     """The Gaussian ``p`` (agent units) as the env executes it, mean and std:
     agent_action_to_env's centre + half-range x a, its clip unbound."""
-    centre, half = _action_bounds(env_args.env, env_args.env_params)
+    bounds = _action_bounds(env_args.env, env_args.env_params)
+    assert bounds is not None
+    centre, half = bounds
     return centre + half * p.mean().reshape(-1), half * p.stddev().reshape(-1)
 
 

@@ -124,6 +124,7 @@ def value_loss_function(
     term. A recurrent critic replays the sequence from ``initial_hidden``,
     ``resets`` flagging the observations that start an episode."""
     if recurrent:
+        assert resets is not None and initial_hidden is not None
         v_preds, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_params,
@@ -175,6 +176,7 @@ def policy_loss_function(
     sequence from ``initial_hidden`` (the live carry on ``actor_state`` has
     advanced past this rollout), ``resets`` flagging episode starts."""
     if recurrent:
+        assert resets is not None
         pi, _ = get_pi_sequence(
             actor_state=actor_state,
             actor_params=actor_params,
@@ -359,6 +361,7 @@ def _recurrent_values(
         )
         return carry_next, (values, carry)
 
+    assert start.critic_state.hidden_state is not None
     critic_end, (seq_values, critic_starts) = jax.lax.scan(
         critic_chunk,
         jax.lax.stop_gradient(start.critic_state.hidden_state),
@@ -522,7 +525,8 @@ def update_agent(
     from ``start``: ``n_epochs`` passes over its minibatches, then brax's
     periodic forced reset."""
     rewards = rollout.reward
-    geometry = minibatch_geometry(agent_config, *rollout.obs.shape[:2], recurrent)
+    n_steps, n_envs = rollout.obs.shape[:2]
+    geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
     batch = {
         "obs": rollout.obs,

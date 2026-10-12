@@ -29,7 +29,6 @@ from typing import Any, Optional, Tuple
 import jax
 import jax.numpy as jnp
 from flax import struct
-from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import (
     get_batch_from_buffer,
@@ -52,7 +51,7 @@ from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transi
 from ajax.types import BufferType
 
 
-@partial(struct.dataclass, kw_only=True)
+@struct.dataclass(kw_only=True)
 class RecurrentReplayConfig(BaseAgentConfig):
     """An off-policy agent's sequence-replay settings, read only when it has
     memory: replayed windows of ``burn_in + sequence_length + 1`` steps."""

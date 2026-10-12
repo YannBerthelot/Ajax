@@ -111,6 +111,7 @@ def update_AVG_values(
     scale: its entropy-regularised reward and discount and, where an
     episode ended, its return."""
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    assert rollout.log_prob is not None
     r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(
         -1, keepdims=True
     )
@@ -336,6 +337,7 @@ def update_agent(
     critic_updated, aux_value = update_value_functions(
         agent_state, transition, agent_config, extension_stack, total_timesteps
     )
+    assert transition.raw_action is not None
     policy_updated, aux_policy = update_policy(
         agent_state,
         transition.obs,

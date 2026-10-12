@@ -120,10 +120,12 @@ def update_agent(
         )
 
         def mb_body(agent_state: PQNState, xs: tuple) -> Tuple[Any, Any]:
-            minibatch, loss_key = xs
+            (observations, actions, targets), loss_key = xs
             q_state, value_aux = q_gradient_step(
                 agent_state,
-                *minibatch,
+                observations,
+                actions,
+                targets,
                 td_loss_fn,
                 extension_stack,
                 loss_key,

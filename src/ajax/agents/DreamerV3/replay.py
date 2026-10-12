@@ -66,6 +66,7 @@ from flax import struct
 from ajax.agents.DreamerV3.networks import encode_action
 from ajax.agents.DreamerV3.world_model import PosteriorEntries, ReplayContextBatch
 from ajax.environments.row_collector import Row
+from ajax.types import Replaceable
 
 #: Largest number of classes whose indices fit the uint8 storage.
 _UINT8_CLASSES = 256
@@ -77,7 +78,7 @@ def stoch_dtype(classes: int) -> jnp.dtype:
 
 
 @struct.dataclass
-class ReplayState:
+class ReplayState(Replaceable):
     """The per-env rings and the online-queue counter (one seed).
 
     Attributes:

@@ -214,7 +214,7 @@ def update_value_functions(
     observations: jax.Array,
     actions: jax.Array,
     next_observations: jax.Array,
-    dones: Optional[jax.Array],
+    dones: jax.Array,
     recurrent: bool,
     rewards: jax.Array,
     gamma: float,
@@ -340,7 +340,7 @@ def policy_loss_function(
     critic_states: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
-    rng: jax.random.PRNGKey,
+    rng: jax.Array,
     extension_stack: ExtensionStack,
     raw_observations: Optional[jax.Array] = None,
     expert_policy: Optional[Callable] = None,
@@ -397,6 +397,7 @@ def policy_loss_function(
         and agent_state.expert_critic_params is not None
     )
     if needs_bc:
+        assert expert_policy is not None
         a_expert = (
             a_expert_precomputed
             if a_expert_precomputed is not None
@@ -442,7 +443,7 @@ def policy_loss_function(
 def update_policy(
     agent_state: SACState,
     observations: jax.Array,
-    raw_observations: jax.Array,
+    raw_observations: Optional[jax.Array],
     extension_stack: ExtensionStack,
     expert_policy: Optional[Callable] = None,
     a_expert_precomputed: Optional[jax.Array] = None,
@@ -592,6 +593,7 @@ def update_agent(
         policy_action_transform is not None or has_actor_loss
     )
     if needs_expert:
+        assert expert_policy is not None
         # Prefer the a_expert stored in the buffer at collection time
         # (computed with the correct stateful expert internal state).
         # Fall back to a fresh stateless expert call only if the buffer
@@ -842,7 +844,8 @@ def make_train(
     # actions``, and evaluation; ``None`` ⇒ pure SAC. Gain mode
     # (``use_pid_policy``, which rejects a residual policy) handles its own
     # eval transform in ``step_environment``.
-    residual = next(
+    # Found by duck typing: the agent does not name the extension.
+    residual: Any = next(
         (e for e in loop.stack.extensions if hasattr(e, "build_policy_transform")),
         None,
     )

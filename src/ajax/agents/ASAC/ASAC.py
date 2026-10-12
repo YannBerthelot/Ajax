@@ -123,7 +123,7 @@ class ASAC(ActorCritic):
             raise ValueError("ASAC only supports continuous action spaces.")
         action_dim = get_action_dim(self.env_args.env, env_params)
         target_entropy = target_entropy_per_dim * action_dim
-        self.agent_config = ASACConfig(
+        self.agent_config: ASACConfig = ASACConfig(
             tau=tau,
             learning_starts=learning_starts,
             target_entropy=target_entropy,

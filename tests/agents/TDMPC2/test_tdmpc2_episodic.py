@@ -60,7 +60,8 @@ def state() -> core.TDMPC2UpdateState:
     state = core.create_update_state(jax.random.PRNGKey(0), EPISODIC, OBS, ACT)
     wm = state.world_model_state
     # Non-zero reward and Q heads, so values and targets differ by sample.
-    params = random_heads(wm.params, *jax.random.split(jax.random.PRNGKey(1)), 0.3)
+    reward_key, q_key = jax.random.split(jax.random.PRNGKey(1))
+    params = random_heads(wm.params, reward_key, q_key, 0.3)
     wm = wm.replace(params=params, target_params=params["q"])
     return state.replace(world_model_state=wm)
 

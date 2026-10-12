@@ -206,7 +206,7 @@ class SAC(ActorCritic):
             if action_dim_override is not None
             else get_action_dim(self.env_args.env, env_params)
         )
-        self.agent_config = SACConfig(
+        self.agent_config: SACConfig = SACConfig(
             gamma=gamma,
             tau=tau,
             learning_starts=learning_starts,

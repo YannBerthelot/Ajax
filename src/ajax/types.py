@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, TypeAlias, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeAlias, Union
 
 import flashbax as fbx
 import jax
@@ -19,6 +19,20 @@ InitializationFunction: TypeAlias = Callable
 
 
 FloatOrCallable: TypeAlias = Union[float, Callable[[int], float]]
+
+# A deliberate workaround for a typing gap: flax.struct.dataclass adds a
+# ``replace`` method at runtime but does not declare it, so a type checker
+# rejects ``state.replace(...)``. A struct dataclass whose ``replace`` typed
+# code calls derives from Replaceable, which declares it for the type checker
+# only; at runtime it is ``object``, so the class is unchanged.
+if TYPE_CHECKING:
+    from typing import Self
+
+    class Replaceable:
+        def replace(self, **updates: Any) -> Self: ...
+
+else:
+    Replaceable = object
 
 
 @struct.dataclass

@@ -85,21 +85,21 @@ from typing import Any
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 sys.path.insert(0, os.getcwd())  # the reference checkout (see the docstring)
 
-import embodied  # noqa: E402
-import jax  # noqa: E402
-import jax.numpy as jnp  # noqa: E402
-import numpy as np  # noqa: E402
-from dreamerv3 import agent as agt  # noqa: E402
-from dreamerv3 import jaxutils, nets  # noqa: E402
-from dreamerv3 import ninjax as nj  # noqa: E402
-from tensorflow_probability.substrates.jax.internal import samplers  # noqa: E402
+import embodied
+import jax
+import jax.numpy as jnp
+import numpy as np
+from dreamerv3 import agent as agt
+from dreamerv3 import jaxutils, nets
+from dreamerv3 import ninjax as nj
+from tensorflow_probability.substrates.jax.internal import samplers
 
 jax.config.update("jax_default_matmul_precision", "highest")
 
 WORLD_MODEL = ("agent/enc/", "agent/dyn/", "agent/dec/", "agent/rew/", "agent/con/")
 OBS_DIM = 5
 BATCH, LENGTH = 2, 9  # 8 trained steps + replay_context 1
-TINY = {
+TINY: dict[str, Any] = {
     "jax.platform": "cpu",
     "jax.compute_dtype": "float32",
     "jax.param_dtype": "float32",

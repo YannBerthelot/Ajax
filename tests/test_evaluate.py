@@ -30,8 +30,8 @@ def _sac_state(env_config: EnvironmentConfig):
     """A freshly initialised SAC (64-wide nets) on ``env_config``."""
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
-        actor_architecture=["64", "relu", "64"],
-        critic_architecture=["64", "relu", "64"],
+        actor_architecture=("64", "relu", "64"),
+        critic_architecture=("64", "relu", "64"),
         squash=True,
     )
     buffer = get_buffer(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)

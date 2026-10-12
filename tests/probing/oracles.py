@@ -55,7 +55,7 @@ def targets(ro: dict, v: Any, gamma: float, lam: float, rule: Rule) -> np.ndarra
     inside, outside = (0.0, shift) if rule.shift_outside else (shift, 0.0)
     out, u = np.zeros(term.shape), None
     for t in range(term.shape[1]) if rule.forward else range(term.shape[1] - 1, -1, -1):
-        boot, trace = v[nxt[:, t]], 0.0
+        boot, trace = v[nxt[:, t]], np.zeros(())
         if u is not None:  # the trace goes on from step u
             go = ~done[:, t] if rule.cut else True
             boot = np.where(go, out[:, u], boot) if rule.vtrace else boot

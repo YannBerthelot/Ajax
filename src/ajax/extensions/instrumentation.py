@@ -561,12 +561,12 @@ class BiasVorePenalty(Extension):
 
 # Public re-exports for downstream importers.
 __all__ = [
-    "ConditioningMetrics",
-    "BiasVoreDecomposition",
-    "BiasVorePenalty",
     "COND_METRIC_KEYS",
     "EVAREST_DECOMP_KEYS",
+    "BiasVoreDecomposition",
+    "BiasVorePenalty",
+    "ConditioningMetrics",
+    "dormant_fraction",
     "evarest_coeff",
     "srank",
-    "dormant_fraction",
 ]

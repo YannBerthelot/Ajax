@@ -42,6 +42,8 @@ lets `jax.grad` flow through the reset itself (say, to physics parameters), at o
 
 Ajax uses [uv](https://docs.astral.sh/uv/) and Python 3.11 to 3.13. On Apple-silicon Macs it
 installs JAX for CPU; elsewhere `jax[cuda]`, which falls back to the CPU when there is no GPU.
+To use an NVIDIA GPU, ask for the `cuda` extra (`uv sync --extra cuda`, or `ajax[cuda]` as a
+dependency): a later release installs JAX for the CPU by default and CUDA only through it.
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git

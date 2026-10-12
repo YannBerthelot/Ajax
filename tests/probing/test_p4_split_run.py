@@ -130,8 +130,10 @@ def test_the_agent_resumes_from_a_checkpoint(name: str, tmp_path: Path) -> None:
     first = runs.train(build(), SEEDS, 64, **TEST)
     split = runs.resume(first, second, str(tmp_path), build(), **TEST).state
     full = runs.train(first.agent, SEEDS, 128, **TEST).state
-    steps = (np.asarray(s.collector_state.timestep) for s in (split, full))
-    np.testing.assert_array_equal(*steps)
+    split_steps, full_steps = (
+        np.asarray(s.collector_state.timestep) for s in (split, full)
+    )
+    np.testing.assert_array_equal(split_steps, full_steps)
 
 
 def test_every_agent_is_checked_for_resume() -> None:

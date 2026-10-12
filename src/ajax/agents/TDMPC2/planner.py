@@ -63,7 +63,7 @@ persisted (deviation T15; the reference writes it into its parameters).
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Optional, Union
+from typing import Any, Callable, NamedTuple, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -229,7 +229,7 @@ def estimate_value(
     ``alive`` is the latest code's ``1 - termination``.
     """
     action_dim = actions.shape[-1]
-    wm_apply = make_world_model(config).apply
+    wm_apply: Callable[..., Any] = make_world_model(config).apply
     pi_apply = make_policy_prior(config, action_dim).apply
     two_hot = config.two_hot
     emb = task_embedding(wm_params, task)
@@ -278,7 +278,7 @@ def policy_trajectories(
     horizon, p, action_dim = eps.shape
     if p == 0:  # the "planning without policy" ablation (spec 3.4)
         return jnp.zeros((horizon, 0, action_dim), jnp.float32)
-    wm_apply = make_world_model(config).apply
+    wm_apply: Callable[..., Any] = make_world_model(config).apply
     pi_apply = make_policy_prior(config, action_dim).apply
     emb = task_embedding(wm_params, task)
     mask = None if task is None else task.mask

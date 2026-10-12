@@ -44,7 +44,8 @@ class Expert:
         return jnp.zeros((n_envs, 1))
 
     def __call__(self, *args: jax.Array) -> Any:
-        out = self.step_with_gains(*args[-2:], self.anchor_gains)
+        state, obs = args[-2:]
+        out = self.step_with_gains(state, obs, self.anchor_gains)
         return out if len(args) == 2 else out[0]
 
     def step_with_gains(self, state: Any, obs: jax.Array, gains: Any) -> Any:

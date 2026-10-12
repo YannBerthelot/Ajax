@@ -18,9 +18,11 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from ajax.types import Replaceable
+
 
 @struct.dataclass
-class SegmentBuffer:
+class SegmentBuffer(Replaceable):
     obs: jnp.ndarray  # (B, T, n_envs, obs_dim_with_cmd)
     actions: jnp.ndarray  # (B, T, n_envs, action_dim)
     rewards: jnp.ndarray  # (B, T, n_envs, 1)

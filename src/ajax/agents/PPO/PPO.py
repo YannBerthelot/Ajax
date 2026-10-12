@@ -172,7 +172,7 @@ class PPO(ActorCritic):
             extensions=extensions,
         )
 
-        self.agent_config = config = PPOConfig(
+        config = PPOConfig(
             gamma=gamma,
             ent_coef=ent_coef,
             clip_range=clip_range,
@@ -190,6 +190,7 @@ class PPO(ActorCritic):
             num_evals=num_evals,
             expose_recent_rollout=expose_recent_rollout,
         )
+        self.agent_config: PPOConfig = config
 
         if bptt_length is not None:
             if self.network_args.memory is None:

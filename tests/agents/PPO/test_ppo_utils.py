@@ -95,24 +95,24 @@ def test_get_minibatches_from_batch(batch_size, n_envs, num_minibatches, feature
     )
 
     # Validate the number of minibatches
-    assert len(minibatches) == len(
-        batch
-    ), "Minibatches should have the same structure as the input batch."
+    assert len(minibatches) == len(batch), (
+        "Minibatches should have the same structure as the input batch."
+    )
     for minibatch in minibatches:
-        assert (
-            minibatch.shape[0] == num_minibatches
-        ), "Number of minibatches is incorrect."
-        assert (
-            minibatch.shape[1] == batch_size * n_envs // num_minibatches
-        ), "Minibatch size is incorrect."
+        assert minibatch.shape[0] == num_minibatches, (
+            "Number of minibatches is incorrect."
+        )
+        assert minibatch.shape[1] == batch_size * n_envs // num_minibatches, (
+            "Minibatch size is incorrect."
+        )
 
     # Validate that all elements are present in the minibatches
     for original, shuffled in zip(batch, minibatches, strict=False):
         flattened_original = original.flatten()
         flattened_shuffled = shuffled.flatten()
-        assert jnp.all(
-            jnp.sort(flattened_original) == jnp.sort(flattened_shuffled)
-        ), "Minibatches do not contain all elements from the original batch."
+        assert jnp.all(jnp.sort(flattened_original) == jnp.sort(flattened_shuffled)), (
+            "Minibatches do not contain all elements from the original batch."
+        )
 
 
 @pytest.mark.parametrize("n_steps", [8, 4096])

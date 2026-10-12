@@ -416,7 +416,7 @@ def evaluate_tdmpc2(
 
 def train_metrics(
     agent_state: TDMPC2State, aux: Any, *, action_repeat: int
-) -> dict[str, jax.Array]:
+) -> dict[str, Any]:
     """The house keys, ``env_frames`` and the last update's quantities."""
     del aux
     cs = agent_state.collector_state
@@ -467,6 +467,7 @@ def collect(
         assert isinstance(replay, EpisodicBufferState)
         # The row's index in its episode: a final row (the env held) is
         # its episode's last, after last_episode_length steps.
+        assert cs.step_in_episode is not None
         step = jnp.where(cs.is_last, cs.last_episode_length, cs.step_in_episode)
         replay = buffer.add(replay, row, step, tick)
     else:
@@ -590,7 +591,7 @@ def make_train(
             pi_eps=pi_eps,
         )
 
-    models = {"config": config, "buffer": buffer, "gamma": gamma}
+    models: dict[str, Any] = {"config": config, "buffer": buffer, "gamma": gamma}
     every = loop.log_frequency and max(schedule.num_ticks(loop.log_frequency), 1)
 
     def n_updates(tick: jax.Array, agent_state: TDMPC2State) -> jax.Array:

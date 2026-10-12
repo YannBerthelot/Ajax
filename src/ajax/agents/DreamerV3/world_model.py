@@ -19,7 +19,8 @@ test_dreamerv3_parity.py``.
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from collections.abc import Mapping
+from typing import Any, Callable, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -164,7 +165,10 @@ def draw_posterior_noise(
 
 
 def world_model_loss(
-    model: WorldModel, params: dict, batch: ReplayContextBatch, noise: jax.Array
+    model: WorldModel,
+    params: Mapping[str, Any],
+    batch: ReplayContextBatch,
+    noise: jax.Array,
 ) -> WorldModelOutput:
     """World-model losses of one replay batch (Algorithms E and J).
 
@@ -197,9 +201,10 @@ def world_model_loss(
     ``is_first`` steps are not masked.
     """
     config = model.config
-    apply = model.apply
+    apply: Callable[..., Any] = model.apply  # called without mutable
     variables = {"params": params}
     rssm = RSSM(config)
+    apply_rssm: Callable[..., Any] = rssm.apply
 
     # Replay context (29eb964 agent.py:172-183): carry from the latent stored
     # with row 0; observations and flags 1..T; previous actions 0..T-1.
@@ -217,7 +222,7 @@ def world_model_loss(
 
     tokens = apply(variables, obs, method=WorldModel.encode)
     _, post = observe(rssm, params["rssm"], carry, tokens, prevact, is_first, noise)
-    prior_logits = rssm.apply(
+    prior_logits = apply_rssm(
         {"params": params["rssm"]}, post.deter, method=RSSM.prior_logits
     )
 

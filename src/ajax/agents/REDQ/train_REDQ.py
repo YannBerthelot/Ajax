@@ -29,7 +29,6 @@ from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value
 from ajax.perf_utils import final_aux_scan
@@ -358,29 +357,23 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
-    cloning: Optional[CloningPretrain] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """REDQ's train function: one step per env, then (from
-    ``learning_starts``) one update, per iteration. ``cloning``: the
-    deprecated cloning keywords' CloningPretrain, run at init on the
-    pretrain key."""
+    ``learning_starts``) one update, per iteration."""
     agent_context = {
         "env_args": env_args,
         "actor_optimizer_args": actor_optimizer_args,
         "expert_policy": expert_policy,
     }
     extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
-    if cloning is not None:
-        cloning = cloning.bind_to_agent(**agent_context)
     recurrent = network_args.memory is not None
     if recurrent:
         unsupported_recurrent_options(
             "REDQ",
             expert_policy=expert_policy,
             extensions=(tuple(extensions) or None),
-            cloning_pretrain=cloning,
         )
     loop = TrainLoop.create(
         env_args,
@@ -392,8 +385,8 @@ def make_train(
         start_timestep=start_timestep,
     )
 
-    def init(key: jax.Array, pretrain_key: jax.Array) -> REDQState:
-        agent_state = init_REDQ(
+    def init(key: jax.Array, _pretrain_key: jax.Array) -> REDQState:
+        return init_REDQ(
             key,
             env_args,
             actor_optimizer_args,
@@ -405,9 +398,6 @@ def make_train(
             stored_state=agent_config.stored_state,
             store_expert_data=holds_expert(expert_policy, loop.stack),
         )
-        if cloning is None:
-            return agent_state
-        return cloning.clone(agent_state, pretrain_key)
 
     def update(agent_state: REDQState, _transition: Transition) -> Any:
         # The step just collected is in the buffer: REDQ samples it from there.

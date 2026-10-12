@@ -100,11 +100,8 @@ OPTIONS |= {
 }
 CNN = {"Pendulum-v1": (1, 3, 1), "fast": (1, 2, 1), "CartPole-v1": (2, 2, 1)}
 #: The switches other tests run (tests/...).
-ELSEWHERE = dict.fromkeys(
-    "actor_cloning_epochs actor_cloning_lr actor_cloning_batch_size pre_train_n_steps"
-    " skip_actor_pretrain reset_log_std_after_bc reset_actor_head_after_bc".split(),
-    "agents/test_cloning.py",  # deprecated for CloningPretrain, run here
-) | {
+ELSEWHERE = {
+    "actor_cloning_lr": "agents/test_cloning.py",  # deprecated, ignored
     "env_params": "agents/test_agent_contract.py",
     "skip_critic_pretrain": "agents/SAC/test_sac.py",
     "td_target_fn": "agents/DQN/test_DQN.py",

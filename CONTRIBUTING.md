@@ -45,8 +45,9 @@ The agents share one loop, `TrainLoop`, so collecting experience, waiting for
 work the same way everywhere and are fixed in one place. An agent supplies
 only its algorithm:
 
-- `init(key, pretrain_key) -> agent_state`: a fresh state; the deprecated
-  cloning keywords' behaviour cloning draws on `pretrain_key`.
+- `init(key, pretrain_key) -> agent_state`: a fresh state. The extensions'
+  one-shot pretraining (behaviour cloning included) draws on keys the loop
+  derives from `pretrain_key`; no agent's own init draws on it.
 - `update(...) -> (agent_state, aux)`: one update. `aux` holds the metrics as
   flax dataclasses nested exactly one level, as TD3's
   `AuxiliaryLogs(policy=..., value=...)`, logged as `value/critic_loss`; the

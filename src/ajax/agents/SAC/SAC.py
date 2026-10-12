@@ -16,7 +16,6 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.extensions.pretrain import CloningPretrain
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -92,11 +91,7 @@ class SAC(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # Deprecated cloning keywords: extensions=(CloningPretrain(...),).
-        actor_cloning_epochs: Optional[int] = None,
         actor_cloning_lr: Optional[float] = None,  # deprecated, ignored
-        actor_cloning_batch_size: Optional[int] = None,
-        pre_train_n_steps: Optional[int] = None,
         # Expert objects: still used by collection / cloning / a fair
         # number of action-pipeline call sites. ``expert_policy=`` is
         # also accepted by individual Extensions and SHOULD be supplied
@@ -147,15 +142,11 @@ class SAC(ActorCritic):
         # ``temperature_loss_function``).
         target_entropy_initial_per_dim: Optional[float] = None,
         target_entropy_ramp_frac: float = 0.5,
-        # Deprecated cloning keywords too.
-        skip_actor_pretrain: Optional[bool] = None,
         # Deliberate transitional shim (CLAUDE.md rule 10, expand then
         # contract): the critic pretraining this switched off is gone, so
         # True is a no-op and False cannot be honoured. AjaxExperiments
         # still passes it; remove it once AjaxExperiments stops.
         skip_critic_pretrain: bool = True,
-        reset_log_std_after_bc: Optional[bool] = None,
-        reset_actor_head_after_bc: Optional[bool] = None,
         # --- Composable research features ---
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -235,16 +226,6 @@ class SAC(ActorCritic):
                 "use the MCPretrain extension."
             )
         warn_actor_cloning_lr(actor_cloning_lr)
-        self.cloning = CloningPretrain.from_deprecated_kwargs(
-            self.expert_policy,
-            self.extension_stack.extensions,
-            pre_train_n_steps=pre_train_n_steps,
-            actor_cloning_epochs=actor_cloning_epochs,
-            actor_cloning_batch_size=actor_cloning_batch_size,
-            skip_actor_pretrain=skip_actor_pretrain,
-            reset_log_std_after_bc=reset_log_std_after_bc,
-            reset_actor_head_after_bc=reset_actor_head_after_bc,
-        )
         self.eval_expert_policy = self._in_agent_units(eval_expert_policy)
         self.jsrl_curriculum = jsrl_curriculum
         self.use_pid_policy = use_pid_policy
@@ -279,7 +260,6 @@ class SAC(ActorCritic):
             make_train,
             buffer=self.buffer,
             alpha_args=self.alpha_args,
-            cloning=self.cloning,
             expert_policy=self.expert_policy,
             eval_expert_policy=self.eval_expert_policy,
             use_pid_policy=self.use_pid_policy,

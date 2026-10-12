@@ -71,9 +71,9 @@ from ajax.utils import fill_with_nan
 #: update folds (``ActorCritic.supported_extension_phases``).
 LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics"})
 
-#: ``init(key, pretrain_key) -> agent_state``: a fresh agent state. Any
-#: one-shot pretraining (behaviour cloning) draws on ``pretrain_key``, from
-#: which the loop also derives the extensions' keys.
+#: ``init(key, pretrain_key) -> agent_state``: a fresh agent state. The
+#: extensions' one-shot pretraining (behaviour cloning included) draws on keys
+#: the loop derives from ``pretrain_key``; no agent's own init draws on it.
 Init = Callable[[jax.Array, jax.Array], Any]
 #: ``update(agent_state, experience) -> (agent_state, aux)``: one update on
 #: the experience just collected (a replay agent samples its buffer instead).

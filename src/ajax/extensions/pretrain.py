@@ -5,7 +5,7 @@ training loop (the ``pretrain`` phase, skipped on resume); PhiRefresh
 refreshes MCPretrain's critic during training.
 
 * :class:`CloningPretrain`     — behaviour cloning of the actor on an
-  expert's rollouts (the deprecated ``pre_train_n_steps`` keywords).
+  expert's rollouts.
 * :class:`MCPretrain`          — ``use_mc_critic_pretrain``: regress a
   frozen expert critic on Monte-Carlo returns, then (optionally) lightly
   nudge the online critic toward it.
@@ -19,10 +19,9 @@ refreshes MCPretrain's critic during training.
 from __future__ import annotations
 
 import dataclasses
-import warnings
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, ClassVar, Optional, Sequence, Tuple
+from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -356,18 +355,6 @@ def refresh_phi_star(
     )
 
 
-#: SAC, REDQ, TD3 and APO's deprecated cloning keywords, by the
-#: :class:`CloningPretrain` field each sets.
-DEPRECATED_CLONING_KWARGS = {
-    "pre_train_n_steps": "n_steps",
-    "actor_cloning_epochs": "epochs",
-    "actor_cloning_batch_size": "batch_size",
-    "skip_actor_pretrain": "skip_actor",
-    "reset_log_std_after_bc": "reset_log_std",
-    "reset_actor_head_after_bc": "reset_actor_head",
-}
-
-
 @dataclass(frozen=True)
 class CloningPretrain(Extension):
     """Behaviour cloning of the actor on an expert's rollouts, before training.
@@ -401,48 +388,6 @@ class CloningPretrain(Extension):
     name: str = "cloning_pretrain"
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
-    @classmethod
-    def from_deprecated_kwargs(
-        cls,
-        expert_policy: Optional[Callable],
-        extensions: Sequence[Extension],
-        **kwargs: Any,
-    ) -> Optional["CloningPretrain"]:
-        """The CloningPretrain of an agent's cloning keywords
-        (:data:`DEPRECATED_CLONING_KWARGS`, None when not passed) and
-        ``expert_policy``; None when ``pre_train_n_steps`` is unset or 0,
-        which turns cloning off. Passing any keyword warns.
-
-        Deliberate transitional shim (CLAUDE.md rule 10, expand then
-        contract): AjaxExperiments still passes ``pre_train_n_steps``; the
-        keywords go once it passes the extension. The agent runs this one at
-        initialisation, on the pretrain key, where the keywords always
-        cloned, so their runs are unchanged; one in ``extensions`` runs in
-        the pretrain phase. Raises ``ValueError`` when both clone, or when
-        there is no expert to clone.
-        """
-        passed = {k: v for k, v in kwargs.items() if v is not None}
-        if not passed:
-            return None
-        fields = {DEPRECATED_CLONING_KWARGS[k]: v for k, v in passed.items()}
-        warnings.warn(
-            f"{', '.join(passed)}: deprecated, pass extensions=(CloningPretrain("
-            f"expert_policy, {', '.join(f'{f}=...' for f in fields)}),) instead"
-            " (ajax.extensions.pretrain). The keywords will be removed.",
-            FutureWarning,
-            stacklevel=3,
-        )
-        if fields.get("n_steps", 0) <= 0:
-            return None
-        if expert_policy is None:
-            raise ValueError("pre_train_n_steps clones the agent's expert_policy.")
-        if any(isinstance(e, cls) for e in extensions):
-            raise ValueError(
-                "pre_train_n_steps and a CloningPretrain extension both clone"
-                " the actor: pass the extension only."
-            )
-        return cls(expert_policy, **fields)
-
     def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
         """Copy the agent's ``env_args``, ``actor_optimizer_args`` and
         observation layout (``augment_obs_with_expert_action``,
@@ -455,8 +400,7 @@ class CloningPretrain(Extension):
             return self
         # Cloning seeds the observation statistics the critic reads too: a
         # critic pretrained before it (MCPretrain's nudge, BellmanPretrain)
-        # would then be queried on inputs it was not fitted on. The keywords
-        # cloned at init, before every extension's pretraining.
+        # would then be queried on inputs it was not fitted on.
         stack = agent_context.get("extensions", ())
         ahead = next((stack[:i] for i, e in enumerate(stack) if e is self), ())
         if any("pretrain" in e.implemented_phases() for e in ahead):

@@ -1,5 +1,3 @@
-import warnings
-
 import pytest
 
 from ajax.agents.AVG.AVG import AVG
@@ -19,21 +17,18 @@ def test_avg_keeps_its_network_optimizer_and_env_settings():
     assert agent.get_make_train().keywords["alpha_args"] is agent.alpha_args
 
 
-INERT = {
-    "alpha_learning_rate": lambda: AVG("Pendulum-v1", alpha_learning_rate=1e-3),
-    "target_entropy_per_dim": lambda: AVG("Pendulum-v1", target_entropy_per_dim=-1),
-    "target_entropy": lambda: AVGConfig(gamma=0.99, target_entropy=-1.0),
+# Each call passes a keyword the signature no longer has, on purpose.
+REMOVED = {
+    "alpha_learning_rate": lambda: AVG("Pendulum-v1", alpha_learning_rate=1e-3),  # type: ignore[call-arg]
+    "target_entropy_per_dim": lambda: AVG("Pendulum-v1", target_entropy_per_dim=-1),  # type: ignore[call-arg]
+    "target_entropy": lambda: AVGConfig(gamma=0.99, target_entropy=-1.0),  # type: ignore[call-arg]
 }
 
 
-@pytest.mark.parametrize("name", sorted(INERT))
-def test_the_inert_temperature_keywords_warn(name):
+@pytest.mark.parametrize("name", sorted(REMOVED))
+def test_avg_takes_no_temperature_keywords(name):
     """AVG keeps its entropy coefficient at alpha_init (its reference code's
-    fixed coefficient), so the keywords that would tune it do nothing:
-    setting one warns, and leaving them out stays quiet."""
-    with pytest.warns(FutureWarning, match=f"{name} has no effect"):
-        INERT[name]()
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        AVG("Pendulum-v1")
-        AVGConfig(gamma=0.99)
+    fixed coefficient), so it has no keyword that would tune it."""
+    with pytest.raises(TypeError, match=name):
+        REMOVED[name]()
+    assert AVG("Pendulum-v1").alpha_args.learning_rate == 0.0

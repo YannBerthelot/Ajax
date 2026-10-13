@@ -112,9 +112,6 @@ ELSEWHERE = {
     "episode_length": "environments/test_create.py",
     "system_class": "agents/APG/test_APG.py",
     "controller_factory": "agents/APG/test_APG.py",
-    # AVG's inert temperature keywords, warned until removed.
-    "alpha_learning_rate": "agents/AVG/test_AVG.py",
-    "target_entropy_per_dim": "agents/AVG/test_AVG.py",
 }
 #: Each src extension's builder and the agents whose rows take it, in stack
 #: order (cloning seeds the statistics the other pretraining reads).

@@ -381,20 +381,20 @@ pointing at the caller's line and giving the reason.
 ```python
 import warnings
 
-from ajax import AVG
+from ajax import SAC
 
 with warnings.catch_warnings(record=True) as caught:
     warnings.simplefilter("always")
-    AVG("Pendulum-v1", alpha_learning_rate=1e-3)  # AVG never tunes its temperature
+    SAC("Pendulum-v1", jsrl_curriculum=True)  # SAC counts episode steps itself
 print([str(w.message) for w in caught if w.category is FutureWarning])
-# ["AVG's alpha_learning_rate has no effect and will be removed: AVG keeps its
-#   entropy coefficient at alpha_init, as AVG's reference code does ..."]
+# ["SAC's jsrl_curriculum has no effect and will be removed: SAC counts each
+#   env's steps in its episode when an extension reads them (JSRLCurriculum)."]
 ```
 
-Today it covers AVG's `alpha_learning_rate` and `target_entropy_per_dim`
-(and `AVGConfig`'s `target_entropy`), and SAC's `jsrl_curriculum` (SAC now
-counts episode steps whenever an extension reads them). Keywords whose
-downstream callers have moved are removed outright, without a warning.
+Today it covers SAC's `jsrl_curriculum` (SAC now counts episode steps
+whenever an extension reads them) and `LoggingConfig`'s `horizon`, which
+nothing reads. Keywords whose downstream callers have moved are removed
+outright, without a warning.
 
 ## Compilation
 

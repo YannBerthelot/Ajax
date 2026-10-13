@@ -389,9 +389,9 @@ def make_replay_buffer(
         and learning_starts // n_envs <= burn_in + sequence_length + 1
     ):
         raise ValueError(
-            "learning_starts must exceed n_envs * (burn_in +"
-            " sequence_length + 1) so the trajectory buffer holds at"
-            " least one full sequence per env before the first update"
+            "learning_starts // n_envs (each env's steps before the first"
+            " update) must exceed burn_in + sequence_length + 1, so the"
+            " trajectory buffer holds a full sequence per env"
             f" (got learning_starts={learning_starts}, n_envs={n_envs},"
             f" burn_in={burn_in}, sequence_length={sequence_length})."
         )

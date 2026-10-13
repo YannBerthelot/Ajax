@@ -7,17 +7,10 @@ from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
-from ajax.deprecation import warn_inert
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
-
-#: Why AVG's temperature keywords have no effect.
-INERT_TEMPERATURE = (
-    "AVG keeps its entropy coefficient at alpha_init, as AVG's reference code"
-    " does (gauthamvasan/avg, avg.py), so nothing tunes it."
-)
 
 
 class AVG(ActorCritic):
@@ -43,8 +36,6 @@ class AVG(ActorCritic):
         n_envs: int = 1,
         actor_learning_rate: float = 6.3e-3,
         critic_learning_rate: float = 8.7e-3,
-        # Inert, warned, to be removed (INERT_TEMPERATURE).
-        alpha_learning_rate: Optional[float] = None,
         actor_architecture=("256", "leaky_relu", "256", "leaky_relu"),
         critic_architecture=("256", "leaky_relu", "256", "leaky_relu"),
         gamma: float = 0.99,
@@ -53,7 +44,6 @@ class AVG(ActorCritic):
         learning_starts: int = 0,
         reward_scale: float = 1.0,
         alpha_init: float = 0.07,
-        target_entropy_per_dim: Optional[float] = None,
         beta_1: float = 0,
         beta_2: float = 0.999,
         num_critics: int = 1,
@@ -77,12 +67,6 @@ class AVG(ActorCritic):
             beta_1 (float): Adam's first-moment decay (AVG uses 0).
         """
         self.config = run_config(locals(), self.name)
-        warn_inert(
-            "AVG",
-            INERT_TEMPERATURE,
-            alpha_learning_rate=alpha_learning_rate,
-            target_entropy_per_dim=target_entropy_per_dim,
-        )
 
         # AVG normalises its observations (never its rewards) and squashes
         # its actions.
@@ -114,10 +98,9 @@ class AVG(ActorCritic):
         self.critic_optimizer_args = self.critic_optimizer_args.replace(
             beta_1=beta_1, beta_2=beta_2
         )
-        # The temperature's optimizer never steps: its rate is inert.
-        self.alpha_args = AlphaConfig(
-            learning_rate=alpha_learning_rate or 0.0, alpha_init=alpha_init
-        )
+        # AVG keeps its entropy coefficient at alpha_init, as its reference
+        # code does (gauthamvasan/avg, avg.py): the optimizer never steps.
+        self.alpha_args = AlphaConfig(learning_rate=0.0, alpha_init=alpha_init)
         self.agent_config: AVGConfig = AVGConfig(
             gamma=gamma,
             learning_starts=learning_starts,

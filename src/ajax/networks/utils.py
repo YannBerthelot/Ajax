@@ -34,8 +34,9 @@ def get_adam_tx(
     supervised ones run plain Adam, as in their reference implementations.
 
     Args:
-        weight_decay: Decoupled weight decay; ``> 0`` selects
-            ``optax.adamw`` (used by the APG family), ``0`` keeps plain Adam.
+        weight_decay: Decoupled weight decay, multiplied by the learning
+            rate (``OptimizerConfig.weight_decay``); ``> 0`` selects
+            ``optax.adamw``, ``0`` keeps plain Adam.
     """
     if weight_decay < 0:
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")

@@ -278,8 +278,13 @@ class OptimizerConfig(Replaceable):
     # aggressive on small gradients (e.g. log_std), slowing exploration
     # adaptation.
     eps: float = 1e-5
-    # Decoupled weight decay (AdamW, Loshchilov & Hutter 2019). 0 keeps
-    # plain Adam.
+    # Decoupled weight decay (AdamW, Loshchilov & Hutter 2019), as optax.adamw
+    # and torch's AdamW apply it: ``weight_decay * param`` joins the Adam
+    # direction before the learning rate scales it, so the decay is
+    # multiplied by the learning rate (a schedule's current value; the
+    # paper's is not). With a zero gradient one step multiplies every
+    # parameter by ``1 - lr * weight_decay``: a time constant of
+    # ``1 / (lr * weight_decay)`` steps. 0 keeps plain Adam.
     weight_decay: float = 0.0
 
 

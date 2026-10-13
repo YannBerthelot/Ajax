@@ -130,6 +130,7 @@ class ActorCritic:
         critic_architecture=("128", "tanh", "128", "tanh"),
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = None,
+        weight_decay: float = 0.0,
         memory: Optional[Union[MemoryConfig, dict]] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
@@ -159,6 +160,12 @@ class ActorCritic:
                 rate for the actor's optimizer, or its schedule.
             critic_learning_rate (float | Callable[[int], float]): Learning
                 rate for the critic's optimizer, or its schedule.
+            weight_decay (float): decoupled weight decay of the actor's and
+                the critic's optimizers (``OptimizerConfig.weight_decay``):
+                on top of the Adam step, each step multiplies their
+                parameters by ``1 - lr * weight_decay``. It reaches the
+                networks only: a scalar dual variable (SAC's temperature)
+                keeps its own plain Adam. 0 keeps plain Adam.
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
             normalize_rewards (bool): divide the rewards the agent learns
@@ -227,10 +234,12 @@ class ActorCritic:
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
             max_grad_norm=max_grad_norm,
+            weight_decay=weight_decay,
         )
         self.critic_optimizer_args = OptimizerConfig(
             learning_rate=critic_learning_rate,
             max_grad_norm=max_grad_norm,
+            weight_decay=weight_decay,
         )
 
         self.agent_config = BaseAgentConfig()

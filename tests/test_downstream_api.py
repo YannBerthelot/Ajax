@@ -267,9 +267,11 @@ def test_dqn_builds_a_plain_q_network_unless_the_encoder_norm_is_opted_in() -> N
     agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
     normed = q_network()
     plain_leaves, normed_leaves = leaves(plain.params), leaves(normed.params)
-    assert not any("norm" in name for name in plain_leaves), sorted(plain_leaves)
+    assert not any("norm" in name.lower() for name in plain_leaves), sorted(
+        plain_leaves
+    )
     added = set(normed_leaves) - set(plain_leaves)
-    assert added and all("norm" in name for name in added), sorted(added)
+    assert added and all("norm" in name.lower() for name in added), sorted(added)
     for name, leaf in plain_leaves.items():
         np.testing.assert_array_equal(normed_leaves[name], leaf)
     obs = jax.random.normal(jax.random.PRNGKey(1), (8, 4))

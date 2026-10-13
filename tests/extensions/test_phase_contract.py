@@ -130,6 +130,13 @@ AGENTS = [name for name in ajax.__all__ if _phases(name)]
 BATCHED = [name for name in AGENTS if _phases(name) - {"post_update"}]
 
 
+def test_every_agent_folding_a_phase_has_a_run() -> None:
+    """A clear failure, not a KeyError inside _run, for a new agent."""
+    for name in AGENTS:
+        has_run = name == "APG" or name in WORLD_MODELS or name in CASES
+        assert has_run, f"{name} folds {sorted(_phases(name))}: add its run"
+
+
 @functools.cache
 def _run(name: str) -> SimpleNamespace:
     cls: Any

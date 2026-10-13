@@ -52,5 +52,17 @@ def test_the_actor_loss_runs_q1_alone_as_the_ensemble_reads_it():
 
     expected = jax.value_and_grad(ensemble_q1)(actor.params)
     got = jax.value_and_grad(q1_alone)(actor.params)
-    for e, g in zip(jax.tree.leaves(expected), jax.tree.leaves(got), strict=False):
+    for e, g in zip(jax.tree.leaves(expected), jax.tree.leaves(got), strict=True):
         np.testing.assert_allclose(g, e, rtol=1e-5, atol=1e-6)
+
+    # Only Q1 runs: no matmul of the actor's gradient reads the whole
+    # ensemble's kernels, which the ensemble's Q1 does.
+    ensemble_kernels = {k.shape for k in jax.tree.leaves(critic.params) if k.ndim == 3}
+
+    def matmul_operands(loss):
+        jaxpr = jax.make_jaxpr(jax.grad(loss))(actor.params).jaxpr
+        dots = [e for e in jaxpr.eqns if e.primitive.name == "dot_general"]
+        return {v.aval.shape for e in dots for v in e.invars}
+
+    assert ensemble_kernels <= matmul_operands(ensemble_q1)
+    assert not ensemble_kernels & matmul_operands(q1_alone)

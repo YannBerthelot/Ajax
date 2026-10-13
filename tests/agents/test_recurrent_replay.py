@@ -122,6 +122,15 @@ def test_the_memory_reads_the_action_taken_before_each_row(kind: str) -> None:
     assert not np.allclose(taken[:, 2:, 1:], moved[:, 2:, 1:])
 
 
+@pytest.mark.parametrize("kind", MEMORY_KINDS)
+def test_a_recurrent_first_member_is_the_ensembles_first(kind: str) -> None:
+    """TD3's actor reads Q1 alone; a recurrent ensemble still runs whole."""
+    state = _critic(kind)
+    args = (state, state.params, OBS_SEQ, QUERIES, _carries(state))
+    first = q_values(*args, first_member=True)
+    np.testing.assert_array_equal(first, q_values(*args)[:1])
+
+
 def _after(rows: jax.Array, t: int, boot: jax.Array) -> tuple:
     """Rows 0..t, then row t's bootstrap step: the reference history."""
     xs = jnp.concatenate([rows[: t + 1], boot[None]])

@@ -332,6 +332,7 @@ def q_values(
     carries: Optional[RecurrentCarries] = None,
     *,
     bootstrap: bool = False,
+    first_member: bool = False,
 ) -> jax.Array:
     """Every critic's ``Q(obs, actions)``, the ensemble axis first.
 
@@ -340,9 +341,18 @@ def q_values(
     then being the rows' next observations, each read after its row,
     :func:`_bootstrap_stream`): the memory reads the actions taken before
     the rows, ``actions`` are queried at the head.
+
+    With ``first_member``, only the first critic's, the ensemble axis of
+    size 1: a feedforward critic runs that member alone
+    (:meth:`MultiCritic.first_member`).
     """
     if carries is None:
-        return predict_value(critic_state, params, action_value_input(obs, actions))
+        x = action_value_input(obs, actions)
+        return predict_value(critic_state, params, x, first_member=first_member)
+    if first_member:
+        # Each recurrent member carries its own memory: the ensemble runs whole.
+        q = q_values(critic_state, params, obs, actions, carries, bootstrap=bootstrap)
+        return q[:1]
     if not bootstrap:
         x = action_value_input(obs, actions, carries.prev_actions)
         return predict_value_sequence(

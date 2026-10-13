@@ -2,7 +2,8 @@
 
 Tests the unique AVG mechanics: the running-average value updates that
 AVG uses instead of a target network (``update_AVG_values``), the order
-of its actor and critic steps and the episode ends its target cuts. Shared behaviors (loss shapes, updates,
+of its actor and critic steps, the episode ends its target cuts and the
+action its actor loss takes. Shared behaviors (loss shapes, updates,
 training loop, make_train) are covered by the probing suite and the tiny
 runs of ``tests/agents/test_agent_contract.py``.
 """
@@ -18,10 +19,12 @@ from ajax.agents.AVG import train_AVG
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import init_AVG, update_AVG_values
+from ajax.agents.recurrent import q_values
 from ajax.environments.interaction import Transition
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.state import AlphaConfig, NetworkConfig, OptimizerConfig
+from tests.environments import paid_action
 
 
 @pytest.fixture
@@ -167,3 +170,36 @@ def test_a_truncated_step_bootstraps_and_a_terminated_one_does_not(
     np.testing.assert_array_equal(truncated, running)
     assert not np.allclose(running, reward)
     np.testing.assert_allclose(terminated, reward)
+
+
+def test_the_actor_loss_takes_the_executed_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AVG's actor gradient flows through the action actually taken (Vasan
+    et al., 2024, Algorithm 1): the actor loss's Q is the critic's (before
+    its step) at the action the env was stepped with, which paid_action
+    pays back (2a on Box(-2, 2)). The loss once resampled that action with
+    split(rng, 4)[1], equal to the collection's split(rng, 3)[1] only under
+    partitionable threefry; it now reparameterises the stored raw action,
+    and any key that is not the collection's fails here."""
+    seen: list[tuple] = []
+    update_agent = train_AVG.update_agent
+
+    def spy(agent_state: Any, transition: Transition, *a: Any) -> Any:
+        updated, aux = update_agent(agent_state, transition, *a)
+        record = lambda *x: seen.append(x)  # noqa: E731
+        critic = agent_state.critic_state
+        jax.debug.callback(record, critic, transition, aux.policy.q_min)
+        return updated, aux
+
+    monkeypatch.setattr(train_AVG, "update_agent", spy)
+    env, params = paid_action.make()
+    AVG(env, env_params=params, n_envs=1, actor_architecture=("8", "relu")).train(
+        seed=0, n_timesteps=8
+    )
+    jax.effects_barrier()
+    assert len(seen) == 8
+    for critic, transition, q_min in seen:
+        executed = transition.reward / paid_action.HIGH
+        q = q_values(critic, critic.params, transition.obs, executed).min(0)
+        np.testing.assert_allclose(q_min, q.mean(), rtol=1e-5)

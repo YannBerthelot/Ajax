@@ -58,11 +58,9 @@ uv sync   # creates .venv with the locked dependencies
 ```
 
 Use uv rather than pip: gymnax currently comes from a fork pinned in
-`pyproject.toml` (`[tool.uv.sources]`), which pip does not read. On
-Apple-silicon Macs, uv installs JAX for the CPU; elsewhere the default still
-installs `jax[cuda]`, which falls back to the CPU when there is no GPU. On a
-Linux machine with an NVIDIA GPU, also ask for CUDA by name with
-`uv sync --extra cuda`: the default is due to stop installing it.
+`pyproject.toml` (`[tool.uv.sources]`), which pip does not read. uv installs
+JAX for the CPU; on a Linux machine with an NVIDIA GPU, add CUDA with
+`uv sync --extra cuda` (a project that depends on Ajax asks for `ajax[cuda]`).
 [Installation](docs/getting-started/installation.md) covers the optional
 dependency groups.
 

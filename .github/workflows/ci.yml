@@ -167,7 +167,7 @@ jobs:
   # The documentation site, built strictly: a page missing from the nav, a
   # broken link or a docstring that names a parameter the signature no longer
   # has fails here. mkdocstrings reads the source without importing it, so
-  # the job installs the docs group alone, not the runtime's CUDA wheels.
+  # the job installs the docs group alone, not the runtime's dependencies.
   docs:
     name: Docs
     runs-on: ubuntu-latest

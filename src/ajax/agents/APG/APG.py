@@ -49,6 +49,9 @@ class APG(ActorCritic):
     name: str = "APG"
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
     supports_memory: bool = True
+    # Each rollout starts the controller from a zero carry under the params
+    # being differentiated, so cached keys and values are exact.
+    supports_kv_cache: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -188,7 +191,10 @@ class APG(ActorCritic):
         convention; the reference leaves ``u`` unbounded), gradients are
         clipped (see :class:`APG`), and the PID head starts at the
         identity rather than the reference's all-ones coefficients (see
-        ``_DEFAULT_PID``). Extra kwargs go to :class:`APG`.
+        ``_DEFAULT_PID``). The transformer carries its projected keys and
+        values (``MemoryConfig.kv_cache``): the same computation, without
+        re-projecting the whole context at every step. Extra kwargs go to
+        :class:`APG`.
         """
         return cls(
             env_id,
@@ -206,6 +212,7 @@ class APG(ActorCritic):
                 num_layers=n_layers,
                 num_heads=n_heads,
                 window=context,
+                kv_cache=True,
             ),
             pid=pid,
             system_class=system_class,

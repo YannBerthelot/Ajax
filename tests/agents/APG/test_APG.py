@@ -179,7 +179,12 @@ def test_contextual_controller_configuration(env_and_class):
         weight_decay=0.01,
     )
     assert agent.network_args.memory == MemoryConfig(
-        kind="transformer", hidden_size=8, num_layers=1, num_heads=2, window=8
+        kind="transformer",
+        hidden_size=8,
+        num_layers=1,
+        num_heads=2,
+        window=8,
+        kv_cache=True,
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
     assert agent.train_kwargs["lr_schedule"] == "warmup_cosine"

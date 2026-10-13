@@ -57,6 +57,7 @@ lstm = {"kind": "lstm", "hidden_size": 64}  # a dictionary works too
 | `num_layers` | 1 | every kind |
 | `gradient_checkpoint` | `False` | every kind: recompute activations in the backward pass, trading time for memory on long sequences |
 | `window`, `num_heads` | 32, 4 | transformer: a step attends to itself and the `window - 1` steps before it in the same episode |
+| `kv_cache` | `False` | transformer: keep those steps' keys and values instead of their inputs, so a step computes only its own. The same result, valid only when the memory never outlives the parameters it ran with: APG's contextual controller turns it on; the agents that act or replay memory across updates refuse it |
 | `d_state`, `d_conv`, `expand` | 16, 4, 2 | mamba: state size, causal-convolution width, inner-width multiplier |
 
 Acting and training run the same code, a sequence of one step being the

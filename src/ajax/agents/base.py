@@ -101,6 +101,10 @@ class ActorCritic:
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
     supports_memory: bool = False
+    # Agents whose every memory carry starts fresh and lives under one set
+    # of params set this: only then are MemoryConfig(kv_cache=True)'s cached
+    # keys and values what re-projecting the cached inputs would give.
+    supports_kv_cache: bool = False
     # Extension phases this agent's training loop folds; an extension that
     # implements any other phase is rejected at construction instead of
     # being silently ignored. Each agent declares the phases it folds (on
@@ -185,6 +189,12 @@ class ActorCritic:
             raise NotImplementedError(
                 f"{type(self).__name__} does not support recurrent networks"
                 " (memory) yet; supported agents: PPO, SAC, ASAC, REDQ, TD3, APG."
+            )
+        if memory is not None and memory.kv_cache and not self.supports_kv_cache:
+            raise ValueError(
+                f"{type(self).__name__} keeps memory carries across parameter"
+                " updates, where cached keys and values would be stale: use"
+                " MemoryConfig(kv_cache=False)."
             )
 
         env, env_params, env_id, continuous = prepare_env(

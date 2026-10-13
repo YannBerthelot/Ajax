@@ -150,3 +150,10 @@ def test_an_agent_without_memory_support_refuses_a_memory_config() -> None:
     no_memory = type("NoMemoryASAC", (ASAC,), {"supports_memory": False})
     with pytest.raises(NotImplementedError, match="does not support recurrent"):
         no_memory(env_id="Pendulum-v1", memory=MemoryConfig(kind="gru"))
+
+
+def test_an_agent_acting_across_updates_refuses_cached_keys_and_values() -> None:
+    """Its acting carry outlives an update, so the cached keys would be stale."""
+    memory = MemoryConfig(kind="transformer", hidden_size=8, kv_cache=True)
+    with pytest.raises(ValueError, match="kv_cache=False"):
+        SAC(env_id="Pendulum-v1", memory=memory)

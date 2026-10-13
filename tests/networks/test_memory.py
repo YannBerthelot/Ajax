@@ -7,7 +7,12 @@ The load-bearing invariants:
 2. reset semantics: after a mid-sequence reset the outputs must equal a
    run started from a fresh carry, and gradients must not flow across
    the reset boundary.
+3. a transformer carrying projected keys and values (``kv_cache``) computes
+   what re-projecting its cached inputs computes.
 """
+
+import dataclasses
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -26,6 +31,9 @@ from ajax.networks.memory import (
 )
 
 KINDS = MEMORY_KINDS
+# every kind, plus the transformer carrying keys and values: (kind, overrides)
+VARIANTS: list[tuple[str, dict[str, Any]]] = [(kind, {}) for kind in KINDS]
+VARIANTS += [("transformer", {"kv_cache": True})]
 T, B, F = 7, 4, 5
 
 
@@ -73,10 +81,10 @@ def test_config_is_hashable():
 # ---------------------------------------------------------------- shapes
 
 
-@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("kind, overrides", VARIANTS)
 @pytest.mark.parametrize("num_layers", [1, 2])
-def test_output_and_carry_shapes(kind, num_layers):
-    cell, params, carry, x, resets = make_cell(kind, num_layers=num_layers)
+def test_output_and_carry_shapes(kind, overrides, num_layers):
+    cell, params, carry, x, resets = make_cell(kind, num_layers=num_layers, **overrides)
     new_carry, y = cell.apply(params, carry, x, resets)
     assert y.shape == (T, B, 8)
     assert isinstance(new_carry, tuple) and len(new_carry) == num_layers
@@ -88,10 +96,10 @@ def test_output_and_carry_shapes(kind, num_layers):
         assert out_leaf.shape == in_leaf.shape
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_initial_carry_is_zeros(kind):
+@pytest.mark.parametrize("kind, overrides", VARIANTS)
+def test_initial_carry_is_zeros(kind, overrides):
     # zeros_carry_like (used for eval and replayed sequences) relies on this
-    config = MemoryConfig(kind=kind, hidden_size=8)
+    config = MemoryConfig(kind=kind, hidden_size=8, **overrides)
     carry = init_carry(config, jax.random.PRNGKey(0), B)
     for leaf in jax.tree.leaves(carry):
         assert jnp.all(leaf == 0)
@@ -112,10 +120,10 @@ def test_zeros_carry_like_resizes_batch_axis(batch_axis):
 # ------------------------------------------------- step/sequence equivalence
 
 
-@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("kind, overrides", VARIANTS)
 @pytest.mark.parametrize("num_layers", [1, 2])
-def test_step_equals_sequence(kind, num_layers):
-    cell, params, carry, x, _ = make_cell(kind, num_layers=num_layers)
+def test_step_equals_sequence(kind, overrides, num_layers):
+    cell, params, carry, x, _ = make_cell(kind, num_layers=num_layers, **overrides)
     resets = jnp.zeros((T, B), dtype=bool).at[3, :2].set(True)
 
     seq_carry, y_seq = cell.apply(params, carry, x, resets)
@@ -139,9 +147,9 @@ def test_step_equals_sequence(kind, num_layers):
 # ---------------------------------------------------------------- resets
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_reset_equals_fresh_start(kind):
-    cell, params, carry, x, _ = make_cell(kind)
+@pytest.mark.parametrize("kind, overrides", VARIANTS)
+def test_reset_equals_fresh_start(kind, overrides):
+    cell, params, carry, x, _ = make_cell(kind, **overrides)
     t_reset = 4
     resets = jnp.zeros((T, B), dtype=bool).at[t_reset].set(True)
 
@@ -153,9 +161,9 @@ def test_reset_equals_fresh_start(kind):
     assert jnp.allclose(y_full[t_reset:], y_fresh, atol=1e-6)
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_no_gradient_across_reset(kind):
-    cell, params, carry, x, _ = make_cell(kind)
+@pytest.mark.parametrize("kind, overrides", VARIANTS)
+def test_no_gradient_across_reset(kind, overrides):
+    cell, params, carry, x, _ = make_cell(kind, **overrides)
     t_reset = 3
     resets = jnp.zeros((T, B), dtype=bool).at[t_reset].set(True)
 
@@ -181,6 +189,53 @@ def test_gradient_flows_through_time_without_reset(kind):
 
     grads = jax.grad(out_at_end)(x)
     assert jnp.any(grads[0] != 0)
+
+
+def test_transformer_kv_cache_is_the_input_cache_computation():
+    """Caching each layer's projected keys and values gives what
+    re-projecting the cached layer inputs gives (the input cache is the
+    oracle): outputs and gradients, stepping and in chunks, over a rolling
+    window, two layers and a mid-run reset, to a few float32 eps of their
+    scale (rounding only; never last-ulp, which differs across platforms)."""
+    n_steps, eps, key = 12, float(jnp.finfo(jnp.float32).eps), jax.random.PRNGKey(0)
+    oracle = MemoryConfig(
+        kind="transformer", hidden_size=8, window=5, num_layers=2, num_heads=2
+    )
+    cached = dataclasses.replace(oracle, kv_cache=True)
+    x = jax.random.normal(jax.random.PRNGKey(1), (n_steps, B, F))
+    resets = jnp.zeros((n_steps, B), dtype=bool).at[6, :2].set(True)
+    params, kv_params = (
+        MemoryCell(c).init(key, init_carry(c, key, B), x[:1], resets[:1])
+        for c in (oracle, cached)
+    )
+    assert jax.tree.all(jax.tree.map(jnp.array_equal, params, kv_params))
+
+    def grads_and_outputs(config, chunk):
+        def loss(params, x):
+            cell, carry = MemoryCell(config), init_carry(config, key, B)
+            ys = []
+            for t in range(0, n_steps, chunk):
+                sl = slice(t, t + chunk)
+                carry, y = cell.apply(params, carry, x[sl], resets[sl])
+                ys.append(y)
+            return (jnp.concatenate(ys) ** 2).mean(), jnp.concatenate(ys)
+
+        return jax.jit(jax.grad(loss, argnums=(0, 1), has_aux=True))(params, x)
+
+    def assert_close(want, got):
+        # One scale for the whole tree: the key bias's gradient is rounding
+        # noise (softmax ignores a shift shared by every key), so no
+        # per-leaf relative bound.
+        scale = max(float(jnp.abs(leaf).max()) for leaf in jax.tree.leaves(want))
+        for a, b in zip(jax.tree.leaves(want), jax.tree.leaves(got), strict=True):
+            assert jnp.allclose(a, b, rtol=0, atol=8 * eps * scale)
+
+    for chunk in (1, 3):
+        (grads, y), (kv_grads, kv_y) = (
+            grads_and_outputs(c, chunk) for c in (oracle, cached)
+        )
+        assert_close(y, kv_y)
+        assert_close(grads, kv_grads)
 
 
 def test_transformer_sliding_window_bounds_memory():
@@ -216,10 +271,10 @@ def test_transformer_sliding_window_bounds_memory():
 # ---------------------------------------------------------------- jit
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_jit_and_gradient_checkpoint(kind):
+@pytest.mark.parametrize("kind, overrides", VARIANTS)
+def test_jit_and_gradient_checkpoint(kind, overrides):
     cell, params, carry, x, resets = make_cell(
-        kind, gradient_checkpoint=True, window=MemoryConfig().window
+        kind, gradient_checkpoint=True, window=MemoryConfig().window, **overrides
     )
 
     @jax.jit
@@ -232,11 +287,11 @@ def test_jit_and_gradient_checkpoint(kind):
     assert jnp.all(jnp.isfinite(grads))
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_flatten_carry_roundtrip(kind):
+@pytest.mark.parametrize("kind, overrides", VARIANTS)
+def test_flatten_carry_roundtrip(kind, overrides):
     """flatten_carry/unflatten_carry must be exact inverses for every kind
     (stored-state replay writes flattened carries into the buffer)."""
-    config = MemoryConfig(kind=kind, hidden_size=8, window=5, num_layers=2)
+    config = MemoryConfig(kind=kind, hidden_size=8, window=5, num_layers=2, **overrides)
     carry = init_carry(config, jax.random.PRNGKey(0), B)
     # fill with distinguishable values (bools stay bool)
     carry = jax.tree.map(

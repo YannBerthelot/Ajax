@@ -26,8 +26,8 @@ Kinds and their compute/memory profile:
 - ``"transformer"``: sliding-window causal self-attention. Training runs
   FULL PARALLEL attention over the chunk (no scan) with an episode-segment
   mask; acting keeps a rolling cache of the last ``window - 1`` embeddings
-  per layer, so per-step memory is O(window * hidden) and constant in
-  episode length.
+  per layer (or, with ``kv_cache``, their projected keys and values), so
+  per-step memory is O(window * hidden) and constant in episode length.
 - ``"mamba"``: selective state-space (S6-style) block. Training runs a
   parallel ``associative_scan`` over T; the carry is the SSM state plus a
   small causal-conv tail — RNN-sized memory with transformer-like training
@@ -71,6 +71,13 @@ class MemoryConfig:
     # window-1 preceding steps of the same episode) and head count.
     window: int = 32
     num_heads: int = 4
+    # transformer: carry each layer's projected keys and values instead of
+    # its inputs, so a step projects only its new row: O(H^2 + W*H) per
+    # step instead of O(W*H^2). The same function of the params, but only
+    # while a carry lives under one set of params; an agent that acts or
+    # replays a carry across updates needs the input cache (see
+    # BaseAgent.supports_kv_cache).
+    kv_cache: bool = False
     # mamba: SSM state size, causal-conv width, inner-width multiplier.
     d_state: int = 16
     d_conv: int = 4
@@ -125,9 +132,10 @@ def init_carry(config: MemoryConfig, rng: jax.Array, batch_size: int) -> Carry:
         )
     if config.kind == "transformer":
         cache_len = config.window - 1
+        n_rows = 2 if config.kv_cache else 1  # keys and values, or layer inputs
         return tuple(
             (
-                jnp.zeros((B, cache_len, H)),  # cached layer inputs
+                *(jnp.zeros((B, cache_len, H)) for _ in range(n_rows)),
                 jnp.zeros((B, cache_len), dtype=bool),  # validity flags
             )
             for _ in range(config.num_layers)
@@ -258,9 +266,11 @@ class _RecurrentCore(nn.Module):
 class _TransformerCore(nn.Module):
     """Sliding-window causal self-attention (GTrXL-flavoured, pre-LN).
 
-    Per layer the carry holds the last ``window - 1`` layer INPUTS and
-    their validity flags; a step attends to itself plus up to window-1
-    predecessors from the same episode. Sequence mode concatenates the
+    Per layer the carry holds the last ``window - 1`` layer INPUTS (with
+    ``kv_cache``, their projected keys and values: LayerNorm and Dense act
+    row by row, so under the same params a row's keys and values are what
+    re-projecting it gives) and their validity flags; a step attends to
+    itself plus up to window-1 predecessors from the same episode. Sequence mode concatenates the
     cache in front of the chunk and runs one parallel attention with a
     (causal ∧ windowed ∧ same-episode) mask — no scan — so step-by-step
     and full-sequence execution are numerically identical. A learned
@@ -299,17 +309,24 @@ class _TransformerCore(nn.Module):
 
         new_carry = []
         for layer in range(cfg.num_layers):
-            cache, valid = carry[layer]  # (B, C, H), (B, C)
             h_bt = jnp.swapaxes(hidden, 0, 1)  # (B, T, H) — layer input
-            stream = jnp.concatenate([cache, h_bt], axis=1)  # (B, C+T, H)
+            if cfg.kv_cache:  # (B, C, H) keys and values, (B, C)
+                cache_k, cache_v, valid = carry[layer]
+                rows = h_bt  # only the new rows need projecting
+            else:  # (B, C, H) layer inputs, (B, C)
+                cache, valid = carry[layer]
+                rows = jnp.concatenate([cache, h_bt], axis=1)  # (B, C+T, H)
 
-            normed = nn.LayerNorm(name=f"ln_attn_{layer}")(stream)
-            q = nn.Dense(H, name=f"q_{layer}")(normed[:, cache_len:])
-            k = nn.Dense(H, name=f"k_{layer}")(normed)
-            v = nn.Dense(H, name=f"v_{layer}")(normed)
+            normed = nn.LayerNorm(name=f"ln_attn_{layer}")(rows)
+            q = nn.Dense(H, name=f"q_{layer}")(normed[:, rows.shape[1] - T :])
+            keys = nn.Dense(H, name=f"k_{layer}")(normed)
+            values = nn.Dense(H, name=f"v_{layer}")(normed)
+            if cfg.kv_cache:
+                keys = jnp.concatenate([cache_k, keys], axis=1)  # (B, C+T, H)
+                values = jnp.concatenate([cache_v, values], axis=1)
             q = q.reshape(B, T, n_heads, head_dim)
-            k = k.reshape(B, cache_len + T, n_heads, head_dim)
-            v = v.reshape(B, cache_len + T, n_heads, head_dim)
+            k = keys.reshape(B, cache_len + T, n_heads, head_dim)
+            v = values.reshape(B, cache_len + T, n_heads, head_dim)
 
             logits = jnp.einsum("bqhd,bkhd->bhqk", q, k) / jnp.sqrt(head_dim)
             # learned relative-distance bias, dist in [0, W-1]
@@ -337,20 +354,19 @@ class _TransformerCore(nn.Module):
             mlp = nn.Dense(H, name=f"mlp_down_{layer}")(nn.gelu(mlp))
             h_bt = h_bt + mlp
 
-            # New cache: last C entries of the input stream, valid only if
-            # they belong to the episode running at the END of the chunk
-            # (future queries re-check 'no reset since' themselves).
+            # New cache: last C entries of the key stream (its inputs, or
+            # keys and values), valid only if they belong to the episode
+            # running at the END of the chunk (future queries re-check 'no
+            # reset since' themselves).
             last_seg = seg_bt[:, -1:]  # (B, 1)
             valid_cache_part = valid & (last_seg == 0)  # (B, C)
             valid_seq_part = seg_bt == last_seg  # (B, T)
             stream_valid = jnp.concatenate(
                 [valid_cache_part, valid_seq_part], axis=1
             )  # (B, C+T)
+            kept = (keys, values) if cfg.kv_cache else (rows,)
             new_carry.append(
-                (
-                    stream[:, stream.shape[1] - cache_len :],
-                    stream_valid[:, stream_valid.shape[1] - cache_len :],
-                )
+                tuple(a[:, a.shape[1] - cache_len :] for a in (*kept, stream_valid))
             )
             hidden = jnp.swapaxes(h_bt, 0, 1)  # (T, B, H) for the next layer
 

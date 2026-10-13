@@ -26,6 +26,10 @@ from tests.agents.test_agent_contract import CASES
 LR, WD = 1e-2, 0.5
 #: Network train states an agent may hold.
 NETWORKS = ("actor_state", "critic_state")
+#: The keywords a test passes and the decay they set: the default, then WD.
+DECAYS = pytest.mark.parametrize(
+    "given, wd", [({}, 0.0), ({"weight_decay": WD}, WD)], ids=["default", "wd"]
+)
 
 
 def initial_state(agent: Any) -> Any:
@@ -62,18 +66,17 @@ def build(name: str, **overrides: Any) -> Any:
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
-@pytest.mark.parametrize("weight_decay", [None, WD])  # None: the default
+@DECAYS
 def test_a_step_shrinks_the_networks_by_one_minus_lr_times_wd(
-    name: str, weight_decay: float | None
+    name: str, given: dict[str, Any], wd: float
 ) -> None:
-    given = {} if weight_decay is None else {"weight_decay": weight_decay}
     state = initial_state(build(name, **given))
     networks = [getattr(state, k) for k in NETWORKS]
     networks = [n for n in networks if isinstance(n, TrainState)]
     assert networks, name
     for network in networks:
         after = zero_gradient_step(network)
-        assert_scaled(network.params, after, 1 - LR * (weight_decay or 0.0))
+        assert_scaled(network.params, after, 1 - LR * wd)
     if CASES[name].alpha:
         np.testing.assert_array_equal(
             zero_gradient_step(state.alpha)["log_alpha"],
@@ -82,16 +85,15 @@ def test_a_step_shrinks_the_networks_by_one_minus_lr_times_wd(
 
 
 @pytest.mark.parametrize("multitask", [False, True])
-@pytest.mark.parametrize("weight_decay", [None, WD])
+@DECAYS
 def test_tdmpc2_decays_each_group_at_its_own_learning_rate(
-    weight_decay: float | None, multitask: bool
+    given: dict[str, Any], wd: float, multitask: bool
 ) -> None:
     """TD-MPC2's world-model encoder learns at ``lr * enc_lr_scale``, so its
     decay is multiplied by that rate; the rest of the world model (with the
     multi-task embedding table) and the policy decay at ``lr``."""
-    enc_lr_scale, wd = 0.5, weight_decay or 0.0
-    kwargs: dict[str, Any] = {"learning_rate": LR, "enc_lr_scale": enc_lr_scale}
-    kwargs |= {} if weight_decay is None else {"weight_decay": weight_decay}
+    enc_lr_scale = 0.5
+    kwargs = {"learning_rate": LR, "enc_lr_scale": enc_lr_scale, **given}
     agent = (
         TDMPC2MultiTask(make_dataset(), **TDMPC2_TINY, task_dim=4, **kwargs)
         if multitask
@@ -108,17 +110,16 @@ def test_tdmpc2_decays_each_group_at_its_own_learning_rate(
     assert_scaled(policy.params, zero_gradient_step(policy), 1 - LR * wd)
 
 
-@pytest.mark.parametrize("weight_decay", [None, WD])
+@DECAYS
 def test_dreamerv3_decays_at_the_warmed_up_learning_rate(
-    weight_decay: float | None,
+    given: dict[str, Any], wd: float
 ) -> None:
     """DreamerV3's LaProp adds the decay before its warmed-up learning rate,
     as AdamW does before Adam's: with the warmup off, the first step decays
     the world model, the actor and the critic at ``lr``."""
-    given = {} if weight_decay is None else {"weight_decay": weight_decay}
     tiny = DREAMER_TINY | {"learning_rate": LR, "warmup": 0} | given
     state = initial_state(DreamerV3("CartPole-v1", n_envs=2, **tiny))
     for name in ("world_model_state", "actor_state", "critic_state"):
         network = getattr(state, name)
         after = zero_gradient_step(network)
-        assert_scaled(network.params, after, 1 - LR * (weight_decay or 0.0))
+        assert_scaled(network.params, after, 1 - LR * wd)

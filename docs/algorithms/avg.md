@@ -65,9 +65,8 @@ Defaults are read from `AVG.__init__`.
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
-`alpha_learning_rate` and `target_entropy_per_dim` are deprecated: they
-default to `None`, change nothing and warn (`FutureWarning`) when set, since
-AVG keeps `alpha` fixed, as the authors' code does. There is no
+AVG keeps `alpha` fixed at `alpha_init`, as the authors' code does, so it has
+no `alpha_learning_rate` or `target_entropy_per_dim`. There is no
 `normalize_observations` argument, since AVG always normalises its
 observations, and no reward normalisation.
 

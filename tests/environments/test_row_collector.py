@@ -422,7 +422,8 @@ def test_collector_vmaps_over_seeds():
 def test_static_hold_and_random_phase_stay_conds_under_seed_vmap():
     """The tick (hence the hold and random-phase predicates) is unbatched, so
     both stay real ``cond``s when the state is batched across seeds: the
-    fresh reset and the policy run only on the ticks that need them."""
+    fresh reset and the policy run only on the ticks that need them. The
+    policy is traced once, though the random branch needs its output shape."""
     env_args = env_args_for("Pendulum-v1", 2)
     T = 200
     keys = jax.random.split(jax.random.PRNGKey(0), 3)
@@ -430,11 +431,17 @@ def test_static_hold_and_random_phase_stay_conds_under_seed_vmap():
         lambda k: init_row_collector_state(k, env_args, policy_carry=jnp.int32(0))
     )(keys)
 
+    traces = []
+
+    def counted_policy(*args):
+        traces.append(1)
+        return hold_half(*args)
+
     def tick_fn(state, tick):
         return collect_row(
             state,
             tick,
-            hold_half,
+            counted_policy,
             env_args=env_args,
             reset_mode="static",
             episode_length=T,
@@ -444,6 +451,7 @@ def test_static_hold_and_random_phase_stay_conds_under_seed_vmap():
     jaxpr = jax.make_jaxpr(jax.vmap(tick_fn, in_axes=(0, None)))(states, jnp.int32(5))
     conds = [e for e in jaxpr.jaxpr.eqns if e.primitive.name == "cond"]
     assert len(conds) == 2
+    assert len(traces) == 1
 
 
 def test_collect_row_validates_its_configuration():

@@ -399,6 +399,11 @@ def _act(
     if random_phase is None:
         return act_with_policy(carry)
 
+    # Traced once: the cond's policy branch reuses the trace eval_shape made
+    # (jit's trace cache), and inline=True puts the same equations in the
+    # branch as a plain call would. Tracing the policy (the planner, for
+    # TD-MPC2) twice cost ~8% of the train's trace + lowering time.
+    act_with_policy = jax.jit(act_with_policy, inline=True)
     out_struct = jax.eval_shape(act_with_policy, carry)
 
     def act_randomly(carry):

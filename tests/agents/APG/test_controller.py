@@ -1,5 +1,7 @@
 """Tests for the APG Controller network."""
 
+import dataclasses
+
 import distrax
 import jax
 import jax.numpy as jnp
@@ -69,6 +71,32 @@ def test_stateful_controller_step_matches_sequence(kwargs):
         )
         outs.append(pi_t.mean()[0])
     assert jnp.allclose(jnp.stack(outs), u_seq, atol=1e-5)
+
+
+TRANSFORMER = MemoryConfig(kind="transformer", hidden_size=8, num_heads=2, window=4)
+
+
+@pytest.mark.parametrize(
+    "memory, controller_norm",
+    [
+        (None, True),
+        (MemoryConfig(kind="gru", hidden_size=8), True),
+        (TRANSFORMER, False),
+        (MemoryConfig(kind="mamba", hidden_size=8), False),
+        (dataclasses.replace(TRANSFORMER, final_norm=False), True),
+    ],
+    ids=["mlp", "gru", "transformer", "mamba", "transformer-before-final-norm"],
+)
+def test_one_layer_norm_precedes_the_output_layer(memory, controller_norm):
+    """Busetto et al.'s code runs its blocks, their final LayerNorm, then the
+    output layer: a memory ending with its own LayerNorm gets no second one
+    from the controller; the MLP and GRU controllers keep the controller's,
+    as does a transformer rebuilt without its final norm."""
+    _, params, *_ = build(memory=memory)
+    p = params["params"]
+    assert ("norm" in p) == controller_norm
+    core = p["memory_cell"]["core"] if memory is not None else {}
+    assert ("ln_f" in core) == (memory is not None and memory.ends_normalised)
 
 
 def test_stateful_controller_requires_carry():

@@ -21,7 +21,7 @@ import jax
 import numpy as np
 
 from ajax.agents import loop as shared_loop
-from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.checkpoint import restore_into, save_checkpoint, skeleton_of
 from ajax.logging.wandb_logging import LoggingConfig, load_scalars_from_tfevents
 
 from . import readouts
@@ -144,7 +144,8 @@ def resume(
     if folder:
         path = os.path.join(folder, "checkpoint.pkl")
         save_checkpoint(state, path)
-        state = restore_into(train(agent, run.seeds, 0, **kw).state, path)
+        init = {k: v for k, v in kw.items() if k != "log_every"}  # runs.train's option
+        state = restore_into(skeleton_of(agent, run.seeds, **init), path)
     return train(agent, run.seeds, budget, initial_state=state, **kw)
 
 

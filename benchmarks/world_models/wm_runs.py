@@ -238,7 +238,7 @@ def run_chunked(
         train: ``(state or None, n) -> state``: ``n`` more units from
             ``state`` (``None``: a fresh run).
         skeleton: ``() -> state``: a state of the right structure to restore
-            a checkpoint into (the agents' ``train(n_timesteps=0)``).
+            a checkpoint into (``ajax.checkpoint.skeleton_of``).
         progress_of: the units a state has done.
         probe: measures the record's metric fields after each chunk
             (:class:`Probe`).
@@ -591,6 +591,7 @@ def run_single_task(
     ``run.json`` holds the specification and the agent's resolved
     configuration.
     """
+    from ajax.checkpoint import skeleton_of
     from ajax.environments.utils import agent_episode_length
 
     agent = build_agent(spec)
@@ -615,7 +616,7 @@ def run_single_task(
         return agent.train(seed=seeds, n_timesteps=n, initial_state=state)[0]
 
     def skeleton() -> Any:
-        return agent.train(seed=seeds, n_timesteps=0)[0]
+        return skeleton_of(agent, seeds)
 
     run_spec = {
         "run": dataclasses.asdict(spec),

@@ -361,6 +361,7 @@ def train_offline(
     """Stage 3: offline multi-task training, chunked and resumable."""
     import ajax
     from ajax.agents.TDMPC2.dataset import load_dataset
+    from ajax.checkpoint import skeleton_of
 
     path, meta_path = dataset_paths(out)
     if not os.path.isfile(meta_path):
@@ -387,7 +388,7 @@ def train_offline(
         train=lambda state, n: agent.train(
             seed=seeds, n_timesteps=n, initial_state=state
         )[0],
-        skeleton=lambda: agent.train(seed=seeds, n_timesteps=0)[0],
+        skeleton=lambda: skeleton_of(agent, seeds),
         progress_of=agent.resume_update_offset,
         probe=MultiTaskEvalProbe(agent, protocol.eval_episodes),
         save_every_s=save_every_s,

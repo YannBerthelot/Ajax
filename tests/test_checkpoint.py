@@ -12,6 +12,7 @@ from ajax.checkpoint import (
     checkpoint_exists,
     restore_into,
     save_checkpoint,
+    skeleton_of,
 )
 
 
@@ -355,3 +356,22 @@ def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
         pickle.dump(saved, fh)
     got = restore_into(state, path).collector_state.env_state.info["raw_obs"]
     np.testing.assert_allclose(got, want, rtol=1e-6)
+
+
+@pytest.mark.parametrize("name", ["SAC", "DreamerV3", "TDMPC2"])
+def test_a_checkpoint_restores_into_the_traced_skeleton_as_into_the_run_one(
+    name, tmp_path
+):
+    """``skeleton_of`` only traces the 0-step run the skeleton used to be
+    (its leaves are shapes), and a checkpoint restores into either alike:
+    the same paths, every leaf bitwise."""
+    from tests.probing import agents, readouts
+
+    agent, seeds = agents.make(name, "Pendulum-v1", preset="bookkeeping"), [0, 1]
+    run, _ = agent.train(seed=seeds, n_timesteps=0)
+    traced = skeleton_of(agent, seeds)
+    assert all(isinstance(x, jax.ShapeDtypeStruct) for x in jax.tree.leaves(traced))
+    path = str(tmp_path / "skeleton.pkl")
+    save_checkpoint(run, path)
+    restored = restore_into(traced, path)
+    assert readouts.differing_leaves(restore_into(run, path), restored, 0, 0) == []

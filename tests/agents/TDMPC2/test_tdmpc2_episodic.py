@@ -23,7 +23,7 @@ from ajax.agents.TDMPC2.buffer import EpisodicBuffer, EpisodicBufferState
 from ajax.agents.TDMPC2.networks import make_world_model
 from ajax.agents.TDMPC2.state import TDMPC2Config
 from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule
-from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.checkpoint import restore_into, save_checkpoint, skeleton_of
 from ajax.environments.row_collector import Row
 
 from .common import random_heads, td_target_of
@@ -620,7 +620,7 @@ def test_an_episodic_run_takes_its_updates_per_step():
 
 def test_an_episodic_run_resumes_as_the_uninterrupted_run(tmp_path):
     """The first call's rings hold its 30 rows per env. A new agent restores
-    its checkpoint into an ``n_timesteps=0`` skeleton (rings of one row,
+    its checkpoint into its skeleton (``skeleton_of``: rings of one row,
     ``ajax.checkpoint``'s flow); the resumed call adopts the 30 rows into
     rings of 50 (``buffer_size`` 100 over 2 envs) and continues the ticks:
     it computes what one call does. The replayed rows
@@ -636,7 +636,7 @@ def test_an_episodic_run_resumes_as_the_uninterrupted_run(tmp_path):
     path = str(tmp_path / "first.pkl")
     save_checkpoint(first, path)
     resumer = TDMPC2(ChainEnv(), episodic=True, buffer_size=100, **small)
-    skeleton, _ = resumer.train(seed=0, n_timesteps=0, num_episode_test=1)
+    skeleton = skeleton_of(resumer, 0, num_episode_test=1)
     assert skeleton.buffer_state.obs.shape[-2] == 1
     resumed, _ = resumer.train(
         seed=0,

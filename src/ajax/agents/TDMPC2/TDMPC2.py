@@ -372,7 +372,9 @@ class TDMPC2(ActorCritic):
             start_tick=start_tick,
             **kwargs,
         )
-        if not self.agent_config.episodic:
+        # A traced call (ajax.checkpoint.skeleton_of) has no counts to read.
+        traced = isinstance(result[0].n_terminations, jax.core.Tracer)
+        if not self.agent_config.episodic and not traced:
             refuse_terminations(result[0], self.agent_episode_length)
         return result
 

@@ -28,7 +28,7 @@ from ajax.agents.TDMPC2 import core, train_TDMPC2
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.agents.TDMPC2.TDMPC2 import refuse_terminations
 from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_policy
-from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.checkpoint import restore_into, save_checkpoint, skeleton_of
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import TargetTweak
@@ -115,11 +115,11 @@ def pendulum(tmp_path_factory):
     first = jax.device_get(first)
     first_capacity = agent.replay_capacity
     # Resume in a "new process": a fresh agent restores the checkpoint into
-    # its n_timesteps=0 skeleton (ajax.checkpoint's flow).
+    # its skeleton (ajax.checkpoint's flow).
     path = str(tmp_path_factory.mktemp("tdmpc2") / "first.pkl")
     save_checkpoint(first, path)
     resumer = _pendulum_agent()
-    skeleton, _ = resumer.train(seed=SEEDS, n_timesteps=0)
+    skeleton = skeleton_of(resumer, SEEDS)
     skeleton_slots = skeleton.buffer_state.obs.shape[1]
     resumed, resumed_metrics = resumer.train(
         seed=SEEDS,

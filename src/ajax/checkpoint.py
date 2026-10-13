@@ -8,10 +8,10 @@ state from the same agent config; the loaded data is then grafted onto
 the skeleton via ``flax.serialization.from_state_dict``.
 
 Typical resume flow (``resume`` in tests/probing/runs.py runs it):
-    skeleton = agent.train(seed=seeds, n_timesteps=0)       # init only
+    state = None                                            # a fresh run
     if checkpoint_exists(path):
-        skeleton = restore_into(skeleton, path)
-    final = agent.train(..., initial_state=skeleton, ...)
+        state = restore_into(skeleton_of(agent, seeds), path)
+    final = agent.train(..., initial_state=state, ...)
     save_checkpoint(final, path)
 """
 
@@ -45,13 +45,23 @@ def save_checkpoint(state: Any, path: str) -> None:
     os.replace(tmp, path)
 
 
+def skeleton_of(agent: Any, seed: Any, **kwargs: Any) -> Any:
+    """The state :func:`restore_into` grafts a checkpoint of ``agent`` onto:
+    a fresh run's (``agent.train(seed=seed, n_timesteps=0, **kwargs)``),
+    traced with ``jax.eval_shape``. The checkpoint replaces every leaf, so
+    only the structure is needed: no program is compiled or run."""
+    state, _ = jax.eval_shape(lambda: agent.train(seed=seed, n_timesteps=0, **kwargs))
+    return state
+
+
 def restore_into(skeleton: Any, path: str) -> Any:
     """Load ``path`` and graft its data onto ``skeleton``.
 
-    ``skeleton`` is a freshly-initialized agent state with the same
-    structure as the saved one. The optimizer transformations and apply
-    functions come from ``skeleton``; only the pytree data (params,
-    optimizer mu/nu/count, buffer arrays, rngs, counters) is replaced.
+    ``skeleton`` is a freshly-initialized agent state, or its shapes
+    (:func:`skeleton_of`), with the same structure as the saved one. The
+    optimizer transformations and apply functions come from ``skeleton``;
+    only the pytree data (params, optimizer mu/nu/count, buffer arrays,
+    rngs, counters) is replaced.
     """
     path = os.path.abspath(path)
     if not os.path.isfile(path):

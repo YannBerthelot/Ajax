@@ -121,7 +121,7 @@ import os
 import tempfile
 
 from ajax import PPO
-from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.checkpoint import restore_into, save_checkpoint, skeleton_of
 
 seeds = [0, 1]
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
@@ -129,10 +129,9 @@ state, _ = agent.train(seed=seeds, n_timesteps=8_192)
 path = os.path.join(tempfile.mkdtemp(), "ppo_cartpole.pkl")
 save_checkpoint(state, path)
 
-# Later, in another process: the same agent, and a 0-step run as the skeleton.
+# Later, in another process: the same agent restores the file into its skeleton.
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-skeleton, _ = agent.train(seed=seeds, n_timesteps=0)
-state = restore_into(skeleton, path)
+state = restore_into(skeleton_of(agent, seeds), path)
 state, _ = agent.train(seed=seeds, n_timesteps=8_192, initial_state=state)
 print(state.collector_state.timestep)  # [18432 18432]: PPO adds a rollout per call
 ```

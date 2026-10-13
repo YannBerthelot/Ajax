@@ -24,17 +24,18 @@ state you pass in, so read or save what you need from it first.
 
 ## Across processes
 
-`ajax.checkpoint` has three functions:
+`ajax.checkpoint` has four functions:
 
 | Function | What it does |
 | --- | --- |
 | `save_checkpoint(state, path)` | writes the state's arrays and counters to `path`, atomically (a crash mid-write leaves the previous file intact) |
-| `restore_into(skeleton, path)` | loads `path` into `skeleton`, a fresh state of the same agent |
+| `skeleton_of(agent, seeds)` | the structure of a fresh state of `agent`, traced: nothing is compiled or run |
+| `restore_into(skeleton, path)` | loads `path` into `skeleton`, a fresh state of the same agent (or its structure) |
 | `checkpoint_exists(path)` | whether `path` holds a checkpoint |
 
 A checkpoint stores data only. The optimisers' update rules and the
-networks' functions are code, not data: they come from the skeleton, which
-an identically configured agent builds with a 0-step `train` call. The
+networks' functions are code, not data: they come from the skeleton, the
+structure of an identically configured agent's 0-step `train` call. The
 agent may be a new instance in a new process. A run that saves a checkpoint
 after each chunk of training, and picks up from the last one when
 restarted:
@@ -44,19 +45,21 @@ import os
 import tempfile
 
 from ajax import SAC
-from ajax.checkpoint import checkpoint_exists, restore_into, save_checkpoint
+from ajax.checkpoint import checkpoint_exists, restore_into, save_checkpoint, skeleton_of
 
 path = os.path.join(tempfile.mkdtemp(), "sac_pendulum.pkl")
 seeds, chunk, total = [0, 1], 1_000, 2_000
 
 agent = SAC("Pendulum-v1", learning_starts=500)
-state, _ = agent.train(seed=seeds, n_timesteps=0)  # the skeleton: init only
+state, done = None, 0  # a fresh run
 if checkpoint_exists(path):
-    state = restore_into(state, path)
+    state = restore_into(skeleton_of(agent, seeds), path)
+    done = int(state.collector_state.timestep[0])
 
-while int(state.collector_state.timestep[0]) < total:
+while done < total:
     state, _ = agent.train(seed=seeds, n_timesteps=chunk, initial_state=state)
     save_checkpoint(state, path)
+    done = int(state.collector_state.timestep[0])
 print(state.collector_state.timestep)  # [2000 2000]
 ```
 

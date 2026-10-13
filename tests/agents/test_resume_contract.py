@@ -16,7 +16,7 @@ import pytest
 
 import ajax
 from ajax.agents.APG.APG import APG
-from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.checkpoint import restore_into, save_checkpoint, skeleton_of
 from ajax.networks.memory import MemoryConfig
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
@@ -74,7 +74,7 @@ def test_a_resumed_run_equals_the_uninterrupted_run(
     second = end - ended - (ended - budget // 2)
     agent, path = build(), str(tmp_path / "checkpoint.pkl")
     save_checkpoint(first, path)
-    restored = restore_into(runs.train(agent, SEEDS, 0, **kw).state, path)
+    restored = restore_into(skeleton_of(agent, SEEDS, **kw), path)
     assert not readouts.differing_leaves(first, restored), "the checkpoint"
     split = runs.train(agent, SEEDS, second, initial_state=first, **kw).state
     differing = readouts.differing_leaves(full, split)

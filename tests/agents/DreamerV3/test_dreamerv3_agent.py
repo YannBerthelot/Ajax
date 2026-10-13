@@ -32,7 +32,7 @@ from ajax.agents.DreamerV3 import train_DreamerV3
 from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
 from ajax.agents.DreamerV3.state import MODEL_SIZES, WIDTHS
 from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
-from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.checkpoint import restore_into, save_checkpoint, skeleton_of
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, TargetTweak
 
@@ -353,9 +353,9 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
     path = str(tmp_path / "half.pkl")
-    save_checkpoint(half, path)
+    save_checkpoint(half[0], path)
     resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    skeleton = resumer.train(seed=SEEDS, n_timesteps=0)
+    skeleton = skeleton_of(resumer, SEEDS)
     state, _ = resumer.train(
         seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restore_into(skeleton, path)
     )

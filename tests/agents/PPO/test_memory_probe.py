@@ -56,7 +56,8 @@ def feedforward_baseline():
 
 
 # Calibrated finals on CPU with this budget: gru 450, lstm ~4xx,
-# transformer 463, mamba 500 — vs feedforward 41.
+# transformer 463, mamba 500 — vs feedforward 41. With the transformer's
+# and mamba's final LayerNorm: transformer 414, mamba 493, feedforward 42.
 MEMORIES = [
     MemoryConfig(kind="gru", hidden_size=32),
     MemoryConfig(kind="lstm", hidden_size=32),

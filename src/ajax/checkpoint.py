@@ -146,6 +146,8 @@ def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
             " other settings unchanged. An APG Controller's parameters also map"
             " exactly onto the new network, its LayerNorm becoming the core's"
             " ln_f: ajax.agents.APG.networks.controller_params_with_final_norm."
+            " It maps the parameters only, so a resumed training state must"
+            " restart its optimizer."
         )
     if "ln_f" in saved and "ln_f" not in skeleton:
         raise ValueError(

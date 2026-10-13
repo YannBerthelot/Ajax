@@ -114,7 +114,8 @@ the transformer ended with its final LayerNorm (see
 [Memory](../guide/memory.md)). Such a controller's parameters also map onto
 the new network, which computes the same outputs:
 `controller_params_with_final_norm(params, memory)` moves the controller's
-LayerNorm, which played that final norm's part, into the transformer.
+LayerNorm, which played that final norm's part, into the transformer. It maps
+the parameters only, so a resumed training state must restart its optimizer.
 
 ## Notes
 
@@ -133,7 +134,9 @@ LayerNorm, which played that final norm's part, into the transformer.
   environment's bounds: the pendulum's torque was then capped at 1 of its
   2. Not backed by runs: the transformer's LayerNorms, its final one
   included, keep a bias and an epsilon of 1e-6, where the reference's have
-  no bias and 1e-5. The paper trains each curriculum stage to a loss tolerance; Ajax gives
+  no bias and 1e-5 (buswayne/in-context-controller at 7eb094ce17:
+  `transformer_onestep.py:33` and `:156`, `train_onestep_lin_CL.py:103`).
+  The paper trains each curriculum stage to a loss tolerance; Ajax gives
   each stage a fixed `n_timesteps`.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
   one's parameters and, by default, restarts the optimizer and its schedule

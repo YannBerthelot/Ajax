@@ -278,10 +278,12 @@ class _TransformerCore(nn.Module):
     (Parisotto et al. 2020, arXiv:1910.06764) instead gates its residuals
     and describes no final norm; this core does not gate. Its LayerNorms keep
     flax's epsilon, 1e-6, where the references use 1e-5. Busetto et al.'s
-    contextual controller (buswayne/in-context-controller), which
-    ``APG.contextual_controller`` builds on this core, also leaves the bias
-    out of its LayerNorms, ``ln_f`` included (``--bias`` defaults to False);
-    these keep one.
+    contextual controller (buswayne/in-context-controller at 7eb094ce17),
+    which ``APG.contextual_controller`` builds on this core, also leaves the
+    bias out of its LayerNorms, ``ln_f`` included; these keep one. There,
+    ``transformer_onestep.py:33`` normalises with epsilon 1e-5, ``:156``
+    builds ``ln_f = LayerNorm(n_embd, bias=config.bias)`` and
+    ``train_onestep_lin_CL.py:103`` defaults ``--bias`` to False.
 
     Per layer the carry holds the last ``window - 1`` layer INPUTS and
     their validity flags; a step attends to itself plus up to window-1

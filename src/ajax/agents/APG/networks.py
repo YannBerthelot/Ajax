@@ -134,7 +134,9 @@ def controller_params_with_final_norm(
     LayerNorm (``ln_f``). Both are the same LayerNorm at the same place, so
     moving ``norm`` to ``memory_cell/core/ln_f`` keeps the outputs identical.
     ``params`` is the variables dict as saved (``{"params": ...}``),
-    ``memory`` the new network's config.
+    ``memory`` the new network's config. Only the parameters map: an
+    optimizer state saved with them keeps the old tree, so a resumed
+    training state must restart its optimizer.
 
     Expand-then-contract (CLAUDE.md, refactoring rule 10): goes with
     ``MemoryConfig.final_norm``.

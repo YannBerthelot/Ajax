@@ -169,6 +169,7 @@ class APG(ActorCritic):
         n_heads: int = 4,
         d_model: int = 128,
         context: int = 100,
+        final_norm: bool = True,
         learning_rate: float = 5e-4,
         weight_decay: float = 0.0,
         warmup_steps: int = 5000,
@@ -188,7 +189,19 @@ class APG(ActorCritic):
         convention; the reference leaves ``u`` unbounded), gradients are
         clipped (see :class:`APG`), and the PID head starts at the
         identity rather than the reference's all-ones coefficients (see
-        ``_DEFAULT_PID``). Extra kwargs go to :class:`APG`.
+        ``_DEFAULT_PID``). Not backed by runs: the LayerNorms, ``ln_f``
+        included, keep a bias and flax's epsilon 1e-6, where the reference's
+        have no bias and epsilon 1e-5 (buswayne/in-context-controller at
+        7eb094ce17: ``transformer_onestep.py:33`` calls ``F.layer_norm``
+        with 1e-5, ``:156`` builds ``ln_f = LayerNorm(n_embd,
+        bias=config.bias)``, and ``train_onestep_lin_CL.py:103`` defaults
+        ``--bias`` to False).
+        ``final_norm=False`` rebuilds the transformer
+        without its final LayerNorm, only to restore a checkpoint saved
+        before it (see :class:`~ajax.networks.memory.MemoryConfig`); an
+        expand-then-contract shim (CLAUDE.md, refactoring rule 10), it is
+        removed together with ``MemoryConfig.final_norm``. Extra kwargs go
+        to :class:`APG`.
         """
         return cls(
             env_id,
@@ -206,6 +219,7 @@ class APG(ActorCritic):
                 num_layers=n_layers,
                 num_heads=n_heads,
                 window=context,
+                final_norm=final_norm,
             ),
             pid=pid,
             system_class=system_class,

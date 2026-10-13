@@ -37,10 +37,12 @@ ANSWER_DIGEST = "dd738b04c9ca"  # verdict.digest(CASES): every answer, pinned
 # never restarted acts on the old cue (a gap up to 2). Built: PPO with GRU
 # and LSTM; SAC, REDQ and TD3 with GRU. Not built: PPO with transformer or
 # mamba calibrates at no budget tried (squashed, 5000-40,000 steps): 1 to 9
-# of the 64 seeds 1000-2031 fail at each, 30 of the 41 failures because the
-# policy collapses to one bound for both cues; the owner decides what next.
-# SAC, REDQ and TD3 with other kinds are uncalibrated; ASAC's values are
-# differential; APG needs the env's gradients.
+# of the 64 seeds 1000-2031 fail at each, 28 of the 41 failures because the
+# policy acts alike for both cues at one bound (both actions of one sign and
+# beyond 0.95 in size). The transformer without the final LayerNorm, run at
+# 5000-20,000 only, fails on 4 to 8. The owner decides what next. SAC, REDQ
+# and TD3 with other kinds are uncalibrated; ASAC's values are differential;
+# APG needs the env's gradients.
 
 
 def _cue(st: envs.State, a: jax.Array, key: Any) -> tuple:
@@ -174,6 +176,9 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 # Budgets: SAC's worst errors are smallest at 1500 (1000: 0.118 / 0.083,
 # 3000: 0.088 / 0.077); TD3 at 1500 has not settled, and reads about 8% low
 # at L = 1 whatever the steps (12000: 0.513) or noise (0.5: 0.503).
+# Seeds 3000-3031 with the transformer's and mamba's final LayerNorm: their
+# target and actor cells read 32/32 for SAC, REDQ and ASAC; TD3's 31/32 and
+# 30/32 (worst 0.111 / 0.147), as without it (30/32 and 30/32).
 
 ALPHA, L = 1.0, 16
 BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
@@ -278,8 +283,16 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
 CONTROL = {  # tolerances (critic, actor); certification on seeds 3000-3031
     ("SAC", "gru"): ((0.183, 0.124), "cert 32/32, worst 0.089 / 0.062"),
     ("SAC", "lstm"): ((0.224, 0.13), "cert 32/32, worst 0.076 / 0.057"),
-    ("SAC", "transformer"): ((0.211, 0.192), "cert 32/32, worst 0.121 / 0.123"),
-    ("SAC", "mamba"): ((0.14, 0.18), "cert 32/32, worst 0.068 / 0.115"),
+    ("SAC", "transformer"): (
+        (0.211, 0.192),
+        "cert 32/32, worst 0.121 / 0.123; with the final LayerNorm 32/32,"
+        " worst 0.036 / 0.085",
+    ),
+    ("SAC", "mamba"): (
+        (0.14, 0.18),
+        "cert 32/32, worst 0.068 / 0.115; with the final LayerNorm 32/32,"
+        " worst 0.039 / 0.072",
+    ),
     ("REDQ", "gru"): ((0.186, 0.159), "cert 32/32, worst 0.097 / 0.073"),
     ("TD3", "gru"): ((0.269,), "cert 32/32, worst 0.263 (it reads 8% low)"),
     ("ASAC", "gru"): ((0.323,), "cert 32/32, worst 0.127"),

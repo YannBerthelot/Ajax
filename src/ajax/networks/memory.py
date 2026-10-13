@@ -32,6 +32,9 @@ Kinds and their compute/memory profile:
   parallel ``associative_scan`` over T; the carry is the SSM state plus a
   small causal-conv tail — RNN-sized memory with transformer-like training
   parallelism.
+
+The transformer and mamba outputs end with a LayerNorm, as their references'
+pre-norm stacks do; the GRU and LSTM outputs are the cells' own.
 """
 
 import functools
@@ -75,6 +78,11 @@ class MemoryConfig:
     d_state: int = 16
     d_conv: int = 4
     expand: int = 2
+    # transformer, mamba: end with the final LayerNorm their references
+    # have. False rebuilds the network Ajax had before it, only to restore
+    # a checkpoint saved then (ajax.checkpoint names it); to be removed once
+    # none remains (CLAUDE.md, refactoring rule 10: expand, then contract).
+    final_norm: bool = True
 
     def __post_init__(self):
         if self.kind not in MEMORY_KINDS:
@@ -99,6 +107,11 @@ class MemoryConfig:
                     "d_state, d_conv and expand must be >= 1, got"
                     f" {self.d_state}, {self.d_conv}, {self.expand}"
                 )
+
+    @property
+    def ends_normalised(self) -> bool:
+        """Whether the cell's output leaves a final LayerNorm."""
+        return self.final_norm and self.kind in ("transformer", "mamba")
 
 
 def parse_memory_config(
@@ -256,7 +269,21 @@ class _RecurrentCore(nn.Module):
 
 
 class _TransformerCore(nn.Module):
-    """Sliding-window causal self-attention (GTrXL-flavoured, pre-LN).
+    """Sliding-window causal self-attention: a pre-LN transformer.
+
+    As GPT-2 (openai/gpt-2, ``src/model.py``) and Xiong et al. 2020
+    (arXiv:2002.04745, Pre-LN): a LayerNorm on each sublayer's input, plain
+    residual adds, and a final LayerNorm (``ln_f``) on the output, which
+    keeps the stream's scale, growing with depth, out of the heads. GTrXL
+    (Parisotto et al. 2020, arXiv:1910.06764) instead gates its residuals
+    and describes no final norm; this core does not gate. Its LayerNorms keep
+    flax's epsilon, 1e-6, where the references use 1e-5. Busetto et al.'s
+    contextual controller (buswayne/in-context-controller at 7eb094ce17),
+    which ``APG.contextual_controller`` builds on this core, also leaves the
+    bias out of its LayerNorms, ``ln_f`` included; these keep one. There,
+    ``transformer_onestep.py:33`` normalises with epsilon 1e-5, ``:156``
+    builds ``ln_f = LayerNorm(n_embd, bias=config.bias)`` and
+    ``train_onestep_lin_CL.py:103`` defaults ``--bias`` to False.
 
     Per layer the carry holds the last ``window - 1`` layer INPUTS and
     their validity flags; a step attends to itself plus up to window-1
@@ -354,6 +381,8 @@ class _TransformerCore(nn.Module):
             )
             hidden = jnp.swapaxes(h_bt, 0, 1)  # (T, B, H) for the next layer
 
+        if cfg.final_norm:
+            hidden = nn.LayerNorm(name="ln_f")(hidden)
         return tuple(new_carry), hidden
 
 
@@ -366,6 +395,14 @@ class _MambaCore(nn.Module):
     with a residual connection. Resets zero the state-transition Ā at
     episode starts, which cuts both the carried state and all cross-episode
     history in one place — valid for the scan and the step path alike.
+
+    The stack is Mamba's ``MixerModel`` (state-spaces/mamba,
+    ``mamba_ssm/models/mixer_seq_simple.py``, ``modules/block.py``): pre-norm
+    blocks with plain residual adds, the gate inside the mixer, and a final
+    norm (its ``norm_f``, here ``ln_f``) after the last residual add. Every
+    norm is a LayerNorm, MixerModel's default (``rms_norm=False``); its
+    ``MambaConfig`` and released checkpoints use RMSNorm. The LayerNorms
+    keep flax's epsilon, 1e-6, where Mamba uses 1e-5.
     """
 
     config: MemoryConfig
@@ -471,6 +508,8 @@ class _MambaCore(nn.Module):
             new_conv_tail = jnp.moveaxis(new_tail * tail_ok, 0, 1)
             new_carry.append((new_conv_tail, h[-1]))
 
+        if cfg.final_norm:
+            hidden = nn.LayerNorm(name="ln_f")(hidden)
         return tuple(new_carry), hidden
 
 

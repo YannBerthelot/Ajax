@@ -40,7 +40,11 @@ ANSWER_DIGEST = "dd738b04c9ca"  # verdict.digest(CASES): every answer, pinned
 # of the 64 seeds 1000-2031 fail at each, 28 of the 41 failures because the
 # policy acts alike for both cues at one bound (both actions of one sign and
 # beyond 0.95 in size). The transformer without the final LayerNorm, run at
-# 5000-20,000 only, fails on 4 to 8. The owner decides what next. SAC, REDQ
+# 5000-20,000 only, fails on 4 to 8. Nor does a small entropy bonus calibrate
+# them: at 5000, 10,000 and 20,000 steps 1 to 15 of the 64 fail at each budget
+# in the 9 settings tried (ent_coef 0.001 to 0.03, squashed or not), and no
+# ent_coef of 0.001, 0.003 or 0.01 calibrates both PPO-gru (0.01 only, at
+# 20,000) and PPO-lstm (0.003 only). The owner decides what next. SAC, REDQ
 # and TD3 with other kinds are uncalibrated; ASAC's values are differential;
 # APG needs the env's gradients.
 

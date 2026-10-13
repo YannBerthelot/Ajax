@@ -1,0 +1,171 @@
+site_name: Ajax
+site_description: >-
+  Reinforcement learning agents in JAX: whole training runs compiled end to
+  end, research features composed as extensions.
+site_url: https://yannberthelot.github.io/Ajax/
+repo_url: https://github.com/YannBerthelot/Ajax
+repo_name: YannBerthelot/Ajax
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; Yann Berthelot
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - content.code.copy
+    - content.action.edit
+    - content.tabs.link
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Follow system theme
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+# The world-model design notes keep their parity fixture generators and the
+# reference-comparison harness and results beside them; only their Markdown
+# belongs on the site. The hook is build code, not a page.
+exclude_docs: |
+  /hooks.py
+  __pycache__/
+  /world_models/**
+  !/world_models/**/*.md
+
+# A page left out of the nav, or a link the build cannot resolve, fails
+# `mkdocs build --strict` instead of shipping a site with a hole in it.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.arithmatex:
+      generic: true
+
+hooks:
+  - docs/hooks.py
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            docstring_options:
+              # Types live in the signatures' annotations, not the docstrings.
+              # A documented parameter missing from the signature still fails.
+              warn_missing_types: false
+            show_source: false
+            show_root_heading: true
+            members_order: source
+            separate_signature: true
+            # Agents document their hyperparameters on __init__.
+            merge_init_into_class: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Why Ajax: getting-started/why-ajax.md
+  - User guide:
+      - Training an agent: guide/training.md
+      - Environments: guide/environments.md
+      - Networks and the PID policy: guide/networks.md
+      - Memory: guide/memory.md
+      - Logging: guide/logging.md
+      - Checkpoints and resuming: guide/checkpoints.md
+      - Performance: guide/performance.md
+      - Extensions: guide/extensions.md
+      - Expert guidance: guide/expert-guidance.md
+      - Differentiable simulation: guide/differentiable-simulation.md
+      - World models: guide/world-models.md
+  - Algorithms:
+      - algorithms/index.md
+      - SAC: algorithms/sac.md
+      - ASAC: algorithms/asac.md
+      - REDQ: algorithms/redq.md
+      - TD3: algorithms/td3.md
+      - AVG: algorithms/avg.md
+      - DQN: algorithms/dqn.md
+      - PQN: algorithms/pqn.md
+      - PPO: algorithms/ppo.md
+      - APO: algorithms/apo.md
+      - UDRL: algorithms/udrl.md
+      - APG: algorithms/apg.md
+      - DreamerV3: algorithms/dreamerv3.md
+      - TD-MPC2: algorithms/tdmpc2.md
+  - Developer guide:
+      - Architecture: developer/architecture.md
+      - Contributing: developer/contributing.md
+      - Writing an extension: developer/writing-an-extension.md
+      - Testing: developer/testing.md
+      - Performance: developer/performance.md
+  - World model design notes:
+      - world_models/README.md
+      - Design: world_models/DESIGN.md
+      - Deviations: world_models/deviations.md
+      - DreamerV3 specification: world_models/dreamerv3_spec.md
+      - TD-MPC2 specification: world_models/tdmpc2_spec.md
+      - Shared building blocks: world_models/shared_blocks.md
+      - Validation: world_models/VALIDATION.md
+      - Reference comparison:
+          - world_models/reference_comparison/README.md
+          - Protocol: world_models/reference_comparison/PROTOCOL.md
+          - Round 2 pre-registration: world_models/reference_comparison/PREREG2.md
+          - Round 3 pre-registration: world_models/reference_comparison/PREREG3.md
+          - Diagnosis: world_models/reference_comparison/DIAGNOSIS.md
+          - Round 1 results: world_models/reference_comparison/results/round1/compare.md
+          - Round 2 results, pair R: world_models/reference_comparison/results/round2/pairR/compare.md
+          - Round 2 results, pair E: world_models/reference_comparison/results/round2/pairE/compare.md
+          - Round 3 analysis: world_models/reference_comparison/results/round3/analysis3.md
+  - API reference:
+      - Agents: api/agents.md
+      - Training loop: api/training-loop.md
+      - Extensions: api/extensions.md
+      - Environments and wrappers: api/environments.md
+      - Networks and modules: api/networks.md
+      - Buffers: api/buffers.md
+      - Logging, evaluation and checkpoints: api/logging.md

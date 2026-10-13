@@ -9,10 +9,17 @@ This spec lists the modular blocks that DreamerV3 (D3) and TD-MPC2 (T2) need. Ea
 
 It also flags **false friends**: blocks that look shared but differ in a way that matters.
 
+**Status: the pre-implementation spec (M0), kept as the design record.** The code follows `DESIGN.md` §3 (what was built, and where), §4.2-4.3 and `deviations.md`, which win where they differ from this file. The departures:
+- **Names and layout:** no `src/ajax/blocks/` package and none of the proposed `TwoHotSpec`, `twohot_*`, `PercentileScaleConfig` or `mppi_plan` APIs. The shared blocks are `ajax.distributional` (`symlog`, `symexp`, `TwoHot`), `ajax.normalizers` (`ReturnNormalizer`, `RunningScale`) and `ajax.networks.blocks` (`linear`, `NormedMLP`); the rest is agent-local.
+- **B4:** `NormedMLP(layers, units, act, norm, norm_eps, kernel_init, dropout)` has no output layer (compose it with `linear`) and no `dtype` (Ajax computes in f32, D4).
+- **B5:** DreamerV3's initialiser is flax `variance_scaling` (`trunc_normal_fan_in`), not the literal 1.1368, so its draws match the reference's to 4.16e-5 relative, not exactly (D23); TD-MPC2's is the `"normal(0.02)"` initializer.
+- **B1 test 4 and B9's dropout rows** were wrong about the references: see the notes there.
+- **B13, B14, B19:** the planner (`agents/TDMPC2/planner.py`) takes its random draws as an explicit `PlanNoise` (`draw_plan_noise`), scans over the iterations and unrolls the H-step rollouts in Python, and draws the elite with `sample_elite`, the paper-era inverse CDF of one uniform (`np.random.choice`), not `jax.random.categorical` (`DESIGN.md` §4.3, `deviations.md` §2). There is no shared rollout helper: DreamerV3's observe and imagine steps are their own scans.
+
 ## 0. Sources and conventions
 
-- **D3 spec:** `specs/dreamerv3_spec.md`, cited as D3§x.y. It pins `danijar/dreamerv3` @ e3f0224 (paper-era 2411f7d) and arXiv:2301.04104v2.
-- **T2 spec:** `specs/tdmpc2_spec.md`, cited as T2§x.y. It pins `nicklashansen/tdmpc2` @ e9f5932 (HEAD) and 5f6fade (PE), and arXiv:2310.16828v2.
+- **D3 spec:** `dreamerv3_spec.md` (this directory), cited as D3§x.y. It pins `danijar/dreamerv3` @ e3f0224 (paper-era 2411f7d) and arXiv:2301.04104v2.
+- **T2 spec:** `tdmpc2_spec.md` (this directory), cited as T2§x.y. It pins `nicklashansen/tdmpc2` @ e9f5932 (HEAD) and 5f6fade (PE), and arXiv:2310.16828v2.
 - **Re-checked against the reference code (both official repositories at the commits pinned in the two specs):**
   - D3: `embodied/jax/{outs,heads,nets,opt,utils}.py` and `dreamerv3/agent.py:480-488` (lambda_return).
   - T2: `tdmpc2/common/{math,scale,init,layers}.py`, `tdmpc2/tdmpc2.py:208-230` (update_pi) and `common/world_model.py:186-216` (Q).
@@ -70,7 +77,7 @@ The two are mutual inverses, odd functions, with symlog'(0) = 1.
 1. symlog([−1000, −1, −0.5, 0, 0.5, 1, 1000]) = [−6.908755, −0.6931472, −0.4054651, 0, 0.4054651, 0.6931472, 6.908755].
 2. symexp(symlog(x)) == x at rtol 1e-6 on that vector.
 3. Oddness: symlog(−x) == −symlog(x) exactly.
-4. grad(symlog)(0.0) == 1.0, and grad(symexp)(0.0) == 1.0.
+4. grad(symlog)(0.0) == 1.0, and grad(symexp)(0.0) == 1.0. **Wrong:** at exactly 0 both references give 0 (`sign(0) = 0`); the slope is 1 only next to 0 (`test_symlog_gradient_matches_reference`).
 5. bf16 in gives bf16 out.
 
 ---
@@ -369,7 +376,7 @@ def normal_init(std=0.02, outscale=1.0)   # T2: W = outscale * N(0, std^2)
 ### False friends
 
 1. **`jax.nn.initializers.truncated_normal(0.02)` is wrong for T2.** It truncates at ±2σ = ±0.04 with no std correction (std **0.0176** in jax 0.7.2). Use `normal(0.02)`, which gives std 0.02.
-2. **`flax lecun_normal` is D3's distribution up to a constant.** Flax's 1/0.87962566 = 1.1368472 differs from D3's literal 1.1368 by 4.2e-5 relative (max abs difference 5.9e-6 at the same key). Use a 3-line custom initialiser with the literal constant so parity tests are exact.
+2. **`flax lecun_normal` is D3's distribution up to a constant.** Flax's 1/0.87962566 = 1.1368472 differs from D3's literal 1.1368 by 4.2e-5 relative (max abs difference 5.9e-6 at the same key). Use a 3-line custom initialiser with the literal constant so parity tests are exact. (Not built: Ajax uses flax's constant, D23.)
 3. **Ajax `parse_layer` defaults to orthogonal(1.0).** Neither paper uses it.
 
 ### Tests
@@ -474,10 +481,10 @@ def reduce_pair(q_scalars[2, ...], how: Literal["min", "avg"])
 
 | Use | Network | Reduction | Dropout | Gradient |
 |---|---|---|---|---|
-| TD target | target params | 'min' | off | — |
+| TD target | target params | 'min' | on (PE, found by running 5f6fade: `deviations.md` §2) | — |
 | Value loss | online params | 'all' | on | — |
 | Policy loss | sg(online params, post-step) | 'avg' | on | flows w.r.t. the action |
-| Planner terminal value | online params | 'avg' | off | — |
+| Planner terminal value | online params | 'avg' | on (PE, as above) | — |
 
 ### False friends
 
@@ -651,7 +658,7 @@ def mppi_plan(key, value_fn, pi_actions | None, prev_mean, t0, eval_mode, cfg, a
 # value_fn(key, actions[H,N,A]) -> V[N]  (caller closes over z, networks; T2: Σγ^t r̂(z_t,a_t) + γ^H Q_avg(z_H, π(z_H)))
 ```
 
-All shapes are static. Use `lax.fori_loop`, `lax.top_k` and `jax.random.categorical(log score)`. Per-env t0 and prev_mean come from the actor state (vmapped over envs; T2§3.A).
+All shapes are static. Use `lax.fori_loop`, `lax.top_k` and `jax.random.categorical(log score)`. (Built otherwise: see the status note at the top.) Per-env t0 and prev_mean come from the actor state (vmapped over envs; T2§3.A).
 
 ### Tests (pinned)
 
@@ -831,7 +838,7 @@ def adam_grouped(lr=3e-4, lr_scales={"encoder": 0.3}, label_fn=..., clip_norm=20
   - D3: bf16 compute, with f32 params, norm statistics, distributions, losses, returns and normalisers.
   - T2: f32 (HEAD uses TF32 matmuls).
   - Every module takes `dtype`. Distribution, loss and normaliser code upcasts to f32. Parity tests set `jax_default_matmul_precision="highest"`.
-- **Categorical pick.** `jax.random.categorical` replaces T2's Gumbel-max and `np.random.choice`, and D3's sampling.
+- **Categorical pick.** `jax.random.categorical` replaces T2's Gumbel-max and `np.random.choice`, and D3's sampling. (Not for T2's elite: `sample_elite` keeps the inverse CDF.)
 - **Not shared (look-alikes):**
   - **MSE losses:**
     - D3 symlog-MSE decoder: (pred − symlog(y))², **summed** over feature dims, no ½, mean over (B, T).
@@ -842,6 +849,8 @@ def adam_grouped(lr=3e-4, lr_scales={"encoder": 0.3}, label_fn=..., clip_norm=20
 ---
 
 ## Open questions for the user (shared-block scope)
+
+Resolved since: (1) the row collector's hold tick, i.e. option (a) (`DESIGN.md` §5.2); (2) a round of episodes becomes sampleable when its held tick passes (§4.4); (3) no `blocks/` package, blocks promoted on their second consumer (§3); (4) f32 only (D4).
 
 1. **D3 replay rows under Ajax's auto-reset environments.** This blocks B18 for D3. The options:
    - **(a)** An explicit-reset env wrapper, as in the embodied driver. After an is_last step, the next `step` call ignores the action and emits the reset obs with is_first = 1 and reward 0. This gives one row per vector step, keeps lockstep and reproduces the reference stream exactly, including the train-ratio clock counting reset steps.
@@ -855,6 +864,6 @@ def adam_grouped(lr=3e-4, lr_scales={"encoder": 0.3}, label_fn=..., clip_norm=20
 
 Recommendations that do not need a user decision:
 - Use the symmetric two-hot sum for both algorithms (B2).
-- Use the literal-constant D3 initialiser (B5).
+- Use the literal-constant D3 initialiser (B5). Not built: D23.
 - Use `normal(0.02)`, not `truncated_normal(0.02)`, for T2 (B5).
 - Use a custom per-tensor AGC (B17).

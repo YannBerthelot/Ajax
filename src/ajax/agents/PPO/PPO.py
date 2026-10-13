@@ -55,9 +55,9 @@ class PPO(ActorCritic):
     supports_memory: bool = True
     make_train = staticmethod(make_train)
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 4,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
@@ -83,12 +83,8 @@ class PPO(ActorCritic):
         # Pluggable memory block, e.g. MemoryConfig("gru", 64) or
         # {"kind": "lstm", "hidden_size": 64}. When set, PPO trains with
         # BPTT over sequences minibatched from the rollout (see
-        # num_minibatches and bptt_length; batch_size is ignored).
+        # num_minibatches and bptt_length).
         memory: Optional[Union[MemoryConfig, dict]] = None,
-        # Recurrent-only truncated-BPTT length: splits each env's rollout
-        # into n_steps/bptt_length contiguous sequences whose start
-        # carries are recomputed chunk-wise (never zero mid-episode).
-        # None = full-rollout BPTT. Must divide n_steps.
         bptt_length: Optional[int] = None,
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
@@ -96,8 +92,7 @@ class PPO(ActorCritic):
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        # Brax-style actor head knobs (off by default = Ajax legacy).
-        # Set per-env in EVAREST's manip dict for brax/playground envs.
+        # Brax-style actor head knobs (off by default).
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -110,9 +105,8 @@ class PPO(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[CNNSpec] = None,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
-        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout`` so
         # measurement extensions can read an on-state-visitation batch
         # without forcing a fresh rollout per eval. Off by default —
@@ -122,21 +116,6 @@ class PPO(ActorCritic):
         # (ActorCritic).
         action_repeat: int = 1,
     ) -> None:
-        """
-        Initialize the PPO agent.
-
-        Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            actor_learning_rate (float): Learning rate for the actor's optimizer.
-            critic_learning_rate (float): Learning rate for the critic's optimizer.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            batch_size (int): Batch size for training.
-        """
         self.config = run_config(locals(), self.name)
 
         super().__init__(

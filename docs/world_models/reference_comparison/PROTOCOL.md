@@ -3,6 +3,12 @@
 > On 2026-10-04 the absolute local paths in this file were replaced by the
 > placeholders `<scratch>` and `<repo>` (README.md, "Recorded locations");
 > nothing else was changed.
+>
+> A historical record: Ajax names and line numbers below are those of
+> 5cb0738, the commit the rounds ran (README.md). Since then
+> `update_rolling_mean` was folded into `update_episodic_return` (aaa75c6),
+> and Ajax draws a fresh evaluation key per evaluation (0baa25f): "Ajax's
+> fixed eval key" describes Ajax before that change.
 
 Single source of truth for the builder and the auditors. Question answered: on
 the exact setup of the failed learning check (`dreamerv3-cartpole`: 1m model,

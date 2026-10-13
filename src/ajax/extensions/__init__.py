@@ -1,9 +1,8 @@
 """Composable research-feature extensions for Ajax agents.
 
-See :mod:`ajax.extensions.base` for the framework. Concrete extensions
-(expert guidance, observation augmentation, online BC, target modifiers,
-exploration schemes, instrumentation) are added in their own modules and
-re-exported here as they are migrated.
+See :mod:`ajax.extensions.base` for the framework. Concrete extensions are
+imported from their own modules (``expert``, ``exploration``,
+``target_mods``, ``pretrain``, ``instrumentation``, ``ensemble``).
 """
 
 from ajax.extensions.base import (

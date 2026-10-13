@@ -85,9 +85,7 @@ class TDMPC2(ActorCritic):
     config of the loggers). Memory per seed: ``R * n_envs * (T + 1) *
     (obs_dim + A + 1) * 4`` bytes with ``R = ceil(capacity / (T n_envs)) +
     1``: 124 MB for DMC walker (obs 24, A 6, T 500) at the full
-    1,000,000-step capacity; the seed ``vmap`` multiplies it. With a
-    ``logging_config``, :meth:`train` also returns the evaluations, a row
-    per evaluation per seed; without one it returns no metrics.
+    1,000,000-step capacity; the seed ``vmap`` multiplies it.
 
     Evaluation (with a ``logging_config``): every ``log_frequency`` env
     steps, ``num_episode_test`` episodes of the planner in ``eval_mode`` on

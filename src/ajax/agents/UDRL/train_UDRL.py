@@ -110,7 +110,6 @@ def init_UDRL(
         expert_state_aug_dim=2,  # reserves 2 trailing slots in last_obs for command
     )
 
-    # Seed last_obs's command slots with (return_init, horizon_init).
     n_envs = env_args.n_envs
     init_cmd = jnp.tile(
         jnp.array(
@@ -126,8 +125,7 @@ def init_UDRL(
 
     obs_dim = collector_state.last_obs.shape[-1]
     # The buffer stores actions with a trailing dim (1 for discrete, action_dim
-    # for continuous). Read it from the freshly-built actor's expected action
-    # space dim.
+    # for continuous).
     from ajax.environments.utils import get_action_dim
 
     if continuous:
@@ -294,7 +292,6 @@ def actor_loss_fn(
         log_p = pi.log_prob(actions)
         return -log_p.mean()
 
-    # NLL on the squashed-normal / normal
     if isinstance(pi, SquashedNormal):
         eps = 1e-3
         target = jnp.clip(actions, -1.0 + eps, 1.0 - eps)
@@ -395,7 +392,6 @@ def training_iteration(
         update_step, agent_state, (update_keys, ext_keys)
     )
 
-    # Extension post_update, folded after the per-iteration update loop.
     agent_state = fold_post_update(
         extension_stack,
         agent_state,

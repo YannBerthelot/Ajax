@@ -6,14 +6,13 @@ refreshes MCPretrain's critic during training.
 
 * :class:`CloningPretrain`     — behaviour cloning of the actor on an
   expert's rollouts.
-* :class:`MCPretrain`          — ``use_mc_critic_pretrain``: regress a
-  frozen expert critic on Monte-Carlo returns, then (optionally) lightly
-  nudge the online critic toward it.
-* :class:`BellmanPretrain`     — the legacy Bellman-bootstrapped critic
-  pre-training on the expert buffer (the ``pretrain`` phase).
-* :class:`PhiRefresh`          — ``use_phi_refresh``: periodic
-  self-consistent refresh of the frozen expert critic during training
-  (the ``post_update`` phase).
+* :class:`MCPretrain`          — regress a frozen expert critic on
+  Monte-Carlo returns, then (optionally) lightly nudge the online critic
+  toward it.
+* :class:`BellmanPretrain`     — Bellman-bootstrapped critic pre-training
+  on the expert buffer.
+* :class:`PhiRefresh`          — periodic self-consistent refresh of the
+  frozen expert critic during training (the ``post_update`` phase).
 """
 
 from __future__ import annotations
@@ -96,9 +95,9 @@ def pretrain_critic_mc(
     The critic starts with accurate Q(s, a_expert) near the target from step 1.
 
     Collection strategy: single call with n_mc_steps * n_mc_episodes // n_envs
-    timesteps. The n_envs parallel environments reset to different (initial,
-    target) altitude pairs on each episode boundary, giving the same state-space
-    coverage as separate per-seed rollouts — without any mapping over traced keys
+    timesteps. The n_envs parallel environments reset to different initial
+    states on each episode boundary, giving the same state-space coverage
+    as separate per-seed rollouts — without any mapping over traced keys
     (which fails inside the outer vmap over seeds).
     Total transitions ≈ n_mc_steps * n_mc_episodes regardless of n_envs.
 
@@ -146,7 +145,6 @@ def pretrain_critic_mc(
         a_expert_flat = all_transitions.a_expert.reshape(T * n_envs, -1)
         obs_flat = augment_obs(obs_flat, expert_action=a_expert_flat)
 
-    # Batch into fixed-size chunks for regression
     n_total = obs_flat.shape[0]
     n_batches = n_total // batch_size
     obs_batched = obs_flat[: n_batches * batch_size].reshape(n_batches, batch_size, -1)
@@ -194,7 +192,6 @@ def pretrain_critic_mc(
     )
     final_loss = loss_history[-1, -1]
 
-    # Hard sync target network of expert critic only
     expert_critic_state = expert_critic_state.soft_update(tau=1.0)
 
     frozen_expert_params = jax.lax.stop_gradient(expert_critic_state.params)
@@ -496,7 +493,7 @@ class CloningPretrain(Extension):
 
 @dataclass(frozen=True)
 class MCPretrain(Extension):
-    """Monte-Carlo critic pre-training (``use_mc_critic_pretrain``).
+    """Monte-Carlo critic pre-training.
 
     Regresses a frozen expert critic ``φ*`` on unbiased MC returns from
     expert rollouts, persists ``φ*`` + the value range ``v_min/v_max`` on
@@ -592,10 +589,6 @@ class MCPretrain(Extension):
                 " the agent did not bind it (only SAC supports MCPretrain)."
             )
 
-        # Local import to avoid a circular ``ajax.networks ↔
-        # ajax.extensions`` import: networks.py doesn't depend on
-        # extensions but the extension's pretrain phase does need the
-        # critic builder.
         from ajax.environments.utils import get_action_dim
         from ajax.networks.networks import get_initialized_critic
 
@@ -735,7 +728,7 @@ def pretrain_critic_bellman(
 
 @dataclass(frozen=True)
 class BellmanPretrain(Extension):
-    """Legacy Bellman-bootstrapped critic pre-training.
+    """Bellman-bootstrapped critic pre-training.
 
     ``n_steps`` critic updates on the replay buffer before training, which
     then holds the agent's expert prefill. Bootstraps from an untrained
@@ -811,9 +804,9 @@ class BellmanPretrain(Extension):
 class PhiRefresh(Extension):
     """Periodic self-consistent refresh of the frozen expert critic.
 
-    Equivalent to ``use_phi_refresh``: every ``interval`` steps run
-    ``steps`` self-consistent Bellman updates on expert-flagged buffer
-    transitions, keeping ``φ*`` aligned with the live data distribution.
+    Every ``interval`` steps, run ``steps`` self-consistent Bellman
+    updates on expert-flagged buffer transitions, keeping ``φ*`` aligned
+    with the live data distribution.
     Requires :class:`MCPretrain` (which creates the refreshable ``φ*``;
     refused without it).
 
@@ -842,15 +835,9 @@ class PhiRefresh(Extension):
         return True
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
-        """Populate ``buffer`` / ``gamma`` / ``reward_scale`` from the agent factory.
-
-        Self-contained replacement for the legacy SAC-side
-        ``_inject_policy_extensions_context`` helper: the agent factory
-        calls ``stack.bind_to_agent(buffer=..., gamma=..., reward_scale=...,
-        ...)`` and this method copies the kwargs it cares about onto a
-        new frozen instance. Unrecognised kwargs are ignored, so the
-        same call works uniformly across the whole stack.
-        """
+        """Copy the agent's ``buffer``, ``gamma``, ``reward_scale`` and
+        observation augmentation, and whether its expert is the agent's
+        (:func:`reads_stored_expert_actions`)."""
         buffer = agent_context.get("buffer", None)
         gamma = agent_context.get("gamma", None)
         reward_scale = agent_context.get("reward_scale", None)
@@ -872,11 +859,6 @@ class PhiRefresh(Extension):
         ext_state: Any,
         ctx: ExtensionContext,
     ) -> tuple[Any, Any]:
-        # ``post_update`` runs once per update iteration, after the
-        # update. The interval gate below is byte-equivalent to the
-        # pre-refactor ``make_runtime_maintenance`` callable: refresh
-        # whenever ``timestep % interval == 0``; otherwise pass through
-        # unchanged.
         del ctx
         if self.buffer is None or self.gamma is None or self.reward_scale is None:
             raise ValueError(

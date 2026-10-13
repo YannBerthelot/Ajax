@@ -82,8 +82,7 @@ class EnvironmentConfig(Replaceable):
     continuous: bool
     # Simulator steps per agent step (brax / playground EpisodeWrapper, see
     # ``ajax.environments.create``). Static: it fixes shapes and schedules
-    # (episode length in agent steps), never a traced value. Default 1, so
-    # every existing construction is unchanged.
+    # (episode length in agent steps), never a traced value.
     action_repeat: int = struct.field(pytree_node=False, default=1)
 
     @property
@@ -175,15 +174,11 @@ class LoadedTrainState(TrainState):
 
     @classmethod
     def create(cls, *, hidden_state=None, apply_fn: Callable, **kwargs):
-        # Ensure apply_fn is passed to the parent TrainState
         instance = super().create(apply_fn=apply_fn, **kwargs)
-        # Determine if the state is recurrent
         recurrent = hidden_state is not None
-        # Return a new instance with hidden_state and recurrent attributes
         return instance.replace(hidden_state=hidden_state, recurrent=recurrent)
 
     def apply(self, params, *args, **kwargs):
-        """Call the apply_fn with the given parameters and arguments."""
         return self.apply_fn(params, *args, **kwargs)
 
 
@@ -207,42 +202,24 @@ class BaseAgentState(Replaceable):
     # ExtensionStack; `()` -> no extensions / all stateless). See
     # `ajax.extensions.base`.
     ext_state: tuple = ()
-    # Most recent rollout produced by the on-policy collector
-    # (PPO / PQN / APO / AVG), exposed at the top level of agent_state
-    # for cross-agent measurement extensions (EVarEst-style probes that
-    # need an on-state-visitation batch but should not trigger a fresh
-    # rollout per eval — analogous to the replay buffer for off-policy
-    # agents).
-    #
-    # Trade-off:
-    #   - ``expose_recent_rollout=False`` (default) → ``last_rollout``
-    #     stays ``None``: zero new pytree leaves, identical JIT trace,
-    #     zero memory cost.
-    #   - ``expose_recent_rollout=True`` → carries the full
-    #     ``(T, n_envs, ...)`` :class:`Transition` produced by the
-    #     iteration's ``collect_experience`` scan. Adds the rollout's
-    #     leaves to the carry pytree (extra memory ≈ one rollout's
-    #     worth; extra JIT trace cost ≈ one ``replace`` per iteration).
-    #     A static-shape placeholder is pre-allocated at ``make_train``
-    #     time so the scan-carry pytree structure stays stable from
-    #     iteration zero.
-    #
-    # Off-policy agents (SAC / DQN / REDQ / TD3 / ASAC / UDRL …)
-    # already expose a replay buffer via ``collector_state.buffer_state``
-    # and do not touch this field.
+    # The on-policy collector's (PPO / PQN / APO / AVG) latest rollout,
+    # for measurement extensions (EVarEst-style probes) that need an
+    # on-state-visitation batch without a fresh rollout per evaluation;
+    # off-policy agents expose their replay buffer instead
+    # (``collector_state.buffer_state``). ``None`` (no extra leaves, no
+    # memory) unless ``BaseAgentConfig.expose_recent_rollout``; then the
+    # iteration's full ``(T, n_envs, ...)`` :class:`Transition` (one
+    # rollout of memory), pre-allocated at ``make_train`` time so the scan
+    # carry's structure is stable from iteration zero.
     last_rollout: Optional[Any] = None
 
 
 @struct.dataclass
 class BaseAgentConfig(Replaceable):
-    # Opt-in flag for on-policy agents (PPO, PQN, APO, AVG) to write the
-    # most recent ``(T, n_envs, ...)`` rollout transition onto
-    # ``BaseAgentState.last_rollout`` after each collection. Off by
-    # default so the JIT trace and pytree shape are identical to the
-    # legacy path. See :attr:`BaseAgentState.last_rollout` for the full
-    # trade-off and rationale. Independent of any specific Extension's
-    # hyperparameters — this is an algorithm-level resource-allocation
-    # switch (whether to retain the rollout for downstream readers).
+    # Opt-in for on-policy agents (PPO, PQN, APO, AVG): keep each
+    # collection's rollout on ``BaseAgentState.last_rollout`` (see there
+    # for the cost). An algorithm-level resource switch, not any
+    # Extension's hyperparameter.
     expose_recent_rollout: bool = False
 
 
@@ -266,17 +243,17 @@ class NetworkConfig(Replaceable):
     # is set, networks treat obs as a flat `(H*W*C + cnn_extra_obs_dim,)`
     # vector: the image portion is reshaped to NHWC and run through a conv
     # stack (see `CNNEncoder`), any trailing scalar dims are concatenated
-    # after. None keeps the legacy MLP encoder.
+    # after. None keeps the MLP encoder.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     # Conv architecture for the CNN encoder (imported for type checking
     # only, to avoid a networks<->state import cycle). None ->
     # CNNEncoder's default architecture.
     cnn_spec: Optional["CNNSpec"] = None
-    # Actor head knobs (Actor in networks.py). Default = legacy Ajax.
-    # Set per-env to match brax/playground convention for envs that
-    # need it (e.g. mujoco_playground manip uses scalar state-indep
-    # log_std at init=1.0 and a lecun_uniform mean head).
+    # Actor head knobs (Actor in networks.py). Set per-env to match
+    # brax/playground convention for envs that need it (e.g.
+    # mujoco_playground manip uses scalar state-indep log_std at init=1.0
+    # and a lecun_uniform mean head).
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
@@ -295,14 +272,14 @@ class OptimizerConfig(Replaceable):
     max_grad_norm: Optional[float] = None
     beta_1: float = 0.9
     beta_2: float = 0.999
-    # Adam's epsilon for numerical stability. Default 1e-5 matches the
-    # legacy Ajax behaviour; brax/torch/optax default is 1e-8 and is
-    # the standard for PPO (Ajax PPO sets this to 1e-8 for the manip
-    # tuned configs). Larger eps makes Adam less aggressive on small
-    # gradients (e.g. log_std), slowing exploration adaptation.
+    # Adam's epsilon for numerical stability. Default 1e-5, Ajax's own;
+    # brax/torch/optax default is 1e-8 and is the standard for PPO (Ajax
+    # PPO's ``adam_eps`` defaults to it). Larger eps makes Adam less
+    # aggressive on small gradients (e.g. log_std), slowing exploration
+    # adaptation.
     eps: float = 1e-5
     # Decoupled weight decay (AdamW, Loshchilov & Hutter 2019). 0 keeps
-    # plain Adam, byte-identical to the legacy optimizer.
+    # plain Adam.
     weight_decay: float = 0.0
 
 

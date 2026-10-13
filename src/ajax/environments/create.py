@@ -62,8 +62,8 @@ def _call_registered_builder(
 ):
     """Call a registered ``(n_envs, episode_length)`` builder.
 
-    At ``action_repeat == 1`` the builder is called exactly as before (two
-    arguments). Above 1, ``action_repeat`` is forwarded as a keyword when the
+    At ``action_repeat == 1`` the builder is called with two arguments.
+    Above 1, ``action_repeat`` is forwarded as a keyword when the
     builder's signature takes it (by name or ``**kwargs``), and the built
     env -- not the signature -- decides: it must repeat each action
     ``action_repeat`` times (:func:`env_action_repeat`), otherwise this
@@ -291,7 +291,7 @@ def build_env_from_id(
         # (H, W, C) from the flat vector via `cnn_image_shape`.
         if len(env.observation_space(env_params).shape) > 1:
             env = FlattenObservationWrapper(env)
-        return env, env_params  # TODO : see how to have env_params not mess up the rest
+        return env, env_params
 
     from mujoco_playground import registry as mp_registry
 

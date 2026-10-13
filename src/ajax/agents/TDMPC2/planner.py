@@ -44,7 +44,7 @@ draws recorded from the reference
 uniform number turned into an index by the inverse CDF, the algorithm of the
 reference's ``np.random.choice(p=score)``.
 
-Multi-task (M8; ``tdmpc2.py:94-171`` with ``task``, tdmpc2_spec 3.9, 3.12):
+Multi-task (``tdmpc2.py:94-171`` with ``task``, tdmpc2_spec 3.9, 3.12):
 every function takes an optional :class:`~ajax.agents.TDMPC2.core.TaskContext`
 of one task (``ids`` a scalar, ``mask [A]``; ``None``, the default, is the
 single-task computation, unchanged). The task embedding conditions every

@@ -519,11 +519,8 @@ def train_step(
 ) -> tuple[LearnerState, PosteriorEntries, dict[str, jax.Array]]:
     """One DreamerV3 update (``Agent.train``, ``29eb964:dreamerv3/agent.py:166-223``).
 
-    :func:`loss_and_grads` at the current parameters, then the three
-    optimizer updates with that one gradient (:func:`apply_optimizer`),
-    then the slow critic (:func:`update_slow_critic`) and the return
-    normaliser's new state. ``config`` must be the configuration the state
-    was built with (:func:`init_learner`); jit it as a static argument.
+    ``config`` must be the configuration the state was built with
+    (:func:`init_learner`); jit it as a static argument.
 
     Returns:
         The new state; the posterior latents of the replayed steps

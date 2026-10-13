@@ -112,9 +112,9 @@ def setup_environment(
 
     brax / playground tasks are rebuilt from their id with ``num_episodes``
     parallel envs. ``episode_length`` (simulator steps) and
-    ``action_repeat`` are the training env's; the defaults (``None`` -> the
-    env's native episode length, falling back to 1000; repeat 1) are the
-    historical behaviour. gymnax envs do not support ``action_repeat > 1``.
+    ``action_repeat`` are the training env's; the defaults are ``None`` ->
+    the env's native episode length, falling back to 1000, and repeat 1.
+    gymnax envs do not support ``action_repeat > 1``.
     """
     from ajax.environments.create import (
         _build_brax_env,
@@ -132,20 +132,16 @@ def setup_environment(
         if ajax_env_id is None:
             raw = get_raw_env(env)
             ajax_env_id = type(raw).__name__.lower()
-        # Use the env's NATIVE episode_length where possible. Hardcoding
-        # 1000 means eval episodes run up to 1000 steps even when the
-        # env's own truncation is 150 (mujoco_playground manip) -- a
-        # silent eval/train mismatch in episode-budget semantics.
-        # Prefer the underlying env's ``_config.episode_length`` when
-        # exposed (the playground/_make_panda_builder convention); fall
-        # back to 1000 for envs without that attribute.
+        # The env's native episode length (``_config.episode_length``, the
+        # playground convention, found by peeling our wrappers), else 1000.
+        # A fixed 1000 would run eval episodes past the env's own
+        # truncation (150 on mujoco_playground manip), a silent eval/train
+        # mismatch in episode budget.
         _native_ep = getattr(
             getattr(env, "_config", None),
             "episode_length",
             None,
         )
-        # Walk inward to find the original mujoco_playground env
-        # (peeling our wrapper stack).
         _inner = env
         while _native_ep is None and _inner is not None:
             _inner = getattr(_inner, "env", None)
@@ -658,7 +654,6 @@ def evaluate(
         None if command is None else command.initial(agent_state, num_episodes),
     )
 
-    # Choose step function
     step_fn = step_environment(
         mode,
         env,
@@ -692,7 +687,6 @@ def evaluate(
 
     def _scan_body(carry, _):
         stepped = step_fn(carry)
-        # The step's value estimate and reward, and whether it was evaluated.
         evaluated = (1 - carry.done).astype(jnp.float32)
         return stepped, (stepped.value, stepped.last_reward, evaluated)
 
@@ -711,7 +705,6 @@ def evaluate(
             value_estimate.gamma,
         )
 
-    # Optionally compute expert comparison
     expert_reward: jax.Array | float = jnp.nan
     if expert_policy is not None or eval_expert_policy is not None:
         expert_reward = _expert_return(
@@ -726,7 +719,6 @@ def evaluate(
             steps_bound,
         )
 
-    # Optional average-reward mode
     avg_reward = jnp.nan
     if avg_reward_mode:
 

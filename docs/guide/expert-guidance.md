@@ -1,0 +1,356 @@
+# Expert guidance
+
+Often a controller already exists for the task: a tuned PID, a model
+predictive controller, a hand-written rule, an earlier policy. Starting
+reinforcement learning from scratch throws that knowledge away. Expert
+guidance lets an agent learn from such an *expert*: copy it at the start,
+let it act while the agent is still poor, use its values in the critic's
+target, and then improve on it.
+
+In Ajax, an expert is any function you pass to an agent or to an
+[extension](extensions.md). SAC uses it the most: it fills the replay buffer
+with the expert's experience and lets the expert extensions shape
+collection, the critic and the actor. SAC, TD3, REDQ and APO can clone it
+before training, and they and ASAC can imitate it through an extra
+actor-loss term.
+
+## The expert
+
+An expert maps observations to actions. Ajax accepts two forms:
+
+- **Stateless:** `expert(obs) -> action`.
+- **Stateful**, for a controller with memory such as a PID's integral: an
+  object with `init_state(n_envs)`, which returns the starting state for
+  `n_envs` environments, and `expert(state, obs) -> (action, new_state)`.
+  TargetGym's PID experts (`target_gym.experts.pid.FunctionalExpertPolicy`)
+  follow this form.
+
+Four conventions matter:
+
+1. **The expert lives in the environment's units, both ways.** It reads the
+   environment's own observation, before any observation normalisation and
+   without the columns an agent appends (the training fraction, the
+   expert's own state). It returns actions in the environment's bounds: on
+   Pendulum, a torque between -2 and 2. Ajax reads that action in the
+   agent's units, `[-1, 1]` (see [Actions](environments.md#actions)),
+   without clipping it, so it can be stored and compared with the agent's
+   own actions; when it is executed, the usual map sends it back to the
+   environment, clipped at its bounds.
+2. **Its state is tracked.** Wherever Ajax runs a stateful expert itself,
+   it keeps one state per environment copy and starts every episode from
+   `init_state`: SAC's replay prefill, warm-up and collection, the cloning
+   and Monte-Carlo rollouts, and every agent's evaluation.
+3. **It works on batches.** Ajax calls it on one observation per
+   environment, and on replay batches. Index the last axis (`obs[..., 0]`),
+   not the first, and keep the action's last axis (`[..., None]` for one
+   action).
+4. **It is part of the compiled program**: a plain function or a frozen
+   dataclass works.
+
+A stateful expert, a PID on Pendulum's angle:
+
+```python
+from dataclasses import dataclass
+
+import jax.numpy as jnp
+
+from ajax import SAC
+from ajax.logging.wandb_logging import LoggingConfig
+
+
+@dataclass(frozen=True)
+class PIDExpert:
+    """A PID on the pole's angle; its state is the error's integral."""
+
+    kp: float = 2.0
+    ki: float = 0.1
+    kd: float = 0.5
+    dt: float = 0.05  # Pendulum's time step
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, integral, obs):
+        theta = jnp.arctan2(obs[..., 1:2], obs[..., 0:1])  # raw [cos, sin, velocity]
+        integral = integral + self.dt * theta
+        torque = -(self.kp * theta + self.ki * integral + self.kd * obs[..., 2:3])
+        return jnp.clip(torque, -2.0, 2.0), integral  # newton-metres, as the env takes them
+
+
+agent = SAC("Pendulum-v1", expert_policy=PIDExpert(), learning_starts=500)
+logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+state, evaluations = agent.train(seed=0, n_timesteps=1_000, logging_config=logging)
+print(evaluations["Eval/episodic mean expert reward"])  # the PID's own return
+```
+
+Extensions that call an expert themselves, on the observations of a replay
+batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
+`PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
+expert state exists. A stateful expert is allowed there in one case only:
+when it is SAC's own `expert_policy` (the same object) and the extension is
+one of the last four. They then read the expert's actions SAC stored at
+collection, computed from its tracked state, instead of calling it. Any
+other stateful expert is refused when the agent is built.
+
+## Which agents take an expert
+
+| Agent | `expert_policy=` | Expert extensions |
+| --- | --- | --- |
+| [SAC](../algorithms/sac.md) | replay prefill, warm-up actions, collection extensions, the expert's evaluation return | all |
+| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss` |
+| [ASAC](../algorithms/asac.md) | not accepted | `ImitationLoss` |
+| [AVG](../algorithms/avg.md) | the expert's evaluation return | none |
+
+The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
+expert: `CloningPretrain` raises on them when training starts, and
+`ImitationLoss` finds no `pi_mean` in their actor batch, or no actor phase.
+
+With an expert, evaluations also log `Eval/episodic mean expert reward`, the
+expert's return on the same episodes as the agent's, and `Eval/expert
+bias`, the agent's return minus the expert's (positive once the agent does
+better). SAC takes a separate `eval_expert_policy` when the expert to
+compare against is not the one to learn from.
+
+None of this works with `memory=` yet: recurrent SAC, TD3 and REDQ refuse an
+expert and extensions.
+
+## Example
+
+SAC on Pendulum with a PD controller that is good near the top and poor
+elsewhere. Three extensions build on it: `MCPretrain` fits a critic to the
+expert's returns, `OnlineBC` pulls the actor towards the expert early on, and
+`EDGEExploration` lets the expert act while the critic rates it higher than
+the policy.
+
+```python
+import jax.numpy as jnp
+
+from ajax import SAC
+from ajax.extensions.expert import OnlineBC
+from ajax.extensions.exploration import EDGEExploration
+from ajax.extensions.pretrain import MCPretrain
+from ajax.logging.wandb_logging import LoggingConfig
+
+
+def pd_expert(obs):
+    """A PD controller on Pendulum's raw observation [cos θ, sin θ, θ̇]."""
+    theta = jnp.arctan2(obs[..., 1], obs[..., 0])
+    torque = -(2.0 * theta + 0.5 * obs[..., 2])
+    return jnp.clip(torque, -2.0, 2.0)[..., None]  # the env's torque range
+
+
+agent = SAC(
+    "Pendulum-v1",
+    expert_policy=pd_expert,
+    expert_buffer_n_steps=1_000,  # expert steps written to the replay before training
+    learning_starts=1_000,
+    extensions=(
+        # The frozen expert critic, fitted to ~1,000 steps of the expert's returns.
+        MCPretrain(pd_expert, n_mc_steps=100, n_mc_episodes=10, n_steps=200),
+        OnlineBC(bc_coef=1.0, critic_warmup_frac=0.2),
+        EDGEExploration(gate="argmax", decay_frac=0.3),
+    ),
+)
+logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+state, evaluations = agent.train(seed=0, n_timesteps=2_000, logging_config=logging)
+print(evaluations["Eval/episodic mean reward"])
+print(evaluations["Eval/expert bias"])       # agent minus expert
+print(evaluations["edge/live_expert_frac"])  # share of envs the expert drove
+```
+
+At this budget the agent has barely started; the example shows the wiring.
+Give `MCPretrain` a few hundred thousand expert steps and train for tens of
+thousands of steps for a real run (its defaults collect about a million).
+
+## What SAC does with an expert, step by step
+
+### Before training
+
+1. **Replay prefill.** SAC runs the expert for `expert_buffer_n_steps` steps
+   in each environment (default 20,000) and writes them to the replay buffer,
+   flagged as expert rows. Every row also stores the expert's action at `s`
+   and `s′`, which several extensions read later. Set it to 0 to skip.
+2. **Cloning**, by extension. `CloningPretrain(expert, n_steps=...)` rolls
+   the expert out for `n_steps` steps per environment, in the observation
+   layout the agent sees, and trains the actor to reproduce its actions for
+   `epochs` passes in batches of `batch_size`, at the actor's learning rate.
+   The actor learns on observations standardised with the dataset's
+   statistics, so the agent's running observation statistics start from
+   them (an agent that kept none gets them), and the actor keeps seeing
+   inputs as it did when cloned. `reset_log_std=True` restores the cloned
+   actor's exploration noise afterwards, `reset_actor_head=True` keeps only
+   its hidden layers, and `skip_actor=True` leaves the actor as it was. Put
+   it first among the pre-training extensions: the critic pre-trained by the
+   others reads the statistics it sets, and SAC refuses it after them. TD3,
+   REDQ and APO take it too.
+3. **Critic pre-training**, by extension. `MCPretrain` runs the expert, fits a
+   separate critic, the *frozen expert critic* `φ*`, to its Monte-Carlo
+   returns, and records the range of values it predicts. Unlike a Bellman
+   target, a Monte-Carlo return does not lean on an untrained critic, so it
+   is unbiased. `BellmanPretrain` instead runs ordinary critic updates on the
+   prefilled buffer; it is kept for ablations.
+
+### Warm-up
+
+Until `learning_starts`, SAC does not use its policy. At each step, with
+probability `expert_fraction` (default 0.7), every environment takes the
+expert's action; otherwise, a uniform random one. With `ResidualPolicy`, the
+warm-up is uniform only.
+
+### Collection
+
+Collection extensions decide, at each step, whether the expert or the policy
+acts. SAC runs them in two places, which each extension names in its
+`action_slot`:
+
+- **Before the warm-up choice** (`"pre_warmup"`): `EDGEExploration` (a
+  value-based gate) and `JSRLCurriculum` (the expert starts each episode,
+  for a shrinking number of steps).
+- **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
+  wherever its value exceeds a threshold that rises over training.
+
+`ResidualPolicy` changes what the policy's action means: SAC executes
+`clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection, in the
+critic's target, in the actor's loss and in evaluation. The policy then
+learns a correction to the expert (residual RL).
+
+Steps where the expert acted are flagged in the buffer;
+`value/expert_frac_in_buffer` logs their share of each training batch. The
+replay keeps the raw observations and these flags only in a run with an
+expert (an agent's `expert_policy`, or one an extension holds); without one
+nothing reads them.
+
+### Critic
+
+Target extensions change what the critic learns towards. `IBRL` and
+`LCBGatedBootstrap` compare the expert's and the policy's next actions.
+`CriticBlend` and `MCVarianceCorrection` lean on `φ*`, so they need
+`MCPretrain` in the same stack. `PhiRefresh` refits `φ*` during training on
+the rows where the expert acted.
+
+### Actor
+
+`OnlineBC` adds a cloning term to the actor's loss, weighted by `φ*`'s value
+at each state and fading out over `critic_warmup_frac` of training. It
+needs `MCPretrain`.
+
+### Observation
+
+Three SAC options change the networks' input, because they change its size:
+
+- `augment_obs_with_expert_action=True` appends the expert's action to the
+  observation, so the policy can condition on the expert's suggestion.
+- `augment_obs_with_expert_state=True` appends a stateful expert's internal
+  state (a PID's integral, say).
+- `use_train_frac=True` appends the fraction of training done.
+
+### Evaluation
+
+Besides the expert's return and the bias above, `ExpertValueMetrics` logs
+the critic's value at the expert's actions (`value/q_expert_mean`) and its
+gap to the value of the actions taken (`value/q_gap`). `EDGEExploration` logs
+`edge/live_expert_frac`.
+
+## Choosing the pieces
+
+| You want to | Use |
+| --- | --- |
+| Start the replay with good experience | `expert_buffer_n_steps` (on by default) |
+| Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, APO) |
+| Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, APO) |
+| Let the expert act while the agent is poor | `EDGEExploration`, `JSRLCurriculum`, `ValueBox` |
+| Learn a correction to the expert | `ResidualPolicy` |
+| Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` |
+| Make the target account for the expert | `IBRL`, `LCBGatedBootstrap` |
+| Measure how the critic rates the expert | `ExpertValueMetrics` |
+
+Some pieces need others. The agent refuses wrong combinations when it is
+built, or when training starts for those that take context from it:
+
+| Extension | Needs | Refused |
+| --- | --- | --- |
+| `EDGEExploration`, `JSRLCurriculum`, `ValueBox`, `ResidualPolicy` | SAC with an `expert_policy` and without `use_pid_policy` | when built |
+| `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
+| `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `PhiRefresh` | SAC, which keeps the raw next observations they read | when built |
+| `BellmanPretrain`, `ExpertValueMetrics` | SAC with an `expert_policy` | when training starts |
+| `CloningPretrain` | SAC, TD3, REDQ or APO; first among the pre-training extensions | when training starts |
+
+The extensions that hold an expert themselves (`CloningPretrain`,
+`MCPretrain`, `PhiRefresh`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
+`ImitationLoss`) take it as their first argument. Pass the same object you
+give the agent. The target extensions and `PhiRefresh` then read the
+actions SAC stored at collection rather than calling the expert again.
+`CloningPretrain` must have it when SAC's observations carry the expert's
+action or state, and `MCPretrain` when they carry its state; they are
+refused otherwise.
+
+## Imitation for TD3, REDQ, ASAC and APO
+
+These agents take `ImitationLoss`, the behaviour-cloning term of TD3+BC
+(Fujimoto and Gu, 2021) with a fixed expert as the target:
+`coef · mean((μ(s) − a_E(s))²) / 4`, where `μ(s)` is the actor's mean
+action and `a_E(s)` the expert's, both in agent units. Dividing by 4 maps
+the squared distance of two actions in `[-1, 1]` to `[0, 1]`. Unlike
+`OnlineBC`, it is unweighted and needs no expert critic. TD3, REDQ and APO
+can also start from a clone of the expert:
+
+```python
+import jax.numpy as jnp
+
+from ajax import TD3
+from ajax.extensions.expert import ImitationLoss
+from ajax.extensions.pretrain import CloningPretrain
+
+
+def pd_expert(obs):
+    theta = jnp.arctan2(obs[..., 1], obs[..., 0])
+    return jnp.clip(-(2.0 * theta + 0.5 * obs[..., 2]), -2.0, 2.0)[..., None]
+
+
+agent = TD3(
+    "Pendulum-v1",
+    expert_policy=pd_expert,  # logs the expert's own return at evaluations
+    learning_starts=500,
+    extensions=(
+        CloningPretrain(pd_expert, n_steps=1_000, epochs=2),
+        ImitationLoss(pd_expert, coef=1.0),
+    ),
+)
+state, _ = agent.train(seed=0, n_timesteps=2_000)
+```
+
+## Learning a PID's gains: SAC's gain mode
+
+With a stateful PID expert that exposes `learnable_fields`, `anchor_gains`
+and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
+`register_learnable_gains`), `SAC(use_pid_policy=True)` learns to schedule
+the expert's gains instead of acting directly. The actor outputs one number
+`a` in `[-1, 1]` per learnable gain; the gain applied is `anchor · 10^a`,
+between a tenth and ten times the expert's own. The PID computes the action.
+SAC refuses this mode, when it is built, with the collection extensions
+(their `action` phase never runs in it), `ResidualPolicy` and
+`augment_obs_with_expert_action` (the expert's action does not exist before
+the actor has chosen the gains).
+
+It is different from the [PID policy](networks.md#the-pid-policy), in which
+the actor itself is a PID whose gains are learned, for any
+continuous-action agent.
+
+## Limits and caveats
+
+- **No memory.** Recurrent SAC, TD3 and REDQ refuse an expert and
+  extensions.
+- **SAC is the hub.** Most expert extensions read quantities only SAC's
+  update provides; the [catalogue](extensions.md#catalogue) gives each one's
+  scope.
+- **Stateless queries.** An extension that calls its expert on replayed
+  observations needs a stateless expert, unless it is SAC's own (see
+  [The expert](#the-expert)).
+- **Budgets add up.** The prefill, cloning and `MCPretrain` collections run
+  before the first training step and are not counted in `n_timesteps`.
+
+## See also
+
+- [Extensions](extensions.md): the phases and the full catalogue.
+- [SAC](../algorithms/sac.md): every SAC option.
+- [Networks and the PID policy](networks.md).

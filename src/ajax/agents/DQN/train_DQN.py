@@ -51,10 +51,6 @@ from ajax.state import (
 )
 from ajax.types import BufferType
 
-# ---------------------------------------------------------------------------
-# Auxiliary dataclass (for logging)
-# ---------------------------------------------------------------------------
-
 
 @struct.dataclass
 class ValueAuxiliaries:
@@ -68,11 +64,6 @@ class AuxiliaryLogs:
     # Nested one level deep so ajax.log.flatten_dict names the metrics
     # ``value/<field>``, as the other agents' auxiliaries are named.
     value: ValueAuxiliaries
-
-
-# ---------------------------------------------------------------------------
-# Epsilon-greedy action pipeline
-# ---------------------------------------------------------------------------
 
 
 def make_epsilon_greedy_pipeline(
@@ -98,7 +89,6 @@ def make_epsilon_greedy_pipeline(
         )
         greedy_action = jnp.argmax(q_values, axis=-1).astype(jnp.int32)
 
-        # Linear epsilon schedule on the training fraction.
         timestep = agent_state.collector_state.timestep
         train_frac = timestep / total_timesteps
         decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
@@ -111,7 +101,6 @@ def make_epsilon_greedy_pipeline(
         explore = jax.random.uniform(explore_key, shape=greedy_action.shape) < epsilon
         eps_greedy_action = jnp.where(explore, random_action, greedy_action)
 
-        # Warmup: ignore the policy entirely and act uniformly at random.
         env_action = jax.lax.cond(
             uniform, lambda: random_action, lambda: eps_greedy_action
         )
@@ -131,11 +120,6 @@ def make_epsilon_greedy_pipeline(
         )
 
     return pipeline
-
-
-# ---------------------------------------------------------------------------
-# Initialization
-# ---------------------------------------------------------------------------
 
 
 def init_DQN(
@@ -176,11 +160,6 @@ def init_DQN(
         critic_state=q_state,
         collector_state=collector_state,
     )
-
-
-# ---------------------------------------------------------------------------
-# TD target + Q loss
-# ---------------------------------------------------------------------------
 
 
 def compute_dqn_td_target(
@@ -315,11 +294,6 @@ def q_gradient_step(
     return gradient_step(q_state, loss_fn)
 
 
-# ---------------------------------------------------------------------------
-# Per-iteration agent update (one Q step + periodic target refresh)
-# ---------------------------------------------------------------------------
-
-
 @partial(
     jax.jit,
     static_argnames=[
@@ -403,7 +377,6 @@ def update_agent(
         total_timesteps,
     )
 
-    # Periodic target refresh: hard update is tau=1.0, Polyak is tau<1.
     do_target_update = (agent_state.n_updates % target_update_interval) == 0
     q_state = jax.lax.cond(
         do_target_update,
@@ -417,11 +390,6 @@ def update_agent(
         n_updates=agent_state.n_updates + 1,
     )
     return agent_state, AuxiliaryLogs(value=value_aux)
-
-
-# ---------------------------------------------------------------------------
-# Training factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(
@@ -457,7 +425,6 @@ def make_train(
         start_timestep=start_timestep,
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
-    # Resolve composable hooks to their vanilla-DQN defaults when unset.
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
 

@@ -1,0 +1,60 @@
+# Publishes the documentation site to GitHub Pages. Checking the site is the
+# `docs` job in ci.yml, which gates every pull request; this workflow only adds
+# the deploy, so a broken page fails review rather than reaching the published
+# site. It rebuilds rather than reusing the CI build: the build takes seconds,
+# less than passing an artifact between workflows.
+
+name: docs-deploy
+
+on:
+  push:
+    branches: [main]
+  # Republish without a commit: the first time Pages is switched on, and after
+  # a settings change.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Pages allows one deployment at a time. Unlike CI this does not cancel the
+# run in flight: a cancelled deploy can leave the site half published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.11.28"
+          enable-cache: true
+          prune-cache: true
+      # The docs group alone: mkdocstrings reads the source without importing it.
+      - run: uv sync --locked --only-group docs
+      - run: uv run --no-sync mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -273,8 +273,8 @@ says where each extension does its job. "SAC with an expert" means
 Sources: TD3+BC is Fujimoto and Gu, 2021; residual RL is Johannink et al.,
 2019; JSRL is Uchendu et al., 2023; the kernel's bandwidth follows the median
 heuristic of SVGD (Liu and Wang, 2016); effective rank is Kumar et al., 2021,
-and dormant units Sokar et al., 2023 (all cited in the code). IBRL is Hu et
-al., *Imitation Bootstrapped Reinforcement Learning*, 2023. EDGE, the LCB
+and dormant units Sokar et al., 2023, and IBRL is Hu et al., *Imitation
+Bootstrapped Reinforcement Learning*, 2023 (all cited in the code). EDGE, the LCB
 gates and the bias-variance (EVarEst) measurements are research features
 developed with Ajax, with no external reference in the code.
 

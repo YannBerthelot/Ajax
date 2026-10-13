@@ -155,7 +155,8 @@ def _next_target_q(
 
 @dataclass(frozen=True)
 class IBRL(Extension):
-    """IBRL bootstrap.
+    """IBRL bootstrap (Hu, Mirchandani and Sadigh, *Imitation Bootstrapped
+    Reinforcement Learning*, 2023).
 
     Adds ``γ(1-d)·max(min Q_target(s', a_expert') - min Q_target(s', a_π'),
     0)`` to the Bellman target so the value function is consistent with an

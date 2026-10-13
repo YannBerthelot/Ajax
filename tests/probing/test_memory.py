@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "1ded4d712a32"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "dd738b04c9ca"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -34,10 +34,11 @@ ANSWER_DIGEST = "1ded4d712a32"  # verdict.digest(CASES): every answer, pinned
 # stepped, the critic over the sequence at its actions): actions +-1, V = 1
 # (margins); after a cue-free episode V = 0 and an action gap of exactly 0
 # (the carry restarts). Without memory the cue queries read about 0; a carry
-# never restarted acts on the old cue (a gap up to 2). Not built (seeds
-# 1000-2031): PPO with other kinds and TD3 leave seeds acting alike for both
-# cues; SAC and REDQ with other kinds are uncalibrated; ASAC's values are
-# differential; APG needs the env's gradients.
+# never restarted acts on the old cue (a gap up to 2). Built: PPO with GRU
+# and LSTM; SAC, REDQ and TD3 with GRU. Not built: PPO with transformer or
+# mamba waits on a fix to those cores' output norm; SAC, REDQ and TD3 with
+# other kinds are uncalibrated; ASAC's values are differential; APG needs
+# the env's gradients.
 
 
 def _cue(st: envs.State, a: jax.Array, key: Any) -> tuple:
@@ -93,25 +94,34 @@ def _p0b_read(agent: str) -> Callable:
     return lambda run: R.per_seed(read, R.nets(run.state))
 
 
-def _p0b_agent(agent: str, spec: envs.Spec = CUE, **kw: Any) -> Any:
-    """A GRU; replay batches of 4 windows of 25 steps (64 trained positions)."""
+def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) -> Any:
+    """32 units; replay batches of 4 windows of 25 steps (64 trained positions)."""
     kw = ({} if agent == "PPO" else {"batch_size": 4}) | kw
     if agent == "SAC":  # actor and temperature updates start with the critic's
         kw |= {"policy_update_start": 100, "alpha_update_start": 100}
     if agent == "REDQ":
         kw |= {"num_critic_updates": 1, "num_critics": 4, "subset_size": 2}
-    return agents.make(agent, *spec.make(), memory=MemoryConfig("gru", 32), **kw)
+    return agents.make(agent, *spec.make(), memory=MemoryConfig(kind, 32), **kw)
 
 
-# PPO's budget is set by the cue-free value, SAC's and REDQ's by 1250 failing;
-# all certified 32/32. The action gap reads exactly 0: it takes the 0.02 floor.
-P0B_CELLS: dict[str, tuple[int, tuple[float, ...]]] = {
-    "PPO": (10_000, (0.5, 0.5, 0.478, 0.495, 0.091, 0.091, 0.02)),
-    "SAC": (2500, (0.294, 0.304, 0.285, 0.304, 0.086, 0.086, 0.02)),
-    "REDQ": (2500, (0.319, 0.312, 0.312, 0.303, 0.069, 0.069, 0.02)),
+# Budgets: the smallest of 5000-15,000 (PPO) or 1250-3750 steps qualifying on
+# seeds 1000-2031; certified on 3000-3031: SAC and REDQ 32/32, TD3 31/32,
+# PPO-lstm 30/32 (15,000 does not qualify). Each failing seed acts the same
+# after both cues while its critic values the wrong one at -1: PPO's mean
+# sits far past the env's clip (seed 1020: 6.2, std 0.07), where no sample
+# tells actions apart. PPO-gru keeps its earlier calibration (cert 31/32): no
+# budget qualifies, seed 1020 failing at each. The action gap reads exactly
+# 0: it takes the 0.02 floor.
+P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
+    ("PPO", "gru"): (10_000, (0.5, 0.5, 0.478, 0.495, 0.091, 0.091, 0.02)),
+    ("PPO", "lstm"): (10_000, (0.495, 0.451, 0.466, 0.415, 0.053, 0.053, 0.02)),
+    ("SAC", "gru"): (2000, (0.256, 0.275, 0.264, 0.27, 0.046, 0.046, 0.02)),
+    ("REDQ", "gru"): (2500, (0.31, 0.31, 0.302, 0.306, 0.036, 0.036, 0.02)),
+    ("TD3", "gru"): (2500, (0.498, 0.5, 0.484, 0.484, 0.062, 0.062, 0.02)),
 }
-for agent, (budget, tol) in P0B_CELLS.items():
-    cid, build = f"p0b-{agent}-gru", functools.partial(_p0b_agent, agent)
+for (agent, kind), (budget, tol) in P0B_CELLS.items():
+    cid = f"p0b-{agent}-{kind}"
+    build = functools.partial(_p0b_agent, agent, kind=kind)
     reads = runs.readings(build, _p0b_read(agent))
     CASES[cid] = Case(cid, P0B, reads, budget, tol, slow=agent != "PPO")
 

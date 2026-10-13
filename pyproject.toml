@@ -8,8 +8,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "gymnasium>=1.2.0,<2",
     "tqdm>=4.65.0,<5",
-    "jax>=0.6.2; sys_platform == 'darwin' and (platform_machine == 'arm64' or platform_machine == 'aarch64')",
-    "jax[cuda]>=0.6.2; sys_platform != 'darwin' or (platform_machine != 'arm64' and platform_machine != 'aarch64')",
+    "jax>=0.6.2",
     "flax>=0.10.7,<0.11",
     # Imported directly, so declared, not left to the packages that pull
     # them in. brax is capped: create.py uses its private brax.envs._envs.
@@ -30,9 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
-# `ajax[cuda]`. Ask for it now: the default dependencies above still bring
-# jax[cuda] off Apple-silicon Macs, and will stop once the downstream
-# projects that need a GPU request the extra.
+# `ajax[cuda]`. Without it JAX runs on the CPU.
 cuda = ["jax[cuda]>=0.6.2; sys_platform == 'linux'"]
 
 [project.urls]

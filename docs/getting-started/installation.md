@@ -19,13 +19,9 @@ uv run python -c "import ajax; print(ajax.__version__)"
 
 ## CPU or GPU
 
-On Apple-silicon Macs, Ajax installs JAX for the CPU. Everywhere else its
-default dependencies still install `jax[cuda]`, which runs on an NVIDIA GPU
-when there is one and falls back to the CPU when there is not.
-
-That default is due to change: it will stop installing `jax[cuda]`, and CUDA
-will come only from Ajax's `cuda` extra (Linux only). To keep the GPU after
-the change, ask for the extra now:
+Ajax installs JAX for the CPU. CUDA comes only from its `cuda` extra (Linux
+only); without it, JAX runs on the CPU even on a machine with an NVIDIA GPU.
+To use the GPU:
 
 ```bash
 uv sync --extra cuda

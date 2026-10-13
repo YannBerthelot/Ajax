@@ -32,11 +32,13 @@ from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DQN.DQN import DQN
+from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
@@ -55,7 +57,9 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
 )
+from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
+from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.environments import paid_action
 
 CONTINUOUS, DISCRETE = ("fast", "Pendulum-v1"), ("CartPole-v1",)
@@ -368,9 +372,13 @@ def test_each_evaluation_draws_fresh_keys(
 # --------------------------------------------------------------------------
 # Continuous agents act on the env's whole box
 # --------------------------------------------------------------------------
-#: Each continuous agent on a Box(-2, 2) env paying the action it receives:
-#: SAC's and TD3's first 64 steps warm up.
+#: Each continuous agent on an env paying the action it receives, on a box
+#: whose centre is not 0 and whose half-range is not 1, so that a map
+#: dropping the offset (2a) or the scale (1 + a) pays another amount:
+#: SAC's and TD3's first 64 steps warm up, and every run's 128 steps fill
+#: the 128-row buffer (an unwritten row would read reward 0 for action 0).
 ON_THE_BOX = ("APG", "APO", "ASAC", "AVG", "PPO", "REDQ", "SAC", "TD3", "UDRL")
+BOX = (-1.0, 3.0)  # centre 1, half-range 2
 WARM_UP = {"learning_starts": 64, "buffer_size": 128}
 
 
@@ -389,10 +397,11 @@ def _paid_rows(name: str, state: Any) -> tuple[np.ndarray, np.ndarray]:
 @pytest.mark.parametrize("name", ON_THE_BOX)
 def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     """Agent actions in [-1, 1] are mapped onto the env's bounds: every
-    collected row is paid 2 * clip(a, -1, 1) for its stored action a, and
-    evaluate() the deterministic action's (APG: its closed loop's). SAC's
-    and TD3's uniform warm-up covers the box (half their |paid| > 1)."""
-    env, params = paid_action.make()
+    collected row is paid 1 + 2 * clip(a, -1, 1) for its stored action a,
+    and evaluate() the deterministic action's (APG: its closed loop's).
+    SAC's and TD3's uniform warm-up covers the box (half their paid lies
+    over 1 from the centre)."""
+    env, params = paid_action.make(BOX)
     if name == "APG":
         apg = APG(env, env_params=params, n_envs=4, horizon=1, pid=None)
         seeds, _ = apg.train(seed=0, n_timesteps=0)
@@ -404,19 +413,19 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
         policy_step = make_policy_step(actor, actor.params, False)
         own, _ = policy_step(None, rollout.obs[0], rollout.resets[0])
         np.testing.assert_allclose(
-            rollout.reward[0], paid_action.mapped(own)[:, 0], rtol=1e-6
+            rollout.reward[0], paid_action.mapped(own, BOX)[:, 0], rtol=1e-6
         )
         return
     case = CASES[name]
     exposed = {"expose_recent_rollout": True} if case.rollout is not None else {}
     kwargs = case.kwargs | exposed | (WARM_UP if case.buffer else {})
     agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)
-    state, _ = agent.train(seed=0, n_timesteps=96 if case.buffer else 128)
+    state, _ = agent.train(seed=0, n_timesteps=128)
     actions, rewards = _paid_rows(name, state)
     assert np.abs(actions).max() > 0.01, "no action was collected"
-    np.testing.assert_allclose(rewards, paid_action.mapped(actions), rtol=1e-6)
+    np.testing.assert_allclose(rewards, paid_action.mapped(actions, BOX), rtol=1e-6)
     if name in ("SAC", "TD3"):
-        assert (np.abs(rewards[:64]) > 1.0).mean() > 0.25
+        assert (np.abs(rewards[:64] - 1.0) > 1.0).mean() > 0.25
     seed = jax.tree.map(lambda x: x[0], state)
     obs, extra = paid_action.OBS[None], {}
     if name == "UDRL":  # it acts on its observation and its command
@@ -429,7 +438,31 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     paid = evaluate(env, seed.actor_state, 2, key, params, **extra)[0]
     act = get_deterministic_action_and_entropy_fn(seed.actor_state, False, True)
     own, _, _ = act(obs, None, None)
-    np.testing.assert_allclose(paid, paid_action.mapped(own)[0, 0], rtol=1e-6)
+    np.testing.assert_allclose(paid, paid_action.mapped(own, BOX)[0, 0], rtol=1e-6)
+
+
+@pytest.mark.parametrize("name", ["DreamerV3", "TDMPC2"])
+def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
+    """The world models step the env through the row collector, here on
+    4-step episodes (TD-MPC2 refuses terminations): within an episode, the
+    row after each stored raw action a is paid 1 + 2 * clip(a, -1, 1).
+    Their evaluations, sampled or planned, are not read here
+    (``evaluate_policy`` calls the collector's map)."""
+    env, params = paid_action.make(BOX, length=4)
+    if name == "DreamerV3":
+        dreamer = DreamerV3(env, env_params=params, n_envs=1, **DREAMER_TINY)
+        replay = dreamer.train(seed=0, n_timesteps=20)[0].replay_state
+        action, reward = replay.action[0, 0, :, 0], replay.reward[0, 0]
+        paid = ~replay.is_last[0, 0, :-1]  # the rows an episode goes on from
+        actions, rewards = action[:-1][paid], reward[1:][paid]
+    else:
+        tdmpc2 = TDMPC2(env, env_params=params, seed_steps=4, **TDMPC2_TINY)
+        ring = tdmpc2.train(seed=0, n_timesteps=20)[0].buffer_state
+        written = ring.obs[0, :, 0, 0] != 0  # not the staging round's slots
+        actions = ring.action[0, written, :-1, 0].ravel()
+        rewards = ring.reward[0, written, 1:].ravel()
+    assert rewards.size >= 16 and np.abs(actions).max() > 0.01
+    np.testing.assert_allclose(rewards, paid_action.mapped(actions, BOX), rtol=1e-6)
 
 
 #: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).

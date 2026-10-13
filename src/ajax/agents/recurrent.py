@@ -44,11 +44,12 @@ from ajax.networks.memory import (
 )
 from ajax.networks.networks import (
     action_value_input,
+    ensemble_members,
     predict_value,
     predict_value_sequence,
 )
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transition
-from ajax.types import BufferType
+from ajax.types import BufferType, Replaceable
 
 
 @struct.dataclass(kw_only=True)
@@ -64,7 +65,7 @@ class RecurrentReplayConfig(BaseAgentConfig):
 
 
 @struct.dataclass
-class RecurrentCarries:
+class RecurrentCarries(Replaceable):
     """Per-update recurrent context for replayed sequences (R2D2-style).
 
     All carries are burned in from zero on the sequence prefix with the
@@ -332,8 +333,11 @@ def q_values(
     carries: Optional[RecurrentCarries] = None,
     *,
     bootstrap: bool = False,
+    members: Optional[jax.Array] = None,
 ) -> jax.Array:
-    """Every critic's ``Q(obs, actions)``, the ensemble axis first.
+    """Every critic's ``Q(obs, actions)``, the ensemble axis first, or,
+    given ``members`` (indexes into the ensemble), only those critics' in
+    that order, running only them (:func:`ensemble_members`).
 
     With ``carries``, on a replayed sequence from the online critic's
     burned-in carry, or the target critic's when ``bootstrap`` (``obs``
@@ -341,6 +345,17 @@ def q_values(
     :func:`_bootstrap_stream`): the memory reads the actions taken before
     the rows, ``actions`` are queried at the head.
     """
+    if members is not None:
+        critic_state, params = ensemble_members(critic_state, params, members)
+        if carries is not None:
+            # An ensemble's carries lead with its critics' axis too.
+            critic_hidden, target_hidden = jax.tree.map(
+                lambda leaf: leaf[members],
+                (carries.critic_hidden, carries.target_critic_hidden),
+            )
+            carries = carries.replace(
+                critic_hidden=critic_hidden, target_critic_hidden=target_hidden
+            )
     if carries is None:
         return predict_value(critic_state, params, action_value_input(obs, actions))
     if not bootstrap:

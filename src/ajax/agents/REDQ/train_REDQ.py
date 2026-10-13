@@ -154,8 +154,11 @@ def compute_redq_td_target(
     next_actions, log_probs = core.sample_next_actions(
         actor_state, next_observations, sample_key, carries
     )
-    # The ensemble axis stays leading in sequence mode too, so the subset
-    # sampling is the same.
+    # The ensemble axis leads every critic parameter, in sequence mode too.
+    num_critics = jax.tree.leaves(critic_states.target_params)[0].shape[0]
+    sampled_indexes = jax.random.choice(
+        idx_sample_key, num_critics, shape=(subset_size,), replace=False
+    )
     q_targets = q_values(
         critic_states,
         critic_states.target_params,
@@ -163,11 +166,9 @@ def compute_redq_td_target(
         next_actions,
         carries,
         bootstrap=True,
+        members=sampled_indexes,
     )
-    sampled_indexes = jax.random.choice(
-        idx_sample_key, q_targets.shape[0], shape=(subset_size,), replace=False
-    )
-    min_q_target = jnp.min(q_targets[sampled_indexes], axis=0)
+    min_q_target = jnp.min(q_targets, axis=0)
 
     target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
     return jax.lax.stop_gradient(target), log_probs

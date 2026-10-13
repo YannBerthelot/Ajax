@@ -1,5 +1,6 @@
 from collections.abc import Sequence
-from typing import Any, NamedTuple, Optional, Tuple, Union
+from types import MethodType
+from typing import Any, NamedTuple, Optional, Tuple, Union, cast
 
 import distrax
 import flax.linen as nn
@@ -695,6 +696,22 @@ def predict_value(
 ) -> jax.Array:
     x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(critic_params, x)
+
+
+def ensemble_members(
+    critic_state: LoadedTrainState, critic_params: FrozenDict, members: jax.Array
+) -> Tuple[LoadedTrainState, FrozenDict]:
+    """A :class:`MultiCritic`'s ``members`` alone, in that order: the
+    critic state whose ``apply_fn`` runs just them and their parameters,
+    gathered on the ensemble axis that leads every one of them. Indexing
+    the whole ensemble's values instead runs every critic: XLA cannot
+    prune a data-dependent index."""
+    # apply_fn is the network's bound apply (init_network_state).
+    network = cast(MethodType, critic_state.apply_fn).__self__
+    assert isinstance(network, MultiCritic)
+    subset = network.clone(num=members.shape[0])
+    params = jax.tree.map(lambda leaf: leaf[members], critic_params)
+    return critic_state.replace(apply_fn=subset.apply), params
 
 
 def state_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:

@@ -18,8 +18,6 @@ import numpy as np
 import pytest
 
 import ajax
-from ajax.agents.DQN.networks import predict_q
-from ajax.agents.DQN.train_DQN import init_DQN
 
 # "module:qualname" -> keyword arguments downstream passes when calling it.
 DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
@@ -249,32 +247,30 @@ def test_every_agent_takes_weight_decay_off_by_default(name: str) -> None:
 
 def test_dqn_builds_a_plain_q_network_unless_the_encoder_norm_is_opted_in() -> None:
     """DQN's Q-network is a plain MLP (Mnih et al.); the network option
-    ``encoder_layer_norm`` (which replaced ``disable_encoder_output_norm``)
-    adds a LayerNorm on the encoder's output, with the same Dense weights,
-    and changes the Q-values."""
+    ``encoder_layer_norm`` (which replaced ``disable_encoder_output_norm``),
+    set as ``NetworkConfig`` documents, adds a LayerNorm on the encoder's
+    output, with the same Dense weights, and changes the Q-values. Built
+    through ``train`` only, so no internal signature is pinned."""
     agent = ajax.DQN("CartPole-v1", architecture=("16", "relu"))
 
     def q_network() -> Any:
-        key = jax.random.PRNGKey(0)
-        args = (agent.env_args, agent.critic_optimizer_args, agent.network_args)
-        return init_DQN(key, *args, 2).actor_state
+        state, _ = agent.train(seed=0, n_timesteps=0)
+        return jax.tree.map(lambda x: x[0], state.actor_state)
 
     def leaves(params: Any) -> dict[str, jax.Array]:
         paths = jax.tree_util.tree_flatten_with_path(params)[0]
-        return {jax.tree_util.keystr(path): leaf for path, leaf in paths}
+        return {jax.tree_util.keystr(path).lower(): leaf for path, leaf in paths}
 
     plain = q_network()
     agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
     normed = q_network()
     plain_leaves, normed_leaves = leaves(plain.params), leaves(normed.params)
-    assert not any("norm" in name.lower() for name in plain_leaves), sorted(
-        plain_leaves
-    )
+    assert not any("norm" in name for name in plain_leaves), sorted(plain_leaves)
     added = set(normed_leaves) - set(plain_leaves)
-    assert added and all("norm" in name.lower() for name in added), sorted(added)
+    assert added and all("norm" in name for name in added), sorted(added)
     for name, leaf in plain_leaves.items():
         np.testing.assert_array_equal(normed_leaves[name], leaf)
     obs = jax.random.normal(jax.random.PRNGKey(1), (8, 4))
-    q_plain = predict_q(plain, plain.params, obs)
-    q_normed = predict_q(normed, normed.params, obs)
+    q_plain = plain.apply_fn(plain.params, obs).q_values
+    q_normed = normed.apply_fn(normed.params, obs).q_values
     assert not np.allclose(q_plain, q_normed)

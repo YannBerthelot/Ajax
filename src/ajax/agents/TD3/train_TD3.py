@@ -38,7 +38,7 @@ from ajax.environments.interaction import (
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.networks.networks import action_value
+from ajax.networks.networks import action_value, action_value_input, predict_value
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -201,9 +201,15 @@ def policy_loss_function(
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array]]:
     """TD3 actor loss ``-Q1(s, mu(s))``; also returns ``mu(s)`` for extensions."""
     actions = actor_dist(actor_state, actor_params, observations, carries).mean()
-    q_first = q_values(
-        critic_state, critic_state.params, observations, actions, carries
-    )[0]  # TD3 uses Q1 only for the actor objective.
+    # TD3 uses Q1 only for the actor objective: a feedforward critic runs its
+    # first member alone; a recurrent one keeps the ensemble path, where each
+    # member carries its own memory.
+    params = critic_state.params
+    if carries is None:
+        x = action_value_input(observations, actions)
+        q_first = predict_value(critic_state, params, x, first_member=True)[0]
+    else:
+        q_first = q_values(critic_state, params, observations, actions, carries)[0]
     loss = -q_first.mean()
     return loss, (PolicyAuxiliaries(policy_loss=loss, q_mean=q_first.mean()), actions)
 

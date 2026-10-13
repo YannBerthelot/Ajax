@@ -397,6 +397,14 @@ class MultiCritic(nn.Module):
             return self.ensemble(x, hidden_state, done)
         return self.ensemble(x)
 
+    def first_member(self, x: jax.Array):
+        """The first member's values alone, shape ``(1, ..., 1)``, run as a
+        one-member ensemble on its slice of the parameters: TD3's actor
+        reads Q1 only, so the other members' passes are not run.
+        Feedforward only (a recurrent member would need its carry)."""
+        first = jax.tree.map(lambda p: p[:1], self.variables["params"])
+        return self.clone(num=1).apply({"params": first}, x)
+
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
         (:class:`ajax.extensions.instrumentation.ConditioningMetrics`)."""
@@ -692,8 +700,14 @@ def predict_value(
     critic_state: LoadedTrainState,
     critic_params: FrozenDict,
     x: jax.Array,
+    *,
+    first_member: bool = False,
 ) -> jax.Array:
+    """The critic's values on ``x``, or only its first member's
+    (:meth:`MultiCritic.first_member`) when ``first_member``."""
     x = _apply_critic_obs_norm(critic_state, x)
+    if first_member:
+        return critic_state.apply_fn(critic_params, x, method=MultiCritic.first_member)
     return critic_state.apply_fn(critic_params, x)
 
 

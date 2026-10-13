@@ -392,8 +392,9 @@ print([str(w.message) for w in caught if w.category is FutureWarning])
 ```
 
 Today it covers AVG's `alpha_learning_rate` and `target_entropy_per_dim`
-(and `AVGConfig`'s `target_entropy`), and SAC's `jsrl_curriculum` (SAC now
-counts episode steps whenever an extension reads them). Keywords whose
+(and `AVGConfig`'s `target_entropy`), SAC's `jsrl_curriculum` (SAC now
+counts episode steps whenever an extension reads them) and `LoggingConfig`'s
+`horizon`, which nothing reads. Keywords whose
 downstream callers have moved are removed outright, without a warning.
 
 ## Compilation

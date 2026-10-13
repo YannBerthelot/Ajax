@@ -185,27 +185,28 @@ def episode_stream(buffer: SegmentBuffer) -> EpisodeStream:
     order = (buffer.write_idx - buffer.fill_count + jnp.arange(B)) % B
     length = buffer.fill_count * T
     filled = (jnp.arange(B) < buffer.fill_count).astype(jnp.float32)
-    rewards = buffer.rewards[order].reshape(B * T, n_envs, 1)
-    dones = buffer.dones[order] * filled[:, None, None, None]
-    dones = dones.reshape(B * T, n_envs, 1)
+    rewards = buffer.rewards[order].reshape(B * T, n_envs)
+    dones = (buffer.dones[order] * filled[:, None, None, None]).reshape(B * T, n_envs)
+    # The running sums are x_t = keep_t * x_{t-1} + b_t, keep_t = 1 - done_{t-1}:
+    # composing (keep, b) pairs is associative, so a parallel scan replaces a
+    # serial one over all B * T steps. With keep in {0, 1} only the return's
+    # additions round, in another order; the horizon's counts stay exact.
+    keep = jnp.concatenate([jnp.zeros_like(dones[:1]), 1.0 - dones[:-1]])
 
-    def body(carry, x):
-        running_r, running_h, whole = carry  # each (n_envs, 1)
-        r, d = x  # (n_envs, 1) each
-        running_r, running_h = running_r + r, running_h + 1.0
-        out, keep = (running_r, running_h, d * whole), 1.0 - d
-        # The episode after a done starts inside the stream.
-        return (running_r * keep, running_h * keep, jnp.maximum(whole, d)), out
+    def compose(earlier, later):
+        (k1, r1, h1), (k2, r2, h2) = earlier, later
+        return k1 * k2, k2 * r1 + r2, k2 * h1 + h2
 
-    zeros = jnp.zeros_like(rewards[0])
-    init = (zeros, zeros, buffer.episode_start[order[0]])
-    _, (ep_r, ep_h, ends_whole) = jax.lax.scan(body, init, (rewards, dones))
+    ones = jnp.ones_like(rewards)
+    _, ep_r, ep_h = jax.lax.associative_scan(compose, (keep, rewards, ones))
+    # A step's episode starts inside the stream after any earlier done, or
+    # from the first step when the oldest slot holds its start.
+    start = buffer.episode_start[order[0]][None, :, 0]
+    whole = jax.lax.cummax(jnp.concatenate([start, dones[:-1]]), axis=0)
     steps = jnp.arange(B * T)[:, None]
-    last = jnp.where(dones[..., 0] > 0, steps, length - 1)
+    last = jnp.where(dones > 0, steps, length - 1)
     last = jax.lax.cummin(last, axis=0, reverse=True)
-    return EpisodeStream(
-        order, ep_r[..., 0], ep_h[..., 0], ends_whole[..., 0], last, length
-    )
+    return EpisodeStream(order, ep_r, ep_h, dones * whole, last, length)
 
 
 def topk_command_stats(

@@ -87,3 +87,51 @@ def test_the_sampler_draws_intervals_inside_episodes_across_segments(
         for b in range(a + 1, last + 2)
     }
     assert drawn == allowed
+
+
+def _serial_episode_stream(buffer):
+    """``episode_stream`` as one serial scan, before its associative scans:
+    the oracle they must match up to the rounding of the returns' sums."""
+    B, T, n_envs = buffer.rewards.shape[:3]
+    order = (buffer.write_idx - buffer.fill_count + jnp.arange(B)) % B
+    filled = (jnp.arange(B) < buffer.fill_count).astype(jnp.float32)
+    rewards = buffer.rewards[order].reshape(B * T, n_envs, 1)
+    dones = buffer.dones[order] * filled[:, None, None, None]
+    dones = dones.reshape(B * T, n_envs, 1)
+
+    def body(carry, x):
+        running_r, running_h, whole = carry
+        r, d = x
+        running_r, running_h = running_r + r, running_h + 1.0
+        out, keep = (running_r, running_h, d * whole), 1.0 - d
+        return (running_r * keep, running_h * keep, jnp.maximum(whole, d)), out
+
+    zeros = jnp.zeros_like(rewards[0])
+    init = (zeros, zeros, buffer.episode_start[order[0]])
+    _, outs = jax.lax.scan(body, init, (rewards, dones))
+    steps, length = jnp.arange(B * T)[:, None], buffer.fill_count * T
+    last = jnp.where(dones[..., 0] > 0, steps, length - 1)
+    return (*(o[..., 0] for o in outs), jax.lax.cummin(last, axis=0, reverse=True))
+
+
+@pytest.mark.parametrize("segments", [5, 11], ids=["filling", "wrapped"])
+def test_the_stream_matches_the_serial_scan(segments):
+    """Pendulum-like rewards in [-16, 0], 3 envs, dones at rate 1/20 except
+    in env 0 (one episode over the whole stream): the returns are the
+    serial scan's within 8 float32 eps, the rest is equal."""
+    B, T, n_envs = 8, 16, 3
+    buffer = init_buffer(B, T, n_envs, obs_dim=3, action_dim=1)
+    for key in jax.random.split(jax.random.PRNGKey(0), segments):
+        k_r, k_d = jax.random.split(key)
+        rewards = jax.random.uniform(k_r, (T, n_envs, 1), minval=-16.0, maxval=0.0)
+        dones = (jax.random.uniform(k_d, (T, n_envs, 1)) < 0.05).at[:, 0].set(False)
+        obs = jnp.zeros((T, n_envs, 3))
+        buffer = add_segment(buffer, obs, obs[..., :1], rewards, dones * 1.0)
+    stream = jax.jit(episode_stream)(buffer)
+    returns, *exact = jax.jit(_serial_episode_stream)(buffer)
+    eps = np.finfo(np.float32).eps
+    np.testing.assert_allclose(stream.returns, returns, rtol=8 * eps)
+    for new, old in zip(
+        (stream.horizons, stream.ends_whole, stream.last), exact, strict=True
+    ):
+        np.testing.assert_array_equal(new, old)

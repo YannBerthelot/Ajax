@@ -54,9 +54,8 @@ class PQN(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[CNNSpec] = None,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
-        # Gap A (Phase 4a): expose the most recent ``(T, n_envs, ...)``
+        # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,

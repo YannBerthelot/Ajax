@@ -98,13 +98,15 @@ Patches:
    New form carries the latest aux through the scan; `jax.eval_shape`
    builds the zeros placeholder for the initial carry without running a
    real critic forward.
-   File: [train_SAC.py:1792-1820](src/ajax/agents/SAC/train_SAC.py#L1792-L1820).
+   File: `train_SAC.py`'s critic-update scan, now `final_aux_scan` in
+   [perf_utils.py](src/ajax/perf_utils.py).
 5. Add `donate_argnames=("initial_state",)` to the top-level `train`
    jit. On the resume-from-checkpoint path this lets XLA reuse the
    incoming agent-state buffers, dropping peak memory by ~one
    `agent_state` worth. No effect when `resume_from_state=False`
    (default) because `initial_state=None` has no buffer to donate.
-   File: [train_SAC.py:2308-2316](src/ajax/agents/SAC/train_SAC.py#L2308-L2316).
+   File: `train_SAC.py`'s top-level `train` jit, now
+   `build_resumable_train` in [perf_utils.py](src/ajax/perf_utils.py).
 
 Numbers (3 trials each, lower is better):
 
@@ -130,44 +132,6 @@ Takeaways (calibration):
 - Honest reading: Patches 1 and 2 carried the entire measured 4-5%
   speedup at the `stress_sac` scale; 4 and 5 are correctness/headroom.
 
-### Tricks worth remembering
-
-1. **Carry only the leading-1 axis for global stats.** When a stat is
-   updated by reducing over a batch axis (e.g. running mean of obs
-   across envs), storing it with that leading axis present is a pure
-   `n_envs×` memory tax: the per-env rows hold identical values.
-   `(1, *)` keeps broadcasting working without the inflation.
-2. **Diagnostics-only forward passes belong inside the loss.** When a
-   `predict_value`-style call produces values that the loss already
-   computes internally, expose them through `aux` instead of
-   recomputing. If the outer call is only used downstream conditionally
-   (e.g. `target_modifier is not None`), gate it with a Python-level
-   `if` so trace time skips it entirely.
-3. **JAX broadcasting is your friend, but only after you remove the
-   redundant reductions.** If you find yourself calling `nanmean(x,
-   axis=0)` inside a hot path to collapse a stale dim, fix the
-   producer's shape instead.
-4. **Use `jax.eval_shape` for tracer-only structure derivation.** When
-   you need a zeros pytree shaped like the output of an expensive
-   function (e.g. for a scan's initial carry), `eval_shape` gives the
-   `ShapeDtypeStruct` tree without running the function. Pair it with
-   `tree.map(lambda s: jnp.zeros(s.shape, s.dtype), ...)`.
-5. **Don't return ys for diagnostics you only inspect at the last
-   step.** Carrying the latest aux through the scan keeps the leading
-   scan axis off-device. Cheap structural fix, big payoff under
-   vmap-over-seeds with non-trivial aux.
-6. **`donate_argnames` is free when the caller doesn't reuse the
-   input.** Top-level `jit`'d training functions typically receive a
-   freshly constructed agent state once and never see it again.
-   Donating that argument lets XLA reuse its buffers, halving peak
-   memory at the jit boundary on resume-from-checkpoint paths.
-7. **Calibrate benchmark workloads to the patched code path.** Tiny
-   tensors, small `num_critics`, small `num_critic_updates`: every
-   patch effect disappears into XLA fusion + dispatch noise. Use
-   `stress_sac` (n_envs=64, num_critics=10, 256-wide nets) as the
-   default headline number. `pure_sac` is a smoke test, not a
-   measurement.
-
 ### Patch 6 + 7 (2026-05-08)
 
 Patches:
@@ -176,16 +140,16 @@ Patches:
    Flax `network.init` only reads `init_x`'s shape to infer params; the
    leading batch dim's size is irrelevant. Saves an `n_envs×` zero
    allocation at init for the actor and critic init paths.
-   File: [networks.py:562-565](src/ajax/networks/networks.py#L562-L565),
-   [networks.py:617-618](src/ajax/networks/networks.py#L617-L618).
+   File: `get_initialized_actor_critic` and `get_initialized_critic` in
+   [networks.py](src/ajax/networks/networks.py).
 7. `online_normalize` gets a `nan_safe: bool = True` static argument.
    The agent obs path (`update_obs_norm`) sets `nan_safe=False` so its
    reductions compile down to plain `mean` instead of `nanmean`'s
    masked variant. Default stays True so AVG's NaN-sentinel path
-   ([agents/AVG/utils.py:41-55](src/ajax/agents/AVG/utils.py#L41-L55))
-   keeps working. Files:
-   [utils.py:20-66](src/ajax/utils.py#L20-L66),
-   [obs_norm.py:50-52](src/ajax/environments/obs_norm.py#L50-L52).
+   (`compute_td_error_scaling` in
+   [agents/AVG/utils.py](src/ajax/agents/AVG/utils.py)) keeps working.
+   Files: `online_normalize` in [utils.py](src/ajax/utils.py),
+   `update_obs_norm` in [obs_norm.py](src/ajax/environments/obs_norm.py).
 
 Numbers (3 trials each on `stress_sac`, lower is better):
 
@@ -221,9 +185,9 @@ state pytree, which Brax's `VmapWrapper.step` does
 and the rest of the state at leading axis `n_envs`, vmap raises
 `ValueError: vmap got inconsistent sizes`. Reverted.
 
-Lesson logged in tricks #8 below.
+Lesson logged as trick #10 below.
 
-### Tricks worth remembering (updated)
+### Tricks worth remembering
 
 1. **Carry only the leading-1 axis for global stats.** When a stat is
    updated by reducing over a batch axis (e.g. running mean of obs
@@ -283,8 +247,8 @@ Lesson logged in tricks #8 below.
 ## Seed-scaling investigation (2026-05-08)
 
 How fast is `agent.train(seed=[s_0, ..., s_{N-1}])` as N grows? The
-inner train function is wrapped in `jax.vmap` over seeds at
-[base.py:168](src/ajax/agents/base.py#L168), so ideal scaling is
+inner train function is wrapped in `jax.vmap` over seeds in
+`ActorCritic.train` ([base.py](src/ajax/agents/base.py)), so ideal scaling is
 **flat wall-clock**: doubling N should not double the time, since the
 work runs in parallel on the GPU. Saturation appears as wall-clock
 climbing toward N×.
@@ -393,8 +357,8 @@ Patches:
    identical indices from the same `sample_key` for every leaf. New
    form generates one `jax.random.randint` index vector and applies it
    via `x[idx]` to all leaves. Trace-time cleanup; non-default code
-   path so it doesn't show on the bench scenarios. File:
-   [train_SAC.py:1635-1654](src/ajax/agents/SAC/train_SAC.py#L1635-L1654).
+   path so it doesn't show on the bench scenarios. File: `train_SAC.py`
+   (the buffer-mix path was deleted since, in 88124c5).
 
 10. Wire JAX's persistent on-disk compile cache. Default cache dir
     `~/.cache/ajax/jax_compile_cache`, override with
@@ -417,9 +381,12 @@ Patches:
 The peak-memory drop is the surprise: ~290 MB on cold runs is XLA's
 transient compile-time scratch space, not steady-state training
 memory. With a warm cache the compile is skipped entirely, and that
-scratch never allocates. Net effect for HPO: each subsequent trial
-across a sweep runs in ~one-fifth the wall clock and one-twentieth
-the peak GPU memory of the very first trial.
+scratch never allocates. Net effect on a relaunch of the same program
+(a rerun, a resumed or repeated trial, logging off): ~one-fifth the
+wall clock and one-twentieth the peak GPU memory of the first launch. A
+distinct HPO trial compiles its own program (its hyperparameters are
+constants in it), and a program with host callbacks (logging) is never
+cached.
 
 The cache only hits when JAX/JAXlib version + HLO hash match. Code
 changes that alter the lowered HLO (most edits to jit'd functions)
@@ -438,8 +405,8 @@ disk side effects).
 11. **Always wire JAX's persistent compile cache for production
     workflows.** A 3-line config in `__init__.py` (cache dir + zero
     thresholds) saves ~10-20s of compile *and* ~95% of peak GPU mem
-    per fresh process when the HLO matches. Critical for HPO sweeps
-    that spawn many short-lived processes.
+    per fresh process when the HLO matches: relaunches of the same
+    program, not distinct HPO trials or runs that log.
 12. **Don't reuse a PRNG key inside a `tree.map`.** `jax.random.choice`
     with a fixed key produces identical indices on every leaf, but
     pays the index-generation cost N_leaves times. Generate indices
@@ -505,61 +472,39 @@ convention and uses `@train_jit` automatically gets donation +
 `static_argnames`. Agents that aren't ready for the resume signature
 get plain `jit` until they are; no friction.
 
-### Round 5: edge-qa LCB predict-pair fuse — ATTEMPTED, REVERTED (2026-05-08)
+Since then, `@train_jit` was deleted (a5ad4e8): `build_resumable_train`
+in [perf_utils.py](src/ajax/perf_utils.py) applies the donation and the
+static `resume_from_state` to every agent's train.
 
-Hypothesis: each `edge_compute_lcb_scores` /
-`edge_compute_asym_scores` / `edge_compute_thompson_stats` /
-`edge_compute_value_gap` call does **two** `predict_value` forwards on
-the same obs and same critic params (different action arms). Fusing
-into one forward by stacking `[obs, action_e]` and `[obs, action_p]`
-along a doubled batch axis should halve kernel-launch overhead under
-edge-qa.
+### Round 5: edge-qa LCB predict-pair fuse, reverted (2026-05-08)
 
-Implementation: shared `_predict_value_pair(critic_state,
-critic_params, obs, action_a, action_b)` helper in
-[exploration.py](src/ajax/extensions/exploration.py); applied to all
-four affected functions.
-
-Bench (Plane3DCircle, edge-qa scenario with `exploration_lcb=True`,
-`use_expert_guided_exploration=True`, num_critics=2, 256-wide nets,
-500 measured timesteps; cache wiped between unfused and fused runs):
-
-|     N | unfused (s) | fused (s) | delta  |
-| ----: | ----------: | --------: | -----: |
-|     1 |       17.62 |     17.53 |  -0.5% |
-|    16 |       20.06 |     20.82 |  +3.8% |
-|    50 |       20.45 |     20.34 |  -0.5% |
-|   100 |       20.89 |     20.51 |  -1.8% |
-
-Net: noise across N, with a slight regression at N=16. Memory peak
-identical at every N.
-
-Conclusion: **XLA was already fusing the two `predict_value` calls
-into one optimised kernel.** Manual concatenate-doubled-batch fusion
-adds overhead (the explicit `concat` materialises a temp) without any
-parallelism benefit. **Reverted.**
-
-Lesson logged as trick #13 below.
+Four edge-qa scoring functions of the time (`edge_compute_lcb_scores`
+and `edge_compute_asym_scores`, now one `edge_lcb_scores`, and two
+siblings in [exploration.py](src/ajax/extensions/exploration.py)) each
+ran two `predict_value` forwards on the same observations and critic,
+one per action arm. Stacking
+both action arms into one doubled batch measured as noise on
+Plane3DCircle (num_critics=2, 256-wide nets, 500 timesteps, cache wiped
+between runs): -0.5%, +3.8%, -0.5% and -1.8% at N=1, 16, 50 and 100,
+memory unchanged. XLA already fused the two calls; the explicit
+`concatenate` only adds a temporary. Reverted.
 
 ### Tricks worth remembering (updated)
 
-13. **Trust XLA to fuse independent ops with shared inputs before
-    refactoring.** Two `predict_value` calls with the same params and
-    same obs prefix look like a fuse opportunity: stack the inputs,
-    do one forward, slice the output. In practice XLA already produces
-    one fused kernel for the unfused source. Manual fusion via
-    `jnp.concatenate` then forces a temp materialisation that costs
-    more than what was saved. Verify with a clean cache-wiped
-    before/after bench *before* shipping a fuse refactor.
+13. **Trust XLA to fuse independent ops with shared inputs.** Verify a
+    manual fusion with a cache-wiped before/after bench before shipping
+    it: round 5's cost more than it saved.
 
 ## Audit items still pending
 
-- AVG ([agents/AVG/](src/ajax/agents/AVG/)) maintains its own
-  `NormalizationInfo` class. Its `count`/`mean`/`mean_2` are already
-  scalar-shaped; only the `value` field carries `(n_envs, 1)` (which is
-  correct since each env owns its own G_return). No redundant
-  per-env stats here.
-- Audit suggestion to drop `__pycache__` jit decorators inside other
-  jitted scopes (e.g. [interaction.py:1077-1094](src/ajax/environments/interaction.py#L1077-L1094)):
-  no runtime cost, purely cosmetic. Skipped.
+- AVG keeps its own running statistics (`RunningMoments` in
+  [agents/AVG/state.py](src/ajax/agents/AVG/state.py)). Its
+  `count`/`mean`/`mean_2` are already scalar-shaped; only the `value`
+  field carries `(n_envs, 1)` (which is correct since each env owns its
+  own G_return). No redundant per-env stats here.
+- Audit suggestion to drop `jax.jit` decorators on helpers that only
+  run inside other jitted scopes: no runtime cost, purely cosmetic.
+  88124c5 removed those of the train files; a few remain on helpers
+  (e.g. in [interaction.py](src/ajax/environments/interaction.py)).
+  Skipped.
 

@@ -3,17 +3,17 @@
 These reshape the SAC Bellman target before it enters the critic loss
 (the ``on_target`` phase):
 
-* :class:`IBRL`               — ``ibrl_bootstrap``: add the positive gap
+* :class:`IBRL`               — add the positive gap
   ``γ(1-d)·max(Q_expert - Q_policy, 0)`` so the value function matches an
   argmax action-selection policy.
-* :class:`LCBGatedBootstrap`  — ``lcb_gated_bootstrap``: soft-blend the
-  policy and expert TD targets by an LCB-scored sigmoid gate.
-* :class:`CriticBlend`        — ``use_critic_blend``: warmup-decaying
-  blend of the Bellman target with the frozen expert critic's.
-* :class:`MCVarianceCorrection` — ``mc_variance_threshold``: replace
-  high-ensemble-variance Bellman targets with the MC-pretrained oracle.
-* :class:`ValueBox`           — ``use_box``: value-threshold expert
-  action override during collection (the ``action`` phase).
+* :class:`LCBGatedBootstrap`  — soft-blend the policy and expert TD
+  targets by an LCB-scored sigmoid gate.
+* :class:`CriticBlend`        — warmup-decaying blend of the Bellman target
+  with the frozen expert critic's.
+* :class:`MCVarianceCorrection` — replace high-ensemble-variance Bellman
+  targets with the MC-pretrained oracle.
+* :class:`ValueBox`           — value-threshold expert action override
+  during collection (the ``action`` phase).
 
 The ``batch`` argument to ``on_target`` is the dict SAC's
 ``update_value_functions`` builds: ``observations``, ``actions``,
@@ -155,7 +155,7 @@ def _next_target_q(
 
 @dataclass(frozen=True)
 class IBRL(Extension):
-    """IBRL bootstrap (``ibrl_bootstrap``).
+    """IBRL bootstrap.
 
     Adds ``γ(1-d)·max(min Q_target(s', a_expert') - min Q_target(s', a_π'),
     0)`` to the Bellman target so the value function is consistent with an
@@ -198,7 +198,7 @@ class IBRL(Extension):
 
 @dataclass(frozen=True)
 class LCBGatedBootstrap(Extension):
-    """LCB-gated bootstrap (``lcb_gated_bootstrap``).
+    """LCB-gated bootstrap.
 
     Scores the policy and expert next-actions by an LCB rule and
     soft-blends the two TD targets with ``p_expert =
@@ -232,10 +232,7 @@ class LCBGatedBootstrap(Extension):
         ctx: ExtensionContext,
     ) -> jax.Array:
         del ext_state
-        # Score each next action by its LCB (beta annealed as the EDGE
-        # gate's, on the collector's timestep), then soft-blend the policy
-        # and expert TD targets by
-        #   P_expert = σ((score_e - score_p) / lcb_temperature).
+        # beta anneals as the EDGE gate's, on the collector's timestep.
         dones, gamma = batch["dones"], batch["gamma"]
         q_expert, q_policy = _next_target_q(self, agent_state, batch)
         beta = lcb_beta(
@@ -264,10 +261,10 @@ class CriticBlend(Extension):
 
     ``(1-α)·y_bellman + α·y_expert`` with ``y_expert = r + γ(1-d)·V_E(s')``,
     the one-step target on the frozen expert critic ``V_E(s') = φ*(s',
-    a_E(s'))``, so the blend stays a Bellman target (``use_critic_blend``
-    blended ``V_E(s')`` alone: no reward, discount or terminal mask). ``α``
-    decays linearly to 0 over ``critic_warmup_frac`` of training. Requires the
-    frozen expert critic :class:`MCPretrain` fits (refused without it).
+    a_E(s'))``, so the blend stays a Bellman target (``V_E(s')`` alone has
+    no reward, discount or terminal mask). ``α`` decays linearly to 0 over
+    ``critic_warmup_frac`` of training. Requires the frozen expert critic
+    :class:`MCPretrain` fits (refused without it).
     """
 
     expert_policy: Callable
@@ -327,10 +324,9 @@ class CriticBlend(Extension):
 class MCVarianceCorrection(Extension):
     """Replace high-variance Bellman targets with the MC oracle.
 
-    Equivalent to ``mc_variance_threshold``: where the inter-critic
-    variance exceeds ``threshold`` the Bellman target is swapped for the
-    MC-pretrained expert critic's estimate. Requires :class:`MCPretrain`
-    (refused without it).
+    Where the inter-critic variance exceeds ``threshold`` the Bellman
+    target is swapped for the MC-pretrained expert critic's estimate.
+    Requires :class:`MCPretrain` (refused without it).
     """
 
     threshold: float
@@ -365,7 +361,7 @@ class MCVarianceCorrection(Extension):
 
 @dataclass(frozen=True)
 class ValueBox(Extension):
-    """Value-threshold expert-action override (``use_box``).
+    """Value-threshold expert-action override.
 
     During collection, override the policy action with the expert's
     whenever the frozen-expert value ``V_expert(s)`` exceeds a curriculum
@@ -373,18 +369,14 @@ class ValueBox(Extension):
     Requires :class:`MCPretrain` (which supplies phi*, ``v_min`` and
     ``v_max``; refused without it).
 
-    The :meth:`action` phase owns the override math. It reads the
-    pre-computed per-step quantities off the SAC action pipeline's batch
-    dict (``env_action``, ``expert_action``, the action of SAC's
+    The :meth:`action` phase reads the SAC action pipeline's per-step dict
+    (``env_action``, ``expert_action``, the action of SAC's
     ``expert_policy``, at which it also measures the expert's value, and
-    ``observations``, the critics' input, augmented when it is), the
-    box bounds off the agent state (so a resumed run keeps them) and
-    writes ``in_value_box`` / ``entry_bonus``
-    back into the dict so the pipeline can record them on the
-    transition. The substitution itself is
-    ``box_action_override`` above and is
-    applied AFTER the warmup/post-warmup choice — matching the legacy
-    ``make_action_pipeline`` ordering byte-for-byte.
+    ``observations``, the critics' input, augmented when it is) and the box
+    bounds off the agent state (so a resumed run keeps them), and writes
+    ``in_value_box`` / ``entry_bonus`` back into the dict for the pipeline
+    to record on the transition. The override (:func:`box_action_override`)
+    comes after the warmup / post-warmup choice (``action_slot``).
     """
 
     name: str = "value_box"
@@ -401,15 +393,11 @@ class ValueBox(Extension):
         rng: jax.Array,
         ctx: ExtensionContext,
     ) -> jax.Array | None:
-        """Override with ``a_expert`` inside the value box.
-
-        ``obs`` is the SAC action pipeline's per-step batch dict (see
-        :mod:`ajax.extensions.exploration` for the convention). The box
-        bounds are the MC-pretrain v_min/v_max stored on
-        :class:`SACState`. Returns the action with the in-box rows
-        replaced by the expert action; writes ``in_value_box`` and
-        ``entry_bonus`` into ``obs`` for pipeline-side bookkeeping
-        (buffer-write suppression, reward shaping, ``is_expert_flag``).
+        """Override with ``a_expert`` inside the value box, its bounds the
+        MC-pretrain v_min/v_max on :class:`SACState`; writes
+        ``in_value_box`` and ``entry_bonus`` into ``obs`` for the pipeline's
+        bookkeeping (buffer-write suppression, reward shaping,
+        ``is_expert_flag``).
         """
         del ext_state, rng
         env_action = obs["env_action"]
@@ -429,9 +417,6 @@ class ValueBox(Extension):
         )
         obs["in_value_box"] = in_value_box
         obs["entry_bonus"] = entry_bonus
-        # ValueBox lives at the end of the action chain (legacy ordering:
-        # AFTER the warmup vs post-warmup ``jax.lax.cond``). It rewrites
-        # ``env_action`` directly.
         return box_action_override(env_action, expert_action, in_value_box)
 
 

@@ -365,17 +365,12 @@ class Extension:
     def bind_to_agent(self, **agent_context: Any) -> "Extension":
         """Return ``self``, optionally populating closed-over agent context.
 
-        The default is the identity: extensions that don't need agent-
-        factory context (env_args, network_args, buffer, …) ignore every
-        kwarg and stay as-is. Extensions that DO close over factory-
-        resolved values (:class:`MCPretrain`, :class:`PhiRefresh`,
-        :class:`ResidualPolicy`) override
-        this to return a new (frozen) instance with the relevant fields
-        filled in.
-
-        Callers may invoke ``ext.bind_to_agent(env_args=..., buffer=...,
-        ...)`` uniformly across an entire stack without per-extension
-        type checks — see :meth:`ExtensionStack.bind_to_agent`.
+        The default is the identity: an extension ignores every kwarg it
+        does not need. One that closes over values the agent factory
+        resolves (env_args, buffer, …; e.g. :class:`MCPretrain`,
+        :class:`PhiRefresh`) overrides this to return a new frozen instance
+        with them filled in, so a whole stack binds without per-extension
+        type checks (:meth:`ExtensionStack.bind_to_agent`).
         """
         del agent_context
         return self
@@ -425,14 +420,11 @@ class ExtensionStack:
         """One sub-key per extension (a fold never splits for an empty stack)."""
         return tuple(jax.random.split(rng, len(self.extensions)))
 
-    # ------------------------------------------------------------------
-    # ``fold_<phase>``: the phase folded on an agent state
-    # ------------------------------------------------------------------
-    # Each fold builds the phase's :class:`ExtensionContext` and reads
-    # (and, for state-threading phases, writes) ``agent_state.ext_state``,
-    # in list order. On an empty stack it returns its input unchanged
-    # without building a context, so an agent without extensions traces
-    # nothing extra and an agent never needs to guard a fold itself.
+    # ``fold_<phase>``: each fold builds the phase's ExtensionContext and
+    # reads (and, for state-threading phases, writes)
+    # ``agent_state.ext_state``, in list order. On an empty stack it returns
+    # its input unchanged without building a context, so an agent without
+    # extensions traces nothing extra and never needs to guard a fold.
 
     def fold_init(self, agent_state: Any, rng: jax.Array, total_steps: int) -> Any:
         """A fresh run's extension setup: every extension's initial state,
@@ -565,21 +557,11 @@ class ExtensionStack:
             out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], ctx))
         return out
 
-    # ------------------------------------------------------------------
-    # ``bind_to_agent`` — push factory context onto every extension.
-    # ------------------------------------------------------------------
     def bind_to_agent(self, **agent_context: Any) -> "ExtensionStack":
-        """Return a new stack with every extension bound to ``agent_context``.
-
-        Each extension's :meth:`Extension.bind_to_agent` decides which
-        kwargs (if any) it cares about; the base implementation is the
-        identity. This is what lets the SAC factory (and any other
-        agent factory) populate closed-over context on extensions like
-        :class:`MCPretrain` / :class:`PhiRefresh` /
-        :class:`ResidualPolicy` without
-        per-extension type checks.
-
-        Empty stack: returns ``self`` unchanged.
+        """Return a new stack with every extension bound to ``agent_context``
+        (each :meth:`Extension.bind_to_agent` picks the kwargs it needs);
+        each agent factory passes the context it owns. An empty stack
+        returns ``self``.
         """
         if not self.extensions:
             return self

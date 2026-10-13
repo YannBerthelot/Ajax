@@ -45,10 +45,6 @@ from ajax.state import (
     Transition,
 )
 
-# ---------------------------------------------------------------------------
-# The update: Q(lambda) targets, then minibatched TD epochs
-# ---------------------------------------------------------------------------
-
 
 def update_agent(
     agent_state: PQNState,
@@ -142,11 +138,6 @@ def update_agent(
     value_aux = jax.tree.map(lambda x: x.mean().reshape((1,)), value_aux)
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
     return agent_state, AuxiliaryLogs(value=value_aux)
-
-
-# ---------------------------------------------------------------------------
-# Training factory
-# ---------------------------------------------------------------------------
 
 
 def make_train(

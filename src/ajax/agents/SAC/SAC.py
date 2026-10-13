@@ -23,18 +23,9 @@ from ajax.types import EnvType
 class SAC(ActorCritic):
     """Soft Actor-Critic agent for continuous action spaces.
 
-    Phase-5 surface: the legacy ~75-kwarg back-compat shim
-    (``ibrl_bootstrap`` / ``use_critic_blend`` / ``use_online_bc`` /
-    ``use_phi_refresh`` / ``use_mc_critic_pretrain`` /
-    ``use_expert_guided_exploration`` / the ``exploration_*`` +
-    ``lcb_*`` family / ``jsrl_episode_length`` + ``jsrl_decay_frac`` /
-    ``mc_pretrain_n_mc_*`` / ``online_critic_pretrain_*`` /
-    ``mc_variance_threshold`` / ``lcb_gated_bootstrap`` /
-    ``phi_refresh_interval`` / ``phi_refresh_steps`` /
-    ``critic_warmup_frac`` / ``bc_coef``) was stripped. ``extensions=``
-    is now the sole surface for composing research features.
+    ``extensions=`` is the sole surface for composing research features.
 
-    Several kwargs survived because they thread into network init,
+    Several kwargs remain because they thread into network init,
     collection, or the action pipeline at a level the extension
     framework doesn't reach (``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
@@ -94,8 +85,7 @@ class SAC(ActorCritic):
         # Expert objects: still used by collection / cloning / a fair
         # number of action-pipeline call sites. ``expert_policy=`` is
         # also accepted by individual Extensions and SHOULD be supplied
-        # to them too — passing it here is shorthand for the legacy
-        # "experts everywhere" path used by AjaxExperiments.
+        # to them too.
         expert_policy: Optional[Callable] = None,
         eval_expert_policy: Optional[Callable] = None,  # for eval logging only
         # Deprecated, no effect: SAC counts each env's steps in its episode
@@ -116,7 +106,6 @@ class SAC(ActorCritic):
         # Train-fraction conditioning: append timestep/total_timesteps
         # to obs (changes the network input dim).
         use_train_frac: bool = False,
-        # Update start thresholds
         policy_update_start: int = 2_000,
         alpha_update_start: int = 2_000,
         # Warmup expert-vs-uniform mix fraction (gates uniform sampling
@@ -133,8 +122,7 @@ class SAC(ActorCritic):
         # Off-policy-correctness ablation: store the policy's sampled
         # action in the buffer instead of the executed action.
         store_policy_action: bool = False,
-        # target_entropy time ramp (threaded into
-        # ``temperature_loss_function``).
+        # target_entropy time ramp (update_agent).
         target_entropy_initial_per_dim: Optional[float] = None,
         target_entropy_ramp_frac: float = 0.5,
         # Deliberate transitional shim (CLAUDE.md rule 10, expand then
@@ -142,7 +130,6 @@ class SAC(ActorCritic):
         # True is a no-op and False cannot be honoured. AjaxExperiments
         # still passes it; remove it once AjaxExperiments stops.
         skip_critic_pretrain: bool = True,
-        # --- Composable research features ---
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -192,8 +179,6 @@ class SAC(ActorCritic):
                 )
             action_dim_override = len(expert_policy.learnable_fields)
             if augment_obs_with_expert_action:
-                # The expert's action is what the actor's gains make it, after
-                # the actor has read its observation.
                 raise ValueError(
                     "use_pid_policy=True cannot take augment_obs_with_expert_action"
                     "=True: the actor's output sets the gains the expert acts"
@@ -231,8 +216,6 @@ class SAC(ActorCritic):
             " them (JSRLCurriculum).",
             jsrl_curriculum=jsrl_curriculum,
         )
-        # Resolve the static expert_state_aug_dim once. 0 for stateless or
-        # when the augmentation is off.
         expert_state_aug_dim = 0
         if augment_obs_with_expert_state and expert_policy is not None:
             from ajax.environments.interaction import expert_state_dim

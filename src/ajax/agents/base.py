@@ -140,7 +140,7 @@ class ActorCritic:
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[CNNSpec] = None,
-        # Brax-style actor head knobs (see NetworkConfig). Default = legacy.
+        # Brax-style actor head knobs (see NetworkConfig).
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -155,16 +155,10 @@ class ActorCritic:
         Initialize the agent.
 
         Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
             actor_learning_rate (float | Callable[[int], float]): Learning
                 rate for the actor's optimizer, or its schedule.
             critic_learning_rate (float | Callable[[int], float]): Learning
                 rate for the critic's optimizer, or its schedule.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
             normalize_rewards (bool): divide the rewards the agent learns
@@ -323,7 +317,6 @@ class ActorCritic:
         Train the agent, every seed at once.
 
         Args:
-            seed (int | Sequence[int]): Random seed(s) for training.
             n_timesteps (int): Timesteps this call trains for.
             num_episode_test (int): Number of episodes for evaluation during training.
             initial_state: a state (or ``(state, out)``) ``train`` returned,

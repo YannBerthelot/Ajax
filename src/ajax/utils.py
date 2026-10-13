@@ -27,7 +27,7 @@ def online_normalize(
     ``nan_safe`` (static): when True (default), reductions skip NaN
     entries via ``jnp.nanmean``. This is load-bearing for AVG, which
     feeds NaN-sentinel values for non-terminal transitions in
-    ``G_return`` ([agents/AVG/utils.py:41-55](src/ajax/agents/AVG/utils.py#L41-L55)).
+    ``G_return`` (:func:`ajax.agents.AVG.utils.compute_td_error_scaling`).
     Set to False at call sites that pass guaranteed-clean data (e.g. the
     agent-side obs normalizer) to drop the per-reduction mask cost.
 
@@ -69,7 +69,7 @@ def online_normalize(
     std = jnp.clip(std, 1e-6, 1e6)
     x_norm = (input_x - _mean(mean, axis=0) * shift) / _mean(std, axis=0)
 
-    x_norm = x_norm.reshape(input_x.shape)  # Ensure output shape matches input shape
+    x_norm = x_norm.reshape(input_x.shape)
     if raw_columns:
         # Set, not computed: a compiler free to fuse the division by the
         # averaged std may otherwise move them by an ulp.

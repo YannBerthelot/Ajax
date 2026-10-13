@@ -62,9 +62,9 @@ class REDQ(ActorCritic):
     supports_memory: bool = True
     make_train = staticmethod(make_train)
 
-    def __init__(  # pylint: disable=W0102, R0913
+    def __init__(
         self,
-        env_id: str | EnvType,  # TODO : see how to handle wrappers?
+        env_id: str | EnvType,
         n_envs: int = 1,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
@@ -100,7 +100,6 @@ class REDQ(ActorCritic):
         # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
-        # --- New surface: composable research features as Extensions ---
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -111,22 +110,6 @@ class REDQ(ActorCritic):
         Initialize the REDQ agent.
 
         Args:
-            env_id (str | EnvType): Environment ID or environment instance.
-            n_envs (int): Number of parallel environments.
-            actor_learning_rate (float): Learning rate for the actor's optimizer.
-            critic_learning_rate (float): Learning rate for the critic's optimizer.
-            alpha_learning_rate (float): Learning rate for the temperature's
-                optimizer.
-            actor_architecture (tuple): Architecture of the actor network.
-            critic_architecture (tuple): Architecture of the critic network.
-            gamma (float): Discount factor for rewards.
-            env_params (Optional[EnvParams]): Parameters for the environment.
-            max_grad_norm (Optional[float]): Maximum gradient norm for clipping.
-            buffer_size (int): Size of the replay buffer.
-            batch_size (int): Batch size for training.
-            learning_starts (int): Timesteps before training starts.
-            tau (float): Soft update coefficient for target networks.
-            reward_scale (float): Scaling factor for rewards.
             alpha_init (float): Initial value for the temperature parameter.
                 1.0 as in REDQ's official code, which learns ``log_alpha``
                 from 0 (watchernyu/REDQ@7b5d1bf,

@@ -34,17 +34,8 @@ def get_adam_tx(
     supervised ones run plain Adam, as in their reference implementations.
 
     Args:
-        learning_rate (Union[float, Callable[[int], float]]): Learning rate for the optimizer.
-        max_grad_norm (Optional[float]): Maximum gradient norm; None does not clip.
-        eps (float): Epsilon value for numerical stability.
-        beta_1, beta_2 (float): Adam's decay rates of the first and second
-            moment estimates.
-        weight_decay (float): Decoupled weight decay; ``> 0`` selects
+        weight_decay: Decoupled weight decay; ``> 0`` selects
             ``optax.adamw`` (used by the APG family), ``0`` keeps plain Adam.
-
-    Returns:
-        GradientTransformationExtraArgs: The configured optimizer.
-
     """
     if weight_decay < 0:
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
@@ -109,7 +100,6 @@ def parse_function_string(s, context=None):
         name, expr = match.groups()
         if expr:
             try:
-                # Evaluate the expression in a limited context
                 value = eval(expr, {"__builtins__": {}}, context)
             except Exception as e:
                 raise ValueError(f"Error evaluating expression '{expr}': {e}") from e
@@ -117,7 +107,6 @@ def parse_function_string(s, context=None):
         else:
             return name, None
     else:
-        # Try to parse it as a raw value
         try:
             value = eval(s, {"__builtins__": {}}, context)
             return None, value

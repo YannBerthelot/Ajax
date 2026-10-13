@@ -77,9 +77,12 @@ training computes). Mamba keeps its state for every step: several
 `T × expand·hidden_size × d_state` tensors per sequence and layer. The
 replay agents' sequences are short (`burn_in + sequence_length + 1` steps,
 25 by default), but PPO's are each copy's whole rollout unless `bptt_length`
-is set: at the default `n_steps=2048`, one layer's attention scores take
-about 68 MB per copy and each Mamba state tensor about 17 MB. For long
-rollouts, set `bptt_length` to bound `T`.
+is set: at the default `n_steps=2048`, each attention-scores tensor takes
+about 68 MB per copy and layer, and each Mamba state tensor about 17 MB.
+Training holds several such tensors at once (for the transformer, the
+masked scores, their softmax and the gradients of both), so a layer's peak
+is several times these figures. For long rollouts, set `bptt_length` to
+bound `T`.
 
 ## On-policy: PPO
 

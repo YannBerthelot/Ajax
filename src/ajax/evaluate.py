@@ -555,6 +555,9 @@ def _roll_out(body, carry: _EvalCarry, length: int, mode: str):
     under ``vmap`` + ``while_loop``."""
     if mode != "gymnax":
         return jax.lax.scan(body, carry, None, length=length)
+    # The records' shapes come from tracing the body; jitted (inlined, so
+    # the same computation) the loop reuses that trace instead of a second.
+    body = jax.jit(body, inline=True)
     records = jax.tree.map(
         lambda r: jnp.zeros((length, *r.shape), r.dtype),
         jax.eval_shape(body, carry, None)[1],

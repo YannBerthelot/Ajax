@@ -1,6 +1,6 @@
 import dataclasses
 from functools import partial
-from typing import Any
+from typing import Any, NamedTuple
 
 import distrax
 import gymnax
@@ -143,12 +143,42 @@ def _cartpole_eval_kwargs() -> dict:
     }
 
 
+class _Clock(NamedTuple):
+    t: jax.Array
+    done: jax.Array
+
+
+def test_gymnax_roll_out_stops_once_every_episode_has_ended():
+    """Two episodes ending after 3 and 5 steps: the rollout runs 5 steps
+    of the 10 allowed (the skipped steps' records stay zeros), the 4 of a
+    cap of 4; one trace of the body serves the records' shapes and the
+    loop."""
+    traces = []
+
+    def body(clock, _):
+        traces.append(clock)
+        t = clock.t + 1
+        return _Clock(t, (t >= jnp.array([3, 5])).astype(jnp.int8)), jnp.ones(())
+
+    start = _Clock(jnp.int32(0), jnp.zeros(2, jnp.int8))
+    _, records = ajax.evaluate._roll_out(body, start, 10, "gymnax")
+    assert len(traces) == 1
+    assert int(records.sum()) == 5 < 10
+    np.testing.assert_array_equal(records[5:], 0)
+    _, records = ajax.evaluate._roll_out(body, start, 4, "gymnax")
+    assert int(records.sum()) == 4
+
+
 def test_gymnax_evaluation_stops_early_with_the_full_scans_numbers(monkeypatch):
     """On gymnax the rollouts (the actor's, the expert's) stop once every
     episode has ended, well before CartPole's 500-step limit here; running
     the limit out, as the fixed-length scan did, gives the same outputs."""
-    early = evaluate(**_cartpole_eval_kwargs())
-    assert float(early[4]) * 4 < 500  # every episode ended before the limit
+    kwargs = _cartpole_eval_kwargs()
+    early = evaluate(**kwargs)
+    # Every episode ended before the limit: even their summed lengths (the
+    # mean length, early[4], times the episode count) fall short of it.
+    summed_lengths = float(early[4]) * kwargs["num_episodes"]
+    assert summed_lengths < kwargs["env_params"].max_steps_in_episode
     traced = []
 
     def full_scan(body, carry, length, mode):

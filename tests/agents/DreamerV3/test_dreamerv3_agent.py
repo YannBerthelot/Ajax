@@ -35,6 +35,7 @@ from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
 from ajax.checkpoint import restore_into, save_checkpoint, skeleton_of
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, TargetTweak
+from tests.probing.readouts import differing_leaves
 
 from .reference_loop import reference_train_loop
 
@@ -352,13 +353,17 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     half = agent.train(seed=SEEDS, n_timesteps=ROWS // 2)
     assert half[0].replay_state.obs.shape == (2, N_ENVS, 60, 4)
     assert agent.resume_iteration_offset(half[0]) == ROWS // 2 // N_ENVS
-    path = str(tmp_path / "half.pkl")
-    save_checkpoint(half[0], path)
+    whole, alone = str(tmp_path / "half.pkl"), str(tmp_path / "state.pkl")
+    save_checkpoint(half, whole)  # train()'s (state, metrics), resumed from
+    save_checkpoint(half[0], alone)
     resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
-    skeleton = skeleton_of(resumer, SEEDS)
-    state, _ = resumer.train(
-        seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restore_into(skeleton, path)
+    # Each restores into its skeleton: train()'s traced output, skeleton_of's.
+    traced = jax.eval_shape(lambda: resumer.train(seed=SEEDS, n_timesteps=0))
+    restored = restore_into(traced, whole)
+    assert not differing_leaves(
+        restored[0], restore_into(skeleton_of(resumer, SEEDS), alone), 0, 0
     )
+    state, _ = resumer.train(seed=SEEDS, n_timesteps=ROWS // 2, initial_state=restored)
     full = cartpole.state
     assert resumer.replay_rows_per_env == 100
     np.testing.assert_array_equal(state.n_updates, full.n_updates)

@@ -134,19 +134,23 @@ def train(
 
 
 def resume(
-    run: Run, budget: int, folder: str = "", agent: Any = None, **kw: Any
+    run: Run,
+    budget: int,
+    folder: str = "",
+    agent: Any = None,
+    log_every: int | None = None,
+    **kw: Any,
 ) -> Run:
     """Continue ``run`` for ``budget`` more steps on ``agent`` (its own by
-    default; the call may donate the state: read it first). With ``folder``,
-    through a checkpoint restored into the agent's 0-step skeleton, as a new
-    process would (ajax/checkpoint.py)."""
+    default; the call may donate the state: read it first), logging as
+    :func:`train` does. With ``folder``, through a checkpoint restored into
+    the agent's 0-step skeleton, as a new process would (ajax/checkpoint.py)."""
     agent, state = agent or run.agent, run.state
     if folder:
         path = os.path.join(folder, "checkpoint.pkl")
         save_checkpoint(state, path)
-        init = {k: v for k, v in kw.items() if k != "log_every"}  # runs.train's option
-        state = restore_into(skeleton_of(agent, run.seeds, **init), path)
-    return train(agent, run.seeds, budget, initial_state=state, **kw)
+        state = restore_into(skeleton_of(agent, run.seeds, **kw), path)
+    return train(agent, run.seeds, budget, log_every, initial_state=state, **kw)
 
 
 def readings(

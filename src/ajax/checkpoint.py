@@ -11,7 +11,7 @@ Typical resume flow (``resume`` in tests/probing/runs.py runs it):
     state = None                                            # a fresh run
     if checkpoint_exists(path):
         state = restore_into(skeleton_of(agent, seeds), path)
-    final = agent.train(..., initial_state=state, ...)
+    final, _ = agent.train(..., initial_state=state, ...)
     save_checkpoint(final, path)
 """
 

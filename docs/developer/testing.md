@@ -317,7 +317,7 @@ goes wrong without crashing:
 | The discount is squared, replaced by `1 - gamma`, or dropped | the value-chain cases: at the probe discount 0.62 those wrong answers sit about 0.24 or more from the right one |
 | A time limit is treated as a termination; the reset observation replaces the episode's final one; truncation is dropped | `P6-PPO-OR`, `P6-RESET-OBS`, `P6-GYMNAX-TRUNC-DROPPED` |
 | The reward scale is applied twice | `P5-S13`, `P5-REDQ-scaled-twice` |
-| GAE runs forwards in time; the value bootstraps on the wrong observation; the configured lambda is ignored | `Q9-GAE-FORWARD`, `P09`, `Q9-PQN-LAMBDA` |
+| GAE runs forwards in time; the value bootstraps on the wrong observation; the configured lambda is ignored | `Q02`, `P09`, `Q9-PQN-LAMBDA` |
 | The entropy term has the wrong sign or is missing; the tanh log-probability misses its Jacobian, in the policy or in the target | `P07`, `S-entropy-sign`, `S-no-jacobian`, `S-pre-tanh-target` |
 | The observation normaliser is skipped in the target or at evaluation | `P1-sac-target-skips-agent-norm`, `P1-eval-skips-agent-norm` |
 | TD3's target policy noise is not clipped | `T02` |

@@ -112,3 +112,25 @@ def fill_with_nan(dataclass):
             fill_with_nan(sub) if hasattr(sub, "__dataclass_fields__") else nan
         )
     return dataclass(**values)
+
+
+def reverse_linear_scan(
+    a: jax.Array, b: jax.Array, init: Optional[jax.Array] = None
+) -> jax.Array:
+    """``x_t = a_t + b_t x_{t+1}`` back along the leading (time) axis from
+    ``x_T = init`` (zero by default): the recursion of GAE and of
+    lambda-returns. The affine maps ``x -> a_t + b_t x`` compose
+    associatively, so a parallel prefix scan (Blelloch, 1990) reaches every
+    ``x_t`` in about 2 log2(T) steps where a reverse ``lax.scan`` takes T
+    serial ones: the same sums, rounded in another order."""
+
+    def compose(later, earlier):
+        # A reversed scan hands the maps from t + 1 on first; earlier's
+        # map applies last.
+        b_later, a_later = later
+        b_earlier, a_earlier = earlier
+        return b_earlier * b_later, a_earlier + b_earlier * a_later
+
+    # x_t = x0_t + (b_t ... b_{T-1}) init, x0 the recursion from zero.
+    b_prod, x0 = jax.lax.associative_scan(compose, (b, a), reverse=True)
+    return x0 if init is None else x0 + b_prod * init

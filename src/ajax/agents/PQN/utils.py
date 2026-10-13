@@ -4,6 +4,8 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
+from ajax.utils import reverse_linear_scan
+
 
 @partial(jax.jit, static_argnames=["gamma", "q_lambda"])
 def compute_q_lambda_targets(
@@ -23,29 +25,19 @@ def compute_q_lambda_targets(
 
     ``V(s_{t+1})`` is zeroed on natural termination; a truncated step
     bootstraps on ``V(s_{t+1})`` but does not propagate the lambda trace
-    past the cut. The reverse-scan carry is seeded with the final step's
-    bootstrap so the last transition gets a clean 1-step target.
+    past the cut. The recursion is seeded with the final step's bootstrap
+    so the last transition gets a clean 1-step target.
 
     All inputs are shaped ``(n_steps, n_envs, 1)``; returns the same.
     """
-
-    def body(next_return, transition):
-        reward, q_next, terminated, truncated = transition
-        non_terminal = 1.0 - terminated
-        not_done = 1.0 - jnp.logical_or(
-            terminated.astype(bool), truncated.astype(bool)
-        ).astype(reward.dtype)
-        v_next = non_terminal * q_next
-        g = reward + gamma * (
-            (1.0 - q_lambda) * v_next
-            + q_lambda * (not_done * next_return + (1.0 - not_done) * v_next)
-        )
-        return g, g
-
-    _, returns = jax.lax.scan(
-        body,
-        next_q_max[-1],
-        (rewards, next_q_max, terminateds, truncateds),
-        reverse=True,
+    non_terminal = 1.0 - terminateds
+    not_done = 1.0 - jnp.logical_or(
+        terminateds.astype(bool), truncateds.astype(bool)
+    ).astype(rewards.dtype)
+    v_next = non_terminal * next_q_max
+    # G_t = a_t + b_t G_{t+1}, b_t = gamma lambda (1 - done_t): a done cuts
+    # the trace and bootstraps on V(s_{t+1}) in full.
+    a = rewards + gamma * (
+        (1.0 - q_lambda) * v_next + q_lambda * ((1.0 - not_done) * v_next)
     )
-    return returns
+    return reverse_linear_scan(a, gamma * q_lambda * not_done, next_q_max[-1])

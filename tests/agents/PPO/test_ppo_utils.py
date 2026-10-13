@@ -74,6 +74,40 @@ def test_compute_gae(rewards, values, next_values, terminateds, truncateds, adva
     np.testing.assert_allclose(returns, jnp.array(advantages) + values, atol=1e-5)
 
 
+def _serial_gae(rewards, values, next_values, terminateds, truncateds, gamma, lam):
+    """_compute_gae's serial reverse scan from before its associative one."""
+
+    def step(gae, x):
+        reward, value, next_value, terminated, truncated = x
+        delta = reward + gamma * next_value * (1.0 - terminated) - value
+        gae = delta + gamma * lam * (1 - jnp.logical_or(terminated, truncated)) * gae
+        return gae, gae
+
+    xs = (rewards, values, next_values, terminateds, truncateds)
+    return jax.lax.scan(step, jnp.zeros_like(values[-1]), xs, reverse=True)[1]
+
+
+@pytest.mark.parametrize("T, n_envs", [(1, 2), (37, 3), (2048, 4)])
+@pytest.mark.parametrize("gamma", [0.99, 1.0])  # 1.0: APO's
+def test_compute_gae_matches_the_serial_recursion(T, n_envs, gamma):
+    """The associative scan reorders the serial recursion's roundings only:
+    within 8 float32 eps of the sum of the absolute terms each advantage
+    adds up (the scale of rounding error; 2.4 eps at worst over 480
+    random rollouts). Truncations and terminations, some on one step."""
+    k = jax.random.split(jax.random.PRNGKey(T), 5)
+    r, v, nv = (10 * jax.random.normal(k[i], (T, n_envs, 1)) for i in range(3))
+    term, trunc = (
+        (jax.random.uniform(k[i], (T, n_envs, 1)) < 0.03).astype(jnp.float32)
+        for i in (3, 4)
+    )
+    got, _ = _compute_gae(r, v, nv, term, trunc, gamma=gamma, gae_lambda=L)
+    expected = _serial_gae(r, v, nv, term, trunc, gamma, L)
+    delta = r + gamma * nv * (1.0 - term) - v
+    scale = _serial_gae(jnp.abs(delta), 0 * v, 0 * v, term, trunc, gamma, L)
+    eps = np.finfo(np.float32).eps
+    assert np.all(np.abs(got - expected) <= 8 * eps * scale)
+
+
 @pytest.mark.parametrize(
     "batch_size, n_envs, num_minibatches, feature_dim",
     [

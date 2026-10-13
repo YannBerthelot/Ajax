@@ -5,13 +5,21 @@ them with the listed keyword arguments (inventory taken from an AST scan of
 those repositories on 2026-10-08). Removing or renaming one breaks that
 code without any Ajax test noticing, so this test fails instead. To change
 one deliberately, migrate the downstream callers first, then update the
-inventory here.
+inventory here. The last tests pin two behaviours downstream plans rely on:
+every agent's ``weight_decay``, off by default, and DQN's plain Q-network.
 """
 
 import importlib
 import inspect
+from typing import Any
 
+import jax
+import numpy as np
 import pytest
+
+import ajax
+from ajax.agents.DQN.networks import predict_q
+from ajax.agents.DQN.train_DQN import init_DQN
 
 # "module:qualname" -> keyword arguments downstream passes when calling it.
 DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
@@ -228,3 +236,43 @@ def test_downstream_symbol_and_keywords_exist(target):
         accepted |= _keyword_names(_resolve(KWARGS_FORWARDED_TO[target]))
     missing = set(DOWNSTREAM_API[target]) - accepted
     assert not missing, f"{target} no longer accepts {sorted(missing)}"
+
+
+@pytest.mark.parametrize("name", ajax.__all__)
+def test_every_agent_takes_weight_decay_off_by_default(name: str) -> None:
+    """``weight_decay`` is the decoupled decay ``tests/agents/
+    test_weight_decay.py`` checks (each step multiplies the networks'
+    parameters by ``1 - lr * weight_decay``); 0 keeps plain Adam."""
+    parameters = inspect.signature(getattr(ajax, name)).parameters
+    assert parameters["weight_decay"].default == 0.0
+
+
+def test_dqn_builds_a_plain_q_network_unless_the_encoder_norm_is_opted_in() -> None:
+    """DQN's Q-network is a plain MLP (Mnih et al.); the network option
+    ``encoder_layer_norm`` (which replaced ``disable_encoder_output_norm``)
+    adds a LayerNorm on the encoder's output, with the same Dense weights,
+    and changes the Q-values."""
+    agent = ajax.DQN("CartPole-v1", architecture=("16", "relu"))
+
+    def q_network() -> Any:
+        key = jax.random.PRNGKey(0)
+        args = (agent.env_args, agent.critic_optimizer_args, agent.network_args)
+        return init_DQN(key, *args, 2).actor_state
+
+    def leaves(params: Any) -> dict[str, jax.Array]:
+        paths = jax.tree_util.tree_flatten_with_path(params)[0]
+        return {jax.tree_util.keystr(path): leaf for path, leaf in paths}
+
+    plain = q_network()
+    agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
+    normed = q_network()
+    plain_leaves, normed_leaves = leaves(plain.params), leaves(normed.params)
+    assert not any("norm" in name for name in plain_leaves), sorted(plain_leaves)
+    added = set(normed_leaves) - set(plain_leaves)
+    assert added and all("norm" in name for name in added), sorted(added)
+    for name, leaf in plain_leaves.items():
+        np.testing.assert_array_equal(normed_leaves[name], leaf)
+    obs = jax.random.normal(jax.random.PRNGKey(1), (8, 4))
+    q_plain = predict_q(plain, plain.params, obs)
+    q_normed = predict_q(normed, normed.params, obs)
+    assert not np.allclose(q_plain, q_normed)

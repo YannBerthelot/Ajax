@@ -126,10 +126,12 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
-    """Refuse, saying how to restore it, a checkpoint saved before the
-    transformer and mamba memory cores ended with a LayerNorm (``ln_f``):
-    no value of the new parameters reproduces the network it holds, so it
-    restores only into the network it was trained with.
+    """Refuse, saying how to restore it, a checkpoint whose transformer or
+    mamba memory core lacks the final LayerNorm (``ln_f``) of the network
+    restoring it, or has one that network lacks: flax reports a missing key
+    without its cause and drops an extra one silently, and the norm with it.
+    A checkpoint saved before the cores ended with ``ln_f`` restores into
+    the network it was trained with (``final_norm=False``).
 
     Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this
     check with ``MemoryConfig.final_norm`` once no such checkpoint remains.
@@ -144,6 +146,13 @@ def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
             " other settings unchanged. An APG Controller's parameters also map"
             " exactly onto the new network, its LayerNorm becoming the core's"
             " ln_f: ajax.agents.APG.networks.controller_params_with_final_norm."
+        )
+    if "ln_f" in saved and "ln_f" not in skeleton:
+        raise ValueError(
+            "This checkpoint's transformer or mamba memory core ends with a final"
+            " LayerNorm (ln_f), which the agent restoring it, built with"
+            " memory=MemoryConfig(..., final_norm=False), lacks. Restore it into"
+            " an agent built with final_norm=True, the default."
         )
     for key, value in skeleton.items():
         if key in saved:

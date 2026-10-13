@@ -282,13 +282,12 @@ def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_n
     assert restored.collector_state.rollout.raw_next_obs is None
 
 
-def test_a_memory_checkpoint_saved_before_the_final_norm_names_its_restore(
-    tmp_path,
-):
+def test_a_memory_checkpoint_restores_only_into_its_own_final_norm(tmp_path):
     """A transformer network saved before its core ended with a LayerNorm
     lacks ln_f (mamba's is named alike): restoring it into the new network
     raises an error naming final_norm=False, and it restores into the
-    network built so."""
+    network built so. A checkpoint with ln_f restoring into that network
+    raises too: flax would drop the norm silently."""
     import dataclasses
 
     from ajax.agents.PPO.PPO import PPO
@@ -311,6 +310,11 @@ def test_a_memory_checkpoint_saved_before_the_final_norm_names_its_restore(
     restored = restore_into(old, path)
     same = jax.tree.map(np.array_equal, restored.actor_state, old.actor_state)
     assert all(jax.tree.leaves(same))
+
+    new_path = str(tmp_path / "new.pkl")
+    save_checkpoint(skeleton(memory), new_path)
+    with pytest.raises(ValueError, match=r"final_norm=True"):
+        restore_into(old, new_path)
 
 
 def test_a_state_without_a_collector_restores(tmp_path):

@@ -192,6 +192,25 @@ def test_contextual_controller_configuration(env_and_class):
     assert jnp.isfinite(aux.loss).all()
 
 
+def test_contextual_controller_rebuilds_a_transformer_without_its_final_norm(
+    env_and_class,
+):
+    """final_norm reaches the transformer, so a contextual controller saved
+    before the core ended with a LayerNorm restores into the network it was
+    trained with (memory= would clash with the one the method builds)."""
+    env, sc = env_and_class
+    kw = {"n_layers": 1, "n_heads": 2, "d_model": 8, "context": 8}
+    agent = APG.contextual_controller(env, sc, final_norm=False, **kw)
+    assert agent.network_args.memory == MemoryConfig(
+        kind="transformer",
+        hidden_size=8,
+        num_layers=1,
+        num_heads=2,
+        window=8,
+        final_norm=False,
+    )
+
+
 def test_memory_only_controller_trains(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc, memory=MemoryConfig(kind="gru", hidden_size=8))

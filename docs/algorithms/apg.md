@@ -109,7 +109,9 @@ stages = [  # the nominal pendulum first, then the whole family
 8 layers, 4 heads, width 128, context 100, one system per update
 (`n_envs=1`), horizon 100, betas (0.9, 0.95) with `weight_decay=0` (plain
 Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, and a
-PID output layer.
+PID output layer. Its `final_norm=False` rebuilds a controller saved before
+the transformer ended with its final LayerNorm (see
+[Memory](../guide/memory.md)).
 
 ## Notes
 

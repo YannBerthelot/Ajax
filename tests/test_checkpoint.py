@@ -282,6 +282,37 @@ def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_n
     assert restored.collector_state.rollout.raw_next_obs is None
 
 
+def test_a_memory_checkpoint_saved_before_the_final_norm_names_its_restore(
+    tmp_path,
+):
+    """A transformer network saved before its core ended with a LayerNorm
+    lacks ln_f (mamba's is named alike): restoring it into the new network
+    raises an error naming final_norm=False, and it restores into the
+    network built so."""
+    import dataclasses
+
+    from ajax.agents.PPO.PPO import PPO
+    from ajax.networks.memory import MemoryConfig
+
+    memory = MemoryConfig(kind="transformer", hidden_size=8, num_heads=2, window=4)
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
+    kw |= {"actor_architecture": net, "critic_architecture": net}
+
+    def skeleton(memory):
+        agent = PPO(env_id="CartPole-v1", memory=memory, **kw)
+        return agent.train(seed=0, n_timesteps=0)[0]
+
+    old = skeleton(dataclasses.replace(memory, final_norm=False))
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(old, path)
+    with pytest.raises(ValueError, match=r"final_norm=False"):
+        restore_into(skeleton(memory), path)
+    restored = restore_into(old, path)
+    same = jax.tree.map(np.array_equal, restored.actor_state, old.actor_state)
+    assert all(jax.tree.leaves(same))
+
+
 def test_a_state_without_a_collector_restores(tmp_path):
     """TDMPC2MultiTask trains offline: its state holds no collector
     (collector_state None). It restores, as does a checkpoint whose root is

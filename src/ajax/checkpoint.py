@@ -58,10 +58,10 @@ def restore_into(skeleton: Any, path: str) -> Any:
         raise FileNotFoundError(f"No checkpoint file at {path}")
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
+    skeleton_dict = serialization.to_state_dict(skeleton)
+    _check_memory_final_norm(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
-    state_dict = _with_new_empty_fields(
-        serialization.to_state_dict(skeleton), state_dict
-    )
+    state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     return jax.tree.map(
@@ -123,6 +123,29 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
         elif value is None:
             out[key] = None
     return out
+
+
+def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
+    """Refuse, saying how to restore it, a checkpoint saved before the
+    transformer and mamba memory cores ended with a LayerNorm (``ln_f``):
+    no value of the new parameters reproduces the network it holds, so it
+    restores only into the network it was trained with.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this
+    check with ``MemoryConfig.final_norm`` once no such checkpoint remains.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return
+    if "ln_f" in skeleton and "ln_f" not in saved:
+        raise ValueError(
+            "This checkpoint was saved before the transformer and mamba memory"
+            " cores ended with a final LayerNorm (ln_f). Restore it into an"
+            " agent built with memory=MemoryConfig(..., final_norm=False), its"
+            " other settings unchanged."
+        )
+    for key, value in skeleton.items():
+        if key in saved:
+            _check_memory_final_norm(value, saved[key])
 
 
 def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:

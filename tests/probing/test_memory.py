@@ -37,10 +37,12 @@ ANSWER_DIGEST = "1ded4d712a32"  # verdict.digest(CASES): every answer, pinned
 # never restarted acts on the old cue (a gap up to 2). Not built (seeds
 # 1000-2031): PPO with other kinds and TD3 leave seeds acting alike for both
 # cues; SAC and REDQ with other kinds are uncalibrated; ASAC's values are
-# differential; APG needs the env's gradients. PPO with transformer or mamba
-# memory and squashed actions fails on 1 to 9 of the 64 seeds at every budget
-# from 5000 to 40000, with the final LayerNorm or without it: most act alike
-# for both cues, saturated at +1 or -1.
+# differential; APG needs the env's gradients. PPO with squashed actions and
+# the final LayerNorm fails at every budget from 5000 to 40000: a transformer
+# on 5 to 9 of the 64 seeds, 18 of its 22 failures from 10000 on acting alike
+# for both cues, saturated at +1 or -1; mamba on 1 to 6, its failures more
+# mixed (8 of 14 so). The transformer without the final norm, run at 5000 to
+# 20000 only, fails on 4 to 8.
 
 
 def _cue(st: envs.State, a: jax.Array, key: Any) -> tuple:

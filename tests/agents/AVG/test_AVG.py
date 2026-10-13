@@ -1,4 +1,3 @@
-
 import pytest
 
 from ajax.agents.AVG.AVG import AVG
@@ -18,10 +17,11 @@ def test_avg_keeps_its_network_optimizer_and_env_settings():
     assert agent.get_make_train().keywords["alpha_args"] is agent.alpha_args
 
 
+# Each call passes a keyword the signature no longer has, on purpose.
 REMOVED = {
-    "alpha_learning_rate": lambda: AVG("Pendulum-v1", alpha_learning_rate=1e-3),
-    "target_entropy_per_dim": lambda: AVG("Pendulum-v1", target_entropy_per_dim=-1),
-    "target_entropy": lambda: AVGConfig(gamma=0.99, target_entropy=-1.0),
+    "alpha_learning_rate": lambda: AVG("Pendulum-v1", alpha_learning_rate=1e-3),  # type: ignore[call-arg]
+    "target_entropy_per_dim": lambda: AVG("Pendulum-v1", target_entropy_per_dim=-1),  # type: ignore[call-arg]
+    "target_entropy": lambda: AVGConfig(gamma=0.99, target_entropy=-1.0),  # type: ignore[call-arg]
 }
 
 

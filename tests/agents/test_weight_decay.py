@@ -15,6 +15,10 @@ import numpy as np
 import pytest
 from flax.training.train_state import TrainState
 
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
+from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
+from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 from tests.agents.test_agent_contract import CASES
 
 LR, WD = 1e-2, 0.5
@@ -73,3 +77,30 @@ def test_a_step_shrinks_the_networks_by_one_minus_lr_times_wd(
             zero_gradient_step(state.alpha)["log_alpha"],
             state.alpha.params["log_alpha"],
         )
+
+
+@pytest.mark.parametrize("multitask", [False, True])
+@pytest.mark.parametrize("weight_decay", [None, WD])
+def test_tdmpc2_decays_each_group_at_its_own_learning_rate(
+    weight_decay: float | None, multitask: bool
+) -> None:
+    """TD-MPC2's world-model encoder learns at ``lr * enc_lr_scale``, so its
+    decay is multiplied by that rate; the rest of the world model (with the
+    multi-task embedding table) and the policy decay at ``lr``."""
+    enc_lr_scale, wd = 0.5, weight_decay or 0.0
+    kwargs: dict[str, Any] = {"learning_rate": LR, "enc_lr_scale": enc_lr_scale}
+    kwargs |= {} if weight_decay is None else {"weight_decay": weight_decay}
+    agent = (
+        TDMPC2MultiTask(make_dataset(), **TDMPC2_TINY, task_dim=4, **kwargs)
+        if multitask
+        else TDMPC2("Pendulum-v1", **TDMPC2_TINY, **kwargs)
+    )
+    state = initial_state(agent)
+    world_model = state.world_model_state
+    after = zero_gradient_step(world_model)
+    assert "encoder" in world_model.params
+    for group, params in world_model.params.items():
+        rate = LR * enc_lr_scale if group == "encoder" else LR
+        assert_scaled(params, after[group], 1 - rate * wd)
+    policy = state.actor_state
+    assert_scaled(policy.params, zero_gradient_step(policy), 1 - LR * wd)

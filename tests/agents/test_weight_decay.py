@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from flax.training.train_state import TrainState
 
+from ajax.agents.APG.APG import APG
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
@@ -123,3 +124,13 @@ def test_dreamerv3_decays_at_the_warmed_up_learning_rate(
         network = getattr(state, name)
         after = zero_gradient_step(network)
         assert_scaled(network.params, after, 1 - LR * wd)
+
+
+@DECAYS
+def test_apg_decays_its_controller(given: dict[str, Any], wd: float) -> None:
+    """APG, which builds its own optimizer config, decays its controller
+    (its one network) the same way."""
+    agent = APG("Pendulum-v1", n_envs=2, horizon=4, learning_rate=LR, **given)
+    controller = initial_state(agent).actor_state
+    after = zero_gradient_step(controller)
+    assert_scaled(controller.params, after, 1 - LR * wd)

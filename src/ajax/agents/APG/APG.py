@@ -85,7 +85,9 @@ class APG(ActorCritic):
             n_envs: systems sampled (and simulated in parallel) per update.
             horizon: closed-loop rollout length differentiated through.
             learning_rate: AdamW step size.
-            weight_decay: AdamW weight decay (``0`` is plain Adam).
+            weight_decay: AdamW's decoupled weight decay, multiplied by the
+                (scheduled) learning rate (``OptimizerConfig.weight_decay``,
+                every agent's); ``0`` is plain Adam.
             beta_1: AdamW first-moment decay.
             beta_2: AdamW second-moment decay.
             lr_schedule: ``None`` (constant) or ``"warmup_cosine"``

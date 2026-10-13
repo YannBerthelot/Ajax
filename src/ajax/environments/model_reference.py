@@ -66,22 +66,30 @@ class StepReference:
     def sample(self, rng: jax.Array) -> jax.Array:
         """One reference sequence, shape ``(horizon, n_outputs)``."""
 
-        def body(carry, key):
-            remaining, value = carry
+        def draw(key):
             k_val, k_dur = jax.random.split(key)
-            new_value = jax.random.uniform(
+            value = jax.random.uniform(
                 k_val, (self.n_outputs,), minval=self.min_value, maxval=self.max_value
             )
-            new_duration = jax.random.randint(
+            duration = jax.random.randint(
                 k_dur, (self.n_outputs,), self.min_duration, self.max_duration + 1
             )
+            return value, duration
+
+        def body(carry, candidate):
+            remaining, value = carry
+            new_value, new_duration = candidate
             start_new = remaining <= 0
             value = jnp.where(start_new, new_value, value)
             remaining = jnp.where(start_new, new_duration, remaining) - 1
             return (remaining, value), value
 
         init = (jnp.zeros((self.n_outputs,), jnp.int32), jnp.zeros((self.n_outputs,)))
-        _, sequence = jax.lax.scan(body, init, jax.random.split(rng, self.horizon))
+        # The wrapper samples a reference on every step (its auto-reset is
+        # branchless), so every step's candidate segment is drawn in one
+        # vmapped call rather than inside the scan: same keys, same numbers.
+        candidates = jax.vmap(draw)(jax.random.split(rng, self.horizon))
+        _, sequence = jax.lax.scan(body, init, candidates)
         return sequence
 
 

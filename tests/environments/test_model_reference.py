@@ -78,6 +78,35 @@ def test_step_reference_is_deterministic_under_key():
     )
 
 
+def _sample_drawing_inside_scan(ref, rng):
+    """The sampler before its draws were vectorised: each step draws its
+    candidate segment inside the scan."""
+
+    def body(carry, key):
+        remaining, value = carry
+        k_val, k_dur = jax.random.split(key)
+        shape = (ref.n_outputs,)
+        new = jax.random.uniform(
+            k_val, shape, minval=ref.min_value, maxval=ref.max_value
+        )
+        dur = jax.random.randint(k_dur, shape, ref.min_duration, ref.max_duration + 1)
+        start = remaining <= 0
+        value = jnp.where(start, new, value)
+        return (jnp.where(start, dur, remaining) - 1, value), value
+
+    init = (jnp.zeros(ref.n_outputs, jnp.int32), jnp.zeros(ref.n_outputs))
+    return jax.lax.scan(body, init, jax.random.split(rng, ref.horizon))[1]
+
+
+@pytest.mark.parametrize(
+    "ref", [StepReference(200, 20.0, 25.0, 4, 9, 2), StepReference(1, -1.0, 1.0, 3, 3)]
+)
+def test_step_reference_vectorised_draws_change_no_bit(ref):
+    keys = jax.random.split(jax.random.PRNGKey(3), 8)
+    old = jax.jit(jax.vmap(lambda k: _sample_drawing_inside_scan(ref, k)))(keys)
+    assert jnp.array_equal(jax.jit(jax.vmap(ref.sample))(keys), old)
+
+
 # ----------------------------------------------------- LinearReferenceModel
 
 

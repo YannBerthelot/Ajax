@@ -11,9 +11,10 @@ tiny run per agent with a recorder implementing each phase it folds of
     common amount (Adam steps by the gradient's sign), the critic's term
     down and the actor's (``-SLOPE * sum(theta)``) up.
 
-The agents are test_agent_contract's table and APG, their phases read from
-``supported_extension_phases``; an agent of ``ajax`` folding one of these
-phases without a run here fails.
+The agents are every agent of ``ajax`` folding one of these phases (read
+from ``supported_extension_phases``): test_agent_contract's table, APG and
+the world models, which fold post_update alone; one without a run here
+fails.
 """
 
 from __future__ import annotations
@@ -31,6 +32,10 @@ import pytest
 import ajax
 from ajax.agents.APG.APG import APG
 from ajax.extensions.base import PHASE_BATCH_KEYS, Extension
+from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
+from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
+from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
+from tests.agents.TDMPC2.toy_envs import ConstantRewardEnv
 from tests.agents.test_agent_contract import CASES
 
 PHASES = ("on_target", "critic_loss", "actor_loss", "post_update")
@@ -107,17 +112,29 @@ OVERRIDES: dict[str, dict] = {
     "APO": {"batch_size": 16},
     "PQN": {"n_epochs": 1, "num_minibatches": 1},
 }
-AGENTS = [*sorted(CASES), "APG"]
-#: World models fold post_update alone, through loop.fold_post_update as the
-#: runs here do; a run of theirs would cost more than these eleven together.
-POST_UPDATE_ONLY = {"DreamerV3", "TDMPC2", "TDMPC2MultiTask"}
+#: The world models' runs (what they train on, options, n_timesteps): their
+#: agent tests' tiny sizes and a few updates.
+WORLD_MODELS: dict[str, Any] = {
+    "DreamerV3": lambda: ("Pendulum-v1", {"n_envs": 1, **DREAMER_TINY}, 16),
+    "TDMPC2": lambda: (ConstantRewardEnv(10), {"seed_steps": 5, **TDMPC2_TINY}, 20),
+    "TDMPC2MultiTask": lambda: (make_dataset(), {"task_dim": 4, **TDMPC2_TINY}, 4),
+}
+
+
+def _phases(name: str) -> frozenset:
+    return frozenset(PHASES) & getattr(ajax, name).supported_extension_phases
+
+
+AGENTS = [name for name in ajax.__all__ if _phases(name)]
+#: The agents folding a phase that hands a batch.
+BATCHED = [name for name in AGENTS if _phases(name) - {"post_update"}]
 
 
 def test_every_agent_folding_a_phase_has_a_run() -> None:
-    for name in ajax.__all__:
-        phases = set(PHASES) & getattr(ajax, name).supported_extension_phases
-        if phases and not (name in POST_UPDATE_ONLY and phases == {"post_update"}):
-            assert name in AGENTS, f"{name} folds {sorted(phases)}: add its run"
+    """A clear failure, not a KeyError inside _run, for a new agent."""
+    for name in AGENTS:
+        has_run = name == "APG" or name in WORLD_MODELS or name in CASES
+        assert has_run, f"{name} folds {sorted(_phases(name))}: add its run"
 
 
 @functools.cache
@@ -126,7 +143,9 @@ def _run(name: str) -> SimpleNamespace:
     if name == "APG":
         cls, n_timesteps, env_id = APG, 64, "Pendulum-v1"
         kwargs: dict = {"n_envs": 4, "horizon": 2, "pid": None}
-    else:
+    elif name in WORLD_MODELS:
+        cls, (env_id, kwargs, n_timesteps) = getattr(ajax, name), WORLD_MODELS[name]()
+    else:  # a new agent's run goes in CASES, WORLD_MODELS or here
         case = CASES[name]
         cls, n_timesteps = case.cls, case.n_timesteps
         env_id = "Pendulum-v1" if "Pendulum-v1" in case.envs else "CartPole-v1"
@@ -153,7 +172,7 @@ def _run(name: str) -> SimpleNamespace:
     )
 
 
-@pytest.mark.parametrize("name", AGENTS)
+@pytest.mark.parametrize("name", BATCHED)
 def test_each_batch_holds_the_documented_keys(name: str) -> None:
     run = _run(name)
     assert set(run.batch_keys) == run.phases - {"post_update"}
@@ -183,7 +202,7 @@ def test_each_fold_gets_a_key_of_its_own(name: str) -> None:
     assert not drawn, f"the agent draws on {drawn} of {len(keys)} fold keys itself"
 
 
-@pytest.mark.parametrize("name", [n for n in AGENTS if n not in ("APG", "UDRL")])
+@pytest.mark.parametrize("name", [n for n in AGENTS if "on_target" in _phases(n)])
 def test_critic_loss_gets_the_target_on_target_returns(name: str) -> None:
     """As a multiset over each update (a step of the collector)."""
     by_step: dict[int, tuple[list, list]] = defaultdict(lambda: ([], []))
@@ -202,7 +221,7 @@ def _flat(params: Any) -> np.ndarray:
     return np.concatenate([np.ravel(leaf) for leaf in jax.tree.leaves(params)])
 
 
-@pytest.mark.parametrize("name", AGENTS)
+@pytest.mark.parametrize("name", BATCHED)
 def test_each_loss_term_moves_its_own_network(name: str) -> None:
     run = _run(name)
     (actor, critic), state = run.state.ext_state[0], run.state

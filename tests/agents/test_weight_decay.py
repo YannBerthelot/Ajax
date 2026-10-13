@@ -39,13 +39,15 @@ def initial_state(agent: Any) -> Any:
     return jax.tree.map(lambda x: x[0], state)
 
 
-def zero_gradient_step(train_state: TrainState) -> Any:
-    """The parameters after one step of the state's own optimizer, from
-    fresh moments (a zero-step run may already have updated, as an on-policy
-    agent's first rollout does), on a zero gradient."""
-    fresh = train_state.replace(opt_state=train_state.tx.init(train_state.params))
+def zero_gradient_step(train_state: TrainState, steps: int = 1) -> Any:
+    """The parameters after ``steps`` steps of the state's own optimizer,
+    from fresh moments (a zero-step run may already have updated, as an
+    on-policy agent's first rollout does), on a zero gradient."""
+    state = train_state.replace(opt_state=train_state.tx.init(train_state.params))
     zeros = jax.tree.map(jnp.zeros_like, train_state.params)
-    return fresh.apply_gradients(grads=zeros).params
+    for _ in range(steps):
+        state = state.apply_gradients(grads=zeros)
+    return state.params
 
 
 def assert_scaled(before: Any, after: Any, factor: float) -> None:
@@ -111,19 +113,24 @@ def test_tdmpc2_decays_each_group_at_its_own_learning_rate(
     assert_scaled(policy.params, zero_gradient_step(policy), 1 - LR * wd)
 
 
+@pytest.mark.parametrize("warmup", [0, 2])
 @DECAYS
 def test_dreamerv3_decays_at_the_warmed_up_learning_rate(
-    given: dict[str, Any], wd: float
+    given: dict[str, Any], wd: float, warmup: int
 ) -> None:
     """DreamerV3's LaProp adds the decay before its warmed-up learning rate,
-    as AdamW does before Adam's: with the warmup off, the first step decays
-    the world model, the actor and the critic at ``lr``."""
-    tiny = DREAMER_TINY | {"learning_rate": LR, "warmup": 0} | given
+    as AdamW does before Adam's: update ``k`` decays the world model, the
+    actor and the critic at ``lr * min(k / warmup, 1)`` (``lr`` with the
+    warmup off), so a warmup's first update decays nothing."""
+    tiny = DREAMER_TINY | {"learning_rate": LR, "warmup": warmup} | given
     state = initial_state(DreamerV3("CartPole-v1", n_envs=2, **tiny))
+    rates = [LR * min(k / warmup, 1) if warmup else LR for k in range(2)]
     for name in ("world_model_state", "actor_state", "critic_state"):
-        network = getattr(state, name)
-        after = zero_gradient_step(network)
-        assert_scaled(network.params, after, 1 - LR * wd)
+        network, factor = getattr(state, name), 1.0
+        for steps, rate in enumerate(rates, start=1):
+            factor *= 1 - rate * wd
+            after = zero_gradient_step(network, steps)
+            assert_scaled(network.params, after, factor)
 
 
 @DECAYS

@@ -11,6 +11,7 @@ import pytest
 from brax.envs import create as create_brax_env
 from flax import struct
 
+import ajax.evaluate
 from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.buffers.utils import get_buffer
@@ -113,6 +114,57 @@ def test_evaluate_done_masking_no_accumulation_past_done():
     # Over-long length (2x). If done-masking is correct, rewards match.
     r_long, *_ = evaluate(max_eval_steps=400, **kwargs)
     assert float(r_base) == pytest.approx(float(r_long), abs=1e-4)
+
+
+@struct.dataclass
+class _UntrainedCartPoleActor:
+    """A random linear policy on CartPole's observation."""
+
+    params: Any = None
+    obs_norm_info: Any = None
+    hidden_state: Any = None
+
+    def apply(self, params, obs):
+        return distrax.Categorical(logits=obs @ params)
+
+
+def _cartpole_eval_kwargs() -> dict:
+    env, env_params = gymnax.make("CartPole-v1")
+    return {
+        "env": env,  # a new env object: evaluate traces anew
+        "actor_state": _UntrainedCartPoleActor(
+            jax.random.normal(jax.random.PRNGKey(0), (4, 2))
+        ),
+        "num_episodes": 4,
+        "rng": jax.random.PRNGKey(0),
+        "env_params": env_params,
+        "expert_policy": lambda obs: jnp.zeros(obs.shape[:-1], jnp.int32),
+        "value_estimate": ValueEstimate(lambda s, obs, a: obs.sum(-1), gamma=0.9),
+    }
+
+
+def test_gymnax_evaluation_stops_early_with_the_full_scans_numbers(monkeypatch):
+    """On gymnax the rollouts (the actor's, the expert's) stop once every
+    episode has ended, well before CartPole's 500-step limit here; running
+    the limit out, as the fixed-length scan did, gives the same outputs."""
+    early = evaluate(**_cartpole_eval_kwargs())
+    assert float(early[4]) * 4 < 500  # every episode ended before the limit
+    traced = []
+
+    def full_scan(body, carry, length, mode):
+        traced.append(mode)
+        return jax.lax.scan(body, carry, None, length=length)
+
+    monkeypatch.setattr(ajax.evaluate, "_roll_out", full_scan)
+    full = evaluate(**_cartpole_eval_kwargs())
+    assert traced == ["gymnax", "gymnax"]  # the actor's and the expert's
+    for got, want in zip(early, full, strict=True):
+        np.testing.assert_allclose(got, want, rtol=1e-6)
+
+
+def test_max_eval_steps_caps_the_gymnax_evaluation():
+    length = evaluate(max_eval_steps=3, **_cartpole_eval_kwargs())[4]
+    assert float(length) == 3.0  # no CartPole episode ends within 3 steps
 
 
 def _zero_torque(obs):

@@ -545,19 +545,47 @@ def _reset_envs(env, mode, env_params, num_episodes, rng):
     return (key, *reset(reset_keys, env, mode, env_params))
 
 
+def _roll_out(body, carry: _EvalCarry, length: int, mode: str):
+    """``jax.lax.scan(body, carry, None, length=length)``, stopped on gymnax
+    once every env's episode has ended (a ``while_loop``): the steps it
+    skips add nothing to the carry's done-masked sums (return, entropy,
+    length), and their records, which the caller masks too, are zeros.
+    brax / playground keep the scan: the mjx-warp kernels
+    (mujoco_playground's physics) fail ``contact_dim`` shape assertions
+    under ``vmap`` + ``while_loop``."""
+    if mode != "gymnax":
+        return jax.lax.scan(body, carry, None, length=length)
+    records = jax.tree.map(
+        lambda r: jnp.zeros((length, *r.shape), r.dtype),
+        jax.eval_shape(body, carry, None)[1],
+    )
+
+    def step(loop):
+        t, carry, records = loop
+        carry, record = body(carry, None)
+        records = jax.tree.map(lambda rs, r: rs.at[t].set(r), records, record)
+        return t + 1, carry, records
+
+    def running(loop):
+        return (loop[0] < length) & ~jnp.all(loop[1].done)
+
+    _, carry, records = jax.lax.while_loop(
+        running, step, (jnp.int32(0), carry, records)
+    )
+    return carry, records
+
+
 def _expert_return(
     mode, env, env_params, expert_policy, key, obs, state, num_episodes, length
 ):
     """The expert's mean return over ``num_episodes`` episodes from the
-    reset ``(obs, state)``, ``length`` steps, each env's after its first
-    ``done`` masked."""
+    reset ``(obs, state)``, at most ``length`` steps, each env's after its
+    first ``done`` masked."""
     carry = _init_eval_carry(
         num_episodes, key, obs, state, _init_expert_state(expert_policy, num_episodes)
     )
     step_fn = step_environment_expert(mode, env, env_params, expert_policy)
-    final, _ = jax.lax.scan(
-        lambda carry, _: (step_fn(carry), None), carry, None, length=length
-    )
+    final, _ = _roll_out(lambda carry, _: (step_fn(carry), None), carry, length, mode)
     return jnp.nanmean(final.rewards)
 
 
@@ -673,12 +701,6 @@ def evaluate(
         norm_info=norm_info,
     )
 
-    # Main loop. We use `scan` with a fixed length rather than `while_loop`
-    # because mjx-warp kernels (mujoco_playground's physics backend) fail
-    # `contact_dim` shape assertions under `vmap` + `while_loop` but compose
-    # cleanly under `vmap` + `scan`. The step_fn already done-masks via
-    # `still_running = 1 - done`, so iterating past the natural termination
-    # of every lane is a no-op on the accumulated reward/entropy/step_count.
     steps_bound = (
         int(max_eval_steps)
         if max_eval_steps is not None
@@ -690,8 +712,8 @@ def evaluate(
         evaluated = (1 - carry.done).astype(jnp.float32)
         return stepped, (stepped.value, stepped.last_reward, evaluated)
 
-    final_carry, (values, step_rewards, evaluated) = jax.lax.scan(
-        _scan_body, init_carry_agent, None, length=steps_bound
+    final_carry, (values, step_rewards, evaluated) = _roll_out(
+        _scan_body, init_carry_agent, steps_bound, mode
     )
     rewards, step_count = final_carry.rewards, final_carry.step_count
 

@@ -1,11 +1,9 @@
-from typing import Optional
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents.SAC.state import SoftACState
-from ajax.deprecation import warn_inert
 from ajax.state import BaseAgentConfig
 from ajax.types import Replaceable
 
@@ -37,14 +35,6 @@ class AVGConfig(BaseAgentConfig):
     """AVG's hyperparameters."""
 
     gamma: float
-    # Inert, warned, to be removed (ajax.agents.AVG.AVG.INERT_TEMPERATURE).
-    target_entropy: Optional[float] = None
     learning_starts: int = 0
     reward_scale: float = 1
     num_critics: int = 1
-
-    def __post_init__(self) -> None:
-        reason = "AVG's entropy coefficient is fixed at alpha_init."
-        warn_inert(
-            "AVGConfig", reason, stacklevel=4, target_entropy=self.target_entropy
-        )

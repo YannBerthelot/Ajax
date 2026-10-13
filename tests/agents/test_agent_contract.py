@@ -16,7 +16,7 @@ import inspect
 import pkgutil
 import sys
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -34,6 +34,7 @@ from ajax.agents.AVG.AVG import AVG
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
+from ajax.agents.DreamerV3.state import DreamerV3State
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
@@ -452,7 +453,8 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
     env, params = paid_action.make(BOX, length=4)
     if name == "DreamerV3":
         dreamer = DreamerV3(env, env_params=params, n_envs=1, **DREAMER_TINY)
-        replay = dreamer.train(seed=0, n_timesteps=20)[0].replay_state
+        final = cast(DreamerV3State, dreamer.train(seed=0, n_timesteps=20)[0])
+        replay = final.replay_state
         action, reward = replay.action[0, 0, :, 0], replay.reward[0, 0]
         paid = ~replay.is_last[0, 0, :-1]  # the rows an episode goes on from
         actions, rewards = action[:-1][paid], reward[1:][paid]

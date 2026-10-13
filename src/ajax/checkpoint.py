@@ -141,7 +141,9 @@ def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
             "This checkpoint was saved before the transformer and mamba memory"
             " cores ended with a final LayerNorm (ln_f). Restore it into an"
             " agent built with memory=MemoryConfig(..., final_norm=False), its"
-            " other settings unchanged."
+            " other settings unchanged. An APG Controller's parameters also map"
+            " exactly onto the new network, its LayerNorm becoming the core's"
+            " ln_f: ajax.agents.APG.networks.controller_params_with_final_norm."
         )
     for key, value in skeleton.items():
         if key in saved:

@@ -27,6 +27,7 @@ distribution out. The distribution is ``distrax.Deterministic`` so
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Optional, Sequence, Tuple, Union
 
@@ -122,4 +123,44 @@ class Controller(nn.Module):
         return jnp.tanh(z) if self.squash else z
 
 
-__all__ = ["Controller", "ControllerCarry", "PIDHeadConfig"]
+def controller_params_with_final_norm(
+    params: Mapping[str, Any], memory: MemoryConfig
+) -> dict[str, Any]:
+    """A Controller's parameters saved before its transformer or mamba
+    memory ended with a final LayerNorm, mapped onto the network built now.
+
+    The Controller then applied its own LayerNorm (``norm``) to the memory's
+    output, before the output layer; it now leaves that to the core's final
+    LayerNorm (``ln_f``). Both are the same LayerNorm at the same place, so
+    moving ``norm`` to ``memory_cell/core/ln_f`` keeps the outputs identical.
+    ``params`` is the variables dict as saved (``{"params": ...}``),
+    ``memory`` the new network's config.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): goes with
+    ``MemoryConfig.final_norm``.
+    """
+    if not memory.ends_normalised:
+        raise ValueError(
+            f"A {memory.kind} memory with final_norm={memory.final_norm} has no"
+            " final LayerNorm to map the Controller's onto: the Controller keeps"
+            " its own and its parameters restore unchanged."
+        )
+    inner = dict(params["params"])
+    cell = dict(inner.get("memory_cell", {}))
+    core = dict(cell.get("core", {}))
+    if "norm" not in inner or not core or "ln_f" in core:
+        raise ValueError(
+            "These are not a Controller's parameters saved before its memory"
+            " ended with ln_f: a 'norm' beside 'memory_cell', no 'ln_f' in its"
+            " core."
+        )
+    core["ln_f"] = inner.pop("norm")
+    return {**params, "params": {**inner, "memory_cell": {**cell, "core": core}}}
+
+
+__all__ = [
+    "Controller",
+    "ControllerCarry",
+    "PIDHeadConfig",
+    "controller_params_with_final_norm",
+]

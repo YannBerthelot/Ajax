@@ -111,7 +111,10 @@ stages = [  # the nominal pendulum first, then the whole family
 Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, and a
 PID output layer. Its `final_norm=False` rebuilds a controller saved before
 the transformer ended with its final LayerNorm (see
-[Memory](../guide/memory.md)).
+[Memory](../guide/memory.md)). Such a controller's parameters also map onto
+the new network, which computes the same outputs:
+`controller_params_with_final_norm(params, memory)` moves the controller's
+LayerNorm, which played that final norm's part, into the transformer.
 
 ## Notes
 
@@ -166,3 +169,5 @@ compilation) at main `a8a13c2`
 ::: ajax.agents.APG.networks.PIDHeadConfig
 
 ::: ajax.agents.APG.networks.Controller
+
+::: ajax.agents.APG.networks.controller_params_with_final_norm

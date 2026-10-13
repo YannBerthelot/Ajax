@@ -38,6 +38,12 @@ dependencies = [
 # projects that need a GPU request the extra.
 cuda = ["jax[cuda]>=0.6.2; sys_platform == 'linux'"]
 
+[project.urls]
+Homepage = "https://github.com/YannBerthelot/Ajax"
+Documentation = "https://yannberthelot.github.io/Ajax/"
+Repository = "https://github.com/YannBerthelot/Ajax"
+Issues = "https://github.com/YannBerthelot/Ajax/issues"
+
 [dependency-groups]
 dev = [
     "mypy>=1.4.1,<2",
@@ -57,6 +63,17 @@ wandb = ["wandb>=0.19.9,<0.20"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
 # the framework does not. Opt in with `uv sync --group plane`.
 plane = ["target-gym>=0.6.1,<0.7"]
+# The documentation site (mkdocs.yml). mkdocstrings reads the docstrings from
+# the source without importing it, so the site builds without the runtime
+# (`uv sync --only-group docs`). It formats the API signatures with ruff when
+# ruff is installed, hence ruff here too, bounded as in dev.
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5,<10",
+    "mkdocstrings[python]>=0.26,<2",
+    "pymdown-extensions>=10,<11",
+    "ruff>=0.11.6,<0.12",
+]
 
 [tool.uv]
 default-groups = ["dev", "wandb"]

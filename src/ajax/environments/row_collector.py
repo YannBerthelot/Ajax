@@ -282,9 +282,6 @@ def collect_row(
             phase) does not trace the random branch at all.
         timestep_unit: ``"rows"`` or ``"env_steps"``, what
             ``collector_state.timestep`` counts.
-
-    Returns:
-        ``(new_state, row)``.
     """
     if reset_mode not in ("static", "dynamic"):
         raise ValueError(
@@ -386,11 +383,6 @@ def collect_row(
     return new_state, row
 
 
-# ---------------------------------------------------------------------------
-# Acting
-# ---------------------------------------------------------------------------
-
-
 def _act(
     policy_fn: PolicyFn,
     carry: Any,
@@ -427,11 +419,6 @@ def _uniform_action(
         return jax.random.uniform(key, shape, minval=-1.0, maxval=1.0).astype(dtype)
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     return jax.random.randint(key, shape, 0, n_actions).astype(dtype)
-
-
-# ---------------------------------------------------------------------------
-# Env transitions
-# ---------------------------------------------------------------------------
 
 
 def _static_transition(
@@ -572,8 +559,6 @@ def _keep_batch_shared_seed(env: Any, restored: Any, stepped: Any) -> Any:
     return restored.replace(info=info)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
 def resume_tick(collector_state: Any, n_envs: int) -> int:
     """The absolute tick a resumed run starts at (host-side).
 
@@ -588,9 +573,6 @@ def resume_tick(collector_state: Any, n_envs: int) -> int:
             f" are not a multiple of n_envs={n_envs} ({rows.tolist()})"
         )
     return int(rows[0]) // n_envs
-
-
-# ---------------------------------------------------------------------------
 
 
 def _fresh_containers(tree: Any) -> Any:

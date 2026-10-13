@@ -31,10 +31,6 @@ from ajax.types import BufferType
 
 S = TypeVar("S", bound=SoftACState)
 
-# ---------------------------------------------------------------------------
-# Auxiliary dataclasses (core diagnostics only)
-# ---------------------------------------------------------------------------
-
 
 @struct.dataclass
 class CoreCriticAux:
@@ -48,11 +44,6 @@ class TemperatureAuxiliaries:
     alpha: jax.Array
     log_alpha: jax.Array
     effective_target_entropy: jax.Array | float
-
-
-# ---------------------------------------------------------------------------
-# Initialisation
-# ---------------------------------------------------------------------------
 
 
 def create_alpha_train_state(
@@ -115,11 +106,6 @@ def init_soft_actor_critic(
         **(collector_extras or {}),
     )
     return actor_state, critic_state, collector_state
-
-
-# ---------------------------------------------------------------------------
-# TD target computation (pure Bellman — modifiers compose on top)
-# ---------------------------------------------------------------------------
 
 
 def sample_next_actions(
@@ -192,11 +178,6 @@ def compute_td_target(
     return jax.lax.stop_gradient(target)
 
 
-# ---------------------------------------------------------------------------
-# Critic loss (MSE against pre-computed target)
-# ---------------------------------------------------------------------------
-
-
 def critic_loss_fn(
     critic_params: FrozenDict,
     critic_state,
@@ -227,11 +208,6 @@ def critic_loss_fn(
         q_pred_min=q_pred_min.mean().flatten(),
         var_preds=var_preds.mean().flatten(),
     )
-
-
-# ---------------------------------------------------------------------------
-# Actor loss (α log π - Q)
-# ---------------------------------------------------------------------------
 
 
 def soft_policy_loss(
@@ -310,11 +286,6 @@ def soft_actor_step(
 
     actor_state, out = gradient_step(actor_state, loss_fn)
     return agent_state.replace(rng=rng, actor_state=actor_state), out
-
-
-# ---------------------------------------------------------------------------
-# Temperature (standard SAC dual gradient) and target networks
-# ---------------------------------------------------------------------------
 
 
 def temperature_loss_fn(

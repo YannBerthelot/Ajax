@@ -9,7 +9,7 @@ PPOState = BaseAgentState
 
 @struct.dataclass
 class PPOConfig(BaseAgentConfig):
-    """The agent properties to be carried over iterations of environment interaction and updates"""
+    """PPO's hyperparameters."""
 
     gamma: float = 0.99
     ent_coef: float = 0.0

@@ -6,7 +6,8 @@ simplicity/testability). Every blocker and major finding is resolved below; a su
 of the review is in the description of the PR that added this file.
 
 Companion documents (same directory): `dreamerv3_spec.md`, `tdmpc2_spec.md`,
-`shared_blocks.md` (verified against the papers and the official code),
+`shared_blocks.md` (verified against the papers and the official code; the
+pre-implementation spec, which §3 and `deviations.md` supersede where they differ),
 `deviations.md` (version choices and the deviations register).
 
 ## 0. Decisions taken with the user
@@ -206,9 +207,11 @@ not reproduced (registered).
 
 ### 4.5 State
 `TDMPC2State(BaseAgentState, kw_only)`: `world_model_state` (encoder, dynamics, reward,
-Q ensemble; `target_params` = target Q via `soft_update` on the Q subtree),
-`actor_state` (policy prior), `critic_state=None`, `q_scale`, `pi_gradnorm_sq`,
-`collector_state` (row collector state + `prev_mean`), `buffer_state`.
+Q ensemble; `target_params` = target Q, updated by `optax.incremental_update` on the Q
+subtree in `core.update`), `actor_state` (policy prior), `critic_state=None`, `q_scale`,
+`pi_gradnorm_sq`, `collector_state` (row collector state; its `policy_carry` holds
+`prev_mean`), `buffer_state`, `update_metrics` (the last update's, kept for logging) and
+`n_terminations` (T10).
 
 ### 4.6 Evaluation
 `evaluate_policy` (§5.4) with the planner in `eval_mode` (no final noise; everything
@@ -499,9 +502,10 @@ a function of the absolute tick.
   draws with probability below ½, and its `V ≥ 0.8` is unreachable.
 
 ## 9. Performance guardrail
-PR #48 (restore `benchmarks/`) merges first; a fresh CPU baseline is captured on this
-machine before M4. After M4 and M7, `agent_bench.py --compare` runs for all registered
-agents. APG and both new agents get bench entries with a small documented preset.
+The CPU baseline `benchmarks/agent_baseline.jsonl` (2026-10-12) has rows for every
+agent, APG and both new agents included, each from a small preset documented in
+`benchmarks/agent_bench.py`; `agent_bench.py --compare` against it is the guardrail
+(`PERFORMANCE_REPORT.md`, "CPU baseline after the close-out batch 1").
 
 ## 10. Testing
 
@@ -533,12 +537,16 @@ agents. APG and both new agents get bench entries with a small documented preset
     `parity/dreamerv3_train_fixtures.py`: three chained `Agent.train` calls with every
     loss scale at its default (warmup 2), recording every random draw, the loss terms,
     gradients, optimizer updates, slow critic, normaliser and write-back latents).
-  - *Transcriptions*: `tests/world_models/reference_impls.py` (shared blocks) and
-    `tests/agents/<A>/reference_<a>.py`, literal jnp transcriptions of the pinned
-    reference functions (MIT-licensed, attributed line by line), where running the
-    reference is impractical.
-- **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer;
-  2411f7d driver + replay add/sample/online queue + train gate + Ratio) on a counter env:
+  - *Transcriptions*, where running the reference is impractical: literal translations
+    of the pinned reference functions (MIT-licensed, attributed line by line) in
+    `tests/world_models/reference_impls.py` (shared blocks), and DreamerV3's Algorithm J
+    inline in `test_dreamerv3_replay.py` (`test_replay_context_batch_follows_algorithm_j`).
+    `tests/agents/TDMPC2/reference_params.py` maps the reference's parameter names onto
+    Ajax's trees for the parity tests.
+- **Control-flow parity.** Python ports of the reference loops (b67b21c online trainer,
+  `reference_online_loop` in `test_tdmpc2_schedule.py`; 2411f7d driver + replay
+  add/sample/online queue + train gate + Ratio, `tests/agents/DreamerV3/reference_loop.py`)
+  on a counter env:
   identical row streams, seed/burst/gate ticks, queue pops, update counts.
 - **Structure.** Parameter-count tests (TD-MPC2 walker 4,960,618; MT 5,389,930; DreamerV3
   12M core), chex shape tests, gradient-routing tests (which params get non-zero grads

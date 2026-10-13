@@ -157,9 +157,6 @@ def symlog_mse(prediction: jax.Array, target: jax.Array) -> jax.Array:
     return jnp.sum(distance, -1)
 
 
-# ------------------------------------------------------------------ the actor
-
-
 class BoundedNormal(NamedTuple):
     """The continuous actor's distribution: ``Normal(mean, std)`` per dimension.
 

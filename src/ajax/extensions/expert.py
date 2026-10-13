@@ -1,9 +1,5 @@
 """Expert-guidance research features as composable :class:`Extension`s.
 
-Phase 2 of the agent-architecture rework moves SAC's 14 inline research
-features out of ``train_SAC.py`` into composable :class:`Extension`
-objects. The expert-dependent group lives here:
-
 * :class:`OnlineBC`              — value-weighted decaying BC loss term.
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
@@ -180,8 +176,7 @@ class ImitationLoss(Extension):
     actions in ``[-1, 1]`` to ``[0, 1]``. Unlike :class:`OnlineBC` the term
     is unweighted and needs no pre-trained expert critic.
 
-    It replaces the ``imitation_coef`` keyword TD3, REDQ, ASAC and APO used
-    to carry. Those agents and SAC put ``pi_mean`` and ``raw_observations``
+    TD3, REDQ, ASAC, APO and SAC put ``pi_mean`` and ``raw_observations``
     in their actor-loss batch; an agent whose batch has no ``pi_mean`` (a
     discrete-action policy) raises at trace time.
     """
@@ -236,17 +231,9 @@ class ResidualPolicy(Extension):
     def build_policy_transform(
         self, expert_policy: Optional[Callable]
     ) -> Optional[Callable]:
-        """Build the actor-loss / TD-target residual transform.
-
-        Self-contained replacement for the legacy SAC-side
-        ``_build_residual_policy_transform`` helper. The actor-loss and
-        TD-target call sites still consume a thin
-        ``(actions, raw_obs, a_expert_precomputed) -> actions`` callable;
-        this method builds it off ``transform_action`` and ``expert_policy``.
-
-        Returns ``None`` when ``expert_policy`` is ``None`` — the
-        actor-loss / TD-target residual transform is deactivated then.
-        """
+        """The actor-loss / TD-target residual transform, ``(actions,
+        raw_obs, a_expert_precomputed) -> actions``; ``None`` (no residual
+        transform) without an ``expert_policy``."""
         if expert_policy is None:
             return None
 
@@ -263,14 +250,9 @@ class ResidualPolicy(Extension):
         return transform
 
     def build_eval_transform(self) -> Callable:
-        """Build the eval-time residual transform.
-
-        Self-contained replacement for the legacy SAC-side
-        ``_build_residual_policy_eval_transform`` helper. The
-        :func:`ajax.evaluate.step_environment` call site still consumes a
-        thin ``(raw, expert, obs, agent_state) -> actions`` callable;
-        this method builds it off ``transform_action``.
-        """
+        """The eval-time residual transform, ``(raw, expert, obs,
+        agent_state) -> actions``, as :func:`ajax.evaluate.step_environment`
+        calls it."""
         scale = self.scale
 
         def transform(raw_actions, expert_actions, obs, agent_state):
@@ -347,11 +329,10 @@ class ExpertValueMetrics(Extension):
     ``value/phi_star_q_gap_ood``, the mean ``|min_k Q_φ*(s, a_E) - min_k
     Q(s, a_E)|``.
 
-    SAC computed them on every update's batch, a critic pass of its own (two
-    with ``φ*``) per update for three logged numbers; here one replay batch
-    per evaluation pays for them. ``a_E`` is the expert's action stored at
-    collection. SAC with an ``expert_policy`` binds its replay buffer, its
-    expert and its observation augmentation.
+    One replay batch per evaluation pays for them, not a critic pass (two
+    with ``φ*``) per update for three logged numbers. ``a_E`` is the
+    expert's action stored at collection. SAC with an ``expert_policy``
+    binds its replay buffer, its expert and its observation augmentation.
     """
 
     buffer: Any = None

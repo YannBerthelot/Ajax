@@ -148,9 +148,8 @@ def eval_norm_info(agent_state: Any, mode: str) -> Optional[Any]:
     the training env's normaliser holds now, ``None`` without one.
 
     The key is the one ``NormalizeVecObservation.update_state_*`` stores
-    (``ajax/wrappers.py``). Looking for another one (as this once did:
-    ``"obs_normalization_info"``) evaluates on raw observations an agent
-    trained on normalised ones.
+    (``ajax/wrappers.py``). Looking for another one evaluates on raw
+    observations an agent trained on normalised ones.
     """
     env_state = agent_state.collector_state.env_state
     if mode == "brax":

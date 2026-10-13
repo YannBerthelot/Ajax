@@ -15,38 +15,15 @@ def _compute_gae(
     gamma: float,
     gae_lambda: float,
 ) -> tuple[jax.Array, jax.Array]:
-    """
-    Compute gae advantages
-
-    Args:
-        traj_batch (Transition): The transition buffer
-        last_val (jax.Array): The value of the last state encoutered.
-        gamma (float): The discount factor to consider.
-        gae_lambda (float): The gae lambda parameter to consider.
-
-    Returns:
-        tuple[jax.Array, jax.Array]: Gae and value (carry-over values to feed for next\
-              iteration)\
-            and the gae for actual return
-    """
+    """GAE (Schulman et al., 2016) over a time-major rollout, in reverse:
+    ``delta_t = r_t + gamma V(s_{t+1}) (1 - terminated_t) - V(s_t)`` and
+    ``A_t = delta_t + gamma lambda (1 - done_t) A_{t+1}``: a truncation cuts
+    the trace but still bootstraps. Returns ``(A, A + V)``."""
 
     def _get_advantages(
         gae: jax.Array,
         transition,
     ) -> tuple[jax.Array, jax.Array]:
-        """
-        Iteratively compute advantages in gae style using previous gae, next value\
-              and transition buffer
-
-        Args:
-            gae_and_next_value (tuple[jax.Array, jax.Array]): Previous gae and next_value
-            transition (Transition): The transitions to consider
-
-        Returns:
-            tuple[tuple[jax.Array, jax.Array], jax.Array]: The updated gaes + \
-                the transition's values
-        """
-        # current estimation of gae + value at t+1 because we have working in reverse
         reward, value, next_value, terminated, truncated = transition
 
         next_state_is_non_terminal = 1.0 - terminated
@@ -55,7 +32,6 @@ def _compute_gae(
         delta = reward + gamma * next_value * next_state_is_non_terminal - value
         gae = delta + gamma * gae_lambda * done * gae
 
-        # tuple is carry-over state for scan, gae after the comma is the actual return at the end of the scan
         return gae, gae
 
     _, advantages = jax.lax.scan(

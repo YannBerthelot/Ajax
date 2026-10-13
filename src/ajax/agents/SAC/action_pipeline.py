@@ -56,8 +56,8 @@ def _resolve_expert_state(expert_policy, collector_state, n_envs):
     """Return the stateful expert's per-step input state.
 
     Resets entries whose previous step was a terminal/truncation to the
-    zero-initialised state — match the legacy pre-refactor reset
-    semantics (autoreset has already advanced obs at this point).
+    zero-initialised state (autoreset has already advanced obs at this
+    point).
     """
     expert_zero_batched = expert_policy.init_state(n_envs)
     last_done = collector_state.last_terminated.astype(
@@ -150,27 +150,17 @@ def make_action_pipeline(
     # ``transform_action`` makes the post-warmup action residual.
     residual=None,
     use_pid_policy=False,
-    # Obs augmentation
     augment_obs_with_expert_action=False,
     # Off-policy correctness ablation: when True, the pipeline returns
     # the policy's sampled action as buffer_action (instead of letting
     # collect_experience fall back to env_action = the executed action).
     store_policy_action=False,
-    # Context
     total_timesteps=1,
     expert_fraction=0.7,
 ):
     """Compose the SAC action pipeline for collect_experience.
 
-    Returns None for vanilla SAC (no expert). When provided, the pipeline
-    handles obs augmentation, action selection, and warmup expert/uniform
-    mixing; the collection-time substitution features (EDGE / ValueBox /
-    JSRL) own their gate math on their :class:`Extension` ``action``
-    phase method — this pipeline dispatches each in the canonical
-    legacy ordering (EDGE → JSRL → warmup cond → ValueBox) and only
-    retains SAC-side bookkeeping (``is_expert_flag``, ``buffer_action``,
-    expert-state threading, ``in_value_box`` / ``entry_bonus``
-    recording for buffer-write suppression).
+    Returns None for vanilla SAC (no expert).
 
     All boolean flags are resolved at Python level (trace time), so the
     compiled graph only contains the active branches.
@@ -179,12 +169,10 @@ def make_action_pipeline(
         return None
 
     # Stateful experts (FunctionalExpertPolicy) expose init_state; stateless
-    # callables (e.g. make_noise_expert_policy) don't. Resolve at Python level
-    # so the traced graph only contains the active branch.
+    # callables (e.g. make_noise_expert_policy) don't.
     expert_is_stateful = hasattr(expert_policy, "init_state")
 
     # Gain-policy mode: actor output is interpreted as PID gain modulation.
-    # Pre-compute static anchor gains + scaling once; reuse per step.
     gain_policy_mode = use_pid_policy and hasattr(expert_policy, "learnable_fields")
     if use_pid_policy and not gain_policy_mode:
         raise ValueError(
@@ -210,10 +198,6 @@ def make_action_pipeline(
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
         collector_state = agent_state.collector_state
 
-        # --- Gain-policy short-circuit ---
-        # Gain-policy mode is a single-feature path that bypasses every
-        # other collection-time override; it has no Extension
-        # representation yet.
         if gain_policy_mode:
             return _gain_policy_step(
                 agent_state=agent_state,
@@ -230,9 +214,6 @@ def make_action_pipeline(
             )
 
         # --- Stateful expert call (PID integrator / derivative carry) ---
-        # Reset the expert's internal state at the start of a new episode
-        # (detected via the *previous* step's done flag, since autoreset has
-        # already produced the fresh first obs by now).
         _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
         if expert_is_stateful:
             expert_state_in = _resolve_expert_state(
@@ -266,12 +247,10 @@ def make_action_pipeline(
             recurrent=recurrent,
         )
 
-        # --- Uniform action (for warmup) ---
         uniform_action = jax.random.uniform(
             mix_key, minval=-1.0, maxval=1.0, shape=action.shape
         )
 
-        # --- Post-warmup action (default) ---
         if residual is not None:
             post_warmup_action = residual.transform_action(action, expert_action)
         else:
@@ -316,7 +295,6 @@ def make_action_pipeline(
             )
             post_warmup_action, rng = pre["post_warmup_action"], pre["gate_rng"]
 
-        # --- Warmup action ---
         if residual is not None:
             warmup_action = uniform_action
             use_expert_this_step = jnp.zeros((), dtype=jnp.bool_)
@@ -329,7 +307,6 @@ def make_action_pipeline(
                 use_expert_this_step, expert_action, uniform_action
             )
 
-        # --- Final action selection (warmup vs post-warmup) ---
         env_action = jax.lax.cond(
             uniform, lambda: warmup_action, lambda: post_warmup_action
         )

@@ -16,6 +16,8 @@ from flax.struct import dataclass as flax_dataclass
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
 
+from ajax.deprecation import warn_inert
+
 
 @flax_dataclass
 class LoggingConfig:
@@ -26,11 +28,17 @@ class LoggingConfig:
     run_name: Optional[str] = None
     log_frequency: int = 1000
     group_name: Optional[str] = None
-    horizon: int = 10_000
+    # Inert, warned, to be removed: nothing reads it.
+    horizon: Optional[int] = None
     folder: Optional[str] = None
     use_tensorboard: bool = False
     use_wandb: bool = True
     sweep: bool = False
+
+    def __post_init__(self) -> None:
+        warn_inert(
+            "LoggingConfig", "nothing reads it.", stacklevel=4, horizon=self.horizon
+        )
 
     @property
     def backend(self) -> bool:

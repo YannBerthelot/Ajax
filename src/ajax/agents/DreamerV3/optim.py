@@ -29,6 +29,13 @@ the gradient:
    (``:452-455``, ``:510-524``), so the first update has learning rate 0: it
    leaves the parameters unchanged but accumulates the moments.
 
+With ``weight_decay > 0``, ``optax.add_decayed_weights`` adds
+``weight_decay * p`` to every parameter's update between steps 3 and 4, as
+``optax.adamw`` does after Adam's moments: the decay is decoupled from the
+gradient statistics and multiplied by the warmed-up learning rate, so a zero
+gradient's step multiplies each parameter by ``1 - lr_k weight_decay``
+(``OptimizerConfig.weight_decay``, which every Ajax agent shares).
+
 Two roundings differ from the reference's, by float32 rounding only: optax
 multiplies ``g`` by ``1 / (sqrt(nu_hat) + eps)`` where the reference
 divides, and folds the warmup factor into the learning rate where the
@@ -52,7 +59,8 @@ the same joint gradient gives the single optimizer's update
 (``tests/agents/DreamerV3/test_dreamerv3_actor_critic.py``). The
 reference's optional branches that are off by default -- global-norm
 clipping, weight decay, per-module learning rates, float16 loss scaling --
-are not implemented.
+are not implemented: ``weight_decay`` above is Ajax's, not a port of the
+reference's ``wd`` branch.
 """
 
 from __future__ import annotations
@@ -113,21 +121,26 @@ def laprop(
     beta2: float = 0.999,
     eps: float = 1e-20,
     warmup: int = 1000,
+    weight_decay: float = 0.0,
 ) -> optax.GradientTransformation:
-    """The reference's optimizer chain (Algorithm I; module docstring).
+    """The reference's optimizer chain (Algorithm I; module docstring),
+    with Ajax's decoupled ``weight_decay`` before the learning rate.
 
     :func:`scale_by_agc` (skipped when ``agc = 0``, as in the reference,
     ``jaxutils.py:433-434``), ``optax.scale_by_rms``, ``optax.ema`` and
     ``optax.scale_by_learning_rate`` with :func:`warmup_schedule` (always a
     schedule, so that the state has the same structure with and without
-    warmup). The defaults are 2411f7d's.
+    warmup). The defaults are 2411f7d's. ``weight_decay = 0`` leaves the
+    decay out, so the chain and its state are the reference's.
     """
     chain = [scale_by_agc(agc, pmin)] if agc else []
     chain += [
         optax.scale_by_rms(beta2, eps, eps_in_sqrt=False, bias_correction=True),
         optax.ema(beta1, debias=True),
-        optax.scale_by_learning_rate(warmup_schedule(learning_rate, warmup)),
     ]
+    if weight_decay:
+        chain.append(optax.add_decayed_weights(weight_decay))
+    chain.append(optax.scale_by_learning_rate(warmup_schedule(learning_rate, warmup)))
     return optax.chain(*chain)
 
 
@@ -141,4 +154,5 @@ def make_optimizer(config: DreamerV3Config) -> optax.GradientTransformation:
         beta2=config.beta2,
         eps=config.eps,
         warmup=config.warmup,
+        weight_decay=config.weight_decay,
     )

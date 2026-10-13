@@ -127,6 +127,9 @@ class DreamerV3Config:
         beta1, beta2, eps: LaProp momentum and RMS decays and the epsilon
             added after the square root.
         warmup: updates of linear learning-rate warmup from 0 (0 disables).
+        weight_decay: decoupled weight decay, multiplied by the (warmed-up)
+            learning rate as ``OptimizerConfig.weight_decay`` is; Ajax's
+            (0, the default, leaves the reference's chain unchanged).
     """
 
     units: int = 256
@@ -171,6 +174,7 @@ class DreamerV3Config:
     beta2: float = 0.999
     eps: float = 1e-20
     warmup: int = 1000
+    weight_decay: float = 0.0
 
     def __post_init__(self) -> None:
         sizes = ("units", "hidden", "deter", "stoch", "classes", "blocks", "bins")
@@ -201,6 +205,8 @@ class DreamerV3Config:
                 raise ValueError(f"{name} must be in [0, 1), got {getattr(self, name)}")
         if self.warmup < 0:
             raise ValueError(f"warmup must be >= 0, got {self.warmup}")
+        if self.weight_decay < 0:
+            raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
 
     @classmethod
     def from_model_size(

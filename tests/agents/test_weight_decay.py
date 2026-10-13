@@ -15,8 +15,10 @@ import numpy as np
 import pytest
 from flax.training.train_state import TrainState
 
+from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
+from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 from tests.agents.test_agent_contract import CASES
@@ -104,3 +106,19 @@ def test_tdmpc2_decays_each_group_at_its_own_learning_rate(
         assert_scaled(params, after[group], 1 - rate * wd)
     policy = state.actor_state
     assert_scaled(policy.params, zero_gradient_step(policy), 1 - LR * wd)
+
+
+@pytest.mark.parametrize("weight_decay", [None, WD])
+def test_dreamerv3_decays_at_the_warmed_up_learning_rate(
+    weight_decay: float | None,
+) -> None:
+    """DreamerV3's LaProp adds the decay before its warmed-up learning rate,
+    as AdamW does before Adam's: with the warmup off, the first step decays
+    the world model, the actor and the critic at ``lr``."""
+    given = {} if weight_decay is None else {"weight_decay": weight_decay}
+    tiny = DREAMER_TINY | {"learning_rate": LR, "warmup": 0} | given
+    state = initial_state(DreamerV3("CartPole-v1", n_envs=2, **tiny))
+    for name in ("world_model_state", "actor_state", "critic_state"):
+        network = getattr(state, name)
+        after = zero_gradient_step(network)
+        assert_scaled(network.params, after, 1 - LR * (weight_decay or 0.0))

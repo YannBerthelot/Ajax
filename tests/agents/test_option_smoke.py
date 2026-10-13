@@ -80,6 +80,7 @@ OPTIONS |= {
     "bptt_length": {"memory": GRU, "bptt_length": 8},
     "n_envs": {"n_envs": 2},
     "max_grad_norm": {"max_grad_norm": 1.0},
+    "weight_decay": {"weight_decay": 1e-2},
     "unroll_length": {"unroll_length": 8},
     "normalize_advantage": {"normalize_advantage": False},
     "squash": {"squash": None},

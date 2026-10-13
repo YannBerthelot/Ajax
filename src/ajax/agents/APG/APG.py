@@ -189,7 +189,10 @@ class APG(ActorCritic):
         convention; the reference leaves ``u`` unbounded), gradients are
         clipped (see :class:`APG`), and the PID head starts at the
         identity rather than the reference's all-ones coefficients (see
-        ``_DEFAULT_PID``). ``final_norm=False`` rebuilds the transformer
+        ``_DEFAULT_PID``). Not backed by runs: the LayerNorms, ``ln_f``
+        included, keep a bias and flax's epsilon 1e-6, where the reference's
+        have no bias (``--bias`` defaults to False) and epsilon 1e-5.
+        ``final_norm=False`` rebuilds the transformer
         without its final LayerNorm, only to restore a checkpoint saved
         before it (see :class:`~ajax.networks.memory.MemoryConfig`). Extra
         kwargs go to :class:`APG`.

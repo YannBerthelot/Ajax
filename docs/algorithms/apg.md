@@ -131,7 +131,9 @@ LayerNorm, which played that final norm's part, into the transformer.
   which trained markedly worse under the bounded action (fresh-system M-RMSE
   0.33 against 0.25). These runs predate the mapping of actions onto the
   environment's bounds: the pendulum's torque was then capped at 1 of its
-  2. The paper trains each curriculum stage to a loss tolerance; Ajax gives
+  2. Not backed by runs: the transformer's LayerNorms, its final one
+  included, keep a bias and an epsilon of 1e-6, where the reference's have
+  no bias and 1e-5. The paper trains each curriculum stage to a loss tolerance; Ajax gives
   each stage a fixed `n_timesteps`.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
   one's parameters and, by default, restarts the optimizer and its schedule

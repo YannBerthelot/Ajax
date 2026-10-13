@@ -277,7 +277,11 @@ class _TransformerCore(nn.Module):
     keeps the stream's scale, growing with depth, out of the heads. GTrXL
     (Parisotto et al. 2020, arXiv:1910.06764) instead gates its residuals
     and describes no final norm; this core does not gate. Its LayerNorms keep
-    flax's epsilon, 1e-6, where the references use 1e-5.
+    flax's epsilon, 1e-6, where the references use 1e-5. Busetto et al.'s
+    contextual controller (buswayne/in-context-controller), which
+    ``APG.contextual_controller`` builds on this core, also leaves the bias
+    out of its LayerNorms, ``ln_f`` included (``--bias`` defaults to False);
+    these keep one.
 
     Per layer the carry holds the last ``window - 1`` layer INPUTS and
     their validity flags; a step attends to itself plus up to window-1

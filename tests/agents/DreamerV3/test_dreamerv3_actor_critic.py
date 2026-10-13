@@ -1033,6 +1033,7 @@ def test_actor_critic_config_validation():
         ("slow_rate", -0.1),
         ("beta2", 1.0),
         ("warmup", -1),
+        ("weight_decay", -0.1),
     ):
         with pytest.raises(ValueError):
             dataclasses.replace(CONFIG, **{field: value})

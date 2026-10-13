@@ -36,9 +36,11 @@ ANSWER_DIGEST = "dd738b04c9ca"  # verdict.digest(CASES): every answer, pinned
 # (the carry restarts). Without memory the cue queries read about 0; a carry
 # never restarted acts on the old cue (a gap up to 2). Built: PPO with GRU
 # and LSTM; SAC, REDQ and TD3 with GRU. Not built: PPO with transformer or
-# mamba waits on a fix to those cores' output norm; SAC, REDQ and TD3 with
-# other kinds are uncalibrated; ASAC's values are differential; APG needs
-# the env's gradients.
+# mamba calibrates at no budget tried (squashed, 5000-40,000 steps): 1 to 9
+# of the 64 seeds 1000-2031 fail at each, 30 of the 41 failures because the
+# policy collapses to one bound for both cues; the owner decides what next.
+# SAC, REDQ and TD3 with other kinds are uncalibrated; ASAC's values are
+# differential; APG needs the env's gradients.
 
 
 def _cue(st: envs.State, a: jax.Array, key: Any) -> tuple:
@@ -106,12 +108,14 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 
 # Budgets: the smallest of 5000-15,000 (PPO) or 1250-3750 steps qualifying on
 # seeds 1000-2031; certified on 3000-3031: SAC and REDQ 32/32, TD3 31/32,
-# PPO-lstm 30/32 (15,000 does not qualify). Each failing seed acts the same
-# after both cues while its critic values the wrong one at -1: PPO's mean
-# sits far past the env's clip (seed 1020: 6.2, std 0.07), where no sample
-# tells actions apart. PPO-gru keeps its earlier calibration (cert 31/32): no
-# budget qualifies, seed 1020 failing at each. The action gap reads exactly
-# 0: it takes the 0.02 floor.
+# PPO-lstm 30/32 (15,000 does not qualify; at 30/32 the two-stage rule fails
+# a sound build about 1% of the time). Each seed failing certification acts
+# the same after both cues while its critic values the wrong one at -1; some
+# failing ladder seeds instead tell the cues apart but misread a value.
+# PPO's mean can sit far past the env's clip (seed 1020: 6.2, std 0.07),
+# where no sample tells actions apart. PPO-gru keeps its earlier calibration
+# (cert 31/32): no budget qualifies, seed 1020 failing at each. The action
+# gap reads exactly 0: it takes the 0.02 floor.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "gru"): (10_000, (0.5, 0.5, 0.478, 0.495, 0.091, 0.091, 0.02)),
     ("PPO", "lstm"): (10_000, (0.495, 0.451, 0.466, 0.415, 0.053, 0.053, 0.02)),

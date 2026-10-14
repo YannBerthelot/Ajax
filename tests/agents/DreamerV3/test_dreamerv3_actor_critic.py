@@ -896,9 +896,19 @@ def test_make_optimizer_honours_every_optimizer_field():
         beta2=0.99,
         eps=1e-6,
         warmup=2,
+        weight_decay=0.1,
     )
     ours = make_optimizer(config)
-    theirs = laprop(3e-3, agc=0.5, pmin=1e-2, beta1=0.8, beta2=0.99, eps=1e-6, warmup=2)
+    theirs = laprop(
+        3e-3,
+        agc=0.5,
+        pmin=1e-2,
+        beta1=0.8,
+        beta2=0.99,
+        eps=1e-6,
+        warmup=2,
+        weight_decay=0.1,
+    )
     defaults = make_optimizer(CONFIG)
     params = {"a": jnp.linspace(-1.0, 1.0, 12).reshape(4, 3), "b": jnp.zeros((5,))}
     states = [tx.init(params) for tx in (ours, theirs, defaults)]
@@ -1023,6 +1033,7 @@ def test_actor_critic_config_validation():
         ("slow_rate", -0.1),
         ("beta2", 1.0),
         ("warmup", -1),
+        ("weight_decay", -0.1),
     ):
         with pytest.raises(ValueError):
             dataclasses.replace(CONFIG, **{field: value})

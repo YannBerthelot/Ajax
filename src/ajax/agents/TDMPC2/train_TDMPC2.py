@@ -327,6 +327,7 @@ def init_TDMPC2(
     learning_rate: FloatOrCallable,
     enc_lr_scale: float,
     pi_eps: float,
+    weight_decay: float = 0.0,
 ) -> TDMPC2State:
     """Fresh networks and optimizers (:func:`core.create_update_state`), a zero
     planner carry, reset envs (every env's first row is ``is_first``) and an
@@ -341,6 +342,7 @@ def init_TDMPC2(
         learning_rate=learning_rate,
         enc_lr_scale=enc_lr_scale,
         pi_eps=pi_eps,
+        weight_decay=weight_decay,
     )
     prev_mean = jnp.zeros((env_args.n_envs, config.horizon, action_dim))
     collector_state = init_row_collector_state(
@@ -515,6 +517,7 @@ def make_train(
     learning_rate: FloatOrCallable = 3e-4,
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
+    weight_decay: float = 0.0,
     start_tick: int = 0,
     extensions: Sequence = (),
 ) -> Callable:
@@ -532,11 +535,11 @@ def make_train(
     ticks with the static map from the start of the run (exact when it is a
     multiple of ``T * n_envs``, as the reference's ``eval_freq`` 50,000 is of
     DMC's 500). The optimizers are built by :func:`core.create_update_state`
-    from ``learning_rate``, ``enc_lr_scale`` and ``pi_eps``; the base class's
-    actor / critic optimizer and network configs do not apply. The episodic
-    mode's updates follow the envs each tick stepped (those not held: the
-    collector sets ``is_first`` exactly after a held tick) and wait for a
-    sampleable episode.
+    from ``learning_rate``, ``enc_lr_scale``, ``pi_eps`` and ``weight_decay``;
+    the base class's actor / critic optimizer and network configs do not
+    apply. The episodic mode's updates follow the envs each tick stepped
+    (those not held: the collector sets ``is_first`` exactly after a held
+    tick) and wait for a sampleable episode.
     """
     del actor_optimizer_args, critic_optimizer_args, network_args
     config = agent_config
@@ -560,6 +563,7 @@ def make_train(
             learning_rate=learning_rate,
             enc_lr_scale=enc_lr_scale,
             pi_eps=pi_eps,
+            weight_decay=weight_decay,
         )
 
     models: dict[str, Any] = {"config": config, "buffer": buffer, "gamma": gamma}

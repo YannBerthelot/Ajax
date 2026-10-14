@@ -679,7 +679,9 @@ def _scaled_lr(learning_rate: FloatOrCallable, scale: float) -> FloatOrCallable:
 
 
 def make_world_model_tx(
-    learning_rate: FloatOrCallable = 3e-4, enc_lr_scale: float = 0.3
+    learning_rate: FloatOrCallable = 3e-4,
+    enc_lr_scale: float = 0.3,
+    weight_decay: float = 0.0,
 ) -> optax.GradientTransformation:
     """World-model Adam with the encoder's learning rate scaled (``tdmpc2.py:21-27``).
 
@@ -689,7 +691,9 @@ def make_world_model_tx(
     ``learning_rate``; torch Adam defaults
     (betas 0.9 / 0.999, eps 1e-8; tdmpc2_spec 2.9). Clipping is not part of
     the transformation: :func:`update` clips once over all world-model
-    gradients, with the paper-era norm, before the groups.
+    gradients, with the paper-era norm, before the groups. ``weight_decay``
+    (Ajax's; the reference has none) is :func:`get_adam_tx`'s on both
+    groups, so the encoder's is multiplied by its scaled learning rate.
     """
 
     def labels(params: Params) -> dict[str, str]:
@@ -697,18 +701,23 @@ def make_world_model_tx(
 
     return optax.multi_transform(
         {
-            "encoder": get_adam_tx(_scaled_lr(learning_rate, enc_lr_scale), eps=1e-8),
-            "rest": get_adam_tx(learning_rate, eps=1e-8),
+            "encoder": get_adam_tx(
+                _scaled_lr(learning_rate, enc_lr_scale),
+                eps=1e-8,
+                weight_decay=weight_decay,
+            ),
+            "rest": get_adam_tx(learning_rate, eps=1e-8, weight_decay=weight_decay),
         },
         labels,
     )
 
 
 def make_policy_tx(
-    learning_rate: FloatOrCallable = 3e-4, eps: float = 1e-5
+    learning_rate: FloatOrCallable = 3e-4, eps: float = 1e-5, weight_decay: float = 0.0
 ) -> optax.GradientTransformation:
-    """Policy Adam(eps 1e-5) (``tdmpc2.py:28``); clipped in :func:`update`."""
-    return get_adam_tx(learning_rate, eps=eps)
+    """Policy Adam(eps 1e-5) (``tdmpc2.py:28``); clipped in :func:`update`;
+    ``weight_decay`` as :func:`make_world_model_tx`'s."""
+    return get_adam_tx(learning_rate, eps=eps, weight_decay=weight_decay)
 
 
 def create_update_state(
@@ -720,6 +729,7 @@ def create_update_state(
     learning_rate: FloatOrCallable = 3e-4,
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
+    weight_decay: float = 0.0,
     task_dim: int = 0,
     num_tasks: int = 0,
 ) -> TDMPC2UpdateState:
@@ -762,13 +772,13 @@ def create_update_state(
     world_model_state = LoadedTrainState.create(
         apply_fn=world_model.apply,
         params=wm_params,
-        tx=make_world_model_tx(learning_rate, enc_lr_scale),
+        tx=make_world_model_tx(learning_rate, enc_lr_scale, weight_decay),
         target_params=wm_params["q"],
     )
     actor_state = LoadedTrainState.create(
         apply_fn=policy.apply,
         params=pi_params,
-        tx=make_policy_tx(learning_rate, pi_eps),
+        tx=make_policy_tx(learning_rate, pi_eps, weight_decay),
     )
     return TDMPC2UpdateState(
         world_model_state=world_model_state,

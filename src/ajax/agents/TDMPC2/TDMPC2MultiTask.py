@@ -147,6 +147,7 @@ class TDMPC2MultiTask:
         enc_lr_scale: float = 0.3,
         grad_clip_norm: float = 20.0,
         pi_eps: float = 1e-5,
+        weight_decay: float = 0.0,
         tau: float = 0.01,
         entropy_coef: float = 1e-4,
         log_std_min: float = -10.0,
@@ -211,6 +212,7 @@ class TDMPC2MultiTask:
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)
         self.pi_eps = float(pi_eps)
+        self.weight_decay = float(weight_decay)
         self.eval_env_args: Optional[tuple[EnvironmentConfig, ...]] = (
             None
             if eval_envs is None
@@ -314,6 +316,7 @@ class TDMPC2MultiTask:
                 learning_rate=self.learning_rate,
                 enc_lr_scale=self.enc_lr_scale,
                 pi_eps=self.pi_eps,
+                weight_decay=self.weight_decay,
                 extensions=self.extension_stack.extensions,
                 total_timesteps=total,
             )
@@ -345,6 +348,7 @@ class TDMPC2MultiTask:
                 learning_rate=self.learning_rate,
                 enc_lr_scale=self.enc_lr_scale,
                 pi_eps=self.pi_eps,
+                weight_decay=self.weight_decay,
                 extensions=self.extension_stack.extensions,
                 total_timesteps=total,
             )

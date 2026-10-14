@@ -180,6 +180,7 @@ class DreamerV3(ActorCritic):
         beta2: float = 0.999,
         eps: float = 1e-20,
         warmup: int = 1000,
+        weight_decay: float = 0.0,
         replay_capacity: int = 5_000_000,
         episode_length: int = 1000,
         action_repeat: int = 1,

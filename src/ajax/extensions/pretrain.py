@@ -364,7 +364,7 @@ class CloningPretrain(Extension):
     statistics start from the dataset's. ``skip_actor`` leaves the actor as
     initialised; after cloning, ``reset_log_std`` puts its log-std (head
     or parameter) back at its initial values and ``reset_actor_head`` also
-    re-draws its mean head.
+    its output head (the mean layer, or a PID actor's gains).
 
     The fields after ``reset_actor_head`` are the agent's context, filled by
     :meth:`bind_to_agent` (SAC, REDQ, TD3 and APO do).

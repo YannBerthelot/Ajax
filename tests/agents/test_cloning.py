@@ -2,6 +2,7 @@ import functools
 import importlib
 
 import distrax
+import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -242,9 +243,9 @@ def _close(a, b):
 
 def test_cloning_pretrain_resets_the_heads_it_is_told_to():
     """``reset_log_std`` puts the cloned actor's log-std head back at its
-    initial values; ``reset_actor_head`` re-initialises the mean head too
-    (orthogonal(0.01): a unit column scaled to 0.01, zero bias), the trunk
-    staying cloned; without either, both heads keep their cloned values."""
+    initial values; ``reset_actor_head`` puts the mean head back too, the
+    trunk staying cloned; without either, both heads keep their cloned
+    values."""
     clone = functools.partial(
         CloningPretrain, _half_torque, n_steps=16, epochs=2, batch_size=8
     )
@@ -256,10 +257,7 @@ def test_cloning_pretrain_resets_the_heads_it_is_told_to():
     assert _close(log_std["log_std"], initial["log_std"])
     assert _close(log_std["mean"], cloned["mean"])
     assert _close(head["log_std"], initial["log_std"])
-    kernel = head["mean"]["kernel"]
-    np.testing.assert_allclose(np.linalg.norm(kernel), 0.01, rtol=1e-5)
-    np.testing.assert_array_equal(head["mean"]["bias"], 0.0)
-    assert not _close(kernel, cloned["mean"]["kernel"])
+    assert _close(head["mean"], initial["mean"])
     trunk = [k for k in cloned if k not in ("mean", "log_std")]
     assert trunk and all(_close(head[k], cloned[k]) for k in trunk)
 
@@ -302,3 +300,48 @@ def test_pre_train_reset_log_std_restores_any_log_std(actor):
     assert _close(reset["params"][name], params["params"][name])
     others = [k for k in params["params"] if k != name]
     assert all(_close(reset["params"][k], cloned["params"][k]) for k in others)
+
+
+@pytest.mark.parametrize(
+    "actor, head",
+    [
+        (Actor(("8", "relu"), action_dim=2, continuous=True), ["mean"]),
+        (PIDActor(PIDPolicy(), action_dim=2), ["pid"]),
+        (
+            PIDActor(
+                PIDPolicy(gains="observation", architecture=("8", "relu")),
+                action_dim=2,
+            ),
+            ["pid/head"],
+        ),
+    ],
+    ids=["actor", "pid-fixed", "pid-observation"],
+)
+def test_pre_train_reset_actor_head_restores_the_output_head(actor, head):
+    """``reset_actor_head`` puts the actor's output head back at its values
+    before cloning: Actor's mean layer, or a PID actor's gains (fixed, or
+    the layer predicting them), the rest staying cloned."""
+    params = actor.init(jax.random.PRNGKey(0), jnp.ones((1, 4)))
+    state = train_state.TrainState.create(
+        apply_fn=actor.apply, params=params, tx=optax.adam(1e-3)
+    )
+    clone = functools.partial(
+        pre_train,
+        jax.random.PRNGKey(1),
+        state,
+        create_dummy_dataset(),
+        actor_epochs=5,
+        actor_batch_size=1,
+    )
+    cloned, reset = clone()[0].params, clone(reset_actor_head=True)[0].params
+    before, cloned, reset = (
+        flax.traverse_util.flatten_dict(p["params"], sep="/")
+        for p in (params, cloned, reset)
+    )
+    in_head = [k for k in before if any(k.startswith(h) for h in head)]
+    assert in_head and not _close(
+        [cloned[k] for k in in_head], [before[k] for k in in_head]
+    )
+    assert _close([reset[k] for k in in_head], [before[k] for k in in_head])
+    rest = [k for k in before if k not in in_head and "log_std" not in k]
+    assert all(_close(reset[k], cloned[k]) for k in rest)

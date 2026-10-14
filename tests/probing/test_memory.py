@@ -24,33 +24,28 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "dd738b04c9ca"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "21e5997acae8"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
 # A 3-step episode shows a cue c in {-1, 0, +1} at step 0 (its sign one-hot,
-# blanks after) and pays c clip(a, -1, 1) at step 2. Read at the last step of
-# a second episode after one with a known cue, from a fresh carry (the actor
-# stepped, the critic over the sequence at its actions): actions +-1, V = 1
-# (margins); after a cue-free episode V = 0 and an action gap of exactly 0
-# (the carry restarts). Without memory the cue queries read about 0; a carry
-# never restarted acts on the old cue (a gap up to 2). Built: PPO with GRU
-# and LSTM; SAC, REDQ and TD3 with GRU. Not built: PPO with transformer or
-# mamba calibrates at no budget tried (squashed, 5000-40,000 steps): 1 to 9
-# of the 64 seeds 1000-2031 fail at each, 28 of the 41 failures because the
-# policy acts alike for both cues at one bound (both actions of one sign and
-# beyond 0.95 in size). The transformer without the final LayerNorm, run at
-# 5000-20,000 only, fails on 4 to 8. Nor does a small entropy bonus calibrate
-# them: at 5000, 10,000 and 20,000 steps 1 to 15 of the 64 fail at each budget
-# in the 9 settings tried (ent_coef 0.001 to 0.03, squashed or not), and no
-# ent_coef of 0.001, 0.003 or 0.01 calibrates both PPO-gru (0.01 only, at
-# 20,000) and PPO-lstm (0.003 only). The owner decides what next. SAC, REDQ
-# and TD3 with other kinds are uncalibrated; ASAC's values are differential;
-# APG needs the env's gradients.
+# blanks after) and pays 1 - (1 - 2 c a)^2 at step 2, a clipped to [-1, 1]:
+# 1 at a = c / 2, inside the box (the action-range probes own its bounds),
+# and 0 at any action after no cue. Read at the last step of a second episode
+# after one with a known cue, from a fresh carry (the actor stepped, the
+# critic over the sequence at its actions): a(+1) - a(-1) = 1 and V = 1,
+# margins: PPO's V is 1 - 4 sigma^2 at its best mean, and a max-entropy
+# actor's tanh(mu) sits within 0.013 of 1/2 at any temperature from 0.001 to
+# 1 (oracles' quadrature), as PPO's mean does while sigma <= 0.2. After a
+# cue-free episode V = 0 and an action gap of exactly 0 (the carry restarts).
+# Without memory the gap and V read 0 (a cue-blind action a pays -8 a^2 / 3);
+# reversed, the gap reads -1; a carry never restarted acts on the old cue
+# (V 1, gap 1). SAC, REDQ and TD3 with other kinds are uncalibrated; ASAC's
+# values are differential; APG needs the env's gradients.
 
 
 def _cue(st: envs.State, a: jax.Array, key: Any) -> tuple:
-    paid = st.c * jnp.clip(a.reshape(()), -1.0, 1.0)
+    paid = 1.0 - (1.0 - 2.0 * st.c * jnp.clip(a.reshape(()), -1.0, 1.0)) ** 2
     return st.replace(s=st.s + 1), jnp.where(st.s == 2, paid, 0.0), st.s + 1 >= 3
 
 
@@ -77,11 +72,10 @@ CUE_OBS = _sign(jnp.repeat(PAIRS.T, 3, 0) * STARTS)  # (T, B, 2)
 NO_MEMORY = "no memory (the cue forgotten by the last step)"
 LEAK = "carry not restarted (the previous episode's cue read as this one's)"
 P0B = (
-    Query("a(+1)", 1.0, {NO_MEMORY: 0.0, "reversed": -1.0}, margin=True),
-    Query("a(-1)", -1.0, {NO_MEMORY: 0.0, "reversed": 1.0}, margin=True),
+    Query("a(+1) - a(-1)", 1.0, {NO_MEMORY: 0.0, "reversed": -1.0}, margin=True),
     *(Query(f"V({c})", 1.0, {NO_MEMORY: 0.0}, margin=True) for c in ("+1", "-1")),
     *(Query(f"V(none | {c})", 0.0, {LEAK: 1.0}) for c in ("+1", "-1")),
-    Query("a(none | +1) - a(none | -1)", 0.0, {LEAK: 2.0}),
+    Query("a(none | +1) - a(none | -1)", 0.0, {LEAK: 1.0}),
 )
 
 
@@ -95,9 +89,8 @@ def _p0b_read(agent: str) -> Callable:
         a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS), -1.0, 1.0)
         x = CUE_OBS if agent == "PPO" else _q_input(CUE_OBS, a, STARTS)
         a, v = a[-1, :, 0], R.critic_sequence(n, x, STARTS)[-1]
-        out = dict(zip([q.name for q in P0B[:2]], a[:2], strict=False))
-        out |= dict(zip([q.name for q in P0B[2:6]], v, strict=False))
-        return out | {P0B[6].name: a[2] - a[3]}
+        out = dict(zip([q.name for q in P0B[1:5]], v, strict=True))
+        return out | {P0B[0].name: a[0] - a[1], P0B[5].name: a[2] - a[3]}
 
     return lambda run: R.per_seed(read, R.nets(run.state))
 
@@ -112,22 +105,25 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
     return agents.make(agent, *spec.make(), memory=MemoryConfig(kind, 32), **kw)
 
 
-# Budgets: the smallest of 5000-15,000 (PPO) or 1250-3750 steps qualifying on
-# seeds 1000-2031; certified on 3000-3031: SAC and REDQ 32/32, TD3 31/32,
-# PPO-lstm 30/32 (15,000 does not qualify; at 30/32 the two-stage rule fails
-# a sound build about 1% of the time). Each seed failing certification acts
-# the same after both cues while its critic values the wrong one at -1; some
-# failing ladder seeds instead tell the cues apart but misread a value.
-# PPO's mean can sit far past the env's clip (seed 1020: 6.2, std 0.07),
-# where no sample tells actions apart. PPO-gru keeps its earlier calibration
-# (cert 31/32): no budget qualifies, seed 1020 failing at each. The action
-# gap reads exactly 0: it takes the 0.02 floor.
+# Budgets: the smallest qualifying on seeds 1000-2031 of 2500-10,000 steps
+# (PPO; lstm also 3750 and 6250) or 1250-3750 (TD3 also 5000 and 7500);
+# certified 32/32 on 3000-3031. The critic's V after a cue-free episode
+# settles last: it sets SAC's, REDQ's and TD3's budgets, its tolerance near
+# the 0.1 ceiling. TD3's actor can saturate at a bound: seed 1011 reads
+# -0.99 or beyond after cue -1 from 1250 to 3750 steps. PPO's std falls to
+# about 0.02 by 5000 steps and failures return at longer budgets (PPO-gru:
+# none of 64 at 2500-7500 steps, 1 at 10,000). Not built: PPO with
+# transformer or mamba qualifies at no budget tried, squashed or not
+# (2000-20,000 steps; mamba and the unsquashed transformer on seeds
+# 1000-1031 only): 1 to 10 seeds fail at each, some acting alike after both
+# cues, others misreading a value. The action gap reads exactly 0: it takes
+# the 0.02 floor.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
-    ("PPO", "gru"): (10_000, (0.5, 0.5, 0.478, 0.495, 0.091, 0.091, 0.02)),
-    ("PPO", "lstm"): (10_000, (0.495, 0.451, 0.466, 0.415, 0.053, 0.053, 0.02)),
-    ("SAC", "gru"): (2000, (0.256, 0.275, 0.264, 0.27, 0.046, 0.046, 0.02)),
-    ("REDQ", "gru"): (2500, (0.31, 0.31, 0.302, 0.306, 0.036, 0.036, 0.02)),
-    ("TD3", "gru"): (2500, (0.498, 0.5, 0.484, 0.484, 0.062, 0.062, 0.02)),
+    ("PPO", "gru"): (2500, (0.438, 0.447, 0.359, 0.049, 0.049, 0.02)),
+    ("PPO", "lstm"): (3750, (0.364, 0.352, 0.357, 0.037, 0.037, 0.02)),
+    ("SAC", "gru"): (3750, (0.48, 0.455, 0.456, 0.095, 0.095, 0.02)),
+    ("REDQ", "gru"): (2000, (0.463, 0.406, 0.405, 0.1, 0.1, 0.02)),
+    ("TD3", "gru"): (7500, (0.429, 0.467, 0.383, 0.099, 0.099, 0.02)),
 }
 for (agent, kind), (budget, tol) in P0B_CELLS.items():
     cid = f"p0b-{agent}-{kind}"
@@ -138,20 +134,24 @@ for (agent, kind), (budget, tol) in P0B_CELLS.items():
 
 def test_p0b_env_pays_the_cue_at_the_last_step() -> None:
     """Resets draw every cue; it shows at step 0 only; steps 0 and 1 pay 0,
-    step 2 pays cue * clip(a, -1, 1) and terminates."""
+    step 2 pays 1 - (1 - 2 cue clip(a, -1, 1))^2 and terminates: 1 at
+    a = cue / 2, 0 at any action after no cue."""
     env, params = CUE.make()
     cues = {float(env.reset(jax.random.PRNGKey(k), params)[1].c) for k in range(64)}
     assert cues == {-1.0, 0.0, 1.0}
+    acts = (0.5, -0.5, 3.0)  # 3 is clipped to 1
+    pays = {1.0: (1.0, -3.0, 0.0), -1.0: (-3.0, 1.0, -8.0), 0.0: (0.0, 0.0, 0.0)}
     for cue in cues:
-        st = CUE.fresh(0, cue)
-        steps = [(env.get_obs(st), 0.0, False)]
-        for _ in range(3):
-            obs, st, r, done, _ = env.step_env(R.KEY, st, jnp.array([3.0]), params)
-            steps.append((obs, float(r), bool(done)))
-        seen, paid, ends = zip(*steps, strict=False)
-        assert paid[1:] == (0.0, 0.0, cue) and ends[1:] == (False, False, True)
-        want = _sign(jnp.array([cue, 0.0, 0.0, 0.0]))
-        np.testing.assert_array_equal(jnp.stack(seen), want)
+        for a, last in zip(acts, pays[cue], strict=True):
+            st = CUE.fresh(0, cue)
+            steps = [(env.get_obs(st), 0.0, False)]
+            for _ in range(3):
+                obs, st, r, done, _ = env.step_env(R.KEY, st, jnp.array([a]), params)
+                steps.append((obs, float(r), bool(done)))
+            seen, paid, ends = zip(*steps, strict=False)
+            assert paid[1:] == (0.0, 0.0, last) and ends[1:] == (False, False, True)
+            want = _sign(jnp.array([cue, 0.0, 0.0, 0.0]))
+            np.testing.assert_array_equal(jnp.stack(seen), want)
 
 
 def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:

@@ -289,7 +289,7 @@ CI does not plant faults; `test_framework.py` runs
 that each `old` text still occurs once and that each listed node still
 exists. This is why a change under `src/ajax` runs `test_framework.py`
 before the push: when a change moves the code a fault edits, update the
-fault's line and run it again. The catalogue holds 188 faults across seven
+fault's line and run it again. The catalogue holds 190 faults across seven
 modules.
 
 ### Known defects

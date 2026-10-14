@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "d2d0b8159e97"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "4d5530923e9f"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -149,6 +149,8 @@ def _twin_agent(name: str, backend: str) -> Any:
         # The rewards ignore the action: from 1e-3 the soft term alpha H
         # stays at a few thousandths.
         kw["alpha_init"] = 1e-3
+    if name == "AVG":  # at its own rates the last updates pull V(B) 0.05 low
+        kw |= {"actor_learning_rate": 1e-3, "critic_learning_rate": 1e-3}
     if backend == "gymnax":
         return agents.make(name, *TWIN[2 if name in ("DQN", "PQN") else 0].make(), **kw)
     if name == "PPO":
@@ -163,7 +165,7 @@ def _twin_read(name: str, run: runs.Run) -> dict:
             f"V({x})": R.value(name, n, envs.one_hot(i, 3)) for i, x in enumerate("0AB")
         }
 
-    return R.per_seed(one, R.nets(run.state))
+    return R.per_seed(one, R.nets(run.state, stats=R.env_stats(run)))
 
 
 def _twin_run(name: str, backend: str) -> Any:
@@ -174,6 +176,7 @@ def _twin_run(name: str, backend: str) -> Any:
 
     def read(run: runs.Run) -> dict:
         cycle, values, rollouts, phases = name in ("PPO", "PQN"), [], [], []
+        rows: dict = {}  # AVG keeps none
         for k in range(3 * T if cycle else 1):
             run = runs.resume(run, LEARNERS[name][1]) if k else run
             values.append(_twin_read(name, run))
@@ -188,7 +191,7 @@ def _twin_run(name: str, backend: str) -> Any:
             rows = _row_counts(
                 *(np.concatenate(z, 1) for z in zip(*rollouts, strict=False))
             )
-        else:
+        elif name != "AVG":
             replay = R.replay_rows(run.state, ("obs", "terminated", "truncated"))
             rows = _row_counts(*replay.values())
         args = run.agent.env_args
@@ -214,8 +217,9 @@ TWIN_CAL = {
     ("gymnax", "PPO"): (10_000, (0.058, 0.08, 0.086)),
     ("gymnax", "PQN"): (10_000, (0.082, 0.093, 0.075)),
     ("brax", "PPO"): (10_000, (0.075, 0.046, 0.06)),
+    ("gymnax", "AVG"): (2500, (0.055, 0.044)),  # 1000: 0.29 off; cert 32/32
 }
-P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN")]
+P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN", "AVG")]
 P6_CELLS += [("brax", n) for n in ("SAC", "PPO", "REDQ", "TD3")]
 P6: dict[str, Case] = {}
 for backend, name in P6_CELLS:
@@ -232,6 +236,7 @@ for backend, name in P6_CELLS:
     )
     P6[case.id] = case
 CASES |= P6
+P6_ROWS = {k: c for k, c in P6.items() if "AVG" not in k}  # AVG keeps no rows
 
 
 def test_p6_oracle_reproduces_the_closed_forms() -> None:
@@ -277,7 +282,7 @@ def test_p6_twin_ends_every_episode_on_step_T_with_its_backends_flags(
     assert (trunc[last] == (True if backend == "gymnax" else ~is_b)).all()
 
 
-@pytest.mark.parametrize("case", params(P6, lambda c: ""))
+@pytest.mark.parametrize("case", params(P6_ROWS, lambda c: ""))
 def test_p6_time_limit_fires_and_flags_every_end(case: Case) -> None:
     """On the value run: train return 4; the ends among the rows learned
     from (replay; for PPO and PQN the 15 rollouts read, 3 at each phase)
@@ -940,6 +945,59 @@ CASES["q1-APO-termination"] = Case(
     _q1_apo(APO_TERM, {"V(A)": 0.0, "V(B)": 1.0}),
     10_000,
     (0.1, 0.1, 0.1),
+)
+
+
+# A <-> B (obs -1, 1; r 0, 1), limit 3: the limit fires on a step from A,
+# whose true next obs is B. Bootstrapping there reads a cycle of rate 1/2
+# where rho is the stream's 1/3, so the value bias takes up the excess: b
+# settles where APO's fixed point puts it (32-step rollouts at every phase).
+# With A at obs 0, one seed of 32 read a flat V near 0.
+APO_TRUNC = cycle((-1.0, 1.0), (0.0, 1.0), False, actions=2, limit=3)
+TRUNC_ROWS = [(0, 0.0, 1, 1, 0, 0), (1, 1.0, 0, 0, 0, 0), (0, 0.0, 1, 0, 0, 1)]
+
+
+def apo_values(rows: list, rule: Rule = RIGHT, phases: bool = True) -> np.ndarray:
+    """(b, V(A), V(B)) at APO's fixed point (lambda 0.95, nu 0.1) on one
+    episode's rows, rho their mean reward; 32-step rollouts at every phase,
+    or (``phases`` False) aligned with the episodes."""
+    aligned = [(1.0, rows * (32 // len(rows)))]
+    ro = oracles.rollouts([(1.0, rows)], 32) if phases else oracles.stack(aligned)
+    ro["reward"] = ro["reward"] - np.mean([r[1] for r in rows])
+    v = oracles.fixed_point(ro, 2, 1.0, 0.95, rule, bias=0.1)
+    visits = np.bincount([r[0] for r in rows], minlength=2) / len(rows)
+    return np.array([visits @ v, *v])
+
+
+def test_q1_apo_oracle_reproduces_the_closed_forms() -> None:
+    """On aligned rollouts, b, V(A), V(B) as derived: q1-APO-termination's,
+    and the truncation cycle's, where b weights A's two visits; a plain state
+    mean in the fixed point moves b to 3.164 (3.111 on the cell's phases)."""
+    rows = [(0, 0.0, 1, 1, 0, 0), (1, 1.0, 1, 0, 1, 0)]
+    want = (B_MASK, -(2 - 0.95) * 0.1 * B_MASK, 0.5 - 0.1 * B_MASK)
+    np.testing.assert_allclose(apo_values(rows, phases=False), want, atol=1e-9)
+    lam, nu = 0.95, 0.1  # A, B, A: each state's mean advantage is nu b
+    b = (1 / 3) / (nu * (1 + (1 - lam) * (2 - lam) / 2))
+    gap = 1 / 3 + nu * b * (2 - lam) / 2  # V(B) - V(A)
+    want = (b, b - gap / 3, b + 2 * gap / 3)  # b = (2 V(A) + V(B)) / 3
+    np.testing.assert_allclose(apo_values(TRUNC_ROWS, phases=False), want, atol=1e-9)
+
+
+TRUNC_RIGHT = apo_values(TRUNC_ROWS)
+TRUNC_WRONG = {
+    "truncation treated as terminal": apo_values(TRUNC_ROWS, Rule(mask="or")),
+    "the reset observation bootstrapped": apo_values(TRUNC_ROWS, Rule(next="reset")),
+}
+CASES["q1-APO-truncation"] = Case(
+    "q1-APO-truncation",
+    tuple(
+        Query(name, TRUNC_RIGHT[i], {k: v[i] for k, v in TRUNC_WRONG.items()})
+        for i, name in enumerate(("b", "V(A)", "V(B)"))
+    ),
+    _q1_apo(APO_TRUNC, {"V(A)": -1.0, "V(B)": 1.0}),
+    5000,
+    (0.02, 0.044, 0.029),
+    note="7500 and 10,000 drift 0.01 further (b to 3.18); cert 32/32",
 )
 
 

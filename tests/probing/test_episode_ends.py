@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "4d5530923e9f"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "f80cd6b36d5b"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -612,9 +612,9 @@ for kind, n in (("box", 0), ("discrete", 2)):
 # step key); gamma 0.8, so V(s1) = c / 0.6 and V(s0) = 0.8 V(s1). The envs
 # run out of step, so an input taken from env e - 1's column moves the odd
 # parts (V(s, +1) - V(s, -1)) / 2, where entropy, ensemble or offset biases
-# cancel. Not built: TD3, REDQ, ASAC share SAC's env-axis path (and
-# TD3, ASAC are too noisy for the ceiling); APO, whose Q1 centring is fixed,
-# is not built yet.
+# cancel. APO, undiscounted, reads c paid for 2 steps on average: (2, 2).
+# ASAC did not calibrate: its odd parts wander 0.06 (pooled worst at 80,000
+# and 120,000 steps, with a whole-run buffer and tau 0.001).
 
 G9, N9 = 0.8, 4
 TRUTH9 = (G9 / 0.6, 1.0 / 0.6)
@@ -678,6 +678,30 @@ P9_CELLS: dict[str, tuple] = {
         {"learning_rate": 2.5e-4, "n_steps": 512, "num_minibatches": 2, "n_epochs": 3},
     ),
 }
+# The cells below normalise observations (AVG always does). REDQ makes 2
+# critic updates a step, not 20; AVG learns from the final obs; APO runs
+# PPO's rollouts, with its own global-norm clipping (0.5).
+_ON9 = {"normalize_observations": True, "buffer_size": 16384}
+_REDQ9 = _ON9 | {"num_critic_updates": 2}
+P9_CELLS |= {
+    "TD3": (("td", 1, 0.0), TD9, 30_000, (0.072, 0.099), _ON9),
+    "REDQ": (("td", 1, 0.0), TD9, 10_000, (0.069, 0.091), _REDQ9),
+    "AVG": (
+        ("gae", 1, 0.0),
+        {"A": (0.0, 1.0), "B": (1.195, 1.997), "C": (1.139, 2.144)} | D0,
+        # C planted: (1.080, 2.045) at 80,000 steps, still climbing; C by 320,000
+        80_000,  # critic rate 2e-4: worst 0.04 on 8 seeds
+        (0.069, 0.084),
+        {"actor_learning_rate": 1e-3, "critic_learning_rate": 5e-5},
+    ),
+    "APO": (
+        ("apo", 4096, 0.5),
+        {"A": (0.0, 1.0), "B": (1.758, 2.507), "C": (1.698, 2.777)} | D0,
+        240_000,  # 160,000 failed: 0.169
+        (0.09, 0.095),
+        P9_CELLS["PPO"][4] | {"normalize_observations": True},
+    ),
+}
 
 
 def _p9_step(state: tuple) -> tuple:
@@ -708,7 +732,8 @@ def p9_oracle(kind: str, rollout: int, lam: float, fault: str = "") -> np.ndarra
         key = "terminated" if fault == "C" else "reward"
         d[key] = other(d[key])
     rule = Rule(next="self" if fault == "P10" else "final", peng=kind == "q_lambda")
-    v = oracles.fixed_point(oracles.blocks(d, rollout), 4, G9, lam, rule)
+    gamma = 1.0 if kind == "apo" else G9  # APO: undiscounted GAE
+    v = oracles.fixed_point(oracles.blocks(d, rollout), 4, gamma, lam, rule)
     return np.array([v[1] - v[0], v[3] - v[2]]) / 2
 
 
@@ -734,7 +759,7 @@ def _p9_run(agent: str, kw: dict) -> Callable:
     def value(n: R.Nets, x: list) -> jax.Array:
         if agent == "DQN":
             return n.actor.apply_fn(n.actor.target_params, R.inp(n, x)).q_values.max()
-        if agent == "SAC":
+        if agent in ("SAC", "TD3", "REDQ"):
             return R.critic(n, x, R.pi(n, x).mean(), n.critic.target_params)
         return R.value(agent, n, x)
 
@@ -745,8 +770,8 @@ def _p9_run(agent: str, kw: dict) -> Callable:
                 for s in (0, 1)
             }
 
-        out = R.per_seed(one, R.nets(run.state))
-        last = np.asarray(run.state.collector_state.last_obs)
+        out = R.per_seed(one, R.nets(run.state, stats=R.env_stats(run)))
+        last = np.stack([R.field(run.state, f) for f in "sc"], -1)  # raw (s, c)
         lockstep = (last == last[:, :1]).all(axis=(1, 2))
         if lockstep.sum() > len(lockstep) // 2:
             raise RuntimeError(f"4 envs in lockstep on {lockstep.sum()} seeds")
@@ -754,22 +779,22 @@ def _p9_run(agent: str, kw: dict) -> Callable:
             out["sign change"] = _sign_changes(run.state)
             if not ((out["sign change"] > 0.3) & (out["sign change"] < 0.7)).all():
                 raise RuntimeError(f"resets repeat their sign: {out['sign change']}")
-        return out | {"lockstep": lockstep}
+        return out | {"lockstep": lockstep * 1.0}  # the ladder rounds readings
 
     spec = HAZARD[2 if agent in ("DQN", "PQN") else 0]
-    build = functools.partial(
-        agents.make, agent, *spec.make(), n_envs=N9, gamma=G9, **kw
-    )
+    kw = kw if agent == "APO" else {"gamma": G9, **kw}
+    build = functools.partial(agents.make, agent, *spec.make(), n_envs=N9, **kw)
     return runs.readings(build, read)
 
 
-for agent, (_, table, budget, tol9, kw) in P9_CELLS.items():
+for agent, ((kind, *_), table, budget, tol9, kw) in P9_CELLS.items():
     wrong = {f"{k}: {FAULTS9[k]}": w for k, w in (table | UNTRAINED).items()}
+    truth = (2.0, 2.0) if kind == "apo" else TRUTH9
     queries = tuple(
         Query(
             f"odd V(s{i})",
-            TRUTH9[i],
-            {k: w[i] for k, w in wrong.items() if abs(w[i] - TRUTH9[i]) >= 0.2},
+            truth[i],
+            {k: w[i] for k, w in wrong.items() if abs(w[i] - truth[i]) >= 0.2},
         )
         for i in (0, 1)
     )  # a fault gates a reading it moves by at least 0.2: twice the ceiling
@@ -783,11 +808,12 @@ def test_p9_oracle_reproduces_the_analytic_values_and_the_fault_table() -> None:
     0.02 of the analytic values and of each tabled fault reading; every fault
     0.2 or more from the truth on some reading, so some query gates it."""
     for agent, ((kind, rollout, lam), table, *_) in P9_CELLS.items():
-        np.testing.assert_allclose(p9_oracle(kind, rollout, lam), TRUTH9, atol=0.02)
+        truth = (2.0, 2.0) if kind == "apo" else TRUTH9
+        np.testing.assert_allclose(p9_oracle(kind, rollout, lam), truth, atol=0.02)
         for fault, want in table.items():
             got = p9_oracle(kind, rollout, lam, fault)
             np.testing.assert_allclose(got, want, atol=0.02, err_msg=f"{agent} {fault}")
-            assert np.abs(np.subtract(want, TRUTH9)).max() >= 0.2, (agent, fault)
+            assert np.abs(np.subtract(want, truth)).max() >= 0.2, (agent, fault)
 
 
 # --- Q1: reset cycles for the average-reward agents ---------------------------

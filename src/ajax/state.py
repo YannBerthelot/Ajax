@@ -250,12 +250,11 @@ class NetworkConfig(Replaceable):
     # only, to avoid a networks<->state import cycle). None ->
     # CNNEncoder's default architecture.
     cnn_spec: Optional["CNNSpec"] = None
-    # Actor head knobs (Actor in networks.py). Set per-env to match
-    # brax/playground convention for envs that need it (e.g.
-    # mujoco_playground manip uses scalar state-indep log_std at init=1.0
-    # and a lecun_uniform mean head).
+    # The actor head's knobs; Actor (networks.py) documents each and its
+    # reference.
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
+    clip_log_std_param: bool = True
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by

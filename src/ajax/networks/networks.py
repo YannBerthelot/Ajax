@@ -148,19 +148,19 @@ class Actor(nn.Module):
     penultimate_normalization: bool = False
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    # When True, log_std is a single learnable scalar Param per action
-    # dim (state-independent), matching brax PPO's ``noise_std_type=
-    # 'scalar'``. When False (default), log_std is a Dense layer over
-    # the encoder features (state-dependent, the SAC convention).
-    # ``log_std_init`` sets the initial value of log_std (in either
-    # mode). brax PPO defaults to ``init_noise_std=1.0`` (a softplus-
-    # parametrised scalar around std=1.31); the equivalent in log-space
-    # is ``log_std_init=0.0`` giving std=1.0. The Ajax default
-    # (``-1.0``) gives std=exp(-1)≈0.37, which is ~3.5× quieter than
-    # brax — explored less and contributed to PPO policy collapse on
-    # bounded continuous control envs (mujoco_playground manip).
+    # The log-std head, every std starting at exp(log_std_init). False: a
+    # Dense layer over the encoder's features (state-dependent, SAC's),
+    # clipped to [-20, 2]. True: one learned log-std per action dimension,
+    # as PPO's reference code learns it, initialised at 0 and never
+    # clipped: OpenAI Baselines @ea25b9e (ppo2's
+    # common/distributions.py:96-106; ppo1's ppo1/mlp_policy.py:36-39,
+    # gaussian_fixed_var=True), CleanRL @fe8d8a0
+    # (ppo_continuous_action.py:129) and PureJaxRL @31756b1
+    # (ppo_continuous_action.py:41). ``clip_log_std_param`` (APO's) clips
+    # it to [-20, 2] as well; False leaves it unclipped, as they do.
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
+    clip_log_std_param: bool = True
     # Mean-head kernel init (a ``parse_initialization`` string or a
     # callable). None keeps ``orthogonal(0.01)``, a small initial mean.
     # brax PPO uses ``lecun_uniform`` for the mean head, which gives an
@@ -244,11 +244,9 @@ class Actor(nn.Module):
         if self.continuous:
             mean = self.mean(embedding)
             if self.log_std_state_independent:
-                log_std = jnp.clip(
-                    jnp.broadcast_to(self.log_std_param, mean.shape),
-                    -20,
-                    2,
-                )
+                log_std = jnp.broadcast_to(self.log_std_param, mean.shape)
+                if self.clip_log_std_param:
+                    log_std = jnp.clip(log_std, -20, 2)
             else:
                 log_std = jnp.clip(self.log_std(embedding), -20, 2)
             std = jnp.exp(log_std)
@@ -486,6 +484,7 @@ def get_initialized_actor_critic(
             cnn_spec=cnn_spec,
             log_std_state_independent=network_config.log_std_state_independent,
             log_std_init=network_config.log_std_init,
+            clip_log_std_param=network_config.clip_log_std_param,
             mean_kernel_init=network_config.mean_kernel_init,
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,

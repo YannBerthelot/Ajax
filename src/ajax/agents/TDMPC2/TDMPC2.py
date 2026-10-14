@@ -112,7 +112,9 @@ class TDMPC2(ActorCritic):
     n_envs)`` rows per env (``total`` the rows of the run when the call ends,
     sized and adopted on a resume as the episode ring is), and
     ``n_timesteps`` counting rows (env steps plus one per finished
-    episode). ``T`` is then the time limit, still bootstrapped.
+    episode). ``T`` is then the time limit, still bootstrapped. A run that
+    never updated because every episode terminated within ``horizon``
+    steps raises ``ValueError`` after :meth:`train`.
 
     Extensions: ``pretrain``, ``post_update`` (folded after every update,
     ``step`` = env steps) and ``eval_metrics`` (with ``init_state``); the
@@ -380,7 +382,26 @@ class TDMPC2(ActorCritic):
         )
         if not self.agent_config.episodic:
             refuse_terminations(result[0], self.agent_episode_length)
+        elif end_tick > self.schedule.seed_tick + self.agent_episode_length:
+            # By then every episode running at the seed tick has ended, so
+            # an episode of horizon + 1 rows would have been drawn from.
+            refuse_untrained(result[0], self.agent_config.horizon)
         return result
+
+
+def refuse_untrained(state: Any, horizon: int) -> None:
+    """Raise if an episodic run never updated: the replay only draws
+    episodes of at least ``horizon + 1`` rows (the reference's
+    strict-length slices), and every episode ended within ``horizon``
+    agent steps (``state``'s per-seed update counts)."""
+    n_updates = np.asarray(jax.device_get(state.n_updates)).reshape(-1)
+    if np.any(n_updates == 0):
+        raise ValueError(
+            f"TD-MPC2 never updated (updates per seed {n_updates.tolist()}):"
+            f" a training slice needs an episode of horizon + 1 = {horizon + 1}"
+            f" rows, but every episode terminated within {horizon} agent steps."
+            " Lower the horizon or lengthen the episodes."
+        )
 
 
 def refuse_terminations(state: Any, episode_length: int) -> None:

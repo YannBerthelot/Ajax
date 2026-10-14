@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a7db91749554"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "ab47c8f1aab9"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -485,7 +485,10 @@ for key, (steps, tols) in PILOT_CAL.items():
 # termination penalty would dwarf r(s1)). Read: the last logged evaluation,
 # and a value at s0 against its oracle from the final policy (with alpha,
 # TD3's smoothing noise or ASAC's penalty). Ladder on 1000-1031 and
-# 2000-2031; 32/32 of 3000-3031 within (PPO-discrete 31/32).
+# 2000-2031; 32/32 of 3000-3031 within (PPO-discrete 31/32). PPO-continuous,
+# its log-std one parameter from std 1, on 4096-16,384 steps: V's worst error
+# 0.153, 0.133, 0.099, 0.066, 0.035 (12,288 misses); its evaluation reads
+# 1.5, as untrained, on every seed at 4096 (cert worst 0.038 and 0.007).
 
 S0, S1 = 5.0, 1.0
 
@@ -523,7 +526,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "DQN": ("DQN", "discrete", 5000, _ON),
     # q_lambda 0, a one-step bootstrap: at 0.65 fault (a)'s gap shrinks to 0.17.
     "PQN": ("PQN", "discrete", 5120, _ON | {"q_lambda": 0.0}),
-    "PPO-continuous": ("PPO", "continuous", 2048, _ON),
+    "PPO-continuous": ("PPO", "continuous", 16_384, _ON),
     "PPO-discrete": ("PPO", "discrete", 2048, _ON),
     "APO-discrete": ("APO", "discrete", 4096, _ON | {"n_steps": 64, "batch_size": 64}),
     "AVG": ("AVG", "continuous", 10_000, {"gamma": G, "n_envs": 1}),  # its defaults
@@ -625,7 +628,7 @@ P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.037, 0.075)),
     "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.056)),
     "AVG": ("AVG", (EVAL_C,), (0.084,)),
-    "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.044,)),
+    "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.07,)),
     "PPO-discrete": ("PPO-discrete", (V_DISCRETE,), (0.046,)),
     "DQN-c": ("DQN", (EVAL_D, Q_GREEDY, Q_A2), ()),
     "PQN-c": ("PQN", (EVAL_D, Q_A2), ()),
@@ -828,6 +831,11 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 # rollout, each moving a weight by about the rate: its plain MLP needs four
 # times the updates its LayerNorm one did at 1e-5 (pi(best) 0.668 after
 # 160,000 steps), hence 4e-5. Measured wrong answers: medians, 1000-1031.
+# PPO's continuous cells keep the head they were calibrated on, a Dense
+# log-std over the features (DENSE): PPO's default, one log-std parameter,
+# moves about the rate per Adam step, so at 4e-5 b's sigma reads 9.06 after
+# 160,000 steps (seeds 0-7) and c's 1.57 after 80,000; reaching the answers
+# would take about 3.7 and 1.0 million steps.
 
 
 def _bandit(
@@ -923,19 +931,20 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     ),
     "APO-c": (Query("sigma_u", SIGMA_C, _APO_C),),
 }
+DENSE = {"log_std_state_independent": False, "log_std_init": -1.0}
 Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
     # agent, bandit, c, budget, tolerances (32/32 of 3000-3031), overrides
     "PPO-a": ("PPO", "a", 1.0, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
     "APO-a": ("APO", "a", 1.0, 20_000, (0.023,), {}),
-    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.069, 0.246), {}),  # 120,000: 0.147
-    "PPO-b2": ("PPO", "b2", 2.0, 160_000, (0.065, 0.08), {}),  # 120,000: 0.155
+    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.069, 0.246), DENSE),  # 120,000: 0.147
+    "PPO-b2": ("PPO", "b2", 2.0, 160_000, (0.065, 0.08), DENSE),  # 120,000: 0.155
     "PPO-c": (  # 40,000 failed: 0.382
         "PPO",
         "c",
         0.1,
         80_000,
         (0.053,),
-        {"squash": True, "log_std_init": 0.5},
+        DENSE | {"squash": True, "log_std_init": 0.5},
     ),
     "APO-c": ("APO", "c", 0.1, 80_000, (0.062,), {}),  # half the gap to 1.0
 }

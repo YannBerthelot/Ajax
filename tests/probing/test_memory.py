@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "21e5997acae8"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "3e4fa39e63ca"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -105,22 +105,24 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
     return agents.make(agent, *spec.make(), memory=MemoryConfig(kind, 32), **kw)
 
 
-# Budgets: the smallest qualifying on seeds 1000-2031 of 2500-10,000 steps
-# (PPO; lstm also 3750 and 6250) or 1250-3750 (TD3 also 5000 and 7500);
-# certified 32/32 on 3000-3031. The critic's V after a cue-free episode
-# settles last: it sets SAC's, REDQ's and TD3's budgets, its tolerance near
-# the 0.1 ceiling. TD3's actor can saturate at a bound: seed 1011 reads
-# -0.99 or beyond after cue -1 from 1250 to 3750 steps. PPO's std falls to
-# about 0.02 by 5000 steps and failures return at longer budgets (PPO-gru:
-# none of 64 at 2500-7500 steps, 1 at 10,000). Not built: PPO with
-# transformer or mamba qualifies at no budget tried, squashed or not
-# (2000-20,000 steps; mamba and the unsquashed transformer on seeds
-# 1000-1031 only): 1 to 10 seeds fail at each, some acting alike after both
-# cues, others misreading a value. The action gap reads exactly 0: it takes
-# the 0.02 floor.
+# Budgets: the smallest qualifying on seeds 1000-2031 of 1250-3750 steps
+# (TD3 also 5000 and 7500; PPO 10,000, 15,000, 20,000, 30,000 and 40,000);
+# certified 32/32 on 3000-3031 (PPO-gru and PPO-lstm 31/32). The critic's V
+# after a cue-free episode settles last: it sets SAC's, REDQ's and TD3's
+# budgets, its tolerance near the 0.1 ceiling. TD3's actor can saturate at a
+# bound: seed 1011 reads -0.99 or beyond after cue -1 from 1250 to 3750
+# steps. PPO's log-std, one parameter from 0 (std 1), falls steadily: median
+# std 0.38-0.41 at 10,000 steps, where V's margin needs sigma under 0.35 and
+# 52 to 64 of 64 seeds fail; 0.09-0.11 at 30,000, where none fails; 0.05-0.07
+# at 40,000 (one mamba seed fails). With the Dense head PPO had before (std
+# 0.37 at the start, about 0.02 by 5000 steps) failures returned at longer
+# budgets and its transformer and mamba qualified at no budget of 2000-20,000.
+# The action gap reads exactly 0: it takes the 0.02 floor.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
-    ("PPO", "gru"): (2500, (0.438, 0.447, 0.359, 0.049, 0.049, 0.02)),
-    ("PPO", "lstm"): (3750, (0.364, 0.352, 0.357, 0.037, 0.037, 0.02)),
+    ("PPO", "gru"): (20_000, (0.4, 0.334, 0.327, 0.048, 0.048, 0.02)),
+    ("PPO", "lstm"): (15_000, (0.385, 0.273, 0.259, 0.069, 0.069, 0.02)),
+    ("PPO", "transformer"): (30_000, (0.431, 0.354, 0.356, 0.081, 0.081, 0.02)),
+    ("PPO", "mamba"): (30_000, (0.429, 0.441, 0.428, 0.089, 0.089, 0.02)),
     ("SAC", "gru"): (3750, (0.48, 0.455, 0.456, 0.095, 0.095, 0.02)),
     ("REDQ", "gru"): (2000, (0.463, 0.406, 0.405, 0.1, 0.1, 0.02)),
     ("TD3", "gru"): (7500, (0.429, 0.467, 0.383, 0.099, 0.099, 0.02)),

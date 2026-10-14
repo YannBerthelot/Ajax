@@ -227,3 +227,25 @@ class SignedActionEnv(continuous.PolicyAndValueEnv):
         obs, done = self.get_obs(state), self.is_terminated(state, params)
         info = {"discount": self.discount(state, params)}
         return *jax.lax.stop_gradient((obs, state)), reward, done, info
+
+
+def action_box() -> Spec:
+    """A contextual bandit on Box(-2, 3), which overhangs [-1, 1] unequally:
+    each one-step episode shows a one-hot context drawn uniformly and pays,
+    in env units, a (0, up), -a (1, down) or -(a - 2)^2 (2, inside): optimal
+    deterministic actions 3, -2 and 2 for any discount or average reward.
+    One step leaves nothing to bootstrap: at 10 steps, bootstrapping on the
+    unseen step count, SAC's inside action spread 0.35, not 0.23 (2x worst)."""
+
+    def transition(st: State, a: jax.Array, key: Any) -> tuple:
+        a, k = jnp.clip(a.reshape(-1)[0], -2.0, 3.0), st.c.astype(jnp.int32)
+        return st.replace(s=st.s + 1), jnp.stack([a, -a, -((a - 2.0) ** 2)])[k], True
+
+    def obs(st: State) -> jax.Array:
+        return one_hot(st.c.astype(jnp.int32), 3)
+
+    def reset(key: jax.Array, params: Params) -> tuple[Any, Any]:
+        return 0, jax.random.randint(key, (), 0, 3)
+
+    box = (-2.0, 3.0, 1)
+    return Spec("action_box", transition, obs, reset, obs_dim=3, box=box, limit=2)

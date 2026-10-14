@@ -30,14 +30,15 @@ from . import readouts as R
 
 # The plan's lines per file; test_framework 145 + 35 for the API's checks,
 # + 26 (and envs.py + 15) for the probes observing 1 for 0 (CONSTANT_ZERO),
-# faults/ 170 + 30 (the catalogue proves each probe's power); the max-entropy
-# oracle of any reward: oracles.py + 20, test_framework + 4.
-CAPS = {"verdict.py": 255, "envs.py": 230, "agents.py": 155, "runs.py": 250}
+# faults/ 170 + 30 (the catalogue proves each probe's power); the action-box
+# family: envs.py + 22, oracles.py + 20, test_framework + 5.
+CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
 CAPS |= {"readouts.py": 220, "oracles.py": 190, "faults.py": 100, "faults/": 200}
-CAPS |= {"test_framework.py": 210, "test_value_chains.py": 1051}
+CAPS |= {"test_framework.py": 211, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1007, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
+CAPS |= {"test_action_box.py": 200}
 
 
 def _modules() -> list:

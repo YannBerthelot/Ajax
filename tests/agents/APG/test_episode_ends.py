@@ -104,7 +104,7 @@ def test_no_gradient_crosses_an_episode_end() -> None:
     assert not by_carry[~carry_ok].any(), np.argwhere(by_carry * ~carry_ok)
     # Within an episode the gradient flows, through the env and the carry.
     assert by_action[action_ok & (t_ > t)].all()
-    assert by_carry[carry_ok].any()
+    assert by_carry[carry_ok].all()
 
 
 CONTROLLERS = [

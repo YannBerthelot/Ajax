@@ -84,7 +84,12 @@ KNOWN_BUGS = {
 
 
 ROWS = [
-    pytest.param(n, marks=pytest.mark.xfail(reason=KNOWN_BUGS[n], strict=True))
+    pytest.param(
+        n,
+        marks=pytest.mark.xfail(
+            reason=KNOWN_BUGS[n], raises=AssertionError, strict=True
+        ),
+    )
     if n in KNOWN_BUGS
     else n
     for n in NORMALISING

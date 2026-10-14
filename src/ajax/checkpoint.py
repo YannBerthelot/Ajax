@@ -58,10 +58,10 @@ def restore_into(skeleton: Any, path: str) -> Any:
         raise FileNotFoundError(f"No checkpoint file at {path}")
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
+    skeleton_dict = serialization.to_state_dict(skeleton)
+    _check_memory_final_norm(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
-    state_dict = _with_new_empty_fields(
-        serialization.to_state_dict(skeleton), state_dict
-    )
+    state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     return jax.tree.map(
@@ -123,6 +123,42 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
         elif value is None:
             out[key] = None
     return out
+
+
+def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
+    """Refuse, saying how to restore it, a checkpoint whose transformer or
+    mamba memory core lacks the final LayerNorm (``ln_f``) of the network
+    restoring it, or has one that network lacks: flax reports a missing key
+    without its cause and drops an extra one silently, and the norm with it.
+    A checkpoint saved before the cores ended with ``ln_f`` restores into
+    the network it was trained with (``final_norm=False``).
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this
+    check with ``MemoryConfig.final_norm`` once no such checkpoint remains.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return
+    if "ln_f" in skeleton and "ln_f" not in saved:
+        raise ValueError(
+            "This checkpoint was saved before the transformer and mamba memory"
+            " cores ended with a final LayerNorm (ln_f). Restore it into an"
+            " agent built with memory=MemoryConfig(..., final_norm=False), its"
+            " other settings unchanged. An APG Controller's parameters also map"
+            " exactly onto the new network, its LayerNorm becoming the core's"
+            " ln_f: ajax.agents.APG.networks.controller_params_with_final_norm."
+            " It maps the parameters only, so a resumed training state must"
+            " restart its optimizer."
+        )
+    if "ln_f" in saved and "ln_f" not in skeleton:
+        raise ValueError(
+            "This checkpoint's transformer or mamba memory core ends with a final"
+            " LayerNorm (ln_f), which the agent restoring it, built with"
+            " memory=MemoryConfig(..., final_norm=False), lacks. Restore it into"
+            " an agent built with final_norm=True, the default."
+        )
+    for key, value in skeleton.items():
+        if key in saved:
+            _check_memory_final_norm(value, saved[key])
 
 
 def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:

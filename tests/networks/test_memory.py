@@ -213,6 +213,40 @@ def test_transformer_sliding_window_bounds_memory():
     assert not jnp.allclose(y1[0], y2[0], atol=1e-5)
 
 
+# ------------------------------------------------------------ final norm
+
+
+@pytest.mark.parametrize("kind", ["transformer", "mamba"])
+@pytest.mark.parametrize("num_layers", [1, 2])
+def test_output_ends_with_a_layer_norm(kind, num_layers):
+    """The pre-norm stacks end with a final LayerNorm (GPT-2's ln_f, Mamba's
+    norm_f): each step's output is its pre-norm stream normalised over the
+    features, then scaled and shifted by ln_f's parameters. Without it
+    (final_norm=False) the stream comes out raw and ln_f is absent."""
+    cell, params, carry, x, resets = make_cell(kind, num_layers=num_layers)
+    core = params["params"]["core"]
+    assert set(core["ln_f"]) == {"scale", "bias"}
+    scale = jax.random.uniform(jax.random.PRNGKey(2), (8,), minval=0.5, maxval=2)
+    bias = jax.random.normal(jax.random.PRNGKey(3), (8,))
+    params = {"params": {"core": {**core, "ln_f": {"scale": scale, "bias": bias}}}}
+    _, y = cell.apply(params, carry, 50.0 * x, resets)
+    z = (y - bias) / scale
+    assert jnp.allclose(z.mean(-1), 0.0, atol=1e-4)
+    assert jnp.allclose(z.var(-1), 1.0, atol=1e-3)
+
+    raw, raw_params, *_ = make_cell(kind, num_layers=num_layers, final_norm=False)
+    assert "ln_f" not in raw_params["params"]["core"]
+    _, y_raw = raw.apply(raw_params, carry, 50.0 * x, resets)
+    assert not jnp.allclose(y_raw.var(-1), 1.0, atol=0.1)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_ends_normalised_names_the_kinds_with_a_final_norm(kind):
+    ends = kind in ("transformer", "mamba")
+    assert MemoryConfig(kind=kind).ends_normalised == ends
+    assert not MemoryConfig(kind=kind, final_norm=False).ends_normalised
+
+
 # ---------------------------------------------------------------- jit
 
 

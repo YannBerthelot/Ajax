@@ -210,7 +210,11 @@ Ajax departs from the reference code in three places, each backed by runs on
 the pendulum tracking test bed: actions are `tanh`-bounded, gradients are
 clipped, and the PID layer starts as the identity (gains 1, 0, 0) rather than
 all ones. Those runs predate the map of actions onto the environment's
-bounds, when the pendulum's torque was capped at 1 of its 2.
+bounds, when the pendulum's torque was capped at 1 of its 2. A fourth
+difference is not backed by runs: the transformer's LayerNorms keep a bias
+and an epsilon of 1e-6, where the reference's have no bias and 1e-5
+(buswayne/in-context-controller at 7eb094ce17: `transformer_onestep.py:33`
+and `:156`, `train_onestep_lin_CL.py:103`).
 
 The paper trains in stages of growing diversity (its Algorithm 2): one system
 first, then the class. `train_curriculum` chains `CurriculumStage(agent,

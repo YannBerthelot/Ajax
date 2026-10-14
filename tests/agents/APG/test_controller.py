@@ -1,11 +1,17 @@
 """Tests for the APG Controller network."""
 
+import dataclasses
+
 import distrax
 import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.APG.networks import Controller, PIDHeadConfig
+from ajax.agents.APG.networks import (
+    Controller,
+    PIDHeadConfig,
+    controller_params_with_final_norm,
+)
 from ajax.networks.memory import MemoryConfig
 
 T, B, OBS, ACT = 6, 3, 4, 2
@@ -69,6 +75,62 @@ def test_stateful_controller_step_matches_sequence(kwargs):
         )
         outs.append(pi_t.mean()[0])
     assert jnp.allclose(jnp.stack(outs), u_seq, atol=1e-5)
+
+
+TRANSFORMER = MemoryConfig(kind="transformer", hidden_size=8, num_heads=2, window=4)
+
+
+@pytest.mark.parametrize(
+    "memory, controller_norm",
+    [
+        (None, True),
+        (MemoryConfig(kind="gru", hidden_size=8), True),
+        (TRANSFORMER, False),
+        (MemoryConfig(kind="mamba", hidden_size=8), False),
+        (dataclasses.replace(TRANSFORMER, final_norm=False), True),
+    ],
+    ids=["mlp", "gru", "transformer", "mamba", "transformer-before-final-norm"],
+)
+def test_one_layer_norm_precedes_the_output_layer(memory, controller_norm):
+    """Busetto et al.'s code runs its blocks, their final LayerNorm, then the
+    output layer: a memory ending with its own LayerNorm gets no second one
+    from the controller; the MLP and GRU controllers keep the controller's,
+    as does a transformer rebuilt without its final norm."""
+    _, params, *_ = build(memory=memory)
+    p = params["params"]
+    assert ("norm" in p) == controller_norm
+    core = p["memory_cell"]["core"] if memory is not None else {}
+    assert ("ln_f" in core) == (memory is not None and memory.ends_normalised)
+
+
+@pytest.mark.parametrize(
+    "memory",
+    [TRANSFORMER, MemoryConfig(kind="mamba", hidden_size=8)],
+    ids=["transformer", "mamba"],
+)
+def test_parameters_saved_before_the_final_norm_compute_the_same_outputs(memory):
+    """The Controller's LayerNorm sat where the core's ln_f sits now, so its
+    parameters moved there give the new network the old one's outputs."""
+    kw = {"pid": PIDHeadConfig(), "squash": False}
+    old = dataclasses.replace(memory, final_norm=False)
+    old_net, params, carry, obs, done = build(memory=old, **kw)
+    norm = params["params"]["norm"]  # moved off its init, so a lost one shows
+    norm = {"scale": norm["scale"] + 0.5, "bias": norm["bias"] - 0.3}
+    params = {"params": {**params["params"], "norm": norm}}
+    new_net, new_init, *_ = build(memory=memory, **kw)
+
+    mapped = controller_params_with_final_norm(params, memory)
+    assert jax.tree.structure(mapped) == jax.tree.structure(new_init)
+    old_pi, old_carry = old_net.apply(params, obs, hidden_state=carry, done=done)
+    new_pi, new_carry = new_net.apply(mapped, obs, hidden_state=carry, done=done)
+    assert jnp.array_equal(new_pi.mean(), old_pi.mean())
+    same = jax.tree.map(jnp.array_equal, new_carry, old_carry)
+    assert all(jax.tree.leaves(same))
+
+    with pytest.raises(ValueError, match="not a Controller's parameters"):
+        controller_params_with_final_norm(mapped, memory)
+    with pytest.raises(ValueError, match="no final LayerNorm"):
+        controller_params_with_final_norm(params, old)
 
 
 def test_stateful_controller_requires_carry():

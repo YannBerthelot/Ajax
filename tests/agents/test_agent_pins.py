@@ -546,6 +546,24 @@ _GOLDEN |= {
     "APG-nudge": {"actor": 35.83795928955078, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.834327697753906, "nudge": 0.27262088656425476},
 }
+# Re-recorded on macOS ARM CPU once PPO's default log-std became its
+# reference code's: one unclipped parameter per action dimension at 0, not
+# a Dense head at -1. The actor loses the head's kernel; relative shifts
+# (actor, critic): PPO-mcc -44.1%, +3.9%; PPO-flat -27.0%, -0.55%;
+# PPO-unroll -25.4%, -0.72%; PPO-env-split-nudge -29.8%, -0.05%; PPO-gru
+# -2.0%, -0.12%. PPO-env-split (the head set explicitly) is bitwise
+# unchanged, PPO-discrete-nudge within 1e-5.
+_GOLDEN |= {
+    "PPO-mcc": {"actor": 2.020819902420044, "critic": 3.3231139183044434},
+    "PPO-flat": {"actor": 3.0036025047302246, "critic": 4.475032806396484},
+    "PPO-unroll": {"actor": 3.136448621749878, "critic": 4.502480506896973},
+    "PPO-env-split-nudge": {
+        "actor": 2.6335089206695557,
+        "critic": 4.227860450744629,
+        "nudge": 0.3099551498889923,
+    },
+    "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

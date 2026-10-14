@@ -62,12 +62,13 @@ BASE = {"learning_starts": 16, "burn_in": 2, "sequence_length": 4}
 BASE |= {"expert_buffer_n_steps": 0, "policy_update_start": 8, "alpha_update_start": 8}
 FLAGS = "normalize_observations normalize_rewards normalize_obs_running use_train_frac"
 FLAGS += " fixed_alpha store_policy_action fused_grad_clip"
-FLAGS += " expose_recent_rollout log_std_state_independent encoder_layer_norm"
+FLAGS += " expose_recent_rollout encoder_layer_norm"
 FLAGS += " augment_obs_with_expert_action augment_obs_with_expert_state use_pid_policy"
 ENVS = ("Pendulum-v1", "fast", "CartPole-v1")
 MEMORY = {"memory", "stored_state", "bptt_length"}
+NEGATED = ("squash", "log_std_state_independent")
 #: Each option's keywords, taken by an agent whose signature (env ids) takes them;
-#: "squash" negates the default, the CNN fits the env.
+#: NEGATED options negate the default, the CNN fits the env.
 OPTIONS: dict[str, dict] = {k: {k: True} for k in FLAGS.split()}
 OPTIONS |= {env: {"env_id": env} for env in ENVS}
 OPTIONS |= {
@@ -83,7 +84,7 @@ OPTIONS |= {
     "weight_decay": {"weight_decay": 1e-2},
     "unroll_length": {"unroll_length": 8},
     "normalize_advantage": {"normalize_advantage": False},
-    "squash": {"squash": None},
+    **{k: {k: None} for k in NEGATED},
     "expert_policy": {"expert_policy": EXPERT},
     "eval_expert_policy": {"eval_expert_policy": EXPERT},
     "expert_buffer_n_steps": {"expert_buffer_n_steps": 16},  # the expert prefill
@@ -218,8 +219,9 @@ def _build(name: str, row: frozenset[str]) -> Any:
     for option in sorted(row & set(OPTIONS)):
         kw |= OPTIONS[option]
     env = kw.pop("env_id", None)
-    if "squash" in kw:
-        kw["squash"] = not params["squash"].default
+    for option in NEGATED:
+        if option in kw:
+            kw[option] = not params[option].default
     if "cnn_image_shape" in row:
         kw["cnn_image_shape"] = CNN[env]
     if "action_pipeline" in kw:

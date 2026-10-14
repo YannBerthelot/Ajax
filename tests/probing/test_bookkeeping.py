@@ -689,10 +689,9 @@ def _paid(st: envs.State, a: jax.Array, key: Any) -> tuple:
 
 
 def q5_run(agent: str, seeds: tuple, budget: int, paid: bool = False, **kw: Any) -> Any:
-    """``paid``: the reward is the executed action. PPO at log_std_init 0."""
+    """``paid``: the reward is the executed action."""
     box = dataclasses.replace(counter(0, True, (64, 0)), box=(0.0, 2.0, 1))
     spec = dataclasses.replace(box, transition=_paid) if paid else box
-    kw = ({"log_std_init": 0.0} if agent == "PPO" else {}) | kw
     model = agents.make(agent, *spec.make(), preset="bookkeeping", **kw)
     run = runs.train(model, seeds, budget)
     if (R.field(run.state, "clock") < 64).any():

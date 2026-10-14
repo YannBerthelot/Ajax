@@ -317,6 +317,37 @@ def test_a_memory_checkpoint_restores_only_into_its_own_final_norm(tmp_path):
         restore_into(old, new_path)
 
 
+def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
+    """A PPO saved with the Dense log-std head, its default before, lacks
+    log_std_param: restoring it into the default network raises an error
+    naming the flags that rebuild its own, into which it restores. A default
+    checkpoint restoring into the Dense head raises too: flax would drop
+    the parameter silently."""
+    from ajax.agents.PPO.PPO import PPO
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
+    kw |= {"actor_architecture": net, "critic_architecture": net}
+
+    def skeleton(**head):
+        return PPO(env_id="Pendulum-v1", **kw, **head).train(seed=0, n_timesteps=0)[0]
+
+    old = skeleton(log_std_state_independent=False, log_std_init=-1.0)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(old, path)
+    flags = r"log_std_state_independent=False and\s+log_std_init=-1\.0"
+    with pytest.raises(ValueError, match=flags):
+        restore_into(skeleton(), path)
+    restored = restore_into(old, path)
+    same = jax.tree.map(np.array_equal, restored.actor_state, old.actor_state)
+    assert all(jax.tree.leaves(same))
+
+    new_path = str(tmp_path / "new.pkl")
+    save_checkpoint(skeleton(), new_path)
+    with pytest.raises(ValueError, match=r"log_std_state_independent=True"):
+        restore_into(old, new_path)
+
+
 def test_a_state_without_a_collector_restores(tmp_path):
     """TDMPC2MultiTask trains offline: its state holds no collector
     (collector_state None). It restores, as does a checkpoint whose root is

@@ -139,6 +139,7 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
         critic_bias_init="0.5",
         log_std_state_independent=True,
         log_std_init=0.3,
+        clip_log_std_param=False,
     )
     actor_state, critic_state = get_initialized_actor_critic(
         jax.random.PRNGKey(0),
@@ -156,6 +157,12 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
     np.testing.assert_allclose(actor["mean"]["bias"], 0.25)
     np.testing.assert_allclose(actor["log_std_param"], 0.3)
     np.testing.assert_allclose(critic["ensemble"]["model"]["bias"], 0.5)
+    unclipped = {
+        "params": {**actor, "log_std_param": jnp.full_like(actor["mean"]["bias"], 3.0)}
+    }
+    obs = jnp.zeros((1, get_state_action_shapes(fast_env_config.env)[0][-1]))
+    std = actor_state.apply_fn(unclipped, obs).stddev()
+    np.testing.assert_allclose(std, np.exp(3.0), rtol=1e-6)
 
 
 def test_get_initialized_actor_critic_continuous(fast_env_config):
@@ -331,8 +338,9 @@ def _dqn_nets():
 @pytest.mark.parametrize("nets", [_sac_nets, _redq_nets, _ppo_nets, _dqn_nets])
 def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
     """SAC, REDQ, PPO and DQN use plain MLPs in their papers: by default
-    their networks hold Dense kernels and biases only; the network option
-    ``encoder_layer_norm`` adds the encoder's output LayerNorm."""
+    their networks hold Dense kernels and biases only (and PPO's log-std
+    parameter); the network option ``encoder_layer_norm`` adds the
+    encoder's output LayerNorm."""
     agent, build = nets()
 
     def leaf_names():
@@ -341,7 +349,8 @@ def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
         return {"/".join(str(getattr(k, "key", k)) for k in p) for p, _ in paths}
 
     plain = leaf_names()
-    assert {name.rsplit("/", 1)[-1] for name in plain} == {"kernel", "bias"}, plain
+    leaves = {name.rsplit("/", 1)[-1] for name in plain} - {"log_std_param"}
+    assert leaves == {"kernel", "bias"}, plain
     assert not any("norm" in name for name in plain), plain
 
     agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
@@ -352,7 +361,7 @@ def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
 @pytest.mark.parametrize("state_independent", [False, True])
 def test_the_actor_std_starts_at_exp_log_std_init(state_independent):
     """Either log-std head, a Dense with a zero kernel over the features
-    (SAC's) or one parameter per action dimension (brax PPO's), starts every
+    (SAC's) or one parameter per action dimension (PPO's), starts every
     std at exp(log_std_init), whatever the input."""
     actor = Actor(
         action_dim=3,
@@ -369,6 +378,30 @@ def test_the_actor_std_starts_at_exp_log_std_init(state_independent):
     assert head in params and other not in params
     std = actor.apply({"params": params}, obs).stddev()
     np.testing.assert_allclose(std, np.full((4, 3), np.exp(-0.5)), rtol=1e-6)
+
+
+@pytest.mark.parametrize("clip", [True, False])
+@pytest.mark.parametrize("state_independent", [False, True])
+def test_only_the_log_std_parameter_can_go_unclipped(state_independent, clip):
+    """SAC's Dense head is always clipped to [-20, 2]; the state-independent
+    parameter is clipped there only with ``clip_log_std_param``."""
+    actor = Actor(
+        action_dim=2,
+        input_architecture=ARCH,
+        continuous=True,
+        log_std_state_independent=state_independent,
+        clip_log_std_param=clip,
+    )
+    obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
+    params = actor.init(jax.random.PRNGKey(0), obs)["params"]
+    log_std = jnp.array([3.0, -25.0])  # beyond either bound
+    if state_independent:
+        params = {**params, "log_std_param": log_std}
+    else:
+        params = {**params, "log_std": {**params["log_std"], "bias": log_std}}
+    std = actor.apply({"params": params}, obs).stddev()
+    want = log_std if state_independent and not clip else jnp.array([2.0, -20.0])
+    np.testing.assert_allclose(std, np.broadcast_to(np.exp(want), (4, 2)), rtol=1e-5)
 
 
 def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):

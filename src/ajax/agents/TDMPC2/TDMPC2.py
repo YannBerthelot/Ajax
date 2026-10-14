@@ -146,6 +146,7 @@ class TDMPC2(ActorCritic):
         enc_lr_scale: float = 0.3,
         grad_clip_norm: float = 20.0,
         pi_eps: float = 1e-5,
+        weight_decay: float = 0.0,
         tau: float = 0.01,
         entropy_coef: float = 1e-4,
         log_std_min: float = -10.0,
@@ -191,6 +192,10 @@ class TDMPC2(ActorCritic):
             action_repeat: simulator steps per agent step (brax /
                 playground; the paper's DMC protocol uses 2).
             env_params: gymnax env params (one system).
+            weight_decay: decoupled weight decay of the world model's and
+                the policy's Adam (``OptimizerConfig.weight_decay``); Ajax's,
+                not a ``config.yaml`` hyperparameter: 0 keeps the
+                reference's plain Adam.
             extensions: composable research features (see
                 :mod:`ajax.extensions`).
 
@@ -264,6 +269,7 @@ class TDMPC2(ActorCritic):
             "learning_rate": learning_rate,
             "enc_lr_scale": float(enc_lr_scale),
             "pi_eps": float(pi_eps),
+            "weight_decay": float(weight_decay),
         }
         # Sized at every train() call (see the class docstring).
         self.replay_capacity: Optional[int] = None

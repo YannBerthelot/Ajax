@@ -60,6 +60,7 @@ def init_TDMPC2MultiTask(
     learning_rate: FloatOrCallable,
     enc_lr_scale: float,
     pi_eps: float,
+    weight_decay: float = 0.0,
 ) -> TDMPC2MultiTaskState:
     """Fresh networks (embedding table included) and optimizers."""
     model_key, rng, eval_rng = jax.random.split(key, 3)
@@ -71,6 +72,7 @@ def init_TDMPC2MultiTask(
         learning_rate=learning_rate,
         enc_lr_scale=enc_lr_scale,
         pi_eps=pi_eps,
+        weight_decay=weight_decay,
     )
     # The logged quantities' structure, from a batch of any tasks.
     task = jnp.zeros((config.batch_size,), jnp.int32)
@@ -131,6 +133,7 @@ def make_init(
     learning_rate: FloatOrCallable = 3e-4,
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
+    weight_decay: float = 0.0,
     extensions: Sequence[Extension] = (),
     total_timesteps: int = 0,
 ) -> Callable[[jax.Array, Any], TDMPC2MultiTaskState]:
@@ -154,6 +157,7 @@ def make_init(
             learning_rate=learning_rate,
             enc_lr_scale=enc_lr_scale,
             pi_eps=pi_eps,
+            weight_decay=weight_decay,
         )
 
     def init(key: jax.Array, index: Any) -> TDMPC2MultiTaskState:
@@ -172,6 +176,7 @@ def make_train(
     learning_rate: FloatOrCallable = 3e-4,
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
+    weight_decay: float = 0.0,
     extensions: Sequence[Extension] = (),
     total_timesteps: int = 0,
 ) -> Callable:
@@ -193,6 +198,7 @@ def make_train(
         learning_rate=learning_rate,
         enc_lr_scale=enc_lr_scale,
         pi_eps=pi_eps,
+        weight_decay=weight_decay,
         extensions=extensions,
         total_timesteps=total_timesteps,
     )

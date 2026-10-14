@@ -57,7 +57,9 @@ def create_alpha_train_state(
     # the magnitude (and hence the target) from the update whenever the
     # policy entropy is more than the clip away from the target, turning
     # the step into pure sign-descent at ``learning_rate`` per update.
-    # Reference SAC uses unclipped Adam here.
+    # Reference SAC uses unclipped Adam here. Nor does the agent's
+    # weight_decay reach it: decaying log_alpha towards 0 would pull the
+    # temperature towards 1, a bias no entropy target asks for.
     tx = optax.adam(learning_rate)
     return TrainState.create(
         apply_fn=lambda params: jnp.exp(params["log_alpha"]),

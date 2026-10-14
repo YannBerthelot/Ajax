@@ -191,6 +191,7 @@ def create_update_state(
     learning_rate: FloatOrCallable = 3e-4,
     enc_lr_scale: float = 0.3,
     pi_eps: float = 1e-5,
+    weight_decay: float = 0.0,
 ) -> core.TDMPC2UpdateState:
     """:func:`ajax.agents.TDMPC2.core.create_update_state` for ``tasks``:
     padded input widths, the ``[num_tasks, task_dim]`` embedding table in the
@@ -203,6 +204,7 @@ def create_update_state(
         learning_rate=learning_rate,
         enc_lr_scale=enc_lr_scale,
         pi_eps=pi_eps,
+        weight_decay=weight_decay,
         task_dim=task_dim,
         num_tasks=tasks.num_tasks,
     )

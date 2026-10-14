@@ -504,8 +504,11 @@ class MCPretrain(Extension):
     Building ``φ*`` needs the agent's env, critic network and optimiser
     config, ``gamma`` and ``reward_scale``: the fields after the
     hyperparameters, which the agent fills through :meth:`bind_to_agent`
-    (only SAC does). ``use_phi_refresh`` keeps ``φ*``'s optimiser state
-    for a :class:`PhiRefresh` in the same stack.
+    (only SAC does). ``φ*`` trains with that optimiser config as it is, so
+    the agent's ``weight_decay`` (like its gradient clipping and learning-
+    rate schedule) also decays ``φ*`` while it fits the MC returns.
+    ``use_phi_refresh`` keeps ``φ*``'s optimiser state for a
+    :class:`PhiRefresh` in the same stack.
     """
 
     expert_policy: Callable

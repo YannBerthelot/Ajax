@@ -87,14 +87,24 @@ setting.
 
 ### The policy head
 
-PPO exposes the policy head's options. APO sets them for continuous control
-as Brax's PPO does: one learned log standard deviation per dimension,
-starting at 1 (`log_std_init=0.0`), a `lecun_uniform` mean and `squash=True`.
+PPO exposes the policy head's options. By default its Gaussian learns one
+log standard deviation per action dimension, whatever the observation,
+starting at 0 (a standard deviation of 1) and never clipped, as PPO's
+reference code does: OpenAI Baselines at `ea25b9e` (ppo2's
+`common/distributions.py:96-106`; ppo1's `ppo1/mlp_policy.py:36-39`, with
+`gaussian_fixed_var=True`), CleanRL at `fe8d8a0`
+(`ppo_continuous_action.py:129`) and PureJaxRL at `31756b1`
+(`ppo_continuous_action.py:41`). `log_std_state_independent=False` with
+`log_std_init=-1.0` builds the head PPO had before, SAC's: a log standard
+deviation computed from the observation, clipped to `[-20, 2]`. APO sets
+the head for continuous control: one learned log standard deviation per
+dimension, starting at 0 and clipped to `[-20, 2]`, a `lecun_uniform` mean
+and `squash=True`.
 
 | Argument | Default (PPO) | Effect |
 | --- | --- | --- |
-| `log_std_state_independent` | `False` | one learned log standard deviation per action dimension, instead of one computed from the observation |
-| `log_std_init` | `-1.0` | the initial log standard deviation |
+| `log_std_state_independent` | `True` | one learned log standard deviation per action dimension; `False` computes it from the observation |
+| `log_std_init` | `0.0` | the initial log standard deviation |
 | `mean_kernel_init` | `None`: `orthogonal(0.01)`, a near-zero first mean | the initialiser of the mean's output layer |
 | `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction |
 

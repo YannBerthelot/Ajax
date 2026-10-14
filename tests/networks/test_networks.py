@@ -338,8 +338,9 @@ def _dqn_nets():
 @pytest.mark.parametrize("nets", [_sac_nets, _redq_nets, _ppo_nets, _dqn_nets])
 def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
     """SAC, REDQ, PPO and DQN use plain MLPs in their papers: by default
-    their networks hold Dense kernels and biases only; the network option
-    ``encoder_layer_norm`` adds the encoder's output LayerNorm."""
+    their networks hold Dense kernels and biases only (and PPO's log-std
+    parameter); the network option ``encoder_layer_norm`` adds the
+    encoder's output LayerNorm."""
     agent, build = nets()
 
     def leaf_names():
@@ -348,7 +349,8 @@ def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
         return {"/".join(str(getattr(k, "key", k)) for k in p) for p, _ in paths}
 
     plain = leaf_names()
-    assert {name.rsplit("/", 1)[-1] for name in plain} == {"kernel", "bias"}, plain
+    leaves = {name.rsplit("/", 1)[-1] for name in plain} - {"log_std_param"}
+    assert leaves == {"kernel", "bias"}, plain
     assert not any("norm" in name for name in plain), plain
 
     agent.network_args = agent.network_args.replace(encoder_layer_norm=True)

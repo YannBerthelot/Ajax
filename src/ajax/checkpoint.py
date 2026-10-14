@@ -60,6 +60,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
         state_dict = pickle.load(f)
     skeleton_dict = serialization.to_state_dict(skeleton)
     _check_memory_final_norm(skeleton_dict, state_dict)
+    _check_log_std_head(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
@@ -159,6 +160,43 @@ def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
     for key, value in skeleton.items():
         if key in saved:
             _check_memory_final_norm(value, saved[key])
+
+
+def _check_log_std_head(skeleton: Any, saved: Any) -> None:
+    """Refuse, saying how to restore it, a checkpoint whose actor has the
+    other log-std head than the network restoring it: a Dense layer over the
+    features (``log_std``) or one parameter per action dimension
+    (``log_std_param``). flax reports the missing head without its cause and
+    drops the extra one silently. PPO's checkpoints saved before it learned
+    the parameter, as its reference code does, hold the Dense head.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this
+    check once no such checkpoint remains.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return
+    if "log_std_param" in skeleton and "log_std_param" not in saved:
+        if "log_std" in saved:
+            raise ValueError(
+                "This checkpoint's actor computes its log-std from the"
+                " observation (a Dense head, log_std), PPO's default before it"
+                " learned one log-std per action dimension. Restore it into an"
+                " agent built with log_std_state_independent=False and"
+                " log_std_init=-1.0, the network it was saved from, its other"
+                " settings unchanged."
+            )
+    if "log_std_param" in saved and "log_std_param" not in skeleton:
+        if "log_std" in skeleton:
+            raise ValueError(
+                "This checkpoint's actor learns one log-std per action dimension"
+                " (log_std_param), which the agent restoring it, built with"
+                " log_std_state_independent=False, lacks. Restore it into an"
+                " agent built with log_std_state_independent=True, PPO's"
+                " default."
+            )
+    for key, value in skeleton.items():
+        if key in saved:
+            _check_log_std_head(value, saved[key])
 
 
 def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:

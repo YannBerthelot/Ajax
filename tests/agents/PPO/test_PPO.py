@@ -62,3 +62,11 @@ def test_a_forced_reset_marks_an_episode_start_for_a_recurrent_policy():
     np.testing.assert_array_equal(state.collector_state.last_truncated, 1.0)
     for leaf in jax.tree.leaves(state.actor_state.params):
         assert np.isfinite(leaf).all()
+
+
+def test_ppo_defaults_to_its_reference_log_std():
+    """One learned log-std per action dimension, starting at 0 and never
+    clipped, as Baselines, CleanRL and PureJaxRL learn it."""
+    args = PPO("Pendulum-v1").network_args
+    assert args.log_std_state_independent and args.log_std_init == 0.0
+    assert not args.clip_log_std_param

@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ab47c8f1aab9"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "5f817a573b2d"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -824,18 +824,19 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 # a: Discrete(2) paying 1 for action 0, c = 1: pi(0) = sigmoid(1 / c). b: r =
 # -(a - 0.5)^2, unclipped, c = 2: mu 0.5, sigma sqrt(c / 2) (b2: per dimension
 # of the joint action). c: r = 0, c = 0.1, squashed: sigma_u 0.8744, the
-# max-entropy tanh-Gaussian (PPO starts at e^0.5: no fault crosses it). Off:
-# advantage normalisation and gradient clipping (both move the stationary
-# point); APO's gae_lambda 0 (advantage r - rho). 8 envs; learning rates set
-# the spread, not the answer. PPO takes 4 full-batch Adam steps a 256-step
-# rollout, each moving a weight by about the rate: its plain MLP needs four
-# times the updates its LayerNorm one did at 1e-5 (pi(best) 0.668 after
-# 160,000 steps), hence 4e-5. Measured wrong answers: medians, 1000-1031.
-# PPO's continuous cells keep the head they were calibrated on, a Dense
-# log-std over the features (DENSE): PPO's default, one log-std parameter,
-# moves about the rate per Adam step, so at 4e-5 b's sigma reads 9.06 after
-# 160,000 steps (seeds 0-7) and c's 1.57 after 80,000; reaching the answers
-# would take about 3.7 and 1.0 million steps.
+# max-entropy tanh-Gaussian (PPO starts at e^0.5, where a dropped bonus leaves
+# it). Off: advantage normalisation and gradient clipping (both move the
+# stationary point); APO's gae_lambda 0 (advantage r - rho). 8 envs; learning
+# rates set the spread, not the answer. PPO takes 4 full-batch Adam steps a
+# 256-step rollout, each moving a weight by about the rate: PPO-a's plain MLP
+# needs four times the updates its LayerNorm one did at 1e-5 (pi(best) 0.668
+# after 160,000 steps), hence 4e-5. PPO's Gaussian has one log-std parameter,
+# unclipped, which moves at most the rate a step: at 4e-5 b's sigma reads 9.06
+# after 160,000 steps (seeds 0-7). Its cells take STD_LR, 1e-3, the one rate
+# of 5e-4, 1e-3 and 2e-3 that serves all three: c needs it to calibrate within
+# its 80,000 steps (5e-4: 1.055, seeds 0-7), and above it b's mean spreads
+# past its cap (2e-3: twice its worst error 0.33-0.38 at 160,000-320,000
+# steps). Measured wrong answers: medians, 1000-1031.
 
 
 def _bandit(
@@ -854,9 +855,10 @@ def _quadratic(a: jax.Array) -> jax.Array:
 
 # The quadratic bandits' answers (sigma 1, mu 0.5) are for the Gaussian the
 # env executes: the agent's action maps onto the box (WIDE a), clipped at its
-# edges, so the box is wide enough (9.5 sigmas from mu) that the clip never
-# binds. The bonus is the agent-unit Gaussian's entropy, the env-unit one's
-# minus log WIDE: the same stationary point. sigma starts at WIDE e^-1.
+# edges, so the box is wide enough (9.5 sigmas from mu) that the clip does
+# not bind near the answer. The bonus is the agent-unit Gaussian's entropy,
+# the env-unit one's minus log WIDE: the same stationary point. sigma starts
+# at WIDE (log-std 0), so the clip binds early on.
 WIDE = 10.0
 BANDITS = {
     "a": _bandit(lambda a: jnp.where(a == 0, 1.0, 0.0), actions=2),
@@ -904,55 +906,57 @@ def latent_sigma(budget: int, lr: float, start: float = 0.0, top: float = 2.0) -
     return math.exp(min(top, start + lr * 4 * (budget // (8 * 32) + 1)))
 
 
+STD_LR = 1e-3  # PPO's continuous cells' learning rate
 DROPPED, P07 = "bonus dropped or ent_coef not forwarded", "bonus sign flipped (P07)"
 PI_BEST, SIGMA_C = oracles.softmax_optimum(1.0), oracles.max_entropy_sigma()
 # Untrained: equal logits; at obs 1 they are not, one update reads 0.10-0.96.
 _PI_A = {"untrained": 0.5, DROPPED: 0.976, f"{P07}, better arm": 1.0}
 _PI_A[f"{P07}, worse arm"] = 0.0  # a flipped bonus collapses each seed on an arm
 _APO_A = {"untrained": 0.5, DROPPED: 0.990, "bonus sign flipped": 0.997}
-_AVERAGED = {"entropy averaged over the dimensions": 0.739}  # sqrt(1/2) at rest
-_CLIP = "sign flipped (P07) or latent-Gaussian entropy (PPO/core.py): the log-std clip"
+_AVERAGED = {"entropy averaged over the dimensions": 0.7414}  # sqrt(1/2) at rest
+# P07 saturates the tanh (mu_u reads -31,800 to 34,400), then shrinks sigma_u.
+_LATENT = latent_sigma(80_000, STD_LR, start=0.5, top=math.inf)  # unclipped
+_PPO_C = {DROPPED: math.exp(0.5), P07: 0.6575, "latent-Gaussian entropy": _LATENT}
 _APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": latent_sigma(80_000, 3e-4)}
 _APO_C["latent-Gaussian entropy, sign flipped"] = 1 / latent_sigma(80_000, 3e-4)
 Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "PPO-a": (Query("pi(best)", PI_BEST, _PI_A),),
     "APO-a": (Query("pi(best)", PI_BEST, _APO_A),),
-    # Both faults still shrink sigma at 160,000 steps; mu is a sanity check.
+    # Both faults still shrink sigma at 480,000 steps; mu is a sanity check.
     "PPO-b": (
-        Query("sigma", 1.0, {"untrained": WIDE / math.e, DROPPED: 0.431, P07: 0.05}),
+        Query("sigma", 1.0, {"untrained": WIDE, DROPPED: 0.4714, P07: 0.171}),
         Query("mu", 0.5, {"untrained": 0.0}),
     ),
     "PPO-b2": tuple(
-        Query(f"sigma_{i}", 1.0, _AVERAGED | {"untrained": WIDE / math.e})
-        for i in (1, 2)
+        Query(f"sigma_{i}", 1.0, _AVERAGED | {"untrained": WIDE}) for i in (1, 2)
     ),
-    "PPO-c": (
-        Query("sigma_u", SIGMA_C, {DROPPED: math.exp(0.5), _CLIP: math.exp(2.0)}),
-    ),
+    "PPO-c": (Query("sigma_u", SIGMA_C, _PPO_C),),
     "APO-c": (Query("sigma_u", SIGMA_C, _APO_C),),
 }
-DENSE = {"log_std_state_independent": False, "log_std_init": -1.0}
 Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
     # agent, bandit, c, learning rate, budget, tolerances (32/32 of 3000-3031),
     # overrides
     "PPO-a": ("PPO", "a", 1.0, 4e-5, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
     "APO-a": ("APO", "a", 1.0, 3e-4, 20_000, (0.023,), {}),
-    "PPO-b": ("PPO", "b", 2.0, 4e-5, 160_000, (0.069, 0.246), DENSE),  # 120,000: 0.147
-    "PPO-b2": ("PPO", "b2", 2.0, 4e-5, 160_000, (0.065, 0.08), DENSE),  # 120,000: 0.155
-    "PPO-c": (  # 40,000 failed: 0.382
+    "PPO-b": ("PPO", "b", 2.0, STD_LR, 480_000, (0.05, 0.211), {}),  # 400,000: 0.107
+    # 400,000: 0.096, over half the gap to the averaged entropy's 0.834 there
+    "PPO-b2": ("PPO", "b2", 2.0, STD_LR, 480_000, (0.053, 0.045), {}),
+    "PPO-c": (  # 60,000 failed: 0.164
         "PPO",
         "c",
         0.1,
-        4e-5,
+        STD_LR,
         80_000,
-        (0.053,),
-        DENSE | {"squash": True, "log_std_init": 0.5},
+        (0.065,),
+        {"squash": True, "log_std_init": 0.5},
     ),
     "APO-c": ("APO", "c", 0.1, 3e-4, 80_000, (0.062,), {}),  # half the gap to 1.0
 }
 # PPO-b's mu, a sanity check, is WIDE times the agent-unit mean's jitter:
-# twice its pooled worst error is 0.20-0.25 on every rung from 60,000 steps
-# at 4e-5 (1e-5: 0.088 at 640,000, 1000-1031), so its tolerance is half its gap.
+# twice its pooled worst error is 0.21-0.26 on every rung from 320,000 to
+# 640,000 steps, so its ceiling is half its gap. The ceiling is the case's,
+# so b's budget is the first rung where sigma's tolerance also stays within
+# CEILING: 480,000 (0.050; 400,000: 0.107).
 Q6_CEILING = {"PPO-b": 0.25}
 for cell, (agent, bandit, c, lr, steps, q6_tols, kw) in Q6_CELLS.items():
     build = functools.partial(_q6_agent, agent, bandit, c, lr, **kw)

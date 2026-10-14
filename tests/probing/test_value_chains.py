@@ -866,8 +866,7 @@ BANDITS = {
 }
 
 
-def _q6_agent(agent: str, bandit: str, c: float, **kw: Any) -> Any:
-    lr = {"PPO": 4e-5, "APO": 3e-4}[agent]
+def _q6_agent(agent: str, bandit: str, c: float, lr: float, **kw: Any) -> Any:
     kw |= {"gae_lambda": 0.0} if agent == "APO" else {}
     kw |= {"normalize_advantage": False, "max_grad_norm": None, "ent_coef": c}
     kw |= {"n_envs": 8, "actor_learning_rate": lr, "critic_learning_rate": lr}
@@ -932,28 +931,30 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "APO-c": (Query("sigma_u", SIGMA_C, _APO_C),),
 }
 DENSE = {"log_std_state_independent": False, "log_std_init": -1.0}
-Q6_CELLS: dict[str, tuple[str, str, float, int, tuple, dict]] = {
-    # agent, bandit, c, budget, tolerances (32/32 of 3000-3031), overrides
-    "PPO-a": ("PPO", "a", 1.0, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
-    "APO-a": ("APO", "a", 1.0, 20_000, (0.023,), {}),
-    "PPO-b": ("PPO", "b", 2.0, 160_000, (0.069, 0.246), DENSE),  # 120,000: 0.147
-    "PPO-b2": ("PPO", "b2", 2.0, 160_000, (0.065, 0.08), DENSE),  # 120,000: 0.155
+Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
+    # agent, bandit, c, learning rate, budget, tolerances (32/32 of 3000-3031),
+    # overrides
+    "PPO-a": ("PPO", "a", 1.0, 4e-5, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
+    "APO-a": ("APO", "a", 1.0, 3e-4, 20_000, (0.023,), {}),
+    "PPO-b": ("PPO", "b", 2.0, 4e-5, 160_000, (0.069, 0.246), DENSE),  # 120,000: 0.147
+    "PPO-b2": ("PPO", "b2", 2.0, 4e-5, 160_000, (0.065, 0.08), DENSE),  # 120,000: 0.155
     "PPO-c": (  # 40,000 failed: 0.382
         "PPO",
         "c",
         0.1,
+        4e-5,
         80_000,
         (0.053,),
         DENSE | {"squash": True, "log_std_init": 0.5},
     ),
-    "APO-c": ("APO", "c", 0.1, 80_000, (0.062,), {}),  # half the gap to 1.0
+    "APO-c": ("APO", "c", 0.1, 3e-4, 80_000, (0.062,), {}),  # half the gap to 1.0
 }
 # PPO-b's mu, a sanity check, is WIDE times the agent-unit mean's jitter:
 # twice its pooled worst error is 0.20-0.25 on every rung from 60,000 steps
 # at 4e-5 (1e-5: 0.088 at 640,000, 1000-1031), so its tolerance is half its gap.
 Q6_CEILING = {"PPO-b": 0.25}
-for cell, (agent, bandit, c, steps, q6_tols, kw) in Q6_CELLS.items():
-    build = functools.partial(_q6_agent, agent, bandit, c, **kw)
+for cell, (agent, bandit, c, lr, steps, q6_tols, kw) in Q6_CELLS.items():
+    build = functools.partial(_q6_agent, agent, bandit, c, lr, **kw)
     reads = runs.readings(
         build,
         lambda run: R.per_seed(

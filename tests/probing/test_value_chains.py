@@ -896,11 +896,12 @@ def _q6_read(env_args: Any, n: R.Nets) -> dict:
     return {"mu_1": mu[0], "mu_2": mu[1], "sigma_1": sigma[0], "sigma_2": sigma[1]}
 
 
-def apo_latent_sigma(budget: int) -> float:
-    """APO's sigma_u under the latent Gaussian's entropy bonus: on the flat
-    bandit its advantage is exactly 0, so Adam raises the log-std by the
-    learning rate at each of 4 steps per 8 x 32 rollout until the clip at 2."""
-    return math.exp(min(2.0, 3e-4 * 4 * (budget // (8 * 32) + 1)))
+def latent_sigma(budget: int, lr: float, start: float = 0.0, top: float = 2.0) -> float:
+    """sigma_u under the latent Gaussian's entropy bonus: on the flat bandit
+    the advantage is 0 (APO's exactly), so Adam raises the log-std from
+    ``start`` by the learning rate at each of 4 steps per 8 x 32 rollout
+    until its clip at ``top``."""
+    return math.exp(min(top, start + lr * 4 * (budget // (8 * 32) + 1)))
 
 
 DROPPED, P07 = "bonus dropped or ent_coef not forwarded", "bonus sign flipped (P07)"
@@ -911,8 +912,8 @@ _PI_A[f"{P07}, worse arm"] = 0.0  # a flipped bonus collapses each seed on an ar
 _APO_A = {"untrained": 0.5, DROPPED: 0.990, "bonus sign flipped": 0.997}
 _AVERAGED = {"entropy averaged over the dimensions": 0.739}  # sqrt(1/2) at rest
 _CLIP = "sign flipped (P07) or latent-Gaussian entropy (PPO/core.py): the log-std clip"
-_APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": apo_latent_sigma(80_000)}
-_APO_C["latent-Gaussian entropy, sign flipped"] = 1 / apo_latent_sigma(80_000)
+_APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": latent_sigma(80_000, 3e-4)}
+_APO_C["latent-Gaussian entropy, sign flipped"] = 1 / latent_sigma(80_000, 3e-4)
 Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "PPO-a": (Query("pi(best)", PI_BEST, _PI_A),),
     "APO-a": (Query("pi(best)", PI_BEST, _APO_A),),

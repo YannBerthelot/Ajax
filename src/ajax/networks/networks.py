@@ -148,16 +148,16 @@ class Actor(nn.Module):
     penultimate_normalization: bool = False
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
-    # The log-std head, every std starting at exp(log_std_init). False: a
-    # Dense layer over the encoder's features (state-dependent, SAC's),
-    # clipped to [-20, 2]. True: one learned log-std per action dimension,
-    # as PPO's reference code learns it, initialised at 0 and never
-    # clipped: OpenAI Baselines @ea25b9e (ppo2's
-    # common/distributions.py:96-106; ppo1's ppo1/mlp_policy.py:36-39,
-    # gaussian_fixed_var=True), CleanRL @fe8d8a0
+    # The log-std head, every std starting at exp(log_std_init). False (the
+    # default here): a Dense layer over the encoder's features
+    # (state-dependent, SAC's), clipped to [-20, 2]. True: one learned
+    # log-std per action dimension, clipped to [-20, 2] unless
+    # ``clip_log_std_param`` is False. PPO sets True, log_std_init 0 and no
+    # clip, as its reference code learns it: OpenAI Baselines @ea25b9e
+    # (ppo2's common/distributions.py:96-106; ppo1's
+    # ppo1/mlp_policy.py:36-39, gaussian_fixed_var=True), CleanRL @fe8d8a0
     # (ppo_continuous_action.py:129) and PureJaxRL @31756b1
-    # (ppo_continuous_action.py:41). ``clip_log_std_param`` (APO's) clips
-    # it to [-20, 2] as well; False leaves it unclipped, as they do.
+    # (ppo_continuous_action.py:41).
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
     clip_log_std_param: bool = True

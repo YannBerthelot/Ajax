@@ -40,6 +40,7 @@ class PQN(ActorCritic):
         reward_scale: float = 1.0,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = None,
+        weight_decay: float = 0.0,
         # Linear epsilon-greedy schedule: epsilon goes from epsilon_start
         # to epsilon_end over the first epsilon_decay_frac of training.
         epsilon_start: float = 1.0,
@@ -77,6 +78,7 @@ class PQN(ActorCritic):
             critic_architecture=architecture,
             env_params=env_params,
             max_grad_norm=max_grad_norm,
+            weight_decay=weight_decay,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,

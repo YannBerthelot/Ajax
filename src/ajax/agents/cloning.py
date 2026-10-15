@@ -4,11 +4,11 @@ import distrax
 import jax
 import jax.numpy as jnp
 import optax
-from flax.linen.initializers import orthogonal
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import augment_obs
+from ajax.modules.pid_actor import GAIN_NAMES
 from ajax.networks.distributions import SquashedNormal
 from ajax.state import Transition
 
@@ -29,27 +29,25 @@ def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
 _LOG_STD_NAMES = frozenset({"log_std", "log_std_param"})
 
 
-def _reset_actor_heads(
-    cloned: Any, before: Any, rng: jax.Array, reset_actor_head: bool
-) -> Any:
-    """The ``cloned`` actor parameters with the log-std back at its values
-    ``before`` cloning and, with ``reset_actor_head``, the ``mean`` head
-    re-drawn as Actor.setup() initialises it by default (orthogonal(0.01)
-    kernel, zero bias)."""
-    # The key main drew the mean head with (a split of ``rng``), so that
-    # reset_actor_head runs reproduce their earlier draw.
-    mean_key = jax.random.split(rng)[1]
+def _is_output_head(names: list) -> bool:
+    """Whether a parameter belongs to the actor's output head: Actor's
+    ``mean`` layer, or a PID law's gains (fixed ``kp``, ``ki`` and ``kd``,
+    or the ``head`` predicting them from the observation)."""
+    if len(names) > 1 and names[-2] == "mean":
+        return True
+    return "pid" in names and ("head" in names or names[-1] in GAIN_NAMES)
+
+
+def _reset_actor_heads(cloned: Any, before: Any, reset_actor_head: bool) -> Any:
+    """The ``cloned`` actor parameters with the log-std and, with
+    ``reset_actor_head``, the output head back at their values ``before``
+    cloning (the actor's initial values under CloningPretrain)."""
 
     def reset(path: Any, new: jax.Array, old: jax.Array) -> jax.Array:
         names = [getattr(k, "key", None) for k in path]
         if _LOG_STD_NAMES.intersection(names):
             return old
-        if reset_actor_head and len(names) > 1 and names[-2] == "mean":
-            if names[-1] == "kernel":
-                return orthogonal(0.01)(mean_key, new.shape, new.dtype)
-            if names[-1] == "bias":
-                return jnp.zeros_like(new)
-        return new
+        return old if reset_actor_head and _is_output_head(names) else new
 
     return jax.tree_util.tree_map_with_path(reset, cloned, before)
 
@@ -79,8 +77,9 @@ def pre_train(
     # log-std back at its values before cloning (head or parameter).
     # Preserves the BC'd mean.
     reset_log_std: bool = False,
-    # If True, after BC also re-draw the ``mean`` head at its default
-    # init. Keeps only the encoder (trunk) BC-warmed: trunk
+    # If True, after BC also put the output head (the ``mean`` layer, or a
+    # PID actor's gains) back at its values before cloning. Keeps only the
+    # encoder (trunk) BC-warmed: trunk
     # features encode expert-relevant state representations, but the
     # action map is random. Online RL re-learns the head fast on top of
     # informative features without any sharp policy break (since the
@@ -178,7 +177,7 @@ def pre_train(
         )
         return state, jnp.mean(batch_losses)
 
-    rng, rng_actor = jax.random.split(rng)
+    _, rng_actor = jax.random.split(rng)
     if skip_actor:
         # Actor pretraining bypassed (e.g., to keep policy free to deviate
         # from a suboptimal expert). Leave actor_state untouched.
@@ -190,13 +189,9 @@ def pre_train(
         )
         metrics["actor_loss"] = actor_losses
         if reset_log_std or reset_actor_head:
-            rng, reset_key = jax.random.split(rng)
             bc_actor_state = bc_actor_state.replace(
                 params=_reset_actor_heads(
-                    bc_actor_state.params,
-                    actor_state.params,
-                    reset_key,
-                    reset_actor_head,
+                    bc_actor_state.params, actor_state.params, reset_actor_head
                 )
             )
 

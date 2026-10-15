@@ -75,28 +75,7 @@ def test_the_normaliser_divides_by_the_documented_statistics(name: str) -> None:
         cls(env_id=env_id, reward_normalization_gamma=0.9)
 
 
-#: Rows that fail on a known bug, each failing until it is fixed (strict).
-KNOWN_BUGS = {
-    "UDRL": "UDRL's collection sums the normalised reward into its Train return"
-    " (train_UDRL._udrl_collect_step), not the env's own (RAW_REWARD_KEY), as"
-    " collect_experience does",
-}
-
-
-ROWS = [
-    pytest.param(
-        n,
-        marks=pytest.mark.xfail(
-            reason=KNOWN_BUGS[n], raises=AssertionError, strict=True
-        ),
-    )
-    if n in KNOWN_BUGS
-    else n
-    for n in NORMALISING
-]
-
-
-@pytest.mark.parametrize("name", ROWS)
+@pytest.mark.parametrize("name", NORMALISING)
 def test_the_returns_are_reported_in_the_envs_units(name: str) -> None:
     case = CASES[name]
     env, params = _counter(2 if case.envs == DISCRETE else 0).make()

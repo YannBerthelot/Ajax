@@ -68,15 +68,17 @@ def targets(ro: dict, v: Any, gamma: float, lam: float, rule: Rule) -> np.ndarra
 
 
 def fixed_point(
-    ro: dict, n: int, gamma: float, lam: float = 0.0, rule: Rule = RIGHT, centred=False
+    ro: dict, n: int, gamma: float, lam=0.0, rule=RIGHT, centred=False, bias=0.0
 ) -> np.ndarray:
     """V equal to each state's weighted mean target, solved exactly (targets
-    are affine in V); ``centred``: a differential estimator's, mean 0."""
+    are affine in V); ``centred``: a differential estimator's, mean 0;
+    ``bias``: less that times the visited mean V (APO's nu b)."""
     k, w = ro["obs"].ravel(), np.repeat(ro["weight"], ro["obs"].shape[1])
+    visits = np.bincount(k, w, n)
 
     def mean_target(v: np.ndarray) -> np.ndarray:
         g = targets(ro, v, gamma, lam, rule).ravel()
-        return np.bincount(k, w * g, n) / np.bincount(k, w, n)
+        return np.bincount(k, w * g, n) / visits - bias * visits @ v / visits.sum()
 
     b = mean_target(np.zeros(n))
     m = np.eye(n) - np.stack([mean_target(e) - b for e in np.eye(n)], 1)

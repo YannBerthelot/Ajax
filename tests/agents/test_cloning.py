@@ -12,6 +12,8 @@ from flax.training import train_state
 
 from ajax.agents.cloning import pre_train
 from ajax.extensions.pretrain import CloningPretrain
+from ajax.modules.pid_actor import PIDActor, PIDPolicy
+from ajax.networks.networks import Actor
 from ajax.state import Transition
 
 
@@ -260,3 +262,43 @@ def test_cloning_pretrain_resets_the_heads_it_is_told_to():
     assert not _close(kernel, cloned["mean"]["kernel"])
     trunk = [k for k in cloned if k not in ("mean", "log_std")]
     assert trunk and all(_close(head[k], cloned[k]) for k in trunk)
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [
+        Actor(("8", "relu"), action_dim=2, continuous=True, log_std_init=0.5),
+        # APO's and PPO's log-std.
+        Actor(
+            ("8", "relu"),
+            action_dim=2,
+            continuous=True,
+            log_std_state_independent=True,
+            log_std_init=0.0,
+        ),
+        PIDActor(PIDPolicy(), action_dim=2, log_std_init=0.0),
+    ],
+    ids=["head", "parameter", "pid"],
+)
+def test_pre_train_reset_log_std_restores_any_log_std(actor):
+    """``reset_log_std`` puts the actor's log-std back at its values before
+    cloning, whatever its form: a head over the features at any
+    ``log_std_init``, a state-independent parameter or a PID actor's."""
+    params = actor.init(jax.random.PRNGKey(0), jnp.ones((1, 4)))
+    state = train_state.TrainState.create(
+        apply_fn=actor.apply, params=params, tx=optax.adam(1e-3)
+    )
+    clone = functools.partial(
+        pre_train,
+        jax.random.PRNGKey(1),
+        state,
+        create_dummy_dataset(),
+        actor_epochs=5,
+        actor_batch_size=1,
+    )
+    cloned, reset = clone()[0].params, clone(reset_log_std=True)[0].params
+    (name,) = [k for k in params["params"] if k.startswith("log_std")]
+    assert not _close(cloned["params"][name], params["params"][name])
+    assert _close(reset["params"][name], params["params"][name])
+    others = [k for k in params["params"] if k != name]
+    assert all(_close(reset["params"][k], cloned["params"][k]) for k in others)

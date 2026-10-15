@@ -68,15 +68,17 @@ def targets(ro: dict, v: Any, gamma: float, lam: float, rule: Rule) -> np.ndarra
 
 
 def fixed_point(
-    ro: dict, n: int, gamma: float, lam: float = 0.0, rule: Rule = RIGHT, centred=False
+    ro: dict, n: int, gamma: float, lam=0.0, rule=RIGHT, centred=False, bias=0.0
 ) -> np.ndarray:
     """V equal to each state's weighted mean target, solved exactly (targets
-    are affine in V); ``centred``: a differential estimator's, mean 0."""
+    are affine in V); ``centred``: a differential estimator's, mean 0;
+    ``bias``: less that times the visited mean V (APO's nu b)."""
     k, w = ro["obs"].ravel(), np.repeat(ro["weight"], ro["obs"].shape[1])
+    visits = np.bincount(k, w, n)
 
     def mean_target(v: np.ndarray) -> np.ndarray:
         g = targets(ro, v, gamma, lam, rule).ravel()
-        return np.bincount(k, w * g, n) / np.bincount(k, w, n)
+        return np.bincount(k, w * g, n) / visits - bias * visits @ v / visits.sum()
 
     b = mean_target(np.zeros(n))
     m = np.eye(n) - np.stack([mean_target(e) - b for e in np.eye(n)], 1)
@@ -146,16 +148,34 @@ def max_entropy_sigma() -> float:
     return math.exp(res.x)
 
 
-def maxent_mean_action(slope: float, alpha: float) -> float:
-    """A max-entropy actor's tanh(mu) when its critic pays ``slope`` an action."""
+def maxent_policy(reward: Callable, alpha: float) -> tuple[float, float]:
+    """tanh(mu) and the entropy of the tanh-Gaussian maximising E[reward(a)]
+    + alpha H, ``reward`` a function of the action in [-1, 1]."""
 
     def loss(p: np.ndarray) -> float:
-        mean = _W @ np.tanh(p[0] + math.exp(p[1]) * _X)
-        return -(slope * mean + alpha * tanh_gaussian_entropy(math.exp(p[1]), p[0]))
+        value = _W @ reward(np.tanh(p[0] + math.exp(p[1]) * _X))
+        return -(value + alpha * tanh_gaussian_entropy(math.exp(p[1]), p[0]))
 
     options = {"xatol": 1e-8, "fatol": 1e-10, "maxiter": 4000}
     res = optimize.minimize(loss, np.zeros(2), method="Nelder-Mead", options=options)
-    return float(np.tanh(res.x[0]))
+    return float(np.tanh(res.x[0])), tanh_gaussian_entropy(math.exp(res.x[1]), res.x[0])
+
+
+def maxent_mean_action(slope: float, alpha: float) -> float:
+    """A max-entropy actor's tanh(mu) when its critic pays ``slope`` an action."""
+    return maxent_policy(lambda a: slope * a, alpha)[0]
+
+
+def shared_temperature(rewards: Sequence[Callable], target: float) -> float:
+    """The temperature at which the max-entropy policies of equally frequent
+    contexts paying ``rewards`` average ``target`` nats: an auto-tuned
+    temperature's fixed point, one alpha for every state."""
+
+    def gap(log_alpha: float) -> float:
+        h = [maxent_policy(r, math.exp(log_alpha))[1] for r in rewards]
+        return float(np.mean(h)) - target
+
+    return math.exp(optimize.brentq(gap, math.log(1e-4), math.log(10.0), xtol=1e-10))
 
 
 def clipped_square_mean(scale: float, clip: float) -> float:

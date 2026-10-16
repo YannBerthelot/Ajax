@@ -188,9 +188,12 @@ def test_a_resumed_update_schedule_stays_a_cond_under_the_seed_vmap():
 
 
 class PerSeedCountingAgent(CountingAgent):
-    """A CountingAgent whose seeds may update unequally, as TD-MPC2's."""
+    """A CountingAgent whose seeds may update unequally, declared per
+    instance as TD-MPC2's episodic mode does."""
 
-    per_seed_update_counts = True
+    def __init__(self, at, record):
+        super().__init__(at, record)
+        self.per_seed_update_counts = True
 
 
 def test_a_resume_keeps_unequal_update_counts_only_where_declared():

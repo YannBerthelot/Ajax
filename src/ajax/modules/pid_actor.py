@@ -20,18 +20,19 @@ of gains:
   (gain scheduling); with a constant network it is the fixed policy.
 
 Each agent's own output rules apply to ``u`` as to any actor's mean: SAC,
-REDQ, ASAC, AVG and APO squash it with ``tanh``, TD3 too (deterministic),
-PPO samples around it unsquashed (unless ``squash=True``). Like every
-action, ``u`` is in agent units, ``[-1, 1]``, mapped onto the env's box
-``[low, high]`` (:func:`ajax.environments.utils.agent_action_to_env`): the
-deployed controller is ``c + h * sat(u)``, with centre ``c = (high + low) /
-2``, half-range ``h = (high - low) / 2`` and ``sat`` the agent's ``tanh``
-or clip to ``[-1, 1]``. The gains are therefore normalised: they map the
+REDQ, ASAC and AVG squash it with ``tanh``, TD3 too (deterministic); APO
+takes ``tanh(u)`` as its mean (its ``tanh_mean``) and samples around it
+unsquashed, PPO around ``u`` (unless ``squash=True``). Like every action, ``u`` is in agent units, ``[-1,
+1]``, mapped onto the env's box ``[low, high]``
+(:func:`ajax.environments.utils.agent_action_to_env`): the deployed
+controller is ``c + h * sat(u)``, with centre ``c = (high + low) / 2``,
+half-range ``h = (high - low) / 2`` and ``sat`` the agent's ``tanh`` or clip
+to ``[-1, 1]``. The gains are therefore normalised: they map the
 error terms to agent units, and a PID in the env's units has gains ``h *
 K`` (small-signal, ``tanh`` near 0) and offset ``c``; zero gains command
 the box's centre (no control on a symmetric box). The stochastic agents
 explore with a learned, state-independent log-std, clipped to the agent's
-``log_std_bounds`` (PPO's default: no clip). Gains start at zero.
+``log_std_bounds`` (PPO's and APO's default: no clip). Gains start at zero.
 Observation normalisation (env- or agent-side) leaves the terms raw, as
 the wrapper declares them, so the gains act on the errors in the env's
 units; the gain network of ``gains="observation"`` reads the rest

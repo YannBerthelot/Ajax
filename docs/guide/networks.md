@@ -98,11 +98,12 @@ starting at 0 (a standard deviation of 1) and never clipped
 (`ppo_continuous_action.py:41`). `log_std_state_independent=False` with
 `log_std_init=-1.0` builds the head PPO had before, SAC's: a log standard
 deviation computed from the observation, which `log_std_bounds=(-20.0,
-2.0)` clips as SAC's is. APO sets the head for continuous control: one
-learned log standard deviation per dimension, starting at 0, a
-`lecun_uniform` mean and `squash=True`; it also takes `log_std_bounds`,
-whose default `(-20.0, 2.0)` clips that log standard deviation. The other
-agents clip theirs, a PID policy's included, to `(-20.0, 2.0)`.
+2.0)` clips as SAC's is. APO sets its reference code's head (`xtma/apo`,
+built on the authors' rlpyt fork): one learned log standard deviation per
+dimension, starting at 0 and unclipped by default (`log_std_bounds=None`),
+around a mean passed through `tanh` (`tanh_mean`), with an unsquashed
+sample; its mean layer is `lecun_uniform`. The other agents clip theirs, a
+PID policy's included, to `(-20.0, 2.0)`.
 
 | Argument | Default (PPO) | Effect |
 | --- | --- | --- |
@@ -242,13 +243,14 @@ action dimension gets its own gain on each error. The gains start at zero:
 the untrained controller commands the centre of the action box, which is
 no action on a symmetric box. The stochastic agents explore with a
 learned standard deviation that does not depend on the observation,
-clipped as the agent's other heads are (`log_std_bounds`: none in PPO by
-default, `[-20, 2]` in the others).
+clipped as the agent's other heads are (`log_std_bounds`: none in PPO and
+APO by default, `[-20, 2]` in the others).
 
-Each agent's own output rule applies to `u`. SAC, TD3, REDQ, ASAC, AVG and
-APO squash it with `tanh`, so the deployed controller is a saturated PID;
-PPO samples around it unsquashed (unless `squash=True`), and its action is
-clipped to `[-1, 1]`. Like every action, `u` is in the agent's units and is
+Each agent's own output rule applies to `u`. SAC, TD3, REDQ, ASAC and AVG
+squash it with `tanh` and APO takes `tanh(u)` as its mean, so the deployed
+controller is a saturated PID; APO samples unsquashed around `tanh(u)`,
+PPO around `u` (unless `squash=True`), and their samples are clipped to
+`[-1, 1]`. Like every action, `u` is in the agent's units and is
 then mapped onto the environment's bounds
 ([Actions](environments.md#actions)): the deployed controller is
 `c + h · sat(u)`, with `c` the centre of the action box, `h` its half-width

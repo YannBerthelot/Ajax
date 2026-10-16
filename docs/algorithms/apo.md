@@ -17,7 +17,7 @@ than the paper.
 | Feature | APO |
 | --- | --- |
 | Discrete actions | yes |
-| Continuous actions | yes, tanh-bounded, mapped onto the environment's bounds |
+| Continuous actions | yes, a Gaussian around a tanh-bounded mean, clipped and mapped onto the environment's bounds |
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | no |
@@ -64,7 +64,7 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `expert_policy` | None | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
-| `log_std_bounds` | (-20.0, 2.0) | the `(low, high)` clip of the continuous actor's log-std; `None` leaves it unclipped (see the notes) |
+| `log_std_bounds` | None | the `(low, high)` clip of the continuous actor's log-std; `None`, the official code's, leaves it unclipped (see the notes) |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
@@ -90,18 +90,37 @@ drift. The actor then takes PPO's clipped step.
   minibatch as in Ajax's PPO.
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.
-- **Actor head.** APO always uses Brax's continuous head: a tanh-bounded
-  Gaussian with one learnable log-std per action dimension (initial std 1)
-  and a `lecun_uniform` mean layer. A discrete APO ignores it.
-- **Log-std clip.** By default the log-std is clipped to `[-20, 2]`, the
-  bounds of SAC's head, which the run config records (`log_std_bounds`).
-  This deviates from the official code, built on the authors' rlpyt fork,
-  whose agent learns one unclipped log-std per action dimension starting
-  at 0 (`xtma/rlpyt` at `e28bb20`:
-  `rlpyt/models/pg/mujoco_ff_model.py:24, :50, :78`, and
-  `rlpyt/agents/pg/gaussian.py:34-38`, which sets no `min_std` or
-  `max_std`). `log_std_bounds=None` removes the clip. A PID policy's own
-  log-std takes the same clip.
+- **Actor head.** A continuous APO's actor is the official code's, which
+  builds its agent on the authors' rlpyt fork (`xtma/rlpyt` at `e28bb20`):
+  a Gaussian whose mean is `tanh` of the mean layer
+  (`rlpyt/models/pg/mujoco_ff_model.py:23, :40-41`), with one learned
+  log-std per action dimension, starting at 0 (std 1) and not clipped
+  (`:24, :50, :78`; `rlpyt/agents/pg/gaussian.py:34-38` sets no bounds, no
+  clip and no squashing). The sample itself is not squashed: the
+  log-probability and the entropy bonus are the Gaussian's, of the raw
+  sample. The evaluation acts with the mean, as the official evaluation
+  agent sets the std to 0 (`apo/agents/mujoco_eval.py:15`).
+  `log_std_bounds` adds a clip, which the run config records. A PID
+  policy's output takes the same `tanh`, and its log-std the same clip. A
+  discrete APO ignores the head. Until October 2026 APO squashed its
+  samples with `tanh` and clipped the log-std to `[-20, 2]`; the parameters
+  are the same, so a checkpoint saved then restores, with the same
+  deterministic action, `tanh` of the mean layer, and samples as the new
+  head does.
+- **Actions in the environment.** As for every agent, Ajax clips the
+  sample to `[-1, 1]` and maps it onto the environment's bounds
+  ([Environments](../guide/environments.md#actions)). The official code
+  hands the raw sample to the environment (`rlpyt/envs/gym.py:66-67`);
+  its MuJoCo tasks clamp it to their control range in the simulation, and
+  Gymnasium's (checked: `hopper_v4.py`) charge the control cost on the
+  unclamped action.
+- **Network and optimiser.** Not the official code's: its two hidden
+  layers have 64 `tanh` units (`mujoco_ff_model.py:22, :33`; Ajax: 128),
+  with torch's default initialisation (Ajax's mean layer:
+  `lecun_uniform`); one Adam steps the actor and the critic on their
+  summed loss (`apo/algos/apg/base.py:28`), clipped together to norm 10
+  (`apo/experiments/configs/mujoco/apg/mujoco_appo.py`), where Ajax steps
+  each with its own Adam, clipped to 0.5.
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

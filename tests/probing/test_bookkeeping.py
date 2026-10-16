@@ -788,7 +788,7 @@ for _kind in ("gru", "lstm", "transformer", "mamba"):
 Q8_CELLS |= {"PPO-env-split": WIDE | SPLIT}
 Q8_CELLS |= {"PPO-unroll": WIDE | SPLIT | {"unroll_length": 8}}
 Q8_CELLS |= {"PPO-extension": WIDE | {"extensions": (ZeroActorLoss(),)}}
-Q8_CELLS |= {"APO-discrete": {"actions": 2}, "APO-squash": {}}
+Q8_CELLS |= {"APO-discrete": {"actions": 2}, "APO-gaussian": {}}
 Q8_CELLS |= {"APO-normalized": {"normalize_observations": True}}
 Q8_CELLS |= {"PPO-normalized": WIDE | {"normalize_observations": True}}
 

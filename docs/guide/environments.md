@@ -271,9 +271,10 @@ is mapped onto its own system's bounds.
 
 The map is the same for every agent and everywhere an action reaches the
 environment: collection, evaluation and expert rollouts. SAC, TD3, REDQ,
-ASAC, AVG, APO, UDRL and APG (by default) squash their actions into
-`[-1, 1]` with `tanh`; PPO samples an unbounded Gaussian unless you pass
-`squash=True`, and its sample is clipped by the map. The replay buffers and
+ASAC, AVG, UDRL and APG (by default) squash their actions into `[-1, 1]`
+with `tanh`; PPO samples an unbounded Gaussian unless you pass
+`squash=True`, and APO one whose mean is bounded by `tanh`: their samples
+are clipped by the map. The replay buffers and
 rollouts store the action in agent units.
 
 `ajax.environments.utils.agent_action_to_env` is the map and

@@ -30,6 +30,7 @@ from ajax.environments.utils import (
 )
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import flatten_carry, tree_where_reset
+from ajax.networks.networks import policy_input
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -451,13 +452,20 @@ def get_action_and_log_probs(
     return get_action_and_new_agent_state(
         action_key,
         agent_state,
-        agent_state.collector_state.last_obs,
+        acting_input(agent_state.collector_state),
         jnp.logical_or(
             agent_state.collector_state.last_terminated,
             agent_state.collector_state.last_truncated,
         ),
         recurrent=recurrent,
     )
+
+
+def acting_input(collector_state: CollectorState) -> jax.Array:
+    """What the actor reads at collection: the last observation, then the
+    action before it when the collector keeps one (a recurrent off-policy
+    actor's, ``CollectorState.previous_action``)."""
+    return policy_input(collector_state.last_obs, collector_state.previous_action)
 
 
 def maybe_vmap(f, vmap_on, **kwargs):
@@ -835,6 +843,14 @@ def collect_experience(
         **({"expert_state": new_expert_state} if new_expert_state is not None else {}),
         **({"step_in_episode": _new_step_in_ep} if _new_step_in_ep is not None else {}),
     )
+    # The action before the next observation in its episode, as stored: a
+    # recurrent off-policy actor reads it, as its replay does
+    # (recurrent.previous_actions).
+    if new_collector_state.previous_action is not None:
+        ended = jnp.logical_or(terminated, truncated)[:, None]
+        new_collector_state = new_collector_state.replace(
+            previous_action=jnp.where(ended, 0.0, buffer_action)
+        )
 
     agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
     return agent_state, transition
@@ -1013,12 +1029,14 @@ def init_collector_state(
     include_raw_next_obs: bool = False,
     include_raw_obs: bool = False,
     include_is_expert: bool = False,
+    keep_previous_action: bool = False,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
     flattened expert state. Initial values are zero (matches the
     expert's `init_state`, which returns a zero pytree on this codebase
-    for the PID expert)."""
+    for the PID expert). ``keep_previous_action``: a recurrent off-policy
+    actor's (``CollectorState.previous_action``), zero at the start."""
     last_done = jnp.zeros(env_args.n_envs)
 
     reset_key, rng = jax.random.split(rng)
@@ -1094,6 +1112,11 @@ def init_collector_state(
         max_timesteps=max_timesteps,
         last_in_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
         obs_norm_info=obs_norm_info,
+        previous_action=(
+            jnp.zeros((env_args.n_envs, *action_shape))
+            if keep_previous_action
+            else None
+        ),
     )
 
 

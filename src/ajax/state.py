@@ -137,6 +137,10 @@ class CollectorState(Replaceable):
     # (Extension.reads_step_in_episode: JSRLCurriculum, whose expert acts
     # while step_in_episode < H_t). Shape: (n_envs,). Zero-initialized.
     step_in_episode: Optional[jnp.ndarray] = None
+    # The action before last_obs in its episode, as the replay buffer stores
+    # it, zero at an episode's start: what a recurrent off-policy actor reads
+    # with last_obs (networks.policy_input). None for every other agent.
+    previous_action: Optional[jnp.ndarray] = None
 
     @property
     def train_time_fraction(self) -> Optional[Union[float, jax.Array]]:

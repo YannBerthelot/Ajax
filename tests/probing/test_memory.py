@@ -17,7 +17,7 @@ import pytest
 
 from ajax.agents.recurrent import previous_actions
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig
-from ajax.networks.networks import action_value_input
+from ajax.networks.networks import action_value_input, policy_input
 
 from . import agents, envs, oracles, runs
 from . import readouts as R
@@ -86,7 +86,7 @@ def _q_input(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
 
 def _p0b_read(agent: str) -> Callable:
     def read(n: R.Nets) -> dict:
-        a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS), -1.0, 1.0)
+        a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS, int(agent != "PPO")), -1, 1)
         x = CUE_OBS if agent == "PPO" else _q_input(CUE_OBS, a, STARTS)
         a, v = a[-1, :, 0], R.critic_sequence(n, x, STARTS)[-1]
         out = dict(zip([q.name for q in P0B[1:5]], v, strict=True))
@@ -191,6 +191,7 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 ALPHA, L = 1.0, 16
 BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
 O0 = jnp.array([1.0, 0.0])
+ACTS_ON_O0 = policy_input(O0, jnp.zeros(1))  # and on no action before it
 SLOPE = "Q(o0, 0.5) - Q(o0, -0.5)"
 CURVATURE = "Q(o0, 0.5) - (Q(o0, 0.2) + Q(o0, 0.8)) / 2"
 A0 = "tanh(mu(o0))"
@@ -252,7 +253,7 @@ def _q0(n: R.Nets, acts: jax.Array) -> jax.Array:
 
 
 def _a0(n: R.Nets) -> jax.Array:
-    p = R.actor_sequence(n, O0[None, None], jnp.ones((1, 1), bool))
+    p = R.actor_sequence(n, ACTS_ON_O0[None, None], jnp.ones((1, 1), bool))
     return jnp.clip(p.mean().reshape(()), -1.0, 1.0)
 
 
@@ -356,7 +357,8 @@ def test_q2_readout_matches_an_episode_start_inside_a_window(kind: str) -> None:
         n, _q_input(obs[1:2, None], acts[1:2, None, None], one), one
     )
     assert abs(q[1] - fresh[0, 0]) > 1e-4
-    a = jnp.clip(R.actor_sequence(n, obs[:, None], resets).mean().reshape(-1), -1, 1)
+    x = policy_input(obs[:, None], previous_actions(acts[:, None, None], resets))
+    a = jnp.clip(R.actor_sequence(n, x, resets).mean().reshape(-1), -1, 1)
     np.testing.assert_allclose(a[starts], _a0(n), atol=1e-5)
 
 

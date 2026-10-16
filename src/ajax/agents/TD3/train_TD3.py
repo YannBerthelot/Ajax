@@ -32,6 +32,7 @@ from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.environments.interaction import (
     ActionPipelineResult,
+    acting_input,
     get_pi,
     init_collector_state,
 )
@@ -79,7 +80,7 @@ def make_default_action_pipeline(recurrent: bool, exploration_noise: float):
         pi, actor_state = get_pi(
             agent_state.actor_state,
             agent_state.actor_state.params,
-            collector.last_obs,
+            acting_input(collector),
             done,
             recurrent,
         )
@@ -138,6 +139,7 @@ def init_TD3(
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
         include_raw_obs=store_expert_data,
         include_is_expert=store_expert_data,
+        keep_previous_action=network_args.memory is not None,
     )
     # A stateful expert (PID integrator, CPG phase) threads its state
     # through collection; seed it so the scan carry keeps one shape.

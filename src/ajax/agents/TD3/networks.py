@@ -19,7 +19,13 @@ from flax.linen.initializers import constant
 from ajax.environments.utils import get_action_dim
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.memory import MemoryCell, MemoryConfig
-from ajax.networks.networks import get_initialized_actor_critic
+from ajax.networks.networks import (
+    ACTION_EMBEDDING,
+    OBSERVATION_EMBEDDING,
+    embedder,
+    get_initialized_actor_critic,
+    split_last,
+)
 from ajax.networks.utils import (
     parse_architecture,
     uniform_init,
@@ -77,9 +83,11 @@ class Deterministic:
 class DeterministicActor(nn.Module):
     """TD3 deterministic actor: hidden_arch + Dense(action_dim) + tanh.
 
-    With ``memory`` set, a memory block sits between the hidden stack and
-    the head (see ajax.networks.memory); the call then takes time-major
-    (T, B, obs) plus (hidden_state, done) and returns
+    With ``memory`` set, the hidden stack reads the memory's output, as in
+    Ni et al.'s recurrent actor (see
+    :data:`ajax.networks.networks.OBSERVATION_EMBEDDING`): the call then
+    takes time-major (T, B, obs + action_dim), each observation followed
+    by the action before it, plus (hidden_state, done), and returns
     (Deterministic, new_hidden_state).
     """
 
@@ -91,6 +99,9 @@ class DeterministicActor(nn.Module):
         self.hidden = nn.Sequential(parse_architecture(self.input_architecture))
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
+            self.observation_embedder = embedder(OBSERVATION_EMBEDDING)
+            self.action_embedder = embedder(ACTION_EMBEDDING)
+            self.shortcut_embedder = embedder(OBSERVATION_EMBEDDING)
         # Final layer init: uniform(-3e-3, 3e-3) -- standard DDPG/TD3 final-layer init.
         self.head = nn.Dense(
             self.action_dim,
@@ -100,15 +111,19 @@ class DeterministicActor(nn.Module):
         )
 
     def __call__(self, obs: jax.Array, hidden_state=None, done=None):
-        h = self.hidden(obs)
-        if self.memory is not None:
-            if hidden_state is None or done is None:
-                raise ValueError(
-                    "Recurrent DeterministicActor requires hidden_state and done flags."
-                )
-            hidden_state, h = self.memory_cell(hidden_state, h, done)
-            return Deterministic(jnp.tanh(self.head(h))), hidden_state
-        return Deterministic(jnp.tanh(self.head(h)))
+        if self.memory is None:
+            return Deterministic(jnp.tanh(self.head(self.hidden(obs))))
+        if hidden_state is None or done is None:
+            raise ValueError(
+                "Recurrent DeterministicActor requires hidden_state and done flags."
+            )
+        obs, previous = split_last(obs, self.action_dim)
+        embedded = jnp.concatenate(
+            [self.observation_embedder(obs), self.action_embedder(previous)], -1
+        )
+        hidden_state, memory = self.memory_cell(hidden_state, embedded, done)
+        h = self.hidden(jnp.concatenate([memory, self.shortcut_embedder(obs)], -1))
+        return Deterministic(jnp.tanh(self.head(h))), hidden_state
 
 
 class DeterministicPIDActor(nn.Module):

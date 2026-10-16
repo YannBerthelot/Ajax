@@ -14,16 +14,26 @@ own path (a deterministic actor, a target actor's carry) meets a lone array
 
 from typing import Any
 
+import gymnax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.recurrent import previous_actions
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.environments.interaction import get_pi_sequence
 from ajax.extensions.base import Extension
-from ajax.networks.memory import MEMORY_KINDS, MemoryConfig
+from ajax.networks.memory import (
+    MEMORY_KINDS,
+    MemoryConfig,
+    flatten_carry,
+    zeros_carry_like,
+)
+from ajax.networks.networks import policy_input
 
 AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
     "SAC": (SAC, {}),
@@ -104,6 +114,45 @@ def test_stored_state_replays_the_carries_collection_recorded(
     buffer = state.collector_state.buffer_state.experience
     assert "actor_carry" in buffer
     assert jnp.any(buffer["actor_carry"] != 0)
+
+
+@pytest.mark.parametrize("name", ["SAC", "TD3"])
+def test_the_actor_acts_on_what_its_replay_reads(name: str) -> None:
+    """Collection feeds the actor each observation and the action stored
+    before it, zero at an episode's start, as the replay does
+    (previous_actions): stepped over the stored rows, before any update, the
+    actor reproduces the carries collection stored, through 7-step
+    episodes. SAC collects through the shared pipeline, TD3 its own."""
+    _, params = gymnax.make("Pendulum-v1")
+    agent = _agent(
+        name,
+        env_params=params.replace(max_steps_in_episode=7),
+        buffer_size=1000,
+        learning_starts=200,
+        burn_in=4,
+        sequence_length=8,
+        stored_state=True,
+        memory=MemoryConfig(kind="gru", hidden_size=8),
+    )
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=40)[0])
+    rows = jax.tree.map(
+        lambda x: x[0, :40], state.collector_state.buffer_state.experience
+    )
+    ends = (rows["terminated"] + rows["truncated"])[:, 0] > 0
+    starts = jnp.concatenate([jnp.ones(1, bool), ends[:-1]])[:, None]
+    x = policy_input(
+        rows["obs"][:, None], previous_actions(rows["action"][:, None], starts)
+    )
+    actor = state.actor_state
+
+    def step(carry: Any, row: tuple) -> tuple:
+        new = get_pi_sequence(actor, actor.params, row[0][None], row[1][None], carry)[1]
+        return new, flatten_carry(carry)[0]
+
+    carry = zeros_carry_like(actor.hidden_state, 1, batch_axis=0)
+    stepped: jax.Array = jax.lax.scan(step, carry, (x, starts))[1]
+    assert ends.sum() >= 5 and np.abs(rows["actor_carry"]).max() > 0.1
+    np.testing.assert_allclose(stepped, rows["actor_carry"], atol=1e-5)
 
 
 @pytest.mark.parametrize("name", sorted(AGENTS))

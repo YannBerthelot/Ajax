@@ -1,9 +1,9 @@
-"""A replayed window of the recurrent off-policy agents (recurrent.py): a
-critic's memory reads each row's observation and the action taken before
-it; the action a loss asks about is a query at the critic's head, never
-fed to its carry; a row's target bootstraps on the observation it stores,
-read after the row, through a time limit. The trajectory buffer samples
-the windows time-major and contiguous."""
+"""A replayed window of the recurrent off-policy agents (recurrent.py): the
+actor's and the critic's memories read each row's observation and the action
+taken before it; the action a critic's loss asks about is a query after its
+memory, never fed to its carry; a row's target bootstraps on the observation
+it stores, read after the row, through a time limit. The trajectory buffer
+samples the windows time-major and contiguous."""
 
 from types import SimpleNamespace
 from typing import Any
@@ -30,6 +30,7 @@ from ajax.networks.networks import (
     MultiCritic,
     action_value_input,
     init_network_state,
+    policy_input,
     predict_value_sequence,
 )
 
@@ -67,8 +68,9 @@ def _actor(kind: str) -> Any:
         continuous=True,
         squash=True,
         memory=_memory(kind),
+        previous_action_dim=ACT,
     )
-    x = jnp.zeros((1, OBS))
+    x = jnp.zeros((1, OBS + ACT))
     return init_network_state(
         x, actor, _KEYS[4], optax.sgd(0.1), n_envs=B, memory=_memory(kind)
     )
@@ -112,14 +114,20 @@ def test_a_queried_action_moves_its_own_rows_value_only(
 @pytest.mark.parametrize("kind", MEMORY_KINDS)
 def test_the_memory_reads_the_action_taken_before_each_row(kind: str) -> None:
     """Row 1's taken action reaches the later rows of its episode (envs 1
-    and 2), not row 1 itself nor env 0's next episode (row 2 on)."""
-    state = _critic(kind)
-    taken = q_values(state, state.params, OBS_SEQ, QUERIES, _carries(state))
-    changed = _carries(state, taken=TAKEN.at[1].add(0.5))
-    moved = q_values(state, state.params, OBS_SEQ, QUERIES, changed)
-    np.testing.assert_array_equal(taken[:, :2], moved[:, :2])
-    np.testing.assert_array_equal(taken[:, 2:, 0], moved[:, 2:, 0])
-    assert not np.allclose(taken[:, 2:, 1:], moved[:, 2:, 1:])
+    and 2), not row 1 itself nor env 0's next episode (row 2 on): in the
+    critic's values and in the actor's means."""
+    critic, actor = _critic(kind), _actor(kind)
+
+    def read(taken: jax.Array) -> tuple:
+        carries = _carries(critic, actor, taken)
+        values = q_values(critic, critic.params, OBS_SEQ, QUERIES, carries)
+        means = actor_dist(actor, actor.params, OBS_SEQ, carries).mean()
+        return values, jnp.moveaxis(means, -1, 0)  # the action axis first
+
+    for taken, moved in zip(read(TAKEN), read(TAKEN.at[1].add(0.5)), strict=True):
+        np.testing.assert_array_equal(taken[:, :2], moved[:, :2])
+        np.testing.assert_array_equal(taken[:, 2:, 0], moved[:, 2:, 0])
+        assert not np.allclose(taken[:, 2:, 1:], moved[:, 2:, 1:])
 
 
 def _after(rows: jax.Array, t: int, boot: jax.Array) -> tuple:
@@ -142,6 +150,7 @@ def test_a_bootstrap_reads_each_rows_next_observation_after_the_row(
     )
     pi = actor_dist(actor, actor.params, NEXT_OBS, carries, bootstrap=True)
     rows = action_value_input(OBS_SEQ, QUERIES, carries.prev_actions)
+    acting = policy_input(OBS_SEQ, carries.prev_actions)
     taken = jnp.where(TERMINATED[..., None], 0.0, TAKEN)
     for t in range(S):
         boot = action_value_input(NEXT_OBS[t], QUERIES[t], taken[t])
@@ -150,8 +159,8 @@ def test_a_bootstrap_reads_each_rows_next_observation_after_the_row(
             critic, critic.target_params, xs, resets, carries.target_critic_hidden
         )[0][:, -1]
         np.testing.assert_allclose(values[:, t], want, atol=1e-5)
-        obs, resets = _after(OBS_SEQ, t, NEXT_OBS[t])
-        mean = get_pi_sequence(actor, actor.params, obs, resets, carries.actor_hidden)
+        xs, resets = _after(acting, t, policy_input(NEXT_OBS[t], taken[t]))
+        mean = get_pi_sequence(actor, actor.params, xs, resets, carries.actor_hidden)
         np.testing.assert_allclose(pi.mean()[t], mean[0].mean()[-1], atol=1e-5)
 
 
@@ -201,6 +210,61 @@ def test_a_replayed_window_bootstraps_a_time_limit_on_its_final_observation() ->
     np.testing.assert_array_equal(
         carries.positions, jnp.arange(length)[:, None] + after_limit
     )
+
+
+@pytest.mark.parametrize("kind", MEMORY_KINDS)
+def test_the_burn_in_reads_each_rows_observation_and_the_action_before_it(
+    kind: str,
+) -> None:
+    """The actor's and the critics' carries after a burn-in of 3 rows are
+    their memories' over those rows' observations and the actions taken
+    before them, zero at the window's start and after an episode's end."""
+    burn_in, buffer = 3, get_buffer(64, 2, sequence_length=6)
+    ends = jnp.isin(jnp.arange(16), jnp.array([4, 9, 13]))  # time limits
+    stream = {
+        "obs": jax.random.normal(_KEYS[0], (16, OBS)),
+        "action": jax.random.uniform(_KEYS[1], (16, ACT), minval=-1, maxval=1),
+        "reward": jnp.zeros((16, 1)),
+        "terminated": jnp.zeros((16, 1)),
+        "truncated": ends[:, None].astype(jnp.float32),
+        "next_obs": jnp.zeros((16, OBS)),
+    }
+    state = buffer.init(jax.tree.map(lambda x: x[0], stream))
+    for t in range(16):
+        state = buffer.add(state, {k: v[t : t + 1] for k, v in stream.items()})
+    actor, critic = _actor(kind), _critic(kind)
+    agent_state: Any = SimpleNamespace(
+        collector_state=SimpleNamespace(buffer_state=state),
+        actor_state=actor,
+        critic_state=critic,
+    )
+    key = jax.random.PRNGKey(3)
+    carries = sample_and_burnin_sequences(agent_state, buffer, key, burn_in)[1]
+    rows = get_sequence_batch_from_buffer(buffer, state, key)
+    obs, acts = rows["obs"][:burn_in], rows["action"][:burn_in]
+    starts = jnp.concatenate([jnp.zeros((1, 2)), rows["truncated"][:2, :, 0]]) > 0
+    before = previous_actions(acts, starts)
+    want_actor = get_pi_sequence(
+        actor,
+        actor.params,
+        policy_input(obs, before),
+        starts,
+        zeros_carry_like(actor.hidden_state, 2),
+    )[1]
+    want_critic = predict_value_sequence(
+        critic,
+        critic.params,
+        action_value_input(obs, jnp.zeros_like(acts), before),
+        starts,
+        zeros_carry_like(critic.hidden_state, 2, batch_axis=1),
+    )[1]
+    assert starts[1:].any() and (before != 0).any()  # an end, an action before
+    for got, want in (
+        (carries.actor_hidden, want_actor),
+        (carries.critic_hidden, want_critic),
+    ):
+        for leaf, ref in zip(jax.tree.leaves(got), jax.tree.leaves(want), strict=True):
+            np.testing.assert_allclose(leaf, ref, atol=1e-6)
 
 
 def test_sequence_buffer_shapes():

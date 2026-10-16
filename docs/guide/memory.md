@@ -2,9 +2,11 @@
 
 When the current observation is not enough to act well (a velocity the
 sensors do not show, a cue seen earlier in the episode), the agent must
-remember. The `memory` argument adds a memory block to the agent's networks,
-between the hidden layers and the output heads. Ajax carries the memory from
-step to step, resets it when an episode ends, and replays it correctly in
+remember. The `memory` argument adds a memory block to the agent's networks:
+between the hidden layers and the output heads for PPO and APG, before the
+hidden layers for the replay agents (see
+[Off-policy](#off-policy-sequence-replay)). Ajax carries the memory from step
+to step, resets it when an episode ends, and replays it correctly in
 training.
 
 ```python
@@ -117,10 +119,17 @@ whole sequence before the first update (`learning_starts // n_envs` must
 exceed `burn_in + sequence_length + 1`), and `stored_state=True` without
 `memory=`.
 
-A recurrent critic's memory reads each step's observation and the action
-taken before it. The action the loss asks about joins after the memory, at
-the critic's head, so asking about another action does not change what the
-critic remembers (the recurrent off-policy critic of Ni et al., 2022).
+The replay agents' networks take the layout of Ni et al. (2022)'s recurrent
+off-policy actor and critic. The memory reads each step's observation and
+the action taken before it (zero at an episode's start), each through one
+dense layer and a ReLU of fixed width, 32 for the observation and 16 for the
+action. The hidden layers (`actor_architecture`, `critic_architecture`)
+come after the memory and read its output beside a second embedding of the
+current observation: 32 wide in the actor, and in the critic 48 wide with
+the action the loss asks about, so asking about another action does not
+change what the critic remembers. Ni et al. pair these widths with a memory
+of 128 units; `MemoryConfig`'s default is 64. Checkpoints saved before this
+layout cannot be restored.
 
 With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the `CloningPretrain` extension), and

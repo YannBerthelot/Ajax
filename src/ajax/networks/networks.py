@@ -134,6 +134,31 @@ class CNNEncoder(nn.Module):
         return feat
 
 
+# The recurrent off-policy networks of Ni et al. 2022 (twni2016/pomdp-baselines
+# @e7c19c3, policies/models/recurrent_actor.py and recurrent_critic.py; the
+# paper's Fig. 7 and Table 5). The memory reads one-layer Linear + ReLU
+# embeddings of the observation and of the previous action, of fixed widths,
+# concatenated; without the reward, the paper's best input set ("oa") on its
+# standard POMDPs. The MLP after the memory, the network's own architecture,
+# reads the memory's output and a one-layer embedding of the current
+# observation (the actor) or of the current observation and action (the
+# critic, as wide as the memory's input). Ni et al. initialise these layers
+# with torch's default; here they take the encoder's initialiser.
+OBSERVATION_EMBEDDING, ACTION_EMBEDDING = 32, 16
+
+
+def embedder(
+    width: int, kernel_init: Optional[Union[str, InitializationFunction]] = None
+) -> Encoder:
+    """One Dense layer and a ReLU (Ni et al.'s ``FeatureExtractor``)."""
+    return Encoder(input_architecture=(str(width), "relu"), kernel_init=kernel_init)
+
+
+def split_last(x: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
+    """``x``'s features but its last ``n``, and its last ``n``."""
+    return x[..., :-n], x[..., -n:]
+
+
 class Actor(nn.Module):
     """The stochastic policy of SAC, REDQ, ASAC, AVG, PPO, APO and UDRL: a
     Normal (or tanh-squashed) head for continuous actions, a Categorical one
@@ -183,10 +208,26 @@ class Actor(nn.Module):
     # (distribution, new_hidden_state). None keeps the network feedforward
     # and the call signature unchanged.
     memory: Optional[MemoryConfig] = None
+    # A recurrent off-policy actor's previous action, its input's last
+    # ``previous_action_dim`` features: Ni et al.'s layout (see
+    # OBSERVATION_EMBEDDING), the encoder after the memory, over its output
+    # and the current observation's embedding. 0 (PPO's) keeps the encoder
+    # before the memory.
+    previous_action_dim: int = 0
 
     def setup(self):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
+        if self.previous_action_dim:  # Ni et al.'s layout (OBSERVATION_EMBEDDING)
+            if self.memory is None or self.cnn_image_shape is not None:
+                raise ValueError(
+                    "An Actor reads its previous action only with memory, on"
+                    " vector observations (no off-policy agent takes a CNN)."
+                )
+            init = self.encoder_kernel_init
+            self.observation_embedder = embedder(OBSERVATION_EMBEDDING, init)
+            self.action_embedder = embedder(ACTION_EMBEDDING, init)
+            self.shortcut_embedder = embedder(OBSERVATION_EMBEDDING, init)
         if self.cnn_image_shape is not None:
             self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
@@ -258,15 +299,27 @@ class Actor(nn.Module):
         return self.model(embedding)
 
     def __call__(self, obs, hidden_state=None, done=None):
+        if self.memory is not None and (hidden_state is None or done is None):
+            raise ValueError("Recurrent Actor requires hidden_state and done flags.")
+        if self.previous_action_dim:
+            hidden_state, embedding = self._after_memory(obs, hidden_state, done)
+            return self._distribution(embedding), hidden_state
         embedding = self.encoder(obs)
         if self.memory is not None:
-            if hidden_state is None or done is None:
-                raise ValueError(
-                    "Recurrent Actor requires hidden_state and done flags."
-                )
             hidden_state, embedding = self.memory_cell(hidden_state, embedding, done)
             return self._distribution(embedding), hidden_state
         return self._distribution(embedding)
+
+    def _after_memory(self, x: jax.Array, hidden_state: Carry, done: jax.Array):
+        """Ni et al.'s actor over ``x``, the observation then the previous
+        action: ``(new carry, the encoder's features)``."""
+        obs, previous = split_last(x, self.previous_action_dim)
+        embedded = jnp.concatenate(
+            [self.observation_embedder(obs), self.action_embedder(previous)], -1
+        )
+        hidden_state, memory = self.memory_cell(hidden_state, embedded, done)
+        observed = self.shortcut_embedder(obs)
+        return hidden_state, self.encoder(jnp.concatenate([memory, observed], -1))
 
 
 class Critic(nn.Module):
@@ -288,24 +341,26 @@ class Critic(nn.Module):
     # time-major (T, B, features) plus (hidden_state, done) and returns
     # (values, new_hidden_state).
     memory: Optional[MemoryConfig] = None
-    # A recurrent Q-critic's current action: the input's last ``query_dim``
-    # features skip the encoder and the memory, which read the rest (the
-    # observation and the previous action, :func:`action_value_input`), and
-    # join the memory's output at a head of the encoder's architecture. A
-    # queried action never feeds the carry (Ni et al. 2022's recurrent
-    # critic, embedders before the memory, the action at the head after it;
-    # cited from memory, unverified).
+    # A recurrent Q-critic's current action, its input's last ``query_dim``
+    # features, after the observation and the previous action
+    # (:func:`action_value_input`): Ni et al.'s layout (see
+    # OBSERVATION_EMBEDDING), the encoder after the memory, over its output
+    # and an embedding of the current observation and action. The current
+    # action never feeds the carry.
     query_dim: int = 0
 
     def setup(self):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
-            if self.query_dim:
-                self.head = Encoder(
-                    input_architecture=self.input_architecture,
-                    kernel_init=self.encoder_kernel_init,
-                    layer_norm=self.encoder_layer_norm,
-                )
+        if self.query_dim:  # Ni et al.'s layout (OBSERVATION_EMBEDDING)
+            if self.memory is None:
+                raise ValueError("A Critic queries its action only with memory.")
+            init = self.encoder_kernel_init
+            self.observation_embedder = embedder(OBSERVATION_EMBEDDING, init)
+            self.action_embedder = embedder(ACTION_EMBEDDING, init)
+            # As wide as the memory's input (Ni et al.'s Table 5).
+            width = OBSERVATION_EMBEDDING + ACTION_EMBEDDING
+            self.shortcut_embedder = embedder(width, init)
         if self.cnn_image_shape is not None:
             self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
@@ -328,12 +383,17 @@ class Critic(nn.Module):
             return self.model(self.encoder(x))
         if hidden_state is None or done is None:
             raise ValueError("Recurrent Critic requires hidden_state and done flags.")
-        query = None
-        if self.query_dim:
-            x, query = x[..., : -self.query_dim], x[..., -self.query_dim :]
-        hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
-        if query is not None:
-            feat = self.head(jnp.concatenate([feat, query], axis=-1))
+        if not self.query_dim:
+            hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
+            return self.model(feat), hidden_state
+        x, query = split_last(x, self.query_dim)
+        obs, previous = split_last(x, self.query_dim)
+        embedded = jnp.concatenate(
+            [self.observation_embedder(obs), self.action_embedder(previous)], -1
+        )
+        hidden_state, memory = self.memory_cell(hidden_state, embedded, done)
+        shortcut = self.shortcut_embedder(jnp.concatenate([obs, query], -1))
+        feat = self.encoder(jnp.concatenate([memory, shortcut], -1))
         return self.model(feat), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
@@ -407,10 +467,22 @@ def action_value_input(
     """A Q-critic's input: ``(obs, action)``, or, given the previous
     action, the recurrent critic's ``(obs, previous_action, action)``: its
     memory reads the observation and the previous action, the current
-    action joins at its head (``Critic.query_dim``)."""
+    action joins after it (``Critic.query_dim``)."""
     if previous_action is None:
         return jnp.concatenate([obs, action], axis=-1)
     return jnp.concatenate([obs, previous_action, action], axis=-1)
+
+
+def policy_input(
+    obs: jax.Array, previous_action: Optional[jax.Array] = None
+) -> jax.Array:
+    """An actor's input: ``obs``, or, given the previous action (zero at an
+    episode's start), the recurrent off-policy actor's ``(obs,
+    previous_action)``, both read by its memory
+    (``Actor.previous_action_dim``)."""
+    if previous_action is None:
+        return obs
+    return jnp.concatenate([obs, previous_action], axis=-1)
 
 
 def get_initialized_actor_critic(
@@ -447,6 +519,10 @@ def get_initialized_actor_critic(
     )
 
     memory = parse_memory_config(network_config.memory)
+    # A recurrent agent with a Q-critic, an off-policy one, acts on the
+    # action before each observation too (Ni et al.'s layout, see
+    # OBSERVATION_EMBEDDING); the critic queries its action after the memory.
+    previous = action_dim if action_value and memory is not None else 0
 
     # A CNN critic is only valid for state-value critics; an action-value
     # critic (SAC's Q(s,a)) keeps the MLP.
@@ -488,6 +564,7 @@ def get_initialized_actor_critic(
             mean_kernel_init=network_config.mean_kernel_init,
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
+            previous_action_dim=previous,
         )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
@@ -500,7 +577,7 @@ def get_initialized_actor_critic(
         cnn_extra_obs_dim=cnn_extra_obs_dim,
         cnn_spec=cnn_spec,
         memory=memory,
-        query_dim=action_dim if action_value and memory is not None else 0,
+        query_dim=previous,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -523,7 +600,7 @@ def get_initialized_actor_critic(
     init_action = jnp.zeros((1, *action_shape))
 
     actor_state = init_network_state(
-        init_x=init_obs,
+        init_x=policy_input(init_obs, init_action if previous else None),
         network=actor,
         key=actor_key,
         tx=actor_tx,
@@ -532,9 +609,7 @@ def get_initialized_actor_critic(
     )
     critic_state = init_network_state(
         init_x=(
-            action_value_input(
-                init_obs, init_action, None if memory is None else init_action
-            )
+            action_value_input(init_obs, init_action, init_action if previous else None)
             if action_value
             else init_obs
         ),

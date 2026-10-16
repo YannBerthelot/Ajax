@@ -1,7 +1,6 @@
-import pytest
+import numpy as np
 
 from ajax.agents.AVG.AVG import AVG
-from ajax.agents.AVG.state import AVGConfig
 
 
 def test_avg_keeps_its_network_optimizer_and_env_settings():
@@ -17,18 +16,24 @@ def test_avg_keeps_its_network_optimizer_and_env_settings():
     assert agent.get_make_train().keywords["alpha_args"] is agent.alpha_args
 
 
-# Each call passes a keyword the signature no longer has, on purpose.
-REMOVED = {
-    "alpha_learning_rate": lambda: AVG("Pendulum-v1", alpha_learning_rate=1e-3),  # type: ignore[call-arg]
-    "target_entropy_per_dim": lambda: AVG("Pendulum-v1", target_entropy_per_dim=-1),  # type: ignore[call-arg]
-    "target_entropy": lambda: AVGConfig(gamma=0.99, target_entropy=-1.0),  # type: ignore[call-arg]
-}
+def test_avg_keeps_its_temperature_at_alpha_init():
+    """AVG keeps its entropy coefficient at alpha_init, as its reference code
+    does (gauthamvasan/avg, avg.py): eight updates leave the temperature
+    exactly where initialisation put it. Both values come out of ``train``,
+    so the bitwise check never meets a log computed elsewhere, which may
+    differ in the last bit."""
+    alpha_init = 0.5  # not the default, so a dropped alpha_init shows
+    agent = AVG(
+        "Pendulum-v1",
+        alpha_init=alpha_init,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+    )
 
+    def log_alpha(n_timesteps: int) -> np.ndarray:
+        state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
+        return np.asarray(state.alpha.params["log_alpha"])
 
-@pytest.mark.parametrize("name", sorted(REMOVED))
-def test_avg_takes_no_temperature_keywords(name):
-    """AVG keeps its entropy coefficient at alpha_init (its reference code's
-    fixed coefficient), so it has no keyword that would tune it."""
-    with pytest.raises(TypeError, match=name):
-        REMOVED[name]()
-    assert AVG("Pendulum-v1").alpha_args.learning_rate == 0.0
+    initial, trained = log_alpha(0), log_alpha(8)
+    np.testing.assert_allclose(np.exp(initial), alpha_init, rtol=1e-6)
+    np.testing.assert_array_equal(trained, initial)

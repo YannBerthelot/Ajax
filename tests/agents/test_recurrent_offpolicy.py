@@ -34,6 +34,7 @@ from ajax.networks.memory import (
     zeros_carry_like,
 )
 from ajax.networks.networks import policy_input
+from tests.environments.identity_env import IdentityEnv
 
 AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
     "SAC": (SAC, {}),
@@ -55,7 +56,7 @@ STORED = [("SAC", "transformer"), ("ASAC", "mamba"), ("REDQ", "lstm"), ("TD3", "
 
 def _agent(name: str, **kwargs: Any) -> Any:
     cls, extra = AGENTS[name]
-    return cls(env_id="Pendulum-v1", n_envs=1, **extra, **kwargs)
+    return cls(**{"env_id": "Pendulum-v1", "n_envs": 1} | extra | kwargs)
 
 
 def _train(name: str, kind: str, **kwargs: Any) -> Any:
@@ -116,17 +117,24 @@ def test_stored_state_replays_the_carries_collection_recorded(
     assert jnp.any(buffer["actor_carry"] != 0)
 
 
-@pytest.mark.parametrize("name", ["SAC", "TD3"])
-def test_the_actor_acts_on_what_its_replay_reads(name: str) -> None:
+@pytest.mark.parametrize(
+    "name, env", [("SAC", "Pendulum-v1"), ("TD3", "Pendulum-v1"), ("SAC", "identity")]
+)
+def test_the_actor_acts_on_what_its_replay_reads(name: str, env: str) -> None:
     """Collection feeds the actor each observation and the action stored
     before it, zero at an episode's start, as the replay does
     (previous_actions): stepped over the stored rows, before any update, the
-    actor reproduces the carries collection stored, through 7-step
-    episodes. SAC collects through the shared pipeline, TD3 its own."""
-    _, params = gymnax.make("Pendulum-v1")
+    actor reproduces the carries collection stored, through Pendulum's
+    7-step episodes, all time-limited, and the identity task's, which
+    terminate at step 3 or are time-limited at step 5. SAC collects through
+    the shared pipeline, TD3 its own."""
+    task = IdentityEnv()
+    on = {"env_id": task, "env_params": task.default_params}
+    if env == "Pendulum-v1":
+        on = {"env_params": gymnax.make(env)[1].replace(max_steps_in_episode=7)}
     agent = _agent(
         name,
-        env_params=params.replace(max_steps_in_episode=7),
+        **on,
         buffer_size=1000,
         learning_starts=200,
         burn_in=4,
@@ -152,6 +160,7 @@ def test_the_actor_acts_on_what_its_replay_reads(name: str) -> None:
     carry = zeros_carry_like(actor.hidden_state, 1, batch_axis=0)
     stepped: jax.Array = jax.lax.scan(step, carry, (x, starts))[1]
     assert ends.sum() >= 5 and np.abs(rows["actor_carry"]).max() > 0.1
+    assert (rows["terminated"].sum() > 0) == (env == "identity")
     np.testing.assert_allclose(stepped, rows["actor_carry"], atol=1e-5)
 
 

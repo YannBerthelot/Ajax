@@ -44,19 +44,20 @@ def run_config(
     return config | {"algo_name": name}
 
 
-def shared_counters(state: Any) -> dict[str, jax.Array]:
+def shared_counters(state: Any, per_seed_updates: bool = False) -> dict[str, jax.Array]:
     """The counters of a resumed ``state`` (leading seed axis) its seeds
     share, as unbatched scalars: the collector's timestep, the number of
-    evaluations logged and, when every seed has done as many, the number of
-    updates (``{}`` for a state without them).
+    evaluations logged and the number of updates (``{}`` for a state
+    without them).
 
     They gate the evaluations (:func:`ajax.log.evaluate_and_log`) and the
     updates' schedules (TD3's policy delay, DQN's target refresh, PPO's
     forced resets). A fresh run computes them from constants, unbatched
     under the seed vmap; left batched, a resumed run's gate would turn
-    ``lax.cond`` into a select that runs both branches on every iteration.
-    The update counts may differ across seeds (TD-MPC2's wait on each
-    seed's episodes); they then stay batched.
+    ``lax.cond`` into a select that runs both branches on every iteration,
+    so seeds standing at different points are refused. ``per_seed_updates``
+    (:attr:`ActorCritic.per_seed_update_counts`) keeps differing update
+    counts batched instead.
     """
     collector = getattr(state, "collector_state", None)
     found = {
@@ -70,7 +71,7 @@ def shared_counters(state: Any) -> dict[str, jax.Array]:
             continue
         seeds = np.asarray(jax.device_get(value)).reshape(-1)
         if seeds.size == 0 or np.any(seeds != seeds[0]):
-            if name == "n_updates":
+            if name == "n_updates" and per_seed_updates:
                 continue
             raise ValueError(
                 f"cannot resume: the seeds' {name} differ ({seeds.tolist()});"
@@ -115,6 +116,12 @@ class ActorCritic:
     # state (a_expert, next_a_expert), which extensions may read
     # (check_extension_experts).
     stores_expert_actions: bool = False
+    # Whether this agent's seeds may stand at different update counts
+    # (TD-MPC2's episodic updates wait on each seed's episodes). A resumed
+    # run keeps such counts batched (shared_counters); any other agent's
+    # differing counts are refused, since a batched count turns the update
+    # schedules' lax.cond into a select running both branches.
+    per_seed_update_counts: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
     #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
@@ -356,7 +363,11 @@ class ActorCritic:
         # ``agent.train()`` returns ``(state, out)``: accept either form.
         if isinstance(initial_state, tuple) and len(initial_state) == 2:
             initial_state = initial_state[0]
-        counters = {} if initial_state is None else shared_counters(initial_state)
+        counters = (
+            {}
+            if initial_state is None
+            else shared_counters(initial_state, self.per_seed_update_counts)
+        )
         # The call trains from the run's timestep to its horizon; the start
         # is passed only when non-zero, so fresh calls are unchanged.
         start = int(counters.get("timestep", 0))

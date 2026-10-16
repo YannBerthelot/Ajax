@@ -119,7 +119,8 @@ def test_actor_critic_keeps_the_resume_offset_unbatched_under_the_seed_vmap():
 def test_a_resume_reads_the_counters_its_seeds_share():
     """The resumed timestep, logged evaluations and update count, unbatched;
     none for a state without them; seeds standing at different points are
-    refused, while update counts that differ stay batched."""
+    refused, unless the update counts of an agent whose seeds may update
+    unequally differ: those stay batched."""
 
     def state(timesteps, n_updates=(4, 4)):
         collector = SimpleNamespace(timestep=jnp.array(timesteps, jnp.int32))
@@ -133,10 +134,13 @@ def test_a_resume_reads_the_counters_its_seeds_share():
     want = {"timestep": 5, "n_logs": 2, "n_updates": 4}
     assert {k: int(v) for k, v in counters.items()} == want
     assert all(v.shape == () for v in counters.values())
-    assert "n_updates" not in shared_counters(state([5, 5], n_updates=(4, 3)))
+    unequal = state([5, 5], n_updates=(4, 3))
+    assert "n_updates" not in shared_counters(unequal, per_seed_updates=True)
     assert shared_counters({"ticks": jnp.array([3, 3])}) == {}
     with pytest.raises(ValueError, match="timestep differ"):
         shared_counters(state([5, 6]))
+    with pytest.raises(ValueError, match="n_updates differ"):
+        shared_counters(unequal)
 
 
 @struct.dataclass
@@ -181,6 +185,30 @@ def test_a_resumed_update_schedule_stays_a_cond_under_the_seed_vmap():
     agent.train(seed=[0, 1], n_timesteps=3, initial_state=state)
     jax.effects_barrier()
     assert len(record) == 1
+
+
+class PerSeedCountingAgent(CountingAgent):
+    """A CountingAgent whose seeds may update unequally, as TD-MPC2's."""
+
+    per_seed_update_counts = True
+
+
+def test_a_resume_keeps_unequal_update_counts_only_where_declared():
+    """Seeds resumed at update counts 2 and 1: an agent declaring per-seed
+    counts continues each seed's own (to 5 and 4); any other agent refuses
+    the state."""
+
+    def unequal():  # a fresh state each call: a resume donates its own
+        return Counted(jnp.array([2, 1], jnp.int32))
+
+    state, _ = PerSeedCountingAgent(at=-1, record=[]).train(
+        seed=[0, 1], n_timesteps=3, initial_state=unequal()
+    )
+    np.testing.assert_array_equal(state.n_updates, [5, 4])
+    with pytest.raises(ValueError, match="n_updates differ"):
+        CountingAgent(at=-1, record=[]).train(
+            seed=[0, 1], n_timesteps=3, initial_state=unequal()
+        )
 
 
 def test_default_resume_offset_keeps_existing_agents_unchanged():

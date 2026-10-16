@@ -1,4 +1,3 @@
-import warnings
 from collections.abc import Sequence
 from typing import Optional, Tuple, Union
 
@@ -17,28 +16,21 @@ from ajax.types import EnvType, InitializationFunction
 
 def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -> None:
     """Refuse an ``unroll_length`` the update could not use (it would fall
-    back to whole rollouts); warn when a recurrent rollout's sequences force
-    one minibatch where more were asked for."""
-    wanted = resolve_num_minibatches(config)
-    geometry = minibatch_geometry(config, config.n_steps, n_envs, recurrent)
+    back to whole rollouts), and a recurrent rollout whose sequences do not
+    split into the minibatches (``minibatch_geometry`` raises)."""
     unroll = config.unroll_length
     if unroll is not None and recurrent:
         raise ValueError(
             "unroll_length is the feedforward fragment length; a recurrent"
             " PPO splits its rollout with bptt_length."
         )
+    geometry = minibatch_geometry(config, config.n_steps, n_envs, recurrent)
     if unroll is not None and (geometry.kind, geometry.length) != ("time", unroll):
         raise ValueError(
             f"unroll_length ({unroll}) must divide n_steps ({config.n_steps})"
             " into fragments (n_steps // unroll_length * n_envs of them) that"
-            f" split evenly into num_minibatches ({wanted}) > 1 minibatches."
-        )
-    if recurrent and geometry.num_minibatches < wanted:
-        sequences = config.n_steps // geometry.length * n_envs
-        warnings.warn(
-            f"{sequences} sequences of {geometry.length} steps do not split"
-            f" into {wanted} minibatches: recurrent PPO trains on one.",
-            stacklevel=3,
+            " split evenly into num_minibatches"
+            f" ({resolve_num_minibatches(config)}) > 1 minibatches."
         )
 
 
@@ -83,8 +75,10 @@ class PPO(ActorCritic):
         normalize_advantage: bool = True,
         # Pluggable memory block, e.g. MemoryConfig("gru", 64) or
         # {"kind": "lstm", "hidden_size": 64}. When set, PPO trains with
-        # BPTT over sequences minibatched from the rollout (see
-        # num_minibatches and bptt_length).
+        # BPTT over sequences of bptt_length steps minibatched from the
+        # rollout; bptt_length=None derives it from the minibatches (whole
+        # rollouts when n_envs is a multiple of them). docs/guide/memory.md
+        # says why and how to set it.
         memory: Optional[Union[MemoryConfig, dict]] = None,
         bptt_length: Optional[int] = None,
         normalize_observations: bool = False,

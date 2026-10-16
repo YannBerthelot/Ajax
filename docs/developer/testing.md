@@ -61,6 +61,8 @@ an episode with `c > 0` terminates at `t = 3`, the others are truncated at
 | `tests/agents/test_transition_contract.py` | the transitions every agent hands `on_target` continue their own episode (a time-limited row's next observation is the final one, not the next episode's first), carry the flags the step raised, and carry the normalised rewards under reward normalisation |
 | `tests/agents/test_expert_consumers.py` | every agent taking an `expert_policy` gives it the raw observation, and a stateful expert its state; the cloning dataset holds its actions in agent units; the evaluation's expert return is its closed form |
 | `tests/test_evaluate.py`, `tests/extensions/test_instrumentation_extensions.py` | every output of the evaluation, and every metric of the measurement extensions, meets its closed form on a known rollout |
+| `tests/agents/test_reward_normalisation.py` | every agent taking `normalize_rewards` hands the normaliser the discount it documents (none by default, `reward_normalization_gamma` when given) and reports its Train and Eval returns in the env's units (UDRL's Train return is a strict xfail: a known bug) |
+| `tests/agents/test_carry_restart.py` | the recurrent actors of PPO, SAC, ASAC, REDQ and TD3 remember only their current episode, for every memory kind: the carry each acts with is the actor's run from a fresh carry over the episode's observations (the fast tier runs each agent once and each kind at least once, the other rows are slow; APG's controller has its own test in `tests/agents/APG/test_episode_ends.py`) |
 | `tests/agents/test_option_smoke.py` (slow) | the option matrix: every pair of an agent's options, and every extension stacked into an agent that folds it, trains a tiny logged run that updates the policy and keeps every parameter finite |
 | `tests/agents/test_resume_contract.py` (slow) | a run split in two, its second half on a new agent instance, ends in the state one uninterrupted call reaches, every leaf alike (floats to a relative 1e-5): every agent of the contract table and APG, with the normalisation it takes and with memory where it takes one (the world models' own tests hold theirs) |
 
@@ -171,6 +173,7 @@ The directory [`tests/probing`](../../tests/probing) holds:
 | `test_memory.py` | a recurrent agent acts on what an episode showed it and restarts at the episode's end |
 | `test_world_models.py` | answers reachable only through a learned model (TD-MPC2's horizon, multi-task twins, DreamerV3's imagination) |
 | `test_p4_split_run.py` | a run checkpointed, restored and resumed equals the run never interrupted |
+| `test_action_box.py` | a trained policy's deterministic action at either edge of, and inside, a box that overhangs [-1, 1] unequally, in env units, against each agent family's oracle (no entropy term, an auto-tuned or a fixed temperature) |
 
 ### Known-answer cases
 
@@ -296,7 +299,7 @@ CI does not plant faults; `test_framework.py` runs
 that each `old` text still occurs once and that each listed node still
 exists. This is why a change under `src/ajax` runs `test_framework.py`
 before the push: when a change moves the code a fault edits, update the
-fault's line and run it again. The catalogue holds 189 faults across seven
+fault's line and run it again. The catalogue holds 205 faults across eight
 modules.
 
 ### Known defects
@@ -335,6 +338,7 @@ goes wrong without crashing:
 | An extension's term has no gradient, its target is ignored, or `post_update` runs before the update | `P3-ppo-critic-term-no-gradient`, `P3-dqn-target-ignored`, `P3-post-update-first` |
 | Logs go to the wrong run; the last evaluation is dropped | `W01`, `L01` |
 | A planner forgets its terminal value; a world model ignores the action | `Q12-terminal`, `Q13-action-cut` |
+| An action consumer clamps to the env's [-1, 1], or reads actions in the other units (env for agent, or the reverse) | `box-executed-clamped`, `box-replay-env-units`, `box-TDMPC2-plan-clamped` |
 
 ## Adding a probe
 

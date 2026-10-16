@@ -27,13 +27,14 @@ reports on the same branch. The checks:
 3. **Slow tests** (`make ci-slow`) — `uv run pytest -m slow
    --ignore=tests/probing`.
 4. **Probing tests** (`make ci-probe`) — `uv run pytest tests/probing`.
+5. **Docs** (`make docs`) — `uv run --group docs mkdocs build --strict`.
 
-`make ci` runs all four locally when you do want them, with the GPU
+`make ci` runs all five locally when you do want them, with the GPU
 hidden (`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`) so they never
 compete with a running experiment. `.github/workflows/ci.yml` runs the
 same commands on CPU as parallel jobs: pre-commit; the tests not marked
 slow in three shards, whose coverage one more job combines and checks;
-the slow tests; probing in five shards. Its *Lint and Test* job, the one
+the slow tests; probing in five shards; the docs build. Its *Lint and Test* job, the one
 check branch protection requires, passes only when all of them passed.
 Never merge while any of them is red. If a failure is
 pre-existing and unrelated to the change, call it out explicitly instead

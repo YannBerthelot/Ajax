@@ -90,12 +90,17 @@ class APO(ActorCritic):
             # Continuous APO on bounded control envs (brax, playground)
             # saturates an unbounded Gaussian at the action clip, as PPO
             # does: the squashed policy stays in [-1, 1] with a correct
-            # log-prob Jacobian (discrete APO ignores it). Brax's actor head:
-            # one learnable log-std per action dimension, at std 1 (about
-            # 3.5 times the exploration of Ajax's state-dependent log-std
-            # at std 0.37); a lecun_uniform mean head, whose moderate
-            # initial actions keep evaluation close to training (orthogonal
-            # 0.01 makes the deterministic action essentially zero). Like
+            # log-prob Jacobian (discrete APO ignores it). The squash and the
+            # lecun_uniform mean head are brax's; its moderate initial
+            # actions keep evaluation close to training (orthogonal 0.01
+            # makes the deterministic action essentially zero). APO's
+            # reference code instead bounds the mean with a tanh and samples
+            # an unsquashed Gaussian. The log-std is the reference's: one
+            # learnable parameter per action dimension starting at 0 (std
+            # 1), xtma/apo @bfcd997 on the authors' xtma/rlpyt @e28bb20
+            # (rlpyt/models/pg/mujoco_ff_model.py:24,50,78). The reference
+            # never clips it (rlpyt/agents/pg/gaussian.py:34-38); Ajax clips
+            # it to [-20, 2] (clip_log_std_param, left at its default). Like
             # brax's MLP, the encoder has no output LayerNorm (the default).
             squash=True,
             log_std_state_independent=True,

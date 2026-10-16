@@ -64,12 +64,15 @@ layers' kernels, `actor_bias_init` for the policy head's bias and
 
 ### Layer normalisation
 
-The hidden layers form an encoder that the output heads read.
-`encoder_layer_norm=True` adds a LayerNorm on its output. It is off by
-default, because the SAC, TD3, PPO and DQN papers use plain MLPs. PPO takes
-it as an argument. SAC, ASAC, REDQ, APO and DQN, and TD3's critics (not its
-actor), read it from the network configuration, which you can set before
-training:
+The hidden layers form an encoder that the output heads read. With
+`memory=`, SAC, ASAC, REDQ and TD3 put the memory before it, fed by narrow
+embeddings of the observation and the previous action (Ni et al. 2022's
+layout; see [Memory](memory.md#off-policy-sequence-replay)).
+`encoder_layer_norm=True` adds a LayerNorm on the encoder's output. It is
+off by default, because the SAC, TD3, PPO and DQN papers use plain MLPs. PPO
+takes it as an argument. SAC, ASAC, REDQ, APO and DQN, and TD3's critics
+(not its actor), read it from the network configuration, which you can set
+before training:
 
 ```python
 from ajax import SAC

@@ -131,6 +131,20 @@ change what the critic remembers. Ni et al. pair these widths with a memory
 of 128 units; `MemoryConfig`'s default is 64. Checkpoints saved before this
 layout cannot be restored.
 
+| Network | The memory reads | The hidden layers read |
+| --- | --- | --- |
+| Actor (TD3's deterministic one too) | the observation (32) and the previous action (16) | the memory's output and the observation (32) |
+| Each critic | the observation (32) and the previous action (16) | the memory's output and the observation with the queried action (48) |
+
+Each width in brackets is one dense layer and a ReLU. The reference is Ni et
+al.'s code (twni2016/pomdp-baselines @e7c19c3,
+`policies/models/recurrent_actor.py` and `recurrent_critic.py`). Two
+differences in the layout: Ajax leaves out their optional reward embedder (observation and
+action are their best inputs on the standard POMDPs), and initialises the
+embedders as it does the hidden layers, not with torch's default. PPO and APG
+keep the memory after their hidden layers: Ni et al.'s layout is off-policy
+and needs a critic over actions.
+
 With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the `CloningPretrain` extension), and
 ASAC and PPO no extensions, yet: they raise an error when training starts
@@ -140,6 +154,10 @@ together.
 ## Evaluation and deployment
 
 Evaluation runs its own copies of the environment, so each evaluation
-episode starts the memory from zero, as a deployed policy would. A PID
-policy takes no memory: its integral and difference already carry the past
-(see [Networks](networks.md)).
+episode starts the memory from zero, as a deployed policy would. A replay
+agent's actor also reads the action it executed at the step before (zero
+after a reset), after the observation (`ajax.networks.networks.policy_input`):
+a deployed SAC, ASAC, REDQ or TD3 actor with memory needs that action fed
+back each step, as evaluation does. A PID policy takes no memory: its
+integral and difference already carry the past (see
+[Networks](networks.md)).

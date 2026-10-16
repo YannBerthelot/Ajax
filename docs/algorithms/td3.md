@@ -94,7 +94,9 @@ extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss
 - **PID policy.** With `actor_architecture=PIDPolicy(...)` the actor is a
   PID whose output goes through `tanh`; see [Networks](../guide/networks.md).
 - **Memory.** Sequence replay also burns in the target actor's memory, since
-  TD3's bootstrap action comes from it.
+  TD3's bootstrap action comes from it. The deterministic actor takes the
+  recurrent layout of Ni et al. (2022), as SAC's does; see
+  [Memory](../guide/memory.md#off-policy-sequence-replay).
 
 ## Results
 

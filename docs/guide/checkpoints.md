@@ -124,4 +124,8 @@ the steps the whole run does.
       mismatch and still raises;
     - a Brax environment state saved before the observation normaliser kept
       the raw observation: it is rebuilt from the saved observation and
-      statistics.
+      statistics;
+    - UDRL's segment buffer saved with `cum_rewards`, a running sum of its
+      rewards that nothing read: the field is dropped. A saved field that
+      the new layout lacks and does not list as removed is a mismatch and
+      still raises.

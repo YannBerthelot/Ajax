@@ -60,7 +60,9 @@ named by string:
 PPO and APO take three of them: `encoder_kernel_init` for the hidden
 layers' kernels, `actor_bias_init` for the policy head's bias and
 `critic_bias_init` for the value head's. PPO also takes `mean_kernel_init`
-(below).
+(below). `encoder_kernel_init="torch_linear"` starts each hidden layer as
+torch's `nn.Linear` does: its kernel and its bias both uniform in
+`±1/sqrt(fan_in)`, the fan-in being the layer's input width.
 
 ### Layer normalisation
 

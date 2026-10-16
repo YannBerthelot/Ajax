@@ -173,6 +173,11 @@ class Actor(nn.Module):
     # move; combined with the wide std=1 exploration noise this produces
     # the "train_reward >> eval_reward" pathology on continuous control.
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The mean head's output through tanh, so the Gaussian's mean, not its
+    # samples, stays in [-1, 1]: APO's reference code's head, xtma/rlpyt
+    # @e28bb20 (rlpyt/models/pg/mujoco_ff_model.py:23, :40-41,
+    # mu_nonlinearity=torch.nn.Tanh).
+    tanh_mean: bool = False
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
     # Optional CNN encoder over flat image obs (see `CNNEncoder`); None
@@ -246,6 +251,8 @@ class Actor(nn.Module):
     def _distribution(self, embedding) -> distrax.Distribution:
         if self.continuous:
             mean = self.mean(embedding)
+            if self.tanh_mean:
+                mean = jnp.tanh(mean)
             if self.log_std_state_independent:
                 log_std = jnp.broadcast_to(self.log_std_param, mean.shape)
             else:
@@ -471,6 +478,7 @@ def get_initialized_actor_critic(
             policy=network_config.actor_architecture,
             action_dim=action_dim,
             squash=squash,
+            tanh_mean=network_config.tanh_mean,
             log_std_init=network_config.log_std_init,
             log_std_bounds=network_config.log_std_bounds,
         )
@@ -490,6 +498,7 @@ def get_initialized_actor_critic(
             log_std_init=network_config.log_std_init,
             log_std_bounds=network_config.log_std_bounds,
             mean_kernel_init=network_config.mean_kernel_init,
+            tanh_mean=network_config.tanh_mean,
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
         )

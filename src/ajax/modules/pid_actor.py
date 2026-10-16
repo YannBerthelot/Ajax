@@ -124,6 +124,9 @@ class PIDActor(nn.Module):
     policy: PIDPolicy
     action_dim: int
     squash: bool = False
+    # The PID output through tanh as the Gaussian's mean, the agent's
+    # ``tanh_mean`` (NetworkConfig), as the Actor's mean head.
+    tanh_mean: bool = False
     log_std_init: float = -1.0
     # The log-std's (low, high) clip, the agent's ``log_std_bounds``
     # (NetworkConfig); None: not clipped.
@@ -141,6 +144,8 @@ class PIDActor(nn.Module):
 
     def __call__(self, obs: jax.Array) -> distrax.Distribution:
         mean = self.pid(obs)
+        if self.tanh_mean:
+            mean = jnp.tanh(mean)
         log_std = jnp.broadcast_to(self.log_std, mean.shape)
         if self.log_std_bounds is not None:
             log_std = jnp.clip(log_std, *self.log_std_bounds)

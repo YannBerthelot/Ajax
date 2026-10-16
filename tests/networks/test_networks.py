@@ -1,3 +1,4 @@
+import distrax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -141,6 +142,7 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
         log_std_state_independent=True,
         log_std_init=0.3,
         log_std_bounds=(-1.0, 1.0),
+        tanh_mean=True,
     )
     actor_state, critic_state = get_initialized_actor_critic(
         jax.random.PRNGKey(0),
@@ -162,8 +164,9 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
         "params": {**actor, "log_std_param": jnp.full_like(actor["mean"]["bias"], 3.0)}
     }
     obs = jnp.zeros((1, get_state_action_shapes(fast_env_config.env)[0][-1]))
-    std = actor_state.apply_fn(beyond, obs).stddev()
-    np.testing.assert_allclose(std, np.exp(1.0), rtol=1e-6)
+    pi = actor_state.apply_fn(beyond, obs)
+    np.testing.assert_allclose(pi.stddev(), np.exp(1.0), rtol=1e-6)
+    np.testing.assert_allclose(pi.mean(), np.tanh(0.25), rtol=1e-6)
 
 
 def test_get_initialized_actor_critic_continuous(fast_env_config):
@@ -426,6 +429,31 @@ def test_jax_rebuilds_a_network_config_around_any_leaves():
     config = NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH)
     rebuilt = jax.tree.map(lambda _: None, config)
     assert rebuilt.log_std_bounds == LOG_STD_BOUNDS
+
+
+def test_tanh_mean_bounds_the_mean_not_the_samples():
+    """``tanh_mean`` (APO's reference head) passes the mean layer through
+    tanh and leaves the Gaussian unsquashed: a sample beyond [-1, 1] has the
+    Normal's log-probability around tanh of the layer. Its parameters are
+    the tanh-squashed head's, whose deterministic action, tanh of the same
+    layer, it keeps."""
+    kw = {"action_dim": 2, "input_architecture": ARCH, "continuous": True}
+    kw |= {"log_std_state_independent": True, "log_std_init": 0.0}
+    obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
+    params = Actor(**kw).init(jax.random.PRNGKey(0), obs)
+    squashed = Actor(squash=True, **kw)
+    init = squashed.init(jax.random.PRNGKey(0), obs)
+    assert jax.tree.structure(init) == jax.tree.structure(params)
+    mean = {**params["params"]["mean"], "bias": jnp.array([3.0, -3.0])}
+    params = {"params": {**params["params"], "mean": mean}}
+    layer = Actor(**kw).apply(params, obs).mean()
+    pi = Actor(tanh_mean=True, **kw).apply(params, obs)
+    assert type(pi) is distrax.Normal
+    np.testing.assert_allclose(pi.mean(), np.tanh(layer), rtol=1e-6)
+    np.testing.assert_allclose(squashed.apply(params, obs).mean(), pi.mean(), 1e-6)
+    x = jnp.full((4, 2), 1.7)
+    want = jax.scipy.stats.norm.logpdf(x, np.tanh(layer), 1.0)
+    np.testing.assert_allclose(pi.log_prob(x), want, rtol=1e-5)
 
 
 def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):

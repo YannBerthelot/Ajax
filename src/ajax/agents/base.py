@@ -147,6 +147,7 @@ class ActorCritic:
         log_std_init: float = -1.0,
         log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        tanh_mean: bool = False,
         encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
@@ -230,6 +231,7 @@ class ActorCritic:
             log_std_init=log_std_init,
             log_std_bounds=log_std_bounds,
             mean_kernel_init=mean_kernel_init,
+            tanh_mean=tanh_mean,
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
         )

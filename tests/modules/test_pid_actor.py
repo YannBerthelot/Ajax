@@ -98,6 +98,16 @@ def test_the_squashed_actor_squashes_the_pid_output():
     np.testing.assert_allclose(dist.distribution.loc, _by_hand(OBS, GAINS), 1e-6)
 
 
+def test_tanh_mean_samples_unsquashed_around_the_bounded_pid_output():
+    """``tanh_mean`` (APO's reference head): a Normal around tanh(u), not a
+    squashed one."""
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, tanh_mean=True)
+    params = _set_gains(actor.init(jax.random.PRNGKey(0), OBS), GAINS)
+    dist = actor.apply(params, OBS)
+    assert type(dist) is distrax.Normal
+    np.testing.assert_allclose(dist.mean(), jnp.tanh(_by_hand(OBS, GAINS)), 1e-6)
+
+
 def test_observation_gains_with_a_constant_network_are_the_fixed_ones():
     """Zero kernel, the fixed gains as bias: the same law, the same gains."""
     policy = PIDPolicy(n_errors=2, gains="observation", architecture=("8", "relu"))
@@ -132,20 +142,28 @@ def test_bad_policies_raise(kwargs):
         PIDPolicy(**kwargs)
 
 
-def _build(memory=None, td3=False, log_std_bounds=LOG_STD_BOUNDS):
+def _build(memory=None, td3=False, log_std_bounds=LOG_STD_BOUNDS, tanh_mean=False):
+    """The PID actor and its critic, squashed unless ``tanh_mean``."""
     env, params = setpoint_env.make()
     env_config = EnvironmentConfig(
         env=env, env_params=params, n_envs=2, continuous=True
     )
     net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=("8",))
     net = net.replace(memory=memory, log_std_bounds=log_std_bounds)
+    net = net.replace(tanh_mean=tanh_mean)
     opt = OptimizerConfig(learning_rate=1e-3)
     if td3:
         return get_initialized_td3_actor_critic(
             jax.random.PRNGKey(0), env_config, opt, opt, net
         )
     return get_initialized_actor_critic(
-        jax.random.PRNGKey(0), env_config, opt, opt, net, continuous=True, squash=True
+        jax.random.PRNGKey(0),
+        env_config,
+        opt,
+        opt,
+        net,
+        continuous=True,
+        squash=not tanh_mean,
     )
 
 
@@ -167,6 +185,15 @@ def test_the_factory_gives_the_pid_actor_its_log_std_bounds():
     params = {"params": {**actor.params["params"], "log_std": jnp.full((1,), 3.0)}}
     dist = actor.apply_fn(params, jnp.ones((3, 5)))
     np.testing.assert_allclose(dist.distribution.scale, np.exp(3.0), rtol=1e-6)
+
+
+def test_the_factory_gives_the_pid_actor_its_tanh_mean():
+    """The network config's ``tanh_mean`` reaches the PID actor: gains 0.5
+    on the three unit terms give u = 1.5 and a mean of tanh(1.5)."""
+    actor, _ = _build(tanh_mean=True)
+    params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.5) for g in GAINS})
+    dist = actor.apply_fn(params, jnp.ones((3, 5)))
+    np.testing.assert_allclose(dist.mean(), jnp.tanh(1.5), rtol=1e-6)
 
 
 @pytest.mark.parametrize("td3", [False, True])

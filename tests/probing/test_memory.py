@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "3e4fa39e63ca"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "c50124f6709a"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -175,13 +175,15 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 # update (64 // L windows); the actor is judged for SAC and REDQ only:
 # ASAC's double count (2/16 + 2 15/16) equals its right slope, 2, and both
 # faults only scale TD3's quadratic, so its a0 is 0.5 either way.
-# The controls break the rule's 0.1 ceiling, pending the maintainer: the
-# critic's per-seed spread is a few % of its answer whatever the budget,
-# learning rate or kind. Each tolerance is twice the worst error on seeds
-# 1000-1031 and 2000-2031, within half the gap to a blind critic (0).
-# Budgets: SAC's worst errors are smallest at 1500 (1000: 0.118 / 0.083,
-# 3000: 0.088 / 0.077); TD3 at 1500 has not settled, and reads about 8% low
-# at L = 1 whatever the steps (12000: 0.513) or noise (0.5: 0.503).
+# The controls judge each seed as the mean of 4 (Case.mean_of): alone, a
+# seed's actor (SAC, REDQ) or critic (ASAC, TD3) spreads too far for twice
+# the worst of 64 seeds to fit the 0.1 ceiling at any budget laddered
+# (SAC-gru at 1500: tanh(mu(o0)) sd 0.024, worst 0.064). Each tolerance is
+# twice the worst of 64 means, seeds 4000-4127 and 8000-8127, at 1500 steps
+# and, for the transformer and mamba, 1000 (where the other critics' single
+# seeds read 0.03-0.04 low on average); TD3 at 1500 (unsettled, 0.509) and
+# 3000. TD3 read 8% low (0.513 on seeds 0-15) while its critic's memory
+# took the queried action; from ef7267c it reads 0.553 there.
 # Seeds 3000-3031 with the transformer's and mamba's final LayerNorm: their
 # target and actor cells read 32/32 for SAC, REDQ and ASAC; TD3's 31/32 and
 # 30/32 (worst 0.111 / 0.147), as without it (30/32 and 30/32).
@@ -286,22 +288,14 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)
 
 
-CONTROL = {  # tolerances (critic, actor); certification on seeds 3000-3031
-    ("SAC", "gru"): ((0.183, 0.124), "cert 32/32, worst 0.089 / 0.062"),
-    ("SAC", "lstm"): ((0.224, 0.13), "cert 32/32, worst 0.076 / 0.057"),
-    ("SAC", "transformer"): (
-        (0.211, 0.192),
-        "cert 32/32, worst 0.121 / 0.123; with the final LayerNorm 32/32,"
-        " worst 0.036 / 0.085",
-    ),
-    ("SAC", "mamba"): (
-        (0.14, 0.18),
-        "cert 32/32, worst 0.068 / 0.115; with the final LayerNorm 32/32,"
-        " worst 0.039 / 0.072",
-    ),
-    ("REDQ", "gru"): ((0.186, 0.159), "cert 32/32, worst 0.097 / 0.073"),
-    ("TD3", "gru"): ((0.269,), "cert 32/32, worst 0.263 (it reads 8% low)"),
-    ("ASAC", "gru"): ((0.323,), "cert 32/32, worst 0.127"),
+CONTROL = {  # budget, tolerances (critic, actor), certification on 12000-12127
+    ("SAC", "gru"): (1500, (0.057, 0.068), "cert 32/32, worst 0.015 / 0.031"),
+    ("SAC", "lstm"): (1500, (0.056, 0.067), "cert 32/32, worst 0.018 / 0.030"),
+    ("SAC", "transformer"): (1000, (0.023, 0.074), "cert 32/32, worst 0.015 / 0.037"),
+    ("SAC", "mamba"): (1000, (0.043, 0.071), "cert 32/32, worst 0.019 / 0.030"),
+    ("REDQ", "gru"): (1500, (0.03, 0.071), "cert 32/32, worst 0.026 / 0.029"),
+    ("TD3", "gru"): (3000, (0.067,), "cert 32/32, worst 0.031"),
+    ("ASAC", "gru"): (1500, (0.075,), "cert 32/32, worst 0.025"),
 }
 
 
@@ -317,7 +311,8 @@ def _q2_case(
 ) -> None:
     cell = f"q2-{part}-{agent}-{kind}" + "-L2" * (length == 2)
     reads, slow = _q2_readings(agent, kind, length), (agent, kind) != ("SAC", "gru")
-    CASES[cell] = Case(cell, qs, reads, BUDGET[agent], slow=slow, **kw)
+    budget = kw.pop("budget", BUDGET[agent])
+    CASES[cell] = Case(cell, qs, reads, budget, slow=slow, **kw)
 
 
 for agent in BUDGET:
@@ -325,9 +320,10 @@ for agent in BUDGET:
         _q2_case("target", agent, kind, length, _critic(agent, length))
         if agent in ("SAC", "REDQ"):
             _q2_case("actor", agent, kind, length, _actor(length))
-for (agent, kind), (tol, note) in CONTROL.items():
+for (agent, kind), (budget, tol, note) in CONTROL.items():
     queries = (_critic(agent, 1), _actor(1))[: len(tol)]
-    _q2_case("control", agent, kind, 1, *queries, tol=tol, ceiling=0.5, note=note)
+    kw = {"budget": budget, "tol": tol, "mean_of": 4, "note": note}
+    _q2_case("control", agent, kind, 1, *queries, **kw)
 
 
 def test_q2_oracle_reproduces_the_verified_answers() -> None:

@@ -346,11 +346,6 @@ _GOLDEN: dict[str, dict[str, float]] = {
 # the critic tree lost the norm's scales (64 of the old 79.6) and the actor
 # moved 3.6%.
 _GOLDEN |= {"TD3": {"actor": 3.94071626663208, "critic": 11.506895065307617}}
-# Recorded on macOS ARM CPU once a recurrent Q-critic embedded the
-# observation and the previous action before its memory and read the
-# current one at a head after it: new critic parameters (against the
-# head-only critic before it: +42.9% critic, +0.17% actor, -0.045% alpha).
-_GOLDEN |= {}
 # Recorded on macOS ARM CPU once PPO and APO drew a fresh minibatch
 # partition every epoch (0.1-0.5% on the actors, under 0.3% on the critics).
 _GOLDEN |= {
@@ -563,6 +558,20 @@ _GOLDEN |= {
         "nudge": 0.3099551498889923,
     },
     "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
+}
+
+# Re-recorded on macOS ARM CPU once the recurrent off-policy networks took
+# Ni et al. 2022's layout: 32- and 16-wide embedders of the observation and
+# the previous action before the memory, the MLP after it over its output
+# and a 32-wide (actor) or 48-wide (critic) embedding of the current
+# observation (and action). New parameters on both sides: actor +65.0%,
+# critic +44.3%, alpha -0.18%.
+_GOLDEN |= {
+    "SAC-gru": {
+        "actor": 94.65174865722656,
+        "critic": 193.8573455810547,
+        "alpha": 0.9498670101165771,
+    },
 }
 
 

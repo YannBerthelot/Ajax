@@ -395,6 +395,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     extensions: Sequence = (),
 ):
     """ASAC's train function: one step per env, then (from
@@ -410,6 +411,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
 
     def init(key: jax.Array) -> ASACState:

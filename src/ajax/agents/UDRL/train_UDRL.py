@@ -506,6 +506,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     extensions: Sequence = (),
 ):
     """UDRL's train function: its own iteration (a segment, the replay of
@@ -525,6 +526,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
     per_iter = env_args.n_envs * agent_config.n_steps
     num_iterations = max(loop.budget // per_iter, 1)

@@ -77,10 +77,11 @@ def _apg() -> Any:
 
 # Every SAC part updates from step 50, in both legs. The discrete agents run the
 # coupling env (the discrete discounting env has one action), epsilon constant
-# (its default decays to the horizon a call knows, the first leg's half the
-# run's, train_DQN.py:99); PQN's
-# two minibatches make its shuffle matter. PPO and PQN run one iteration more per
-# call (TrainLoop.n_rollouts): their second leg is one shorter.
+# (the legs are not told the run's horizon, so its default would decay to each
+# leg's own end, train_DQN.linear_epsilon; test_resume_contract covers the
+# schedules); PQN's two minibatches make its shuffle matter. PPO and PQN run
+# one iteration more per call (TrainLoop.n_rollouts): their second leg is one
+# shorter.
 NETS = {"actor_architecture": N32, "critic_architecture": N32}
 STARTS = ("learning_starts", "policy_update_start", "alpha_update_start")
 SAC_KW = {**NETS, "buffer_size": 1000, "batch_size": 32, **dict.fromkeys(STARTS, 50)}
@@ -94,7 +95,7 @@ EQUIVALENT = {
     "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 2560, 1280, 1152),
     "PPO": Split(_make("PPO", RD, NETS), 640, 320, 288),
     "UDRL": Split(_make("UDRL", PV, UDRL_KW), 128, 64, 64),
-    # APG restarts its optimizer on resume by design (train_APG.py:467-471).
+    # APG restarts its optimizer on resume by design (train_APG.reset_optimizer).
     "APG": Split(_apg, 256, 128, 128, {"reset_optimizer_on_resume": False}),
 }
 # Resumed on the bookkeeping preset, their counters checked: these agents'

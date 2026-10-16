@@ -87,6 +87,23 @@ def shared_counters(state: Any, per_seed_updates: bool = False) -> dict[str, jax
     return out
 
 
+def run_horizon(
+    start: int, n_timesteps: int, total_timesteps: Optional[int], unit: str = "timestep"
+) -> int:
+    """The horizon of a ``train`` call that trains ``n_timesteps`` from
+    ``start`` (its ``unit``): the run's ``total_timesteps``, by default the
+    call's end, ``start + n_timesteps``. A horizon that ends before the call
+    does is refused."""
+    end = start + n_timesteps
+    horizon = end if total_timesteps is None else int(total_timesteps)
+    if horizon < end:
+        raise ValueError(
+            f"total_timesteps={horizon} ends before this call does: it "
+            f"trains from {unit} {start} for n_timesteps={n_timesteps}"
+        )
+    return horizon
+
+
 def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
     """``state`` with the counters of :func:`shared_counters`."""
     for name in ("n_logs", "n_updates"):
@@ -334,6 +351,7 @@ class ActorCritic:
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
+        total_timesteps: Optional[int] = None,
         **kwargs,
     ) -> tuple[BaseAgentState, Any]:
         """
@@ -343,10 +361,13 @@ class ActorCritic:
             n_timesteps (int): Timesteps this call trains for.
             num_episode_test (int): Number of episodes for evaluation during training.
             initial_state: a state (or ``(state, out)``) ``train`` returned,
-                to resume from: the run continues from its timestep, and its
-                schedules (training fraction, extensions, exploration, the
-                logging's end) run over the whole run, that timestep plus
-                ``n_timesteps``.
+                to resume from: the run continues from its timestep.
+            total_timesteps: the whole run's horizon, which every schedule
+                (training fraction, extensions, exploration, the logging's
+                end) runs over; ``None``: this call's end, its start (0, or
+                the resumed timestep) plus ``n_timesteps``. Pass the same
+                horizon to every call of a run split into calls to follow
+                the schedules of one call.
 
         Returns ``(state, out)``, each leaf with a leading seed axis. On the
         shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
@@ -354,6 +375,21 @@ class ActorCritic:
         """
         if isinstance(seed, int):
             seed = [seed]
+
+        # ``agent.train()`` returns ``(state, out)``: accept either form.
+        if isinstance(initial_state, tuple) and len(initial_state) == 2:
+            initial_state = initial_state[0]
+        counters = (
+            {}
+            if initial_state is None
+            else shared_counters(initial_state, self.per_seed_update_counts)
+        )
+        # The call trains from the run's timestep to its end, its schedules
+        # run to the horizon; the start and the end are passed only when
+        # they differ from 0 and the horizon, so other calls are unchanged.
+        start = int(counters.get("timestep", 0))
+        end = start + n_timesteps
+        horizon = run_horizon(start, n_timesteps, total_timesteps)
 
         if logging_config is not None:
             logging_config.config.update(self.config)
@@ -367,28 +403,18 @@ class ActorCritic:
         if on_ids_ready is not None:
             on_ids_ready(self.run_ids)
 
-        # ``agent.train()`` returns ``(state, out)``: accept either form.
-        if isinstance(initial_state, tuple) and len(initial_state) == 2:
-            initial_state = initial_state[0]
-        counters = (
-            {}
-            if initial_state is None
-            else shared_counters(initial_state, self.per_seed_update_counts)
-        )
-        # The call trains from the run's timestep to its horizon; the start
-        # is passed only when non-zero, so fresh calls are unchanged.
-        start = int(counters.get("timestep", 0))
         train_jit = self.get_make_train()(
             env_args=self.env_args,
             actor_optimizer_args=self.actor_optimizer_args,
             critic_optimizer_args=self.critic_optimizer_args,
             network_args=self.network_args,
             agent_config=self.agent_config,
-            total_timesteps=start + n_timesteps,
+            total_timesteps=horizon,
             num_episode_test=num_episode_test,
             run_ids=self.run_ids,
             logging_config=logging_config,
             **({"start_timestep": start} if start else {}),
+            **({"end_timestep": end} if end != horizon else {}),
             **kwargs,
         )
 

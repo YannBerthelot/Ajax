@@ -94,7 +94,7 @@ stages = [  # the nominal pendulum first, then the whole family
 | `learning_rate` | 5e-4 | AdamW step size |
 | `weight_decay` | 0.0 | AdamW weight decay (0 is plain Adam) |
 | `beta_1`, `beta_2` | 0.9, 0.999 | Adam's moment rates |
-| `lr_schedule` | None | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay |
+| `lr_schedule` | None | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay to the call's last update; when `train` keeps the optimiser (`reset_optimizer_on_resume=False`), to the run's, set by the call that builds it ([Checkpoints](../guide/checkpoints.md#things-to-know)) |
 | `warmup_steps`, `lr_end_fraction` | 0, 0.1 | warmup length, and the final rate as a fraction of `learning_rate` |
 | `max_grad_norm` | 1.0 | gradient clipping by global norm (`None` turns it off) |
 | `actor_architecture` | `("128", "relu", "128", "relu")` | MLP in front of the memory or output; `()` for a linear embedding |

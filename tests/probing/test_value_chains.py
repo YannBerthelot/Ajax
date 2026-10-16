@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "5f817a573b2d"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "235b0254865d"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -836,7 +836,10 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 # of 5e-4, 1e-3 and 2e-3 that serves all three: c needs it to calibrate within
 # its 80,000 steps (5e-4: 1.055, seeds 0-7), and above it b's mean spreads
 # past its cap (2e-3: twice its worst error 0.33-0.38 at 160,000-320,000
-# steps). Measured wrong answers: medians, 1000-1031.
+# steps). APO's continuous cell is b: its reference head is a Gaussian around
+# a tanh-bounded mean, not squashed, whose entropy bonus on c's flat reward
+# would grow sigma without bound; it takes STD_LR too, its Adam taking PPO's
+# 4 steps a rollout. Measured wrong answers: medians, 1000-1031.
 
 
 def _bandit(
@@ -900,9 +903,9 @@ def _q6_read(env_args: Any, n: R.Nets) -> dict:
 
 def latent_sigma(budget: int, lr: float, start: float = 0.0, top: float = 2.0) -> float:
     """sigma_u under the latent Gaussian's entropy bonus: on the flat bandit
-    the advantage is 0 (APO's exactly), so Adam raises the log-std from
-    ``start`` by the learning rate at each of 4 steps per 8 x 32 rollout
-    until its clip at ``top``."""
+    the advantage is about 0, so Adam raises the log-std from ``start`` by
+    the learning rate at each of 4 steps per 8 x 32 rollout until its clip at
+    ``top``."""
     return math.exp(min(top, start + lr * 4 * (budget // (8 * 32) + 1)))
 
 
@@ -917,8 +920,7 @@ _AVERAGED = {"entropy averaged over the dimensions": 0.7414}  # sqrt(1/2) at res
 # P07 saturates the tanh (mu_u reads -31,800 to 34,400), then shrinks sigma_u.
 _LATENT = latent_sigma(80_000, STD_LR, start=0.5, top=math.inf)  # unclipped
 _PPO_C = {DROPPED: math.exp(0.5), P07: 0.6575, "latent-Gaussian entropy": _LATENT}
-_APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": latent_sigma(80_000, 3e-4)}
-_APO_C["latent-Gaussian entropy, sign flipped"] = 1 / latent_sigma(80_000, 3e-4)
+_APO_B = {"untrained": WIDE, DROPPED: 0.4711, "bonus sign flipped": 0.1706}
 Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "PPO-a": (Query("pi(best)", PI_BEST, _PI_A),),
     "APO-a": (Query("pi(best)", PI_BEST, _APO_A),),
@@ -931,7 +933,7 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
         Query(f"sigma_{i}", 1.0, _AVERAGED | {"untrained": WIDE}) for i in (1, 2)
     ),
     "PPO-c": (Query("sigma_u", SIGMA_C, _PPO_C),),
-    "APO-c": (Query("sigma_u", SIGMA_C, _APO_C),),
+    "APO-b": (Query("sigma", 1.0, _APO_B), Query("mu", 0.5, {"untrained": 0.0})),
 }
 Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
     # agent, bandit, c, learning rate, budget, tolerances (32/32 of 3000-3031),
@@ -950,14 +952,16 @@ Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
         (0.065,),
         {"squash": True, "log_std_init": 0.5},
     ),
-    "APO-c": ("APO", "c", 0.1, 3e-4, 80_000, (0.062,), {}),  # half the gap to 1.0
+    "APO-b": ("APO", "b", 2.0, STD_LR, 480_000, (0.043, 0.137), {}),
 }
 # PPO-b's mu, a sanity check, is WIDE times the agent-unit mean's jitter:
 # twice its pooled worst error is 0.21-0.26 on every rung from 320,000 to
 # 640,000 steps, so its ceiling is half its gap. The ceiling is the case's,
 # so b's budget is the first rung where sigma's tolerance also stays within
-# CEILING: 480,000 (0.050; 400,000: 0.107).
-Q6_CEILING = {"PPO-b": 0.25}
+# CEILING: 480,000 (0.050; 400,000: 0.107). APO-b's mu likewise, 0.14-0.31
+# from 320,000 to 640,000; its 480,000 is the first rung with both within
+# (400,000: mu 0.309).
+Q6_CEILING = {"PPO-b": 0.25, "APO-b": 0.25}
 for cell, (agent, bandit, c, lr, steps, q6_tols, kw) in Q6_CELLS.items():
     build = functools.partial(_q6_agent, agent, bandit, c, lr, **kw)
     reads = runs.readings(

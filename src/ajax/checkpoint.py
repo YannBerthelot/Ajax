@@ -24,6 +24,7 @@ from typing import Any
 import jax
 import numpy as np
 from flax import serialization
+from flax.traverse_util import flatten_dict
 
 
 def _to_host_numpy(state: Any) -> Any:
@@ -63,6 +64,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     _check_shared_critic_memory(skeleton_dict, state_dict)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
+    _check_memory_width(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
@@ -253,6 +255,37 @@ def _check_log_std_head(skeleton: Any, saved: Any) -> None:
     for key, value in skeleton.items():
         if key in saved:
             _check_log_std_head(value, saved[key])
+
+
+def _check_memory_width(skeleton: Any, saved: Any) -> None:
+    """Refuse, saying how to restore it, a checkpoint whose memory
+    (``memory_cell``) is another width than the network restoring it: flax
+    grafts arrays of any shape, and training fails later on a broadcast.
+
+    The check stays; its hint about ``MemoryConfig``'s old default width
+    goes once no checkpoint saved with it remains (CLAUDE.md, refactoring
+    rule 10).
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return
+    ours, theirs = skeleton.get("memory_cell"), saved.get("memory_cell")
+    if isinstance(ours, dict) and isinstance(theirs, dict):
+        ours, theirs = flatten_dict(ours), flatten_dict(theirs)
+        for path in sorted(ours.keys() & theirs.keys()):
+            new, old = np.shape(ours[path]), np.shape(theirs[path])
+            if new[-1:] != old[-1:]:
+                raise ValueError(
+                    "This checkpoint's memory is another width than the agent"
+                    f" restoring it: memory_cell/{'/'.join(path)} is {old} in the"
+                    f" checkpoint and {new} in the agent. Restore it into an agent"
+                    " built with the MemoryConfig it was saved with. The default"
+                    " hidden_size was 64 before it became 128: a checkpoint saved"
+                    " with the default then restores into memory=MemoryConfig(...,"
+                    " hidden_size=64), its other settings unchanged."
+                )
+    for key, value in skeleton.items():
+        if key in saved:
+            _check_memory_width(value, saved[key])
 
 
 def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:

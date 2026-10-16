@@ -50,8 +50,8 @@ class ASAC(ActorCritic):
         alpha_init: float = 1.0,
         p_0=20,
         target_entropy_per_dim: float = -1.0,
-        # Pluggable memory block, e.g. MemoryConfig("lstm", 64) or
-        # {"kind": "gru", "hidden_size": 64}. When set, the replay buffer
+        # Pluggable memory block, e.g. MemoryConfig("lstm", 128) or
+        # {"kind": "gru", "hidden_size": 128}. When set, the replay buffer
         # stores per-env trajectories and updates train on sequences of
         # `sequence_length` steps after `burn_in` warm-up steps whose
         # carries are computed from zero under stop_gradient (R2D2-style).

@@ -65,7 +65,9 @@ class MemoryConfig:
     """
 
     kind: str = "gru"
-    hidden_size: int = 64
+    # The width of the references Ajax's memory agents follow, for every
+    # kind (docs/guide/memory.md cites them).
+    hidden_size: int = 128
     num_layers: int = 1
     # Recompute activations in the backward pass instead of storing them;
     # trades compute for memory on long sequences.

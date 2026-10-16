@@ -81,8 +81,8 @@ class PPO(ActorCritic):
         num_evals: int = 1,
         gae_lambda: float = 0.95,
         normalize_advantage: bool = True,
-        # Pluggable memory block, e.g. MemoryConfig("gru", 64) or
-        # {"kind": "lstm", "hidden_size": 64}. When set, PPO trains with
+        # Pluggable memory block, e.g. MemoryConfig("gru", 128) or
+        # {"kind": "lstm", "hidden_size": 128}. When set, PPO trains with
         # BPTT over sequences minibatched from the rollout (see
         # num_minibatches and bptt_length).
         memory: Optional[Union[MemoryConfig, dict]] = None,

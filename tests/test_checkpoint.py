@@ -317,6 +317,33 @@ def test_a_memory_checkpoint_restores_only_into_its_own_final_norm(tmp_path):
         restore_into(old, new_path)
 
 
+def test_a_memory_checkpoint_restores_only_into_its_own_width(tmp_path):
+    """A memory saved at another width raises an error naming the old
+    default's hidden_size (flax would graft it, and training fail later on
+    a broadcast); it restores into the network of its own width."""
+    from ajax.agents.PPO.PPO import PPO
+    from ajax.networks.memory import MemoryConfig
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
+    kw |= {"actor_architecture": net, "critic_architecture": net}
+
+    def skeleton(width):
+        memory = MemoryConfig(kind="gru", hidden_size=width)
+        return PPO(env_id="CartPole-v1", memory=memory, **kw).train(
+            seed=0, n_timesteps=0
+        )[0]
+
+    old = skeleton(8)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(old, path)
+    with pytest.raises(ValueError, match=r"another width.*hidden_size=64"):
+        restore_into(skeleton(16), path)
+    restored = restore_into(old, path)
+    same = jax.tree.map(np.array_equal, restored.actor_state, old.actor_state)
+    assert all(jax.tree.leaves(same))
+
+
 def _full_width_layout(params):
     """A recurrent off-policy network's parameters as saved before Ni et
     al.'s embedders: the encoder before the memory, no embedder; a critic's

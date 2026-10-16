@@ -29,16 +29,16 @@ from ajax.networks.memory import MemoryConfig
 from . import agents, envs, faults, oracles, runs, verdict
 from . import readouts as R
 
-# The plan's lines per file; test_framework 145 + 35 for the API's checks,
-# + 26 (envs.py + 15) for probes observing 1 for 0 (CONSTANT_ZERO), faults/
-# 170 + 30 (the catalogue proves each probe's power), + 27 (verdict.py + 1)
-# for means over seeds (Case.mean_of); readouts + 4: off-policy step_actor.
+# The plan's lines per file; test_framework 145 + 35 (the API's checks) + 26
+# (envs.py + 15: CONSTANT_ZERO), faults/ 170 + 30 (each probe's power), + 27
+# (verdict.py + 1: Case.mean_of); readouts + 4 (off-policy step_actor);
+# test_memory + 11 (Q2's single-seed calibrations, TARGET).
 CAPS = {"verdict.py": 256, "envs.py": 230, "agents.py": 155, "runs.py": 250}
 CAPS |= {"readouts.py": 224, "oracles.py": 170, "faults.py": 100, "faults/": 200}
 CAPS |= {"test_framework.py": 233, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1007, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
-CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
+CAPS |= {"test_memory.py": 383, "test_world_models.py": 452}
 
 
 def _modules() -> list:

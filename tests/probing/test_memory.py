@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "c50124f6709a"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "fb306b91cd2f"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -109,9 +109,9 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 # (TD3 also 5000 and 7500; PPO 10,000, 15,000, 20,000, 30,000 and 40,000);
 # certified 32/32 on 3000-3031 (PPO-gru and PPO-lstm 31/32). The critic's V
 # after a cue-free episode settles last: it sets SAC's, REDQ's and TD3's
-# budgets, its tolerance near the 0.1 ceiling. TD3's actor can saturate at a
-# bound: seed 1011 reads -0.99 or beyond after cue -1 from 1250 to 3750
-# steps. PPO's log-std, one parameter from 0 (std 1), falls steadily: median
+# budgets, 3750, 2500 and 5000 with Ni et al.'s layout. TD3's single seeds
+# spike: at 3750 seed 1006 reads it -0.23, at 7500 seed 2026 reads V(-1)
+# 0.31. PPO's log-std, one parameter from 0 (std 1), falls steadily: median
 # std 0.38-0.41 at 10,000 steps, where V's margin needs sigma under 0.35 and
 # 52 to 64 of 64 seeds fail; 0.09-0.11 at 30,000, where none fails; 0.05-0.07
 # at 40,000 (one mamba seed fails). With the Dense head PPO had before (std
@@ -123,9 +123,9 @@ P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "lstm"): (15_000, (0.385, 0.273, 0.259, 0.069, 0.069, 0.02)),
     ("PPO", "transformer"): (30_000, (0.431, 0.354, 0.356, 0.081, 0.081, 0.02)),
     ("PPO", "mamba"): (30_000, (0.429, 0.441, 0.428, 0.089, 0.089, 0.02)),
-    ("SAC", "gru"): (3750, (0.48, 0.455, 0.456, 0.095, 0.095, 0.02)),
-    ("REDQ", "gru"): (2000, (0.463, 0.406, 0.405, 0.1, 0.1, 0.02)),
-    ("TD3", "gru"): (7500, (0.429, 0.467, 0.383, 0.099, 0.099, 0.02)),
+    ("SAC", "gru"): (3750, (0.469, 0.476, 0.468, 0.09, 0.09, 0.02)),
+    ("REDQ", "gru"): (2500, (0.448, 0.461, 0.459, 0.073, 0.073, 0.02)),
+    ("TD3", "gru"): (5000, (0.407, 0.453, 0.393, 0.072, 0.072, 0.02)),
 }
 for (agent, kind), (budget, tol) in P0B_CELLS.items():
     cid = f"p0b-{agent}-{kind}"
@@ -177,16 +177,16 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 # faults only scale TD3's quadratic, so its a0 is 0.5 either way.
 # The controls judge each seed as the mean of 4 (Case.mean_of): alone, a
 # seed's actor (SAC, REDQ) or critic (ASAC, TD3) spreads too far for twice
-# the worst of 64 seeds to fit the 0.1 ceiling at any budget laddered
-# (SAC-gru at 1500: tanh(mu(o0)) sd 0.024, worst 0.064). Each tolerance is
-# twice the worst of 64 means, seeds 4000-4127 and 8000-8127, at 1500 steps
-# and, for the transformer and mamba, 1000 (where the other critics' single
-# seeds read 0.03-0.04 low on average); TD3 at 1500 (unsettled, 0.509) and
-# 3000. TD3 read 8% low (0.513 on seeds 0-15) while its critic's memory
-# took the queried action; from ef7267c it reads 0.553 there.
-# Seeds 3000-3031 with the transformer's and mamba's final LayerNorm: their
-# target and actor cells read 32/32 for SAC, REDQ and ASAC; TD3's 31/32 and
-# 30/32 (worst 0.111 / 0.147), as without it (30/32 and 30/32).
+# the worst of 64 seeds to fit the 0.1 ceiling at any budget laddered. Each
+# tolerance is twice the worst of 64 means, seeds 4000-4127 and 8000-8127,
+# laddered at 1000 and 1500 steps (TD3 1500 and 3000). The other cells judge
+# single seeds, laddered on 1000-2031 at 1000 and 1500 (TD3 3000 and 6000):
+# SAC's and REDQ's critics at L = 16 and TD3's at L = 2 qualify (TARGET);
+# the actors, ASAC's critics, TD3's at L = 16 and SAC's and REDQ's at L = 2
+# qualify at none (twice the worst error 0.10-0.33) and keep the cap. On
+# 3000-3031 all read 32/32 but REDQ's actors (gru 31, lstm 30, transformer
+# 27, mamba 29; L = 2 21) and SAC's at L = 2 (28); their seeds 0-15 pass
+# (REDQ's L = 2 7 of 8); means of 4 qualify none of those under 30 by 1500.
 
 ALPHA, L = 1.0, 16
 BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
@@ -289,14 +289,25 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)
 
 
+TARGET = {  # calibrated, by window length: budget, tolerance, certification
+    ("SAC", "gru", L): (1500, (0.095,), "cert 32/32, worst 0.032"),
+    ("SAC", "lstm", L): (1500, (0.096,), "cert 32/32, worst 0.037"),
+    ("SAC", "transformer", L): (1000, (0.081,), "cert 32/32, worst 0.041"),
+    ("SAC", "mamba", L): (1000, (0.091,), "cert 32/32, worst 0.038"),
+    ("REDQ", "gru", L): (1500, (0.085,), "cert 32/32, worst 0.042"),
+    ("REDQ", "lstm", L): (1500, (0.099,), "cert 32/32, worst 0.036"),
+    ("REDQ", "transformer", L): (1500, (0.097,), "cert 32/32, worst 0.037"),
+    ("REDQ", "mamba", L): (1500, (0.087,), "cert 32/32, worst 0.040"),
+    ("TD3", "gru", 2): (3000, (0.067,), "cert 32/32, worst 0.033"),
+}
 CONTROL = {  # budget, tolerances (critic, actor), certification on 12000-12127
-    ("SAC", "gru"): (1500, (0.057, 0.068), "cert 32/32, worst 0.015 / 0.031"),
-    ("SAC", "lstm"): (1500, (0.056, 0.067), "cert 32/32, worst 0.018 / 0.030"),
-    ("SAC", "transformer"): (1000, (0.023, 0.074), "cert 32/32, worst 0.015 / 0.037"),
-    ("SAC", "mamba"): (1000, (0.043, 0.071), "cert 32/32, worst 0.019 / 0.030"),
-    ("REDQ", "gru"): (1500, (0.03, 0.071), "cert 32/32, worst 0.026 / 0.029"),
-    ("TD3", "gru"): (3000, (0.067,), "cert 32/32, worst 0.031"),
-    ("ASAC", "gru"): (1500, (0.075,), "cert 32/32, worst 0.025"),
+    ("SAC", "gru"): (1500, (0.07, 0.08), "cert 32/32, worst 0.021 / 0.040"),
+    ("SAC", "lstm"): (1500, (0.074, 0.079), "cert 32/32, worst 0.025 / 0.038"),
+    ("SAC", "transformer"): (1000, (0.04, 0.09), "cert 32/32, worst 0.023 / 0.052"),
+    ("SAC", "mamba"): (1000, (0.039, 0.094), "cert 32/32, worst 0.025 / 0.049"),
+    ("REDQ", "gru"): (1500, (0.049, 0.089), "cert 32/32, worst 0.036 / 0.032"),
+    ("TD3", "gru"): (3000, (0.05,), "cert 32/32, worst 0.021"),
+    ("ASAC", "gru"): (1500, (0.078,), "cert 32/32, worst 0.055"),
 }
 
 
@@ -318,7 +329,9 @@ def _q2_case(
 
 for agent in BUDGET:
     for kind, length in [(k, L) for k in MEMORY_KINDS] + [("gru", 2)]:
-        _q2_case("target", agent, kind, length, _critic(agent, length))
+        cal = TARGET.get((agent, kind, length), ())
+        kw = dict(zip(("budget", "tol", "note"), cal, strict=False))
+        _q2_case("target", agent, kind, length, _critic(agent, length), **kw)
         if agent in ("SAC", "REDQ"):
             _q2_case("actor", agent, kind, length, _actor(length))
 for (agent, kind), (budget, tol, note) in CONTROL.items():

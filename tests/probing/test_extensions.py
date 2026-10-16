@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "f4e4fb90895f"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "4f430d6dd6fe"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -633,7 +633,7 @@ SIGNED = (Query("a(-1)", -0.5, _SKIP), Query("a(1)", 0.5, _SKIP))
 SHIFTED = (Query("a(1)", -0.5, _RAW | _SKIP), Query("a(3)", 0.5, _SKIP))
 # Epochs (10, 20): 10, the default, qualifies; cert 32/32. APO's update moves
 # its action outwards (at 4 steps per iteration no rung qualified).
-CLONED = {"SAC": (0.02, 0.02), "REDQ": (0.02, 0.02), "APO": (0.071, 0.081), "TD3": ()}
+CLONED = {"SAC": (0.02, 0.02), "REDQ": (0.02, 0.02), "APO": (0.053, 0.051), "TD3": ()}
 for name, shift, queries in (("cloning", 0.0, SIGNED), ("shifted", 2.0, SHIFTED)):
     for agent, tol in CLONED.items():
         CASES[f"q7-{name}-{agent}"] = Case(

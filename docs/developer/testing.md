@@ -241,6 +241,13 @@ uv run python -m tests.probing.verdict choose test_value_chains p0a-DQN a.json b
 uv run python -m tests.probing.verdict certify test_value_chains p0a-DQN   # seeds 3000-3031
 ```
 
+When a reading's seed-to-seed spread, not its bias, keeps twice its worst
+error over the cap, the case can judge means instead: with `mean_of=m`, seed
+s reads the mean of seeds m s to m s + m - 1. The spread falls by about the
+square root of m, and each stage of the seed rule, each calibration block
+and the certification train m times the seeds (with `mean_of=4`, the block
+1000-1031 trains seeds 4000-4127). A failing check's report says so.
+
 `test_framework.py` checks that every calibrated tolerance lies inside its
 gap.
 

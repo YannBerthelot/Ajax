@@ -4,7 +4,8 @@ A query states a reading's right answer and the wrong answers named faults
 produce; a case is one judged cell: its readings, budget, and calibrated
 tolerances or the live defect it pins as a strict xfail. A check trains
 seeds 0-7 in one program: 7 or more within tolerance pass, 4 or fewer fail,
-otherwise seeds 8-15 are added and 13 of 16 pass. Preconditions raise
+otherwise seeds 8-15 are added and 13 of 16 pass (each seed of a case with
+``mean_of`` the mean of that many). Preconditions raise
 RuntimeError, never AssertionError, so a strict xfail cannot absorb them::
 
     uv run python -m tests.probing.verdict {ladder|choose|certify|answers} MODULE ...
@@ -66,7 +67,8 @@ class Query:
 class Case:
     """``tol`` aligns with ``queries``; without it the tolerance is the
     ceiling, capped by half the gap for two-sided queries. ``note`` records
-    the calibration."""
+    the calibration. With ``mean_of`` m, seed s reads the mean of seeds
+    m s to m s + m - 1, its seed-to-seed spread down by sqrt(m)."""
 
     id: str
     queries: tuple[Query, ...]
@@ -77,6 +79,7 @@ class Case:
     raises: Any = AssertionError
     slow: bool = False
     ceiling: float = CEILING
+    mean_of: int = 1
     note: str = ""
 
     @property
@@ -88,9 +91,12 @@ class Case:
         }
         return {k: min(self.ceiling, v) for k, v in cap.items()}
 
-    def run(self, seeds: Sequence[int]) -> Readings:
-        out = self.readings(tuple(seeds), self.budget)
-        return {q.name: np.asarray(out[q.name]) for q in self.queries}
+    def run(self, seeds: Sequence[int], budget: int | None = None) -> Readings:
+        m, n = self.mean_of, len(seeds)
+        trained = tuple(m * s + i for s in seeds for i in range(m))
+        out = self.readings(trained, self.budget if budget is None else budget)
+        per_seed = {q.name: np.asarray(out[q.name]) for q in self.queries}
+        return {k: v.reshape((n, m) + v.shape[1:]).mean(1) for k, v in per_seed.items()}
 
 
 def xfail(defect: str, raises: Any = AssertionError) -> pytest.MarkDecorator:
@@ -144,7 +150,8 @@ def judge(
 
 
 def check(case: Case) -> None:
-    label = f"{case.id} (budget {case.budget} steps)"
+    each = f", each seed the mean of {case.mean_of}" * (case.mean_of > 1)
+    label = f"{case.id} (budget {case.budget} steps{each})"
     passed, report = judge(case.queries, case.run, case.tolerances, label)
     assert passed, report
 
@@ -177,7 +184,7 @@ def block(first: int) -> tuple[int, ...]:
 
 def ladder(case: Case, first: int, budgets: Sequence[int]) -> dict[int, dict]:
     """Readings of a 32-seed block untrained and at every budget."""
-    out = {b: case.readings(block(first), b) for b in (0, *budgets)}
+    out = {b: case.run(block(first), b) for b in (0, *budgets)}
     return {
         b: {k: np.round(v, 5).tolist() for k, v in r.items()} for b, r in out.items()
     }
@@ -207,7 +214,7 @@ def choose(
 
 def certify(case: Case, first: int = 3000) -> int:
     """Seeds of the block within the case's tolerances at its budget."""
-    r = case.readings(block(first), case.budget)
+    r = case.run(block(first))
     return int(_ok(case.queries, r, case.tolerances).sum())
 
 

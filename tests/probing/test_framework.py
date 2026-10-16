@@ -5,6 +5,7 @@ the directory."""
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import importlib
 import math
@@ -30,10 +31,11 @@ from . import readouts as R
 
 # The plan's lines per file; test_framework 145 + 35 for the API's checks,
 # + 26 (and envs.py + 15) for the probes observing 1 for 0 (CONSTANT_ZERO),
-# faults/ 170 + 30 (the catalogue proves each probe's power).
-CAPS = {"verdict.py": 255, "envs.py": 230, "agents.py": 155, "runs.py": 250}
+# faults/ 170 + 30 (the catalogue proves each probe's power), + 27 (and
+# verdict.py + 1) for a reading averaged over seeds (verdict.Case.mean_of).
+CAPS = {"verdict.py": 256, "envs.py": 230, "agents.py": 155, "runs.py": 250}
 CAPS |= {"readouts.py": 220, "oracles.py": 170, "faults.py": 100, "faults/": 200}
-CAPS |= {"test_framework.py": 206, "test_value_chains.py": 1051}
+CAPS |= {"test_framework.py": 233, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1007, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
@@ -70,6 +72,31 @@ def test_choose_takes_the_first_budget_twice_whose_worst_error_fits() -> None:
     case = verdict.Case("c", (q,), lambda seeds, budget: {}, 0)
     by_budget = {100: {"V": [1.0, 0.9]}, 200: {"V": [1.0, 0.97, 1.01]}}
     assert verdict.choose(case, by_budget) == (200, (0.06,))
+
+
+def test_a_case_with_mean_of_reads_each_seed_as_a_mean() -> None:
+    """Seed s reads seeds 3 s to 3 s + 2, averaged, at its budget or another;
+    squared seeds tell the mean from the median, middle and (first + last) / 2."""
+    q = verdict.Query("V", 0.0, {"off": 1.0})
+    case = verdict.Case(
+        "c", (q,), lambda s, b: {"V": 3 * np.square(s) + b}, 7, mean_of=3
+    )
+    np.testing.assert_array_equal(case.run((0, 2))["V"], [12.0, 156.0])
+    np.testing.assert_array_equal(case.run((1,), 0)["V"], [50.0])
+
+
+def test_ladder_certify_and_check_read_a_mean_of_case_through_run() -> None:
+    """Seeds 2 s and 2 s + 1 read b - 7 + 0.5 and b - 7 - 0.5: only their mean
+    at the budget, 7, is right; a failing check says each seed is a mean."""
+    q = verdict.Query("V", 0.0, {"off": 1.0})
+    case = verdict.Case(
+        "c", (q,), lambda s, b: {"V": np.power(-1.0, s) / 2 + b - 7}, 7, mean_of=2
+    )
+    means = {0: {"V": [-7.0] * 32}, 7: {"V": [0.0] * 32}}
+    assert verdict.ladder(case, 1000, (7,)) == means
+    assert verdict.certify(case) == 32
+    with pytest.raises(AssertionError, match=r"0 steps, each seed the mean of 2\)"):
+        verdict.check(dataclasses.replace(case, budget=0))
 
 
 def test_every_planted_fault_applies_once_and_names_live_nodes() -> None:

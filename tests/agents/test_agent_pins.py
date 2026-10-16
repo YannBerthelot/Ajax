@@ -574,6 +574,18 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once the recurrent critic's two Q-heads
+# shared one memory, its embedders and its shortcut (Ni et al.'s
+# Critic_RNN): the critic has one trunk where it had one per head. Relative
+# shifts: actor +0.10%, critic -29.9%, alpha +0.002%.
+_GOLDEN |= {
+    "SAC-gru": {
+        "actor": 94.74683380126953,
+        "critic": 135.876953125,
+        "alpha": 0.9498860239982605,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

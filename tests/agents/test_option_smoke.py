@@ -100,6 +100,7 @@ OPTIONS |= {
     "critic_bias_init": {"critic_bias_init": "0.1"},
     "encoder_kernel_init": {"encoder_kernel_init": "lecun_uniform"},
     "mean_kernel_init": {"mean_kernel_init": "lecun_uniform"},
+    "log_std_bounds": {"log_std_bounds": (-5.0, 1.0)},  # neither PPO's nor APO's
 }
 CNN = {"Pendulum-v1": (1, 3, 1), "fast": (1, 2, 1), "CartPole-v1": (2, 2, 1)}
 #: The switches other tests run (tests/...).

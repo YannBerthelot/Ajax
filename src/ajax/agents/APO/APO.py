@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -54,6 +54,10 @@ class APO(ActorCritic):
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        # The clip of the continuous actor's log-std (Brax's head, below):
+        # SAC's [-20, 2], a deviation from APO's official code
+        # (docs/algorithms/apo.md); None removes it.
+        log_std_bounds: Optional[Tuple[float, float]] = (-20.0, 2.0),
         # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,
@@ -100,6 +104,7 @@ class APO(ActorCritic):
             squash=True,
             log_std_state_independent=True,
             log_std_init=0.0,
+            log_std_bounds=log_std_bounds,
             mean_kernel_init="lecun_uniform",
             episode_length=episode_length,
             action_repeat=action_repeat,

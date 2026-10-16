@@ -64,6 +64,7 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `expert_policy` | None | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `log_std_bounds` | (-20.0, 2.0) | the `(low, high)` clip of the continuous actor's log-std; `None` leaves it unclipped (see the notes) |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
@@ -92,6 +93,10 @@ drift. The actor then takes PPO's clipped step.
 - **Actor head.** APO always uses Brax's continuous head: a tanh-bounded
   Gaussian with one learnable log-std per action dimension (initial std 1)
   and a `lecun_uniform` mean layer. A discrete APO ignores it.
+- **Log-std clip.** By default the log-std is clipped to `[-20, 2]`, the
+  bounds of SAC's head, a deviation from the official code that the run
+  config records (`log_std_bounds`); `log_std_bounds=None` removes the clip.
+  A PID policy keeps its own log-std, always clipped to `[-20, 2]`.
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

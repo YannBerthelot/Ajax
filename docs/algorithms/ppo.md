@@ -75,6 +75,7 @@ Defaults are those of the constructor.
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks |
 | `unroll_length` | None | cut each env's rollout into fragments of this length (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
+| `log_std_bounds` | None | the `(low, high)` clip of that log standard deviation; `None` leaves it unclipped |
 | `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
@@ -106,18 +107,19 @@ Defaults are those of the constructor.
   `tanh` instead. Evaluation uses the mean action.
 - **Exploration noise.** The Gaussian learns one log standard deviation per
   action dimension, whatever the observation, starting at 0 (a standard
-  deviation of 1) and never clipped, as PPO's reference code does: OpenAI
-  Baselines at `ea25b9e` (ppo2's `common/distributions.py:96-106`; ppo1's
+  deviation of 1) and never clipped (`log_std_bounds=None`, which the run
+  config records), as PPO's reference code does: OpenAI Baselines at
+  `ea25b9e` (ppo2's `common/distributions.py:96-106`; ppo1's
   `ppo1/mlp_policy.py:36-39`, `gaussian_fixed_var=True`), CleanRL at
   `fe8d8a0` (`ppo_continuous_action.py:129`) and PureJaxRL at `31756b1`
   (`ppo_continuous_action.py:41`). Unlike theirs, it is updated by the
   actor's own optimizer and gradient clip, the critic having its own (see
   separate networks). `log_std_state_independent=False` with
   `log_std_init=-1.0` builds the head PPO had before: a log standard
-  deviation computed from the observation, starting at -1 and clipped to
-  `[-20, 2]`, as SAC's is; a checkpoint saved with that head restores only
-  into that network, and restoring it into the default one is refused with
-  this advice. A PID policy keeps its own log standard deviation, which
+  deviation computed from the observation, starting at -1 and always
+  clipped to `[-20, 2]`, as SAC's is, whatever `log_std_bounds`; a
+  checkpoint saved with that head restores only into that network, and
+  restoring it into the default one is refused with this advice. A PID policy keeps its own log standard deviation, which
   starts at `log_std_init` and is clipped to `[-20, 2]`.
 - **Brax-style options.** `fused_grad_clip` (one clip over actor and critic
   gradients), `mean_kernel_init`, `squash`, `num_resets_per_eval` and

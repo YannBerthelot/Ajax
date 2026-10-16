@@ -93,12 +93,14 @@ class PPO(ActorCritic):
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
-        # The Gaussian's log-std: one learned, unclipped parameter per action
-        # dimension starting at 0 (std 1), as PPO's reference code has it
-        # (Actor in networks.py cites it). False and -1.0 build the
-        # state-dependent head PPO had before (SAC's, clipped).
+        # The Gaussian's log-std: one learned parameter per action dimension
+        # starting at 0 (std 1), never clipped (log_std_bounds None), as PPO's
+        # reference code has it (Actor in networks.py cites it). False and
+        # -1.0 build the state-dependent head PPO had before (SAC's, always
+        # clipped to [-20, 2]).
         log_std_state_independent: bool = True,
         log_std_init: float = 0.0,
+        log_std_bounds: Optional[Tuple[float, float]] = None,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_layer_norm: bool = False,
         # Squashed or not, the action is read in [-1, 1] and mapped onto the
@@ -144,6 +146,7 @@ class PPO(ActorCritic):
             cnn_spec=cnn_spec,
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
+            log_std_bounds=log_std_bounds,
             mean_kernel_init=mean_kernel_init,
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
@@ -193,5 +196,3 @@ class PPO(ActorCritic):
         # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
-        # PPO's reference code never clips its log-std parameter.
-        self.network_args = self.network_args.replace(log_std_bounds=None)

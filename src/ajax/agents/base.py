@@ -144,6 +144,7 @@ class ActorCritic:
         # Brax-style actor head knobs (see NetworkConfig).
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
+        log_std_bounds: Optional[Tuple[float, float]] = (-20.0, 2.0),
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_layer_norm: bool = False,
         squash: bool = False,
@@ -226,6 +227,7 @@ class ActorCritic:
             cnn_spec=cnn_spec,
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
+            log_std_bounds=log_std_bounds,
             mean_kernel_init=mean_kernel_init,
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,

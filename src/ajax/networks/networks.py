@@ -32,6 +32,7 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    check_log_std_bounds,
 )
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -186,6 +187,7 @@ class Actor(nn.Module):
     memory: Optional[MemoryConfig] = None
 
     def setup(self):
+        check_log_std_bounds(self.log_std_bounds)
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
         if self.cnn_image_shape is not None:

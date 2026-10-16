@@ -406,6 +406,29 @@ def test_log_std_bounds_clip_only_the_log_std_parameter(state_independent, bound
     np.testing.assert_allclose(std, np.broadcast_to(np.exp(want), (4, 2)), rtol=1e-5)
 
 
+@pytest.mark.parametrize("bounds", [(2.0, -20.0), (1.0, 1.0)])
+def test_the_network_refuses_log_std_bounds_out_of_order(bounds):
+    """Where the network is built, not only in an agent's constructor: a
+    network config, replaced or new, and an Actor refuse swapped or equal
+    bounds, which would clip every log-std to the high one."""
+    config = NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH)
+    with pytest.raises(ValueError, match="low < high"):
+        config.replace(log_std_bounds=bounds)
+    actor = Actor(
+        action_dim=2, input_architecture=ARCH, continuous=True, log_std_bounds=bounds
+    )
+    with pytest.raises(ValueError, match="low < high"):
+        actor.init(jax.random.PRNGKey(0), jnp.zeros((1, 8)))
+
+
+def test_jax_rebuilds_a_network_config_around_any_leaves():
+    """tree.map rebuilds the config through its bounds check, which reads
+    the static bounds, not the new leaves."""
+    config = NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH)
+    rebuilt = jax.tree.map(lambda _: None, config)
+    assert rebuilt.log_std_bounds == LOG_STD_BOUNDS
+
+
 def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):
     """The mean head starts orthogonal with gain 0.01 (a mean near 0);
     ``mean_kernel_init`` replaces it, by name or as an initializer."""

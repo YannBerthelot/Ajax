@@ -184,10 +184,6 @@ class ActorCritic:
                 envs support only 1.
         """
 
-        if log_std_bounds is not None and not log_std_bounds[0] < log_std_bounds[1]:
-            raise ValueError(
-                f"log_std_bounds is (low, high) with low < high, got {log_std_bounds}."
-            )
         if reward_normalization_gamma is not None and not normalize_rewards:
             raise ValueError(
                 "reward_normalization_gamma sets how normalize_rewards normalises"

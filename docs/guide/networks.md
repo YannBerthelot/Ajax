@@ -106,7 +106,7 @@ clips that log standard deviation.
 | --- | --- | --- |
 | `log_std_state_independent` | `True` | one learned log standard deviation per action dimension; `False` computes it from the observation |
 | `log_std_init` | `0.0` | the initial log standard deviation |
-| `log_std_bounds` | `None` | the `(low, high)` clip of the per-dimension log standard deviation; `None` leaves it unclipped (the observation-dependent one is always clipped to `[-20, 2]`) |
+| `log_std_bounds` | `None` | the `(low, high)` clip of the per-dimension log standard deviation, `low < high` (the agent, its network config and the actor refuse others); `None` leaves it unclipped (the observation-dependent one is always clipped to `[-20, 2]`) |
 | `mean_kernel_init` | `None`: `orthogonal(0.01)`, a near-zero first mean | the initialiser of the mean's output layer |
 | `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction |
 

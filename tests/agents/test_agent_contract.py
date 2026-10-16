@@ -538,9 +538,13 @@ CLIPS: dict[str, tuple[str, float | None]] = {
 def test_an_agent_refuses_log_std_bounds_out_of_order(
     name: str, bounds: tuple[float, float]
 ) -> None:
-    """Swapped or equal bounds would clip every log-std to the high one."""
+    """Swapped or equal bounds would clip every log-std to the high one,
+    passed to the constructor or replaced on the agent's network config."""
     with pytest.raises(ValueError, match="low < high"):
         CASES[name].cls(env_id="Pendulum-v1", log_std_bounds=bounds)
+    agent = CASES[name].cls(env_id="Pendulum-v1")
+    with pytest.raises(ValueError, match="low < high"):
+        agent.network_args.replace(log_std_bounds=bounds)
 
 
 @pytest.mark.parametrize("name", ajax.__all__)

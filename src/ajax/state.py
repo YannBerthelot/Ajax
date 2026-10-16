@@ -262,6 +262,7 @@ class NetworkConfig(Replaceable):
     log_std_init: float = -1.0
     log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    tanh_mean: bool = False
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by
     # default: the SAC, TD3, PPO and DQN papers use plain MLPs. Agents

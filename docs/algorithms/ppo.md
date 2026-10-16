@@ -114,13 +114,15 @@ Defaults are those of the constructor.
   `fe8d8a0` (`ppo_continuous_action.py:129`) and PureJaxRL at `31756b1`
   (`ppo_continuous_action.py:41`). Unlike theirs, it is updated by the
   actor's own optimizer and gradient clip, the critic having its own (see
-  separate networks). `log_std_state_independent=False` with
-  `log_std_init=-1.0` builds the head PPO had before: a log standard
-  deviation computed from the observation, starting at -1 and always
-  clipped to `[-20, 2]`, as SAC's is, whatever `log_std_bounds`; a
-  checkpoint saved with that head restores only into that network, and
-  restoring it into the default one is refused with this advice. A PID policy keeps its own log standard deviation, which
-  starts at `log_std_init` and is clipped to `[-20, 2]`.
+  separate networks). `log_std_bounds` clips every log standard deviation
+  PPO can learn, so by default none is clipped.
+  `log_std_state_independent=False` with `log_std_init=-1.0` builds the
+  head PPO had before: a log standard deviation computed from the
+  observation, starting at -1; `log_std_bounds=(-20.0, 2.0)` adds the clip
+  it then had, SAC's. A checkpoint saved with that head restores only into
+  that network, and restoring it into the default one is refused with this
+  advice. A PID policy keeps its own log standard deviation, which starts
+  at `log_std_init` and is clipped to `log_std_bounds`.
 - **Brax-style options.** `fused_grad_clip` (one clip over actor and critic
   gradients), `mean_kernel_init`, `squash`, `num_resets_per_eval` and
   `num_evals` reproduce choices of Brax's PPO. They are off by default, as

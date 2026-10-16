@@ -223,9 +223,9 @@ class BaseAgentConfig(Replaceable):
     expose_recent_rollout: bool = False
 
 
-#: SAC's ``(low, high)`` clip of a Gaussian actor's log-std. The Dense head
-#: and the PID actor always clip to it; the per-dimension parameter clips to
-#: ``NetworkConfig.log_std_bounds``, these bounds by default but in PPO.
+#: SAC's ``(low, high)`` clip of a Gaussian actor's log-std: the default of
+#: ``NetworkConfig.log_std_bounds``, which clips every log-std head (the
+#: Actor's Dense head or parameter, the PID actor's); PPO's is None.
 LOG_STD_BOUNDS: Tuple[float, float] = (-20.0, 2.0)
 
 

@@ -90,23 +90,25 @@ setting.
 PPO exposes the policy head's options. By default its Gaussian learns one
 log standard deviation per action dimension, whatever the observation,
 starting at 0 (a standard deviation of 1) and never clipped
-(`log_std_bounds=None`), as PPO's reference code does: OpenAI Baselines at `ea25b9e` (ppo2's
+(`log_std_bounds=None`), as PPO's reference code does: OpenAI Baselines at
+`ea25b9e` (ppo2's
 `common/distributions.py:96-106`; ppo1's `ppo1/mlp_policy.py:36-39`, with
 `gaussian_fixed_var=True`), CleanRL at `fe8d8a0`
 (`ppo_continuous_action.py:129`) and PureJaxRL at `31756b1`
 (`ppo_continuous_action.py:41`). `log_std_state_independent=False` with
 `log_std_init=-1.0` builds the head PPO had before, SAC's: a log standard
-deviation computed from the observation, always clipped to `[-20, 2]`.
-APO sets the head for continuous control: one learned log standard
-deviation per dimension, starting at 0, a `lecun_uniform` mean and
-`squash=True`; it also takes `log_std_bounds`, whose default `(-20.0, 2.0)`
-clips that log standard deviation.
+deviation computed from the observation, which `log_std_bounds=(-20.0,
+2.0)` clips as SAC's is. APO sets the head for continuous control: one
+learned log standard deviation per dimension, starting at 0, a
+`lecun_uniform` mean and `squash=True`; it also takes `log_std_bounds`,
+whose default `(-20.0, 2.0)` clips that log standard deviation. The other
+agents clip theirs, a PID policy's included, to `(-20.0, 2.0)`.
 
 | Argument | Default (PPO) | Effect |
 | --- | --- | --- |
 | `log_std_state_independent` | `True` | one learned log standard deviation per action dimension; `False` computes it from the observation |
 | `log_std_init` | `0.0` | the initial log standard deviation |
-| `log_std_bounds` | `None` | the `(low, high)` clip of the per-dimension log standard deviation, `low < high` (the agent, its network config and the actor refuse others); `None` leaves it unclipped (the observation-dependent one is always clipped to `[-20, 2]`) |
+| `log_std_bounds` | `None` | the `(low, high)` clip of the log standard deviation, whichever head (or PID policy) learns it, `low < high` (the agent, its network config and the actor refuse others); `None` leaves it unclipped |
 | `mean_kernel_init` | `None`: `orthogonal(0.01)`, a near-zero first mean | the initialiser of the mean's output layer |
 | `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction |
 
@@ -239,7 +241,9 @@ with longer training.
 action dimension gets its own gain on each error. The gains start at zero:
 the untrained controller commands the centre of the action box, which is
 no action on a symmetric box. The stochastic agents explore with a
-learned standard deviation that does not depend on the observation.
+learned standard deviation that does not depend on the observation,
+clipped as the agent's other heads are (`log_std_bounds`: none in PPO by
+default, `[-20, 2]` in the others).
 
 Each agent's own output rule applies to `u`. SAC, TD3, REDQ, ASAC, AVG and
 APO squash it with `tanh`, so the deployed controller is a saturated PID;

@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ab47c8f1aab9"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "cc18f32cbe46"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -832,10 +832,13 @@ for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
 # times the updates its LayerNorm one did at 1e-5 (pi(best) 0.668 after
 # 160,000 steps), hence 4e-5. Measured wrong answers: medians, 1000-1031.
 # PPO's continuous cells keep the head they were calibrated on, a Dense
-# log-std over the features (DENSE): PPO's default, one log-std parameter,
-# moves about the rate per Adam step, so at 4e-5 b's sigma reads 9.06 after
-# 160,000 steps (seeds 0-7) and c's 1.57 after 80,000; reaching the answers
-# would take about 3.7 and 1.0 million steps.
+# log-std over the features (DENSE), unclipped like every PPO log-std by
+# default: re-measured once its [-20, 2] clip went, no cell's readings on
+# 1000-1031 moved, and only PPO-c's faults did (_PPO_C). PPO's default,
+# one log-std parameter, moves about the rate per Adam step, so at
+# 4e-5 b's sigma reads 9.06 after 160,000 steps (seeds 0-7) and c's 1.57
+# after 80,000; reaching the answers would take about 3.7 and 1.0 million
+# steps.
 
 
 def _bandit(
@@ -911,7 +914,10 @@ _PI_A = {"untrained": 0.5, DROPPED: 0.976, f"{P07}, better arm": 1.0}
 _PI_A[f"{P07}, worse arm"] = 0.0  # a flipped bonus collapses each seed on an arm
 _APO_A = {"untrained": 0.5, DROPPED: 0.990, "bonus sign flipped": 0.997}
 _AVERAGED = {"entropy averaged over the dimensions": 0.739}  # sqrt(1/2) at rest
-_CLIP = "sign flipped (P07) or latent-Gaussian entropy (PPO/core.py): the log-std clip"
+# PPO-c's Dense log-std is unclipped (PPO's log_std_bounds None), so these
+# two faults raise sigma_u without bound (1000-1031 ranges 129-1.2e6, 11-45).
+_PPO_C = {DROPPED: math.exp(0.5), P07: 7533.4}
+_PPO_C["latent-Gaussian entropy (PPO/core.py)"] = 22.86
 _APO_C = {DROPPED: 1.0, "latent-Gaussian entropy": apo_latent_sigma(80_000)}
 _APO_C["latent-Gaussian entropy, sign flipped"] = 1 / apo_latent_sigma(80_000)
 Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
@@ -926,9 +932,7 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
         Query(f"sigma_{i}", 1.0, _AVERAGED | {"untrained": WIDE / math.e})
         for i in (1, 2)
     ),
-    "PPO-c": (
-        Query("sigma_u", SIGMA_C, {DROPPED: math.exp(0.5), _CLIP: math.exp(2.0)}),
-    ),
+    "PPO-c": (Query("sigma_u", SIGMA_C, _PPO_C),),
     "APO-c": (Query("sigma_u", SIGMA_C, _APO_C),),
 }
 DENSE = {"log_std_state_independent": False, "log_std_init": -1.0}

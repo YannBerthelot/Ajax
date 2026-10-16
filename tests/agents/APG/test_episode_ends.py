@@ -16,7 +16,7 @@ The rollout's reset flags themselves are closed_loop_rollout's contract
 """
 
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import jax
 import jax.numpy as jnp
@@ -33,6 +33,7 @@ from ajax.environments.differentiable import (
 from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import agent_action_to_env
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig
+from ajax.state import LoadedTrainState
 
 HORIZON, LENGTHS = 10, (3, 4)
 B = len(LENGTHS)
@@ -55,6 +56,11 @@ def _setup(memory: Optional[MemoryConfig]) -> tuple:
     return env, params, net, weights, carry
 
 
+def _actor(net: Controller) -> LoadedTrainState:
+    """A stand-in actor state: make_policy_step reads only its ``apply``."""
+    return cast(LoadedTrainState, SimpleNamespace(apply=net.apply))
+
+
 def _episodes(resets: np.ndarray) -> np.ndarray:
     """``(T, B)``: the index of the episode each step belongs to, per env."""
     return np.cumsum(resets, axis=0)
@@ -62,7 +68,7 @@ def _episodes(resets: np.ndarray) -> np.ndarray:
 
 def test_no_gradient_crosses_an_episode_end() -> None:
     env, params, net, weights, carry = _setup(MemoryConfig(kind="gru", hidden_size=8))
-    policy = make_policy_step(SimpleNamespace(apply=net.apply), weights, True)
+    policy = make_policy_step(_actor(net), weights, True)
 
     def rewards(d_action: jax.Array, d_carry: Any) -> tuple:
         """The rollout's rewards with ``d_action[t]`` added to the action of
@@ -118,7 +124,7 @@ def test_the_controller_restarts_its_carry_at_each_episode_start(
     memory: Optional[MemoryConfig],
 ) -> None:
     env, params, net, weights, carry = _setup(memory)
-    policy = make_policy_step(SimpleNamespace(apply=net.apply), weights, True)
+    policy = make_policy_step(_actor(net), weights, True)
     rollout, _ = closed_loop_rollout(policy, carry, KEY, env, params, HORIZON)
     obs, action = np.asarray(rollout.obs), np.asarray(rollout.action)[..., 0]
     resets = np.asarray(rollout.resets)

@@ -15,12 +15,13 @@ the rewards they paid; the action is the row's.
 """
 
 import functools
-from typing import Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 
 from ajax.agents.UDRL.buffer import episode_stream, sample_training_batch
+from ajax.agents.UDRL.state import UDRLState
 from ajax.agents.UDRL.UDRL import UDRL
 from tests.environments.identity_env import IdentityEnv
 
@@ -43,7 +44,7 @@ def _buffer() -> Any:
         command_return_init=R0,
         command_horizon_init=H0,
     )
-    state, _ = agent.train(seed=0, n_timesteps=12 * SEG * N_ENVS)
+    state = cast(UDRLState, agent.train(seed=0, n_timesteps=12 * SEG * N_ENVS)[0])
     return jax.tree.map(lambda x: x[0], state.buffer)
 
 

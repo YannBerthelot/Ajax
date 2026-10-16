@@ -4,13 +4,14 @@ every leaf alike (floats to rtol 1e-5: programs compiled apart may round
 apart). Every call is told the run's horizon (``total_timesteps``), so the
 schedules (DQN's and PQN's epsilon decay among them) run as in one call.
 One row per agent of the contract table with the normalisation it takes,
-one more with memory where it takes one, and APG with memory (its plain
-resume: tests/probing/test_p4_split_run.py). The second leg resumes from
-the first leg's checkpoint, restored, every leaf alike, into the new
-instance's skeleton (a 0-step call with the same options), as a new process
-would: what the skeleton builds (the optimizers' update rules among it)
-drives that leg. The world models' own tests hold theirs
-(test_p4_split_run.ELSEWHERE)."""
+one more with memory where it takes one, and APG with memory, its optimizer
+kept and a warmup-cosine learning rate (its plain resume:
+tests/probing/test_p4_split_run.py). The second leg resumes from the first
+leg's checkpoint, restored, every leaf alike, into the new instance's
+skeleton (a 0-step call with the same options), as a new process would:
+what the skeleton builds (the optimizers' update rules among it, APG's
+learning-rate schedule there) drives that leg. The world models' own tests
+hold theirs (test_p4_split_run.ELSEWHERE)."""
 
 import inspect
 from pathlib import Path
@@ -49,6 +50,7 @@ def _row(name: str, memory: bool) -> tuple[Any, int, dict]:
     if name == "APG":  # it restarts its optimizer on resume unless told not to
         env, params = paid_action.make()
         kw: dict[str, Any] = {"n_envs": 4, "horizon": 1, "memory": MEMORY["memory"]}
+        kw |= {"lr_schedule": "warmup_cosine", "warmup_steps": 2}
         keep = {"reset_optimizer_on_resume": False, "total_timesteps": 64}
         return lambda: APG(env, env_params=params, pid=None, **kw), 64, keep
     case, taken = CASES[name], inspect.signature(CASES[name].cls).parameters

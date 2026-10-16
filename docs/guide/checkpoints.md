@@ -34,10 +34,11 @@ state you pass in, so read or save what you need from it first.
 
 A checkpoint stores data only. The optimisers' update rules and the
 networks' functions are code, not data: they come from the skeleton, which
-an identically configured agent builds with a 0-step `train` call. The
-agent may be a new instance in a new process. A run that saves a checkpoint
-after each chunk of training, and picks up from the last one when
-restarted:
+an identically configured agent builds with a 0-step `train` call given the
+run's `train` options (an update rule may depend on them, as APG's
+learning-rate schedule does, [below](#things-to-know)). The agent may be a
+new instance in a new process. A run that saves a checkpoint after each
+chunk of training, and picks up from the last one when restarted:
 
 ```python
 import os
@@ -50,7 +51,8 @@ path = os.path.join(tempfile.mkdtemp(), "sac_pendulum.pkl")
 seeds, chunk, total = [0, 1], 1_000, 2_000
 
 agent = SAC("Pendulum-v1", learning_starts=500)
-state, _ = agent.train(seed=seeds, n_timesteps=0)  # the skeleton: init only
+# The skeleton: init only, with the run's options.
+state, _ = agent.train(seed=seeds, n_timesteps=0, total_timesteps=total)
 if checkpoint_exists(path):
     state = restore_into(state, path)
 
@@ -96,7 +98,7 @@ agent; then they compare the two end states:
 | Agents | Check |
 | --- | --- |
 | SAC, ASAC, REDQ, TD3, AVG, APO, PPO, DQN, PQN, UDRL | every array of the final state equal, to a relative 1e-5, with every normalisation the agent takes switched on and every call told the run's horizon (DQN's and PQN's epsilon decays across the split); once more with a GRU memory for SAC, ASAC, REDQ, TD3 and PPO |
-| APG | the same, with and without memory |
+| APG | the same, with and without memory; with memory, the optimiser kept and a warm-up cosine learning rate |
 | DreamerV3, TDMPC2, TDMPC2MultiTask | the same, in their own test files |
 
 The tolerance is there because two programs compiled apart may round
@@ -116,8 +118,11 @@ the steps the whole run does.
   ([Continuing a run](training.md#continuing-a-run)); otherwise it may end
   elsewhere.
 - **APG restarts its optimiser on a resume** by default, which its staged
-  curriculum relies on. Pass `reset_optimizer_on_resume=False` to `train` to
-  keep it.
+  curriculum relies on: its learning-rate schedule then spans each call.
+  Pass `reset_optimizer_on_resume=False` to `train` to keep it. The kept
+  optimiser runs the schedule it was built with, by the run's first call or
+  the skeleton: give that call `reset_optimizer_on_resume=False` and the
+  run's `total_timesteps` too, and the schedule spans the run.
 - **Checkpoints follow the code.** A checkpoint restores into the state
   layout of the Ajax version that loads it. When a layout changes, Ajax keeps
   a conversion for older checkpoints for a while, then removes it. Today

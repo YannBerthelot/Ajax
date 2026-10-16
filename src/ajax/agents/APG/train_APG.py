@@ -351,11 +351,22 @@ def make_train(
     for one). ``train`` returns every update's :class:`APGAuxiliaries`."""
     del critic_optimizer_args  # no critic
     per_update = env_args.n_envs * agent_config.horizon
-    # The call's budget (TrainLoop.budget, the loop being built below). A
-    # call is a curriculum stage: its learning-rate schedule spans its own
-    # updates (the optimizer restarts on resume by default).
+    # The call's budget (TrainLoop.budget, the loop being built below).
     end = total_timesteps if end_timestep is None else end_timestep
     num_updates = max((end - start_timestep) // per_update, 1)
+    # The learning-rate schedule counts the optimizer's steps and lives in
+    # its update rule (tx), a static field of the state: the call that
+    # builds the optimizer sets it. By default a resume rebuilds it
+    # (reset_optimizer: a call is a curriculum stage), so it spans each
+    # call's updates. Kept (reset_optimizer_on_resume=False), the resumed
+    # call runs the tx of the state it is given, built by the run's fresh
+    # call or a checkpoint's 0-step skeleton; there it spans the run's
+    # updates, from 0 to the horizon, and a resumed call's value goes unused.
+    schedule_updates = (
+        num_updates
+        if reset_optimizer_on_resume
+        else max(total_timesteps // per_update, 1)
+    )
     if lr_schedule == "warmup_cosine":
         peak = actor_optimizer_args.learning_rate
         if not isinstance(peak, (int, float)):
@@ -364,8 +375,8 @@ def make_train(
             learning_rate=warmup_cosine_schedule(
                 float(peak),
                 # keep at least one decay step for very short runs
-                warmup_steps=min(warmup_steps, num_updates - 1),
-                total_steps=num_updates,
+                warmup_steps=min(warmup_steps, schedule_updates - 1),
+                total_steps=schedule_updates,
                 end_value_fraction=lr_end_fraction,
             )
         )

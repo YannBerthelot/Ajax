@@ -92,7 +92,12 @@ class APG(ActorCritic):
             beta_2: AdamW second-moment decay.
             lr_schedule: ``None`` (constant) or ``"warmup_cosine"``
                 (linear warmup over ``warmup_steps`` updates, cosine decay
-                to ``learning_rate * lr_end_fraction`` at the last update).
+                to ``learning_rate * lr_end_fraction`` at the call's last
+                update). When ``train`` keeps the optimizer
+                (``reset_optimizer_on_resume=False``), a resumed call runs
+                the schedule of the call that built it, the run's first or
+                a checkpoint's skeleton: given that flag, that call decays
+                to the run's last update, at its ``total_timesteps``.
             max_grad_norm: global-norm gradient clipping, on by default.
                 Deliberate deviation from the reference code (which does
                 not clip): BPTT over 100 steps of a nonlinear plant across

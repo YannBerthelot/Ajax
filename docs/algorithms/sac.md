@@ -134,7 +134,9 @@ raises.
 - **Memory.** With `memory=`, SAC replays sequences in the R2D2 way
   (Kapturowski et al. 2019): `burn_in` steps warm the memory up, then
   `sequence_length` steps are learned from. It refuses extensions and
-  `expert_policy`.
+  `expert_policy`. The recurrent actor and critic take the layout of Ni et
+  al. (2022), whose actor also reads the previous action; see
+  [Memory](../guide/memory.md#off-policy-sequence-replay).
 
 ## Results
 

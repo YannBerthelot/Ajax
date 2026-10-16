@@ -130,9 +130,8 @@ the action the loss asks about, so asking about another action does not
 change what the critic remembers. The critic's Q-heads (two in SAC, ASAC and
 TD3, `num_critics` in REDQ) share its memory, the embeddings before it and
 the second embedding, as Ni et al.'s two heads do: each head is only its own
-hidden layers and output. Ni et al. pair these widths with a memory of 128
-units; `MemoryConfig`'s default is 64. Checkpoints saved before this layout
-cannot be restored.
+hidden layers and output. Checkpoints saved before this layout cannot be
+restored.
 
 | Network | The memory reads | The hidden layers read |
 | --- | --- | --- |
@@ -140,13 +139,37 @@ cannot be restored.
 | Critic (one memory for all its Q-heads) | the observation (32) and the previous action (16) | the memory's output and the observation with the queried action (48) |
 
 Each width in brackets is one dense layer and a ReLU. The reference is Ni et
-al.'s code (twni2016/pomdp-baselines @e7c19c3,
-`policies/models/recurrent_actor.py` and `recurrent_critic.py`). Two
-differences in the layout: Ajax leaves out their optional reward embedder (observation and
-action are their best inputs on the standard POMDPs), and initialises the
-embedders as it does the hidden layers, not with torch's default. PPO and APG
-keep the memory after their hidden layers: Ni et al.'s layout is off-policy
-and needs a critic over actions.
+al.'s code (twni2016/pomdp-baselines @e7c19c3: `recurrent_actor.py`,
+`recurrent_critic.py` and `policy_rnn.py` in `policies/models`). Ajax
+differs from it in these ways:
+
+- **No reward input.** Their memory can also read the last reward, embedded
+  8 or 16 wide in their POMDP configurations (`configs/pomdp`). Ajax's reads
+  the observation and the previous action only, their best inputs on the
+  standard POMDPs.
+- **The memory.** Theirs is a GRU or an LSTM of 128 units. Ajax's is any
+  `MemoryConfig` kind, the transformer and mamba included, 64 units wide by
+  default.
+- **Initialisation and heads.** Ajax initialises the embedders as it does
+  the hidden layers (orthogonal, zero bias), not with torch's default, and a
+  GRU's or an LSTM's input weights with flax's default (LeCun normal), where
+  Ni et al. make every recurrent weight orthogonal. The layers after the
+  memory are each agent's own, as without memory: its hidden layers, output
+  heads and their initialisers, where Ni et al.'s are rlkit's (fan-in
+  uniform with a bias of 0.1, the output layer uniform within 0.003 for a
+  Q-head and 0.001 for the policy).
+- **The critic's loss.** SAC, ASAC and TD3 average their two heads' squared
+  errors where Ni et al. add them: half the gradient, which Adam's step
+  divides out but for its epsilon. REDQ, which Ni et al. do not have, adds
+  its heads' errors.
+- **Replay.** Ni et al. replay sequences that start inside one episode
+  (whole episodes on Pendulum, CartPole and LunarLander, 64 steps on their
+  PyBullet tasks), each from a zero memory, with no burn-in and the steps
+  after the episode's end masked out. Ajax's windows run across episode
+  ends, restarting the memory at each, and burn in first (above).
+
+PPO and APG keep the memory after their hidden layers: Ni et al.'s layout is
+off-policy and needs a critic over actions.
 
 With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the `CloningPretrain` extension), and

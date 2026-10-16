@@ -100,8 +100,8 @@ drift. The actor then takes PPO's clipped step.
   at 0 (`xtma/rlpyt` at `e28bb20`:
   `rlpyt/models/pg/mujoco_ff_model.py:24, :50, :78`, and
   `rlpyt/agents/pg/gaussian.py:34-38`, which sets no `min_std` or
-  `max_std`). `log_std_bounds=None` removes the clip. A PID policy keeps
-  its own log-std, always clipped to `[-20, 2]`.
+  `max_std`). `log_std_bounds=None` removes the clip. A PID policy's own
+  log-std takes the same clip.
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

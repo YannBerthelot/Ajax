@@ -18,7 +18,12 @@ from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import get_initialized_actor_critic
-from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
+from ajax.state import (
+    LOG_STD_BOUNDS,
+    EnvironmentConfig,
+    NetworkConfig,
+    OptimizerConfig,
+)
 from tests.environments import paid_action
 
 from . import setpoint_env
@@ -64,6 +69,19 @@ def test_gains_start_at_zero_and_exploration_is_state_independent():
     np.testing.assert_allclose(dist.stddev(), jnp.exp(-0.5))
 
 
+@pytest.mark.parametrize("bounds", [LOG_STD_BOUNDS, (-1.0, 0.5), None])
+def test_the_log_std_is_clipped_to_its_bounds(bounds):
+    """The log-std is clipped to ``log_std_bounds``, or not at all when
+    None, as the Actor's heads are."""
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, log_std_bounds=bounds)
+    params = actor.init(jax.random.PRNGKey(0), OBS)
+    log_std = jnp.array([3.0, -25.0])  # beyond either bound
+    params = {"params": {**params["params"], "log_std": log_std}}
+    want = np.exp(np.clip(np.asarray(log_std), *(bounds or (-np.inf, np.inf))))
+    std = actor.apply(params, OBS).stddev()
+    np.testing.assert_allclose(std, np.broadcast_to(want, (5, 2)), rtol=1e-5)
+
+
 def test_the_squashed_actor_squashes_the_pid_output():
     actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, squash=True)
     params = _set_gains(actor.init(jax.random.PRNGKey(0), OBS), GAINS)
@@ -106,13 +124,13 @@ def test_bad_policies_raise(kwargs):
         PIDPolicy(**kwargs)
 
 
-def _build(memory=None, td3=False):
+def _build(memory=None, td3=False, log_std_bounds=LOG_STD_BOUNDS):
     env, params = setpoint_env.make()
     env_config = EnvironmentConfig(
         env=env, env_params=params, n_envs=2, continuous=True
     )
     net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=("8",))
-    net = net.replace(memory=memory)
+    net = net.replace(memory=memory, log_std_bounds=log_std_bounds)
     opt = OptimizerConfig(learning_rate=1e-3)
     if td3:
         return get_initialized_td3_actor_critic(
@@ -132,6 +150,15 @@ def test_the_factories_build_pid_actors():
     assert isinstance(actor.apply_fn.__self__, DeterministicPIDActor)
     params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.2) for g in GAINS})
     np.testing.assert_allclose(actor.apply_fn(params, obs).mean(), jnp.tanh(0.6))
+
+
+def test_the_factory_gives_the_pid_actor_its_log_std_bounds():
+    """The network config's bounds reach the PID actor: None leaves a
+    log-std of 3 unclipped (the default bounds would clip it to 2)."""
+    actor, _ = _build(log_std_bounds=None)
+    params = {"params": {**actor.params["params"], "log_std": jnp.full((1,), 3.0)}}
+    dist = actor.apply_fn(params, jnp.ones((3, 5)))
+    np.testing.assert_allclose(dist.distribution.scale, np.exp(3.0), rtol=1e-6)
 
 
 @pytest.mark.parametrize("td3", [False, True])

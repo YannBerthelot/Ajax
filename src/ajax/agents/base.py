@@ -73,9 +73,15 @@ def shared_counters(state: Any, per_seed_updates: bool = False) -> dict[str, jax
         if seeds.size == 0 or np.any(seeds != seeds[0]):
             if name == "n_updates" and per_seed_updates:
                 continue
+            hint = (
+                "; an agent whose seeds update unequally by design declares"
+                " per_seed_update_counts"
+                if name == "n_updates"
+                else ""
+            )
             raise ValueError(
                 f"cannot resume: the seeds' {name} differ ({seeds.tolist()});"
-                " every seed of a resumed run must stand at the same point"
+                f" every seed of a resumed run must stand at the same point{hint}"
             )
         out[name] = jnp.asarray(seeds[0])
     return out
@@ -117,7 +123,8 @@ class ActorCritic:
     # (check_extension_experts).
     stores_expert_actions: bool = False
     # Whether this agent's seeds may stand at different update counts
-    # (TD-MPC2's episodic updates wait on each seed's episodes). A resumed
+    # (TD-MPC2's episodic mode sets it: its updates wait on each seed's
+    # episodes). A resumed
     # run keeps such counts batched (shared_counters); any other agent's
     # differing counts are refused, since a batched count turns the update
     # schedules' lax.cond into a select running both branches.

@@ -661,3 +661,12 @@ def test_an_episodic_run_resumes_as_the_uninterrupted_run(tmp_path):
         TDMPC2(ChainEnv(), episodic=True, buffer_size=200, **small).train(
             seed=0, n_timesteps=60, num_episode_test=1, initial_state=full
         )
+
+
+def test_only_the_episodic_mode_lets_its_seeds_update_unequally():
+    """The episodic mode's updates wait on each seed's episodes, so a
+    resume keeps its seeds' unequal update counts; the paper-era mode's
+    seeds update on the tick, in step, and a resume refuses unequal ones."""
+    for episodic in (True, False):
+        agent = TDMPC2(ChainEnv(), episodic=episodic, buffer_size=200, **CHAIN)
+        assert agent.per_seed_update_counts is episodic

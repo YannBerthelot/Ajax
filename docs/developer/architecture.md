@@ -358,7 +358,7 @@ in, whose buffers XLA reuses (the argument is donated).
 `ActorCritic.train(initial_state=state)` continues a run. It checks that
 every seed stands at the same timestep, evaluation count and update count
 (`shared_counters`; only an agent declaring `per_seed_update_counts`,
-TD-MPC2, may differ in updates, and keeps them batched), keeps those
+TD-MPC2 in its episodic mode, may differ in updates, and keeps them batched), keeps those
 counters unbatched, and trains from that timestep to `timestep +
 n_timesteps`. Every schedule (the training fraction, the extensions'
 `total_steps`, the logging's end) runs over the whole run, so a resumed run

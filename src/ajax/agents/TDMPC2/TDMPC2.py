@@ -121,9 +121,6 @@ class TDMPC2(ActorCritic):
 
     name: str = "TDMPC2"
     supported_extension_phases: frozenset = LOOP_PHASES
-    # The episodic mode's updates wait on each seed's ready episodes
-    # (train_TDMPC2's n_updates), so seeds may update unequally.
-    per_seed_update_counts: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -266,6 +263,10 @@ class TDMPC2(ActorCritic):
             if episodic
             else Schedule(**schedule, updates_per_step=ratio)
         )
+        # The episodic mode's updates wait on each seed's ready episodes
+        # (train_TDMPC2's n_updates), so its seeds may update unequally; the
+        # paper-era mode's follow the tick, in step.
+        self.per_seed_update_counts = episodic
         self.train_kwargs = {
             "gamma": self.gamma,
             "schedule": self.schedule,

@@ -66,6 +66,21 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
 
 
+def linear_epsilon(
+    timestep: jax.Array,
+    total_timesteps: int,
+    epsilon_start: float,
+    epsilon_end: float,
+    epsilon_decay_frac: float,
+) -> jax.Array:
+    """Epsilon at ``timestep``: linear from ``epsilon_start`` to
+    ``epsilon_end`` over the first ``epsilon_decay_frac`` of the
+    ``total_timesteps`` horizon, then flat."""
+    train_frac = timestep / total_timesteps
+    decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
+    return epsilon_start + decay * (epsilon_end - epsilon_start)
+
+
 def make_epsilon_greedy_pipeline(
     n_actions: int,
     epsilon_start: float,
@@ -75,10 +90,9 @@ def make_epsilon_greedy_pipeline(
 ) -> Callable:
     """Build the default DQN ``action_pipeline``: linear-decay epsilon-greedy.
 
-    Epsilon decays linearly from ``epsilon_start`` to ``epsilon_end`` over
-    the first ``epsilon_decay_frac`` of training, then stays flat. During
-    the ``learning_starts`` warmup (``uniform`` is set) actions are fully
-    random regardless of epsilon.
+    Epsilon follows :func:`linear_epsilon` over the ``total_timesteps``
+    horizon. During the ``learning_starts`` warmup (``uniform`` is set)
+    actions are fully random regardless of epsilon.
     """
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
@@ -89,10 +103,13 @@ def make_epsilon_greedy_pipeline(
         )
         greedy_action = jnp.argmax(q_values, axis=-1).astype(jnp.int32)
 
-        timestep = agent_state.collector_state.timestep
-        train_frac = timestep / total_timesteps
-        decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
-        epsilon = epsilon_start + decay * (epsilon_end - epsilon_start)
+        epsilon = linear_epsilon(
+            agent_state.collector_state.timestep,
+            total_timesteps,
+            epsilon_start,
+            epsilon_end,
+            epsilon_decay_frac,
+        )
 
         explore_key, random_key = jax.random.split(action_key)
         random_action = jax.random.randint(

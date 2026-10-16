@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import pickle
+from collections.abc import Iterator
 from typing import Any
 
 import jax
@@ -61,6 +62,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     skeleton_dict = serialization.to_state_dict(skeleton)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
+    state_dict = _without_removed_fields(skeleton, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
@@ -124,6 +126,40 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
         elif value is None:
             out[key] = None
     return out
+
+
+def _without_removed_fields(skeleton: Any, saved: Any) -> Any:
+    """Drop the saved fields a state class deleted and lists in its
+    ``removed_fields`` (a ``ClassVar[frozenset[str]]``), at any depth, so a
+    checkpoint saved with them restores. Flax refuses a field its class
+    lacks; a field the class does not list still fails, so a checkpoint of
+    another agent or layout stays a mismatch.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10): a class
+    drops a name from ``removed_fields`` once no checkpoint holding that
+    field remains.
+    """
+    if not isinstance(saved, dict):
+        return saved
+    removed: frozenset[str] = getattr(skeleton, "removed_fields", frozenset())
+    children = dict(_children(skeleton))
+    return {
+        key: _without_removed_fields(children[key], value) if key in children else value
+        for key, value in saved.items()
+        if key not in removed
+    }
+
+
+def _children(node: Any) -> Iterator[tuple[str, Any]]:
+    """``node``'s children by their keys in its state dict: jax's key paths
+    name a class's or NamedTuple's field, a dict's key and a list's or
+    tuple's index as flax's state dict does."""
+    children, _ = jax.tree_util.tree_flatten_with_path(
+        node, is_leaf=lambda child: child is not node
+    )
+    for path, child in children:
+        if path:  # empty when ``node`` is itself a leaf
+            yield jax.tree_util.keystr(path, simple=True), child
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:

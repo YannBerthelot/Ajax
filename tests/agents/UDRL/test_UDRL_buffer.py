@@ -12,6 +12,7 @@ from ajax.agents.UDRL.buffer import (
     sample_training_batch,
     topk_command_stats,
 )
+from ajax.checkpoint import restore_into, save_checkpoint
 
 T = 4  # steps per segment
 
@@ -47,6 +48,24 @@ def test_topk_skips_the_fragment_whose_start_was_evicted():
     np.testing.assert_array_equal(stream.order, [2, 0, 1])
     mean_r, _, mean_h = topk_command_stats(stream, k=4)
     np.testing.assert_allclose((mean_r, mean_h), (6.0, 6.0))
+
+
+def test_a_buffer_saved_with_its_deleted_cum_rewards_restores(tmp_path):
+    """A checkpoint of the buffer from before it deleted cum_rewards, its
+    per-slot prefix sum of the rewards, restores without it into a buffer
+    of zeros."""
+    import pickle
+
+    buffer = _buffer(4, 3, (9,), reward_is_step=True)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(buffer, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    saved["cum_rewards"] = np.ones((4, T + 1, 1, 1), np.float32)
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    restored = restore_into(jax.tree.map(jnp.zeros_like, buffer), path)
+    jax.tree.map(np.testing.assert_array_equal, restored, buffer)
 
 
 @pytest.mark.parametrize(

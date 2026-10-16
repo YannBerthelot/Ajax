@@ -8,6 +8,7 @@ from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
+from ajax.networks.utils import TORCH_LINEAR
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -32,8 +33,19 @@ class APO(ActorCritic):
         n_envs: int = 4,
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
-        actor_architecture=("128", "tanh", "128", "tanh"),
-        critic_architecture=("128", "tanh", "128", "tanh"),
+        # The hidden layers of APO's official code: xtma/apo @bfcd997 sets
+        # only normalize_observation in the model config
+        # (apo/experiments/configs/mujoco/apg/mujoco_appo.py:20, exp.py:38),
+        # so rlpyt's MujocoFfModel (xtma/rlpyt @e28bb20,
+        # rlpyt/models/pg/mujoco_ff_model.py:21-22, :33-49) builds its mean
+        # and its value MLPs each with two hidden layers of 64 tanh units,
+        # torch Linear layers (rlpyt/models/mlp.py:27-31) at torch's default
+        # initialisation: "torch_linear" (TorchLinear, networks/utils.py).
+        # The output layers are not the reference's: the mean layer's
+        # initialiser is below, the value layer's orthogonal(1.0), both
+        # biases zero.
+        actor_architecture=("64", "tanh", "64", "tanh"),
+        critic_architecture=("64", "tanh", "64", "tanh"),
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = 0.5,
         weight_decay: float = 0.0,
@@ -53,7 +65,9 @@ class APO(ActorCritic):
         reward_normalization_gamma: Optional[float] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        encoder_kernel_init: Optional[
+            Union[str, InitializationFunction]
+        ] = TORCH_LINEAR,
         # The (low, high) clip of the continuous actor's log-std. None, no
         # clip, as APO's official code (below).
         log_std_bounds: Optional[Tuple[float, float]] = None,

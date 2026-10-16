@@ -37,7 +37,8 @@ Each agent's default follows its paper or reference implementation:
 | `("256", "relu", "256", "relu")` | SAC, ASAC, REDQ |
 | `("400", "relu", "300", "relu")` | TD3 |
 | `("256", "leaky_relu", "256", "leaky_relu")` | AVG |
-| `("128", "tanh", "128", "tanh")` | PPO, APO |
+| `("128", "tanh", "128", "tanh")` | PPO |
+| `("64", "tanh", "64", "tanh")` | APO |
 | `("128", "relu", "128", "relu")` | DQN, PQN, UDRL, APG (its controller) |
 
 DreamerV3 and TD-MPC2 build their own networks to their papers'
@@ -48,8 +49,9 @@ specifications: see [World models](world-models.md).
 Kernels start from an orthogonal initialiser with gain 1 and biases from
 zero, except the policy's mean, whose kernel starts from
 `orthogonal(0.01)`, a near-zero first action (TD3's deterministic actor
-starts its last layer uniform in `±3e-3`, as DDPG does). Initialisers are
-named by string:
+starts its last layer uniform in `±3e-3`, as DDPG does), and APO's hidden
+layers, which start as its reference code's (`"torch_linear"`, below).
+Initialisers are named by string:
 
 - `"orthogonal(0.01)"`, `"lecun_uniform"`, or any other factory in
   `flax.linen.initializers`, with its argument in brackets (`np`, `jnp` and

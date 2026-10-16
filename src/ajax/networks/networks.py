@@ -27,6 +27,7 @@ from ajax.networks.utils import (
     parse_initialization,
 )
 from ajax.state import (
+    LOG_STD_BOUNDS,
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
@@ -150,9 +151,9 @@ class Actor(nn.Module):
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # The log-std head, every std starting at exp(log_std_init). False (the
     # default here): a Dense layer over the encoder's features
-    # (state-dependent, SAC's), always clipped to [-20, 2]. True: one learned
-    # log-std per action dimension, clipped to ``log_std_bounds`` (None: not
-    # clipped). PPO's default is True, log_std_init 0 and no clip, as its
+    # (state-dependent, SAC's), always clipped to LOG_STD_BOUNDS. True: one
+    # learned log-std per action dimension, clipped to ``log_std_bounds``
+    # (None: not clipped). PPO's default is True, log_std_init 0 and no clip, as its
     # reference code learns it: OpenAI Baselines @ea25b9e (ppo2's
     # common/distributions.py:96-106; ppo1's ppo1/mlp_policy.py:36-39,
     # gaussian_fixed_var=True), CleanRL @fe8d8a0
@@ -160,7 +161,7 @@ class Actor(nn.Module):
     # (ppo_continuous_action.py:41).
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
-    log_std_bounds: Optional[Tuple[float, float]] = (-20.0, 2.0)
+    log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
     # Mean-head kernel init (a ``parse_initialization`` string or a
     # callable). None keeps ``orthogonal(0.01)``, a small initial mean.
     # brax PPO uses ``lecun_uniform`` for the mean head, which gives an
@@ -248,7 +249,7 @@ class Actor(nn.Module):
                 if self.log_std_bounds is not None:
                     log_std = jnp.clip(log_std, *self.log_std_bounds)
             else:
-                log_std = jnp.clip(self.log_std(embedding), -20, 2)
+                log_std = jnp.clip(self.log_std(embedding), *LOG_STD_BOUNDS)
             std = jnp.exp(log_std)
             return (
                 distrax.Normal(mean, std)

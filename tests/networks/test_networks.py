@@ -18,6 +18,7 @@ from ajax.networks.networks import (
     predict_value,
 )
 from ajax.state import (
+    LOG_STD_BOUNDS,
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
@@ -380,11 +381,11 @@ def test_the_actor_std_starts_at_exp_log_std_init(state_independent):
     np.testing.assert_allclose(std, np.full((4, 3), np.exp(-0.5)), rtol=1e-6)
 
 
-@pytest.mark.parametrize("bounds", [(-20.0, 2.0), (-1.0, 0.5), None])
+@pytest.mark.parametrize("bounds", [LOG_STD_BOUNDS, (-1.0, 0.5), None])
 @pytest.mark.parametrize("state_independent", [False, True])
 def test_log_std_bounds_clip_only_the_log_std_parameter(state_independent, bounds):
     """The state-independent parameter is clipped to ``log_std_bounds``, or
-    not at all when None; SAC's Dense head is always clipped to [-20, 2]."""
+    not at all when None; SAC's Dense head always to LOG_STD_BOUNDS."""
     actor = Actor(
         action_dim=2,
         input_architecture=ARCH,
@@ -400,7 +401,7 @@ def test_log_std_bounds_clip_only_the_log_std_parameter(state_independent, bound
     else:
         params = {**params, "log_std": {**params["log_std"], "bias": log_std}}
     std = actor.apply({"params": params}, obs).stddev()
-    low, high = (bounds or (-np.inf, np.inf)) if state_independent else (-20, 2)
+    low, high = (bounds or (-np.inf, np.inf)) if state_independent else LOG_STD_BOUNDS
     want = np.clip(np.asarray(log_std), low, high)
     np.testing.assert_allclose(std, np.broadcast_to(np.exp(want), (4, 2)), rtol=1e-5)
 

@@ -23,6 +23,7 @@ from ajax.logging.wandb_logging import (
 from ajax.networks.memory import MemoryConfig, parse_memory_config
 from ajax.networks.networks import CNNSpec
 from ajax.state import (
+    LOG_STD_BOUNDS,
     BaseAgentConfig,
     BaseAgentState,
     EnvironmentConfig,
@@ -144,7 +145,7 @@ class ActorCritic:
         # Brax-style actor head knobs (see NetworkConfig).
         log_std_state_independent: bool = False,
         log_std_init: float = -1.0,
-        log_std_bounds: Optional[Tuple[float, float]] = (-20.0, 2.0),
+        log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_layer_norm: bool = False,
         squash: bool = False,

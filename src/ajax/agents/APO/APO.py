@@ -8,6 +8,7 @@ from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
+from ajax.state import LOG_STD_BOUNDS
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -57,7 +58,7 @@ class APO(ActorCritic):
         # The clip of the continuous actor's log-std (Brax's head, below):
         # SAC's [-20, 2], a deviation from APO's official code
         # (docs/algorithms/apo.md); None removes it.
-        log_std_bounds: Optional[Tuple[float, float]] = (-20.0, 2.0),
+        log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS,
         # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.
         expert_policy: Optional[Callable] = None,

@@ -50,6 +50,7 @@ import jax.numpy as jnp
 from ajax.environments.pid_terms import split_pid_terms
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.utils import parse_architecture
+from ajax.state import LOG_STD_BOUNDS
 
 GAIN_NAMES = ("kp", "ki", "kd")
 
@@ -135,7 +136,8 @@ class PIDActor(nn.Module):
 
     def __call__(self, obs: jax.Array) -> distrax.Distribution:
         mean = self.pid(obs)
-        std = jnp.exp(jnp.clip(jnp.broadcast_to(self.log_std, mean.shape), -20, 2))
+        log_std = jnp.broadcast_to(self.log_std, mean.shape)
+        std = jnp.exp(jnp.clip(log_std, *LOG_STD_BOUNDS))
         return SquashedNormal(mean, std) if self.squash else distrax.Normal(mean, std)
 
 

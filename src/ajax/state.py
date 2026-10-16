@@ -223,6 +223,12 @@ class BaseAgentConfig(Replaceable):
     expose_recent_rollout: bool = False
 
 
+#: SAC's ``(low, high)`` clip of a Gaussian actor's log-std. The Dense head
+#: and the PID actor always clip to it; the per-dimension parameter clips to
+#: ``NetworkConfig.log_std_bounds``, these bounds by default but in PPO.
+LOG_STD_BOUNDS: Tuple[float, float] = (-20.0, 2.0)
+
+
 @struct.dataclass
 class NetworkConfig(Replaceable):
     # Hidden layers, or a PIDPolicy: the actor is then a PID controller
@@ -254,7 +260,7 @@ class NetworkConfig(Replaceable):
     # reference.
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
-    log_std_bounds: Optional[Tuple[float, float]] = (-20.0, 2.0)
+    log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by

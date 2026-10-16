@@ -366,7 +366,11 @@ iteration offset. A run split in two, on a new agent instance, ends in the
 state one uninterrupted call reaches (`tests/agents/test_resume_contract.py`).
 [`checkpoint.py`](../../src/ajax/checkpoint.py) saves a state's arrays to disk
 and grafts them back onto a fresh skeleton; see
-[Checkpoints and resuming](../guide/checkpoints.md).
+[Checkpoints and resuming](../guide/checkpoints.md). A state class that
+deletes a data field lists it in its `removed_fields`, a
+`ClassVar[frozenset[str]]`: checkpoints saved with the field then restore
+without it. A saved field that its class neither has nor lists still fails
+to restore.
 
 ## Keywords on their way out
 

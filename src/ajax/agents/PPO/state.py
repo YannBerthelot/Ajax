@@ -37,8 +37,11 @@ class PPOConfig(BaseAgentConfig):
     # splits into (n_steps / bptt_length) contiguous sequences whose
     # start carries are recomputed chunk-wise with the current params
     # (never zero-initialized mid-episode — that variant demonstrably
-    # hurts). None keeps full-rollout BPTT. Must divide n_steps. Ignored
-    # by feedforward policies (unroll_length covers that geometry).
+    # hurts). None derives it from the minibatches (train_PPO's
+    # default_bptt_length): whole rollouts when n_envs is a multiple of
+    # num_minibatches. An explicit value must divide that default.
+    # docs/guide/memory.md says why and how to set it. Ignored by
+    # feedforward policies (unroll_length covers that geometry).
     bptt_length: Optional[int] = None
     # Brax's ``num_resets_per_eval``: do a forced env.reset with fresh
     # RNG every ``num_training_steps_per_epoch`` training iterations to

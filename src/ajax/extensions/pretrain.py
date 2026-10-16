@@ -362,8 +362,9 @@ class CloningPretrain(Extension):
     (:func:`ajax.agents.cloning.pre_train`: ``epochs`` passes in batches of
     ``batch_size``, at the actor's learning rate). The agent's observation
     statistics start from the dataset's. ``skip_actor`` leaves the actor as
-    initialised; ``reset_log_std`` and ``reset_actor_head`` re-initialise
-    its log-std head, or both heads, after cloning.
+    initialised; after cloning, ``reset_log_std`` puts its log-std (head
+    or parameter) back at its initial values and ``reset_actor_head`` also
+    its output head (the mean layer, or a PID actor's gains).
 
     The fields after ``reset_actor_head`` are the agent's context, filled by
     :meth:`bind_to_agent` (SAC, REDQ, TD3 and APO do).

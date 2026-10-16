@@ -16,6 +16,7 @@ from ajax.environments.create import build_env_from_id, prepare_env
 from ajax.environments.row_collector import collect_row, init_row_collector_state
 from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import agent_episode_length
+from ajax.networks.memory import MEMORY_KINDS, MemoryCell, MemoryConfig, init_carry
 from ajax.state import EnvironmentConfig
 
 
@@ -252,6 +253,55 @@ def test_a_stateful_policy_sees_is_first_on_every_reset_row():
             np.testing.assert_array_equal(
                 count[start : end + 1, e], np.arange(1, end - start + 2)
             )
+
+
+def memory_policy(kind, env_args, act):
+    """A stateful policy acting ``act(obs)``: a memory cell of ``kind`` over
+    the observations, restarted where ``is_first``; its output is the row's
+    extra. Returns the cell, its parameters, fresh carry and the policy."""
+    config = MemoryConfig(kind=kind, hidden_size=8, window=8)
+    cell, n = MemoryCell(config), env_args.n_envs
+    carry = init_carry(config, jax.random.PRNGKey(0), n)
+    obs_dim = env_args.env.observation_space(env_args.env_params).shape[-1]
+    x, resets = jnp.zeros((1, n, obs_dim)), jnp.zeros((1, n), bool)
+    params = cell.init(jax.random.PRNGKey(1), carry, x, resets)
+
+    def policy(carry, obs, is_first, key):
+        del key
+        carry, y = cell.apply(params, carry, obs[None], is_first[None])
+        return act(obs), carry, {"y": y[0]}
+
+    return cell, params, carry, policy
+
+
+@pytest.mark.parametrize("kind", MEMORY_KINDS)
+def test_a_memory_policy_restarts_on_every_reset_row(kind):
+    """For every memory kind, in both reset modes (CartPole's terminations,
+    Pendulum's 4-step schedule): each episode's outputs, its final row's
+    included, are the cell's run from a fresh carry over that episode's
+    observations alone."""
+    modes = (
+        ("CartPole-v1", "dynamic", None, lambda o: jnp.ones(o.shape[0], jnp.int32)),
+        ("Pendulum-v1", "static", 4, lambda o: jnp.full((o.shape[0], 1), 0.5)),
+    )
+    for env_id, mode, length, act in modes:
+        env_args = env_args_for(env_id, 2)
+        cell, params, carry, policy = memory_policy(kind, env_args, act)
+        run = run_collector(
+            env_args, policy, 40, reset_mode=mode, episode_length=length, carry=carry
+        )
+        obs, y = np.asarray(run.rows.obs), np.asarray(run.rows.extras["y"])
+        for e in range(2):
+            eps = episodes(run.rows, e)
+            assert len(eps) >= 3, (mode, eps)
+            for start, end in eps:
+                x = jnp.asarray(obs[start : end + 1, e])[:, None]
+                resets = jnp.zeros((len(x), 1), bool).at[0].set(True)
+                fresh = init_carry(cell.config, jax.random.PRNGKey(0), 1)
+                _, want = cell.apply(params, fresh, x, resets)
+                np.testing.assert_allclose(
+                    y[start : end + 1, e], np.asarray(want)[:, 0], atol=1e-5
+                )
 
 
 def hold_half(carry, obs, is_first, key):

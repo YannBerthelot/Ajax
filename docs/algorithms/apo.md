@@ -89,9 +89,15 @@ drift. The actor then takes PPO's clipped step.
   minibatch as in Ajax's PPO.
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.
-- **Actor head.** APO always uses Brax's continuous head: a tanh-bounded
-  Gaussian with one learnable log-std per action dimension (initial std 1)
-  and a `lecun_uniform` mean layer. A discrete APO ignores it.
+- **Actor head.** A continuous APO always samples a tanh-squashed Gaussian
+  with a `lecun_uniform` mean layer, as Brax's PPO does; the official code
+  instead bounds the mean with a tanh and samples an unsquashed Gaussian.
+  The log standard deviation is the official code's: one learnable
+  parameter per action dimension, whatever the observation, starting at 0
+  (a standard deviation of 1), in the authors' `rlpyt` fork at `e28bb20`
+  (`rlpyt/models/pg/mujoco_ff_model.py:24,50,78`). Unlike theirs, it is
+  clipped to `[-20, 2]` (`rlpyt/agents/pg/gaussian.py:34-38` builds the
+  Gaussian without a clip). A discrete APO ignores the head.
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

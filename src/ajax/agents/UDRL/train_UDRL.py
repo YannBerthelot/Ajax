@@ -61,6 +61,7 @@ from ajax.state import (
     OptimizerConfig,
     Transition,
 )
+from ajax.wrappers import RAW_REWARD_KEY
 
 
 @struct.dataclass
@@ -191,7 +192,7 @@ def _udrl_collect_step(
     )
     action, log_probs = pi.sample_and_log_prob(seed=action_key)
 
-    new_env_obs, new_env_state, reward, terminated, truncated, _ = (
+    new_env_obs, new_env_state, reward, terminated, truncated, info = (
         jax.lax.stop_gradient(
             step(
                 rng_step,
@@ -241,9 +242,14 @@ def _udrl_collect_step(
         log_prob=log_probs,
     )
 
-    # Episodes span segments: their returns are summed across iterations.
+    # Episodes span segments: their returns are summed across iterations,
+    # in the env's own units (a reward normaliser keeps them in info), as
+    # collect_experience does.
+    paid = (
+        info[RAW_REWARD_KEY].astype(jnp.float32) if RAW_REWARD_KEY in info else reward
+    )
     episodic_return_state, episodic_mean_return = update_episodic_return(
-        cs.episodic_return_state, reward, done > 0
+        cs.episodic_return_state, paid, done > 0
     )
     new_cs = cs.replace(
         rng=rng,

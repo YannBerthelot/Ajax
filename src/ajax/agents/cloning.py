@@ -1,14 +1,14 @@
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import distrax
 import jax
 import jax.numpy as jnp
 import optax
-from flax.linen.initializers import orthogonal
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import augment_obs
+from ajax.modules.pid_actor import GAIN_NAMES
 from ajax.networks.distributions import SquashedNormal
 from ajax.state import Transition
 
@@ -23,61 +23,33 @@ def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     return x.reshape(n_batches, batch_size, *x.shape[1:])
 
 
-def _reset_actor_heads(
-    bc_actor_state: train_state.TrainState,
-    rng: jax.Array,
-    reset_log_std: bool,
-    reset_actor_head: bool,
-) -> train_state.TrainState:
-    """Reset the log_std and/or mean head subtrees of an actor TrainState.
+# The actor's log-std, whatever its form: Actor's head over the features
+# (``log_std``) or state-independent parameter (``log_std_param``), or a
+# PID actor's parameter (``log_std``).
+_LOG_STD_NAMES = frozenset({"log_std", "log_std_param"})
 
-    Reset values mirror Actor.setup() in networks.py.
-    """
-    from flax.core import freeze, unfreeze
 
-    mean_kernel_init_orig = orthogonal(0.01)
+def _is_output_head(names: list) -> bool:
+    """Whether a parameter belongs to the actor's output head: Actor's
+    ``mean`` layer, or a PID law's gains (fixed ``kp``, ``ki`` and ``kd``,
+    or the ``head`` predicting them from the observation)."""
+    if len(names) > 1 and names[-2] == "mean":
+        return True
+    return "pid" in names and ("head" in names or names[-1] in GAIN_NAMES)
 
-    def _reset_subtrees(d, rng_key):
-        if not hasattr(d, "items") and not isinstance(d, dict):
-            return d, rng_key
-        out = {}
-        for k, v in d.items():
-            if (
-                k == "log_std"
-                and isinstance(v, dict)
-                and (reset_log_std or reset_actor_head)
-            ):
-                new_sub = {}
-                for sub_k, sub_v in v.items():
-                    if sub_k == "kernel":
-                        new_sub[sub_k] = jnp.zeros_like(sub_v)
-                    elif sub_k == "bias":
-                        new_sub[sub_k] = jnp.full_like(sub_v, -1.0)
-                    else:
-                        new_sub[sub_k] = sub_v
-                out[k] = new_sub
-            elif k == "mean" and isinstance(v, dict) and reset_actor_head:
-                new_sub = {}
-                for sub_k, sub_v in v.items():
-                    if sub_k == "kernel":
-                        rng_key, subkey = jax.random.split(rng_key)
-                        new_sub[sub_k] = mean_kernel_init_orig(
-                            subkey, sub_v.shape, sub_v.dtype
-                        )
-                    elif sub_k == "bias":
-                        new_sub[sub_k] = jnp.zeros_like(sub_v)
-                    else:
-                        new_sub[sub_k] = sub_v
-                out[k] = new_sub
-            elif isinstance(v, dict):
-                out[k], rng_key = _reset_subtrees(v, rng_key)
-            else:
-                out[k] = v
-        return out, rng_key
 
-    new_params_dict = unfreeze(bc_actor_state.params)
-    new_params_dict, _ = _reset_subtrees(new_params_dict, rng)
-    return bc_actor_state.replace(params=freeze(new_params_dict))
+def _reset_actor_heads(cloned: Any, before: Any, reset_actor_head: bool) -> Any:
+    """The ``cloned`` actor parameters with the log-std and, with
+    ``reset_actor_head``, the output head back at their values ``before``
+    cloning (the actor's initial values under CloningPretrain)."""
+
+    def reset(path: Any, new: jax.Array, old: jax.Array) -> jax.Array:
+        names = [getattr(k, "key", None) for k in path]
+        if _LOG_STD_NAMES.intersection(names):
+            return old
+        return old if reset_actor_head and _is_output_head(names) else new
+
+    return jax.tree_util.tree_map_with_path(reset, cloned, before)
 
 
 @partial(
@@ -101,12 +73,13 @@ def pre_train(
     actor_epochs: int = 10,
     actor_batch_size: int = 64,
     skip_actor: bool = False,
-    # If True, after BC training the SAC actor's mean (and encoder), reset
-    # the ``log_std`` head's params to its init values (zeros kernel,
-    # constant -1.0 bias → std ≈ 0.37). Preserves the BC'd mean.
+    # If True, after BC training the actor's mean (and encoder), put its
+    # log-std back at its values before cloning (head or parameter).
+    # Preserves the BC'd mean.
     reset_log_std: bool = False,
-    # If True, after BC reset BOTH ``mean`` and ``log_std`` head subtrees
-    # to fresh init. Keeps only the encoder (trunk) BC-warmed: trunk
+    # If True, after BC also put the output head (the ``mean`` layer, or a
+    # PID actor's gains) back at its values before cloning. Keeps only the
+    # encoder (trunk) BC-warmed: trunk
     # features encode expert-relevant state representations, but the
     # action map is random. Online RL re-learns the head fast on top of
     # informative features without any sharp policy break (since the
@@ -204,7 +177,7 @@ def pre_train(
         )
         return state, jnp.mean(batch_losses)
 
-    rng, rng_actor = jax.random.split(rng)
+    _, rng_actor = jax.random.split(rng)
     if skip_actor:
         # Actor pretraining bypassed (e.g., to keep policy free to deviate
         # from a suboptimal expert). Leave actor_state untouched.
@@ -216,12 +189,10 @@ def pre_train(
         )
         metrics["actor_loss"] = actor_losses
         if reset_log_std or reset_actor_head:
-            rng, reset_key = jax.random.split(rng)
-            bc_actor_state = _reset_actor_heads(
-                bc_actor_state,
-                reset_key,
-                reset_log_std,
-                reset_actor_head,
+            bc_actor_state = bc_actor_state.replace(
+                params=_reset_actor_heads(
+                    bc_actor_state.params, actor_state.params, reset_actor_head
+                )
             )
 
     if not skip_actor:

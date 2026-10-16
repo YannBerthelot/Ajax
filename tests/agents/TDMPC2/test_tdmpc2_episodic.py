@@ -661,3 +661,18 @@ def test_an_episodic_run_resumes_as_the_uninterrupted_run(tmp_path):
         TDMPC2(ChainEnv(), episodic=True, buffer_size=200, **small).train(
             seed=0, n_timesteps=60, num_episode_test=1, initial_state=full
         )
+
+
+def test_an_episodic_run_that_never_updates_raises():
+    """Episodes terminating after 2 steps have 3 rows, fewer than the
+    horizon + 1 = 4 a training slice takes, so the run would never update:
+    it raises once every episode running at the seed tick has ended."""
+    agent = TDMPC2(
+        ChainEnv(terminate_at=2),
+        episodic=True,
+        buffer_size=200,
+        **{**CHAIN, "seed_steps": 20},
+    )
+    agent.train(seed=0, n_timesteps=40, num_episode_test=1)  # tick 20: not yet
+    with pytest.raises(ValueError, match="never updated"):
+        agent.train(seed=0, n_timesteps=60, num_episode_test=1)

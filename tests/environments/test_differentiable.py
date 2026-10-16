@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from gymnax import make as make_gymnax_env
 
@@ -10,7 +11,7 @@ from ajax.environments.differentiable import (
     closed_loop_rollout,
     with_transition_gradients,
 )
-from ajax.environments.system_class import UniformPerturbation
+from ajax.environments.system_class import UniformPerturbation, broadcast_env_params
 from ajax.networks.memory import MemoryCell, MemoryConfig, init_carry
 from ajax.wrappers import ClipAction
 
@@ -74,6 +75,28 @@ def test_rollout_shapes_and_reset_flags(pendulum):
     assert bool(rollout.resets[0].all()) and not bool(rollout.resets[1:].any())
     # next_obs feeds the next step's obs
     assert jnp.array_equal(rollout.next_obs[:-1], rollout.obs[1:])
+
+
+def test_the_policy_is_told_each_episode_start(pendulum):
+    """``resets`` is True at the first step and on the step after each end of
+    its own env: two systems whose episodes end at the time limits 3 and 4."""
+    env, params = pendulum
+    params = broadcast_env_params(params, 2)
+    params = params.replace(max_steps_in_episode=jnp.array([3, 4]))
+
+    def policy_step(carry, obs, resets):
+        t, seen = carry
+        return -0.1 * obs[:, 2:3], (t + 1, seen.at[t].set(resets))
+
+    seen = (0, jnp.zeros((T, 2), bool))
+    rollout, (_, seen) = closed_loop_rollout(
+        policy_step, seen, jax.random.PRNGKey(0), env, params, T
+    )
+    starts = [[0, 3, 6, 9], [0, 4, 8]]
+    for e, want in enumerate(starts):
+        assert list(np.flatnonzero(seen[:, e])) == want, (e, seen[:, e])
+    np.testing.assert_array_equal(seen[1:], rollout.done[:-1])
+    np.testing.assert_array_equal(rollout.resets, seen)
 
 
 def test_rollout_requires_n_envs_for_unbatched_params(pendulum):

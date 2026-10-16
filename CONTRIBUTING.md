@@ -320,13 +320,25 @@ pins them. Add none.
 
 ## Testing
 
-*Unit tests* (`tests/<area>/`, `tests/agents/<AGENT>/`) check pieces in
-isolation and that every agent and extension runs. *Pins* record behaviour so
-a restructuring can show it changed nothing: `tests/agents/test_agent_pins.py`
-(tiny runs' fingerprints), `tests/extensions/test_sac_extensions_equivalence.py`
-and `tests/test_downstream_api.py` (the names downstream projects import).
-*Probing tests* (`tests/probing`) check that agents learn the right thing.
-*Slow tests* (`@pytest.mark.slow`) are the long trainings.
+Two kinds of tests check the code, each answering its own question
+([Testing](docs/developer/testing.md) is the full guide):
+
+- *Unit tests* (`tests/<area>/`, `tests/agents/<AGENT>/`) check one component
+  against an exact contract, with no learning. Where agents or extensions
+  share a contract, the test is generic (`tests/agents/test_*_contract.py`,
+  `tests/extensions/test_phase_contract.py`, ...): it runs every one of them,
+  and a new one fails it until it joins.
+- *Probing tests* (`tests/probing`) train an agent briefly on a tiny generic
+  environment whose answer is known, and check only what learning shows: the
+  right value, the right action, the right count.
+
+A convention that differs from a reference implementation (an ordering, a
+default, a constant) is for code review, not for a test. *Pins* record what a
+tiny run produces today, so a restructuring can show it changed nothing:
+`tests/agents/test_agent_pins.py` (tiny runs' fingerprints),
+`tests/extensions/test_sac_extensions_equivalence.py` and
+`tests/test_downstream_api.py` (the names downstream projects import). *Slow
+tests* (`@pytest.mark.slow`) are the long trainings.
 
 Every directory of `tests/` that holds Python files is a package (an empty
 `__init__.py`; `tests/test_repo_hygiene.py` checks it), so tests import shared
@@ -338,7 +350,7 @@ CounterExt`. The benchmark scripts the tests import are on the path through
 uv run pytest --collect-only -q   # everything imports and collects
 uv run pytest tests/agents/TD3    # the tests of what you changed
 uv run pytest -m "not slow"       # skip the long trainings
-make ci   # what CI runs (ci-precommit, ci-test, ci-slow, ci-probe), GPU hidden
+make ci   # what CI runs: ci-precommit, ci-test, ci-slow, ci-probe, docs
 ```
 
 The `make` targets hide the GPU (`CPU_ENV`) so tests never compete with a
@@ -350,16 +362,17 @@ the tests not marked slow, probing excluded, under coverage; the last shard
 runs whatever the first two do not name, so a new test file always runs);
 *Coverage* (the shards combined, at least 70%); *Slow tests* (without
 coverage, which would lengthen them); *Probing* (five shards; the last takes
-any new probe file). *Lint and Test*, the one check branch protection
-requires, passes only when all of them passed.
+any new probe file); *Docs* (the documentation site, `mkdocs build
+--strict`). *Lint and Test*, the one check branch protection requires, passes
+only when all of them passed.
 
 ### The probing tests
 
-A unit test shows that code runs, not that an agent learns what it should. A
-probe trains an agent on a tiny problem whose answer is known exactly (a
-value, a best action, a count) and compares what it learned with the right
-answer and named wrong ones (a discount applied twice), so a failure names the
-mistake.
+A unit test checks a contract; it cannot show that an agent learns what it
+should. A probe trains an agent on a tiny problem whose answer is known
+exactly (a value, a best action, a count) and compares what it learned with
+the right answer and named wrong ones (a discount applied twice), so a failure
+names the mistake.
 
 `envs.py` builds the tiny problems, `agents.py` holds each agent's presets
 (pinned by `DIGEST`), `runs.py` trains every seed in one compiled program,

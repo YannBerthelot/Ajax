@@ -575,6 +575,18 @@ _GOLDEN |= {
         "nudge": 0.33622848987579346,
     },
 }
+# Re-recorded on macOS ARM CPU once APO's hidden layers became its reference
+# code's: two of 64 tanh units (were 128), starting as torch's nn.Linear
+# (kernel and bias uniform in +-1/sqrt(fan_in); were orthogonal, zero bias).
+# Relative shifts (actor, critic): APO-nudge +137%, +91%; its nudge is
+# bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.124271392822266,
+        "critic": 7.960622310638428,
+        "nudge": 0.33622848987579346,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

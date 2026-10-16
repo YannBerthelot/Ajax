@@ -1,8 +1,10 @@
+from collections.abc import Mapping
 from typing import Any, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from brax.envs.base import ObservationSize
 from gymnax import EnvParams
 
 from ajax.environments.system_class import env_params_is_batched, n_systems
@@ -59,18 +61,29 @@ def get_state_action_shapes(
         return obs_shape, action_shape
 
     if check_env_is_brax(env):
-        return (traced_observation_size(env),), (env.action_size,)
+        return (brax_observation_size(env),), (env.action_size,)
 
     raise ValueError(f"Unsupported environment type: {type(env)}")
 
 
-def traced_observation_size(env: BraxEnv) -> Any:
-    """``env.observation_size``, evaluated while tracing: brax's
-    ``PipelineEnv`` reads it off a reset it runs (seconds of physics on
-    CPU), which a trace only stages."""
-    size: list = []
-    jax.eval_shape(lambda: size.append(env.observation_size))
-    return size[0]
+def brax_observation_size(env: BraxEnv) -> ObservationSize:
+    """The width of the observations ``env`` emits, off its traced reset (as
+    mujoco_playground's ``MjxEnv`` defines ``observation_size``; brax's
+    ``PipelineEnv`` property runs a real reset, seconds of physics on CPU).
+
+    It is the stack's own observation, not the size its wrappers forward:
+    the two agree on every env Ajax tests, and a wrapper declaring a size
+    other than what it emits gets the width it emits. A dict observation
+    gives each entry's per-env shape off the innermost env's reset, as brax
+    and playground read ``observation_size``, so a wrapper changing a dict
+    observation is not seen; Ajax's networks and buffers take flat array
+    observations only."""
+    key = jax.random.PRNGKey(0)
+    obs = jax.eval_shape(env.reset, key).obs
+    if isinstance(obs, Mapping):
+        raw_obs = jax.eval_shape(get_raw_env(env).reset, key).obs
+        return jax.tree_util.tree_map(lambda x: x.shape, raw_obs)
+    return obs.shape[-1]
 
 
 def wrapper_chain(env: Any):

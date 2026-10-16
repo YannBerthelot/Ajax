@@ -56,8 +56,12 @@ class APO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         # The clip of the continuous actor's log-std (Brax's head, below):
-        # SAC's [-20, 2], a deviation from APO's official code
-        # (docs/algorithms/apo.md); None removes it.
+        # SAC's bounds, a deviation from APO's official code (xtma/apo),
+        # whose agent learns an unclipped log-std parameter per action
+        # dimension starting at 0: xtma/rlpyt @e28bb20,
+        # rlpyt/models/pg/mujoco_ff_model.py:24, :50, :78 and
+        # rlpyt/agents/pg/gaussian.py:34-38 (no min_std or max_std). None
+        # removes it.
         log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS,
         # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension.

@@ -59,6 +59,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
     skeleton_dict = serialization.to_state_dict(skeleton)
+    _check_recurrent_embedders(skeleton_dict, state_dict)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
@@ -124,6 +125,33 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
         elif value is None:
             out[key] = None
     return out
+
+
+def _check_recurrent_embedders(skeleton: Any, saved: Any) -> None:
+    """Refuse a checkpoint whose recurrent off-policy actor or critic (SAC,
+    ASAC, REDQ, TD3 with memory) feeds its memory through the full-width
+    encoder, the layout before Ni et al.'s embedders
+    (``networks.OBSERVATION_EMBEDDING``): flax reports the missing
+    embedders without their cause. No setting rebuilds that layout.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this
+    check once no such checkpoint remains.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return
+    if "action_embedder" in skeleton and "memory_cell" in saved:
+        if "action_embedder" not in saved:
+            raise ValueError(
+                "This checkpoint's recurrent off-policy networks feed their memory"
+                " through the full-width encoder, Ajax's layout before it adopted"
+                " Ni et al. (2022)'s embedders: the observation in 32 and the"
+                " previous action in 16 before the memory, the encoder after it."
+                " No setting rebuilds that layout; restore the checkpoint with"
+                " the Ajax version that saved it, or train afresh."
+            )
+    for key, value in skeleton.items():
+        if key in saved:
+            _check_recurrent_embedders(value, saved[key])
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:

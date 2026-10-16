@@ -526,3 +526,47 @@ def test_a_commanded_actor_decays_its_command_by_normalised_rewards(c, length):
         command=EvalCommand(scale_r=0.1, scale_h=0.01),
     )[0]
     np.testing.assert_allclose(returns, 2 * (1 - 0.9**length), rtol=1e-5)
+
+
+@struct.dataclass
+class _StepUp(_LinearActor):
+    """A recurrent actor acting 0.1 above the previous action, the last
+    column of its input [t, c, previous action]."""
+
+    def apply(self, params, x, hidden_state, done):
+        mean = x[..., -1:] + 0.1
+        return distrax.Normal(mean, jnp.full(mean.shape, STD)), hidden_state
+
+
+@struct.dataclass
+class _KeepsPreviousAction:
+    """The collector state of a recurrent off-policy agent: it keeps the
+    action before each observation (one env, one action dimension)."""
+
+    previous_action: Any = struct.field(default_factory=lambda: jnp.zeros((1, 1)))
+
+
+@struct.dataclass
+class _OffPolicyAgent:
+    collector_state: Any = struct.field(default_factory=_KeepsPreviousAction)
+
+
+@pytest.mark.parametrize(
+    "c, length", [(0.5, 3), (-0.5, 5)], ids=["terminated", "truncated"]
+)
+def test_a_recurrent_off_policy_actor_reads_the_action_it_executed(c, length):
+    """An actor whose collector keeps the previous action reads the one it
+    executed, zero at the start: acting 0.1 above it, it acts 0.1 k at step
+    k = 1..length, paid 0.2 k on Box(-2, 2), its return 0.1 length
+    (length + 1)."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
+    returns = evaluate(
+        env,
+        _StepUp(hidden_state=jnp.zeros((1, 1))),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        recurrent=True,
+        agent_state=_OffPolicyAgent(),
+    )[0]
+    np.testing.assert_allclose(returns, 0.1 * length * (length + 1), rtol=1e-5)

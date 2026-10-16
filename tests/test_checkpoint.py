@@ -317,6 +317,52 @@ def test_a_memory_checkpoint_restores_only_into_its_own_final_norm(tmp_path):
         restore_into(old, new_path)
 
 
+def _full_width_layout(params):
+    """A recurrent off-policy network's parameters as saved before Ni et
+    al.'s embedders: the encoder before the memory (a critic's copy as its
+    head after it), no embedder."""
+    if not isinstance(params, dict):
+        return params
+    if "memory_cell" in params:
+        params = {k: v for k, v in params.items() if not k.endswith("_embedder")}
+        if "model" in params:  # a critic
+            params["head"] = params["encoder"]
+    return {k: _full_width_layout(v) for k, v in params.items()}
+
+
+def test_a_recurrent_off_policy_checkpoint_before_ni_embedders_is_refused(tmp_path):
+    """A recurrent SAC saved with the full-width encoder before its memory
+    (actor and critic) raises an error naming the layout; one saved with
+    the embedders restores."""
+    import pickle
+
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.networks.memory import MemoryConfig
+
+    net = ("8", "relu")
+    kw = {"n_envs": 1, "learning_starts": 100, "batch_size": 4, "buffer_size": 40}
+    kw |= {"actor_architecture": net, "critic_architecture": net, "burn_in": 2}
+    agent = SAC(
+        env_id="Pendulum-v1",
+        memory=MemoryConfig(kind="gru", hidden_size=8),
+        sequence_length=4,
+        **kw,
+    )
+    state = agent.train(seed=0, n_timesteps=0)[0]
+    path = str(tmp_path / "new.pkl")
+    save_checkpoint(state, path)
+    restore_into(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    for part in ("actor_state", "critic_state"):
+        old = dict(saved)
+        old[part] = {**saved[part], "params": _full_width_layout(saved[part]["params"])}
+        with open(path, "wb") as fh:
+            pickle.dump(old, fh)
+        with pytest.raises(ValueError, match=r"full-width encoder.*Ni et al"):
+            restore_into(state, path)
+
+
 def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
     """A PPO saved with the Dense log-std head, its default before, lacks
     log_std_param: restoring it into the default network raises an error

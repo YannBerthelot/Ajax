@@ -17,11 +17,11 @@ the per-agent losses then consume the returned :class:`RecurrentCarries`
 through :func:`actor_dist` and :func:`q_values`, which run a network on a
 feedforward batch or, given carries, on a replayed sequence.
 
-A critic's memory reads each row's observation and the action before it,
-the one taken; the action a loss asks about joins after the memory, at
-the critic's head, so a taken or a sampled action is a query on the same
-carry and never feeds it (``Critic.query_dim``; the recurrent off-policy
-critic of Ni et al. 2022, cited from memory, unverified).
+The actor's and the critic's memories read each row's observation and the
+action before it, the one taken; the action a critic's loss asks about
+joins after the memory, so a taken or a sampled action is a query on the
+same carry and never feeds it: the recurrent off-policy networks of Ni et
+al. 2022 (``networks.OBSERVATION_EMBEDDING``).
 """
 
 from typing import Any, Optional, Tuple
@@ -44,6 +44,7 @@ from ajax.networks.memory import (
 )
 from ajax.networks.networks import (
     action_value_input,
+    policy_input,
     predict_value,
     predict_value_sequence,
 )
@@ -84,8 +85,8 @@ class RecurrentCarries:
     target_critic_hidden: Any  # target-critic carry for (obs, action)[0]
     obs: jax.Array  # (S, B, O)
     actions: jax.Array  # (S, B, A)
-    # What the critics' memory reads with each row's observation: the
-    # action taken before it (previous_actions).
+    # What the actor's and the critics' memories read with each row's
+    # observation: the action taken before it (previous_actions).
     prev_actions: jax.Array  # (S, B, A)
     # Where each row sits in the bootstrap stream (_bootstrap_stream).
     positions: jax.Array  # (S, B)
@@ -150,6 +151,7 @@ def sample_and_burnin_sequences(
     prev_act_seq = previous_actions(act_seq, resets_seq)
     # The burn-ins only need the carries: the queried actions are unread.
     xs_seq = action_value_input(obs_seq, jnp.zeros_like(act_seq), prev_act_seq)
+    acting_seq = policy_input(obs_seq, prev_act_seq)
 
     actor_template = zeros_carry_like(
         agent_state.actor_state.hidden_state, batch_size, batch_axis=0
@@ -164,7 +166,7 @@ def sample_and_burnin_sequences(
         return get_pi_sequence(
             agent_state.actor_state,
             params,
-            obs_seq[:burn_in],
+            acting_seq[:burn_in],
             resets_seq[:burn_in],
             actor_template,
         )[1]
@@ -296,6 +298,12 @@ def _bootstrap_steps(carries: RecurrentCarries, out: jax.Array) -> jax.Array:
     return jnp.sum(picks * out[:, None], axis=0)
 
 
+def _taken_before_boots(carries: RecurrentCarries) -> jax.Array:
+    """The action before each bootstrap step: the row's, none (zero) after
+    a termination."""
+    return jnp.where(carries.next_resets[..., None], 0.0, carries.actions)
+
+
 def actor_dist(
     actor_state: LoadedTrainState,
     params: Any,
@@ -309,16 +317,19 @@ def actor_dist(
 
     Without ``carries``, one feedforward batch. With them, a replayed
     sequence started from its burned-in carry (the target actor's when
-    ``target_actor``, TD3's bootstrap); when ``bootstrap``, ``obs`` are the
-    rows' next observations, each read after its row
-    (:func:`_bootstrap_stream`).
+    ``target_actor``, TD3's bootstrap), its memory reading the actions
+    taken before the rows; when ``bootstrap``, ``obs`` are the rows' next
+    observations, each read after its row (:func:`_bootstrap_stream`).
     """
     if carries is None:
         return get_pi(actor_state, params, obs)[0]
     hidden = carries.target_actor_hidden if target_actor else carries.actor_hidden
     if not bootstrap:
-        return get_pi_sequence(actor_state, params, obs, carries.resets, hidden)[0]
-    xs, resets = _bootstrap_stream(carries, carries.obs, obs)
+        x = policy_input(obs, carries.prev_actions)
+        return get_pi_sequence(actor_state, params, x, carries.resets, hidden)[0]
+    rows = policy_input(carries.obs, carries.prev_actions)
+    boots = policy_input(obs, _taken_before_boots(carries))
+    xs, resets = _bootstrap_stream(carries, rows, boots)
     pi = get_pi_sequence(actor_state, params, xs, resets, hidden)[0]
     # A distribution is a pytree of its parameters, time-major.
     return jax.tree.map(lambda leaf: _bootstrap_steps(carries, leaf), pi)
@@ -348,12 +359,10 @@ def q_values(
         return predict_value_sequence(
             critic_state, params, x, carries.resets, carries.critic_hidden
         )[0]
-    # The rows' queries are unread; after a termination nothing came before.
+    # The rows' queries are unread.
     rows = action_value_input(carries.obs, actions, carries.prev_actions)
-    taken = jnp.where(carries.next_resets[..., None], 0.0, carries.actions)
-    xs, resets = _bootstrap_stream(
-        carries, rows, action_value_input(obs, actions, taken)
-    )
+    boots = action_value_input(obs, actions, _taken_before_boots(carries))
+    xs, resets = _bootstrap_stream(carries, rows, boots)
     values = predict_value_sequence(
         critic_state, params, xs, resets, carries.target_critic_hidden
     )[0]

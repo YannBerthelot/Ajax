@@ -105,6 +105,7 @@ def init_soft_actor_critic(
         buffer=buffer,
         window_size=window_size,
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
+        keep_previous_action=network_args.memory is not None,
         **(collector_extras or {}),
     )
     return actor_state, critic_state, collector_state

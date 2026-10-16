@@ -16,7 +16,7 @@ from flax import struct
 
 from ajax.environments.interaction import get_pi, get_pi_sequence
 from ajax.networks.memory import zeros_carry_like
-from ajax.networks.networks import predict_value, predict_value_sequence
+from ajax.networks.networks import policy_input, predict_value, predict_value_sequence
 from ajax.utils import online_normalize
 
 from .agents import FAMILY
@@ -118,17 +118,21 @@ def soft_value(p: Any, alpha: Any, reward: Callable, key: Any, n: int = 4096) ->
     return jnp.mean(reward(a.reshape(-1)) - alpha * log_prob.reshape(-1))
 
 
-def step_actor(n: Nets, obs: jax.Array, starts: jax.Array) -> jax.Array:
+def step_actor(n: Nets, obs: jax.Array, starts: jax.Array, previous: int = 0) -> Any:
     """(T, B, act) mean actions stepped one at a time through (T, B, obs),
-    each flagged with its episode start, as collection runs the actor."""
+    each flagged with its episode start, as collection runs the actor; a
+    recurrent off-policy one (``previous``, its action width) also reads the
+    action before, its own mean, zero at a start (no width: nothing read)."""
 
     def step(carry: Any, x: tuple) -> tuple:
-        actor = n.actor.replace(hidden_state=carry)
-        p, stepped = get_pi(actor, actor.params, x[0], x[1], recurrent=True)
-        return stepped.hidden_state, p.mean()[0]
+        actor, before = n.actor.replace(hidden_state=carry[0]), carry[1]
+        acting = policy_input(x[0], jnp.where(x[1][:, None], 0.0, before))
+        p, stepped = get_pi(actor, actor.params, acting, x[1], recurrent=True)
+        return (stepped.hidden_state, p.mean()[0][..., :previous]), p.mean()[0]
 
     carry = zeros_carry_like(n.actor.hidden_state, obs.shape[1], batch_axis=0)
-    return jax.lax.scan(step, carry, (obs, starts))[1]
+    zeros = jnp.zeros((obs.shape[1], previous))
+    return jax.lax.scan(step, (carry, zeros), (obs, starts))[1]
 
 
 def actor_sequence(n: Nets, obs: jax.Array, starts: jax.Array) -> Any:

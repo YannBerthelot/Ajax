@@ -30,6 +30,7 @@ from ajax.environments.utils import (
 )
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import tree_where_reset
+from ajax.networks.networks import policy_input
 from ajax.state import EnvironmentConfig
 from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo
@@ -236,10 +237,20 @@ class _EvalCarry(NamedTuple):
     expert_state: Any  # a stateful expert's; a dummy otherwise
     actor_hidden: Any  # the actor's memory; a dummy when feedforward
     command: Any  # a command-conditioned actor's command; a dummy otherwise
+    # The action before ``obs`` in its episode, zero at its start: a
+    # recurrent off-policy actor reads it (networks.policy_input); else None.
+    previous_action: Optional[jax.Array] = None
 
 
 def _init_eval_carry(
-    num_episodes: int, key, obs, state, expert_state, actor_hidden=None, command=None
+    num_episodes: int,
+    key,
+    obs,
+    state,
+    expert_state,
+    actor_hidden=None,
+    command=None,
+    previous_action=None,
 ) -> _EvalCarry:
     return _EvalCarry(
         rewards=jnp.zeros(num_episodes),
@@ -254,6 +265,7 @@ def _init_eval_carry(
         expert_state=expert_state,
         actor_hidden=jnp.zeros((1,)) if actor_hidden is None else actor_hidden,
         command=jnp.zeros((1,)) if command is None else command,
+        previous_action=previous_action,
     )
 
 
@@ -373,7 +385,9 @@ def step_environment(
 
         raw_actions, entropy, new_actor_hidden = (
             get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous)(
-                obs_for_actor, done if recurrent else None, carry.actor_hidden
+                policy_input(obs_for_actor, carry.previous_action),
+                done if recurrent else None,
+                carry.actor_hidden,
             )
         )
 
@@ -448,6 +462,11 @@ def step_environment(
             expert_state=new_expert_state,
             actor_hidden=new_actor_hidden,
             command=new_command,
+            previous_action=(
+                None
+                if carry.previous_action is None
+                else jnp.where(new_done[:, None], 0.0, actions)
+            ),
         )
 
     return fn
@@ -616,6 +635,10 @@ def evaluate(
     reward in the agent's units, normalised as in training: the units of
     its targets.
 
+    A recurrent off-policy actor, whose collector keeps the action before
+    each observation (``CollectorState.previous_action``), reads it here
+    too: the action it executed, zero at an episode's start.
+
     Returns the mean return, entropy, average reward (``avg_reward_mode``),
     value bias (``value_estimate``), episode length and expert's return,
     each NaN without what it needs. The value bias is the mean over the
@@ -644,6 +667,11 @@ def evaluate(
             actor_state.hidden_state,
         )
 
+    # A recurrent off-policy actor, whose collector keeps the action before
+    # each observation, reads it here too.
+    previous_action = getattr(
+        getattr(agent_state, "collector_state", None), "previous_action", None
+    )
     init_carry_agent = _init_eval_carry(
         num_episodes,
         key,
@@ -652,6 +680,11 @@ def evaluate(
         _init_expert_state(expert_policy, num_episodes),
         actor_hidden,
         None if command is None else command.initial(agent_state, num_episodes),
+        (
+            None
+            if previous_action is None
+            else jnp.zeros((num_episodes,) + previous_action.shape[-1:])
+        ),
     )
 
     step_fn = step_environment(

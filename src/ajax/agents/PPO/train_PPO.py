@@ -779,7 +779,9 @@ def make_train(
             recurrent,
             loop.stack,
             total_timesteps,
-            loop.n_rollouts(agent_config.n_steps),
+            # brax's reset cadence divides the whole training: the updates
+            # of one call over the run, from 0 to its horizon.
+            loop.n_rollouts(agent_config.n_steps, total_timesteps),
         )
 
     return loop.on_policy(

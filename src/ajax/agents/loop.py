@@ -279,10 +279,12 @@ class TrainLoop:
         end = self.total_timesteps if self.end_timestep is None else self.end_timestep
         return end - self.start_timestep
 
-    def n_rollouts(self, n_steps: int) -> int:
-        """The iterations of :meth:`on_policy` for ``n_steps`` rollouts: the
-        budget in whole rollouts, plus one (as PPO always ran)."""
-        return self.budget // (self.env_args.n_envs * n_steps) + 1
+    def n_rollouts(self, n_steps: int, timesteps: Optional[int] = None) -> int:
+        """The iterations of :meth:`on_policy` for ``n_steps`` rollouts over
+        ``timesteps`` (``None``: the budget): in whole rollouts, plus one (as
+        PPO always ran)."""
+        timesteps = self.budget if timesteps is None else timesteps
+        return timesteps // (self.env_args.n_envs * n_steps) + 1
 
     @property
     def n_evaluations(self) -> int:

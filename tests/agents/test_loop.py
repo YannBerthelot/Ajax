@@ -125,6 +125,33 @@ def test_a_resumed_call_trains_its_budget_toward_the_run_horizon() -> None:
     assert seen == [144]
 
 
+def test_a_call_told_a_later_horizon_trains_to_its_own_end() -> None:
+    """A first call to 64 of a run to 100 trains 64 steps (whole rollouts
+    plus one: 3 of 32), folds its extensions over the whole run and has a
+    row for each log point up to where it reaches, never past the horizon."""
+    seen = []
+
+    @dataclass(frozen=True)
+    class Total(Extension):
+        name: str = "total"
+
+        def post_update(self, agent_state, ext_state, ctx):
+            seen.append(ctx.total_steps)
+            return agent_state, ext_state
+
+    first = dataclasses.replace(
+        _loop(Total()),
+        env_args=SimpleNamespace(n_envs=4),  # type: ignore[arg-type]
+        end_timestep=64,
+        log=True,
+        log_frequency=10,
+    )
+    assert (first.budget, first.n_evaluations, first.n_rollouts(8)) == (64, 6, 3)
+    assert (first.evaluations_until(96), first.evaluations_until(160)) == (9, 10)
+    first.post_update(_state(10, (jnp.asarray(0),)))
+    assert seen == [100]
+
+
 def test_the_post_update_runs_after_the_update() -> None:
     """Inside the gate, the extensions see the updated state."""
 
@@ -206,8 +233,8 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
 
 
 # --- Evaluations without a logging backend -----------------------------------
-def _config(**kw: Any) -> LoggingConfig:
-    return LoggingConfig(config={}, log_frequency=10, use_wandb=False, **kw)
+def _config(log_frequency: int = 10, **kw: Any) -> LoggingConfig:
+    return LoggingConfig(config={}, log_frequency=log_frequency, use_wandb=False, **kw)
 
 
 def test_the_logging_worker_starts_only_for_a_backend() -> None:
@@ -306,6 +333,21 @@ def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
     np.testing.assert_array_equal(resumed.collector_state.timestep, 2 * 80)
     logged = [96, 112, 128, 144, -1, -1]
     np.testing.assert_array_equal(resumed_rows["timestep"], [logged] * len(SEEDS))
+
+
+def test_a_rollout_past_the_calls_end_evaluates_before_the_horizon() -> None:
+    """Told the run ends at 144, a call of 64 steps evaluates at its extra
+    rollout's 80 (a 16-step frequency), as the run's one call would, and
+    returns a row for it."""
+    _, rows = _apo().train(
+        seed=SEEDS,
+        n_timesteps=BUDGET,
+        num_episode_test=1,
+        logging_config=_config(log_frequency=16),
+        total_timesteps=144,
+    )
+    logged = [16, 32, 48, 64, 80]
+    np.testing.assert_array_equal(rows["timestep"], [logged] * len(SEEDS))
 
 
 class _HalfTorque:

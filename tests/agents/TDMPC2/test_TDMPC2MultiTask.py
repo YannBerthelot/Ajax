@@ -519,6 +519,48 @@ def test_the_checkpoint_skeleton_has_no_updates():
         )
 
 
+@dataclass(frozen=True)
+class HorizonExt(Extension):
+    """Records the ``total_steps`` its ``pretrain`` and ``post_update`` see,
+    and logs the one its ``eval_metrics`` sees."""
+
+    name: str = "horizon"
+
+    def init_state(self, agent_state, rng):
+        return {phase: jnp.asarray(-1, jnp.int32) for phase in ("pretrain", "update")}
+
+    def pretrain(self, agent_state, ext_state, ctx: ExtensionContext):
+        return agent_state, {**ext_state, "pretrain": jnp.asarray(ctx.total_steps)}
+
+    def post_update(self, agent_state, ext_state, ctx: ExtensionContext):
+        return agent_state, {**ext_state, "update": jnp.asarray(ctx.total_steps)}
+
+    def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
+        return {"horizon/total_steps": jnp.asarray(ctx.total_steps)}
+
+
+def test_the_extensions_run_to_the_horizon_a_call_is_told(monkeypatch):
+    """``total_timesteps`` (the run's updates) is the extensions' horizon
+    from the first call on, in training and in the logs; one ending before
+    the call is refused."""
+    monkeypatch.setattr(trainer_module, "vmap_log", lambda *args, **kwargs: None)
+    agent = TDMPC2MultiTask(make_dataset(), extensions=[HorizonExt()], **TINY)
+    state, history = agent.train(
+        seed=0,
+        n_timesteps=2,
+        total_timesteps=7,
+        logging_config=LoggingConfig(
+            config={}, use_wandb=False, use_tensorboard=False, log_frequency=2
+        ),
+    )
+    seen = jax.device_get(state.ext_state[0])
+    assert (int(seen["pretrain"][0]), int(seen["update"][0])) == (7, 7)
+    assert history is not None
+    np.testing.assert_array_equal(history["horizon/total_steps"], [[7]])
+    with pytest.raises(ValueError, match="total_timesteps=1 ends before"):
+        agent.train(seed=0, n_timesteps=2, total_timesteps=1)
+
+
 def test_without_eval_envs_the_training_metrics_are_logged(runs):
     """An agent without eval envs logs the training and extension metrics."""
     history = runs.full_history

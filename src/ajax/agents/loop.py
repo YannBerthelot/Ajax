@@ -221,10 +221,11 @@ class TrainLoop:
     hashed by identity: the environment's parameters are arrays).
 
     A call trains from ``start_timestep`` (a resumed run's timestep, else 0)
-    to ``total_timesteps``, the run's horizon: every schedule (the
-    extensions' ``total_steps``, the training fraction, the logging's end)
-    runs over the whole run, so a resumed run's schedules continue where
-    they stopped; the call's own iterations come from its :attr:`budget`.
+    to ``end_timestep`` (``None``: the horizon); ``total_timesteps`` is the
+    run's horizon: every schedule (the extensions' ``total_steps``, the
+    training fraction, the logging's end) runs over the whole run, so a run
+    split into calls follows the schedules of one call; the call's own
+    iterations come from its :attr:`budget`.
     """
 
     env_args: EnvironmentConfig
@@ -235,6 +236,7 @@ class TrainLoop:
     log_fn: Callable
     log_frequency: Optional[int]
     start_timestep: int = 0
+    end_timestep: Optional[int] = None
 
     @classmethod
     def create(
@@ -246,6 +248,7 @@ class TrainLoop:
         logging_config: Optional[LoggingConfig] = None,
         extensions: Sequence[Extension] = (),
         start_timestep: int = 0,
+        end_timestep: Optional[int] = None,
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
@@ -263,6 +266,7 @@ class TrainLoop:
             log_fn=partial(vmap_log, run_ids=run_ids),
             log_frequency=log_frequency,
             start_timestep=start_timestep,
+            end_timestep=end_timestep,
         )
 
     @property
@@ -272,7 +276,8 @@ class TrainLoop:
     @property
     def budget(self) -> int:
         """The timesteps this call trains for."""
-        return self.total_timesteps - self.start_timestep
+        end = self.total_timesteps if self.end_timestep is None else self.end_timestep
+        return end - self.start_timestep
 
     def n_rollouts(self, n_steps: int) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts: the
@@ -281,13 +286,19 @@ class TrainLoop:
 
     @property
     def n_evaluations(self) -> int:
-        """The most evaluations one call makes: ``ajax.log``'s gate counts
-        each one as a log point, so the k-th of the run comes at timestep
-        ``k * log_frequency`` or later, and none comes past the horizon."""
+        """The most evaluations one call ending at its budget makes
+        (:meth:`evaluations_until`)."""
+        return self.evaluations_until(self.start_timestep + self.budget)
+
+    def evaluations_until(self, timestep: int) -> int:
+        """The most evaluations one call reaching ``timestep`` makes:
+        ``ajax.log``'s gate counts each one as a log point, so the k-th of
+        the run comes at timestep ``k * log_frequency`` or later, and none
+        comes past the horizon."""
         if not self.log or not self.log_frequency:
             return 0
         f = self.log_frequency
-        return self.total_timesteps // f - self.start_timestep // f
+        return min(self.total_timesteps, timestep) // f - self.start_timestep // f
 
     # -- the steps of an iteration -----------------------------------------
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
@@ -574,7 +585,8 @@ class TrainLoop:
         (:func:`collect_experience` with ``collect_kwargs``), then runs
         ``update(agent_state, rollout, start)`` and folds ``post_update``;
         ``expose_rollout`` keeps the rollout on ``agent_state.last_rollout``.
-        The budget is :meth:`n_rollouts`.
+        The budget is :meth:`n_rollouts`; the last one may reach past the
+        call's end, and evaluates there when the horizon is further.
         """
         collect = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 
@@ -594,11 +606,14 @@ class TrainLoop:
                 agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
 
+        n_rollouts = self.n_rollouts(n_steps)
+        reach = self.start_timestep + n_rollouts * self.env_args.n_envs * n_steps
         return self.train(
             init,
             iteration,
-            self.n_rollouts(n_steps),
+            n_rollouts,
             last_rollout=(n_steps, collect) if expose_rollout else None,
+            evaluations=self.evaluations_until(reach),
         )
 
 

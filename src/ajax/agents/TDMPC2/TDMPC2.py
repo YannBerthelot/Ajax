@@ -19,7 +19,7 @@ import jax
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic, run_config
+from ajax.agents.base import ActorCritic, run_config, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodicBuffer, replay_capacity
 from ajax.agents.TDMPC2.core import discount_from_episode_length
@@ -331,6 +331,7 @@ class TDMPC2(ActorCritic):
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
+        total_timesteps: Optional[int] = None,
         **kwargs: Any,
     ) -> Any:
         """:meth:`ActorCritic.train`; ``n_timesteps`` counts env (agent) steps.
@@ -347,6 +348,14 @@ class TDMPC2(ActorCritic):
         """
         if isinstance(initial_state, tuple) and len(initial_state) == 2:
             initial_state = initial_state[0]  # (state, metrics) from train()
+        # Refused before the replay is sized, which records its capacity on
+        # the agent: a refused call leaves the agent as it was.
+        start = (
+            0
+            if initial_state is None
+            else int(shared_counters(initial_state).get("timestep", 0))
+        )
+        run_horizon(start, n_timesteps, total_timesteps)
         # The run's tick count depends on where it starts (it ends on the
         # tick of its last env step); the base class passes the same offset
         # to the scan.
@@ -374,6 +383,7 @@ class TDMPC2(ActorCritic):
             logging_config=logging_config,
             on_ids_ready=on_ids_ready,
             initial_state=initial_state,
+            total_timesteps=total_timesteps,
             buffer=buffer,
             start_tick=start_tick,
             **kwargs,

@@ -54,8 +54,13 @@ state, _ = agent.train(seed=seeds, n_timesteps=0)  # the skeleton: init only
 if checkpoint_exists(path):
     state = restore_into(state, path)
 
-while int(state.collector_state.timestep[0]) < total:
-    state, _ = agent.train(seed=seeds, n_timesteps=chunk, initial_state=state)
+while (done := int(state.collector_state.timestep[0])) < total:
+    state, _ = agent.train(
+        seed=seeds,
+        n_timesteps=min(chunk, total - done),
+        initial_state=state,
+        total_timesteps=total,  # the schedules run over the whole run
+    )
     save_checkpoint(state, path)
 print(state.collector_state.timestep)  # [2000 2000]
 ```
@@ -76,9 +81,10 @@ episodes, as the run left whole.
 
 Schedules continue rather than restart. Each call trains from the timestep
 it was given to that timestep plus `n_timesteps`, and measures the training
-fraction, the extensions' schedules and the logging against that horizon.
-A schedule set as a fraction of training is therefore measured against each
-call's own horizon: plan a split run's schedules with that in mind.
+fraction, the exploration, the extensions' schedules and the logging
+against the horizon `total_timesteps`. Pass the whole run's horizon to every
+call, as the loop above does, and a split run follows the schedules of one
+call; without it, each call's horizon is its own end.
 
 ## What the tests guarantee
 
@@ -104,8 +110,11 @@ the steps the whole run does.
 - **The seeds must stand at the same timestep.** A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.
 - **On-policy agents add a rollout per call.** PPO, APO and PQN train in
-  whole rollouts plus one, so each call ends a rollout past its budget. A run
-  split into calls ends later than one call with the same total.
+  whole rollouts plus one, so each call ends up to a rollout past its budget.
+  A run split into calls ends where one call does when its last call trains
+  the rest, `total_timesteps` minus the timestep reached
+  ([Continuing a run](training.md#continuing-a-run)); otherwise it may end
+  elsewhere.
 - **APG restarts its optimiser on a resume** by default, which its staged
   curriculum relies on. Pass `reset_optimizer_on_resume=False` to `train` to
   keep it.

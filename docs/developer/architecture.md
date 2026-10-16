@@ -358,9 +358,12 @@ in, whose buffers XLA reuses (the argument is donated).
 `ActorCritic.train(initial_state=state)` continues a run. It checks that
 every seed stands at the same timestep (`shared_counters`), keeps those
 counters unbatched, and trains from that timestep to `timestep +
-n_timesteps`. Every schedule (the training fraction, the extensions'
-`total_steps`, the logging's end) runs over the whole run, so a resumed run
-continues where it stopped instead of restarting its schedules. Agents whose
+n_timesteps` (the loop's `end_timestep`). Every schedule (the training
+fraction, the extensions' `total_steps`, the exploration, the logging's end)
+runs to the run's horizon, `train`'s `total_timesteps` (by default the
+call's end; the loop's `total_timesteps`), so a resumed run continues where
+it stopped instead of restarting its schedules, and a run whose calls are
+all told its horizon follows the schedules of one call. Agents whose
 schedules depend on the absolute tick (the world models) also pass an
 iteration offset. A run split in two, on a new agent instance, ends in the
 state one uninterrupted call reaches (`tests/agents/test_resume_contract.py`).

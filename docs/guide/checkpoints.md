@@ -90,12 +90,12 @@ call; without it, each call's horizon is its own end.
 
 The resume tests train a run in one call and again in two. Between the
 two calls they save the state, check that it restores leaf for leaf into a
-new agent's skeleton, and continue on that new agent; then they compare the
-two end states:
+new agent's skeleton, and continue from the restored state on that new
+agent; then they compare the two end states:
 
 | Agents | Check |
 | --- | --- |
-| SAC, ASAC, REDQ, TD3, AVG, APO, PPO, DQN, PQN, UDRL | every array of the final state equal, to a relative 1e-5, with every normalisation the agent takes switched on; once more with a GRU memory for SAC, ASAC, REDQ, TD3 and PPO |
+| SAC, ASAC, REDQ, TD3, AVG, APO, PPO, DQN, PQN, UDRL | every array of the final state equal, to a relative 1e-5, with every normalisation the agent takes switched on and every call told the run's horizon (DQN's and PQN's epsilon decays across the split); once more with a GRU memory for SAC, ASAC, REDQ, TD3 and PPO |
 | APG | the same, with and without memory |
 | DreamerV3, TDMPC2, TDMPC2MultiTask | the same, in their own test files |
 

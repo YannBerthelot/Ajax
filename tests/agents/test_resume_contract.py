@@ -1,11 +1,16 @@
 """The resume contract: a run split in two, its second leg on a new agent
 instance from the first leg's state, ends in the state one call reaches,
 every leaf alike (floats to rtol 1e-5: programs compiled apart may round
-apart). One row per agent of the contract table with the normalisation it
-takes, one more with memory where it takes one, and APG with memory (its
-plain resume: tests/probing/test_p4_split_run.py). The first leg's
-checkpoint restores every leaf into the new instance's skeleton. The world
-models' own tests hold theirs (test_p4_split_run.ELSEWHERE)."""
+apart). Every call is told the run's horizon (``total_timesteps``), so the
+schedules (DQN's and PQN's epsilon decay among them) run as in one call.
+One row per agent of the contract table with the normalisation it takes,
+one more with memory where it takes one, and APG with memory (its plain
+resume: tests/probing/test_p4_split_run.py). The second leg resumes from
+the first leg's checkpoint, restored, every leaf alike, into the new
+instance's skeleton (a 0-step call with the same options), as a new process
+would: what the skeleton builds (the optimizers' update rules among it)
+drives that leg. The world models' own tests hold theirs
+(test_p4_split_run.ELSEWHERE)."""
 
 import inspect
 from pathlib import Path
@@ -33,25 +38,28 @@ NORMALISATION = {
     "reward_normalization_gamma": 0.9,
     "normalize_obs_running": True,
 }
-# A call's schedules run to the horizon it knows, the first leg's its own:
-# exploration is held constant.
-CONSTANT = {"epsilon_start": 0.3, "epsilon_end": 0.3}
 MEMORY: dict[str, Any] = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
 # Sequence replay: windows of 2 + 4 + 1 steps, one per env before the first update.
 MEMORY |= {"burn_in": 2, "sequence_length": 4, "learning_starts": 16}
 
 
 def _row(name: str, memory: bool) -> tuple[Any, int, dict]:
-    """The agent's builder, the uninterrupted run's budget, train's options."""
+    """The agent's builder, the uninterrupted run's budget, train's options
+    (the run's horizon among them)."""
     if name == "APG":  # it restarts its optimizer on resume unless told not to
         env, params = paid_action.make()
         kw: dict[str, Any] = {"n_envs": 4, "horizon": 1, "memory": MEMORY["memory"]}
-        keep = {"reset_optimizer_on_resume": False}
+        keep = {"reset_optimizer_on_resume": False, "total_timesteps": 64}
         return lambda: APG(env, env_params=params, pid=None, **kw), 64, keep
     case, taken = CASES[name], inspect.signature(CASES[name].cls).parameters
-    options = CONSTANT | NORMALISATION | (MEMORY if memory else {})
+    options = NORMALISATION | (MEMORY if memory else {})
     kw = case.kwargs | {k: v for k, v in options.items() if k in taken}
-    return lambda: case.cls(env_id=case.envs[-1], n_envs=2, **kw), case.n_timesteps, {}
+    budget = case.n_timesteps
+    return (
+        lambda: case.cls(env_id=case.envs[-1], n_envs=2, **kw),
+        budget,
+        {"total_timesteps": budget},
+    )
 
 
 ROWS = [pytest.param(n, False, id=n) for n in sorted(CASES)]
@@ -79,7 +87,7 @@ def test_a_resumed_run_equals_the_uninterrupted_run(
     save_checkpoint(first, path)
     restored = restore_into(runs.train(agent, SEEDS, 0, **kw).state, path)
     assert not readouts.differing_leaves(first, restored), "the checkpoint"
-    split = runs.train(agent, SEEDS, second, initial_state=first, **kw).state
+    split = runs.train(agent, SEEDS, second, initial_state=restored, **kw).state
     differing = readouts.differing_leaves(full, split)
     assert not differing, (f"first leg ended at {ended}", differing[:20])
 

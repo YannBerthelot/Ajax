@@ -160,8 +160,9 @@ def zeros_carry_like(carry: Carry, batch_size: int, batch_axis: int = 0) -> Carr
     """Fresh carry with the batch dimension resized to ``batch_size``.
 
     Valid because every supported cell initializes its carry to zeros.
-    ``batch_axis`` is 0 for a single network's carry and 1 for an
-    ensemble's stacked carry (leading ``(num_critics,)`` axis).
+    ``batch_axis`` is 0 for a single memory's carry (a recurrent Q-critic's
+    heads share one) and 1 for an ensemble whose members each own one,
+    stacked on a leading ``(num_critics,)`` axis (PPO's critic).
     """
 
     def zeros(leaf):

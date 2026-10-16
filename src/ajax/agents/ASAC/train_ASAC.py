@@ -168,9 +168,7 @@ def compute_asac_td_target(
             critic_params=critic_states.target_params,
             x=action_value_input(zero_obs, zero_action, zero_action)[None],
             resets=jnp.zeros((1, 1), dtype=bool),
-            initial_hidden=zeros_carry_like(
-                carries.target_critic_hidden, 1, batch_axis=1
-            ),
+            initial_hidden=zeros_carry_like(carries.target_critic_hidden, 1),
         )
     shifted_q_targets = q_targets - jnp.mean(shift_value)
     q1_target, q2_target = jnp.split(shifted_q_targets, 2, axis=0)

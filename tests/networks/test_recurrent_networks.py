@@ -207,10 +207,13 @@ def test_a_recurrent_q_critic_queries_its_action_after_the_memory(kind):
 
 def _kernels(params: Any) -> dict[str, tuple]:
     """Each Dense kernel's (inputs, outputs), by its path; an ensemble's
-    leading member axis and name dropped."""
+    leading member axis and name, and a critic's trunk's name, dropped."""
     flat = flatten_dict(params["params"], sep="/")
     kernels = {k: v.shape[-2:] for k, v in flat.items() if k.endswith("kernel")}
-    return {k.removeprefix("ensemble/"): v for k, v in kernels.items()}
+    return {
+        k.split("/", 1)[1] if k.startswith(("ensemble/", "trunk/")) else k: v
+        for k, v in kernels.items()
+    }
 
 
 def _ni_networks(hidden: int) -> dict[str, dict[str, tuple]]:
@@ -251,6 +254,40 @@ def test_the_recurrent_off_policy_networks_take_ni_et_als_layout(hidden: int) ->
     assert nets["td3"]["hidden/layers_0/kernel"] == (hidden + 32, 16)
     assert nets["critic"][shortcut] == (OBS_DIM + ACTION_DIM, 48)
     assert nets["critic"][enc] == (hidden + 48, 16)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_recurrent_q_critics_heads_share_one_memory(kind: str) -> None:
+    """Ni et al.'s Critic_RNN: one memory, its embedders and the shortcut
+    feed every Q-head. Their parameters and the carry have no member axis,
+    each head its own hidden layers and output; heads given equal
+    parameters give equal values, as they read the same features."""
+    memory, rng = _memory(kind), jax.random.PRNGKey(0)
+    critic = MultiCritic(ARCH, num=3, memory=memory, query_dim=ACTION_DIM)
+    x = jax.random.normal(rng, (T, B, OBS_DIM + 2 * ACTION_DIM))
+    carry, resets = init_network_carry(critic, memory, rng, B), jnp.zeros((T, B), bool)
+    single = init_carry(memory, rng, B)
+    assert jax.tree.map(jnp.shape, carry) == jax.tree.map(jnp.shape, single)
+    params = critic.init(rng, x, hidden_state=carry, done=resets)["params"]
+    assert set(params) == {"trunk", "ensemble"}
+    assert set(params["trunk"]) == {
+        "observation_embedder",
+        "action_embedder",
+        "memory_cell",
+        "shortcut_embedder",
+    }
+    assert set(params["ensemble"]) == {"encoder", "model"}
+    for leaf in jax.tree.leaves(params["ensemble"]):
+        assert leaf.shape[0] == 3
+    kernel = params["trunk"]["observation_embedder"]["network"]["layers_0"]["kernel"]
+    assert kernel.shape == (OBS_DIM, 32)
+    values, _ = critic.apply({"params": params}, x, carry, resets)
+    assert not np.allclose(values[0], values[1])
+    heads = jax.tree.map(lambda p: p.at[1].set(p[0]), params["ensemble"])
+    tied = {"params": {**params, "ensemble": heads}}
+    tied_values, _ = critic.apply(tied, x, carry, resets)
+    np.testing.assert_array_equal(tied_values[1], tied_values[0])
+    np.testing.assert_array_equal(tied_values[2], values[2])
 
 
 @pytest.mark.parametrize("kind", KINDS)

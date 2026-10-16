@@ -319,21 +319,23 @@ def test_a_memory_checkpoint_restores_only_into_its_own_final_norm(tmp_path):
 
 def _full_width_layout(params):
     """A recurrent off-policy network's parameters as saved before Ni et
-    al.'s embedders: the encoder before the memory (a critic's copy as its
-    head after it), no embedder."""
+    al.'s embedders: the encoder before the memory, no embedder; a critic's
+    heads each with a memory and a copy of the encoder after it."""
     if not isinstance(params, dict):
         return params
-    if "memory_cell" in params:
+    if "trunk" in params:  # a critic: its memory goes into every head
+        heads, memory = params["ensemble"], params["trunk"]["memory_cell"]
+        params = {"ensemble": heads | {"memory_cell": memory, "head": heads["encoder"]}}
+    elif "memory_cell" in params:
         params = {k: v for k, v in params.items() if not k.endswith("_embedder")}
-        if "model" in params:  # a critic
-            params["head"] = params["encoder"]
     return {k: _full_width_layout(v) for k, v in params.items()}
 
 
 def test_a_recurrent_off_policy_checkpoint_before_ni_embedders_is_refused(tmp_path):
     """A recurrent SAC saved with the full-width encoder before its memory
-    (actor and critic) raises an error naming the layout; one saved with
-    the embedders restores."""
+    raises an error naming the layout: its actor's, or its critic's, whose
+    heads each had a memory where they now share one; one saved with the
+    embedders and the shared memory restores."""
     import pickle
 
     from ajax.agents.SAC.SAC import SAC
@@ -354,12 +356,15 @@ def test_a_recurrent_off_policy_checkpoint_before_ni_embedders_is_refused(tmp_pa
     restore_into(state, path)
     with open(path, "rb") as fh:
         saved = pickle.load(fh)
-    for part in ("actor_state", "critic_state"):
+    for part, layout in (
+        ("actor_state", "full-width encoder"),
+        ("critic_state", "each Q-head its own memory"),
+    ):
         old = dict(saved)
         old[part] = {**saved[part], "params": _full_width_layout(saved[part]["params"])}
         with open(path, "wb") as fh:
             pickle.dump(old, fh)
-        with pytest.raises(ValueError, match=r"full-width encoder.*Ni et al"):
+        with pytest.raises(ValueError, match=f"{layout}.*Ni et al"):
             restore_into(state, path)
 
 

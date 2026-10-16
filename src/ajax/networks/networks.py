@@ -339,28 +339,13 @@ class Critic(nn.Module):
     cnn_spec: Optional[CNNSpec] = None
     # Optional memory block; see Actor.memory. When set, __call__ takes
     # time-major (T, B, features) plus (hidden_state, done) and returns
-    # (values, new_hidden_state).
+    # (values, new_hidden_state). A recurrent Q-critic's heads have none:
+    # they read the memory they share (RecurrentQTrunk).
     memory: Optional[MemoryConfig] = None
-    # A recurrent Q-critic's current action, its input's last ``query_dim``
-    # features, after the observation and the previous action
-    # (:func:`action_value_input`): Ni et al.'s layout (see
-    # OBSERVATION_EMBEDDING), the encoder after the memory, over its output
-    # and an embedding of the current observation and action. The current
-    # action never feeds the carry.
-    query_dim: int = 0
 
     def setup(self):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
-        if self.query_dim:  # Ni et al.'s layout (OBSERVATION_EMBEDDING)
-            if self.memory is None:
-                raise ValueError("A Critic queries its action only with memory.")
-            init = self.encoder_kernel_init
-            self.observation_embedder = embedder(OBSERVATION_EMBEDDING, init)
-            self.action_embedder = embedder(ACTION_EMBEDDING, init)
-            # As wide as the memory's input (Ni et al.'s Table 5).
-            width = OBSERVATION_EMBEDDING + ACTION_EMBEDDING
-            self.shortcut_embedder = embedder(width, init)
         if self.cnn_image_shape is not None:
             self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
@@ -383,17 +368,7 @@ class Critic(nn.Module):
             return self.model(self.encoder(x))
         if hidden_state is None or done is None:
             raise ValueError("Recurrent Critic requires hidden_state and done flags.")
-        if not self.query_dim:
-            hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
-            return self.model(feat), hidden_state
-        x, query = split_last(x, self.query_dim)
-        obs, previous = split_last(x, self.query_dim)
-        embedded = jnp.concatenate(
-            [self.observation_embedder(obs), self.action_embedder(previous)], -1
-        )
-        hidden_state, memory = self.memory_cell(hidden_state, embedded, done)
-        shortcut = self.shortcut_embedder(jnp.concatenate([obs, query], -1))
-        feat = self.encoder(jnp.concatenate([memory, shortcut], -1))
+        hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
         return self.model(feat), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
@@ -402,8 +377,44 @@ class Critic(nn.Module):
         return self.encoder(x)
 
 
+class RecurrentQTrunk(nn.Module):
+    """What the Q-heads of a recurrent off-policy critic share, as the two
+    heads of Ni et al.'s ``Critic_RNN`` share theirs (recurrent_critic.py:
+    30-99, see OBSERVATION_EMBEDDING): the embedders, the memory over them
+    and the shortcut embedding of the current observation and action, as
+    wide as the memory's input (recurrent_critic.py:71). Over ``x``, the
+    observation, the previous action and the queried action (its last
+    ``query_dim`` features, :func:`action_value_input`), returns the
+    features every head reads, the memory's output then the shortcut, and
+    the new carry. The queried action never feeds the carry."""
+
+    memory: MemoryConfig
+    query_dim: int
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+
+    def setup(self):
+        self.observation_embedder = embedder(OBSERVATION_EMBEDDING, self.kernel_init)
+        self.action_embedder = embedder(ACTION_EMBEDDING, self.kernel_init)
+        self.memory_cell = MemoryCell(self.memory)
+        width = OBSERVATION_EMBEDDING + ACTION_EMBEDDING
+        self.shortcut_embedder = embedder(width, self.kernel_init)
+
+    def __call__(self, x: jax.Array, hidden_state: Carry, done: jax.Array):
+        x, query = split_last(x, self.query_dim)
+        obs, previous = split_last(x, self.query_dim)
+        embedded = jnp.concatenate(
+            [self.observation_embedder(obs), self.action_embedder(previous)], -1
+        )
+        hidden_state, memory = self.memory_cell(hidden_state, embedded, done)
+        shortcut = self.shortcut_embedder(jnp.concatenate([obs, query], -1))
+        return jnp.concatenate([memory, shortcut], -1), hidden_state
+
+
 class MultiCritic(nn.Module):
-    """Ensemble of ``num`` critics, vmapped over a leading parameter axis."""
+    """Ensemble of ``num`` critics, vmapped over a leading parameter axis.
+    With ``query_dim`` (a recurrent off-policy critic: SAC's, ASAC's and
+    TD3's two heads, REDQ's ``num_critics``) the members are heads over one
+    :class:`RecurrentQTrunk`, Ni et al.'s layout."""
 
     input_architecture: Sequence[Union[str, ActivationFunction]]
     num: int = 4
@@ -414,18 +425,27 @@ class MultiCritic(nn.Module):
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
-    # Optional memory block; each ensemble member owns its carry, stacked
-    # on a leading axis: hidden_state leaves are (num, batch, hidden).
+    # Optional memory block. Without query_dim each member owns its memory
+    # and carry, stacked on a leading axis: hidden_state leaves are (num,
+    # batch, hidden). With it the heads share one: leaves (batch, hidden).
     memory: Optional[MemoryConfig] = None
-    query_dim: int = 0  # see Critic.query_dim
+    # A recurrent Q-critic's queried action, its input's last ``query_dim``
+    # features (see RecurrentQTrunk).
+    query_dim: int = 0
 
     def setup(self):
-        # x (and done) are broadcast across the ensemble; the carry is
-        # mapped over its leading (num,) axis so each member evolves its
-        # own memory. NOTE: the recurrent in_axes spec matches __call__'s
-        # 3-arg signature; apply_encoder (1 arg) is only used by
+        if self.query_dim:
+            if self.memory is None:
+                raise ValueError("A MultiCritic queries its action only with memory.")
+            init = self.encoder_kernel_init
+            self.trunk = RecurrentQTrunk(self.memory, self.query_dim, init)
+        # x (and done) are broadcast across the ensemble; a member's own
+        # carry is mapped over its leading (num,) axis so each member
+        # evolves its own memory. NOTE: the recurrent in_axes spec matches
+        # __call__'s 3-arg signature; apply_encoder (1 arg) is only used by
         # ConditioningMetrics, which therefore needs a feedforward critic.
-        in_axes = (None, 0, None) if self.memory is not None else None
+        member_memory = None if self.query_dim else self.memory
+        in_axes = (None, 0, None) if member_memory is not None else None
         Vmapped = nn.vmap(
             target=Critic,
             in_axes=in_axes,
@@ -444,16 +464,19 @@ class MultiCritic(nn.Module):
             cnn_image_shape=self.cnn_image_shape,
             cnn_extra_obs_dim=self.cnn_extra_obs_dim,
             cnn_spec=self.cnn_spec,
-            memory=self.memory,
-            query_dim=self.query_dim,
+            memory=member_memory,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
-        if self.memory is not None:
-            # Returns (values, new_hidden_state): values (num, T, B, 1),
-            # hidden leaves (num, B, hidden).
+        if self.memory is None:
+            return self.ensemble(x)
+        # Returns (values, new_hidden_state), values (num, T, B, 1).
+        if not self.query_dim:
             return self.ensemble(x, hidden_state, done)
-        return self.ensemble(x)
+        if hidden_state is None or done is None:
+            raise ValueError("Recurrent Critic requires hidden_state and done flags.")
+        features, hidden_state = self.trunk(x, hidden_state, done)
+        return self.ensemble(features), hidden_state
 
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
@@ -467,7 +490,7 @@ def action_value_input(
     """A Q-critic's input: ``(obs, action)``, or, given the previous
     action, the recurrent critic's ``(obs, previous_action, action)``: its
     memory reads the observation and the previous action, the current
-    action joins after it (``Critic.query_dim``)."""
+    action joins after it (``MultiCritic.query_dim``)."""
     if previous_action is None:
         return jnp.concatenate([obs, action], axis=-1)
     return jnp.concatenate([obs, previous_action, action], axis=-1)
@@ -665,11 +688,12 @@ def get_initialized_critic(
 
 
 def init_network_carry(network, memory: MemoryConfig, key: jax.Array, batch_size: int):
-    """Fresh carry for ``network``. Ensembles (modules exposing ``num``)
-    get one carry per member, stacked on a leading (num,) axis."""
+    """Fresh carry for ``network``. An ensemble whose members each own a
+    memory (PPO's critic) gets one carry per member, stacked on a leading
+    (num,) axis; a recurrent Q-critic's heads share one (RecurrentQTrunk)."""
     carry = init_carry(memory, key, batch_size)
-    num = getattr(network, "num", None)
-    if num is not None:
+    if isinstance(network, MultiCritic) and not network.query_dim:
+        num = network.num
         carry = jax.tree.map(lambda x: jnp.repeat(x[None], num, axis=0), carry)
     return carry
 
@@ -740,7 +764,8 @@ def predict_value_sequence(
         resets: (T, B) episode-start flags aligned with ``x`` (resets[t]
             means x[t] is the first observation of a new episode).
         initial_hidden: carry valid for x[0]; leaves are (num, B, hidden)
-            for critic ensembles.
+            for an ensemble whose members each own a memory (PPO's critic),
+            (B, hidden) for a recurrent Q-critic, whose heads share one.
 
     Returns:
         (values, final_hidden): values (num, T, B, 1); final_hidden is the

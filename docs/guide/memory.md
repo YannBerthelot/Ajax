@@ -127,14 +127,17 @@ action. The hidden layers (`actor_architecture`, `critic_architecture`)
 come after the memory and read its output beside a second embedding of the
 current observation: 32 wide in the actor, and in the critic 48 wide with
 the action the loss asks about, so asking about another action does not
-change what the critic remembers. Ni et al. pair these widths with a memory
-of 128 units; `MemoryConfig`'s default is 64. Checkpoints saved before this
-layout cannot be restored.
+change what the critic remembers. The critic's Q-heads (two in SAC, ASAC and
+TD3, `num_critics` in REDQ) share its memory, the embeddings before it and
+the second embedding, as Ni et al.'s two heads do: each head is only its own
+hidden layers and output. Ni et al. pair these widths with a memory of 128
+units; `MemoryConfig`'s default is 64. Checkpoints saved before this layout
+cannot be restored.
 
 | Network | The memory reads | The hidden layers read |
 | --- | --- | --- |
 | Actor (TD3's deterministic one too) | the observation (32) and the previous action (16) | the memory's output and the observation (32) |
-| Each critic | the observation (32) and the previous action (16) | the memory's output and the observation with the queried action (48) |
+| Critic (one memory for all its Q-heads) | the observation (32) and the previous action (16) | the memory's output and the observation with the queried action (48) |
 
 Each width in brackets is one dense layer and a ReLU. The reference is Ni et
 al.'s code (twni2016/pomdp-baselines @e7c19c3,

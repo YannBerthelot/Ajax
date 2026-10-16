@@ -20,8 +20,9 @@ feedforward batch or, given carries, on a replayed sequence.
 The actor's and the critic's memories read each row's observation and the
 action before it, the one taken; the action a critic's loss asks about
 joins after the memory, so a taken or a sampled action is a query on the
-same carry and never feeds it: the recurrent off-policy networks of Ni et
-al. 2022 (``networks.OBSERVATION_EMBEDDING``).
+same carry and never feeds it, and the critic's heads share that one
+memory and carry: the recurrent off-policy networks of Ni et al. 2022
+(``networks.OBSERVATION_EMBEDDING``, ``networks.RecurrentQTrunk``).
 """
 
 from typing import Any, Optional, Tuple
@@ -156,9 +157,7 @@ def sample_and_burnin_sequences(
     actor_template = zeros_carry_like(
         agent_state.actor_state.hidden_state, batch_size, batch_axis=0
     )
-    critic_zero = zeros_carry_like(
-        agent_state.critic_state.hidden_state, batch_size, batch_axis=1
-    )
+    critic_zero = zeros_carry_like(agent_state.critic_state.hidden_state, batch_size)
 
     def burn_actor(params: Any) -> Any:
         if burn_in == 0:

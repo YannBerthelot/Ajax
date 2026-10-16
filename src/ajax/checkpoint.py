@@ -60,6 +60,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
         state_dict = pickle.load(f)
     skeleton_dict = serialization.to_state_dict(skeleton)
     _check_recurrent_embedders(skeleton_dict, state_dict)
+    _check_shared_critic_memory(skeleton_dict, state_dict)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
@@ -128,11 +129,12 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
 
 
 def _check_recurrent_embedders(skeleton: Any, saved: Any) -> None:
-    """Refuse a checkpoint whose recurrent off-policy actor or critic (SAC,
-    ASAC, REDQ, TD3 with memory) feeds its memory through the full-width
-    encoder, the layout before Ni et al.'s embedders
+    """Refuse a checkpoint whose recurrent off-policy actor (SAC, ASAC,
+    REDQ, TD3 with memory) feeds its memory through the full-width encoder,
+    the layout before Ni et al.'s embedders
     (``networks.OBSERVATION_EMBEDDING``): flax reports the missing
-    embedders without their cause. No setting rebuilds that layout.
+    embedders without their cause. No setting rebuilds that layout. Such a
+    checkpoint's critic is refused by :func:`_check_shared_critic_memory`.
 
     Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this
     check once no such checkpoint remains.
@@ -152,6 +154,32 @@ def _check_recurrent_embedders(skeleton: Any, saved: Any) -> None:
     for key, value in skeleton.items():
         if key in saved:
             _check_recurrent_embedders(value, saved[key])
+
+
+def _check_shared_critic_memory(skeleton: Any, saved: Any) -> None:
+    """Refuse a checkpoint whose recurrent off-policy critic (SAC, ASAC,
+    REDQ, TD3 with memory) gives each Q-head its own memory, Ajax's layout
+    before its heads shared one (``networks.RecurrentQTrunk``, as Ni et
+    al.'s ``Critic_RNN``): flax reports the missing trunk without its
+    cause. No setting rebuilds that layout.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this
+    check once no such checkpoint remains.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return
+    heads = saved.get("ensemble")
+    if "trunk" in skeleton and isinstance(heads, dict) and "memory_cell" in heads:
+        raise ValueError(
+            "This checkpoint's recurrent off-policy critic gives each Q-head its"
+            " own memory, Ajax's layout before its heads shared one memory, its"
+            " embedders and its shortcut, as Ni et al. (2022)'s recurrent critic"
+            " does. No setting rebuilds that layout; restore the checkpoint with"
+            " the Ajax version that saved it, or train afresh."
+        )
+    for key, value in skeleton.items():
+        if key in saved:
+            _check_shared_critic_memory(value, saved[key])
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:

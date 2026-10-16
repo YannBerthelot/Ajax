@@ -143,7 +143,9 @@ def actor_sequence(n: Nets, obs: jax.Array, starts: jax.Array) -> Any:
 
 def critic_sequence(n: Nets, x: jax.Array, starts: jax.Array) -> jax.Array:
     """(T, B) values over a (T, B, obs [+ action]) sequence, ensemble mean."""
-    carry = zeros_carry_like(n.critic.hidden_state, x.shape[1], batch_axis=1)
+    # PPO's members stack their carries first; a Q-critic's heads share one.
+    axis = 0 if "trunk" in n.critic.params["params"] else 1
+    carry = zeros_carry_like(n.critic.hidden_state, x.shape[1], batch_axis=axis)
     v, _ = predict_value_sequence(n.critic, n.critic.params, x, starts, carry)
     return v.mean(axis=0)[..., 0]
 

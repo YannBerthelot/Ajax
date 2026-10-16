@@ -45,7 +45,8 @@ AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
         {"actor_architecture": ("32", "relu"), "critic_architecture": ("32", "relu")},
     ),
 }
-CRITICS = {"ASAC": 2, "REDQ": 3}  # an ensemble's carry keeps its critics' axis
+CRITICS = {"SAC": 2, "ASAC": 2, "REDQ": 3, "TD3": 2}  # the critic's Q-heads
+ACTIONS = 1  # Pendulum's
 TRAINS = [("SAC", kind) for kind in MEMORY_KINDS] + [
     ("ASAC", "lstm"),
     ("REDQ", "mamba"),
@@ -97,10 +98,17 @@ def test_a_recurrent_agent_trains_without_nans(name: str, kind: str) -> None:
     assert any(
         jnp.any(leaf != 0) for leaf in jax.tree.leaves(state.actor_state.hidden_state)
     )
-    # A critic ensemble's carry keeps its (num, batch) leading axes, after
-    # the seed axis train vmaps over.
-    for leaf in jax.tree.leaves(state.critic_state.hidden_state):
-        assert name not in CRITICS or leaf.shape[1] == CRITICS[name]
+    # The critic's heads (two, REDQ's three) share one memory, Ni et al.'s
+    # layout: one carry shaped as the actor's, one set of trunk parameters,
+    # each head its own hidden layers and output.
+    critic = state.critic_state
+    shapes = jax.tree.map(jnp.shape, critic.hidden_state)
+    assert shapes == jax.tree.map(jnp.shape, state.actor_state.hidden_state)
+    params = critic.params["params"]
+    for leaf in jax.tree.leaves(params["ensemble"]):
+        assert leaf.shape[1] == CRITICS[name]  # after the seed axis
+    kernel = params["trunk"]["action_embedder"]["network"]["layers_0"]["kernel"]
+    assert kernel.shape == (1, ACTIONS, 16)  # the seed axis, no member axis
 
 
 @pytest.mark.parametrize("name, kind", STORED)

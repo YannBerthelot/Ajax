@@ -78,7 +78,7 @@ def _actor(kind: str) -> Any:
 
 def _carries(critic: Any, actor: Any = None, taken: jax.Array = TAKEN) -> Any:
     """A window whose rows took ``taken``, started from fresh carries."""
-    hidden = zeros_carry_like(critic.hidden_state, B, batch_axis=1)
+    hidden = zeros_carry_like(critic.hidden_state, B)
     actor_hidden = None if actor is None else zeros_carry_like(actor.hidden_state, B)
     positions = stream_positions(CUT)
     return RecurrentCarries(
@@ -256,7 +256,7 @@ def test_the_burn_in_reads_each_rows_observation_and_the_action_before_it(
         critic.params,
         action_value_input(obs, jnp.zeros_like(acts), before),
         starts,
-        zeros_carry_like(critic.hidden_state, 2, batch_axis=1),
+        zeros_carry_like(critic.hidden_state, 2),
     )[1]
     assert starts[1:].any() and (before != 0).any()  # an end, an action before
     for got, want in (

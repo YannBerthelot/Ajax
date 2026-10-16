@@ -164,3 +164,26 @@ def test_a_horizon_before_the_calls_end_is_refused(name: str) -> None:
     with pytest.raises(ValueError, match="total_timesteps=32 ends before"):
         agent.train(seed=0, n_timesteps=64, total_timesteps=32)
     assert records() == before
+
+
+class _Built(Exception):
+    """Raised by the ``make_train`` spy once it has seen the horizon."""
+
+
+@pytest.mark.parametrize("name", ["DreamerV3", "TDMPC2"])
+def test_the_world_models_build_their_train_on_the_runs_horizon(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Their ``train`` takes ``total_timesteps`` by name, so it reaches
+    :meth:`ActorCritic.train` only if they pass it on: the train function is
+    built for the run's horizon, the call ending before it."""
+    agent, seen = REFUSING[name](), {}
+
+    def make_train(**kwargs: Any) -> Any:
+        seen.update(kwargs)
+        raise _Built
+
+    monkeypatch.setattr(agent, "make_train", make_train)
+    with pytest.raises(_Built):
+        agent.train(seed=0, n_timesteps=64, total_timesteps=96)
+    assert (seen["total_timesteps"], seen.get("end_timestep")) == (96, 64)

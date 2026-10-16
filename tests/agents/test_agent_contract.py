@@ -508,6 +508,16 @@ def test_every_src_agent_is_in_actor_critics() -> None:
     assert found == set(ACTOR_CRITICS.split()), "add the new agent to ACTOR_CRITICS"
 
 
+def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
+    """Every agent's seeds update in step, so a resume refuses unequal
+    counts; only TD-MPC2's episodic mode lets them differ, per instance
+    (test_tdmpc2_episodic)."""
+    unequal = {
+        n for n in ACTOR_CRITICS.split() if getattr(ajax, n).per_seed_update_counts
+    }
+    assert not unequal
+
+
 #: Each agent's gradient clip (its option, its default). PPO clips at its
 #: paper's global norm 0.5 and APO, built on PPO, keeps it; the other
 #: references do not clip, and PPO's 0.5 copied onto them once froze SAC's

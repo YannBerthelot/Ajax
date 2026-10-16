@@ -676,3 +676,12 @@ def test_an_episodic_run_that_never_updates_raises():
     agent.train(seed=0, n_timesteps=40, num_episode_test=1)  # tick 20: not yet
     with pytest.raises(ValueError, match="never updated"):
         agent.train(seed=0, n_timesteps=60, num_episode_test=1)
+
+
+def test_only_the_episodic_mode_lets_its_seeds_update_unequally():
+    """The episodic mode's updates wait on each seed's episodes, so a
+    resume keeps its seeds' unequal update counts; the paper-era mode's
+    seeds update on the tick, in step, and a resume refuses unequal ones."""
+    for episodic in (True, False):
+        agent = TDMPC2(ChainEnv(), episodic=episodic, buffer_size=200, **CHAIN)
+        assert agent.per_seed_update_counts is episodic

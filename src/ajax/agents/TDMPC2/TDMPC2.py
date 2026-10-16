@@ -265,6 +265,10 @@ class TDMPC2(ActorCritic):
             if episodic
             else Schedule(**schedule, updates_per_step=ratio)
         )
+        # The episodic mode's updates wait on each seed's ready episodes
+        # (train_TDMPC2's n_updates), so its seeds may update unequally; the
+        # paper-era mode's follow the tick, in step.
+        self.per_seed_update_counts = episodic
         self.train_kwargs = {
             "gamma": self.gamma,
             "schedule": self.schedule,

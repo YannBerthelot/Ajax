@@ -31,14 +31,18 @@ from . import readouts as R
 
 # The plan's lines per file; test_framework 145 + 35 for the API's checks,
 # + 26 (and envs.py + 15) for the probes observing 1 for 0 (CONSTANT_ZERO),
-# faults/ 170 + 30 (the catalogue proves each probe's power), + 27 (and
-# verdict.py + 1) for a reading averaged over seeds (verdict.Case.mean_of).
-CAPS = {"verdict.py": 256, "envs.py": 230, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 170, "faults.py": 100, "faults/": 200}
-CAPS |= {"test_framework.py": 233, "test_value_chains.py": 1051}
-CAPS |= {"test_episode_ends.py": 1007, "test_bookkeeping.py": 1013}
+# faults/ 170 + 30 (the catalogue proves each probe's power); the action-box
+# family: envs.py + 22, oracles.py + 20, test_framework + 5; family 2's
+# cells: oracles.py + 2, test_episode_ends + 36, this note + 1; the two
+# families' faults together: faults/ + 4, this note + 1; a reading averaged
+# over seeds (verdict.Case.mean_of): test_framework + 27, verdict.py + 1.
+CAPS = {"verdict.py": 256, "envs.py": 252, "agents.py": 155, "runs.py": 250}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 204}
+CAPS |= {"test_framework.py": 240, "test_value_chains.py": 1051}
+CAPS |= {"test_episode_ends.py": 1043, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
+CAPS |= {"test_action_box.py": 200}
 
 
 def _modules() -> list:
@@ -162,13 +166,16 @@ def test_package_probes_observing_only_zero_observe_only_one() -> None:
 
 
 def test_oracles_and_readers_meet_known_values() -> None:
-    """Q6's sigma*, entropy and softmax, P8's and P5's limits; a simulated 2-step
-    episode paying 1 at its end, V = (gamma, 1); the leaf diff; rollout rows
-    (seeds, envs, steps); the normaliser's (5 - 2) / 2; N(0, 1)'s entropy."""
+    """Q6's sigma*, entropy and softmax, a temperature from its entropy, P8's
+    and P5's limits; a simulated 2-step episode paying 1 at its end, V =
+    (gamma, 1); the leaf diff; rollout rows (seeds, envs, steps); the
+    normaliser's (5 - 2) / 2; N(0, 1)'s entropy."""
     assert round(oracles.max_entropy_sigma(), 4) == 0.8744
     assert round(oracles.tanh_gaussian_entropy(0.8744), 5) == 0.68364
     assert round(oracles.softmax_optimum(1.0), 4) == 0.7311
     assert abs(oracles.maxent_mean_action(0.0, 1.0)) < 1e-6  # no slope, no lean
+    h = oracles.maxent_policy(lambda a: 2.5 * a, 0.3)[1]  # back to its temperature
+    assert oracles.shared_temperature([lambda a: 2.5 * a], h) == pytest.approx(0.3)
     assert oracles.clipped_square_mean(0.5, 100.0) == pytest.approx(0.25)
     assert oracles.ema_step_rms(1.0, 2.0) == pytest.approx(2.0 * math.sqrt(2.0))
 

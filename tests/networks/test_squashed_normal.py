@@ -1,5 +1,5 @@
 """SquashedNormal, the tanh-squashed Gaussian policy of the SAC family and of
-PPO and APO's continuous actor. Its standard deviation of 1.5 puts many
+PPO's with ``squash=True``. Its standard deviation of 1.5 puts many
 samples in the saturated region (|action| > 0.95), where recomputing a
 log-probability by inverting tanh is unstable: PPO once stored post-tanh
 actions and recomputed through ``arctanh`` (the May 2026 m4 audit); it now
@@ -36,7 +36,7 @@ def test_the_log_prob_of_a_sample_is_the_one_sampling_gave():
 
 
 def test_log_prob_from_raw_is_the_one_sampling_gave():
-    """The live method behind PPO and APO's ratio: from the pre-tanh draw
+    """The live method behind a squashed PPO's ratio: from the pre-tanh draw
     (``tanh`` of which is the action), the summed log-probability sampling
     gave, without inverting tanh."""
     raw = PI.distribution.sample(seed=KEY)

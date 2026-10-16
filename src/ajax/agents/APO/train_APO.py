@@ -56,10 +56,10 @@ def policy_loss_function(
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
-    """PPO's clipped surrogate with PPO's entropy bonus (a squashed policy's
-    executed action's, sampled with ``entropy_key``); also returns the
-    policy mean for extensions (``None`` for a discrete policy, which has no
-    mean action)."""
+    """PPO's clipped surrogate with PPO's entropy bonus (APO's Gaussian's,
+    exact; a squashed policy's executed action's, sampled with
+    ``entropy_key``); also returns the policy mean for extensions (``None``
+    for a discrete policy, which has no mean action)."""
     pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)

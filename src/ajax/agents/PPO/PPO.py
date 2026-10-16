@@ -194,4 +194,4 @@ class PPO(ActorCritic):
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
         # PPO's reference code never clips its log-std parameter.
-        self.network_args = self.network_args.replace(clip_log_std_param=False)
+        self.network_args = self.network_args.replace(log_std_bounds=None)

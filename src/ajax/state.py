@@ -254,7 +254,7 @@ class NetworkConfig(Replaceable):
     # reference.
     log_std_state_independent: bool = False
     log_std_init: float = -1.0
-    clip_log_std_param: bool = True
+    log_std_bounds: Optional[Tuple[float, float]] = (-20.0, 2.0)
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by

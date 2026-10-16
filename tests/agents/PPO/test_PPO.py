@@ -69,4 +69,4 @@ def test_ppo_defaults_to_its_reference_log_std():
     clipped, as Baselines, CleanRL and PureJaxRL learn it."""
     args = PPO("Pendulum-v1").network_args
     assert args.log_std_state_independent and args.log_std_init == 0.0
-    assert not args.clip_log_std_param
+    assert args.log_std_bounds is None

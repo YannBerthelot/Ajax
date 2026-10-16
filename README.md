@@ -94,7 +94,7 @@ from ajax import PPO, SAC
 from ajax.extensions.instrumentation import ConditioningMetrics
 
 # A recurrent actor and critic, for when one observation is not enough.
-agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})
+agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 128})
 
 # A research feature as an extension: the critic's health at each evaluation.
 agent = PPO("CartPole-v1", expose_recent_rollout=True, extensions=(ConditioningMetrics(),))

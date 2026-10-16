@@ -125,3 +125,8 @@ the steps the whole run does.
     - a Brax environment state saved before the observation normaliser kept
       the raw observation: it is rebuilt from the saved observation and
       statistics.
+
+  A memory saved at another width than the agent restoring it raises an
+  error giving both shapes. A checkpoint saved with the default width before
+  it became 128 restores into an agent built with
+  `MemoryConfig(..., hidden_size=64)`.

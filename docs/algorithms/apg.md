@@ -106,7 +106,8 @@ stages = [  # the nominal pendulum first, then the whole family
 | `episode_length`, `action_repeat` | None, 1 | accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1 |
 
 `APG.contextual_controller(env, system_class, ...)` sets the paper's values:
-8 layers, 4 heads, width 128, context 100, one system per update
+8 layers, 4 heads, width 128 (the reference code's training scripts default
+to 32), context 100, one system per update
 (`n_envs=1`), horizon 100, betas (0.9, 0.95) with `weight_decay=0` (plain
 Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, and a
 PID output layer. Its `final_norm=False` rebuilds a controller saved before

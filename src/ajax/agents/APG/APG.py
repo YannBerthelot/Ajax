@@ -186,11 +186,14 @@ class APG(ActorCritic):
         Defaults follow the paper (Table 2: 8 layers, 4 heads, context 100,
         width 128, ``b=1`` system per iteration, ``N=100`` horizon) and the
         reference code (AdamW betas (0.9, 0.95), 5k-step warmup then
-        cosine decay to ``lr/10``). Deviations, each backed by runs on the
-        pendulum tracking test bed: actions are tanh-bounded (Ajax
-        convention; the reference leaves ``u`` unbounded), gradients are
-        clipped (see :class:`APG`), and the PID head starts at the
-        identity rather than the reference's all-ones coefficients (see
+        cosine decay to ``lr/10``). The width is the paper's: the reference
+        code's training scripts default to 32 (``--n-embd`` at
+        ``train_onestep_lin.py:98`` and ``train_onestep_lin_CL.py:99``).
+        Deviations, each backed by runs on the pendulum tracking test bed:
+        actions are tanh-bounded (Ajax convention; the reference leaves
+        ``u`` unbounded), gradients are clipped (see :class:`APG`), and the
+        PID head starts at the identity rather than the reference's
+        all-ones coefficients (see
         ``_DEFAULT_PID``). Not backed by runs: the LayerNorms, ``ln_f``
         included, keep a bias and flax's epsilon 1e-6, where the reference's
         have no bias and epsilon 1e-5 (buswayne/in-context-controller at

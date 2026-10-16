@@ -47,20 +47,33 @@ state, _ = agent.train(seed=0, n_timesteps=4_096)
 ```python
 from ajax.networks.memory import MemoryConfig
 
-gru = MemoryConfig(kind="gru", hidden_size=64, num_layers=1)
-attention = MemoryConfig(kind="transformer", hidden_size=64, window=32, num_heads=4)
-ssm = MemoryConfig(kind="mamba", hidden_size=64, d_state=16, d_conv=4, expand=2)
-lstm = {"kind": "lstm", "hidden_size": 64}  # a dictionary works too
+gru = MemoryConfig(kind="gru", hidden_size=128, num_layers=1)
+attention = MemoryConfig(kind="transformer", hidden_size=128, window=32, num_heads=4)
+ssm = MemoryConfig(kind="mamba", hidden_size=128, d_state=16, d_conv=4, expand=2)
+lstm = {"kind": "lstm", "hidden_size": 128}  # a dictionary works too
 ```
 
 | Setting | Default | Used by |
 | --- | --- | --- |
-| `hidden_size` | 64 | every kind; a multiple of `num_heads` for the transformer |
+| `hidden_size` | 128 | every kind; a multiple of `num_heads` for the transformer |
 | `num_layers` | 1 | every kind |
 | `gradient_checkpoint` | `False` | every kind: recompute activations in the backward pass, trading time for memory on long sequences |
 | `window`, `num_heads` | 32, 4 | transformer: a step attends to itself and the `window - 1` steps before it in the same episode |
 | `d_state`, `d_conv`, `expand` | 16, 4, 2 | mamba: state size, causal-convolution width, inner-width multiplier |
 | `final_norm` | `True` | transformer, mamba: end with a LayerNorm, as GPT-2 and Mamba do; `False` only restores a checkpoint saved before it, and goes once none remains (an APG controller's parameters also map exactly onto the new network with `controller_params_with_final_norm`, which maps the parameters only, so a resumed training state must restart its optimizer) |
+
+The default width, 128, is the one the references of Ajax's memory agents
+use, for every agent and every kind: the recurrent PPO of OpenAI Baselines
+(`lstm(nlstm=128)`), CleanRL (`ppo_atari_lstm.py`) and PureJaxRL
+(`ppo_rnn.py`); the recurrent SAC and TD3 of Ni et al. (2022) (128 in 26 of
+their 28 configurations; 512 on Atari's pixels, 64 on one meta-learning
+task), of their Memory-RL (2023) and of LSTM-TD3; for the transformer, Memory-RL's GPT and the Decision
+Transformer; for mamba, Decision Mamba, whose state size, convolution width
+and expansion are Ajax's defaults too. sb3-contrib's RecurrentPPO and the
+POPGym benchmark use 256. APG's `contextual_controller` sets its own width
+(see [APG](../algorithms/apg.md)). A checkpoint saved at another width is
+refused; one saved with the default before it became 128 restores into
+`hidden_size=64`.
 
 Acting and training run the same code, a sequence of one step being the
 acting case, so what the agent learns is what it executes. Each kind is
@@ -147,9 +160,9 @@ differs from it in these ways:
   8 or 16 wide in their POMDP configurations (`configs/pomdp`). Ajax's reads
   the observation and the previous action only, their best inputs on the
   standard POMDPs.
-- **The memory.** Theirs is a GRU or an LSTM of 128 units. Ajax's is any
-  `MemoryConfig` kind, the transformer and mamba included, 64 units wide by
-  default.
+- **The memory.** Theirs is a GRU or an LSTM, of 128 units on their POMDP
+  tasks. Ajax's is any `MemoryConfig` kind, the transformer and mamba
+  included, 128 units wide by default.
 - **Initialisation and heads.** Ajax initialises the embedders as it does
   the hidden layers (orthogonal, zero bias), not with torch's default, and a
   GRU's or an LSTM's input weights with flax's default (LeCun normal), where

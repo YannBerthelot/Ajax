@@ -41,7 +41,9 @@ Each agent's default follows its paper or reference implementation:
 | `("128", "relu", "128", "relu")` | DQN, PQN, UDRL, APG (its controller) |
 
 DreamerV3 and TD-MPC2 build their own networks to their papers'
-specifications: see [World models](world-models.md).
+specifications: see [World models](world-models.md). A memory block
+(`memory=`) is 128 wide by default, its references' width, for every agent
+and kind: see [Memory](memory.md#the-kinds).
 
 ### Initialisers
 
@@ -66,8 +68,9 @@ layers' kernels, `actor_bias_init` for the policy head's bias and
 
 The hidden layers form an encoder that the output heads read. With
 `memory=`, SAC, ASAC, REDQ and TD3 put the memory before it, fed by narrow
-embeddings of the observation and the previous action (Ni et al. 2022's
-layout; see [Memory](memory.md#off-policy-sequence-replay)).
+embeddings of the observation and the previous action, and a critic's
+Q-heads share one memory (Ni et al. 2022's layout; see
+[Memory](memory.md#off-policy-sequence-replay)).
 `encoder_layer_norm=True` adds a LayerNorm on the encoder's output. It is
 off by default, because the SAC, TD3, PPO and DQN papers use plain MLPs. PPO
 takes it as an argument. SAC, ASAC, REDQ, APO and DQN, and TD3's critics

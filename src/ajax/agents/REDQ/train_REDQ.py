@@ -105,6 +105,7 @@ def init_REDQ(
     stored_state: bool = False,
     store_expert_data: bool = False,
     expert_policy: Optional[Callable] = None,
+    store_raw_next_obs: bool = False,
 ) -> REDQState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -120,6 +121,7 @@ def init_REDQ(
         stored_state=stored_state,
         collector_extras={
             "include_raw_obs": store_expert_data,
+            "include_raw_next_obs": store_raw_next_obs,
             "include_is_expert": store_expert_data,
             "expert_policy": expert_policy,
         },
@@ -371,6 +373,7 @@ def make_train(
         "env_args": env_args,
         "actor_optimizer_args": actor_optimizer_args,
         "expert_policy": expert_policy,
+        "buffer": buffer,
     }
     extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     recurrent = network_args.memory is not None
@@ -404,6 +407,7 @@ def make_train(
             stored_state=agent_config.stored_state,
             store_expert_data=holds_expert(expert_policy, loop.stack),
             expert_policy=expert_policy,
+            store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
         )
 
     def update(agent_state: REDQState, _transition: Transition) -> Any:

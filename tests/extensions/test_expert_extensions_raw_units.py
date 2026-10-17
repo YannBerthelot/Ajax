@@ -88,14 +88,25 @@ def test_the_extensions_expert_reads_raw_observations(name):
 
 
 @pytest.mark.parametrize(
-    "name, stored",
-    [("IBRL", True), ("PhiRefresh", True), ("MCPretrain", False), ("metrics", False)],
+    "agent_name, name, stored",
+    [
+        ("SAC", "IBRL", True),
+        ("SAC", "PhiRefresh", True),
+        ("SAC", "MCPretrain", False),
+        ("SAC", "metrics", False),
+        ("TD3", "IBRL", True),
+        ("TD3", "metrics", False),
+        ("REDQ", "IBRL", True),
+        ("ASAC", "metrics", False),
+    ],
 )
 def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
-    name, stored
+    agent_name, name, stored
 ):
     """raw_next_obs is allocated when an extension declares it reads it
-    (Extension.buffer_fields), not for one that merely carries an expert."""
+    (Extension.buffer_fields), not for one that merely carries an expert,
+    on every replay agent."""
+    import ajax
     from ajax.extensions.expert import ExpertValueMetrics
 
     expert = _RecordingExpert()
@@ -105,14 +116,15 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
         "MCPretrain": (_mc(expert),),
         "metrics": (ExpertValueMetrics(),),
     }
-    agent = SAC(
+    sac_only = {"expert_buffer_n_steps": 0} if agent_name == "SAC" else {}
+    agent = getattr(ajax, agent_name)(
         "Pendulum-v1",
         n_envs=2,
         actor_architecture=("8", "relu"),
         critic_architecture=("8", "relu"),
         expert_policy=expert,
-        expert_buffer_n_steps=0,
         extensions=stacks[name],
+        **sac_only,
     )
     state, _ = agent.train(seed=0, n_timesteps=0)
     experience = state.collector_state.buffer_state.experience
@@ -152,10 +164,11 @@ def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
 
 
 def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():
-    from ajax import REDQ
+    """PPO keeps no replay, so no raw next observations for IBRL to read."""
+    from ajax import PPO
 
     with pytest.raises(ValueError, match="raw_next_obs"):
-        REDQ("Pendulum-v1", extensions=(IBRL(expert_policy=_RecordingExpert()),))
+        PPO("Pendulum-v1", extensions=(IBRL(expert_policy=_RecordingExpert()),))
 
 
 def test_an_offline_agent_rejects_an_extension_reading_a_buffer_field():

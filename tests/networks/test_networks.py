@@ -71,6 +71,25 @@ def test_multi_critic(sample_input, num_critics):
     assert multi_critic.apply(params, x).shape == (num_critics, 4, 1)
 
 
+@pytest.mark.parametrize("multi", [False, True])
+def test_the_layernorm_token_adds_a_layernorm_where_it_stands(multi):
+    """RLPD's critic MLP (Ball et al. 2023): each ``"layernorm"`` is its own
+    LayerNorm (a scale and a bias) right after its Dense, in a Critic and
+    in each member of a MultiCritic."""
+    arch = ("16", "layernorm", "relu", "16", "layernorm", "relu")
+    critic = MultiCritic(arch, num=2) if multi else Critic(arch)
+    params = critic.init(jax.random.PRNGKey(0), jnp.ones((4, 10)))["params"]
+    layers = (params["ensemble"] if multi else params)["encoder"]["network"]
+    dense, norm = ["bias", "kernel"], ["bias", "scale"]
+    expected = {
+        "layers_0": dense,
+        "layers_1": norm,
+        "layers_3": dense,
+        "layers_4": norm,
+    }
+    assert {name: sorted(leaves) for name, leaves in layers.items()} == expected
+
+
 @pytest.fixture
 def real_env_config():
     env, env_params = build_env_from_id("CartPole-v1")

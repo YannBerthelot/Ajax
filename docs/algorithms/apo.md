@@ -57,7 +57,7 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `nu` | 0.1 | weight of the value-bias penalty |
 | `gae_lambda` | 0.95 | GAE's lambda (there is no discount) |
 | `clip_range` | 0.2 | the ratio clip |
-| `ent_coef` | 0 | entropy bonus weight |
+| `ent_coef` | 0.01 | entropy bonus weight, the official code's (see the notes) |
 | `max_grad_norm` | 10 | clips the gradient's global norm over both networks at once (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised over the whole rollout |
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, the official code's (see the notes) |
@@ -80,7 +80,7 @@ differential reward `r - rho`. The critic fits the differential value; its
 target is shifted by `nu * b`, which pulls the values back towards a zero mean.
 Without that penalty the values are defined only up to a constant and can
 drift. Each minibatch then takes one step of both networks down the sum of
-PPO's clipped surrogate and the value loss.
+PPO's clipped surrogate, the value loss and the entropy bonus.
 
 ## Notes
 
@@ -151,9 +151,15 @@ PPO's clipped surrogate and the value loss.
   as torch's parameter groups allow. Until October 2026 each network took
   its own step, clipped to norm 0.5 on its own; a checkpoint saved then
   restores, its moments and step counts kept.
-- **Known difference, fixed in a follow-up PR.** The entropy bonus is not
-  the official code's yet: 0.01 there (`mujoco_appo.py:9`), `ent_coef=0`
-  here.
+- **Entropy bonus.** As in the official code, the loss subtracts 0.01
+  (`entropy_loss_coeff`, `mujoco_appo.py:9`) times the batch mean of the
+  policy's entropy (`appo.py:155-158`). A continuous APO's is its
+  Gaussian's, `log_std + log sqrt(2 pi e)` summed over the action
+  dimensions (`rlpyt/distributions/gaussian.py:81-97, :102-103`); the
+  log-std does not depend on the state, so the bonus pushes it up and
+  leaves the mean alone. Until October 2026 the weight was 0; `ent_coef=0`
+  reproduces runs from then (the parameters are unchanged, so their
+  checkpoints restore).
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

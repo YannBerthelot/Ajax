@@ -2,8 +2,9 @@
 one Adam over the whole model (``base.py:28``) down the clipped surrogate
 plus ``vf_coef`` times the value loss minus ``ent_coef`` times the entropy
 (``appo.py:145-158``), the gradient clipped to global norm ``max_grad_norm``
-over every parameter at once (``appo.py:106-112``; 10 and 3e-4 in
-``apo/experiments/configs/mujoco/apg/mujoco_appo.py:5, :8``)."""
+over every parameter at once (``appo.py:106-112``; 3e-4, 10 and the entropy
+coefficient 0.01 in ``apo/experiments/configs/mujoco/apg/mujoco_appo.py:5,
+:8, :9``)."""
 
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ import pytest
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.APO.state import APOConfig
+from ajax.agents.PPO.core import recompute_log_prob
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import predict_value
@@ -28,9 +30,58 @@ B, VALUE_BIAS = 16, 0.3
 def test_APO_defaults_to_its_reference_codes_optimiser() -> None:
     agent = APO(env_id="Pendulum-v1")
     config = cast(APOConfig, agent.agent_config)
-    assert (config.max_grad_norm, config.vf_coef, config.ent_coef) == (10.0, 1.0, 0)
+    assert (config.max_grad_norm, config.vf_coef, config.ent_coef) == (10.0, 1.0, 0.01)
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.learning_rate, args.eps, args.max_grad_norm) == (3e-4, 1e-8, None)
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
+def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
+    """At APO's defaults and zero advantages (a zero surrogate), its policy
+    loss is the official code's entropy term (``appo.py:155-156``): minus
+    0.01 times the batch mean of the entropy, the Gaussian's ``log_std +
+    log sqrt(2 pi e)`` summed over the action dimensions
+    (``rlpyt/distributions/gaussian.py:81-97``), so the term lowers the
+    log-std's loss gradient by 0.01."""
+    agent = APO(env_id=env_id, n_envs=2)
+    config = cast(APOConfig, agent.agent_config)
+    args = (agent.actor_optimizer_args, agent.critic_optimizer_args)
+    key = jax.random.PRNGKey(0)
+    actor = train_APO.init_APO(
+        key, agent.env_args, *args, agent.network_args
+    ).actor_state
+    params: Any = actor.params
+    continuous = "log_std_param" in params["params"]
+    if continuous:  # a log-std away from its initial 0
+        log_std = jnp.full_like(params["params"]["log_std_param"], 0.3)
+        params = {"params": {**params["params"], "log_std_param": log_std}}
+    obs = jax.random.normal(key, (B, 3 if continuous else 4))
+    pi, _ = get_pi(actor, params, obs)
+    actions = pi.sample(seed=key).reshape(B, -1)
+    old = recompute_log_prob(pi, actions, actions)
+
+    def loss(p: Any) -> jax.Array:
+        return train_APO.policy_loss_function(
+            p,
+            actor,
+            obs,
+            actions,
+            old,
+            gae=jnp.zeros((B, 1)),
+            clip_coef=config.clip_range,
+            ent_coef=config.ent_coef,
+            raw_actions=actions,
+        )[0]
+
+    if continuous:
+        entropy = 0.3 + 0.5 * np.log(2 * np.pi * np.e)
+    else:
+        probs = np.asarray(pi.probs)
+        entropy = float(np.mean(-np.sum(probs * np.log(probs), -1)))
+    np.testing.assert_allclose(loss(params), -0.01 * entropy, rtol=1e-5)
+    if continuous:
+        grad = jax.grad(loss)(params)["params"]["log_std_param"]
+        np.testing.assert_allclose(grad, -0.01, rtol=1e-5)
 
 
 def test_clip_grad_norm_scales_as_torchs_clip_grad_norm() -> None:

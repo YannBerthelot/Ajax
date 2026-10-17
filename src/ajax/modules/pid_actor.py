@@ -48,7 +48,7 @@ import jax
 import jax.numpy as jnp
 
 from ajax.environments.pid_terms import split_pid_terms
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 from ajax.networks.utils import parse_architecture
 
 GAIN_NAMES = ("kp", "ki", "kd")
@@ -136,7 +136,8 @@ class PIDActor(nn.Module):
     def __call__(self, obs: jax.Array) -> distrax.Distribution:
         mean = self.pid(obs)
         std = jnp.exp(jnp.clip(jnp.broadcast_to(self.log_std, mean.shape), -20, 2))
-        return SquashedNormal(mean, std) if self.squash else distrax.Normal(mean, std)
+        normal = distrax.Normal(mean, std)
+        return Squash(normal) if self.squash else normal
 
 
 def check_pid_actor(continuous: bool, memory: object) -> None:

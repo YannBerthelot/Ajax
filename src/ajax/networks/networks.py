@@ -13,7 +13,7 @@ from flax.serialization import to_state_dict
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 from ajax.networks.memory import (
     Carry,
     MemoryCell,
@@ -254,11 +254,8 @@ class Actor(nn.Module):
             else:
                 log_std = jnp.clip(self.log_std(embedding), -20, 2)
             std = jnp.exp(log_std)
-            return (
-                distrax.Normal(mean, std)
-                if not self.squash
-                else SquashedNormal(mean, std)
-            )
+            normal = distrax.Normal(mean, std)
+            return Squash(normal) if self.squash else normal
         return self.model(embedding)
 
     def __call__(self, obs, hidden_state=None, done=None):

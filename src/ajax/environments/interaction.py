@@ -28,7 +28,7 @@ from ajax.environments.utils import (
     maybe_append_train_frac,
     raw_obs_columns,
 )
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import sample_with_raw
 from ajax.networks.memory import flatten_carry, tree_where_reset
 from ajax.state import (
     BaseAgentState,
@@ -393,18 +393,9 @@ def get_action_and_new_agent_state(
         done=done,
         recurrent=recurrent,
     )
-    if isinstance(pi, SquashedNormal):
-        # Sample the base Normal manually so raw_action is exposed
-        # (PPO/APO need it to recompute log_prob without arctanh).
-        base = pi.distribution
-        raw_action = base.sample(seed=rng)
-        action = jnp.tanh(raw_action)
-        log_probs = base.log_prob(raw_action) - pi.bijector.forward_log_det_jacobian(
-            raw_action
-        )
-    else:
-        action, log_probs = pi.sample_and_log_prob(seed=rng)
-        raw_action = action
+    # raw_action, the pre-tanh sample, lets PPO/APO recompute the log-prob
+    # without arctanh.
+    action, log_probs, raw_action = sample_with_raw(pi, rng)
     if recurrent:
         # get_pi ran the actor on a single-step sequence (1, B, ...);
         # drop the time axis so callers (env step, buffer writes) see the

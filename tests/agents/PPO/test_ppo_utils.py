@@ -10,7 +10,7 @@ from ajax.agents.PPO.utils import (
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
 )
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 
 G, L = 0.99, 0.95
 ONES, HALF = [1.0, 1.0, 1.0], [0.5, 0.5, 0.5]
@@ -165,7 +165,7 @@ def test_policy_entropy_is_the_joint_actions():
     np.testing.assert_allclose(policy_entropy(normal), joint, rtol=1e-6)
     uniform = distrax.Categorical(logits=jnp.zeros((3, 4)))
     np.testing.assert_allclose(policy_entropy(uniform), jnp.full(3, jnp.log(4.0)))
-    squashed = SquashedNormal(loc, scale)
+    squashed = Squash(normal)
     with pytest.raises(ValueError):
         policy_entropy(squashed)
     executed = policy_entropy(squashed, jax.random.PRNGKey(0))

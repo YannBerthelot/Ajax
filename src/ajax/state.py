@@ -36,7 +36,7 @@ class Transition(Replaceable):
     next_obs: jnp.ndarray
     raw_obs: Optional[jnp.ndarray] = None
     log_prob: Optional[jnp.ndarray] = None
-    # Pre-tanh sample for SquashedNormal; lets on-policy agents recompute
+    # Pre-tanh sample of a squashed policy; lets on-policy agents recompute
     # log_prob without arctanh (which is unstable as |action| -> 1).
     raw_action: Optional[jnp.ndarray] = None
     # Expert action computed at collection time, with the correct (stateful)

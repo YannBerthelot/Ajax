@@ -9,7 +9,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import augment_obs
 from ajax.modules.pid_actor import GAIN_NAMES
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash, latent
 from ajax.state import Transition
 
 
@@ -137,19 +137,17 @@ def pre_train(
         # collapse on saturated samples, where scale → 0 would otherwise
         # dominate the loss).
         eps = bc_action_clip_eps
-        if isinstance(pi, SquashedNormal):
+        base = latent(pi)
+        floored = distrax.Normal(
+            base.loc, jnp.maximum(base.scale, jnp.exp(bc_min_log_std))
+        )
+        if isinstance(pi, Squash):
             # Clip the action into the squash domain so tanh^{-1} inside
             # log_prob stays finite.
             target = jnp.clip(batch_actions, -1.0 + eps, 1.0 - eps)
-            loc = pi.distribution.loc
-            scale = jnp.maximum(pi.distribution.scale, jnp.exp(bc_min_log_std))
-            pi_clipped = SquashedNormal(loc, scale)
-            return -pi_clipped.log_prob(target).sum(-1, keepdims=True).mean()
+            return -Squash(floored).log_prob(target).sum(-1, keepdims=True).mean()
         # Plain Normal (no squashing): no action clipping needed.
-        loc = pi.loc
-        scale = jnp.maximum(pi.scale, jnp.exp(bc_min_log_std))
-        pi_clipped = distrax.Normal(loc, scale)
-        return -pi_clipped.log_prob(batch_actions).sum(-1, keepdims=True).mean()
+        return -floored.log_prob(batch_actions).sum(-1, keepdims=True).mean()
 
     def actor_train_step(state, batch_obs, batch_actions):
         loss, grads = jax.value_and_grad(actor_loss_fn)(

@@ -30,7 +30,7 @@ from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
@@ -317,11 +317,7 @@ def policy_loss_function(
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
 
-    policy_std = (
-        pi.unsquashed_stddev().mean()
-        if isinstance(pi, SquashedNormal)
-        else pi.stddev().mean()
-    )
+    policy_std = latent(pi).stddev().mean()
 
     # 2. Action transform modifier (residual RL)
     q_input_actions = (

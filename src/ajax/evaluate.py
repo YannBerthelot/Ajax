@@ -28,7 +28,7 @@ from ajax.environments.utils import (
     get_raw_env,
     maybe_append_train_frac,
 )
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import latent
 from ajax.networks.memory import tree_where_reset
 from ajax.state import EnvironmentConfig
 from ajax.utils import online_normalize
@@ -200,9 +200,7 @@ def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):
         state = actor_state.replace(hidden_state=hidden) if recurrent else actor_state
         pi, new_state = get_pi(state, actor_state.params, obs, done, recurrent)
         action = pi.mean() if continuous else pi.mode()
-        entropy = (
-            pi.unsquashed_entropy() if isinstance(pi, SquashedNormal) else pi.entropy()
-        )
+        entropy = latent(pi).entropy()
         if recurrent:
             # drop the single-step time axis added by get_pi
             action = action.squeeze(0)

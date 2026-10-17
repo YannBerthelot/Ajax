@@ -15,7 +15,7 @@ from ajax.agents.TD3.networks import (
 )
 from ajax.evaluate import evaluate
 from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
@@ -68,7 +68,7 @@ def test_the_squashed_actor_squashes_the_pid_output():
     actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, squash=True)
     params = _set_gains(actor.init(jax.random.PRNGKey(0), OBS), GAINS)
     dist = actor.apply(params, OBS)
-    assert isinstance(dist, SquashedNormal)
+    assert isinstance(dist, Squash)
     np.testing.assert_allclose(dist.distribution.loc, _by_hand(OBS, GAINS), 1e-6)
 
 
@@ -127,7 +127,7 @@ def test_the_factories_build_pid_actors():
     obs = jnp.ones((3, 5))
     actor, _ = _build()
     assert isinstance(actor.apply_fn.__self__, PIDActor)
-    assert isinstance(actor.apply_fn(actor.params, obs), SquashedNormal)
+    assert isinstance(actor.apply_fn(actor.params, obs), Squash)
     actor, _ = _build(td3=True)
     assert isinstance(actor.apply_fn.__self__, DeterministicPIDActor)
     params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.2) for g in GAINS})

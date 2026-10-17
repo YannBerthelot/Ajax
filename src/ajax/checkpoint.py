@@ -65,10 +65,36 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
+    _check_leaf_shapes(skeleton, restored)
     return jax.tree.map(
         lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
         restored,
     )
+
+
+def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:
+    """Refuse a checkpoint whose arrays do not fit the skeleton's, saved by
+    an agent of another size (networks, ``n_envs``, buffer, seeds): flax
+    grafts any array, and the run would fail later, far from the cause, or
+    broadcast silently. Leaves only one side holds (replay fields an older
+    checkpoint kept, which the buffer then carries) are not compared."""
+
+    def shapes(tree: Any) -> dict[str, tuple]:
+        flat = jax.tree_util.tree_flatten_with_path(tree)[0]
+        return {jax.tree_util.keystr(path): np.shape(leaf) for path, leaf in flat}
+
+    want, got = shapes(skeleton), shapes(restored)
+    bad = [
+        f"{path} is {got[path]} in the checkpoint, {shape} in this agent"
+        for path, shape in want.items()
+        if path in got and got[path] != shape
+    ]
+    if bad:
+        raise ValueError(
+            "The checkpoint does not fit this agent's state: "
+            + "; ".join(bad[:5])
+            + (f"; and {len(bad) - 5} more" if len(bad) > 5 else "")
+        )
 
 
 #: Next-observation fields a replay buffer gained, by the field each is

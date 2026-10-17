@@ -467,10 +467,9 @@ def test_apg_trains_with_the_term_along_its_rollout() -> None:
 def test_udrl_trains_with_the_term_its_expert_reading_the_envs_observations() -> None:
     """Continuous UDRL's actor batch carries the env's own observations and
     the policy's mean action: the term moves the actor. Under
-    normalize_observations its segment buffer keeps the env's observations
-    beside the normalised ones for a run with an expert (and only then),
-    and the expert reads them: Pendulum's (cos, sin, speed), each on the
-    unit circle, which the normalised ones are not."""
+    normalize_observations its segment buffer keeps the env's observations,
+    which UDRL normalises when it reads them, and the expert reads them:
+    Pendulum's (cos, sin, speed), each on the unit circle."""
     from ajax import UDRL
 
     kw: dict[str, Any] = {
@@ -492,7 +491,7 @@ def test_udrl_trains_with_the_term_its_expert_reading_the_envs_observations() ->
 
     state, plain = run(ImitationLoss(expert, coef=100.0)), run()
     assert not _same(state.actor_state.params, plain.actor_state.params)
-    assert plain.buffer.raw_obs is None
+    assert state.collector_state.obs_norm_info is not None
     filled = int(np.max(state.buffer.fill_count))  # slots, from the first
 
     def rows(x: Any) -> np.ndarray:  # (slot, step, env, 3) -> (row, 3)
@@ -501,9 +500,8 @@ def test_udrl_trains_with_the_term_its_expert_reading_the_envs_observations() ->
     def on_circle(x: np.ndarray) -> np.ndarray:
         return np.isclose(x[:, 0] ** 2 + x[:, 1] ** 2, 1.0, atol=1e-4)
 
-    raw, normalised = rows(state.buffer.raw_obs), rows(state.buffer.obs[..., :-2])
+    raw = rows(state.buffer.obs[..., :-2])
     assert raw.shape == (32, 3) and on_circle(raw).all()  # 2 segments x 8 x 2
-    assert not on_circle(normalised).any()
     read = np.concatenate(seen).reshape(-1, 3)
     held = {tuple(row) for row in raw}
     assert read.size and all(tuple(row) in held for row in read)

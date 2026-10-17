@@ -19,6 +19,8 @@ class UDRL(ActorCritic):
     name: str = "UDRL"
     capabilities: frozenset = frozenset("actor obs_networks off_policy replay".split())
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    # It learns from the segments of up to buffer_capacity past iterations.
+    replays_transitions: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(

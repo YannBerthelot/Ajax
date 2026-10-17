@@ -206,22 +206,25 @@ The logged returns stay in the environment's units. Evaluation normalises
 observations with the training statistics, frozen, and never normalises
 rewards.
 
-The agents learning from the rollout they just collected (PPO, APO, PQN and
-UDRL) normalise in the environment. Its statistics live in the
+The agents learning from the rollout they just collected (PPO, APO and PQN)
+normalise in the environment. Its statistics live in the
 environment state: `state.collector_state.env_state.normalization_info.obs`
 for gymnax (in `info["normalization_info"]` for Brax), with `mean` and
 `var`. Every copy holds the same pooled values. To run the policy on a new
 observation yourself, normalise it as `(obs - mean) / sqrt(var + 1e-8)`
 first.
 
-The replay agents (SAC, TD3, REDQ, ASAC, DQN) learn from rows collected long
-before, so their replay keeps the environment's own observations and
-rewards, and a replayed row is normalised with the current statistics, as
-Stable-Baselines3's replay buffer does under `VecNormalize`. The agent
+The replay agents (SAC, TD3, REDQ, ASAC, DQN, UDRL) learn from rows
+collected long before, so their replay keeps the environment's own
+observations and rewards, and a replayed row is normalised with the current
+statistics, as Stable-Baselines3's replay buffer does under `VecNormalize`.
+UDRL's rewards are the exception for now: its segments keep them normalised
+by the environment. The agent
 normalises observations itself: the statistics live in
 `state.collector_state.obs_norm_info` (mirrored on its networks, which apply
 them, so `get_pi` takes raw observations) and cover the dimensions SAC
-appends to the observation (an expert's action or state). A replayed reward
+appends to the observation (an expert's action or state), not UDRL's
+command. A replayed reward
 is divided by the environment normaliser's current statistics. SAC's
 `normalize_obs_running=True`, the switch's old name, warns and will be
 removed: pass `normalize_observations=True`. An expert policy always reads the raw

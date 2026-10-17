@@ -46,7 +46,18 @@ def params(state: Any) -> list:
     return jax.tree.leaves([n.params for n in nets if n is not None])
 
 
-@pytest.mark.parametrize("name", REPLAYING)
+#: The replay agents handing pretrain their transition replay and update;
+#: UDRL replays segments and hands neither, so it refuses PriorData.
+FILLING = [
+    n for n in REPLAYING if PriorData.pretrain_context <= CASES[n].cls.pretrain_context
+]
+
+
+def test_the_agents_taking_prior_data_are_the_transition_replays() -> None:
+    assert FILLING == ["ASAC", "DQN", "REDQ", "SAC", "TD3"]
+
+
+@pytest.mark.parametrize("name", FILLING)
 def test_every_replay_agent_learns_from_the_rows_before_acting(name, data) -> None:
     rows = data[name == "DQN"]
     untouched = params(train(name))

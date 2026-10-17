@@ -193,7 +193,8 @@ target cut the bootstrap. `targets` is the target, held constant. The critic
 (`actor_params`) are the parameters being differentiated. `pi_mean` is the
 actor's mean action. `raw_observations` are the environment's own
 observations, before any normalisation; a replay agent keeps them only in a
-run with an expert, and passes `None` otherwise. An agent may add keys of
+run with an expert, and passes `None` otherwise, except UDRL, whose segments
+hold them anyway. An agent may add keys of
 its own: read its fold call.
 
 An extension never falls back to adding nothing, so a misplaced extension

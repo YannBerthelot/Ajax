@@ -12,7 +12,7 @@ per-episode storage that would require variable-length JAX arrays.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -23,7 +23,9 @@ from ajax.types import Replaceable
 
 @struct.dataclass
 class SegmentBuffer(Replaceable):
-    obs: jnp.ndarray  # (B, T, n_envs, obs_dim_with_cmd)
+    # (B, T, n_envs, obs_dim_with_cmd) the env's own observations, with the
+    # command: the agent normalises them when it reads them.
+    obs: jnp.ndarray
     actions: jnp.ndarray  # (B, T, n_envs, action_dim)
     rewards: jnp.ndarray  # (B, T, n_envs, 1)
     dones: jnp.ndarray  # (B, T, n_envs, 1)  float in {0., 1.}
@@ -37,10 +39,6 @@ class SegmentBuffer(Replaceable):
     episode_start: jnp.ndarray
     write_idx: jnp.ndarray  # scalar int32
     fill_count: jnp.ndarray  # scalar int32 (capped at B)
-    # (B, T, n_envs, env_obs_dim) the env's own observations, which an
-    # expert reads, kept only for a run with one (holds_expert): ``obs``
-    # holds them normalised under normalize_observations. None otherwise.
-    raw_obs: Optional[jnp.ndarray] = None
 
 
 def init_buffer(
@@ -50,14 +48,11 @@ def init_buffer(
     obs_dim: int,
     action_dim: int,
     action_dtype=jnp.float32,
-    keep_raw_obs: bool = False,
 ) -> SegmentBuffer:
     """Allocate an empty segment buffer.
 
     obs_dim is the FULL augmented obs dim (env_obs + 2 for the command).
-    keep_raw_obs also keeps the env's own observations (``raw_obs``).
     """
-    raw_shape = (capacity, segment_length, n_envs, obs_dim - 2)
     return SegmentBuffer(
         obs=jnp.zeros((capacity, segment_length, n_envs, obs_dim), dtype=jnp.float32),
         actions=jnp.zeros(
@@ -71,7 +66,6 @@ def init_buffer(
         episode_start=jnp.zeros((capacity, n_envs, 1), dtype=jnp.float32),
         write_idx=jnp.asarray(0, dtype=jnp.int32),
         fill_count=jnp.asarray(0, dtype=jnp.int32),
-        raw_obs=jnp.zeros(raw_shape, dtype=jnp.float32) if keep_raw_obs else None,
     )
 
 
@@ -88,7 +82,6 @@ def add_segment(
     actions: jnp.ndarray,
     rewards: jnp.ndarray,
     dones: jnp.ndarray,
-    raw_obs: Optional[jnp.ndarray] = None,
 ) -> SegmentBuffer:
     """Add one rollout segment at the next slot (FIFO over capacity).
 
@@ -97,13 +90,7 @@ def add_segment(
       actions: (T, n_envs, action_dim) — the discrete trailing-1 case is added here
       rewards: (T, n_envs, 1)
       dones:   (T, n_envs, 1)  in {0., 1.}
-      raw_obs: (T, n_envs, obs_dim - 2), exactly when the buffer keeps them
     """
-    if (raw_obs is None) != (buffer.raw_obs is None):
-        raise ValueError(
-            "add_segment takes the raw observations exactly when the buffer"
-            " keeps them (init_buffer's keep_raw_obs)."
-        )
     capacity = buffer.obs.shape[0]
     slot = buffer.write_idx  # stored modulo capacity
     actions = _ensure_action_trailing_dim(actions)
@@ -115,9 +102,6 @@ def add_segment(
     # or when it is the first.
     previous_end = buffer.dones[(slot - 1) % capacity, -1]
     starts = jnp.where(buffer.fill_count > 0, previous_end, 1.0)
-    kept_raw = buffer.raw_obs
-    if kept_raw is not None and raw_obs is not None:
-        kept_raw = kept_raw.at[slot].set(raw_obs.astype(kept_raw.dtype))
 
     return buffer.replace(
         obs=buffer.obs.at[slot].set(obs.astype(buffer.obs.dtype)),
@@ -130,7 +114,6 @@ def add_segment(
         episode_start=buffer.episode_start.at[slot].set(starts),
         write_idx=(buffer.write_idx + 1) % capacity,
         fill_count=jnp.minimum(buffer.fill_count + 1, capacity),
-        raw_obs=kept_raw,
     )
 
 
@@ -165,23 +148,6 @@ def sample_training_batch(
     new_cmd = jnp.stack([dr, dh], axis=-1)
     state = jnp.concatenate([state_no_cmd, new_cmd], axis=-1)
     return state, action
-
-
-def sample_raw_observations(
-    rng: jax.Array,
-    buffer: SegmentBuffer,
-    stream: EpisodeStream,
-    batch_size: int,
-) -> jnp.ndarray:
-    """The env's own observations (``buffer.raw_obs``) at the rows
-    :func:`sample_training_batch` reads given the same arguments."""
-    if buffer.raw_obs is None:
-        raise ValueError(
-            "This segment buffer keeps no raw observations: a run keeps them"
-            " only with an expert (init_buffer's keep_raw_obs)."
-        )
-    slot, t, env, _, _ = _draw_rows(rng, buffer, stream, batch_size)
-    return buffer.raw_obs[slot, t, env]
 
 
 def _draw_rows(

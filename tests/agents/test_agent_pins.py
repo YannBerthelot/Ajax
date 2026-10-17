@@ -634,6 +634,11 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once recurrent PPO's hidden layers became
+# PureJaxRL's recurrent PPO's: orthogonal with gain sqrt(2) (were
+# orthogonal(1.0)). PPO-gru moved +5.6% (actor), +5.6% (critic).
+_GOLDEN |= {"PPO-gru": {"actor": 55.2531852722168, "critic": 55.617679595947266}}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

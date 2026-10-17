@@ -69,6 +69,14 @@ def dataset(out: pathlib.Path, reps: int = 200) -> None:
     shutil.copy(protocol.HERE / "DATASET_CARD.md", out / "README.md")
 
 
+def margin_text(spec) -> str:
+    if spec.margin is not None:
+        return f"±{spec.margin:g}"
+    if spec.relative_margin is not None:
+        return f"±{spec.relative_margin:.0%} of the reference's mean score"
+    return "none registered yet"
+
+
 def specs_page() -> str:
     """docs/reproduction/specs.md: every comparison's settings, side by side."""
     lines = [
@@ -97,6 +105,7 @@ def specs_page() -> str:
             f"- Evaluation: {spec.n_eval_episodes} episodes of the deterministic"
             f" policy, {schedule}; a seed's score is the last one's mean return.",
             f"- AdaStop: n = {n}, K = {K}, alpha = {alpha}.",
+            f"- Margin: {margin_text(spec)}.",
             f"- Spec hash: `{spec_sha256(spec)[:16]}`.",
             "- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py"
             f" run {name} --cache DIR`",
@@ -160,19 +169,21 @@ def docs(reps: int = 200) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
-    words = {"equal": "no difference shown", "larger": "Ajax larger"}
+    words = {"equal": "none shown", "larger": "Ajax larger"}
     lines = [
         "# Results",
         "",
         "Written by `benchmarks/reference/refcmp_publish.py docs` from the",
         "records the dataset publishes. Ajax is its matched arm. The",
         "difference is Ajax's mean final return minus the reference's, with",
-        "its 95% bootstrap interval; the resolution is the smallest gap",
-        "AdaStop's budget detects 80% of the time. Speed is measured on the CPU,",
-        "medians over batches.",
+        "its 95% bootstrap interval; the verdict sets that interval against the",
+        "registered margin. AdaStop names the difference it detected, and the",
+        "resolution is the smallest gap its budget detects 80% of the time.",
+        "Speed is measured on the CPU, medians over batches.",
         "",
-        "| Comparison | AdaStop | Seeds | Reference | Ajax | Difference | Resolution |",
-        "|---|---|---|---|---|---|---|",
+        "| Comparison | Verdict | Margin | Seeds | Reference | Ajax | Difference "
+        "| AdaStop | Resolution |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     speeds = [
         "",
@@ -185,10 +196,12 @@ def docs(reps: int = 200) -> None:
         for row in protocol.summary(name, reps=reps):
             low, high = row["interval"]
             decision = words.get(row["decision"], "Ajax smaller")
+            margin = "-" if row["margin"] is None else f"±{row['margin']:.1f}"
             lines.append(
-                f"| {name} | {decision} | {row['seeds']} | {row['reference_mean']:.1f} "
-                f"| {row['ajax_mean']:.1f} | {row['difference']:+.1f} "
-                f"[{low:+.1f}, {high:+.1f}] | {row['resolution']:.1f} |"
+                f"| {name} | {row['verdict']} | {margin} | {row['seeds']} "
+                f"| {row['reference_mean']:.1f} | {row['ajax_mean']:.1f} "
+                f"| {row['difference']:+.1f} [{low:+.1f}, {high:+.1f}] | {decision} "
+                f"| {row['resolution']:.1f} |"
             )
             for side, label in (
                 ("reference", COMPARISONS[name].reference),

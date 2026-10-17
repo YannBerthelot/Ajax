@@ -26,6 +26,11 @@ of its last evaluation. Where a reference evaluates otherwise, ``unmatched``
 says how. ``adastop`` is AdaStop's ``(n, K, alpha)``: n new seeds per side
 and interim, at most K interims, the family-wise error alpha.
 
+``margin`` is how far apart the two sides' mean scores may be and still
+count as similar: 5% of the score's range, or, for a score without a fixed
+range, ``relative_margin`` times the reference's mean score. A comparison
+without either gets no verdict.
+
 A spec is written before its runs and not edited once results exist: a
 change becomes a new ``version``. Every record keeps the version and the
 hash (:func:`spec_sha256`) of the spec it ran, and the tests hold the
@@ -58,7 +63,9 @@ class Comparison:
     # behaviour, where the two losses differ by a constant.
     scale: dict = field(default_factory=dict)
     n_eval_episodes: int = 10
-    adastop: tuple = (8, 4, 0.05)
+    adastop: tuple = (4, 24, 0.05)
+    margin: float | None = None
+    relative_margin: float | None = None
     version: int = 1
 
 
@@ -109,6 +116,7 @@ COMPARISONS = {
         n_timesteps=98 * 2048,  # 98 rollouts of 8 envs x 256 steps
         eval_every=7 * 2048,
         solved=475.0,
+        margin=25.0,  # 5% of 0-500
         reference="sb3",
         source="stable-baselines3's PPO, MlpPolicy",
         environment=CARTPOLE,
@@ -127,7 +135,8 @@ COMPARISONS = {
             "net_arch": {"pi": [64, 64], "vf": [64, 64]},
             "activation": "tanh",
         },
-        # SB3's Adam eps (1e-5) and orthogonal sqrt(2) hidden layers too.
+        # SB3's Adam eps (1e-5) and orthogonal sqrt(2) hidden layers too; its
+        # output layers (0.01 policy, 1 value) are Ajax's PPO defaults.
         matched={
             "n_envs": 8,
             "n_steps": 256,
@@ -145,11 +154,8 @@ COMPARISONS = {
             "max_grad_norm": 0.5,
             "adam_eps": 1e-5,
             "encoder_kernel_init": "orthogonal(1.4142135623730951)",
+            "fused_grad_clip": True,  # SB3 clips actor and critic together
         },
-        unmatched=(
-            "gradient clipping: SB3 clips actor and critic together, Ajax each",
-            "output-layer initialisation gains (SB3: 0.01 policy, 1 value)",
-        ),
         defaults={"n_envs": 8, "n_steps": 256},
     ),
     "PPO-inverted_pendulum": Comparison(
@@ -167,6 +173,7 @@ COMPARISONS = {
         n_timesteps=5 * 163_840,  # 5 updates of 2048 envs x 80 steps
         eval_every=163_840,
         solved=950.0,
+        margin=50.0,  # 5% of 0-1000
         reference="brax",
         source="brax.training.agents.ppo, with Brax's settings for"
         " inverted_pendulum (notebooks/training.ipynb) but the length",
@@ -403,6 +410,7 @@ COMPARISONS = {
         n_timesteps=240 * 2048,
         eval_every=12 * 2048,
         solved=475.0,
+        margin=25.0,  # 5% of 0-500
         reference="purejaxql",
         source="purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py",
         environment="gymnax CartPole-v1, a port of Gymnasium's CartPole-v1",
@@ -470,6 +478,7 @@ COMPARISONS = {
         n_timesteps=300 * 4096,
         eval_every=15 * 4096,
         solved=None,  # no threshold: scored by its return only
+        relative_margin=0.05,
         reference="purejaxql",
         source="purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with"
         " config/alg/pqn_minatar.yaml but the length. That config is for"

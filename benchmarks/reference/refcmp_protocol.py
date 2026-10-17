@@ -277,16 +277,32 @@ def speed(name: str, side: str) -> dict:
     }
 
 
+def verdict(spec, interval: tuple, reference_mean: float) -> tuple:
+    """``(margin, word)``: "similar" when the gap's interval lies inside
+    the margin, "different" when outside it, else "inconclusive"."""
+    margin = spec.margin
+    if margin is None and spec.relative_margin is not None:
+        margin = spec.relative_margin * abs(reference_mean)
+    if margin is None:
+        return None, "no margin registered"
+    low, high = interval
+    if -margin <= low and high <= margin:
+        return margin, "similar"
+    return margin, "different" if high < -margin or low > margin else "inconclusive"
+
+
 def summary(name: str, arms=("matched",), reps: int = 200) -> list:
-    """One row per arm: AdaStop's verdict, the seeds it took, the arm's mean
-    minus the reference's with its 95% interval, the smallest gap the budget
-    resolves (80% power), and each side's speed (medians over batches)."""
+    """One row per arm: AdaStop's decision and the seeds it took, the arm's
+    mean minus the reference's with its 95% interval, the verdict against
+    the margin, the smallest gap the budget resolves (80% power), and each
+    side's speed (medians over batches)."""
     test, scores = decide(name, arms, train_missing=False)
     n, K, alpha = COMPARISONS[name].adastop
     rows = []
     for arm in arms:
         a, ref = scores[arm], scores["reference"]
         gap, interval = difference(a, ref)
+        margin, word = verdict(COMPARISONS[name], interval, float(np.mean(ref)))
         rows.append(
             {
                 "comparison": name,
@@ -297,6 +313,8 @@ def summary(name: str, arms=("matched",), reps: int = 200) -> list:
                 "ajax_mean": float(np.mean(a)),
                 "difference": gap,
                 "interval": interval,
+                "margin": margin,
+                "verdict": word,
                 "resolution": resolution(a, ref, n, K, alpha, reps=reps),
                 "speed": {
                     "reference": speed(name, "reference"),

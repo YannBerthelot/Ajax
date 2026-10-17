@@ -72,3 +72,23 @@ def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
     assert plain.collector_state.step_in_episode is None
     with pytest.warns(FutureWarning, match="jsrl_curriculum"):
         SAC(env_id="Pendulum-v1", jsrl_curriculum=True, extensions=jsrl, **kw)
+
+
+def test_jsrl_flags_the_steps_its_expert_takes():
+    """While JSRL hands an episode's first steps to the expert, the rows of
+    those steps hold the expert's action and are flagged is_expert, as
+    EDGE's and the value box's are; the warm-up rows (uniform here) are not.
+    """
+    kw = {"expert_policy": stateless_expert, "expert_buffer_n_steps": 0}
+    kw |= {"learning_starts": 4, "batch_size": 4, "buffer_size": 64}
+    kw |= {"expert_fraction": 0.0, "policy_update_start": 100}
+    jsrl = (JSRLCurriculum(episode_length=1000, decay_frac=1.0),)
+    agent = SAC(env_id="Pendulum-v1", n_envs=1, extensions=jsrl, **kw)
+    state, _ = agent.train(seed=0, n_timesteps=12)
+    rows = state.collector_state.buffer_state.experience
+    flags = np.asarray(rows["is_expert"]).reshape(-1)[:12]
+    np.testing.assert_array_equal(flags, [0.0] * 4 + [1.0] * 8)
+    expert = np.asarray(stateless_expert(rows["raw_obs"])).reshape(-1)[:12]
+    actions = np.asarray(rows["action"]).reshape(-1)[:12]
+    # In agent units, [-1, 1]: the expert's torque over Pendulum's bound 2.
+    np.testing.assert_allclose(actions[4:], expert[4:] / 2.0, rtol=1e-5)

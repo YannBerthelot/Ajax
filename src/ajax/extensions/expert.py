@@ -281,7 +281,8 @@ class JSRLCurriculum(Extension):
     :class:`~ajax.extensions.target_mods.ValueBox` use) and per-env
     ``step_in_episode`` off ``agent_state.collector_state``; the SAC
     pipeline still owns the ``step_in_episode`` increment/reset (in
-    :func:`collect_experience`).
+    :func:`collect_experience`). It writes ``_jsrl_use_expert`` back, which
+    the pipeline reads to flag the steps the expert took.
     """
 
     episode_length: int = 1000
@@ -313,6 +314,8 @@ class JSRLCurriculum(Extension):
         use_expert_jsrl = use_expert_jsrl.reshape(
             (-1,) + (1,) * (post_warmup_action.ndim - 1)
         )
+        # The pipeline flags the steps the expert took (is_expert_flag).
+        obs["_jsrl_use_expert"] = use_expert_jsrl
         return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
 
 

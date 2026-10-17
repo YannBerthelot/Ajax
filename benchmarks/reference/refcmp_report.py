@@ -13,6 +13,12 @@ for the two tests (Bonferroni), at 5%; with fewer than 16 seeds an adjusted
 p-value under 0.2 asks for 16 before concluding. When an arm is scored on
 its final policy only, ``held`` is ``solved`` again and Fisher's test alone
 counts.
+
+``AdaStop`` reads the final returns with :class:`ajax.compare.AdaStop`: each
+Ajax arm against the reference, the recorded seeds fed in order, 4 per
+interim (16 seeds give 4 interims; the paper advises 30 or more), family-wise
+error at 5%. It names the seeds the decision took; "equal" means no
+difference was shown, not that there is none.
 """
 
 import json
@@ -23,7 +29,9 @@ import numpy as np
 from refcmp_specs import COMPARISONS
 from scipy.stats import PermutationMethod, fisher_exact, mannwhitneyu
 
-ALPHA, UNCLEAR, FULL_SEEDS = 0.05, 0.2, 16
+from ajax.compare import AdaStop
+
+ALPHA, UNCLEAR, FULL_SEEDS, PER_INTERIM = 0.05, 0.2, 16, 4
 
 
 def load(results_dir: pathlib.Path) -> dict:
@@ -85,11 +93,36 @@ def verdict(arm: dict, ref: dict) -> tuple:
     return p_solved, p_held, word
 
 
+def adastop(finals: dict) -> dict:
+    """``{arm: cell}`` for each Ajax arm in ``finals`` (per-seed final
+    returns, the reference's included)."""
+    arms = [a for a in finals if a != "reference"]
+    test = AdaStop(
+        list(finals),
+        n=PER_INTERIM,
+        K=min(map(len, finals.values())) // PER_INTERIM,
+        alpha=ALPHA,
+        comparisons=[(a, "reference") for a in arms],
+    )
+    used = dict.fromkeys(finals, 0)
+    while not test.finished:
+        chunk = slice(test.k * PER_INTERIM, (test.k + 1) * PER_INTERIM)
+        active = test.active
+        for a in active:
+            used[a] += PER_INTERIM
+        test.update({a: finals[a][chunk] for a in active})
+    word = {"larger": "Ajax larger", "smaller": "Ajax smaller", "equal": "equal"}
+    return {
+        a: f"{word[test.decisions[(a, 'reference')]]}, {used[a]} seeds" for a in arms
+    }
+
+
 def report(results_dir: pathlib.Path) -> str:
     runs = load(results_dir)
     rows = [
-        "| Agent | Arm | Seeds | Solved | Held | Final | p(solved) | p(held) | Verdict |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Agent | Arm | Seeds | Solved | Held | Final | p(solved) | p(held) | Verdict "
+        "| AdaStop |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for name, spec in COMPARISONS.items():
         if (name, "reference") not in runs:
@@ -97,8 +130,10 @@ def report(results_dir: pathlib.Path) -> str:
         ref = summarise(runs[(name, "reference")], spec.solved)
         rows.append(
             f"| {name} | {spec.reference} | {ref['n']} | {ref['solved']}/{ref['n']} "
-            f"| {ref['held'].mean():.2f} | {ref['final']:.1f} | | | |"
+            f"| {ref['held'].mean():.2f} | {ref['final']:.1f} | | | | |"
         )
+        arms = [a for a in ("reference", "matched", "defaults") if (name, a) in runs]
+        stopped = adastop({a: runs[(name, a)][:, -1] for a in arms})
         for arm_name in ("matched", "defaults"):
             if (name, arm_name) not in runs:
                 continue
@@ -108,7 +143,7 @@ def report(results_dir: pathlib.Path) -> str:
             rows.append(
                 f"| {name} | Ajax {arm_name} | {arm['n']} | {arm['solved']}/{arm['n']} "
                 f"| {arm['held'].mean():.2f} | {arm['final']:.1f} | {p_solved:.2g} "
-                f"| {held} | {word} |"
+                f"| {held} | {word} | {stopped[arm_name]} |"
             )
     return "\n".join(rows)
 

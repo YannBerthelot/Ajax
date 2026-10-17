@@ -10,7 +10,7 @@ from ajax.agents.loop import LOOP_PHASES
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
-from ajax.networks.networks import CNNSpec
+from ajax.networks.networks import CNNSpec, reference_cnn
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.types import EnvType
 
@@ -71,6 +71,11 @@ class DQN(ActorCritic):
         action_repeat: int = 1,
     ) -> None:
         self.config = run_config(locals(), self.name)
+        # The image network of DQN's reference: Mnih et al.'s, or MinAtar's
+        # for images too small for it (reference_cnn), at Torch7's and
+        # torch's default initialisation, as the Q head and MLP encoder.
+        if cnn_image_shape is not None and cnn_spec is None:
+            cnn_spec = reference_cnn(cnn_image_shape)._replace(kernel_init=TORCH_LINEAR)
 
         # DQN has a single Q-network; forward `architecture`/`learning_rate`
         # to both actor/critic slots of the base class. The Q-network is
@@ -96,8 +101,7 @@ class DQN(ActorCritic):
             # re-initialises (dqn/convnet.lua:23-61), and Torch7's
             # nn.Linear draws kernel and bias uniform in +-1/sqrt(fan_in)
             # (torch/nn @8726825, Linear.lua:21-41): "torch_linear", for the
-            # MLP encoder and the Q head. The CNN encoder keeps its own
-            # (lecun_normal), as its layers are not Mnih et al.'s either.
+            # MLP encoder and the Q head.
             encoder_kernel_init=TORCH_LINEAR,
             value_kernel_init=TORCH_LINEAR,
             episode_length=episode_length,

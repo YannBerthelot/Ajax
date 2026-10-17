@@ -1,4 +1,5 @@
 import jax
+import jax.numpy as jnp
 import pytest
 
 from ajax.agents.DQN.DQN import DQN
@@ -8,6 +9,8 @@ from ajax.agents.DQN.networks import (
     get_initialized_q_network,
 )
 from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target, make_huber_td_loss
+from ajax.networks.networks import MINATAR_CNN, MNIH_CNN, CNNEncoder, CNNSpec
+from ajax.networks.utils import TORCH_LINEAR
 from tests.agents.init_checks import assert_torch_linear
 
 
@@ -50,3 +53,37 @@ def test_dqn_starts_every_layer_as_torch7_nn_linear(cls):
     } | {head: (params[head], 64) for head in heads}
     for name, (layer, fan_in) in layers.items():
         assert_torch_linear(name, layer, fan_in)
+
+
+def test_dqn_images_build_its_reference_network_at_torch7_s_default():
+    """Images of 36 px a side and more get Mnih et al.'s network, smaller
+    ones MinAtar's, both at Torch7's default; a given cnn_spec is kept."""
+    want = {(84, 84, 4): MNIH_CNN, (36, 40, 1): MNIH_CNN, (35, 84, 1): MINATAR_CNN}
+    for shape, spec in want.items():
+        agent = DQN(env_id="CartPole-v1", cnn_image_shape=shape)
+        assert agent.network_args.cnn_spec == spec._replace(kernel_init=TORCH_LINEAR)
+    mine = CNNSpec(channels=(4,), kernel_sizes=(2,), strides=(1,), feature_dim=8)
+    agent = DQN(env_id="CartPole-v1", cnn_image_shape=(10, 10, 4), cnn_spec=mine)
+    assert agent.network_args.cnn_spec == mine
+    encoder = CNNEncoder(
+        (10, 10, 4), spec=MINATAR_CNN._replace(kernel_init=TORCH_LINEAR)
+    )
+    params = encoder.init(jax.random.PRNGKey(0), jnp.zeros((1, 400)))["params"]
+    assert_torch_linear("conv", params["Conv_0"], 3 * 3 * 4)
+    assert_torch_linear("projection", params["TorchLinear_0"], 8 * 8 * 16)
+    assert params["TorchLinear_0"]["kernel"].shape == (8 * 8 * 16, 128)
+
+
+def test_dqn_trains_minatar_s_network_on_minatar_and_refuses_tinier_images():
+    """MinAtar's 10 x 10 x 4 observations train through MinAtar's network;
+    an image smaller than its 3 x 3 kernel asks for a cnn_spec."""
+    agent = DQN(
+        env_id="Breakout-MinAtar",
+        cnn_image_shape=(10, 10, 4),
+        learning_starts=16,
+        batch_size=4,
+        buffer_size=64,
+    )
+    agent.train(seed=0, n_timesteps=32)
+    with pytest.raises(ValueError, match="pass a cnn_spec"):
+        DQN(env_id="CartPole-v1", cnn_image_shape=(2, 2, 1))

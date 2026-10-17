@@ -24,6 +24,7 @@ import ajax
 import ajax.extensions
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
+from ajax.agents.DQN.DQN import DQN
 from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
 from ajax.extensions import ensemble, expert, exploration, instrumentation
 from ajax.extensions import pretrain as pre
@@ -31,6 +32,7 @@ from ajax.extensions import target_mods as tm
 from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from tests.agents.test_agent_contract import CASES, Case
 from tests.environments import paid_action
 
@@ -225,6 +227,8 @@ def _build(name: str, row: frozenset[str]) -> Any:
             kw[option] = not params[option].default
     if "cnn_image_shape" in row:
         kw["cnn_image_shape"] = CNN[env]
+        if case.cls is DQN:  # its reference networks need 3 pixels a side
+            kw["cnn_spec"] = CNNSpec((2,), (1,), (1,), 8)
     if "action_pipeline" in kw:
         kw["action_pipeline"] = make_default_action_pipeline("memory" in kw, 0.1)
     exts = [build() for e, (build, _) in EXTENSIONS.items() if e in row]

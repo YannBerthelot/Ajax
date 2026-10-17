@@ -610,6 +610,16 @@ _GOLDEN |= {
         "alpha": 0.19999998807907104,
     },
 }
+# Re-recorded on macOS ARM CPU once ASAC's learning rates (actor 1e-4,
+# critics 5e-4) and gradient clip (10, each critic alone) became its
+# authors'. Relative shifts (actor, critic, alpha): +0.24%, +1.27%, 0.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.280670166015625,
+        "critic": 27.36642837524414,
+        "alpha": 0.19999998807907104,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

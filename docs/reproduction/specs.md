@@ -12,8 +12,9 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 - Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); SB3 steps it through refcmp_sb3.gymnax_vec_env.
 - Budget: 200,704 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `002d9d82a67cb6d2`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±25.
+- Spec hash: `7aa6989237a0ab6f`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -32,12 +33,10 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 | `net_arch` | `{'pi': [64, 64], 'vf': [64, 64]}` | - |  |
 | `activation` | `'tanh'` | - |  |
 
-Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`.
+Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`, `fused_grad_clip=True`.
 
 Not matched:
 
-- gradient clipping: SB3 clips actor and critic together, Ajax each
-- output-layer initialisation gains (SB3: 0.01 policy, 1 value)
 
 ## PPO-inverted_pendulum, version 1
 
@@ -46,8 +45,9 @@ Ajax's PPO against brax.training.agents.ppo, with Brax's settings for inverted_p
 - Environment: Brax's inverted_pendulum (generalized pipeline, 1000-step episodes), a MuJoCo InvertedPendulum simulated by Brax: the same Env on both sides.
 - Budget: 819,200 steps per seed.
 - Evaluation: 128 episodes of the deterministic policy, every 163,840 steps; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `7efbf8ac5b045d4e`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±50.
+- Spec hash: `3e4e40e0ada3ddff`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO-inverted_pendulum --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -87,8 +87,9 @@ Ajax's DQN against stable-baselines3's DQN, MlpPolicy.
 - Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics, termination, 500-step limit); SB3 steps it through refcmp_sb3.gymnax_vec_env.
 - Budget: 100,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 5,000 steps; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `cc382d6f5f435b1f`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: none registered yet.
+- Spec hash: `74aef7221269ae79`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run DQN --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -121,8 +122,9 @@ Ajax's SAC against stable-baselines3's SAC, MlpPolicy.
 - Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); SB3 steps it through refcmp_sb3.gymnax_vec_env.
 - Budget: 20,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `8deff2b40dcd341d`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: none registered yet.
+- Spec hash: `3639b4ebc6ea4944`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run SAC --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -153,8 +155,9 @@ Ajax's TD3 against stable-baselines3's TD3, MlpPolicy.
 - Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); SB3 steps it through refcmp_sb3.gymnax_vec_env.
 - Budget: 20,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `f4823a3f2c7a97bc`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: none registered yet.
+- Spec hash: `7d9a3c8804e712ba`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run TD3 --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -187,8 +190,9 @@ Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py.
 - Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1.
 - Budget: 491,520 steps per seed.
 - Evaluation: 128 episodes of the deterministic policy, every 24,576 steps; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `ff3542628a73eba5`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±25.
+- Spec hash: `87990c92b943e1a8`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PQN --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -236,8 +240,9 @@ Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config
 - Environment: gymnax Asterix-MinAtar, a port of MinAtar's Asterix with a 1000-step limit and no sticky actions.
 - Budget: 1,228,800 steps per seed.
 - Evaluation: 128 episodes of the deterministic policy, every 61,440 steps; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `39ed8e88d7b3ea10`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: ±5% of the reference's mean score.
+- Spec hash: `cba75a779763e3f9`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PQN-Asterix --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -282,8 +287,9 @@ Ajax's APG against brax.training.agents.apg, on refcmp_brax.GymnaxAsBrax.
 - Environment: gymnax Pendulum-v1 with transition gradients, a port of Gymnasium's Pendulum-v1.
 - Budget: 2,048,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, once, at the end; a seed's score is the last one's mean return.
-- AdaStop: n = 8, K = 4, alpha = 0.05.
-- Spec hash: `d6e0cfab8d9eb4b2`.
+- AdaStop: n = 4, K = 24, alpha = 0.05.
+- Margin: none registered yet.
+- Spec hash: `c74efa6c58e75716`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run APG --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |

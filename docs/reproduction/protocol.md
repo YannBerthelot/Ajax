@@ -40,8 +40,10 @@ runs:
 - the budget, the evaluation (the deterministic policy plays
   `n_eval_episodes` episodes every `eval_every` steps) and the score, the
   mean return of the last evaluation;
-- AdaStop's `n` (seeds per side and interim), `K` (the most interims) and
-  `alpha` (the family-wise error).
+- AdaStop's `n` (seeds per side and interim: 4), `K` (the most interims:
+  24, so at most 96 seeds per side) and `alpha` (the family-wise error:
+  0.05);
+- the margin within which the two sides count as similar.
 
 Two Ajax arms can be compared: `matched`, set to the reference's
 conventions, and `defaults`, Ajax as shipped. The protocol's verdicts are
@@ -83,16 +85,26 @@ and an Ajax arm again after a change to Ajax.
 
 ## Reading a verdict
 
-AdaStop says "Ajax larger", "Ajax smaller", or, when no difference was
-shown after `n * K` seeds, "equal". Two numbers stand next to it:
+Each comparison registers a margin with its spec: how far apart the two
+mean scores may be and still count as similar. It is 5% of the score's
+range (±25 on CartPole's 0 to 500), or 5% of the reference's mean score
+when the score has no fixed range. The verdict sets the 95% bootstrap
+interval of the gap, Ajax's mean score minus the reference's, against it:
 
-- the difference between the mean scores, Ajax's minus the reference's,
-  with its 95% bootstrap interval;
-- the resolution: the smallest gap AdaStop's budget detects 80% of the
-  time, simulated from the observed spread of the scores
-  (`ajax.compare.resolution`).
+- **similar**: the interval lies inside the margin, whether or not
+  AdaStop detected a difference;
+- **different**: the interval lies entirely outside it;
+- **inconclusive**: anything else.
 
-An "equal" rules out gaps well above the resolution, not smaller ones.
+AdaStop decides when to stop. It stops as soon as it detects a difference
+(a clear one ends a comparison after a few seeds); otherwise it goes on to
+its cap of `n * K` seeds per side. A small cap can therefore only make a
+verdict inconclusive, never similar. Next to the verdict stand AdaStop's
+own decision and its resolution: the smallest gap its budget detects 80%
+of the time, simulated from the observed spread of the scores
+(`ajax.compare.resolution`). With RL's spread from seed to seed, a margin
+of 5% is about the tightest that 96 seeds per side can confirm: on CartPole
+with a few collapsed seeds, the interval at 96 seeds is about ±19.
 
 ## Tracing a number
 

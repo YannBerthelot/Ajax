@@ -50,14 +50,23 @@ def test_decide_trains_only_missing_seeds_and_reuses_the_records(cache, monkeypa
     )
     test, scores = protocol.decide("PQN")
     n = COMPARISONS["PQN"].adastop[0]
-    # Constant scores, one side far below: decided at the first interim.
+    # Constant scores, one side far below: decided at the second interim,
+    # the first whose share of alpha (alpha / K) 4 + 4 permutations can reach.
     assert test.decisions == {("matched", "reference"): "smaller"}
-    assert sorted(calls) == [("matched", list(range(n))), ("reference", list(range(n)))]
-    assert len((cache / "PQN.jsonl").read_text().splitlines()) == 2
+    batches = [list(range(n)), list(range(n, 2 * n))]
+    assert sorted(calls) == [
+        (side, b) for side in ("matched", "reference") for b in batches
+    ]
+    assert len((cache / "PQN.jsonl").read_text().splitlines()) == 4
     calls.clear()
     assert protocol.decide("PQN", train_missing=False)[1] == scores and not calls
     row = protocol.summary("PQN", reps=10)[0]
-    assert (row["decision"], row["seeds"], row["difference"]) == ("smaller", n, -491.0)
+    assert (row["decision"], row["seeds"], row["difference"]) == (
+        "smaller",
+        2 * n,
+        -491.0,
+    )
+    assert (row["margin"], row["verdict"]) == (25.0, "different")
     assert row["speed"]["ajax"]["cpu_s_per_1m_steps"] == pytest.approx(
         1e6 * 2.0 / n / COMPARISONS["PQN"].n_timesteps
     )
@@ -133,7 +142,7 @@ def test_the_dataset_loads_back_and_the_docs_draw_from_it(cache, monkeypatch, tm
     refcmp_publish.dataset(out, reps=10)
     runs = reproduction.load("runs", str(out))
     n = COMPARISONS["PQN"].adastop[0]
-    assert len(runs) == 2 * n * 2  # sides x seeds x evaluations
+    assert len(runs) == 2 * 2 * n * 2  # sides x seeds x evaluations
     assert set(runs["return"]) == {0.0, 9.0, 500.0}
     assert set(reproduction.load("batches", str(out))["side"]) == set(finals)
     assert reproduction.load("summary", str(out))["decision"][0] == "smaller"
@@ -143,7 +152,7 @@ def test_the_dataset_loads_back_and_the_docs_draw_from_it(cache, monkeypatch, tm
     monkeypatch.setattr(refcmp_publish, "DOCS", tmp_path)
     refcmp_publish.docs(reps=10)
     assert (
-        "| PQN | Ajax smaller | 8 | 500.0 | 9.0 | -491.0"
+        "| PQN | different | ±25.0 | 8 | 500.0 | 9.0 | -491.0"
         in (tmp_path / "results.md").read_text()
     )
     assert (tmp_path / "PQN.svg").read_text().startswith("<?xml")
@@ -170,3 +179,16 @@ def test_the_docs_state_the_protocol_version_and_the_current_specs():
     assert (docs / "specs.md").read_text() == refcmp_publish.specs_page(), (
         "run benchmarks/reference/refcmp_publish.py specs"
     )
+
+
+@pytest.mark.parametrize(
+    ("interval", "word"),
+    [((-20, 24), "similar"), ((-40, -30), "different"), ((-30, 10), "inconclusive")],
+)
+def test_the_verdict_sets_the_interval_against_the_margin(interval, word):
+    spec = COMPARISONS["PQN"]  # margin 25
+    assert protocol.verdict(spec, interval, 500.0) == (25.0, word)
+    relative = dataclasses.replace(spec, margin=None, relative_margin=0.05)
+    assert protocol.verdict(relative, interval, -500.0) == (25.0, word)
+    none = dataclasses.replace(spec, margin=None)
+    assert protocol.verdict(none, interval, 1.0)[1] == "no margin registered"

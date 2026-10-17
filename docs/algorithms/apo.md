@@ -105,7 +105,8 @@ drift. The actor then takes PPO's clipped step.
   `CloningPretrain` extension, and a cloning term during training the
   `ImitationLoss` extension; APO supports both
   ([Expert guidance](../guide/expert-guidance.md)). With `expert_policy` set,
-  the evaluation also reports the expert's return.
+  the rollout stores the expert's actions, from its state when it has one,
+  and the evaluation also reports the expert's return.
 - APO is the on-policy counterpart of [ASAC](asac.md), the average-reward
   off-policy agent.
 

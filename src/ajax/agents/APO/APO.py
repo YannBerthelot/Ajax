@@ -24,6 +24,7 @@ class APO(ActorCritic):
         "critic_loss",
         "actor_loss",
     }
+    stores_expert_actions: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -55,7 +56,9 @@ class APO(ActorCritic):
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         # Expert for the CloningPretrain extension and the eval expert-bias
-        # metric; online BC is the ImitationLoss extension.
+        # metric; online BC is the ImitationLoss extension. Its actions,
+        # from its state along each trajectory, are stored for the
+        # extensions that read them.
         expert_policy: Optional[Callable] = None,
         # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by

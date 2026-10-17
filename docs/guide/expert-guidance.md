@@ -88,7 +88,7 @@ batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
 expert state exists. A stateful expert is allowed there in one case only:
 when it is the agent's own `expert_policy` (the same object), on an agent
-that stores that expert's actions (SAC, TD3, REDQ, ASAC). The extensions
+that stores that expert's actions (SAC, TD3, REDQ, ASAC, APO). The extensions
 then read the actions the agent stored at collection, computed from the
 expert's tracked state, instead of calling it. Any other stateful expert is
 refused when the agent is built.

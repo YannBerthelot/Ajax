@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from ajax import SAC
+from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.TD3.TD3 import TD3
@@ -66,22 +67,34 @@ def rerun(
     return np.stack(at_s), np.stack(at_next)
 
 
+#: The replay agents' updates from step 16, on batches of 8.
+REPLAY = {"learning_starts": 16, "batch_size": 8}
 #: Each agent storing its expert's actions, and its options for a short run
 #: (SAC: no expert prefill or warm-up mixing; its actor steps from its first
-#: update).
+#: update. APO: two rollouts of two episodes per env, the last one kept).
 AGENTS: dict[str, tuple[type, dict]] = {
     "SAC": (
         SAC,
-        {"expert_buffer_n_steps": 0, "expert_fraction": 0.0, "policy_update_start": 8},
+        {
+            **REPLAY,
+            "expert_buffer_n_steps": 0,
+            "expert_fraction": 0.0,
+            "policy_update_start": 8,
+        },
     ),
-    "TD3": (TD3, {}),
-    "REDQ": (REDQ, {}),
-    "ASAC": (ASAC, {}),
+    "TD3": (TD3, REPLAY),
+    "REDQ": (REDQ, REPLAY),
+    "ASAC": (ASAC, REPLAY),
+    "APO": (
+        APO,
+        {"n_steps": 16, "batch_size": 8, "n_epochs": 1, "expose_recent_rollout": True},
+    ),
 }
+FIELDS = ("raw_obs", "next_obs", "terminated", "truncated", "a_expert", "next_a_expert")
 
 
 def train(agent: str, expert: Any, extensions: tuple = ()) -> Any:
-    """A short run on the counter (64 steps, 2 envs, updates from step 16)."""
+    """A short run on the counter (64 steps, 2 envs)."""
     env = CounterEnv()
     agent_cls, kw = AGENTS[agent]
     model = agent_cls(
@@ -90,8 +103,6 @@ def train(agent: str, expert: Any, extensions: tuple = ()) -> Any:
         n_envs=2,
         actor_architecture=NET,
         critic_architecture=NET,
-        learning_starts=16,
-        batch_size=8,
         expert_policy=expert,
         extensions=extensions,
         **kw,
@@ -101,19 +112,32 @@ def train(agent: str, expert: Any, extensions: tuple = ()) -> Any:
     return state
 
 
+def stored_rows(agent: str, state: Any) -> dict:
+    """Each env's stored rows in time order, ``(n_envs, rows, ...)``, of the
+    only seed: the replay's 32 rows, or APO's last rollout of 16, which
+    starts an episode (the rerun starts from the initial state)."""
+    if agent == "APO":
+        rollout = state.last_rollout  # (seeds, T, n_envs, ...)
+        rows = {
+            k: np.swapaxes(np.asarray(getattr(rollout, k))[0], 0, 1) for k in FIELDS
+        }
+        assert (rows["raw_obs"][:, 0] == 0).all()
+        return rows
+    experience = state.collector_state.buffer_state.experience
+    return {k: np.asarray(experience[k])[0][:, : 64 // 2] for k in FIELDS}
+
+
 @pytest.mark.parametrize("agent", sorted(AGENTS))
 def test_stored_expert_actions_are_a_sequential_pid_rerun(agent: str) -> None:
-    experience = train(agent, PID()).collector_state.buffer_state.experience
-    # The replay's rows, (n_envs, rows, ...) in time order, of the only seed.
-    rows = {k: np.asarray(v)[0] for k, v in experience.items()}
-    n_written = 64 // 2
+    rows = stored_rows(agent, train(agent, PID()))
+    n_written = rows["raw_obs"].shape[1]
     for env in range(2):
         obs, next_obs = (
             rows["raw_obs"][env, :n_written],
             rows["next_obs"][env, :n_written],
         )
         ends = np.logical_or(rows["terminated"], rows["truncated"])[env, :n_written, 0]
-        assert ends.sum() >= 3  # several episodes, so the resets are checked
+        assert ends.sum() >= 2  # several episodes, so the resets are checked
         at_s, at_next = rerun(PID(), obs, next_obs, ends)
         np.testing.assert_allclose(rows["a_expert"][env, :n_written], at_s, atol=1e-6)
         np.testing.assert_allclose(

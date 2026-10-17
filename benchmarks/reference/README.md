@@ -25,7 +25,9 @@ evaluation curves. It runs on demand, not in CI.
 `solved` (475 on CartPole, -200 on Pendulum) was fixed before any run.
 `refcmp_report.py` counts the seeds solved at the final evaluation and how
 steadily each seed stays solved over the last third of the run, and tests
-both against the reference (its docstring has the statistics).
+both against the reference (its docstring has the statistics). Its last
+column runs [AdaStop](../../docs/guide/comparing-agents.md) on the final
+returns, the recorded seeds fed four per interim.
 
 ## Running it
 
@@ -72,26 +74,26 @@ the number of seeds, where the on-policy agents' barely grows. Eight seeds halve
 Recorded on 2026-10-17: Ajax at e96ba15, SB3 2.9.0 with torch 2.13.0,
 purejaxql at 47af6d7, Brax 0.14.2.
 
-| Agent | Arm | Seeds | Solved | Held | Final | p(solved) | p(held) | Verdict |
-|---|---|---|---|---|---|---|---|---|
-| PPO | sb3 | 16 | 16/16 | 0.95 | 500.0 | | | |
-| PPO | Ajax matched | 16 | 14/16 | 0.91 | 468.2 | 0.48 | 0.47 | match |
-| PPO | Ajax defaults | 16 | 10/16 | 0.66 | 438.1 | 0.018 | 0.0012 | gap |
-| DQN | sb3 | 16 | 4/16 | 0.30 | 244.2 | | | |
-| DQN | Ajax matched | 16 | 3/16 | 0.15 | 182.6 | 1 | 0.074 | match |
-| DQN | Ajax defaults | 16 | 14/16 | 0.76 | 473.5 | 0.00097 | 0.0002 | Ajax better |
-| SAC | sb3 | 16 | 16/16 | 0.97 | -141.0 | | | |
-| SAC | Ajax matched | 16 | 16/16 | 0.98 | -145.7 | 1 | 0.99 | match |
-| SAC | Ajax defaults | 16 | 15/16 | 0.95 | -153.8 | 1 | 0.74 | match |
-| TD3 | sb3 | 16 | 16/16 | 0.95 | -144.0 | | | |
-| TD3 | Ajax matched | 16 | 16/16 | 0.99 | -143.4 | 1 | 0.17 | match |
-| TD3 | Ajax defaults | 16 | 15/16 | 0.89 | -172.5 | 1 | 0.21 | match |
-| PQN | purejaxql | 16 | 16/16 | 0.95 | 500.0 | | | |
-| PQN | Ajax matched | 16 | 16/16 | 0.94 | 500.0 | 1 | 1 | match |
-| PQN | Ajax defaults | 16 | 14/16 | 0.89 | 484.1 | 0.48 | 0.49 | match |
-| APG | brax | 16 | 1/16 | 0.06 | -543.8 | | | |
-| APG | Ajax matched | 16 | 2/16 | 0.12 | -466.1 | 1 | - | match |
-| APG | Ajax defaults | 16 | 4/16 | 0.25 | -367.8 | 0.33 | - | match |
+| Agent | Arm | Seeds | Solved | Held | Final | p(solved) | p(held) | Verdict | AdaStop |
+|---|---|---|---|---|---|---|---|---|---|
+| PPO | sb3 | 16 | 16/16 | 0.95 | 500.0 | | | | |
+| PPO | Ajax matched | 16 | 14/16 | 0.91 | 468.2 | 0.48 | 0.47 | match | equal, 16 seeds |
+| PPO | Ajax defaults | 16 | 10/16 | 0.66 | 438.1 | 0.018 | 0.0012 | gap | Ajax smaller, 16 seeds |
+| DQN | sb3 | 16 | 4/16 | 0.30 | 244.2 | | | | |
+| DQN | Ajax matched | 16 | 3/16 | 0.15 | 182.6 | 1 | 0.074 | match | equal, 16 seeds |
+| DQN | Ajax defaults | 16 | 14/16 | 0.76 | 473.5 | 0.00097 | 0.0002 | Ajax better | Ajax larger, 12 seeds |
+| SAC | sb3 | 16 | 16/16 | 0.97 | -141.0 | | | | |
+| SAC | Ajax matched | 16 | 16/16 | 0.98 | -145.7 | 1 | 0.99 | match | equal, 16 seeds |
+| SAC | Ajax defaults | 16 | 15/16 | 0.95 | -153.8 | 1 | 0.74 | match | equal, 16 seeds |
+| TD3 | sb3 | 16 | 16/16 | 0.95 | -144.0 | | | | |
+| TD3 | Ajax matched | 16 | 16/16 | 0.99 | -143.4 | 1 | 0.17 | match | equal, 16 seeds |
+| TD3 | Ajax defaults | 16 | 15/16 | 0.89 | -172.5 | 1 | 0.21 | match | equal, 16 seeds |
+| PQN | purejaxql | 16 | 16/16 | 0.95 | 500.0 | | | | |
+| PQN | Ajax matched | 16 | 16/16 | 0.94 | 500.0 | 1 | 1 | match | equal, 16 seeds |
+| PQN | Ajax defaults | 16 | 14/16 | 0.89 | 484.1 | 0.48 | 0.49 | match | equal, 16 seeds |
+| APG | brax | 16 | 1/16 | 0.06 | -543.8 | | | | |
+| APG | Ajax matched | 16 | 2/16 | 0.12 | -466.1 | 1 | - | match | equal, 16 seeds |
+| APG | Ajax defaults | 16 | 4/16 | 0.25 | -367.8 | 0.33 | - | match | equal, 16 seeds |
 
 - Every matched arm matches its reference. For PPO, that takes the flat
   minibatch geometry of #146 and a value weight of 1.0 (Ajax's value loss
@@ -103,3 +105,6 @@ purejaxql at 47af6d7, Brax 0.14.2.
   under these settings (SB3's DQN holds 475 on 4/16 seeds at the end,
   after reaching it on 15/16; Brax's APG solves 1/16). Ajax's own DQN
   defaults hold CartPole better than SB3 with the matched settings.
+- AdaStop on the final returns reaches the same verdict on every arm. It
+  decides DQN's defaults after 12 seeds; the other arms take all 16, under
+  the 30 the paper advises. Recording 32 seeds per arm would meet that.

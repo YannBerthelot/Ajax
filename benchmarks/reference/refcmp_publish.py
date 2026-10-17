@@ -3,6 +3,7 @@
 usage, from the repository root:
     uv run python benchmarks/reference/refcmp_publish.py dataset OUT_DIR
     uv run python benchmarks/reference/refcmp_publish.py docs
+    uv run python benchmarks/reference/refcmp_publish.py specs
     uv run --extra reproduction python benchmarks/reference/refcmp_publish.py \
         upload OUT_DIR REPOSITORY
 
@@ -11,7 +12,7 @@ every record, current or not: ``fingerprint`` tells them apart),
 ``batches.jsonl`` (each batch's speed and manifest), ``summary.jsonl`` (each
 arm's verdict, difference, resolution and speed), ``specs.json`` and the
 dataset card. ``docs`` writes ``docs/reproduction/results.md`` and a plot per
-comparison. ``upload`` sends a dataset directory to a Hugging Face dataset
+comparison, ``specs`` ``docs/reproduction/specs.md``. ``upload`` sends a dataset directory to a Hugging Face dataset
 repository, as the account logged in with ``huggingface-cli login``.
 """
 
@@ -23,7 +24,7 @@ import sys
 
 import numpy as np
 import refcmp_protocol as protocol
-from refcmp_specs import COMPARISONS
+from refcmp_specs import COMPARISONS, spec_sha256
 
 DOCS = protocol.ROOT / "docs" / "reproduction"
 # The reference palette's first two categorical slots.
@@ -59,9 +60,68 @@ def dataset(out: pathlib.Path, reps: int = 200) -> None:
     for table, items in (("batches", batches), ("summary", summaries)):
         text = "".join(json.dumps(item) + "\n" for item in items)
         (out / f"{table}.jsonl").write_text(text)
-    specs = {name: dataclasses.asdict(COMPARISONS[name]) for name in recorded()}
+    specs = {
+        name: dataclasses.asdict(COMPARISONS[name])
+        | {"sha256": spec_sha256(COMPARISONS[name])}
+        for name in recorded()
+    }
     (out / "specs.json").write_text(json.dumps(specs, indent=1))
     shutil.copy(protocol.HERE / "DATASET_CARD.md", out / "README.md")
+
+
+def specs_page() -> str:
+    """docs/reproduction/specs.md: every comparison's settings, side by side."""
+    lines = [
+        "# Specifications",
+        "",
+        "Written by `benchmarks/reference/refcmp_publish.py specs` from",
+        "`benchmarks/reference/refcmp_specs.py`, which a test keeps it equal to.",
+        "Each comparison is set before its runs and changed only as a new",
+        "version (see the [protocol](protocol.md)).",
+        "",
+    ]
+    for name, spec in COMPARISONS.items():
+        n, K, alpha = spec.adastop
+        schedule = (
+            f"every {spec.eval_every:,} steps"
+            if spec.eval_every
+            else "once, at the end"
+        )
+        lines += [
+            f"## {name}, version {spec.version}",
+            "",
+            f"Ajax's {spec.agent} against {spec.source}.",
+            "",
+            f"- Environment: {spec.environment}.",
+            f"- Budget: {spec.n_timesteps:,} steps per seed.",
+            f"- Evaluation: {spec.n_eval_episodes} episodes of the deterministic"
+            f" policy, {schedule}; a seed's score is the last one's mean return.",
+            f"- AdaStop: n = {n}, K = {K}, alpha = {alpha}.",
+            f"- Spec hash: `{spec_sha256(spec)[:16]}`.",
+            "- Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py"
+            f" run {name} --cache DIR`",
+            "",
+            "| Reference setting | Value | Ajax setting | Value |",
+            "|---|---|---|---|",
+        ]
+        copied = set()
+        for key, value in spec.reference_config.items():
+            names = spec.renames.get(key, key)
+            ajax = [
+                k
+                for k in ((names,) if isinstance(names, str) else names)
+                if k in spec.matched
+            ]
+            copied |= set(ajax)
+            values = ", ".join(f"`{spec.matched[k]!r}`" for k in ajax)
+            keys = ", ".join(f"`{k}`" for k in ajax) or "-"
+            lines.append(f"| `{key}` | `{value!r}` | {keys} | {values} |")
+        rest = ", ".join(
+            f"`{k}={v!r}`" for k, v in spec.matched.items() if k not in copied
+        )
+        lines += ["", f"Ajax settings without a reference counterpart: {rest}.", ""]
+        lines += ["Not matched:", "", *[f"- {u}" for u in spec.unmatched], ""]
+    return "\n".join(lines)
 
 
 def plot(name: str, path: pathlib.Path) -> None:
@@ -166,5 +226,7 @@ if __name__ == "__main__":
         dataset(pathlib.Path(args[0]))
     elif command == "docs":
         docs()
+    elif command == "specs":
+        (DOCS / "specs.md").write_text(specs_page())
     elif command == "upload":
         upload(pathlib.Path(args[0]), args[1])

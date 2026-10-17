@@ -25,9 +25,16 @@ policy plays ``n_eval_episodes`` episodes; a seed's score is the mean return
 of its last evaluation. Where a reference evaluates otherwise, ``unmatched``
 says how. ``adastop`` is AdaStop's ``(n, K, alpha)``: n new seeds per side
 and interim, at most K interims, the family-wise error alpha.
+
+A spec is written before its runs and not edited once results exist: a
+change becomes a new ``version``. Every record keeps the version and the
+hash (:func:`spec_sha256`) of the spec it ran, and the tests hold the
+recorded results of the current version to the current spec.
 """
 
-from dataclasses import dataclass, field
+import hashlib
+import json
+from dataclasses import asdict, dataclass, field
 
 
 @dataclass(frozen=True)
@@ -52,6 +59,12 @@ class Comparison:
     scale: dict = field(default_factory=dict)
     n_eval_episodes: int = 10
     adastop: tuple = (8, 4, 0.05)
+    version: int = 1
+
+
+def spec_sha256(spec: Comparison) -> str:
+    text = json.dumps(asdict(spec), sort_keys=True, default=str)
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 CARTPOLE = (

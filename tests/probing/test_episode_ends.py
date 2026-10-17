@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "bddfa250a741"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "f1d5f6b209d1"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -890,15 +890,15 @@ def _q1_asac(spec: envs.Spec, at: dict[str, float]) -> Callable:
     return runs.readings(build, lambda run: R.per_seed(one, R.nets(run.state)))
 
 
-# Calibrated on 1000-1031 + 2000-2031 at 1250 steps (worst errors 0.0116,
-# 0.0132; at 5000 one seed is 0.031 off), certified 32/32 on 3000-3031.
+# Calibrated on 1000-1031 + 2000-2031 at 1250 steps (worst 0.0108, 0.0105 at
+# the reference init; 625 reads 0.15 off), certified 32/32 on 3000-3031.
 TERM_Q = tuple(
     Query(name, Q1_RIGHT[i], {k: v[i] for k, v in Q1_WRONG.items()})
     for name, i in (("Q(R) - Q(A)", 0), ("Q(B) - Q(A)", 2))
 )
 term_run = _q1_asac(ASAC_TERM, {"Q(R) - Q(A)": 1.0, "Q(B) - Q(A)": -1.0})
 CASES["q1-ASAC-termination"] = Case(
-    "q1-ASAC-termination", TERM_Q, term_run, 1250, (0.023, 0.026)
+    "q1-ASAC-termination", TERM_Q, term_run, 1250, (0.022, 0.021)
 )
 # A <-> B (obs 0, 1; r 0, 3): the limit fires on a step from A, whose true
 # next obs is B; bootstrapping there, the cycle reads as if it never ended.
@@ -906,8 +906,8 @@ CASES["q1-ASAC-truncation"] = Case(
     "q1-ASAC-truncation",
     (Query("Q(B) - Q(A)", 1.5, {"truncation bootstraps the reset observation": 2.0}),),
     _q1_asac(ASAC_TRUNC, {"Q(B) - Q(A)": 1.0}),
-    1250,
-    (0.1,),
+    625,  # worst 0.034 (1250: 0.008); certified 32/32
+    (0.067,),
 )
 
 

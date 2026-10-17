@@ -134,7 +134,22 @@ def fresh_state(init: Init, stack: ExtensionStack, total_steps: int, key: Any) -
     extensions' initial states and one-shot pretraining on
     ``extension_key`` (:meth:`ExtensionStack.fold_init`)."""
     init_key, extension_key = jax.random.split(key)
-    return stack.fold_init(init(init_key), extension_key, total_steps)
+    return stack.fold_init(with_obs_norm(init(init_key)), extension_key, total_steps)
+
+
+def with_obs_norm(agent_state: Any) -> Any:
+    """An agent normalising its own observations (the collector's
+    ``obs_norm_info``) with those statistics mirrored on its networks, which
+    apply them; collection refreshes the mirror at every step, and setting
+    it at init keeps the scan carry's structure fixed."""
+    collector = getattr(agent_state, "collector_state", None)
+    stats = None if collector is None else collector.obs_norm_info
+    if stats is None:
+        return agent_state
+    return agent_state.replace(
+        actor_state=agent_state.actor_state.replace(obs_norm_info=stats),
+        critic_state=agent_state.critic_state.replace(obs_norm_info=stats),
+    )
 
 
 def fold_post_update(

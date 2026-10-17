@@ -122,6 +122,13 @@ class ActorCritic:
     # state (a_expert, next_a_expert), which extensions may read
     # (check_extension_experts).
     stores_expert_actions: bool = False
+    # Whether the agent replays stored transitions. It then normalises
+    # observations itself (EnvironmentConfig.normalize_obs_in_agent): its
+    # replay keeps the env's own observations, normalised with the current
+    # statistics when read, as SB3's replay buffer does under VecNormalize.
+    # The env's normaliser would leave each row at the statistics of its
+    # collection.
+    replays_transitions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
     #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
@@ -204,7 +211,7 @@ class ActorCritic:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=normalize_observations,
+            normalize_obs=normalize_observations and not self.replays_transitions,
             normalize_reward=normalize_rewards,
             gamma=reward_normalization_gamma,
             n_envs=n_envs,
@@ -226,6 +233,7 @@ class ActorCritic:
             n_envs=n_envs,
             continuous=continuous,
             action_repeat=action_repeat,
+            normalize_obs_in_agent=normalize_observations and self.replays_transitions,
         )
 
         self.network_args = NetworkConfig(

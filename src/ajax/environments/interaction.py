@@ -39,7 +39,7 @@ from ajax.state import (
     Transition,
     zeros_like_abstract_pytree,
 )
-from ajax.types import BufferType
+from ajax.types import BufferType, NormalizationInfo
 from ajax.wrappers import (
     _FINAL_OBS_KEYS,
     RAW_FINAL_OBS_KEY,
@@ -123,6 +123,18 @@ def get_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
         if key in info:
             return info[key]
     return fallback
+
+
+def reward_statistics(env_state: Any) -> Optional[NormalizationInfo]:
+    """The env reward normaliser's current statistics (None without one): a
+    brax state keeps them in its info, a gymnax one as a field."""
+    info = getattr(env_state, "info", None)
+    stats = (
+        info.get("normalization_info")
+        if isinstance(info, dict)
+        else getattr(env_state, "normalization_info", None)
+    )
+    return None if stats is None else stats.reward
 
 
 def get_raw_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
@@ -704,6 +716,9 @@ def collect_experience(
     raw_next_obs = maybe_append_train_frac(get_final_obs(info, obsv), train_frac)
     obsv = maybe_append_train_frac(obsv, train_frac)
 
+    # The replay keeps the env's own reward, which a replayed batch divides
+    # by the normaliser's current statistics (get_batch_from_buffer).
+    own_reward = info.get(RAW_REWARD_KEY, reward).astype(reward.dtype)
     # The value box: its entry pays the bonus (zeros without a box) and ends
     # the agent's episode, the bonus standing in for the bootstrap.
     reward = reward + entry_bonus[..., 0]
@@ -767,7 +782,7 @@ def collect_experience(
         row = {
             "obs": agent_state.collector_state.last_obs,
             "action": buffer_action,
-            "reward": reward[:, None],
+            "reward": (own_reward + entry_bonus[..., 0])[:, None],
             "terminated": terminated[:, None],
             "truncated": truncated[:, None],
             "next_obs": bootstrap_obs(new_last_obs, final_obs, terminated, truncated),
@@ -962,7 +977,8 @@ def collect_experience_from_expert_policy(
         transition = Transition(
             obs=last_obs_aug,
             action=action,
-            reward=reward[:, None],
+            # The env's own reward, as the live collector's replay rows.
+            reward=info.get(RAW_REWARD_KEY, reward)[:, None],
             terminated=terminated[:, None],
             truncated=truncated[:, None],
             next_obs=next_obs_aug,
@@ -1083,7 +1099,7 @@ def init_collector_state(
         else None
     )
     obs_norm_info = None
-    if normalize_obs_running:
+    if normalize_obs_running or env_args.normalize_obs_in_agent:
         obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
 
     return CollectorState(

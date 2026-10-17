@@ -160,6 +160,9 @@ does not fold the phase, bind the extension's context, put a batch key in
 the phase's batch or store a replay field), the refusal is `NotWired`, which
 says what is missing.
 
+[Compatibility](compatibility.md) shows, for every agent and module, which
+runs, which the algorithm cannot run, and which is not wired yet.
+
 Two more limits:
 
 - **`action` and `transform_action` are SAC's alone**, and only with an

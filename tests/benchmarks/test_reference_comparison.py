@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import refcmp_ajax
+import refcmp_brax
 import refcmp_jax
 import refcmp_report
 import refcmp_sb3
@@ -66,7 +67,7 @@ def test_ajax_runs_return_one_curve_per_seed():
 
 
 def test_gymnax_as_brax_keeps_transition_gradients():
-    env = refcmp_jax.GymnaxAsBrax("Pendulum-v1")
+    env = refcmp_brax.GymnaxAsBrax("Pendulum-v1")
     state = env.reset(jax.random.PRNGKey(0))
     assert state.obs.shape == (env.observation_size,)
     grad = jax.grad(lambda a: env.step(state, a).obs.sum())(jnp.zeros(env.action_size))
@@ -99,7 +100,7 @@ def test_brax_apg_trains_on_the_gymnax_adapter():
             spec.reference_config, policy_updates=2, num_envs=4, horizon_length=8
         ),
     )
-    curve = np.asarray(refcmp_jax.run_brax_apg(tiny, [0]))
+    curve = np.asarray(refcmp_brax.run_brax_apg(tiny, [0]))
     assert curve.shape == (1, 1) and np.isfinite(curve).all()
 
 

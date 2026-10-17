@@ -33,7 +33,7 @@ import jax.numpy as jnp
 from flax import struct
 from gymnax.environments import spaces
 
-from ajax.wrappers import GymnaxWrapper
+from ajax.wrappers import _FINAL_OBS_KEYS, GymnaxWrapper
 
 
 @struct.dataclass
@@ -160,8 +160,10 @@ class ModelReferenceWrapper(GymnaxWrapper):
         action_dim: dimension of the input ``u`` (needed for ``u_prev``).
 
     The reference sequence is re-sampled whenever the plant episode ends
-    (the inner env's auto-reset). Past the reference horizon the last
-    sample is held; size ``reference.horizon`` to the episode length.
+    (the inner env's auto-reset). That step's reward scores the plant's
+    final, pre-reset output, and ``info``'s final observation is the
+    controller's view of it. Past the reference horizon the last sample is
+    held; size ``reference.horizon`` to the episode length.
     """
 
     def __init__(
@@ -230,7 +232,13 @@ class ModelReferenceWrapper(GymnaxWrapper):
         raw_obs, env_state, _, terminated, truncated, info = self._env.step(
             k_env, state.env_state, action, params
         )
-        y = self.output(raw_obs)
+        # The plant auto-resets on done: raw_obs is then the next episode's
+        # first observation, and the step's outcome, which the reward
+        # scores, is the pre-reset one in info.
+        done = jnp.logical_or(terminated, truncated)
+        final_raw = next((info[k] for k in _FINAL_OBS_KEYS if k in info), raw_obs)
+        final_raw = jnp.where(done, final_raw, raw_obs)
+        y = self.output(final_raw)
         r_now = state.reference[state.t]
         t_next = jnp.minimum(state.t + 1, self.reference.horizon - 1)
         model_state = self.model.step(state.model_state, r_now)
@@ -244,10 +252,15 @@ class ModelReferenceWrapper(GymnaxWrapper):
             u_prev=jnp.reshape(jnp.asarray(action, jnp.float32), (self.action_dim,)),
             t=t_next,
         )
-        # The plant auto-reset on done: start a fresh task on its new obs.
-        done = jnp.logical_or(terminated, truncated)
+        # Start a fresh task on the plant's new episode.
         fresh = self._fresh_task(k_ref, raw_obs, env_state)
         state = jax.tree.map(lambda a, b: jax.lax.select(done, a, b), fresh, continued)
+        # The final observation in the controller's view, as wide as obs: a
+        # collector bootstraps a time limit on it.
+        info = {
+            k: self._controller_obs(continued, final_raw) if k in _FINAL_OBS_KEYS else v
+            for k, v in info.items()
+        }
         info = {**info, "y": y, "y_desired": y_desired, "r": r_now}
         obs = self._controller_obs(state, raw_obs)
         return obs, state, reward, terminated, truncated, info
@@ -262,7 +275,8 @@ class ModelReferenceWrapper(GymnaxWrapper):
         plant whose observation is not a function of its state (measurement
         noise drawn in ``step``, an observation-transforming inner wrapper).
         On the step a plant episode ends, ``raw_obs`` is the plant's reset
-        observation and ``state`` the fresh task.
+        observation and ``state`` the fresh task; the final observation is
+        the ended task's on the pre-reset one.
         """
         error = state.reference[state.t] - self.output(raw_obs)
         return self._observation(error, state.u_prev, raw_obs).astype(jnp.float32)

@@ -5,7 +5,10 @@ subclass of GymnaxWrapper or of brax's Wrapper without a row below fails):
 reproduces the original's reset and step;
 (b) on the identity task (tests/environments/identity_env.py), whose
 episodes terminate at t = 3 or are truncated at t = 5, it reports the
-flags each step raised, alone and in create.py's stacks.
+flags each step raised, alone and in create.py's stacks;
+(c) its final observation in ``info`` (what a collector bootstraps a time
+limit on) is as wide as the observation and, where no episode ended,
+equal to it: a wrapper that transforms observations transforms it too.
 
 A gymnax wrapper wraps the identity env; a brax one, a stand-in for it
 under the brax or playground stack it needs (EpisodeWrapper's time limit,
@@ -197,3 +200,14 @@ def test_a_wrapper_reports_the_flags_each_step_raised(name):
         np.testing.assert_array_equal(truncated > 0, expected[1])
         seen |= [np.any(expected[0]), np.any(expected[1])]
     assert seen.all(), "no termination or no truncation in the run"
+
+
+@pytest.mark.parametrize("name", sorted(BUILDERS))
+def test_a_wrapper_reports_its_own_final_observation(name):
+    _, steps = _run(BUILDERS[name](), N_STEPS)
+    for obs, _, _, terminated, truncated, info in steps[1:]:
+        final = interaction.get_final_obs(info, None)
+        assert final is not None, "no final observation in info"
+        assert final.shape == obs.shape
+        going = ~((terminated > 0) | (truncated > 0))
+        np.testing.assert_allclose(final[going], obs[going], rtol=1e-6)

@@ -117,7 +117,10 @@ gymnax environment into such a task:
   M-RMSE. The error is computed from the observation the plant returns, so
   sensor noise on the plant (an
   [`ObservationNoiseWrapper`](environments.md#sensor-noise) under the task)
-  reaches the controller and the reward alike.
+  reaches the controller and the reward alike. On the step a plant episode
+  ends, the reward scores the plant's last output before its reset, and the
+  final observation a time limit bootstraps on is in the controller's view
+  too, so any agent can train on the task.
 
 All three are plain `jnp`, so the task stays differentiable when the plant
 is. `ajax.wrappers.InitialStateWrapper(env, fn)` sets each episode's initial

@@ -1,7 +1,10 @@
+import jax
+import numpy as np
 import pytest
 
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.AVG.state import AVGConfig
+from ajax.networks.networks import get_initialized_actor_critic
 
 
 def test_avg_keeps_its_network_optimizer_and_env_settings():
@@ -32,3 +35,43 @@ def test_avg_takes_no_temperature_keywords(name):
     with pytest.raises(TypeError, match=name):
         REMOVED[name]()
     assert AVG("Pendulum-v1").alpha_args.learning_rate == 0.0
+
+
+def _is_orthogonal(kernel) -> bool:
+    """Columns (or rows, when the layer widens less than it reads)
+    orthonormal: an orthogonal matrix of gain 1."""
+    k = np.asarray(kernel)
+    gram = k.T @ k if k.shape[0] >= k.shape[1] else k @ k.T
+    return np.allclose(gram, np.eye(len(gram)), atol=1e-4)
+
+
+def test_avg_starts_every_layer_as_its_reference_code():
+    """gauthamvasan/avg's orthogonal_weight_init (avg.py:16-20) starts every
+    Linear layer orthogonal with gain 1 and a zero bias, the mean and the
+    log-std heads included (:59-62) and the Q layer (:97-98)."""
+    agent = AVG(env_id="Pendulum-v1")
+    actor_state, critic_state = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        continuous=True,
+        action_value=True,
+        squash=True,
+        num_critics=1,
+    )
+    actor = actor_state.params["params"]
+    critic = jax.tree.map(lambda x: x[0], critic_state.params["params"]["ensemble"])
+    layers = {
+        "actor hidden 0": actor["encoder"]["network"]["layers_0"],
+        "actor hidden 1": actor["encoder"]["network"]["layers_2"],
+        "mean": actor["mean"],
+        "log_std": actor["log_std"],
+        "critic hidden 0": critic["encoder"]["network"]["layers_0"],
+        "critic hidden 1": critic["encoder"]["network"]["layers_2"],
+        "Q": critic["model"],
+    }
+    for name, layer in layers.items():
+        assert _is_orthogonal(layer["kernel"]), name
+        np.testing.assert_array_equal(layer["bias"], 0.0, err_msg=name)

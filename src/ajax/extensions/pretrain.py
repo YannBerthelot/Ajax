@@ -395,6 +395,8 @@ class CloningPretrain(Extension):
     augment_obs_with_expert_state: bool = False
     use_train_frac: bool = False
     name: str = "cloning_pretrain"
+    requires: ClassVar[frozenset[str]] = frozenset({"actor", "continuous_actions"})
+    context: ClassVar[frozenset[str]] = frozenset({"actor_optimizer_args", "env_args"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
@@ -542,8 +544,12 @@ class MCPretrain(Extension):
     expert_state_aug_dim: int = 0
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
+    requires: ClassVar[frozenset[str]] = frozenset({"critic", "discounted"})
+    provides: ClassVar[frozenset[str]] = frozenset({"phi_star"})
+    context: ClassVar[frozenset[str]] = frozenset(
+        {"critic_optimizer_args", "env_args", "gamma", "network_args", "reward_scale"}
+    )
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
-    fits_phi_star: ClassVar[bool] = True
 
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
@@ -768,19 +774,25 @@ class BellmanPretrain(Extension):
     update_target_fn: Optional[Callable] = None
     augment_obs_with_expert_action: bool = False
     name: str = "bellman_pretrain"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert", "critic", "replay"})
+    context: ClassVar[frozenset[str]] = frozenset(
+        {
+            "buffer",
+            "gamma",
+            "recurrent",
+            "reward_scale",
+            "update_target_fn",
+            "update_value_fn",
+        }
+    )
 
     def bind_to_agent(self, **agent_context: Any) -> "BellmanPretrain":
         """Copy the agent's buffer, ``gamma``, ``reward_scale``, ``recurrent``
-        and critic updates (``update_value_fn``, ``update_target_fn``).
-        Raises ``ValueError`` when the agent has no ``expert_policy``: its
-        buffer then holds no expert prefill to pre-train on."""
+        and critic updates (``update_value_fn``, ``update_target_fn``). It
+        requires ``agent_expert``: without one the buffer holds no expert
+        prefill to pre-train on."""
         if self.update_value_fn is not None or "update_value_fn" not in agent_context:
             return self
-        if agent_context.get("expert_policy") is None:
-            raise ValueError(
-                "BellmanPretrain pre-trains the critic on the agent's expert"
-                " prefill; give the agent an expert_policy."
-            )
         return dataclasses.replace(
             self,
             buffer=agent_context["buffer"],
@@ -843,15 +855,16 @@ class PhiRefresh(Extension):
     augment_obs_with_expert_action: bool = False
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"discounted", "phi_star", "q_critic", "replay"}
+    )
+    context: ClassVar[frozenset[str]] = frozenset({"buffer", "gamma", "reward_scale"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
-
-    def reads_phi_star(self) -> bool:
-        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Copy the agent's ``buffer``, ``gamma``, ``reward_scale`` and
@@ -926,13 +939,15 @@ class PriorData(Extension):
     Ajax's warm-up acts uniformly: pair it with ``learning_starts=0``.
 
     Needs the replay and update an off-policy loop hands the ``pretrain``
-    phase: on any agent but SAC, TD3, REDQ, ASAC and DQN, raises
-    ``ValueError`` when training starts.
+    phase (``pretrain_context``): any agent but SAC, TD3, REDQ, ASAC and DQN
+    refuses it when built.
     """
 
     dataset: TransitionDataset
     offline_updates: int = 0
     name: str = "prior_data"
+    requires: ClassVar[frozenset[str]] = frozenset({"off_policy", "replay"})
+    pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "update"})
 
     def pretrain(
         self, agent_state: Any, ext_state: Any, ctx: ExtensionContext

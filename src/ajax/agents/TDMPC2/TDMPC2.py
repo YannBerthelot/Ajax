@@ -122,7 +122,11 @@ class TDMPC2(ActorCritic):
     """
 
     name: str = "TDMPC2"
+    capabilities: frozenset = frozenset(
+        "actor critic_ensemble discounted off_policy q_critic replay".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES
+    pretrain_context: frozenset = frozenset("env_args update".split())
     # Its row collector steps with the env params as traced values.
     supports_batched_env_params: bool = True
     make_train = staticmethod(make_train)

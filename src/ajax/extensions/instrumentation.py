@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -255,6 +255,7 @@ class ConditioningMetrics(Extension):
     critic_loc: str = "auto"  # 'auto' | 'critic' | 'actor'
     concat_action: Any = "auto"  # bool | 'auto'
     name: str = "conditioning_metrics"
+    requires: ClassVar[frozenset[str]] = frozenset({"critic"})
 
     def _loc(self, agent_state: Any) -> str:
         if self.critic_loc != "auto":
@@ -359,6 +360,7 @@ class BiasVoreDecomposition(Extension):
     # ``(agent_state, batch_dict, rng) -> (target, q_preds)``.
     value_target_fn: Optional[Callable] = None
     name: str = "bias_vore_decomposition"
+    requires: ClassVar[frozenset[str]] = frozenset({"critic"})
 
     def _td_residual(
         self, agent_state: Any, transitions: Tuple[jax.Array, ...], rng: jax.Array

@@ -20,6 +20,7 @@ from ajax.agents.AVG.AVG import AVG
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.TD3.TD3 import TD3
 from ajax.extensions.base import Extension
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.expert import ImitationLoss
 from ajax.extensions.target_mods import IBRL
 from tests.extensions.test_expert_observations import (
@@ -216,5 +217,5 @@ def test_the_target_reads_the_stored_expert_actions_at_the_next_state(
 def test_ibrl_is_refused_on_an_average_reward_target() -> None:
     """IBRL's bonus is discounted; ASAC's target is average-reward."""
     expert = IntegratingExpert()
-    with pytest.raises(ValueError, match="average-reward"):
+    with pytest.raises(MissingCapability, match="needs discounted"):
         train("ASAC", expert, (IBRL(expert_policy=expert),))

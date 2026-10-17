@@ -17,6 +17,7 @@ class UDRL(ActorCritic):
     trained."""
 
     name: str = "UDRL"
+    capabilities: frozenset = frozenset("actor obs_networks off_policy replay".split())
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
     make_train = staticmethod(make_train)
 

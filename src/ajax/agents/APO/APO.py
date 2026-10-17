@@ -19,11 +19,15 @@ class APO(ActorCritic):
     """
 
     name: str = "APO"
+    capabilities: frozenset = frozenset("actor obs_networks v_critic".split())
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
     }
+    extension_context: frozenset = frozenset(
+        "actor_optimizer_args env_args expert_policy".split()
+    )
     stores_expert_actions: bool = True
     make_train = staticmethod(make_train)
 

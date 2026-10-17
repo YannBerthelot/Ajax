@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.TD3.networks import DeterministicActor
+from ajax.environments.create import prepare_env
 from ajax.networks.distributions import (
     Deterministic,
     Squash,
@@ -20,7 +21,8 @@ from ajax.networks.distributions import (
     log_prob_from_raw,
     sample_with_raw,
 )
-from ajax.networks.networks import Actor, Squashed
+from ajax.networks.networks import Actor, Squashed, get_initialized_actor_critic
+from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 NORMAL = distrax.Normal(jnp.zeros(7), jnp.full(7, 1.5))
 PI = Squash(NORMAL)
@@ -109,3 +111,18 @@ def test_squashed_bounds_any_actor_with_its_parameters(actor):
     pi, inner = Squashed(actor).apply(params, obs), actor.apply(params, obs)
     np.testing.assert_array_equal(pi.mean(), jnp.tanh(inner.mean()))
     assert isinstance(pi, Deterministic if isinstance(inner, Deterministic) else Squash)
+
+
+def test_a_discrete_policy_is_left_unsquashed():
+    """APO passes squash=True on discrete actions too: its Categorical stays,
+    and Squash refuses one rather than tanh its action indices."""
+    with pytest.raises(ValueError, match="continuous"):
+        Squash(distrax.Categorical(logits=jnp.zeros(3)))
+    env, params, _, _ = prepare_env("CartPole-v1")
+    config = EnvironmentConfig(env=env, env_params=params, n_envs=1, continuous=False)
+    net = NetworkConfig(actor_architecture=("8", "relu"), critic_architecture=("8",))
+    opt = OptimizerConfig(learning_rate=1e-3)
+    actor, _ = get_initialized_actor_critic(KEY, config, opt, opt, net, squash=True)
+    assert isinstance(
+        actor.apply_fn(actor.params, jnp.ones((1, 4))), distrax.Categorical
+    )

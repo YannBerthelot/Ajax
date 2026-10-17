@@ -70,6 +70,11 @@ class Squash(distrax.Transformed):
     """
 
     def __init__(self, distribution: distrax.Distribution):
+        if not jnp.issubdtype(distribution.dtype, jnp.floating):
+            raise ValueError(
+                "tanh squashes a continuous distribution, not a"
+                f" {type(distribution).__name__}."
+            )
         bijector = distrax.Tanh()
         event_ndims = len(distribution.event_shape)
         if event_ndims:

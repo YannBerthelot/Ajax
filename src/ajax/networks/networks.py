@@ -448,7 +448,8 @@ def get_initialized_actor_critic(
     Create actor and critic networks, their initializers and log-std head
     as ``network_config`` sets them; a prebuilt ``actor`` (TD3's
     deterministic one) replaces the :class:`Actor` built here. ``squash``
-    wraps the actor in :class:`Squashed`.
+    wraps a continuous actor in :class:`Squashed` (discrete APO passes it
+    and keeps its Categorical).
 
     extra_obs_dim: dimensions the agent appends to obs at run time (UDRL's
     command; SAC's expert action and expert state when it augments with
@@ -504,7 +505,7 @@ def get_initialized_actor_critic(
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
         )
-    if squash:
+    if squash and continuous:  # a discrete policy has no range to bound
         actor = Squashed(actor)
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,

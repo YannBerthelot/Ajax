@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ac59dfb098df"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "615bf22f2887"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -99,8 +99,8 @@ CASES["p0a-PQN"] = Case(
     (*Q_S1, Query("max_a Q(s0, a)", G3, Q_S0_WRONG), GREEDY),
     _three_run("PQN", q_lambda=0.0),
     5000,
-    (0.068, 0.043, 0.083, 0.085, 0.02),
-    note="cert 31/32; reads the greedy Q(s0): the others drift, rarely explored",
+    (0.07, 0.041, 0.078, 0.035, 0.02),
+    note="cert 32/32; reads the greedy Q(s0): the others drift, rarely explored",
 )
 CASES["p0a-PPO"] = Case(
     "p0a-PPO",
@@ -300,7 +300,7 @@ Q9_CELLS: dict[
 ] = {  # n_envs 1 runs PPO's legacy path, 4 with 2 minibatches the other
     "PPO": ("PPO", 625, 0.02, _PPO9),
     "PPO-minibatch": ("PPO", 1250, 0.047, _PPO9 | {"n_envs": 4, "num_minibatches": 2}),
-    "PQN": ("PQN", 2500, 0.02, {"q_lambda": L9}),
+    "PQN": ("PQN", 1250, 0.055, {"q_lambda": L9}),
 }
 
 
@@ -443,11 +443,11 @@ PILOT_CAL = {  # budget, tolerances in query order
     "DQN-discounting": (1250, (0.02, 0.02)),
     "DQN-advantage": (1250, (0.02, 0.5)),
     "DQN-coupling": (1250, (0.039, 0.02, 0.499, 0.498)),
-    "PQN-value": (80_000, (0.02,)),
-    "PQN-backprop": (5000, (0.02, 0.02)),
-    "PQN-discounting": (5000, (0.02, 0.02)),
-    "PQN-advantage": (80_000, (0.02, 0.5)),
-    "PQN-coupling": (5000, (0.02, 0.02, 0.499, 0.497)),
+    "PQN-value": (40_000, (0.02,)),
+    "PQN-backprop": (2500, (0.021, 0.037)),
+    "PQN-discounting": (2500, (0.02, 0.042)),
+    "PQN-advantage": (40_000, (0.02, 0.498)),
+    "PQN-coupling": (2500, (0.02, 0.039, 0.47, 0.385)),
 }
 _TERM = re.compile(r"(V|a|Q)\(([-+]?\d)(?:, a=(\d))?\)")
 

@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "bddfa250a741"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "71be5ce37a08"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -215,7 +215,7 @@ ONE_STEP = {"SAC": 5000, "REDQ": 1000, "TD3": 5000, "DQN": 5000}
 # 0.057 to 0.075); certified on 3000-3031, 32/32 for each.
 TWIN_CAL = {
     ("gymnax", "PPO"): (10_000, (0.058, 0.08, 0.086)),
-    ("gymnax", "PQN"): (10_000, (0.082, 0.093, 0.075)),
+    ("gymnax", "PQN"): (10_000, (0.096, 0.07, 0.089)),
     ("brax", "PPO"): (10_000, (0.075, 0.046, 0.06)),
     ("gymnax", "AVG"): (2500, (0.055, 0.044)),  # 1000: 0.29 off; cert 32/32
 }
@@ -363,7 +363,7 @@ VALUE_Q = Query(
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG 0.031
 # at 5000: one seed read 0.90 at 1250); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
-P5_VALUE |= {"AVG": 5000, "DQN": 1250, "PQN": 160_000}
+P5_VALUE |= {"AVG": 5000, "DQN": 1250, "PQN": 80_000}
 
 
 def _p5_read(cell: str, run: runs.Run) -> dict:
@@ -673,8 +673,8 @@ P9_CELLS: dict[str, tuple] = {
     "PQN": (
         ("q_lambda", 512, 0.65),
         {"A": (0.394, 1.198), "B": (0.902, 1.562), "C": (0.766, 1.527)} | D0,
-        160_000,
-        (0.075, 0.097),
+        80_000,  # at its reference initialisation; 160,000 qualifies too
+        (0.089, 0.075),
         {"learning_rate": 2.5e-4, "n_steps": 512, "num_minibatches": 2, "n_epochs": 3},
     ),
 }

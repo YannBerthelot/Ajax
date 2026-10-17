@@ -56,11 +56,21 @@ PHASE_NEEDS: Mapping[str, frozenset[str]] = {
 
 
 class MissingCapability(ValueError):
-    """The algorithm or the run lacks capabilities a module needs."""
+    """The algorithm or the run lacks capabilities a module needs: per module
+    class name, those it lacks (``missing``)."""
+
+    def __init__(self, message: str, missing: Mapping[str, frozenset[str]]):
+        super().__init__(message)
+        self.missing = dict(missing)
 
 
 class NotWired(ValueError):
-    """The agent has what a module needs, and its code does not pass it on yet."""
+    """The agent has what a module needs, and its code does not pass it on
+    yet: per module class name, what it does not (``unwired``)."""
+
+    def __init__(self, message: str, unwired: Mapping[str, str]):
+        super().__init__(message)
+        self.unwired = dict(unwired)
 
 
 def run_capabilities(
@@ -121,22 +131,22 @@ def check_capabilities(
     """
     has = frozenset(has).union(*(ext.provides for ext in stack))
     phases, context = frozenset(phases), frozenset(context)
-    missing, unwired = [], []
+    missing: dict[str, frozenset[str]] = {}
+    unwired: dict[str, str] = {}
     for ext in stack:
-        label = f"{type(ext).__name__} ({ext.name!r})"
         lacks = ext.needs() - has
+        gaps = []
         if "agent_expert" in lacks and not takes_expert_policy:
-            unwired.append(f"{label}: {agent_name} takes no expert_policy yet")
+            gaps.append("takes no expert_policy")
             lacks -= {"agent_expert"}
         if lacks:
-            reasons = ", ".join(f"{c} ({_meaning(c)})" for c in sorted(lacks))
-            missing.append(f"{label}, which needs {reasons}")
+            missing[type(ext).__name__] = lacks
             continue
         unfolded = ext.implemented_phases() - phases
         unbound = ext.context - context
         unfilled = ext.pretrain_context - frozenset(pretrain_context)
         unstored = ext.buffer_fields - frozenset(buffer_fields)
-        gaps = [
+        gaps += [
             *([f"folds no {sorted(unfolded)} phase"] if unfolded else []),
             *([f"binds no {sorted(unbound)}"] if unbound else []),
             *([f"gives its pretraining no {sorted(unfilled)}"] if unfilled else []),
@@ -149,13 +159,25 @@ def check_capabilities(
             ),
         ]
         if gaps:
-            unwired.append(f"{label}: {agent_name} " + "; ".join(gaps) + " yet")
+            unwired[type(ext).__name__] = "; ".join(gaps)
+    labels = {
+        type(ext).__name__: f"{type(ext).__name__} ({ext.name!r})" for ext in stack
+    }
     if missing:
-        raise MissingCapability(f"{agent_name} cannot run " + "; ".join(missing) + ".")
+        details = "; ".join(
+            f"{labels[name]}, which needs "
+            + ", ".join(f"{c} ({_meaning(c)})" for c in sorted(lacks))
+            for name, lacks in missing.items()
+        )
+        raise MissingCapability(f"{agent_name} cannot run {details}.", missing)
     if unwired:
+        details = "; ".join(
+            f"{labels[name]}: {agent_name} {gaps} yet" for name, gaps in unwired.items()
+        )
         raise NotWired(
             f"{agent_name} has what its extensions need, but does not pass it"
-            " on yet: " + "; ".join(unwired) + "."
+            f" on yet: {details}.",
+            unwired,
         )
 
 

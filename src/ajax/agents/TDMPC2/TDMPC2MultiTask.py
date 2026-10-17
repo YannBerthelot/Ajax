@@ -124,6 +124,7 @@ class TDMPC2MultiTask:
     """
 
     name: str = "TDMPC2MultiTask"
+    capabilities: frozenset = TDMPC2.capabilities
     supported_extension_phases: frozenset = LOOP_PHASES
 
     def __init__(
@@ -192,7 +193,7 @@ class TDMPC2MultiTask:
         check_extensions(
             type(self).__name__,
             self.extension_stack,
-            run_capabilities(TDMPC2.capabilities, continuous=True, has_expert=False),
+            run_capabilities(self.capabilities, continuous=True, has_expert=False),
             self.supported_extension_phases,
         )
         dataset.check()

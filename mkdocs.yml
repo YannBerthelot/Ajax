@@ -120,6 +120,7 @@ nav:
       - Performance: guide/performance.md
       - Comparing agents: guide/comparing-agents.md
       - Extensions: guide/extensions.md
+      - Compatibility: guide/compatibility.md
       - Expert guidance: guide/expert-guidance.md
       - Differentiable simulation: guide/differentiable-simulation.md
       - World models: guide/world-models.md

@@ -15,6 +15,7 @@ ImitationLoss, for agents without an expert of their own, holds its own.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional
 
@@ -124,17 +125,19 @@ class OnlineBC(Extension):
     critic phi* is applied with from the agent's state, which
     :class:`MCPretrain` fits (refused without it). The expert's action is
     the agent's ``expert_policy``'s, so an agent without one refuses it
-    (``needs_agent_expert``); it raises on a batch without ``a_expert`` (an
+    (``requires`` ``agent_expert``); it raises on a batch without ``a_expert`` (an
     agent other than SAC). Until phi* exists the term is 0.
     """
 
     bc_coef: float = 1.0
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
-    needs_agent_expert: ClassVar[bool] = True
-
-    def reads_phi_star(self) -> bool:
-        return True
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "continuous_actions", "phi_star", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "actor_loss": frozenset({"a_expert", "observations", "pi_mean"})
+    }
 
     def actor_loss(
         self,
@@ -225,11 +228,25 @@ class ImitationLoss(Extension):
     buffer: Any = None  # the Q-filter's logged share samples it
     augment_obs_with_expert_action: bool = False
     name: str = "imitation_loss"
+    requires: ClassVar[frozenset[str]] = frozenset({"continuous_actions"})
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "actor_loss": frozenset({"observations", "pi_mean"})
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     reads_agent_expert_actions: ClassVar[bool] = True
 
     def experts(self) -> tuple:
         return (self.expert_policy,)  # called on each batch, without a state
+
+    def needs(self) -> frozenset[str]:
+        """The filter also reads the Q critic."""
+        return super().needs() | ({"q_critic"} if self.q_filter else set())
+
+    def reads(self) -> Mapping[str, frozenset[str]]:
+        """The filter also reads the critic from the actor-loss batch."""
+        if not self.q_filter:
+            return self.batch_keys
+        return {"actor_loss": self.batch_keys["actor_loss"] | {"critic_state"}}
 
     def bind_to_agent(self, **agent_context: Any) -> "ImitationLoss":
         """Read the expert's stored actions when it is the agent's; with the
@@ -330,6 +347,7 @@ class ResidualPolicy(Extension):
 
     scale: float = 1.0
     name: str = "residual_policy"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
 
     def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
         """``clip(a_expert + scale·a_pi, -1, 1)`` — the residual mix."""
@@ -390,6 +408,7 @@ class JSRLCurriculum(Extension):
     episode_length: int = 1000
     decay_frac: float = 0.5
     name: str = "jsrl_curriculum"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
     action_slot: ClassVar[str] = "pre_warmup"
     reads_step_in_episode: ClassVar[bool] = True
 
@@ -449,6 +468,10 @@ class ExpertValueMetrics(Extension):
     expert_policy: Optional[Callable] = None
     augment_obs_with_expert_action: bool = False
     name: str = "expert_value_metrics"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "q_critic", "replay"}
+    )
+    context: ClassVar[frozenset[str]] = frozenset({"buffer", "expert_policy"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":

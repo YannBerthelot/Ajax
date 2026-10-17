@@ -19,6 +19,7 @@ from flax import struct
 
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.base import ExtensionContext
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     CloningPretrain,
@@ -137,14 +138,13 @@ def test_bellman_pretrain_binds_the_agent_context():
 
 
 def test_bellman_pretrain_needs_the_agent_context_and_expert():
-    """Unbound, its pretrain phase raises; bound by an agent without an
-    expert (so no expert prefill to pre-train on), SAC's training raises."""
+    """Unbound, its pretrain phase raises; on an agent without an expert (so
+    no expert prefill to pre-train on), SAC refuses it when built."""
     ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
         BellmanPretrain().pretrain(None, (), ctx)
-    agent = SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
-    with pytest.raises(ValueError, match="expert_policy"):
-        agent.train(seed=0, n_timesteps=10)
+    with pytest.raises(MissingCapability, match="give the agent an expert_policy"):
+        SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
 
 
 def test_cloning_pretrain_binds_the_agent_context():

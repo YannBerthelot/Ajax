@@ -47,6 +47,9 @@ class PPO(ActorCritic):
     continuous action spaces."""
 
     name: str = "PPO"
+    capabilities: frozenset = frozenset(
+        "actor discounted obs_networks v_critic".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",

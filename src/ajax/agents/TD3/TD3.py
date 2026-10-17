@@ -28,11 +28,19 @@ class TD3(ActorCritic):
     """
 
     name: str = "TD3"
+    capabilities: frozenset = frozenset(
+        "actor critic_ensemble discounted "
+        "obs_networks off_policy q_critic replay".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
     }
+    pretrain_context: frozenset = frozenset("buffer env_args update".split())
+    extension_context: frozenset = frozenset(
+        "actor_optimizer_args env_args expert_policy".split()
+    )
     supports_memory: bool = True
     replays_transitions: bool = True
     make_train = staticmethod(make_train)

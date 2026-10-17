@@ -23,7 +23,11 @@ class DQN(ActorCritic):
     """
 
     name: str = "DQN"
+    capabilities: frozenset = frozenset(
+        "discounted obs_networks off_policy q_critic replay".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    pretrain_context: frozenset = frozenset("buffer env_args update".split())
     replays_transitions: bool = True
     make_train = staticmethod(make_train)
 

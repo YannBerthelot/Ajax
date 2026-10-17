@@ -27,6 +27,7 @@ from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import PAPER_TASK_DIM, TaskSet
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2MultiTaskState
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TDMPC2.train_TDMPC2MultiTask import (
     evaluate_task,
     make_init,
@@ -40,7 +41,8 @@ from ajax.environments.utils import (
     get_env_type,
     get_state_action_shapes,
 )
-from ajax.extensions.base import Extension, ExtensionStack, check_extension_phases
+from ajax.extensions.base import Extension, ExtensionStack, check_extensions
+from ajax.extensions.capabilities import run_capabilities
 from ajax.log import evaluation_keys
 from ajax.logging.wandb_logging import (
     LoggingConfig,
@@ -187,8 +189,11 @@ class TDMPC2MultiTask:
         """
         self.config = run_config(locals(), self.name, ("dataset", "eval_envs"))
         self.extension_stack = ExtensionStack(extensions)
-        check_extension_phases(
-            type(self).__name__, self.extension_stack, self.supported_extension_phases
+        check_extensions(
+            type(self).__name__,
+            self.extension_stack,
+            run_capabilities(TDMPC2.capabilities, continuous=True, has_expert=False),
+            self.supported_extension_phases,
         )
         dataset.check()
         if horizon > dataset.rows - 1:

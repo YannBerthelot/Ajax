@@ -11,10 +11,12 @@ from ajax.compare import (
     AdaStop,
     auc,
     compare,
+    difference,
     estimate,
     final_return,
     half_width,
     last_third,
+    resolution,
     threshold,
 )
 
@@ -234,3 +236,45 @@ def test_one_agent_is_estimated_end_to_end():
     lo, hi = result.interval["r"]
     assert result.seeds == [0, 1, 2, 3] and 0 <= lo <= hi <= 500
     assert result.scores["r"].shape == (4,) and not result.met["r"]
+
+
+def test_difference_interval_covers_the_true_gap():
+    # Percentile bootstrap intervals run a little short at 16 samples.
+    rng, covered = np.random.default_rng(0), 0
+    for i in range(300):
+        a, b = rng.normal(1.0, 1.0, 16), rng.normal(0.0, 2.0, 16)
+        gap, (low, high) = difference(a, b, B=2_000, seed=i)
+        assert low < gap < high and gap == a.mean() - b.mean()
+        covered += low <= 1.0 <= high
+    assert 0.88 <= covered / 300 <= 0.98
+    assert difference(a, b, seed=3) == difference(a, b, seed=3)
+
+
+def test_resolution_is_the_gap_adastop_detects_with_the_asked_power():
+    rng = np.random.default_rng(1)
+    a, b = rng.normal(size=32), rng.normal(size=32)
+    gap = resolution(a, b, n=8, K=4, reps=200, B=2_000)
+    # A fixed-size test of 32 against 32 at 80% power needs 0.70 standard
+    # deviations; AdaStop's four interims spend alpha, so a bit more.
+    sd = np.sqrt((a.var() + b.var()) / 2)
+    assert 0.6 < gap / sd < 1.0
+    hits = 0
+    for r in range(400):  # the power at that gap, for normal scores so spread
+        test = AdaStop(["a", "b"], n=8, K=4, B=2_000, seed=r)
+        while not test.finished:
+            test.update({"a": rng.normal(0, sd, 8), "b": rng.normal(gap, sd, 8)})
+        hits += test.decisions[("a", "b")] != "equal"
+    assert 0.7 <= hits / 400 <= 0.95
+
+
+def test_resolution_is_deterministic_and_scales_with_the_scores():
+    rng = np.random.default_rng(2)
+    a, b = rng.normal(size=16), rng.exponential(size=16)
+    gap = resolution(a, b, n=4, K=4, reps=50, B=1_000, seed=5)
+    assert gap == resolution(a, b, n=4, K=4, reps=50, B=1_000, seed=5)
+    scaled = resolution(10 * a, 10 * b, n=4, K=4, reps=50, B=1_000, seed=5)
+    assert scaled == pytest.approx(10 * gap, rel=1e-6)
+    # Without spread, any gap is seen at once.
+    assert resolution(np.ones(8), np.ones(8), n=4, K=2, reps=20, B=500) < 0.01
+    with pytest.raises(ValueError, match="never reach"):
+        resolution(a, b, n=2, K=2, reps=10, B=500)

@@ -1,23 +1,18 @@
 """The Ajax arms of a reference comparison (``refcmp_specs``).
 
-usage: python refcmp_ajax.py AGENT ARM FIRST_SEED N_SEEDS >> results/ajax.jsonl
+usage: python refcmp_ajax.py NAME ARM FIRST_SEED N_SEEDS (refcmp_worker)
 
 ARM is ``matched`` or ``defaults``. Every seed trains in one program; the
-evaluation is Ajax's own (N_EVAL_EPISODES deterministic episodes every
+evaluation is Ajax's own (``n_eval_episodes`` deterministic episodes every
 ``eval_every`` steps), except for agents whose comparison scores the final
 policy only (``eval_every == 0``), which ``refcmp_jax.evaluate_final`` scores.
 """
-
-import json
-import subprocess
-import sys
-import time
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from refcmp_specs import COMPARISONS, N_EVAL_EPISODES
+from refcmp_worker import main
 
 import ajax
 from ajax.agents.DQN.train_DQN import make_huber_td_loss
@@ -74,6 +69,7 @@ def run(spec, arm: str, seeds: list, n_timesteps: int = 0, eval_every: int = -1)
                 lambda obs, actor=actor: actor.apply(actor.params, obs).mean(),
                 spec.env_id,
                 jax.random.PRNGKey(10_000 + seed),
+                spec.n_eval_episodes,
             )
             curve.append([float(returns.mean())])
         return curve
@@ -81,7 +77,7 @@ def run(spec, arm: str, seeds: list, n_timesteps: int = 0, eval_every: int = -1)
     _, evals = agent.train(
         seed=seeds,
         n_timesteps=n_timesteps,
-        num_episode_test=N_EVAL_EPISODES,
+        num_episode_test=spec.n_eval_episodes,
         logging_config=logging,
     )
     curve = np.asarray(evals["Eval/episodic mean reward"])
@@ -90,26 +86,12 @@ def run(spec, arm: str, seeds: list, n_timesteps: int = 0, eval_every: int = -1)
     return curve.tolist()
 
 
+def config(spec, arm: str) -> dict:
+    """The agent's run config, its schedule and loss given as the spec's tokens."""
+    resolved = build_agent(spec, arm).config
+    arm_kwargs = spec.matched if arm == "matched" else spec.defaults
+    return {k: v for k, v in resolved.items() if not callable(v)} | arm_kwargs
+
+
 if __name__ == "__main__":
-    agent_name, arm = sys.argv[1], sys.argv[2]
-    seeds = list(range(int(sys.argv[3]), int(sys.argv[3]) + int(sys.argv[4])))
-    spec = COMPARISONS[agent_name]
-    t0 = time.perf_counter()
-    curve = run(spec, arm, seeds)
-    commit = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
-    ).stdout.strip()
-    print(
-        json.dumps(
-            {
-                "lib": "ajax",
-                "agent": agent_name,
-                "arm": arm,
-                "seeds": seeds,
-                "eval_every": spec.eval_every,
-                "versions": {"ajax": commit},
-                "wall_s": round(time.perf_counter() - t0, 1),
-                "curve": [[round(float(x), 2) for x in row] for row in curve],
-            }
-        )
-    )
+    main(run, config, ("jax", "jaxlib", "flax", "optax"))

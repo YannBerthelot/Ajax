@@ -2,16 +2,19 @@
 
 Does an Ajax agent learn like a well-known implementation of the same
 algorithm? Each comparison (`refcmp_specs.py`) trains one Ajax agent and one
-reference on the same task and budget, then compares their per-seed
-evaluation curves. It runs on demand, not in CI.
+reference on the same JAX environment and budget, then compares their
+per-seed evaluation curves. `envs/<library>/` pins each reference's
+libraries in a uv project with its lockfile. It runs on demand, not in CI.
 
 | Ajax | Reference | Task | Budget |
 |---|---|---|---|
 | PPO | Stable-Baselines3 | CartPole-v1 | 200,704 steps |
+| PPO | Brax's PPO trainer | inverted_pendulum (Brax) | 819,200 steps |
 | DQN | Stable-Baselines3 | CartPole-v1 | 100,000 steps |
 | SAC | Stable-Baselines3 | Pendulum-v1 | 20,000 steps |
 | TD3 | Stable-Baselines3 | Pendulum-v1 | 20,000 steps |
 | PQN | purejaxql, the PQN authors' code (`vendor/`) | CartPole-v1 | 491,520 steps |
+| PQN | purejaxql | Asterix-MinAtar | 1,228,800 steps |
 | APG | Brax's APG trainer, on gymnax Pendulum | Pendulum-v1 | 2,048,000 steps |
 
 ## Two arms
@@ -31,25 +34,34 @@ returns, the recorded seeds fed four per interim.
 
 ## Running it
 
-The references do not depend on Ajax, so they are recorded once and kept in
-`results/`; only the Ajax arms are re-run, after a change to an agent.
-From the repository root:
+`refcmp_protocol.py` runs a comparison as the [reproduction
+protocol](../../docs/reproduction/protocol.md) sets it: AdaStop, fed one interim
+at a time, decides how many seeds each side trains. From the repository
+root:
 
 ```bash
-benchmarks/reference/record.sh ajax SAC          # both Ajax arms, 16 seeds
-uv run python benchmarks/reference/refcmp_report.py
+uv run python benchmarks/reference/refcmp_protocol.py run PQN          # the matched arm
+uv run python benchmarks/reference/refcmp_protocol.py run PQN defaults
+uv run python benchmarks/reference/refcmp_protocol.py report PQN
 ```
 
-A re-run replaces the seeds it records. To record a reference again (a new
-SB3 version, a changed spec), pass a Python environment that has
-stable-baselines3 for the SB3 ones:
+Each reference runs in its own uv project, `envs/<library>/`, created on
+first use from its lockfile; Ajax runs in the repository's. Ajax and
+purejaxql train a batch of seeds in one program, SB3 and Brax one process
+per seed, all on the CPU. Every batch appends a record to
+`results/protocol/<comparison>.jsonl`: the per-seed evaluation curves, the
+speed (wall, CPU and compile seconds, steps per second, the machine) and a
+manifest (Ajax's commit and whether the tree was clean, the lockfile's
+hash, the libraries' versions, the platform, the resolved settings). A run
+reuses every recorded seed whose fingerprint (the hash of its settings and
+of the code it ran) still matches, so a reference is trained once and an
+Ajax arm again only after a change to Ajax.
 
-```bash
-benchmarks/reference/record.sh reference SAC 16 /path/to/python
-benchmarks/reference/record.sh reference PQN     # purejaxql and Brax run in Ajax's env
-```
+The records in `results/*.jsonl` and `refcmp_report.py` are an earlier
+recording, made before the protocol, while SB3 still trained on
+Gymnasium's own environments; the sections below describe them.
 
-## Cost (Apple M4 Pro, CPU)
+## Earlier recording: cost (Apple M4 Pro, CPU)
 
 Measured on 2026-10-17, 16 seeds. The SB3 references ran as 8
 single-thread processes; JAX runs use every core.
@@ -69,7 +81,7 @@ times SB3's CPU time here: their training time grows almost linearly with
 the number of seeds, where the on-policy agents' barely grows. Eight seeds halve the Ajax side; the report asks for
 16 only when 8 leave the verdict unclear.
 
-## Results
+## Earlier recording: results
 
 Recorded on 2026-10-17: Ajax at e96ba15, SB3 2.9.0 with torch 2.13.0,
 purejaxql at 47af6d7, Brax 0.14.2.

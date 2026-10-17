@@ -34,6 +34,9 @@ cuda = ["jax[cuda]>=0.6.2; sys_platform == 'linux'"]
 # ajax.compare.estimate's confidence sequence: `uv sync --extra compare`, or
 # depend on `ajax[compare]`. From the commit in [tool.uv.sources].
 compare = ["adastop"]
+# ajax.reproduction.load, the reference comparisons' published data:
+# `uv sync --extra reproduction`, or depend on `ajax[reproduction]`.
+reproduction = ["huggingface-hub>=0.30,<2", "pandas>=2.2,<3", "pyarrow>=15"]
 
 [project.urls]
 Homepage = "https://github.com/YannBerthelot/Ajax"
@@ -57,6 +60,10 @@ dev = [
     "probing-environments",
     # The compare extra, for its tests; from the commit in [tool.uv.sources].
     "adastop",
+    # benchmarks/reference/refcmp_publish.py writes, and its tests read,
+    # the reproduction extra's Parquet tables.
+    "pandas>=2.2,<3",
+    "pyarrow>=15",
 ]
 wandb = ["wandb>=0.19.9,<0.20"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;

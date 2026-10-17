@@ -1,17 +1,11 @@
 """The Stable-Baselines3 references (PPO, DQN, SAC, TD3).
 
-usage: <python with stable-baselines3> refcmp_sb3.py AGENT FIRST_SEED N_SEEDS
-           >> results/sb3.jsonl
+usage: python refcmp_sb3.py NAME reference FIRST_SEED N_SEEDS (refcmp_worker)
 
-Imports neither Ajax nor JAX: it runs in any environment with SB3. One torch
-thread per process; run several processes for several seed blocks.
+Imports nothing from Ajax. SB3 trains and evaluates on the gymnax
+environment Ajax trains on, through :func:`gymnax_vec_env`. One torch thread
+per process; run several processes for several seed blocks.
 """
-
-import json
-import sys
-import time
-
-from refcmp_specs import COMPARISONS, N_EVAL_EPISODES
 
 
 def sb3_kwargs(spec) -> dict:
@@ -27,12 +21,105 @@ def sb3_kwargs(spec) -> dict:
     return {**kwargs, "_harness": harness}
 
 
+def gymnax_vec_env(env_id: str, n_envs: int, seed: int, base=None):
+    """``n_envs`` copies of a gymnax environment as an SB3 ``VecEnv`` (or
+    ``base``), stepped by one jitted, vmapped call. gymnax restarts an env
+    that ends, as SB3's own vectorised envs do; the env's last observation
+    goes into ``terminal_observation``, and a time limit sets
+    ``TimeLimit.truncated``, from which SB3 bootstraps."""
+    import gymnasium
+    import gymnax
+    import jax
+    import numpy as np
+    from gymnax.environments import spaces
+
+    if base is None:
+        from stable_baselines3.common.vec_env import VecEnv as base
+
+    env, params = gymnax.make(env_id)
+
+    def batched(f):
+        """``f`` over the envs, its key split inside one jitted call."""
+
+        def call(key, *args):
+            key, sub = jax.random.split(key)
+            keys = jax.random.split(sub, n_envs)
+            return key, jax.vmap(f, (0, *[0] * len(args), None))(keys, *args, params)
+
+        return jax.jit(call)
+
+    reset, step = batched(env.reset), batched(env.step)
+
+    def space(s):
+        if isinstance(s, spaces.Discrete):
+            return gymnasium.spaces.Discrete(s.n)
+        low, high = (
+            np.broadcast_to(b, s.shape).astype(np.float32) for b in (s.low, s.high)
+        )
+        return gymnasium.spaces.Box(low, high, dtype=np.float32)
+
+    class GymnaxVecEnv(base):
+        render_mode = None
+
+        def __init__(self):
+            obs_space, act_space = (
+                env.observation_space(params),
+                env.action_space(params),
+            )
+            super().__init__(n_envs, space(obs_space), space(act_space))
+            self.seed(seed)
+
+        def seed(self, seed=None):
+            self.key = jax.random.PRNGKey(0 if seed is None else seed)
+            return [seed] * n_envs
+
+        def reset(self):
+            self.key, (obs, self.state) = reset(self.key)
+            return np.array(obs)
+
+        def step_async(self, actions):
+            self.actions = actions
+
+        def step_wait(self):
+            self.key, (obs, self.state, reward, term, trunc, info) = step(
+                self.key, self.state, self.actions
+            )
+            term, trunc = np.asarray(term), np.asarray(trunc)
+            final = np.asarray(info["final_observation"])
+            infos = [
+                {
+                    "terminal_observation": final[i],
+                    "TimeLimit.truncated": trunc[i] and not term[i],
+                }
+                if term[i] or trunc[i]
+                else {}
+                for i in range(n_envs)
+            ]
+            return np.array(obs), np.array(reward, np.float32), term | trunc, infos
+
+        def close(self):
+            pass
+
+        def get_attr(self, name, *_):
+            return [getattr(self, name)] * n_envs
+
+        def set_attr(self, name, value, *_):
+            setattr(self, name, value)
+
+        def env_method(self, *_, **__):
+            return [None] * n_envs
+
+        def env_is_wrapped(self, *_):
+            return [False] * n_envs
+
+    return GymnaxVecEnv()
+
+
 def run(spec, seeds: list) -> list:
     import numpy as np
     import stable_baselines3 as sb3
     import torch
     from stable_baselines3.common.callbacks import BaseCallback
-    from stable_baselines3.common.env_util import make_vec_env
     from stable_baselines3.common.evaluation import evaluate_policy
     from stable_baselines3.common.noise import NormalActionNoise
 
@@ -58,7 +145,7 @@ def run(spec, seeds: list) -> list:
 
         def evaluate(self) -> None:
             mean, _ = evaluate_policy(
-                self.model, self.env, N_EVAL_EPISODES, deterministic=True
+                self.model, self.env, spec.n_eval_episodes, deterministic=True
             )
             self.curve.append(float(mean))
 
@@ -71,7 +158,7 @@ def run(spec, seeds: list) -> list:
             policy_kwargs["activation_fn"] = {"tanh": torch.nn.Tanh}[
                 harness["activation"]
             ]
-        env = make_vec_env(spec.env_id, n_envs=harness.get("n_envs", 1), seed=seed)
+        env = gymnax_vec_env(spec.env_id, harness.get("n_envs", 1), seed)
         if "action_noise_std" in harness:
             n = env.action_space.shape[0]
             kwargs["action_noise"] = NormalActionNoise(
@@ -85,11 +172,8 @@ def run(spec, seeds: list) -> list:
             policy_kwargs=policy_kwargs,
             **kwargs,
         )
-        # SB3 seeds env i of seed s with s + i, so seeds' envs would share
-        # streams; s * n_envs + i keeps them apart (the same for one env).
-        env.seed(seed * env.num_envs)
         callback = Evaluate(
-            make_vec_env(spec.env_id, n_envs=1, seed=10_000 + seed), spec.eval_every
+            gymnax_vec_env(spec.env_id, 1, 10_000 + seed), spec.eval_every
         )
         model.learn(spec.n_timesteps, callback=callback)
         callback.evaluate()
@@ -97,28 +181,20 @@ def run(spec, seeds: list) -> list:
     return curve
 
 
-if __name__ == "__main__":
-    import stable_baselines3
-    import torch
+def config(spec) -> dict:
+    """The SB3 constructor's resolved keywords and the harness's settings."""
+    import stable_baselines3 as sb3
+    from refcmp_worker import resolved
 
-    spec = COMPARISONS[sys.argv[1]]
-    seeds = list(range(int(sys.argv[2]), int(sys.argv[2]) + int(sys.argv[3])))
-    t0 = time.perf_counter()
-    curve = run(spec, seeds)
-    print(
-        json.dumps(
-            {
-                "lib": "sb3",
-                "agent": spec.agent,
-                "arm": "reference",
-                "seeds": seeds,
-                "eval_every": spec.eval_every,
-                "versions": {
-                    "sb3": stable_baselines3.__version__,
-                    "torch": torch.__version__,
-                },
-                "wall_s": round(time.perf_counter() - t0, 1),
-                "curve": [[round(x, 2) for x in row] for row in curve],
-            }
-        )
+    kwargs = sb3_kwargs(spec)
+    return resolved(getattr(sb3, spec.agent).__init__, kwargs)
+
+
+if __name__ == "__main__":
+    from refcmp_worker import main
+
+    main(
+        lambda spec, _, seeds: run(spec, seeds),
+        lambda spec, _: config(spec),
+        ("stable-baselines3", "torch", "gymnasium", "jax", "jaxlib", "gymnax"),
     )

@@ -58,6 +58,33 @@ def test_sb3_keywords_leave_the_harness_keys_to_the_runner(name):
     assert not {"n_envs", "net_arch", "activation", "action_noise_std"} & kwargs.keys()
 
 
+class _VecEnvBase:
+    """SB3's VecEnv constructor, for the adapter without SB3 installed."""
+
+    def __init__(self, num_envs, observation_space, action_space):
+        self.num_envs, self.action_space = num_envs, action_space
+
+
+def test_gymnax_vec_env_flags_time_limits_and_keeps_final_observations():
+    env = refcmp_sb3.gymnax_vec_env("Pendulum-v1", 2, 0, base=_VecEnvBase)
+    assert env.reset().shape == (2, 3)
+    for t in range(200):  # Pendulum never terminates; its limit is 200 steps
+        env.step_async(np.zeros((2, 1), np.float32))
+        obs, reward, done, infos = env.step_wait()
+        assert done.all() == (t == 199) and reward.shape == (2,)
+    assert all(info["TimeLimit.truncated"] for info in infos)
+    env = refcmp_sb3.gymnax_vec_env("CartPole-v1", 2, 0, base=_VecEnvBase)
+    env.reset()
+    done = np.zeros(2, bool)
+    while not done.any():  # pushing right topples the pole within 30 steps
+        env.step_async(np.ones(2, int))
+        obs, _, done, infos = env.step_wait()
+    info = infos[int(np.argmax(done))]
+    assert not info["TimeLimit.truncated"]
+    assert np.abs(info["terminal_observation"][2]) > 0.2  # the fallen pole
+    assert np.abs(obs[int(np.argmax(done))][2]) < 0.05  # the restarted env
+
+
 def test_ajax_runs_return_one_curve_per_seed():
     curve = refcmp_ajax.run(COMPARISONS["DQN"], "matched", [0, 1], 2_000, 1_000)
     assert np.asarray(curve).shape == (2, 2)

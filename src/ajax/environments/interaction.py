@@ -649,6 +649,40 @@ def make_next_expert_fn(expert_policy: Any) -> Optional[Callable]:
     return next_expert_fn
 
 
+def expert_collect_kwargs(
+    expert_policy: Any,
+    action_pipeline: Optional[Callable],
+    recurrent: bool,
+    n_envs: int,
+) -> dict:
+    """:func:`collect_experience`'s ``action_pipeline`` and ``next_expert_fn``
+    for an agent storing its expert's actions (``a_expert`` at s,
+    ``next_a_expert`` at s'), the expert called from its state tracked
+    along each trajectory (:func:`expert_step`). ``action_pipeline`` (None:
+    the policy's) still chooses the action, with the same draws; one that
+    tracks the expert itself (returns its state or action) is left as is.
+    Without an expert, ``action_pipeline`` alone."""
+    if expert_policy is None:
+        return {"action_pipeline": action_pipeline}
+    inner = action_pipeline or partial(
+        _policy_pipeline, recurrent=recurrent, n_envs=n_envs
+    )
+
+    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+        result = inner(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+        if result.new_expert_state is not None or result.a_expert is not None:
+            return result
+        a_expert, new_state = expert_step(
+            expert_policy, agent_state.collector_state, raw_obs, n_envs
+        )
+        return result._replace(a_expert=a_expert, new_expert_state=new_state)
+
+    return {
+        "action_pipeline": pipeline,
+        "next_expert_fn": make_next_expert_fn(expert_policy),
+    }
+
+
 @partial(
     jax.jit,
     static_argnames=[

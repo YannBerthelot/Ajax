@@ -38,13 +38,13 @@ from . import readouts as R
 # over seeds (verdict.Case.mean_of): test_framework + 27, verdict.py + 1;
 # Ni et al.'s layout: readouts + 4 (off-policy step_actor) + 2 (a Q-critic's
 # shared carry), test_memory + 11 (Q2's single-seed calibrations, TARGET),
-# faults/ + 1, this note + 3.
+# faults/ + 1, this note + 3; test_memory + 6 (Q2's calibrations by cell).
 CAPS = {"verdict.py": 256, "envs.py": 252, "agents.py": 155, "runs.py": 250}
 CAPS |= {"readouts.py": 226, "oracles.py": 192, "faults.py": 100, "faults/": 205}
 CAPS |= {"test_framework.py": 243, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1043, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
-CAPS |= {"test_memory.py": 383, "test_world_models.py": 452}
+CAPS |= {"test_memory.py": 389, "test_world_models.py": 452}
 CAPS |= {"test_action_box.py": 200}
 
 

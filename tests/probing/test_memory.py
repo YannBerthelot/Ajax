@@ -289,25 +289,35 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)
 
 
-TARGET = {  # calibrated, by window length: budget, tolerance, certification
-    ("SAC", "gru", L): (1500, (0.095,), "cert 32/32, worst 0.032"),
-    ("SAC", "lstm", L): (1500, (0.096,), "cert 32/32, worst 0.037"),
-    ("SAC", "transformer", L): (1000, (0.081,), "cert 32/32, worst 0.041"),
-    ("SAC", "mamba", L): (1000, (0.091,), "cert 32/32, worst 0.038"),
-    ("REDQ", "gru", L): (1500, (0.085,), "cert 32/32, worst 0.042"),
-    ("REDQ", "lstm", L): (1500, (0.099,), "cert 32/32, worst 0.036"),
-    ("REDQ", "transformer", L): (1500, (0.097,), "cert 32/32, worst 0.037"),
-    ("REDQ", "mamba", L): (1500, (0.087,), "cert 32/32, worst 0.040"),
-    ("TD3", "gru", 2): (3000, (0.067,), "cert 32/32, worst 0.033"),
-}
-CONTROL = {  # budget, tolerances (critic, actor), certification on 12000-12127
-    ("SAC", "gru"): (1500, (0.07, 0.08), "cert 32/32, worst 0.021 / 0.040"),
-    ("SAC", "lstm"): (1500, (0.074, 0.079), "cert 32/32, worst 0.025 / 0.038"),
-    ("SAC", "transformer"): (1000, (0.04, 0.09), "cert 32/32, worst 0.023 / 0.052"),
-    ("SAC", "mamba"): (1000, (0.039, 0.094), "cert 32/32, worst 0.025 / 0.049"),
-    ("REDQ", "gru"): (1500, (0.049, 0.089), "cert 32/32, worst 0.036 / 0.032"),
-    ("TD3", "gru"): (3000, (0.05,), "cert 32/32, worst 0.021"),
-    ("ASAC", "gru"): (1500, (0.078,), "cert 32/32, worst 0.055"),
+CONTROLS = [("SAC", k) for k in MEMORY_KINDS] + [("REDQ", "gru"), ("TD3", "gru")]
+CONTROLS += [("ASAC", "gru")]
+CAL = {  # the calibrated cells: budget, tolerances, each seed the mean of, note
+    "q2-target-SAC-gru": (1500, (0.095,), 1, "cert 32/32, worst 0.032"),
+    "q2-target-SAC-lstm": (1500, (0.096,), 1, "cert 32/32, worst 0.037"),
+    "q2-target-SAC-transformer": (1000, (0.081,), 1, "cert 32/32, worst 0.041"),
+    "q2-target-SAC-mamba": (1000, (0.091,), 1, "cert 32/32, worst 0.038"),
+    "q2-target-REDQ-gru": (1500, (0.085,), 1, "cert 32/32, worst 0.042"),
+    "q2-target-REDQ-lstm": (1500, (0.099,), 1, "cert 32/32, worst 0.036"),
+    "q2-target-REDQ-transformer": (1500, (0.097,), 1, "cert 32/32, worst 0.037"),
+    "q2-target-REDQ-mamba": (1500, (0.087,), 1, "cert 32/32, worst 0.040"),
+    "q2-target-TD3-gru-L2": (3000, (0.067,), 1, "cert 32/32, worst 0.033"),
+    "q2-control-SAC-gru": (1500, (0.07, 0.08), 4, "cert 32/32, worst 0.021 / 0.040"),
+    "q2-control-SAC-lstm": (1500, (0.074, 0.079), 4, "cert 32/32, worst 0.025 / 0.038"),
+    "q2-control-SAC-transformer": (
+        1000,
+        (0.04, 0.09),
+        4,
+        "cert 32/32, worst 0.023 / 0.052",
+    ),
+    "q2-control-SAC-mamba": (
+        1000,
+        (0.039, 0.094),
+        4,
+        "cert 32/32, worst 0.025 / 0.049",
+    ),
+    "q2-control-REDQ-gru": (1500, (0.049, 0.089), 4, "cert 32/32, worst 0.036 / 0.032"),
+    "q2-control-TD3-gru": (3000, (0.05,), 4, "cert 32/32, worst 0.021"),
+    "q2-control-ASAC-gru": (1500, (0.078,), 4, "cert 32/32, worst 0.055"),
 }
 
 
@@ -318,26 +328,22 @@ def _q2_readings(agent: str, kind: str, length: int) -> Callable:
     return runs.readings(build, _q2_read(agent))
 
 
-def _q2_case(
-    part: str, agent: str, kind: str, length: int, *qs: Query, **kw: Any
-) -> None:
+def _q2_case(part: str, agent: str, kind: str, length: int, *qs: Query) -> None:
+    """A cell CAL does not list judges single seeds at BUDGET, to the cap."""
     cell = f"q2-{part}-{agent}-{kind}" + "-L2" * (length == 2)
+    budget, tol, m, note = CAL.get(cell, (BUDGET[agent], (), 1, ""))
     reads, slow = _q2_readings(agent, kind, length), (agent, kind) != ("SAC", "gru")
-    budget = kw.pop("budget", BUDGET[agent])
-    CASES[cell] = Case(cell, qs, reads, budget, slow=slow, **kw)
+    CASES[cell] = Case(cell, qs, reads, budget, tol, slow=slow, mean_of=m, note=note)
 
 
 for agent in BUDGET:
     for kind, length in [(k, L) for k in MEMORY_KINDS] + [("gru", 2)]:
-        cal = TARGET.get((agent, kind, length), ())
-        kw = dict(zip(("budget", "tol", "note"), cal, strict=False))
-        _q2_case("target", agent, kind, length, _critic(agent, length), **kw)
+        _q2_case("target", agent, kind, length, _critic(agent, length))
         if agent in ("SAC", "REDQ"):
             _q2_case("actor", agent, kind, length, _actor(length))
-for (agent, kind), (budget, tol, note) in CONTROL.items():
-    queries = (_critic(agent, 1), _actor(1))[: len(tol)]
-    kw = {"budget": budget, "tol": tol, "mean_of": 4, "note": note}
-    _q2_case("control", agent, kind, 1, *queries, **kw)
+for agent, kind in CONTROLS:
+    actor = (_actor(1),) if agent in ("SAC", "REDQ") else ()
+    _q2_case("control", agent, kind, 1, _critic(agent, 1), *actor)
 
 
 def test_q2_oracle_reproduces_the_verified_answers() -> None:

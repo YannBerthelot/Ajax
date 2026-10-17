@@ -12,11 +12,13 @@ import inspect
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import ajax
 from ajax.environments.create import strip_ajax_wrappers
+from ajax.environments.interaction import get_pi
 from tests.agents.test_agent_contract import CASES
 from tests.environments.identity_env import LIMIT, IdentityEnv
 
@@ -52,12 +54,25 @@ def test_a_replay_agent_keeps_the_envs_own_observations(name: str) -> None:
     np.testing.assert_array_equal(t, np.round(t))
     assert t.min() == 0 and t.max() <= LIMIT - 1
     stats = state.collector_state.obs_norm_info
-    assert stats is not None and int(np.sum(stats.count)) > 0
+    assert stats is not None
+    # Updated once per collected observation, never from a replayed batch
+    # (the run updated far more often than it collected).
+    np.testing.assert_array_equal(stats.count, [[int(state.collector_state.timestep)]])
     for network in (state.actor_state, state.critic_state):
         for mine, theirs in zip(
             jax.tree.leaves(network.obs_norm_info), jax.tree.leaves(stats), strict=True
         ):
             np.testing.assert_array_equal(mine, theirs)
+    # The policy reads a replayed raw row normalised with today's statistics.
+    raw = jnp.asarray(rows["obs"])[:, :written].reshape(-1, 2)
+    actor = state.actor_state
+    pi, _ = get_pi(actor, actor.params, raw)
+    normed = (raw - stats.mean) / np.sqrt(stats.var + 1e-8)
+    direct = actor.apply_fn(actor.params, normed)
+    if hasattr(pi, "q_values"):  # DQN's greedy policy: its Q-values
+        pi, direct = pi.q_values, direct.q_values
+    for got, want in zip(jax.tree.leaves(pi), jax.tree.leaves(direct), strict=True):
+        np.testing.assert_allclose(got, want, rtol=1e-5, atol=1e-6)
 
 
 def test_an_on_policy_agent_keeps_the_envs_normaliser() -> None:
@@ -96,9 +111,23 @@ def test_a_replay_agent_stores_the_envs_own_rewards(name: str) -> None:
     )
     stats = reward_statistics(state.collector_state.env_state)
     assert stats is not None
+    # Updated once per collected step, never from a replayed batch.
+    np.testing.assert_array_equal(np.asarray(stats.count).reshape(-1)[0], written)
     std = np.sqrt(np.mean(np.asarray(stats.mean_2) / np.asarray(stats.count)) + 1e-8)
     batch = get_batch_from_buffer(agent.buffer, buffer_state, jax.random.PRNGKey(1))
     replayed = get_batch_from_buffer(
         agent.buffer, buffer_state, jax.random.PRNGKey(1), reward_stats=stats
     )
     np.testing.assert_allclose(replayed.reward, batch.reward / std, rtol=1e-5)
+
+
+def test_sacs_running_normaliser_is_normalize_observations_under_its_old_name() -> None:
+    """One mechanism: normalize_obs_running turns on the same agent-side
+    normalisation as normalize_observations, with a FutureWarning naming
+    the new keyword (expand then contract: a downstream project passes it)."""
+    with pytest.warns(FutureWarning, match="pass normalize_observations=True"):
+        old = ajax.SAC(env_id="Pendulum-v1", normalize_obs_running=True)
+    new = ajax.SAC(env_id="Pendulum-v1", normalize_observations=True)
+    assert old.env_args.normalize_obs_in_agent and new.env_args.normalize_obs_in_agent
+    layers = [strip_ajax_wrappers(a.env_args.env)[1] for a in (old, new)]
+    assert layers[0] == layers[1]

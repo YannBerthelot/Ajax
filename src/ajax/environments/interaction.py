@@ -539,6 +539,9 @@ class ActionPipelineResult(NamedTuple):
     # transition stores the action itself (pipelines act post-tanh, and no
     # agent with a pipeline of its own recomputes log-probs).
     raw_action: Optional[jax.Array] = None
+    # 1 where the step entered the value box, which ends the agent's
+    # episode whatever the sign of the entry bonus. None: no box.
+    box_entry: Optional[jax.Array] = None
 
 
 def _policy_pipeline(
@@ -701,11 +704,13 @@ def collect_experience(
     raw_next_obs = maybe_append_train_frac(get_final_obs(info, obsv), train_frac)
     obsv = maybe_append_train_frac(obsv, train_frac)
 
-    # Box reward/termination modification (no-op when entry_bonus is zeros)
+    # The value box: its entry pays the bonus (zeros without a box) and ends
+    # the agent's episode, the bonus standing in for the bootstrap.
     reward = reward + entry_bonus[..., 0]
-    terminated = jnp.logical_or(
-        terminated.astype(bool), entry_bonus[..., 0] > 0
-    ).astype(terminated.dtype)
+    if result.box_entry is not None:
+        terminated = jnp.logical_or(
+            terminated.astype(bool), result.box_entry[..., 0] > 0
+        ).astype(terminated.dtype)
 
     # Computed once for the buffer write and the on-policy Transition
     # below; zeros without an expert. The buffer keeps them only when its

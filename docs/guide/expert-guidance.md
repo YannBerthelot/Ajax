@@ -207,7 +207,10 @@ acts. SAC runs them in two places, which each extension names in its
   value-based gate) and `JSRLCurriculum` (the expert starts each episode,
   for a shrinking number of steps).
 - **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
-  wherever its value exceeds a threshold that rises over training.
+  wherever its value exceeds a threshold that rises over training. The
+  step that enters this region ends the agent's episode in the stored
+  transition and pays the expert's value as a reward, in place of the
+  bootstrap, whatever its sign.
 
 `ResidualPolicy` changes what the policy's action means: SAC executes
 `clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection, in the

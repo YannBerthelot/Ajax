@@ -337,6 +337,7 @@ def make_action_pipeline(
             env_action = post["env_action"]
         in_value_box = post.get("in_value_box", no_box)
         entry_bonus = post.get("entry_bonus", no_box)
+        box_entry = post.get("box_entry")
 
         # --- Expert flag tracking: where an extension handed the expert
         # the step.
@@ -365,6 +366,7 @@ def make_action_pipeline(
             is_expert_flag=is_expert_flag,
             in_value_box=in_value_box,
             entry_bonus=entry_bonus,
+            box_entry=box_entry,
             rng=rng,
             new_expert_state=new_expert_state,
             buffer_action=_buffer_action_field,

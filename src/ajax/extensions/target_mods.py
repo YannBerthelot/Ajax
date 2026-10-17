@@ -83,6 +83,13 @@ def box_compute_threshold(
     return v_min + (v_max - v_min) * train_frac
 
 
+def box_entered(in_box: jax.Array, last_in_box: Optional[jax.Array]) -> jax.Array:
+    """Where the step enters the value box: inside it now, not before."""
+    if last_in_box is None:
+        last_in_box = jnp.zeros_like(in_box)
+    return (last_in_box < 0.5) & (in_box > 0.5)
+
+
 def box_compute_state(
     obs: jax.Array,
     a_exp: jax.Array,
@@ -105,14 +112,8 @@ def box_compute_state(
         axis=0,
     )
     in_box = v_box > threshold
-
-    if last_in_box is None:
-        last_in_box = jnp.zeros_like(in_box)
-
     entry_bonus = jnp.where(
-        (last_in_box < 0.5) & (in_box > 0.5),
-        v_box,
-        jnp.zeros_like(v_box),
+        box_entered(in_box, last_in_box), v_box, jnp.zeros_like(v_box)
     )
     return in_box, entry_bonus, v_box
 
@@ -375,9 +376,11 @@ class ValueBox(Extension):
     ``expert_policy``, at which it also measures the expert's value, and
     ``observations``, the critics' input, augmented when it is) and the box
     bounds off the agent state (so a resumed run keeps them), and writes
-    ``in_value_box`` / ``entry_bonus`` back into the dict for the pipeline
-    to record on the transition. The override (:func:`box_action_override`)
-    comes after the warmup / post-warmup choice (``action_slot``).
+    ``in_value_box``, ``entry_bonus`` and ``box_entry`` back into the dict
+    for the pipeline to record on the transition. An entry ends the agent's
+    episode: the expert's value, paid as the bonus, replaces the bootstrap,
+    whatever its sign. The override (:func:`box_action_override`) comes
+    after the warmup / post-warmup choice (``action_slot``).
     """
 
     name: str = "value_box"
@@ -396,9 +399,9 @@ class ValueBox(Extension):
     ) -> jax.Array | None:
         """Override with ``a_expert`` inside the value box, its bounds the
         MC-pretrain v_min/v_max on :class:`SACState`; writes
-        ``in_value_box`` and ``entry_bonus`` into ``obs`` for the pipeline's
-        bookkeeping (buffer-write suppression, reward shaping,
-        ``is_expert_flag``).
+        ``in_value_box``, ``entry_bonus`` and ``box_entry`` into ``obs`` for
+        the pipeline's bookkeeping (reward shaping, the entry's
+        termination, ``is_expert_flag``).
         """
         del ext_state, rng
         env_action = obs["env_action"]
@@ -418,6 +421,9 @@ class ValueBox(Extension):
         )
         obs["in_value_box"] = in_value_box
         obs["entry_bonus"] = entry_bonus
+        obs["box_entry"] = box_entered(
+            in_value_box, agent_state.collector_state.last_in_box
+        ).astype(jnp.float32)
         return box_action_override(env_action, expert_action, in_value_box)
 
 

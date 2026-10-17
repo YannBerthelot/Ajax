@@ -348,7 +348,7 @@ def policy_loss_function(
 
     # 3. The actor-loss extensions' terms, which get the expert's action as
     # collection stored it, from the expert's tracked state (the clone
-    # target of OnlineBC and ImitationLoss).
+    # target of OnlineBC and ImitationLoss), and the critic (the Q-filter's).
     needs_expert = (
         "actor_loss" in extension_stack.implemented_phases()
         and expert_policy is not None
@@ -372,6 +372,7 @@ def policy_loss_function(
         "actor_params": actor_params,
         "actor_state": actor_state,
         "a_expert": a_expert,
+        "critic_state": critic_states,
     }
     bc_term = jnp.asarray(
         extension_stack.fold_actor_loss(

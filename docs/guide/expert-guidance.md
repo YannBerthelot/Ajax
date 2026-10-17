@@ -237,6 +237,20 @@ the rows where the expert acted.
 at each state and fading out over `critic_warmup_frac` of training. It
 needs `MCPretrain`.
 
+`ImitationLoss(expert, q_filter=True)` adds the unweighted cloning term
+(see [below](#imitation-for-td3-redq-asac-and-apo)) only on the rows where
+SAC's critic rates the expert's action above the policy's mean action,
+`min_k Q_k(s, a_E) > min_k Q_k(s, μ(s))`: the Q-filter of Nair et al.
+(ICRA 2018, Sec. IV-C). Where the agent already does better than the
+expert, it stops copying it, with no schedule to tune: a PID that is good
+near the setpoint and poor in transients keeps guiding only where it still
+helps. Unlike the paper, the rows are replay rows labelled with the
+expert's action, not a separate demonstration buffer, and `coef` weights
+the cloning term in place of the paper's two weights. The filter needs a
+critic that ranks actions: pair it with the expert prefill, as the paper
+pairs it with demonstrations. With `ResidualPolicy`, whose critic reads
+the executed action rather than the policy's, it is refused.
+
 ### Observation
 
 Three SAC options change the networks' input, because they change its size:
@@ -252,7 +266,8 @@ Three SAC options change the networks' input, because they change its size:
 Besides the expert's return and the bias above, `ExpertValueMetrics` logs
 the critic's value at the expert's actions (`value/q_expert_mean`) and its
 gap to the value of the actions taken (`value/q_gap`). `EDGEExploration` logs
-`edge/live_expert_frac`.
+`edge/live_expert_frac`, and `ImitationLoss(q_filter=True)` the share of a
+replay batch its filter keeps (`imitation/q_filter_frac`).
 
 ## Choosing the pieces
 
@@ -261,6 +276,7 @@ gap to the value of the actions taken (`value/q_gap`). `EDGEExploration` logs
 | Start the replay with good experience | `expert_buffer_n_steps` (on by default) |
 | Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, APO) |
 | Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, APO) |
+| Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC) |
 | Let the expert act while the agent is poor | `EDGEExploration`, `JSRLCurriculum`, `ValueBox` |
 | Learn a correction to the expert | `ResidualPolicy` |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` |
@@ -277,6 +293,7 @@ built, or when training starts for those that take context from it:
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `PhiRefresh` | SAC, which keeps the raw next observations they read | when built |
 | `BellmanPretrain`, `ExpertValueMetrics` | SAC with an `expert_policy` | when training starts |
+| `ImitationLoss(q_filter=True)` | SAC, without `ResidualPolicy` | when training starts |
 | `CloningPretrain` | SAC, TD3, REDQ or APO; first among the pre-training extensions | when training starts |
 
 The extensions that hold an expert themselves (`CloningPretrain`,
@@ -296,8 +313,9 @@ These agents take `ImitationLoss`, the behaviour-cloning term of TD3+BC
 `coef · mean((μ(s) − a_E(s))²) / 4`, where `μ(s)` is the actor's mean
 action and `a_E(s)` the expert's, both in agent units. Dividing by 4 maps
 the squared distance of two actions in `[-1, 1]` to `[0, 1]`. Unlike
-`OnlineBC`, it is unweighted and needs no expert critic. TD3, REDQ and APO
-can also start from a clone of the expert:
+`OnlineBC`, it is unweighted and needs no expert critic. Its Q-filter
+(`q_filter=True`, see [Actor](#actor)) is SAC's only for now. TD3, REDQ and
+APO can also start from a clone of the expert:
 
 ```python
 import jax.numpy as jnp

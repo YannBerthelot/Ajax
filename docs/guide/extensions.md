@@ -154,7 +154,7 @@ always passes are listed, per phase, in
 | --- | --- | --- |
 | `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale` (SAC, TD3, REDQ, ASAC, AVG, DQN, PQN); `terminated`, `truncated` (PQN, PPO, APO); `gae`, `values` (PPO, APO) |
 | `critic_loss` | `observations`, `targets` | `critic_params`, `critic_state` (SAC, TD3, REDQ, ASAC, AVG, PPO, APO); `actions` (SAC, TD3, REDQ, ASAC, AVG, DQN, PQN); `q_state` (DQN, PQN) |
-| `actor_loss` | `actor_params` | `actor_state` (all but APG); `observations` (all but PPO and APG); `raw_observations`, `pi_mean` (SAC, TD3, REDQ, ASAC, APO); `a_expert` (SAC); `actions` (UDRL); `rollout`, `returns` (APG) |
+| `actor_loss` | `actor_params` | `actor_state` (all but APG); `observations` (all but PPO and APG); `raw_observations`, `pi_mean` (SAC, TD3, REDQ, ASAC, APO); `a_expert`, `critic_state` (SAC); `actions` (UDRL); `rollout`, `returns` (APG) |
 
 `gamma` is `None` for an average-reward agent. `dones` marks where the
 target cut the bootstrap. `targets` is the target, held constant. The critic
@@ -231,7 +231,7 @@ says where each extension does its job. "SAC with an expert" means
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
 | `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state, fading to zero over the first `critic_warmup_frac` of training. | `actor_loss` | SAC with an expert and `MCPretrain` |
-| `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed, stateless expert it holds itself. | `actor_loss` | SAC, TD3, REDQ, ASAC, APO; the other actor batches lack `pi_mean` and raise |
+| `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards an expert it holds itself: stateless, or SAC's own, whose stored actions it reads. With `q_filter=True` a row counts only where the critic rates the expert's action above the policy's (Q-filtered BC), and evaluations log the share of a replay batch it keeps (`imitation/q_filter_frac`). | `actor_loss`, `eval_metrics` | SAC, TD3, REDQ, ASAC, APO; the other actor batches lack `pi_mean` and raise. `q_filter=True`: SAC without `ResidualPolicy`; the other actor batches lack `critic_state` and raise |
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | `transform_action` | SAC with an expert, without `use_pid_policy` |
 | `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. | `action` | SAC with an expert |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC with an expert |
@@ -275,12 +275,13 @@ says where each extension does its job. "SAC with an expert" means
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
-Sources: TD3+BC is Fujimoto and Gu, 2021; residual RL is Johannink et al.,
-2019; JSRL is Uchendu et al., 2023; the kernel's bandwidth follows the median
-heuristic of SVGD (Liu and Wang, 2016); effective rank is Kumar et al., 2021,
-and dormant units Sokar et al., 2023, and IBRL is Hu et al., *Imitation
-Bootstrapped Reinforcement Learning*, 2023 (all cited in the code). EDGE, the LCB
-gates and the bias-variance (EVarEst) measurements are research features
+Sources: TD3+BC is Fujimoto and Gu, 2021; Q-filtered BC is Nair et al.,
+ICRA 2018; residual RL is Johannink et al., 2019; JSRL is Uchendu et al.,
+2023; the kernel's bandwidth follows the median heuristic of SVGD (Liu and
+Wang, 2016); effective rank is Kumar et al., 2021, and dormant units Sokar et
+al., 2023, and IBRL is Hu et al., *Imitation Bootstrapped Reinforcement
+Learning*, 2023 (all cited in the code). EDGE, the LCB gates and the
+bias-variance (EVarEst) measurements are research features
 developed with Ajax, with no external reference in the code.
 
 ## Measuring a replay agent's critic

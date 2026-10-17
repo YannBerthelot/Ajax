@@ -35,6 +35,9 @@ class ASAC(ActorCritic):
     replays_transitions: bool = True
     stores_expert_actions: bool = True
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    extension_context: frozenset = frozenset(
+        "actor_optimizer_args buffer env_args expert_policy".split()
+    )
     make_train = staticmethod(make_train)
 
     def __init__(

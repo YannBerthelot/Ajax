@@ -57,8 +57,6 @@ ACTION = "only SAC folds action and transform_action (batch module-reach)"
 MC = "MCPretrain binds only on SAC (batch module-reach)"
 CONTEXT = "the agent binds no context for it yet"
 EXPERT = "the agent takes no expert_policy yet (expert reach)"
-RAW_NEXT = "only SAC stores raw_next_obs and passes next expert actions (expert reach)"
-BATCH = "the actor batch has no pi_mean yet (expert reach)"
 FORM = (
     "no form for this agent yet (cross-entropy for discrete actors; a policy's encoder)"
 )
@@ -93,19 +91,13 @@ GAPS: dict[str, dict[str, str]] = {
         "PhiRefresh": "TD3 REDQ DQN",
     },
     CONTEXT: {
-        "BellmanPretrain": "TD3 REDQ",
-        "CloningPretrain": "ASAC AVG APG PPO UDRL",
-        "ExpertValueMetrics": "TD3 REDQ",
+        "BellmanPretrain": "TD3 REDQ ASAC",
+        "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
-        "BellmanPretrain": "ASAC DQN",
-        "ExpertValueMetrics": "ASAC DQN",
+        "BellmanPretrain": "DQN",
+        "ExpertValueMetrics": "DQN",
     },
-    RAW_NEXT: {
-        "IBRL": "TD3 REDQ ASAC AVG",
-        "LCBGatedBootstrap": "TD3 REDQ ASAC",
-    },
-    BATCH: {"ImitationLoss": "AVG APG PPO UDRL"},
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DreamerV3/discrete",
         "ImitationLoss": "PPO/discrete APO/discrete UDRL/discrete DreamerV3/discrete",

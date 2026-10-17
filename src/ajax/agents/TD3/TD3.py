@@ -39,7 +39,7 @@ class TD3(ActorCritic):
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args env_args expert_policy".split()
+        "actor_optimizer_args buffer env_args expert_policy".split()
     )
     supports_memory: bool = True
     replays_transitions: bool = True

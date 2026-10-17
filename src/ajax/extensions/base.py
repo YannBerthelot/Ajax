@@ -115,7 +115,7 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
         "SAC TD3 REDQ ASAC AVG": "raw_next_observations next_a_expert",
         "PQN PPO APO": "terminated truncated",
         "PPO APO": "gae values",
-        "SAC": "rng_key q_preds raw_next_observations next_a_expert recurrent",
+        "SAC": "rng_key q_preds recurrent",
     },
     "critic_loss": {
         "*": "observations targets",

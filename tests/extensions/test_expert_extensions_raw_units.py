@@ -18,6 +18,17 @@ from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import IBRL, CriticBlend, LCBGatedBootstrap
 
 
+@dataclass(frozen=True)
+class _NextObservationReader(Extension):
+    """A ``post_update`` (folded everywhere) reading ``raw_next_obs``."""
+
+    name: str = "next-observation-reader"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+
+    def post_update(self, agent_state, ext_state, ctx):
+        return agent_state, ext_state
+
+
 class _RecordingExpert:
     """A stateless Pendulum expert recording every observation batch it is
     given; its action reads the last column, the angular velocity (raw in
@@ -99,9 +110,9 @@ def test_the_extensions_expert_reads_raw_observations(name):
         ("SAC", "PhiRefresh", True),
         ("SAC", "MCPretrain", False),
         ("SAC", "metrics", False),
-        ("TD3", "IBRL", True),
+        ("TD3", "reader", True),
         ("TD3", "metrics", False),
-        ("REDQ", "IBRL", True),
+        ("REDQ", "reader", True),
         ("ASAC", "metrics", False),
     ],
 )
@@ -117,6 +128,9 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
     expert = _RecordingExpert()
     stacks = {
         "IBRL": (IBRL(expert_policy=expert),),
+        # Declares raw_next_obs and needs nothing else (IBRL also needs the
+        # target batch's rng_key, which SAC alone passes yet).
+        "reader": (_NextObservationReader(),),
         "PhiRefresh": (_mc(expert), PhiRefresh(expert_policy=expert)),
         "MCPretrain": (_mc(expert),),
         "metrics": (ExpertValueMetrics(),),
@@ -169,22 +183,11 @@ def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
 
 
 def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():
-    """PPO keeps no replay, so no raw next observations for IBRL to read."""
+    """PPO keeps no replay, so no raw next observations for a reader."""
     from ajax import PPO
 
-    with pytest.raises(ValueError, match="raw_next_obs"):
-        PPO("Pendulum-v1", extensions=(IBRL(expert_policy=_RecordingExpert()),))
-
-
-@dataclass(frozen=True)
-class _NextObservationReader(Extension):
-    """A ``post_update`` (folded everywhere) reading ``raw_next_obs``."""
-
-    name: str = "next-observation-reader"
-    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
-
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state
+    with pytest.raises(NotWired, match="raw_next_obs"):
+        PPO("Pendulum-v1", extensions=(_NextObservationReader(),))
 
 
 def test_an_offline_agent_rejects_an_extension_reading_a_buffer_field():

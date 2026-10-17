@@ -106,8 +106,9 @@ class CNNSpec(NamedTuple):
 #: (dqn/convnet_atari3.lua:10-13; no padding, convnet.lua:27-33).
 MNIH_CNN = CNNSpec((32, 64, 64), (8, 4, 3), (4, 2, 1), 512, "VALID")
 #: MinAtar's network (Young & Tian, 2019): one 3x3 convolution of 16 channels,
-#: then 128 units, the one purejaxql's MinAtar PQN also builds
-#: (mttga/purejaxql @47af6d7, purejaxql/pqn_minatar.py:38-50).
+#: no padding, then 128 units (kenjyoung/MinAtar @4241f24, examples/dqn.py:72,
+#: :79-80), the one purejaxql's MinAtar PQN also builds (mttga/purejaxql
+#: @47af6d7, purejaxql/pqn_minatar.py:38-50).
 MINATAR_CNN = CNNSpec((16,), (3,), (1,), 128, "VALID")
 
 

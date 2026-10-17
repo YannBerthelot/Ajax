@@ -1,12 +1,22 @@
 """``ajax.compare``: AdaStop's error rate, power and determinism on synthetic
-scores, the training rounds it asks for, and a tiny comparison of two agents."""
+scores, the training rounds it asks for, and a tiny comparison of two agents;
+the same for :func:`estimate`'s confidence sequences, and their coverage."""
 
 import matplotlib
 import numpy as np
 import pytest
 
 import ajax
-from ajax.compare import AdaStop, auc, compare, final_return, last_third
+from ajax.compare import (
+    AdaStop,
+    auc,
+    compare,
+    estimate,
+    final_return,
+    half_width,
+    last_third,
+    threshold,
+)
 
 matplotlib.use("Agg")
 
@@ -129,3 +139,98 @@ def test_two_agents_compare_end_to_end():
     assert result.decisions == {("fast", "slow"): "equal"}
     assert result.seeds == {"fast": [0, 1, 2, 3], "slow": [4, 5, 6, 7]}
     assert all(np.isfinite(s).all() and len(s) == 4 for s in result.scores.values())
+
+
+class Draws:
+    """Trains nothing: each seed evaluates once per key, to a draw from a
+    generator seeded by the run seed."""
+
+    calls: list = []
+
+    def __init__(self, **draws):
+        self.draws = draws
+
+    def train(self, seed, **kwargs):
+        Draws.calls.append(list(seed))
+        rngs = [np.random.default_rng(s) for s in seed]
+        return None, {
+            k: np.array([[d(g) for g in rngs]]).T for k, d in self.draws.items()
+        }
+
+
+DISTRIBUTIONS = {  # name: (draw, true bounds, mean)
+    "bernoulli": (lambda g: g.binomial(1, 0.3), (0, 1), 0.3),
+    "skewed return": (lambda g: 500 * g.beta(5, 1), (0, 500), 500 * 5 / 6),
+    "uniform cost": (lambda g: g.uniform(-3254, -3000), (-3254, 0), -3127.0),
+}
+
+
+def last(key):
+    return lambda evals: evals[key][:, -1]
+
+
+def test_intervals_cover_every_mean_together_with_probability_one_minus_delta():
+    # Never stopping early, a final interval misses its mean iff one at some
+    # seed count did (they only shrink): the anytime guarantee, three
+    # metrics under one union bound.
+    reps, delta, missed = 150, 0.2, 0
+    agent = Draws(**{k: d for k, (d, _, _) in DISTRIBUTIONS.items()})
+    metrics = {k: (last(k), b, half_width(0)) for k, (_, b, _) in DISTRIBUTIONS.items()}
+    for r in range(reps):
+        result = estimate(
+            lambda: agent, 1, 1, metrics, delta=delta, max_seeds=16, seed=16 * r
+        )
+        means = {k: m for k, (_, _, m) in DISTRIBUTIONS.items()}
+        missed += any(
+            not lo <= means[k] <= hi for k, (lo, hi) in result.interval.items()
+        )
+    assert missed / reps <= delta + 3 * np.sqrt(delta * (1 - delta) / reps)
+
+
+@pytest.mark.parametrize("bad", [[0.5, 1.5], [np.nan, 0.5], [0.5]])
+def test_scores_outside_their_bounds_or_one_short_are_refused(bad):
+    metric = (lambda evals: np.array(bad), (0, 1), half_width(0.1))
+    with pytest.raises(ValueError, match="one score per seed in"):
+        estimate(lambda: Draws(), 1, 1, {"x": metric}, n=2)
+
+
+def test_estimates_repeat_for_a_seed():
+    metrics = {"x": (last("x"), (0, 1), half_width(0.2))}
+    a, b = (
+        estimate(lambda: Draws(x=lambda g: g.uniform()), 1, 1, metrics, n=4, seed=3)
+        for _ in "ab"
+    )
+    assert (a.interval, a.mean, a.seeds) == (b.interval, b.mean, b.seeds)
+
+
+def test_rounds_stop_when_every_rule_holds_or_at_max_seeds():
+    agent = Draws(solved=lambda g: 1.0, x=lambda g: g.uniform())
+    solved = (last("solved"), (0, 1), threshold(0.5))
+    Draws.calls.clear()
+    result = estimate(lambda: agent, 1, 1, {"solved": solved}, n=4)
+    # 16 successes put the 95% lower bound at 0.63, 12 not above 0.5.
+    assert result.met == {"solved": True} and Draws.calls[-1] == [12, 13, 14, 15]
+    assert result.interval["solved"][0] > 0.5 and result.mean == {"solved": 1.0}
+    Draws.calls.clear()
+    never = (last("x"), (0, 1), half_width(0))
+    result = estimate(
+        lambda: agent, 1, 1, {"solved": solved, "x": never}, n=4, max_seeds=10
+    )
+    assert Draws.calls == [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9]]
+    assert result.met == {"solved": False, "x": False}
+
+
+def test_one_agent_is_estimated_end_to_end():
+    final = lambda e: final_return(e["Eval/episodic mean reward"])  # noqa: E731
+    result = estimate(
+        lambda: ajax.DQN("CartPole-v1", learning_rate=1e-3),
+        n_timesteps=1_000,
+        eval_every=500,
+        metrics={"r": (final, (0, 500), half_width(0))},
+        n=2,
+        max_seeds=4,
+        num_episode_test=2,
+    )
+    lo, hi = result.interval["r"]
+    assert result.seeds == [0, 1, 2, 3] and 0 <= lo <= hi <= 500
+    assert result.scores["r"].shape == (4,) and not result.met["r"]

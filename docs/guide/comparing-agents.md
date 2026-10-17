@@ -84,3 +84,62 @@ statistic. `ajax.compare` follows the paper instead, with these choices:
 - No early acceptance (the paper's Appendix F, which gives no error bound
   for it), as in the package's default.
 - Every agent adds the same `n` runs per interim, as in the paper.
+
+## One agent: how sure is a number?
+
+With nothing to compare, the question is how well one agent does: its
+success rate, say. `estimate` trains `n` seeds per `train` call until each
+chosen metric is known well enough, or `max_seeds` have trained:
+
+```python
+from ajax.compare import estimate, final_return, half_width, threshold
+
+
+def final(evals):  # evals: train's evaluations, each (seeds, evaluations)
+    return final_return(evals["Eval/episodic mean reward"])
+
+
+result = estimate(
+    lambda: ajax.PPO("CartPole-v1"),
+    n_timesteps=100_000,
+    eval_every=10_000,
+    metrics={  # name: (per-seed score, its true bounds, when to stop)
+        "solved": (lambda evals: final(evals) >= 475, (0, 1), threshold(0.8)),
+        "final return": (final, (0, 500), half_width(25)),
+    },
+    n=16,
+    max_seeds=128,
+)
+result.interval  # {"solved": (0.83, 1.0), "final return": (452.1, 500.0)}, say
+result.mean, result.met, result.seeds, result.scores
+```
+
+`threshold(t)` stops once the interval lies above or below `t`, deciding
+whether the mean is above `t`; `half_width(w)` once it is at most `2 * w`
+wide. The intervals are the hedged betting confidence sequence of
+Waudby-Smith and Ramdas ("Estimating means of bounded random variables by
+betting", JRSS-B, Section 4.4), the authors' `Bounded_Confseq` from the
+`adastop` package: install the `compare` extra (`uv sync --extra compare`,
+or depend on `ajax[compare]`). It comes from adastop's main branch until a
+release includes it.
+
+- **Valid at every seed count at once**: with probability at least
+  `1 - delta` the interval holds the true mean after every round, not only
+  after a number of seeds fixed in advance, so stopping once the scores look
+  good enough keeps the guarantee.
+- **All metrics together**: `delta` is split evenly between them (a union
+  bound), so each extra metric widens every interval a little.
+- **Only within true bounds**: `(low, high)` must bound every score a run
+  could get, not only those seen: `(0, 500)` for CartPole's return, about
+  `(-3254, 0)` for Pendulum's. A score outside them is refused.
+- `mean` is the sample mean; the interval need not be centred on it.
+
+The cost is many seeds. A metric that is 1 on every seed has a 95% lower
+bound of 0.63 after 16 seeds and 0.92 after 64. On the reference
+comparison's recorded runs, 16 seeds left PPO on CartPole a success rate
+(final return of at least 475) of 0.88 within `[0.45, 1]` and a final
+return of 468 within `[275, 500]`, and SAC on Pendulum a final return of
+-146 within `[-1359, 0]`. So decide against a threshold rather than aim for
+a width; prefer metrics whose bounds are close to what runs reach, such as
+success rates or KPI fractions, to returns; and train many seeds per round,
+which share one compiled program.

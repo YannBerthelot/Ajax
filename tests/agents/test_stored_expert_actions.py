@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from ajax import SAC
+from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.TD3.TD3 import TD3
 from tests.extensions.test_expert_observations import CounterEnv
@@ -82,6 +83,7 @@ REPLAY_AGENTS = {
     "SAC": lambda: replay_rows(SAC, expert_buffer_n_steps=0, expert_fraction=0.0),
     "TD3": lambda: replay_rows(TD3),
     "REDQ": lambda: replay_rows(REDQ),
+    "ASAC": lambda: replay_rows(ASAC),
 }
 
 

@@ -97,8 +97,7 @@ other stateful expert is refused when the agent is built.
 | Agent | `expert_policy=` | Expert extensions |
 | --- | --- | --- |
 | [SAC](../algorithms/sac.md) | replay prefill, warm-up actions, collection extensions, the expert's evaluation return | all |
-| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss` |
-| [ASAC](../algorithms/asac.md) | not accepted | `ImitationLoss` |
+| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss` |
 | [AVG](../algorithms/avg.md) | the expert's evaluation return | none |
 
 The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no

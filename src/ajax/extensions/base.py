@@ -116,7 +116,7 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
         "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state",
         "SAC TD3 REDQ ASAC AVG APO UDRL": "observations",
         "SAC TD3 REDQ ASAC APO": "raw_observations pi_mean",
-        "SAC TD3 REDQ": "a_expert",
+        "SAC TD3 REDQ ASAC": "a_expert",
         "UDRL": "actions",
         "APG": "rollout returns",
     },

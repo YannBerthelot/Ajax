@@ -227,16 +227,22 @@ COMPARISONS = {
             "encoder_kernel_init": "lecun_uniform",
             "mean_kernel_init": "lecun_uniform",
             "squash": True,  # Brax's tanh-Gaussian
-            # Brax's std starts at softplus(1) + 0.001.
-            "log_std_init": 0.2734,
+            # A tanh-Gaussian's std comes out of Brax's policy network, beside
+            # the mean (networks.make_policy_network), and starts near
+            # softplus(0) + 0.001.
+            "log_std_state_independent": False,
+            "log_std_init": -0.3651,
         },
         unmatched=(
             "rewards: Brax scales them by 10 (reward_scaling); Ajax's PPO cannot",
             "time limits: Brax leaves a truncated step out of the advantage"
-            " (bootstrap_on_timeout off); Ajax bootstraps it",
+            " (bootstrap_on_timeout off: this env marks every fall as a time"
+            " out, so it would bootstrap falls); Ajax bootstraps it",
             "auto-reset: Brax restarts each env from its own first state;"
             " Ajax draws a new one",
-            "std: softplus(p) + 0.001 in Brax, exp(p) in Ajax",
+            "std, computed from the observation on both sides: softplus(x) +"
+            " 0.001 in Brax, exp(x) clipped to [-20, 2] in Ajax; its weights"
+            " start lecun_uniform in Brax, zero in Ajax",
             "the value head's initialisation (lecun_uniform in Brax)",
         ),
         defaults={"n_envs": 2048, "n_steps": 80, "episode_length": 1000},

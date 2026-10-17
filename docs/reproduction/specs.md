@@ -47,7 +47,7 @@ Ajax's PPO against brax.training.agents.ppo, with Brax's settings for inverted_p
 - Evaluation: 128 episodes of the deterministic policy, every 163,840 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±50.
-- Spec hash: `3e4e40e0ada3ddff`.
+- Spec hash: `0e1c3c051f961f17`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO-inverted_pendulum --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -70,14 +70,14 @@ Ajax's PPO against brax.training.agents.ppo, with Brax's settings for inverted_p
 | `episode_length` | `1000` | `episode_length` | `1000` |
 | `action_repeat` | `1` | `action_repeat` | `1` |
 
-Ajax settings without a reference counterpart: `n_steps=80`, `actor_architecture=('32', 'swish', '32', 'swish', '32', 'swish', '32', 'swish')`, `critic_architecture=('256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish')`, `encoder_kernel_init='lecun_uniform'`, `mean_kernel_init='lecun_uniform'`, `squash=True`, `log_std_init=0.2734`.
+Ajax settings without a reference counterpart: `n_steps=80`, `actor_architecture=('32', 'swish', '32', 'swish', '32', 'swish', '32', 'swish')`, `critic_architecture=('256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish')`, `encoder_kernel_init='lecun_uniform'`, `mean_kernel_init='lecun_uniform'`, `squash=True`, `log_std_state_independent=False`, `log_std_init=-0.3651`.
 
 Not matched:
 
 - rewards: Brax scales them by 10 (reward_scaling); Ajax's PPO cannot
-- time limits: Brax leaves a truncated step out of the advantage (bootstrap_on_timeout off); Ajax bootstraps it
+- time limits: Brax leaves a truncated step out of the advantage (bootstrap_on_timeout off: this env marks every fall as a time out, so it would bootstrap falls); Ajax bootstraps it
 - auto-reset: Brax restarts each env from its own first state; Ajax draws a new one
-- std: softplus(p) + 0.001 in Brax, exp(p) in Ajax
+- std, computed from the observation on both sides: softplus(x) + 0.001 in Brax, exp(x) clipped to [-20, 2] in Ajax; its weights start lecun_uniform in Brax, zero in Ajax
 - the value head's initialisation (lecun_uniform in Brax)
 
 ## DQN, version 1

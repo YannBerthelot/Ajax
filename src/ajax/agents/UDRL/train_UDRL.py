@@ -32,7 +32,6 @@ from ajax.agents.UDRL.buffer import (
     add_segment,
     episode_stream,
     init_buffer,
-    sample_raw_observations,
     sample_training_batch,
     topk_command_stats,
 )
@@ -40,7 +39,6 @@ from ajax.agents.UDRL.state import UDRLConfig, UDRLState
 from ajax.agents.UDRL.utils import compute_returns_to_go_horizons, update_command
 from ajax.environments.interaction import (
     get_pi,
-    get_raw_obs,
     init_collector_state,
     step,
     update_episodic_return,
@@ -53,7 +51,7 @@ from ajax.environments.utils import (
     raw_obs_columns,
 )
 from ajax.evaluate import evaluate
-from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.base import ExtensionStack
 from ajax.log import eval_norm_info
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import SquashedNormal
@@ -89,10 +87,7 @@ def init_UDRL(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     agent_config: UDRLConfig,
-    keep_raw_obs: bool = False,
 ) -> UDRLState:
-    """keep_raw_obs: the buffer also keeps the env's own observations, for
-    a run with an expert (``SegmentBuffer.raw_obs``)."""
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     continuous = check_if_environment_has_continuous_actions(
@@ -145,7 +140,6 @@ def init_UDRL(
         obs_dim=obs_dim,
         action_dim=action_dim,
         action_dtype=action_dtype,
-        keep_raw_obs=keep_raw_obs,
     )
 
     return UDRLState(
@@ -192,11 +186,6 @@ def _udrl_collect_step(
         )
         cs = cs.replace(obs_norm_info=stats)
         agent_state = with_obs_norm(agent_state.replace(collector_state=cs))
-    # The env's own observation, which an expert reads, for a buffer that
-    # keeps it.
-    raw_obs = None
-    if agent_state.buffer is not None and agent_state.buffer.raw_obs is not None:
-        raw_obs = get_raw_obs(cs.env_state, env_args.env, mode).astype(jnp.float32)
     # Scale (dr, dh) before the actor's forward pass (paper §appendix). The
     # underlying buffer keeps raw values; the actor input is the scaled view.
     last_obs_for_actor = _scale_obs_command(
@@ -257,7 +246,6 @@ def _udrl_collect_step(
         truncated=truncated[:, None],
         next_obs=new_last_obs,
         log_prob=log_probs,
-        raw_obs=raw_obs,
     )
 
     # Episodes span segments: their returns are summed across iterations,
@@ -352,7 +340,6 @@ def training_iteration(
         actions=rollout.action,
         rewards=rollout.reward,
         dones=dones,
-        raw_obs=rollout.raw_obs,
     )
     agent_state = agent_state.replace(buffer=new_buffer)
 
@@ -400,18 +387,11 @@ def training_iteration(
             }
             if extension_stack:
                 # For the extensions: the env's own observations at the
-                # batch's rows (the buffer keeps them apart only for a run
-                # with an expert: None without one), and the policy's mean
-                # action (None for a discrete policy, which has none).
+                # batch's rows (the buffer holds them raw), and the policy's
+                # mean action (None for a discrete policy, which has none).
                 pi, _ = get_pi(a_state.actor_state, params, obs_b)
                 discrete = isinstance(pi, distrax.Categorical)
-                _al_batch["raw_observations"] = (
-                    None
-                    if new_buffer.raw_obs is None
-                    else sample_raw_observations(
-                        key, new_buffer, stream, agent_config.batch_size
-                    )
-                )
+                _al_batch["raw_observations"] = obs_b[..., :-2]
                 _al_batch["pi_mean"] = None if discrete else pi.mean()
             return loss + extension_stack.fold_actor_loss(
                 a_state,
@@ -582,7 +562,6 @@ def make_train(
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             agent_config=agent_config,
-            keep_raw_obs=holds_expert(None, loop.stack),
         )
 
     def iteration(agent_state: UDRLState, index: Any, tick: Any) -> tuple:

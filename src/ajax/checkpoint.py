@@ -74,7 +74,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
-    state_dict = _with_segment_raw_obs(skeleton, state_dict)
+    state_dict = _without_segment_raw_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
@@ -148,17 +148,17 @@ def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
     return {**state_dict, "collector_state": collector}
 
 
-def _with_segment_raw_obs(skeleton: Any, state_dict: Any) -> Any:
-    """Give a UDRL segment buffer saved without the env's own observations
-    (``SegmentBuffer.raw_obs``), before it kept them or by a run without an
-    expert, that field when a run with an expert restores it: the env's
-    columns of its stored observations, before the command. A buffer of
-    observations the env normalised is refused: each row kept the
-    statistics of its collection, which are not saved, and UDRL now
-    normalises the rows it reads itself.
+def _without_segment_raw_obs(skeleton: Any, state_dict: Any) -> Any:
+    """Restore a UDRL segment buffer saved while it held the env's own
+    observations twice, in ``obs`` and, for a run with an expert, in
+    ``raw_obs``: the field is dropped, and ``obs`` holds them. A buffer of
+    observations the env normalised is refused: each row kept the statistics
+    of its collection, which are not saved, and UDRL now normalises the rows
+    it reads itself.
 
-    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
-    ``_with_replay_next_obs``.
+    Contract shim (CLAUDE.md, refactoring rule 10) for checkpoints written
+    between ``raw_obs``'s addition and its removal, both on 2026-10-17, and
+    for UDRL's env normalisation before. Delete it on 2026-11-17.
     """
     from ajax.agents.UDRL.buffer import SegmentBuffer
 
@@ -174,11 +174,8 @@ def _with_segment_raw_obs(skeleton: Any, state_dict: Any) -> Any:
             " normalises them itself. Resume the run with the Ajax version that"
             " wrote it, or start it afresh."
         )
-    raw = segments.raw_obs
-    if raw is None or saved.get("raw_obs") is not None:
-        return state_dict
-    rebuilt = np.asarray(saved["obs"][..., : raw.shape[-1]], raw.dtype)
-    return {**state_dict, "buffer": {**saved, "raw_obs": rebuilt}}
+    saved = {k: v for k, v in saved.items() if k != "raw_obs"}
+    return {**state_dict, "buffer": saved}
 
 
 def _saved_obs_normalised(saved_agent: dict) -> bool:

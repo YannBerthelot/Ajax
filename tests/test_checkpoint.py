@@ -515,33 +515,6 @@ def _udrl(**kw):
     return UDRL(env_id="Pendulum-v1", actor_architecture=net, **sizes, **kw)
 
 
-@pytest.mark.parametrize("expert", [True, False], ids=["expert", "none"])
-def test_a_udrl_buffer_saved_before_it_kept_raw_observations_restores(tmp_path, expert):
-    """UDRL's segment buffer gained raw_obs, the env's own observations, kept
-    for a run with an expert: a checkpoint written before it restores, the
-    field rebuilt from the env's columns of the stored observations (an
-    expert run could not normalise them then), or empty without an
-    expert."""
-    import pickle
-
-    from ajax.extensions.expert import ImitationLoss
-
-    extensions = (ImitationLoss(lambda obs: obs[..., :1]),) if expert else ()
-    state, _ = _udrl(extensions=extensions).train(seed=0, n_timesteps=16)
-    path = str(tmp_path / "old.pkl")
-    save_checkpoint(state, path)
-    with open(path, "rb") as fh:
-        saved = pickle.load(fh)
-    want = saved["buffer"].pop("raw_obs")
-    with open(path, "wb") as fh:
-        pickle.dump(saved, fh)
-    got = restore_into(state, path).buffer.raw_obs
-    if expert:
-        np.testing.assert_array_equal(got, want)
-    else:
-        assert want is None and got is None
-
-
 def _resaved(path: str, change) -> dict:
     """The checkpoint at ``path`` as ``change`` leaves its pickled dict."""
     import pickle
@@ -552,6 +525,24 @@ def _resaved(path: str, change) -> dict:
     with open(path, "wb") as fh:
         pickle.dump(saved, fh)
     return saved
+
+
+@pytest.mark.parametrize("copy", [True, False], ids=["raw_obs", "none"])
+def test_a_udrl_buffer_saved_with_a_raw_obs_field_restores(tmp_path, copy):
+    """On 2026-10-17 UDRL's segment buffer held the env's own observations
+    twice, in obs and, for a run with an expert, in raw_obs (None without
+    one): a checkpoint written then restores, the copy dropped."""
+    state, _ = _udrl().train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+
+    def with_field(saved: dict) -> None:
+        obs = saved["buffer"]["obs"]
+        saved["buffer"]["raw_obs"] = obs[..., :-2] if copy else None
+
+    saved = _resaved(path, with_field)
+    restored = restore_into(state, path).buffer
+    np.testing.assert_array_equal(restored.obs, saved["buffer"]["obs"])
 
 
 def test_a_udrl_buffer_the_env_normalised_is_refused(tmp_path):

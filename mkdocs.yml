@@ -138,6 +138,8 @@ nav:
       - APG: algorithms/apg.md
       - DreamerV3: algorithms/dreamerv3.md
       - TD-MPC2: algorithms/tdmpc2.md
+  - Reproduction:
+      - reproduction/index.md
   - Developer guide:
       - Architecture: developer/architecture.md
       - Contributing: developer/contributing.md

@@ -10,8 +10,11 @@ import sys
 import numpy as np
 import pytest
 import refcmp_protocol as protocol
+import refcmp_publish
 import refcmp_worker
 from refcmp_specs import COMPARISONS
+
+from ajax import reproduction
 
 
 @pytest.fixture
@@ -25,9 +28,15 @@ def fake_train(calls, final):
         calls.append((side, seeds))
         curve = [[0.0, final[side]] for _ in seeds]
         speed = {"wall_s": 1.0, "cpu_s": 2.0, "compile_s": 0.5, "env_steps_per_s": 10}
-        key = protocol.fingerprint(name, side)
-        return {"side": side, "fingerprint": key, "seeds": seeds, "curve": curve} | {
-            "speed": speed
+        return {
+            "side": side,
+            "implementation": protocol.implementation(name, side),
+            "fingerprint": protocol.fingerprint(name, side),
+            "seeds": seeds,
+            "steps": [1, 2],
+            "curve": curve,
+            "speed": speed,
+            "manifest": {"hardware": {"cpu": "M", "cores": 2}},
         }
 
     return train
@@ -113,3 +122,27 @@ def test_worker_prints_one_record(monkeypatch, capsys):
     assert set(record["versions"]) == {"numpy", "python"} and record["compile_s"] >= 0
     defaults = refcmp_worker.resolved(lambda a, b=2, c=print: None, {"b": 3})
     assert defaults == {"b": 3}
+
+
+def test_the_dataset_loads_back_and_the_docs_draw_from_it(cache, monkeypatch, tmp_path):
+    finals = {"reference": 500.0, "matched": 9.0}
+    monkeypatch.setattr(protocol, "train", fake_train([], finals))
+    protocol.decide("PQN")
+    out = tmp_path / "dataset"
+    refcmp_publish.dataset(out, reps=10)
+    runs = reproduction.load("runs", str(out))
+    n = COMPARISONS["PQN"].adastop[0]
+    assert len(runs) == 2 * n * 2  # sides x seeds x evaluations
+    assert set(runs["return"]) == {0.0, 9.0, 500.0}
+    assert set(reproduction.load("batches", str(out))["side"]) == set(finals)
+    assert reproduction.load("summary", str(out))["decision"][0] == "smaller"
+    assert (out / "README.md").exists() and "PQN" in (out / "specs.json").read_text()
+    with pytest.raises(ValueError, match="table is one of"):
+        reproduction.load("curves", str(out))
+    monkeypatch.setattr(refcmp_publish, "DOCS", tmp_path)
+    refcmp_publish.docs(reps=10)
+    assert (
+        "| PQN | Ajax smaller | 8 | 500.0 | 9.0 | -491.0"
+        in (tmp_path / "results.md").read_text()
+    )
+    assert (tmp_path / "PQN.svg").read_text().startswith("<?xml")

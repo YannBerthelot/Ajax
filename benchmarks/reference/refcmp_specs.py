@@ -36,7 +36,7 @@ class Comparison:
     env_id: str
     n_timesteps: int
     eval_every: int  # 0: one evaluation, of the final policy
-    solved: float
+    solved: float | None
     reference: str  # "sb3" | "purejaxql" | "brax": envs/<reference> pins it
     reference_config: dict
     matched: dict
@@ -456,7 +456,7 @@ COMPARISONS = {
         # 300 updates of 128 x 32 steps, tested every 15 (TEST_INTERVAL 0.05).
         n_timesteps=300 * 4096,
         eval_every=15 * 4096,
-        solved=float("inf"),  # no threshold: scored by its return only
+        solved=None,  # no threshold: scored by its return only
         reference="purejaxql",
         source="purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with"
         " config/alg/pqn_minatar.yaml but the length. That config is for"

@@ -94,7 +94,11 @@ cover a whole family:
 
 `sample(rng, n)` returns parameters with a leading axis of `n`, one system
 per parallel environment. Ajax's gymnax `reset` and `step` notice that axis
-and simulate each environment with its own system.
+and simulate each environment with its own system. APG trains on such
+parameters (its `system_class`, or a sample passed as `env_params`), and
+DreamerV3 and TDMPC2 take a sample as `env_params`. The other agents
+compile `env_params` into their collection step as a constant, so they take
+one system for every copy and refuse a sample when built.
 
 ## Tracking tasks: model-reference control
 

@@ -8,6 +8,7 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.environments.create import prepare_env
+from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
 from ajax.extensions.base import (
     Extension,
@@ -101,6 +102,11 @@ class ActorCritic:
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
     supports_memory: bool = False
+    # Whether the agent takes per-copy (batched) env params, one system per
+    # env (ajax.environments.system_class). The shared loop's collector
+    # compiles env_args as a static argument, which jax cannot hash with
+    # array leaves.
+    supports_batched_env_params: bool = False
     # Extension phases this agent's training loop folds; an extension that
     # implements any other phase is rejected at construction instead of
     # being silently ignored. Each agent declares the phases it folds (on
@@ -206,6 +212,13 @@ class ActorCritic:
             action_repeat=action_repeat,
         )
 
+        if env_params_is_batched(env_params) and not self.supports_batched_env_params:
+            raise ValueError(
+                f"{type(self).__name__} takes one env_params for every copy of"
+                " the environment; these carry one system per copy (a"
+                " SystemClass sample). APG, DreamerV3 and TDMPC2 take"
+                " per-copy systems; APG also samples them, with system_class."
+            )
         self.env_args = EnvironmentConfig(
             env=env,
             env_params=env_params,

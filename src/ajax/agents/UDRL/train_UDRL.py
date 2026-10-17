@@ -379,6 +379,15 @@ def training_iteration(
                 "actor_params": params,
                 "actor_state": a_state.actor_state,
             }
+            if extension_stack:
+                # For the extensions: the env's part of each observation,
+                # before its command (raw: UDRL refuses an expert with
+                # normalize_observations), and the policy's mean action
+                # (None for a discrete policy, which has none).
+                pi, _ = get_pi(a_state.actor_state, params, obs_b)
+                discrete = isinstance(pi, distrax.Categorical)
+                _al_batch["raw_observations"] = obs_b[..., :-2]
+                _al_batch["pi_mean"] = None if discrete else pi.mean()
             return loss + extension_stack.fold_actor_loss(
                 a_state,
                 _al_batch,

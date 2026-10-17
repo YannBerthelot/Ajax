@@ -599,6 +599,16 @@ _GOLDEN |= {
         "nudge": 0.33622848987579346,
     },
 }
+# Re-recorded on macOS ARM CPU once APO's entropy bonus became its reference
+# code's, ent_coef 0.01 (was 0). Relative shifts (actor, critic): APO-nudge
+# -3.0e-6, +1.1e-6; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.11631965637207,
+        "critic": 7.960757732391357,
+        "nudge": 0.33622848987579346,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

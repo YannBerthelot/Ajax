@@ -1,22 +1,20 @@
-"""The JAX references: purejaxql's PQN here, Brax's trainers in refcmp_brax.
+"""purejaxql's PQN as a reference, and the evaluator of final policies.
 
-usage: python refcmp_jax.py AGENT FIRST_SEED N_SEEDS >> results/<ref>.jsonl
+usage: python refcmp_jax.py NAME reference FIRST_SEED N_SEEDS (refcmp_worker)
 
 Imports nothing from Ajax, so the references stay independent of the code
 they check.
 """
 
-import json
 import pathlib
 import sys
-import time
 import types
 
 import gymnax
 import jax
 import jax.numpy as jnp
 from gymnax.wrappers.purerl import LogWrapper
-from refcmp_specs import COMPARISONS
+from refcmp_worker import main
 
 VENDOR = pathlib.Path(__file__).parent / "vendor" / "purejaxql"
 
@@ -93,30 +91,9 @@ def run_purejaxql(spec, seeds):
     return tests.tolist()
 
 
-def run_brax(spec, seeds):
-    from refcmp_brax import RUNNERS
-
-    return RUNNERS[spec.agent](spec, seeds)
-
-
-RUNNERS = {"purejaxql": run_purejaxql, "brax": run_brax}
-
 if __name__ == "__main__":
-    spec = COMPARISONS[sys.argv[1]]
-    seeds = list(range(int(sys.argv[2]), int(sys.argv[2]) + int(sys.argv[3])))
-    t0 = time.perf_counter()
-    curve = RUNNERS[spec.reference](spec, seeds)
-    print(
-        json.dumps(
-            {
-                "lib": spec.reference,
-                "agent": spec.agent,
-                "arm": "reference",
-                "seeds": seeds,
-                "eval_every": spec.eval_every,
-                "versions": {"jax": jax.__version__},
-                "wall_s": round(time.perf_counter() - t0, 1),
-                "curve": [[round(float(x), 2) for x in row] for row in curve],
-            }
-        )
+    main(
+        lambda spec, _, seeds: run_purejaxql(spec, seeds),
+        lambda spec, _: dict(spec.reference_config),
+        ("jax", "jaxlib", "flax", "optax", "chex", "gymnax"),
     )

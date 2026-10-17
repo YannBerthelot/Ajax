@@ -1,0 +1,115 @@
+"""``benchmarks/reference/refcmp_protocol.py``: AdaStop trains only the
+seeds it lacks and reuses recorded runs while their fingerprint holds; a
+batch records its curves, speed and manifest. No comparison trains here: a
+stub runner stands in for the libraries."""
+
+import dataclasses
+import json
+import sys
+
+import numpy as np
+import pytest
+import refcmp_protocol as protocol
+import refcmp_worker
+from refcmp_specs import COMPARISONS
+
+
+@pytest.fixture
+def cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(protocol, "CACHE", tmp_path)
+    return tmp_path
+
+
+def fake_train(calls, final):
+    def train(name, side, seeds):
+        calls.append((side, seeds))
+        curve = [[0.0, final[side]] for _ in seeds]
+        speed = {"wall_s": 1.0, "cpu_s": 2.0, "compile_s": 0.5, "env_steps_per_s": 10}
+        key = protocol.fingerprint(name, side)
+        return {"side": side, "fingerprint": key, "seeds": seeds, "curve": curve} | {
+            "speed": speed
+        }
+
+    return train
+
+
+def test_decide_trains_only_missing_seeds_and_reuses_the_records(cache, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(
+        protocol, "train", fake_train(calls, {"reference": 500.0, "matched": 9.0})
+    )
+    test, scores = protocol.decide("PQN")
+    n = COMPARISONS["PQN"].adastop[0]
+    # Constant scores, one side far below: decided at the first interim.
+    assert test.decisions == {("matched", "reference"): "smaller"}
+    assert sorted(calls) == [("matched", list(range(n))), ("reference", list(range(n)))]
+    assert len((cache / "PQN.jsonl").read_text().splitlines()) == 2
+    calls.clear()
+    assert protocol.decide("PQN", train_missing=False)[1] == scores and not calls
+    row = protocol.summary("PQN", reps=10)[0]
+    assert (row["decision"], row["seeds"], row["difference"]) == ("smaller", n, -491.0)
+    assert row["speed"]["ajax"]["cpu_s_per_1m_steps"] == pytest.approx(
+        1e6 * 2.0 / n / COMPARISONS["PQN"].n_timesteps
+    )
+
+
+def test_a_changed_setting_or_source_retrains(cache, monkeypatch, tmp_path):
+    before = protocol.fingerprint("PQN", "matched")
+    assert before == protocol.fingerprint("PQN", "matched")
+    assert before != protocol.fingerprint("PQN", "reference")
+    spec = dataclasses.replace(COMPARISONS["PQN"], matched={"n_envs": 4})
+    monkeypatch.setitem(COMPARISONS, "PQN", spec)
+    assert protocol.fingerprint("PQN", "matched") != before
+    source = tmp_path / "runner.py"
+    source.write_text("a")
+    monkeypatch.setattr(protocol, "HERE", tmp_path)
+    implementation = (None, None, False, ("runner.py",))
+    monkeypatch.setitem(protocol.IMPLEMENTATIONS, "ajax", implementation)
+    first = protocol.fingerprint("PQN", "matched")
+    source.write_text("b")
+    assert protocol.fingerprint("PQN", "matched") != first
+    with pytest.raises(LookupError, match="no runs"):
+        protocol.final_scores("PQN", "matched", [0], train_missing=False)
+
+
+STUB = """
+import json, sys
+seeds = range(int(sys.argv[3]), int(sys.argv[3]) + int(sys.argv[4]))
+print("noise")
+print(json.dumps({"curve": [[s, 2 * s] for s in seeds], "config": {"a": 1},
+                  "versions": {"x": "1"}, "compile_s": 0.25}))
+"""
+
+
+@pytest.mark.parametrize("per_seed", [False, True])
+def test_a_batch_records_curves_speed_and_manifest(monkeypatch, tmp_path, per_seed):
+    (tmp_path / "stub.py").write_text(STUB)
+    monkeypatch.setattr(protocol, "HERE", tmp_path)
+    project = protocol.ROOT  # Ajax's uv project runs the stub
+    monkeypatch.setitem(
+        protocol.IMPLEMENTATIONS, "ajax", (project, "stub.py", per_seed, ())
+    )
+    record = protocol.train("PQN", "matched", [3, 4])
+    assert record["curve"] == [[3, 6], [4, 8]] and record["seeds"] == [3, 4]
+    assert record["steps"][-1] == COMPARISONS["PQN"].n_timesteps
+    assert record["speed"]["processes"] == (2 if per_seed else 1)
+    assert record["speed"]["compile_s"] == 0.25 and record["speed"]["cpu_s"] > 0
+    manifest = record["manifest"]
+    assert len(manifest["ajax_commit"]) == 40 and manifest["config"] == {"a": 1}
+    assert manifest["hardware"]["cores"] > 0 and manifest["jax_platforms"] == "cpu"
+    assert len(manifest["lock_sha256"]) == 64
+
+
+def test_worker_prints_one_record(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["runner", "PQN", "matched", "5", "2"])
+    refcmp_worker.main(
+        lambda spec, side, seeds: np.full((len(seeds), 3), float(seeds[0])),
+        lambda spec, side: {"side": side, "env": spec.env_id},
+        ("numpy",),
+    )
+    record = json.loads(capsys.readouterr().out)
+    assert record["curve"] == [[5.0] * 3] * 2
+    assert record["config"] == {"side": "matched", "env": "CartPole-v1"}
+    assert set(record["versions"]) == {"numpy", "python"} and record["compile_s"] >= 0
+    defaults = refcmp_worker.resolved(lambda a, b=2, c=print: None, {"b": 3})
+    assert defaults == {"b": 3}

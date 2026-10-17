@@ -1,5 +1,7 @@
 """Brax's trainers as references, run on Brax or gymnax environments.
 
+usage: python refcmp_brax.py NAME reference FIRST_SEED N_SEEDS (refcmp_worker)
+
 Imports nothing from Ajax, so the references stay independent of the code
 they check.
 """
@@ -9,6 +11,7 @@ import jax
 import jax.numpy as jnp
 from brax.envs.base import Env, State
 from refcmp_jax import evaluate_final
+from refcmp_worker import main, resolved
 
 
 class GymnaxAsBrax(Env):
@@ -95,3 +98,27 @@ def run_brax_ppo(spec, seeds):
 
 
 RUNNERS = {"APG": run_brax_apg, "PPO": run_brax_ppo}
+
+
+def config(spec) -> dict:
+    """The trainer's resolved keywords, those the runner adds included."""
+    from brax.training.agents.apg import train as apg
+    from brax.training.agents.ppo import train as ppo
+
+    if spec.agent == "APG":
+        return resolved(apg.train, spec.reference_config | {"num_evals": 1})
+    added = {
+        "num_timesteps": spec.n_timesteps,
+        "num_evals": spec.n_timesteps // spec.eval_every + 1,
+        "num_eval_envs": spec.n_eval_episodes,
+        "deterministic_eval": True,
+    }
+    return resolved(ppo.train, spec.reference_config | added)
+
+
+if __name__ == "__main__":
+    main(
+        lambda spec, _, seeds: RUNNERS[spec.agent](spec, seeds),
+        lambda spec, _: config(spec),
+        ("brax", "jax", "jaxlib", "mujoco", "gymnax"),
+    )

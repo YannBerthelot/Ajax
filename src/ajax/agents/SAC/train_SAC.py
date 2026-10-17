@@ -87,7 +87,6 @@ def init_SAC(
     augment_obs_with_expert_state: bool = False,
     expert_state_aug_dim: int = 0,
     action_dim_override: Optional[int] = None,
-    normalize_obs_running: bool = False,
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
@@ -129,7 +128,6 @@ def init_SAC(
             "expert_state_aug_dim": (
                 expert_state_aug_dim if augment_obs_with_expert_state else 0
             ),
-            "normalize_obs_running": normalize_obs_running,
             "include_expert_fields": expert_policy is not None,
             "include_raw_next_obs": store_raw_next_obs,
             "include_raw_obs": store_expert_data,
@@ -688,7 +686,6 @@ def make_train(
     target_entropy_ramp_frac: float = 0.5,
     augment_obs_with_expert_state: bool = False,
     expert_state_aug_dim: int = 0,
-    normalize_obs_running: bool = False,
     store_policy_action: bool = False,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
@@ -774,7 +771,6 @@ def make_train(
             augment_obs_with_expert_state=augment_obs_with_expert_state,
             expert_state_aug_dim=expert_state_aug_dim,
             action_dim_override=action_dim_override,
-            normalize_obs_running=normalize_obs_running,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),

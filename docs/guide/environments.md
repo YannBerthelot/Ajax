@@ -223,8 +223,8 @@ normalises observations itself: the statistics live in
 them, so `get_pi` takes raw observations) and cover the dimensions SAC
 appends to the observation (an expert's action or state). A replayed reward
 is divided by the environment normaliser's current statistics. SAC's
-`normalize_obs_running=True` is the same switch as
-`normalize_observations=True`. An expert policy always reads the raw
+`normalize_obs_running=True`, the switch's old name, warns and will be
+removed: pass `normalize_observations=True`. An expert policy always reads the raw
 observation, in the environment's own units: see
 [Expert guidance](expert-guidance.md).
 

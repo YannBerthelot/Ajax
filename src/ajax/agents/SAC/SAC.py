@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from typing import Callable, Optional, Union
 
@@ -29,8 +30,11 @@ class SAC(ActorCritic):
     collection, or the action pipeline at a level the extension
     framework doesn't reach (``use_pid_policy``,
     ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
-    ``use_train_frac``, ``normalize_obs_running``, ``store_policy_action``).
+    ``use_train_frac``, ``store_policy_action``).
     They mirror the matching extension's "static" flag.
+    ``normalize_obs_running`` is ``normalize_observations`` under its old
+    name, kept with a FutureWarning until the downstream projects pass the
+    new one.
     """
 
     name: str = "SAC"
@@ -144,6 +148,14 @@ class SAC(ActorCritic):
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
+        if normalize_obs_running:
+            warnings.warn(
+                "SAC's normalize_obs_running is normalize_observations, which a"
+                " replay agent applies itself; pass normalize_observations=True:"
+                " normalize_obs_running will be removed.",
+                FutureWarning,
+                stacklevel=2,
+            )
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -155,7 +167,7 @@ class SAC(ActorCritic):
             max_grad_norm=max_grad_norm,
             weight_decay=weight_decay,
             memory=memory,
-            normalize_observations=normalize_observations,
+            normalize_observations=normalize_observations or normalize_obs_running,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
@@ -244,7 +256,6 @@ class SAC(ActorCritic):
             "augment_obs_with_expert_state": augment_obs_with_expert_state,
             "store_policy_action": store_policy_action,
             "expert_state_aug_dim": expert_state_aug_dim,
-            "normalize_obs_running": normalize_obs_running,
             "target_entropy_initial": (
                 target_entropy_initial_per_dim * action_dim
                 if target_entropy_initial_per_dim is not None

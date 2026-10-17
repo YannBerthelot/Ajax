@@ -436,3 +436,55 @@ def test_a_checkpoint_of_another_shape_is_refused(sac_run, tmp_path):
     )
     with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params"):
         restore_into(state, path)
+
+
+def _without_format(path: str) -> None:
+    """Rewrite the checkpoint at ``path`` as one written before checkpoints
+    stated their format."""
+    import pickle
+
+    from ajax.checkpoint import FORMAT_KEY
+
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    assert saved.pop(FORMAT_KEY) == 1
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+
+
+@pytest.mark.parametrize("normalised", ["rewards", "observations"])
+def test_a_replay_checkpoint_from_before_raw_replay_is_refused(tmp_path, normalised):
+    """A replay agent's checkpoint from before its replay kept the env's own
+    observations and rewards holds rows normalised with statistics that
+    are gone: refused, saying why, when the run normalised them. Without
+    normalisation an old checkpoint restores, and a new one always does."""
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
+    kw |= {"learning_starts": 100, "batch_size": 4, "buffer_size": 40}
+    agent = SAC(env_id="Pendulum-v1", normalize_rewards=normalised == "rewards", **kw)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "new.pkl")
+    save_checkpoint(state, path)
+    restore_into(state, path)
+    if normalised == "observations":
+        # The env's observation statistics, as an old SAC run saved them.
+        import pickle
+
+        with open(path, "rb") as fh:
+            saved = pickle.load(fh)
+        env = saved["collector_state"]["_env_state"]
+        saved["collector_state"]["_env_state"] = {
+            "normalization_info": {"obs": {"mean": np.zeros(3)}},
+            **env,
+        }
+        with open(path, "wb") as fh:
+            pickle.dump(saved, fh)
+    _without_format(path)
+    with pytest.raises(ValueError, match="before a replay agent kept"):
+        restore_into(state, path)
+    plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=16)
+    save_checkpoint(plain, path)
+    _without_format(path)
+    restore_into(plain, path)

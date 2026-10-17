@@ -1028,7 +1028,6 @@ def init_collector_state(
     max_timesteps: Optional[int] = None,
     action_dim_override: Optional[int] = None,
     expert_state_aug_dim: int = 0,
-    normalize_obs_running: bool = False,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
@@ -1099,7 +1098,7 @@ def init_collector_state(
         else None
     )
     obs_norm_info = None
-    if normalize_obs_running or env_args.normalize_obs_in_agent:
+    if env_args.normalize_obs_in_agent:
         obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
 
     return CollectorState(

@@ -11,7 +11,7 @@ paper's hyperparameters plus `extensions=()`. The exceptions are
 `expert_policy` (SAC, TD3, REDQ, AVG, APO), whose return each evaluation
 logs, and a few SAC options (its expert's prefill and warm-up mix, the
 observation augmentations, the PID gain mode, `use_train_frac`,
-`normalize_obs_running`, `store_policy_action`), kept because they change
+`store_policy_action`), kept because they change
 the network's input, the collection or the action pipeline, which
 extensions do not reach yet ([SAC](../algorithms/sac.md#expert-options)). A
 feature written into

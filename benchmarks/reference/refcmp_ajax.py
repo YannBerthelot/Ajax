@@ -3,7 +3,7 @@
 usage: python refcmp_ajax.py AGENT ARM FIRST_SEED N_SEEDS >> results/ajax.jsonl
 
 ARM is ``matched`` or ``defaults``. Every seed trains in one program; the
-evaluation is Ajax's own (N_EVAL_EPISODES deterministic episodes every
+evaluation is Ajax's own (``n_eval_episodes`` deterministic episodes every
 ``eval_every`` steps), except for agents whose comparison scores the final
 policy only (``eval_every == 0``), which ``refcmp_jax.evaluate_final`` scores.
 """
@@ -17,7 +17,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from refcmp_specs import COMPARISONS, N_EVAL_EPISODES
+from refcmp_specs import COMPARISONS
 
 import ajax
 from ajax.agents.DQN.train_DQN import make_huber_td_loss
@@ -74,6 +74,7 @@ def run(spec, arm: str, seeds: list, n_timesteps: int = 0, eval_every: int = -1)
                 lambda obs, actor=actor: actor.apply(actor.params, obs).mean(),
                 spec.env_id,
                 jax.random.PRNGKey(10_000 + seed),
+                spec.n_eval_episodes,
             )
             curve.append([float(returns.mean())])
         return curve
@@ -81,7 +82,7 @@ def run(spec, arm: str, seeds: list, n_timesteps: int = 0, eval_every: int = -1)
     _, evals = agent.train(
         seed=seeds,
         n_timesteps=n_timesteps,
-        num_episode_test=N_EVAL_EPISODES,
+        num_episode_test=spec.n_eval_episodes,
         logging_config=logging,
     )
     curve = np.asarray(evals["Eval/episodic mean reward"])

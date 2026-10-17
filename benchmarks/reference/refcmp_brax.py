@@ -64,6 +64,34 @@ def run_brax_apg(spec, seeds):
         )
         policy = make_policy(params, deterministic=True)
         act = lambda obs, policy=policy: policy(obs, jax.random.PRNGKey(0))[0]  # noqa: E731
-        returns = evaluate_final(act, spec.env_id, jax.random.PRNGKey(10_000 + seed))
+        key = jax.random.PRNGKey(10_000 + seed)
+        returns = evaluate_final(act, spec.env_id, key, spec.n_eval_episodes)
         finals.append([float(returns.mean())])
     return finals
+
+
+def run_brax_ppo(spec, seeds):
+    """Brax's PPO trainer on a Brax env, one seed at a time (it has no seed
+    axis), with its own deterministic evaluation every ``eval_every`` steps;
+    the evaluation of the initial policy is left out, as Ajax makes none."""
+    from brax import envs
+    from brax.training.agents.ppo import train as ppo
+
+    curves = []
+    for seed in seeds:
+        returns: list = []
+        ppo.train(
+            environment=envs.get_environment(spec.env_id),
+            num_timesteps=spec.n_timesteps,
+            num_evals=spec.n_timesteps // spec.eval_every + 1,
+            num_eval_envs=spec.n_eval_episodes,
+            deterministic_eval=True,
+            seed=seed,
+            progress_fn=lambda _, m, r=returns: r.append(m["eval/episode_reward"]),
+            **spec.reference_config,
+        )
+        curves.append([float(r) for r in returns[1:]])
+    return curves
+
+
+RUNNERS = {"APG": run_brax_apg, "PPO": run_brax_ppo}

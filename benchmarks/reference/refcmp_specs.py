@@ -14,7 +14,17 @@ Each comparison has two Ajax arms against one recorded reference:
 
 ``solved`` is the return a seed must reach. It was fixed before any run:
 CartPole-v1's 475 is gymnasium's reward_threshold; Pendulum-v1 has none,
-and -200 is the usual "swung up and held" level.
+and -200 is the usual "swung up and held" level; 950 is Gymnasium's
+InvertedPendulum threshold.
+
+Both sides train on the same JAX environment, ``env_id`` (``environment``
+says how it differs from the task the reference was written for), and
+``envs/<reference>/`` pins the reference's libraries. Every
+``eval_every`` steps (once, at the end, when 0) the deterministic (greedy)
+policy plays ``n_eval_episodes`` episodes; a seed's score is the mean return
+of its last evaluation. Where a reference evaluates otherwise, ``unmatched``
+says how. ``adastop`` is AdaStop's ``(n, K, alpha)``: n new seeds per side
+and interim, at most K interims, the family-wise error alpha.
 """
 
 from dataclasses import dataclass, field
@@ -27,9 +37,11 @@ class Comparison:
     n_timesteps: int
     eval_every: int  # 0: one evaluation, of the final policy
     solved: float
-    reference: str  # "sb3" | "purejaxql" | "brax"
+    reference: str  # "sb3" | "purejaxql" | "brax": envs/<reference> pins it
     reference_config: dict
     matched: dict
+    source: str  # the reference's code
+    environment: str  # the JAX environment, against the original task
     unmatched: tuple = ()
     defaults: dict = field(default_factory=dict)
     # Reference setting -> the Ajax keyword(s) holding the same value, where
@@ -38,10 +50,41 @@ class Comparison:
     # Reference setting -> the factor its Ajax value carries for the same
     # behaviour, where the two losses differ by a constant.
     scale: dict = field(default_factory=dict)
+    n_eval_episodes: int = 10
+    adastop: tuple = (8, 4, 0.05)
 
 
-# Every evaluation: 10 deterministic (greedy) episodes per seed.
-N_EVAL_EPISODES = 10
+CARTPOLE = (
+    "gymnax CartPole-v1, a port of Gymnasium's CartPole-v1 (dynamics,"
+    " termination, 500-step limit); SB3 steps it through"
+    " refcmp_sb3.gymnax_vec_env"
+)
+PENDULUM = (
+    "gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step"
+    " episodes); SB3 steps it through refcmp_sb3.gymnax_vec_env"
+)
+
+# purejaxql's PQN against Ajax's: its settings' Ajax names, and what no Ajax
+# option matches.
+PUREJAXQL_RENAMES = {
+    "NUM_ENVS": "n_envs",
+    "NUM_STEPS": "n_steps",
+    "NUM_MINIBATCHES": "num_minibatches",
+    "NUM_EPOCHS": "n_epochs",
+    "LR": "learning_rate",
+    "GAMMA": "gamma",
+    "LAMBDA": "q_lambda",
+    "EPS_START": "epsilon_start",
+    "EPS_FINISH": "epsilon_end",
+    "EPS_DECAY": "epsilon_decay_frac",
+    "REW_SCALE": "reward_scale",
+    "MAX_GRAD_NORM": "max_grad_norm",
+}
+PUREJAXQL_UNMATCHED = (
+    "optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax",
+    "weight initialisation (lecun_normal vs Ajax's)",
+    "time limits: the reference treats them as terminations",
+)
 
 COMPARISONS = {
     "PPO": Comparison(
@@ -54,6 +97,8 @@ COMPARISONS = {
         eval_every=7 * 2048,
         solved=475.0,
         reference="sb3",
+        source="stable-baselines3's PPO, MlpPolicy",
+        environment=CARTPOLE,
         reference_config={
             "n_envs": 8,
             "n_steps": 256,
@@ -94,6 +139,88 @@ COMPARISONS = {
         ),
         defaults={"n_envs": 8, "n_steps": 256},
     ),
+    "PPO-inverted_pendulum": Comparison(
+        renames={
+            "num_envs": "n_envs",
+            "num_updates_per_batch": "n_epochs",
+            "learning_rate": ("actor_learning_rate", "critic_learning_rate"),
+            "entropy_cost": "ent_coef",
+            "discounting": "gamma",
+            "clipping_epsilon": "clip_range",
+            "vf_loss_coefficient": "vf_coef",
+        },
+        agent="PPO",
+        env_id="inverted_pendulum",
+        n_timesteps=5 * 163_840,  # 5 updates of 2048 envs x 80 steps
+        eval_every=163_840,
+        solved=950.0,
+        reference="brax",
+        source="brax.training.agents.ppo, with Brax's settings for"
+        " inverted_pendulum (notebooks/training.ipynb) but the length",
+        environment="Brax's inverted_pendulum (generalized pipeline, 1000-step"
+        " episodes), a MuJoCo InvertedPendulum simulated by Brax: the same Env"
+        " on both sides",
+        n_eval_episodes=128,  # Brax's num_eval_envs
+        # Brax's defaults written out where the matched arm copies them.
+        reference_config={
+            "num_envs": 2048,
+            "batch_size": 1024,
+            "num_minibatches": 32,
+            "unroll_length": 5,
+            "num_updates_per_batch": 4,
+            "learning_rate": 3e-4,
+            "entropy_cost": 1e-2,
+            "discounting": 0.97,
+            "gae_lambda": 0.95,
+            "clipping_epsilon": 0.3,
+            "vf_loss_coefficient": 0.5,
+            "max_grad_norm": None,
+            "normalize_advantage": True,
+            "normalize_observations": True,
+            "reward_scaling": 10,
+            "episode_length": 1000,
+            "action_repeat": 1,
+        },
+        # Brax's value loss is vf_loss_coefficient * 0.5 * MSE, as Ajax's.
+        matched={
+            "n_envs": 2048,
+            # Each env runs batch_size * num_minibatches / num_envs = 16
+            # unrolls of 5 steps per update; GAE runs within each unroll.
+            "n_steps": 80,
+            "unroll_length": 5,
+            "num_minibatches": 32,
+            "n_epochs": 4,
+            "actor_learning_rate": 3e-4,
+            "critic_learning_rate": 3e-4,
+            "ent_coef": 1e-2,
+            "gamma": 0.97,
+            "gae_lambda": 0.95,
+            "clip_range": 0.3,
+            "vf_coef": 0.5,
+            "max_grad_norm": None,
+            "normalize_advantage": True,
+            "normalize_observations": True,
+            "episode_length": 1000,
+            "action_repeat": 1,
+            "actor_architecture": ("32", "swish") * 4,
+            "critic_architecture": ("256", "swish") * 5,
+            "encoder_kernel_init": "lecun_uniform",
+            "mean_kernel_init": "lecun_uniform",
+            "squash": True,  # Brax's tanh-Gaussian
+            # Brax's std starts at softplus(1) + 0.001.
+            "log_std_init": 0.2734,
+        },
+        unmatched=(
+            "rewards: Brax scales them by 10 (reward_scaling); Ajax's PPO cannot",
+            "time limits: Brax leaves a truncated step out of the advantage"
+            " (bootstrap_on_timeout off); Ajax bootstraps it",
+            "auto-reset: Brax restarts each env from its own first state;"
+            " Ajax draws a new one",
+            "std: softplus(p) + 0.001 in Brax, exp(p) in Ajax",
+            "the value head's initialisation (lecun_uniform in Brax)",
+        ),
+        defaults={"n_envs": 2048, "n_steps": 80, "episode_length": 1000},
+    ),
     "DQN": Comparison(
         renames={
             "gradient_steps": "n_gradient_steps",
@@ -107,6 +234,8 @@ COMPARISONS = {
         eval_every=5_000,
         solved=475.0,
         reference="sb3",
+        source="stable-baselines3's DQN, MlpPolicy",
+        environment=CARTPOLE,
         # One gradient step per env step, the only cadence Ajax's DQN has
         # (SB3's train_freq=1, gradient_steps=1); targets are copied every
         # 500 steps, which SB3 counts in env steps and Ajax in gradient
@@ -162,6 +291,8 @@ COMPARISONS = {
         eval_every=1_000,
         solved=-200.0,
         reference="sb3",
+        source="stable-baselines3's SAC, MlpPolicy",
+        environment=PENDULUM,
         # RL Zoo's Pendulum-v1 SAC: SB3 defaults with a 1e-3 learning rate.
         reference_config={
             "learning_rate": 1e-3,
@@ -209,6 +340,8 @@ COMPARISONS = {
         eval_every=1_000,
         solved=-200.0,
         reference="sb3",
+        source="stable-baselines3's TD3, MlpPolicy",
+        environment=PENDULUM,
         # SB3 defaults with RL Zoo's Pendulum-v1 learning rate and Gaussian
         # behaviour noise of 0.1 (in [-1, 1] units, as Ajax's).
         reference_config={
@@ -248,20 +381,7 @@ COMPARISONS = {
         ),
     ),
     "PQN": Comparison(
-        renames={
-            "NUM_ENVS": "n_envs",
-            "NUM_STEPS": "n_steps",
-            "NUM_MINIBATCHES": "num_minibatches",
-            "NUM_EPOCHS": "n_epochs",
-            "LR": "learning_rate",
-            "GAMMA": "gamma",
-            "LAMBDA": "q_lambda",
-            "EPS_START": "epsilon_start",
-            "EPS_FINISH": "epsilon_end",
-            "EPS_DECAY": "epsilon_decay_frac",
-            "REW_SCALE": "reward_scale",
-            "MAX_GRAD_NORM": "max_grad_norm",
-        },
+        renames=PUREJAXQL_RENAMES,
         agent="PQN",
         env_id="CartPole-v1",
         # 240 updates of 32 x 64 steps, tested every 12 (TEST_INTERVAL 0.05):
@@ -271,6 +391,9 @@ COMPARISONS = {
         eval_every=12 * 2048,
         solved=475.0,
         reference="purejaxql",
+        source="purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py",
+        environment="gymnax CartPole-v1, a port of Gymnasium's CartPole-v1",
+        n_eval_episodes=128,  # purejaxql tests 128 envs
         # purejaxql/config/alg/pqn_cartpole.yaml at 47af6d7, but the length.
         reference_config={
             "TOTAL_TIMESTEPS": 240 * 2048,
@@ -321,10 +444,75 @@ COMPARISONS = {
             "td_loss": "half_squared",
         },
         unmatched=(
-            "optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax",
-            "weight initialisation (lecun_normal vs Ajax's)",
-            "time limits: the reference treats them as terminations",
-            "evaluation: 128 greedy envs over one 500-step window, vs 10 episodes",
+            *PUREJAXQL_UNMATCHED,
+            "evaluation: purejaxql scores the last episode each of its 128 test"
+            " envs ends within one 500-step window, Ajax one episode per env",
+        ),
+    ),
+    "PQN-Asterix": Comparison(
+        renames=PUREJAXQL_RENAMES,
+        agent="PQN",
+        env_id="Asterix-MinAtar",
+        # 300 updates of 128 x 32 steps, tested every 15 (TEST_INTERVAL 0.05).
+        n_timesteps=300 * 4096,
+        eval_every=15 * 4096,
+        solved=float("inf"),  # no threshold: scored by its return only
+        reference="purejaxql",
+        source="purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with"
+        " config/alg/pqn_minatar.yaml but the length. That config is for"
+        " pqn_minatar.py, whose CNN Ajax's CNN encoder cannot build (VALID"
+        " padding, LayerNorm after the convolution); both sides use"
+        " pqn_gymnax.py's MLP on the flattened image instead",
+        environment="gymnax Asterix-MinAtar, a port of MinAtar's Asterix with"
+        " a 1000-step limit and no sticky actions",
+        n_eval_episodes=128,
+        reference_config={
+            "TOTAL_TIMESTEPS": 300 * 4096,
+            "TOTAL_TIMESTEPS_DECAY": 300 * 4096,
+            "NUM_ENVS": 128,
+            "NUM_STEPS": 32,
+            "EPS_START": 1.0,
+            "EPS_FINISH": 0.05,
+            "EPS_DECAY": 0.1,
+            "NUM_MINIBATCHES": 32,
+            "NUM_EPOCHS": 2,
+            "NORM_TYPE": "layer_norm",
+            "LR": 5e-4,
+            "MAX_GRAD_NORM": 10,
+            "LR_LINEAR_DECAY": True,
+            "REW_SCALE": 1.0,  # pqn_gymnax.py's default, written out
+            "GAMMA": 0.99,
+            "LAMBDA": 0.65,
+            "ENV_NAME": "Asterix-MinAtar",
+            "ENV_KWARGS": {},
+            "TEST_DURING_TRAINING": True,
+            "TEST_INTERVAL": 0.05,
+            "TEST_NUM_ENVS": 128,
+            "EPS_TEST": 0.0,
+            "WANDB_MODE": "disabled",
+        },
+        matched={
+            "n_envs": 128,
+            "n_steps": 32,
+            "num_minibatches": 32,
+            "n_epochs": 2,
+            "learning_rate": 5e-4,
+            # pqn_gymnax.py's defaults: two 128-wide LayerNorm ReLU layers.
+            "architecture": ("128", "relu", "128", "relu"),
+            "gamma": 0.99,
+            "q_lambda": 0.65,
+            "epsilon_start": 1.0,
+            "epsilon_end": 0.05,
+            "reward_scale": 1.0,
+            "epsilon_decay_frac": 0.1,
+            "max_grad_norm": 10.0,
+            "lr_decay": ("linear", 1e-20, 300 * 32 * 2),
+            "td_loss": "half_squared",
+        },
+        unmatched=(
+            *PUREJAXQL_UNMATCHED,
+            "evaluation: purejaxql scores the last episode each of its 128 test"
+            " envs ends within one 1000-step window, Ajax one episode per env",
         ),
     ),
     "APG": Comparison(
@@ -335,6 +523,9 @@ COMPARISONS = {
         eval_every=0,
         solved=-200.0,
         reference="brax",
+        source="brax.training.agents.apg, on refcmp_brax.GymnaxAsBrax",
+        environment="gymnax Pendulum-v1 with transition gradients, a port of"
+        " Gymnasium's Pendulum-v1",
         # Brax's APG trainer on gymnax Pendulum (refcmp_jax.GymnaxAsBrax),
         # its defaults apart from the run's size.
         reference_config={

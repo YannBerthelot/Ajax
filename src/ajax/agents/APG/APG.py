@@ -32,7 +32,11 @@ from ajax.environments.differentiable import with_transition_gradients
 from ajax.environments.system_class import SystemClass
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension
-from ajax.networks.memory import MemoryConfig
+from ajax.networks.memory import (
+    MemoryConfig,
+    parse_memory_config,
+    with_default_init,
+)
 from ajax.state import OptimizerConfig
 from ajax.types import EnvType
 
@@ -43,6 +47,13 @@ from ajax.types import EnvType
 # runs, and the deviations of contextual_controller, predate the map of
 # actions onto the env's bounds: the torque was capped at +-1 of +-2.
 _DEFAULT_PID = PIDHeadConfig()
+
+# A transformer memory starts as the contextual controller's reference code
+# starts its GPT: normal(0.02) kernels, the residual projections at
+# 0.02/sqrt(2 n_layer), zero biases (buswayne/in-context-controller @7eb094c,
+# transformer_onestep.py:162-166, :189-195). Its other kinds have no
+# reference and keep flax's.
+APG_MEMORY_INITS = {"transformer": "nanogpt"}
 
 
 class APG(ActorCritic):
@@ -124,6 +135,8 @@ class APG(ActorCritic):
             extensions: composable research features (see
                 :mod:`ajax.extensions`).
         """
+        # Resolved before run_config, so the logged config holds what runs.
+        memory = with_default_init(parse_memory_config(memory), APG_MEMORY_INITS)
         self.config = run_config(locals(), self.name)
 
         # No critic; the actor's optimizer is built below.
@@ -201,8 +214,8 @@ class APG(ActorCritic):
         7eb094ce17: ``transformer_onestep.py:33`` calls ``F.layer_norm``
         with 1e-5, ``:156`` builds ``ln_f = LayerNorm(n_embd,
         bias=config.bias)``, and ``train_onestep_lin_CL.py:103`` defaults
-        ``--bias`` to False).
-        ``final_norm=False`` rebuilds the transformer
+        ``--bias`` to False). The transformer starts as the reference's
+        GPT does (``APG_MEMORY_INITS``). ``final_norm=False`` rebuilds the transformer
         without its final LayerNorm, only to restore a checkpoint saved
         before it (see :class:`~ajax.networks.memory.MemoryConfig`); an
         expand-then-contract shim (CLAUDE.md, refactoring rule 10), it is

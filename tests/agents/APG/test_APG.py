@@ -26,7 +26,7 @@ from ajax.environments.model_reference import (
     StepReference,
 )
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
-from ajax.networks.memory import MemoryConfig
+from ajax.networks.memory import MemoryCell, MemoryConfig, init_carry
 from ajax.wrappers import InitialStateWrapper
 from tests.agents.extension_stubs import CounterExt
 
@@ -180,7 +180,12 @@ def test_contextual_controller_configuration(env_and_class):
         weight_decay=0.01,
     )
     assert agent.network_args.memory == MemoryConfig(
-        kind="transformer", hidden_size=8, num_layers=1, num_heads=2, window=8
+        kind="transformer",
+        hidden_size=8,
+        num_layers=1,
+        num_heads=2,
+        window=8,
+        init="nanogpt",
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
     assert agent.train_kwargs["lr_schedule"] == "warmup_cosine"
@@ -209,7 +214,30 @@ def test_contextual_controller_rebuilds_a_transformer_without_its_final_norm(
         num_heads=2,
         window=8,
         final_norm=False,
+        init="nanogpt",
     )
+
+
+def test_a_transformer_controller_starts_as_the_reference_gpt(env_and_class):
+    """in-context-controller @7eb094c (transformer_onestep.py:162-166,
+    :189-195): normal(0.02) kernels, the residual projections at
+    0.02/sqrt(2 n_layer), zero biases. An explicit init overrides it, and
+    another kind keeps flax's."""
+    env, sc = env_and_class
+    kw = {"n_layers": 2, "n_heads": 2, "d_model": 64, "context": 8}
+    memory = APG.contextual_controller(env, sc, **kw).network_args.memory
+    x, resets = jnp.ones((3, 1, 5)), jnp.zeros((3, 1), bool)
+    carry = init_carry(memory, jax.random.PRNGKey(0), 1)
+    params = MemoryCell(memory).init(jax.random.PRNGKey(0), carry, x, resets)
+    core = params["params"]["core"]
+    for name in ("q_0", "mlp_up_1", "attn_out_0", "mlp_down_1"):
+        residual = name.startswith(("attn_out", "mlp_down"))
+        std = 0.02 / np.sqrt(4) if residual else 0.02
+        assert float(jnp.std(core[name]["kernel"])) == pytest.approx(std, rel=0.15)
+        assert (core[name]["bias"] == 0).all()
+    flax_init = MemoryConfig("transformer", 8, num_heads=2, window=8, init="flax")
+    assert APG(env, memory=flax_init).network_args.memory.init == "flax"
+    assert APG(env, memory=MemoryConfig("gru", 8)).network_args.memory.init is None
 
 
 def test_memory_only_controller_trains(env_and_class):

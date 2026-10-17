@@ -140,6 +140,10 @@ the parameters only, so a resumed training state must restart its optimizer.
   `transformer_onestep.py:33` and `:156`, `train_onestep_lin_CL.py:103`).
   The paper trains each curriculum stage to a loss tolerance; Ajax gives
   each stage a fixed `n_timesteps`.
+- **Initialisation.** A transformer memory starts as the reference's GPT:
+  kernels from N(0, 0.02²), the residual projections at 0.02/√(2 `n_layers`),
+  zero biases (`transformer_onestep.py:162-166`, `:189-195`;
+  `MemoryConfig(init="nanogpt")`). Other memory kinds keep flax's.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
   one's parameters and, by default, restarts the optimizer and its schedule
   at each stage. All stages must share `n_envs`, the network and the PID

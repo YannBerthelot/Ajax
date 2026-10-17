@@ -124,4 +124,9 @@ the steps the whole run does.
       mismatch and still raises;
     - a Brax environment state saved before the observation normaliser kept
       the raw observation: it is rebuilt from the saved observation and
-      statistics.
+      statistics;
+    - a UDRL segment buffer without the environment's own observations
+      (`raw_obs`, kept for a run with an expert), saved before it kept them
+      or by a run without an expert, restored into a run with one: they are
+      rebuilt from the stored observations. A buffer of normalised
+      observations has lost them and is refused.

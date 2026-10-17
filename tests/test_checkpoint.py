@@ -505,3 +505,58 @@ def test_a_checkpoint_with_a_longer_replay_restores(sac_run, tmp_path):
     save_checkpoint(state.replace(collector_state=longer), path)
     restored = restore_into(state, path).collector_state.buffer_state.experience
     assert restored["obs"].shape[2] == 2 * buffer.experience["obs"].shape[2]
+
+
+def _udrl(**kw):
+    from ajax.agents.UDRL.UDRL import UDRL
+
+    net = ("8", "relu")
+    sizes = {"n_envs": 2, "n_steps": 8, "batch_size": 8, "n_updates_per_iter": 1}
+    return UDRL(env_id="Pendulum-v1", actor_architecture=net, **sizes, **kw)
+
+
+@pytest.mark.parametrize("expert", [True, False], ids=["expert", "none"])
+def test_a_udrl_buffer_saved_before_it_kept_raw_observations_restores(tmp_path, expert):
+    """UDRL's segment buffer gained raw_obs, the env's own observations, kept
+    for a run with an expert: a checkpoint written before it restores, the
+    field rebuilt from the env's columns of the stored observations (an
+    expert run could not normalise them then), or empty without an
+    expert."""
+    import pickle
+
+    from ajax.extensions.expert import ImitationLoss
+
+    extensions = (ImitationLoss(lambda obs: obs[..., :1]),) if expert else ()
+    state, _ = _udrl(extensions=extensions).train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    want = saved["buffer"].pop("raw_obs")
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    got = restore_into(state, path).buffer.raw_obs
+    if expert:
+        np.testing.assert_array_equal(got, want)
+    else:
+        assert want is None and got is None
+
+
+def test_a_normalised_udrl_buffer_restores_into_an_expert_run_only_with_its_raw_obs(
+    tmp_path,
+):
+    """A UDRL buffer of normalised observations saved without an expert holds
+    none of the env's own, which an expert reads: refused, saying why, by a
+    run with one."""
+    from ajax.extensions.expert import ImitationLoss
+
+    state, _ = _udrl(normalize_observations=True).train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "plain.pkl")
+    save_checkpoint(state, path)
+    with_expert = _udrl(
+        normalize_observations=True,
+        extensions=(ImitationLoss(lambda obs: obs[..., :1]),),
+    )
+    skeleton, _ = with_expert.train(seed=0, n_timesteps=0)
+    with pytest.raises(ValueError, match="normalised observations"):
+        restore_into(skeleton, path)

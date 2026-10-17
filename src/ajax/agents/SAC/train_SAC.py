@@ -25,12 +25,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import (
-    augment_obs,
-    make_next_expert_fn,
-    reward_statistics,
-    with_expert_state,
-)
+from ajax.environments.interaction import augment_obs, reward_statistics
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
@@ -133,7 +128,7 @@ def init_SAC(
             "expert_state_aug_dim": (
                 expert_state_aug_dim if augment_obs_with_expert_state else 0
             ),
-            "include_expert_fields": expert_policy is not None,
+            "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
             "include_raw_obs": store_expert_data,
             "include_is_expert": store_expert_data,
@@ -157,8 +152,6 @@ def init_SAC(
                 with_train_frac=max_timesteps is not None,
             )
         )
-
-    collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
 
     # A per-env step_in_episode counter for the extensions that read it;
     # left None otherwise, so the collector skips its reset/increment.
@@ -499,7 +492,7 @@ def update_agent(
         # expert of their own (init_SAC's store_raw_next_obs).
         raw_next_observations = batch.raw_next_obs
         # The expert's actions are stored with an expert policy
-        # (init_SAC's include_expert_fields), None without one.
+        # (the collector stores them with an expert), None without one.
         transition = Transition(
             batch.obs,
             batch.action,
@@ -750,6 +743,7 @@ def make_train(
         logging_config,
         stack.extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> SACState:
@@ -851,7 +845,6 @@ def make_train(
         collect_kwargs={
             "buffer": buffer,
             "action_pipeline": action_pipeline,
-            "next_expert_fn": make_next_expert_fn(expert_policy),
             "store_hidden": recurrent and agent_config.stored_state,
         },
         eval_kwargs={

@@ -80,8 +80,10 @@ def init_PPO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
+    expert_policy: Optional[Callable] = None,
 ) -> PPOState:
-    """The initial actor, critic and collector."""
+    """The initial actor, critic and collector (holding ``expert_policy``'s
+    initial state when it is stateful)."""
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     continuous = check_if_environment_has_continuous_actions(
@@ -99,7 +101,9 @@ def init_PPO(
         num_critics=1,
     )
     mode = env_args.mode
-    collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)
+    collector_state = init_collector_state(
+        collector_key, env_args=env_args, mode=mode, expert_policy=expert_policy
+    )
 
     return PPOState(
         rng=rng,

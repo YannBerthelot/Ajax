@@ -23,6 +23,7 @@ class ASACConfig(RecurrentReplayConfig):
 
     target_entropy: float
     tau: float
+    tau_theta: float
     learning_starts: int
     reward_scale: float
     p_0: float

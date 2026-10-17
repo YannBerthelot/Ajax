@@ -45,6 +45,19 @@ def test_temperature_stays_at_alpha_init_by_default():
     np.testing.assert_array_equal(state.alpha.params["log_alpha"], jnp.log(0.2))
 
 
+def test_tau_theta_alone_moves_theta_and_the_penalty():
+    """``tau_theta`` is the rate of the ``theta`` and penalty averages
+    (BobMak/asac @4b68862, darer/ASAC.py:188, :213), apart from ``tau``,
+    the target critics' rate: at 0 both averages stay at 0."""
+    net = ("8", "relu")
+    kw = {"actor_architecture": net, "critic_architecture": net, "batch_size": 4}
+    agent = ASAC("Pendulum-v1", learning_starts=4, tau_theta=0.0, **kw)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    assert not np.any(state.theta) and not np.any(state.episode_termination_penalty)
+    moved = ASAC("Pendulum-v1", learning_starts=4, **kw).train(seed=0, n_timesteps=16)
+    assert np.all(moved[0].theta != 0.0)
+
+
 def test_temperature_and_theta_read_one_sample_of_the_policy(monkeypatch):
     """One sample of the updated policy feeds both the temperature and the
     reward-rate (theta) steps: the actor runs once for the two."""

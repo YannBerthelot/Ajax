@@ -35,18 +35,19 @@ class ASAC(ActorCritic):
         self,
         env_id: str | EnvType,
         n_envs: int = 1,
-        actor_learning_rate: float = 3e-4,
-        critic_learning_rate: float = 3e-4,
-        alpha_learning_rate: float = 3e-4,
+        actor_learning_rate: float = 1e-4,
+        critic_learning_rate: float = 5e-4,
+        alpha_learning_rate: float = 1e-4,
         actor_architecture=("256", "relu", "256", "relu"),
         critic_architecture=("256", "relu", "256", "relu"),
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = None,
+        max_grad_norm: Optional[float] = 10.0,
         weight_decay: float = 0.0,
         buffer_size: int = int(1e6),
         batch_size: int = 256,
         learning_starts: int = int(1e4),
         tau: float = 0.005,
+        tau_theta: float = 0.005,
         reward_scale: float = 1.0,
         alpha_init: float = 0.2,
         fixed_alpha: bool = True,
@@ -77,7 +78,18 @@ class ASAC(ActorCritic):
         """
         Initialize the ASAC agent.
 
+        The learning rates, the gradient clip (each critic and the actor on
+        its own; the temperature unclipped) and ``tau_theta`` are the
+        authors' (BobMak/asac @4b68862: every hparams/*/asac.yaml sets
+        learning_rate 5e-4 for the critics, actor_learning_rate 1e-4 and
+        max_grad_norm 10; darer/ASAC.py:87, :92, :104 for the temperature's
+        1e-4, :228-229 and :249-250 for the clips).
+
         Args:
+            tau_theta (float): Rate of the ``theta`` and penalty averages
+                (darer/ASAC.py:188, :213). The authors tune it per
+                environment, 0.0005 to 0.1; 0.005 is their default
+                (darer/BaseAgent.py:80) and six of their 11 configs'.
             alpha_init (float): The temperature, or its initial value when
                 ``fixed_alpha`` is False.
             fixed_alpha (bool): Keep the temperature at ``alpha_init``. The
@@ -142,6 +154,7 @@ class ASAC(ActorCritic):
         target_entropy = target_entropy_per_dim * action_dim
         self.agent_config: ASACConfig = ASACConfig(
             tau=tau,
+            tau_theta=tau_theta,
             learning_starts=learning_starts,
             target_entropy=target_entropy,
             reward_scale=reward_scale,

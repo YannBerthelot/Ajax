@@ -12,7 +12,12 @@ from flax.serialization import to_state_dict
 
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
-from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
+from ajax.modules.pid_actor import (
+    PID_LOG_STD_INIT,
+    PIDActor,
+    PIDPolicy,
+    check_pid_actor,
+)
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import (
     Carry,
@@ -510,17 +515,16 @@ def get_initialized_actor_critic(
         pass
     elif isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(continuous, memory)
-        # The PID actor's log-std is one learned parameter.
-        check_log_std_head(
-            True, network_config.log_std_init, network_config.log_std_kernel_init
-        )
-        assert network_config.log_std_init is not None  # checked above
+        # The PID actor's log-std is one learned parameter: the agent's
+        # log-std kernel init is for its Dense head and does not apply, and
+        # a start that head's layer would draw (None) is the PID actor's own.
+        log_std_init = network_config.log_std_init
         actor = PIDActor(
             policy=network_config.actor_architecture,
             action_dim=action_dim,
             squash=squash,
             tanh_mean=network_config.tanh_mean,
-            log_std_init=network_config.log_std_init,
+            log_std_init=PID_LOG_STD_INIT if log_std_init is None else log_std_init,
             log_std_bounds=network_config.log_std_bounds,
         )
     else:

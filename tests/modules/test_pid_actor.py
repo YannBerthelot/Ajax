@@ -14,7 +14,13 @@ from ajax.agents.TD3.networks import (
     get_initialized_td3_actor_critic,
 )
 from ajax.evaluate import evaluate
-from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
+from ajax.modules.pid_actor import (
+    PID_LOG_STD_INIT,
+    PIDActor,
+    PIDLaw,
+    PIDPolicy,
+    pid_gains,
+)
 from ajax.networks.distributions import SquashedNormal
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import get_initialized_actor_critic
@@ -142,15 +148,18 @@ def test_bad_policies_raise(kwargs):
         PIDPolicy(**kwargs)
 
 
-def _build(memory=None, td3=False, log_std_bounds=LOG_STD_BOUNDS, tanh_mean=False):
-    """The PID actor and its critic, squashed unless ``tanh_mean``."""
+def _build(
+    memory=None, td3=False, log_std_bounds=LOG_STD_BOUNDS, tanh_mean=False, **net_fields
+):
+    """The PID actor and its critic, squashed unless ``tanh_mean``;
+    ``net_fields`` set more of the network config."""
     env, params = setpoint_env.make()
     env_config = EnvironmentConfig(
         env=env, env_params=params, n_envs=2, continuous=True
     )
     net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=("8",))
     net = net.replace(memory=memory, log_std_bounds=log_std_bounds)
-    net = net.replace(tanh_mean=tanh_mean)
+    net = net.replace(tanh_mean=tanh_mean, **net_fields)
     opt = OptimizerConfig(learning_rate=1e-3)
     if td3:
         return get_initialized_td3_actor_critic(
@@ -194,6 +203,27 @@ def test_the_factory_gives_the_pid_actor_its_tanh_mean():
     params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.5) for g in GAINS})
     dist = actor.apply_fn(params, jnp.ones((3, 5)))
     np.testing.assert_allclose(dist.mean(), jnp.tanh(1.5), rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "log_std_init, log_std_kernel_init, start",
+    [
+        (-0.5, None, -0.5),
+        (0.0, "xavier_uniform", 0.0),  # SAC's and REDQ's Gaussian head
+        (None, "torch_linear", PID_LOG_STD_INIT),  # ASAC's: the head draws it
+    ],
+)
+def test_the_pid_actor_starts_its_log_std_whatever_head_the_agent_sets(
+    log_std_init, log_std_kernel_init, start
+):
+    """An agent's log-std head settings are for its Gaussian MLP actor: a
+    PID actor in its place ignores the kernel init and starts its one
+    parameter at log_std_init, or at its own default when the head's layer
+    would have drawn it."""
+    actor, _ = _build(
+        log_std_init=log_std_init, log_std_kernel_init=log_std_kernel_init
+    )
+    np.testing.assert_allclose(actor.params["params"]["log_std"], start)
 
 
 @pytest.mark.parametrize("td3", [False, True])

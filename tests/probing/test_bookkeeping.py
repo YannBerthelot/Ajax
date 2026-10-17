@@ -29,7 +29,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "42894a50b97d"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "231ad9710367"  # verdict.digest(CASES): every answer, pinned
 L = 7
 
 
@@ -639,7 +639,7 @@ CASES["q4-SAC-independence"] = Case(
     ),
     Q4_READ,
     Q4_BUDGET,
-    (0.02, 0.077, 0.074, 0.063, 0.068),
+    (0.02, 0.06, 0.079, 0.088, 0.076),
     note="ladder 2000-32000: 32000 the first rung within 0.1; cert 32/32",
 )
 

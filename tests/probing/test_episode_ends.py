@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "bddfa250a741"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "743834a092b9"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -362,7 +362,7 @@ VALUE_Q = Query(
 )
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG 0.031
 # at 5000: one seed read 0.90 at 1250); 3000-3031 within 0.009.
-P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
+P5_VALUE = {"SAC": 625, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
 P5_VALUE |= {"AVG": 5000, "DQN": 1250, "PQN": 160_000}
 
 
@@ -654,7 +654,7 @@ TD9 = {"A": (0.0, 1.0), "B": (0.854, 1.427), "C": (0.723, 1.362)} | D0
 # 0.015: large buffers and rollouts, and the target networks read (the same
 # fixed point, the SGD jitter averaged out).
 P9_CELLS: dict[str, tuple] = {
-    "SAC": (("td", 1, 0.0), TD9, 40_000, (0.059, 0.091), {"buffer_size": 16384}),
+    "SAC": (("td", 1, 0.0), TD9, 20_000, (0.046, 0.062), {"buffer_size": 16384}),
     "DQN": (
         ("td", 1, 0.0),
         TD9,

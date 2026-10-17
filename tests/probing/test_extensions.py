@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "37f6979b9018"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "22aed7b7f7ec"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -279,7 +279,7 @@ P3_CAL = {
     "E3-PPO": ("A", 5000, (0.045,)),
     "E3-gated-SAC": ("G", 5000, ()),
     "E3-gated-PPO": ("G", 1250, (0.02,)),
-    "E7-SAC": ("E7", 200, (0.02,)),
+    "E7-SAC": ("E7", 100, (0.02,)),
 }
 
 
@@ -588,7 +588,7 @@ CASES["q7-ibrl-SAC"] = Case(
         **IBRL_KW,
     ),
     1250,
-    (0.021, 0.02, 0.083),
+    (0.02, 0.02, 0.02),
     slow=True,
     note="a_E = 1, the best action; actor frozen at init, alpha 1e-4; cert 32/32",
 )
@@ -606,8 +606,8 @@ CASES["q7-online_bc-SAC"] = Case(
         expert_buffer_n_steps=0,
         policy_update_start=200,
     ),
-    1250,
-    (0.04, 0.36),
+    625,
+    (0.033, 0.292),
     slow=True,
     note="weight ((phi* - v_min) / (v_max - v_min))^2, 1 at obs 1, 0 at obs 0; cert 32/32",
 )

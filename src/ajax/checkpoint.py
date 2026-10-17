@@ -64,6 +64,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     _check_param_shapes(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
+    state_dict = _without_own_gradient_clip(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     return jax.tree.map(
@@ -125,6 +126,47 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
         elif value is None:
             out[key] = None
     return out
+
+
+def _without_own_gradient_clip(skeleton: Any, saved: Any) -> Any:
+    """Give an optimiser state saved when its optimiser clipped the
+    gradient first (``get_adam_tx``'s ``max_grad_norm``: a chain whose clip
+    holds an empty state) the layout of the unclipped optimiser restoring
+    it. The clip holds no data, so every moment and step count is kept.
+    APO's networks clipped their own gradients until APO took its reference
+    code's one clip over both (``train_APO.update_networks``).
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
+    ``_with_replay_next_obs``.
+    """
+    if not isinstance(skeleton, dict) or not isinstance(saved, dict):
+        return saved
+    out = dict(saved)
+    for key, value in skeleton.items():
+        if key not in out:
+            continue
+        old = out[key]
+        if key == "opt_state" and _behind_a_clip(value, old):
+            out[key] = old["1"]
+        else:
+            out[key] = _without_own_gradient_clip(value, old)
+    return out
+
+
+def _behind_a_clip(new: Any, old: Any) -> bool:
+    """Whether ``old`` is ``new``'s layout chained after a clip's empty
+    state."""
+    if not isinstance(old, dict) or old.keys() != {"0", "1"}:
+        return False
+    empty = isinstance(old["0"], dict) and not old["0"]
+    return empty and _same_keys(new, old["1"])
+
+
+def _same_keys(a: Any, b: Any) -> bool:
+    """Whether two state dicts nest the same keys."""
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return not isinstance(a, dict) and not isinstance(b, dict)
+    return a.keys() == b.keys() and all(_same_keys(a[k], b[k]) for k in a)
 
 
 def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:

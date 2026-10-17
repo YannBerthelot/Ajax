@@ -124,4 +124,9 @@ the steps the whole run does.
       mismatch and still raises;
     - a Brax environment state saved before the observation normaliser kept
       the raw observation: it is rebuilt from the saved observation and
-      statistics.
+      statistics;
+    - an optimiser state saved when that optimiser clipped its network's
+      gradient (`max_grad_norm`), as APO's two did before APO took its
+      official code's one clip over both networks, into an optimiser without
+      the clip: the clip holds no data, so the moments and step counts are
+      kept.

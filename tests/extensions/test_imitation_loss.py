@@ -171,19 +171,19 @@ def _apo_update(stack: ExtensionStack) -> Any:
     )
     state = _ext_state(state, stack)
     obs = _obs(agent)
-    state, _ = train_APO.update_policy(
-        state,
-        obs,
-        actions=jnp.zeros((BATCH, 1)),
-        gae=jnp.ones((BATCH, 1)),
-        log_probs=jnp.zeros((BATCH, 1)),
-        clip_coef=0.2,
-        ent_coef=0.0,
-        extension_stack=stack,
-        total_timesteps=1,
-        extension_key=KEY,
-        raw_observations=obs,
-        entropy_key=KEY,  # a squashed policy's entropy is estimated by sampling
+    minibatch = {
+        "obs": obs,
+        "raw_obs": obs,
+        "actions": jnp.zeros((BATCH, 1)),
+        "raw_actions": None,
+        "gae": jnp.ones((BATCH, 1)),
+        "log_probs": jnp.zeros((BATCH, 1)),
+        "targets": jnp.zeros((BATCH, 1)),
+        "entropy_key": KEY,
+        "extension_key": KEY,
+    }
+    state, _ = train_APO.update_networks(
+        state, minibatch, agent.agent_config, jnp.float32(0.0), stack, 1
     )
     return state.actor_state.params
 

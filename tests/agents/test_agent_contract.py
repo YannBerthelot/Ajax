@@ -509,21 +509,24 @@ def test_every_src_agent_is_in_actor_critics() -> None:
 
 
 #: Each agent's gradient clip (its option, its default). PPO clips at its
-#: paper's global norm 0.5 and APO, built on PPO, keeps it; the other
-#: references do not clip, and PPO's 0.5 copied onto them once froze SAC's
-#: temperature (6b2d529). APG's 1.0 is a recorded deviation (APG.py); the
-#: world models clip as their papers do.
+#: paper's global norm 0.5, and APO at its official code's 10, over both
+#: networks at once (JOINT); the other references do not clip, and PPO's 0.5
+#: copied onto them once froze SAC's temperature (6b2d529). APG's 1.0 is a
+#: recorded deviation (APG.py); the world models clip as their papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
     **dict.fromkeys(
         "ASAC AVG DQN PQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
     ),
-    "APO": ("max_grad_norm", 0.5),
+    "APO": ("max_grad_norm", 10.0),
     "PPO": ("max_grad_norm", 0.5),
     "APG": ("max_grad_norm", 1.0),
     "DreamerV3": ("agc", 0.3),
     "TDMPC2": ("grad_clip_norm", 20.0),
     "TDMPC2MultiTask": ("grad_clip_norm", 20.0),
 }
+#: The agents whose clip is over the actor's and the critic's gradients at
+#: once: their config holds it, and neither network's optimizer clips.
+JOINT = {"APO"}
 
 
 @pytest.mark.parametrize(
@@ -550,11 +553,14 @@ def test_an_agent_refuses_log_std_bounds_out_of_order(
 @pytest.mark.parametrize("name", ajax.__all__)
 def test_an_agent_clips_its_gradients_as_its_paper_does(name: str) -> None:
     """A new agent needs its row in CLIPS. The table's agents carry the
-    default to both optimizers."""
+    default to both optimizers, or to their config (JOINT)."""
     option, default = CLIPS[name]
     cls = getattr(ajax, name)
     assert inspect.signature(cls).parameters[option].default == default
     if name in CASES:
         agent = cls(env_id=CASES[name].envs[0])
+        own = None if name in JOINT else default
         for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
-            assert args.max_grad_norm == default
+            assert args.max_grad_norm == own
+        if name in JOINT:
+            assert getattr(agent.agent_config, option) == default

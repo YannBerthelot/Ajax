@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "3e4fa39e63ca"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "6ac50dd85b7d"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -79,6 +79,9 @@ P0B = (
 )
 
 
+ON_POLICY = ("PPO", "APO")  # their state-value critics read the observations
+
+
 def _q_input(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
     """A recurrent Q-critic's input over (T, B) steps that took ``a``."""
     return action_value_input(obs, a, previous_actions(a, starts))
@@ -87,7 +90,7 @@ def _q_input(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
 def _p0b_read(agent: str) -> Callable:
     def read(n: R.Nets) -> dict:
         a = jnp.clip(R.step_actor(n, CUE_OBS, STARTS), -1.0, 1.0)
-        x = CUE_OBS if agent == "PPO" else _q_input(CUE_OBS, a, STARTS)
+        x = CUE_OBS if agent in ON_POLICY else _q_input(CUE_OBS, a, STARTS)
         a, v = a[-1, :, 0], R.critic_sequence(n, x, STARTS)[-1]
         out = dict(zip([q.name for q in P0B[1:5]], v, strict=True))
         return out | {P0B[0].name: a[0] - a[1], P0B[5].name: a[2] - a[3]}
@@ -97,7 +100,7 @@ def _p0b_read(agent: str) -> Callable:
 
 def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) -> Any:
     """32 units; replay batches of 4 windows of 25 steps (64 trained positions)."""
-    kw = ({} if agent == "PPO" else {"batch_size": 4}) | kw
+    kw = ({} if agent in ON_POLICY else {"batch_size": 4}) | kw
     if agent == "SAC":  # actor and temperature updates start with the critic's
         kw |= {"policy_update_start": 100, "alpha_update_start": 100}
     if agent == "REDQ":
@@ -132,6 +135,31 @@ for (agent, kind), (budget, tol) in P0B_CELLS.items():
     build = functools.partial(_p0b_agent, agent, kind=kind)
     reads = runs.readings(build, _p0b_read(agent))
     CASES[cid] = Case(cid, P0B, reads, budget, tol, slow=agent != "PPO")
+
+
+# APO's critic learns a differential value, defined up to a constant (the
+# reward rate, 2/9 here, and the value bias nu*b shift every state alike): at
+# an episode's last step V(c) - V(none | c) = 1 whatever they are, and 0
+# without memory or with a carry not restarted. Ladder 5000-30,000 (the value
+# gaps settle last), certified 32/32 on 3000-3031; gru alone, as SAC's.
+GAPS = [f"V({c}) - V(none | {c})" for c in ("+1", "-1")]
+P0B_GAPS = (
+    P0B[0],
+    *(Query(g, 1.0, {NO_MEMORY: 0.0}, margin=True) for g in GAPS),
+    P0B[5],
+)
+
+
+def _gaps_read(run: Any) -> dict:
+    r = _p0b_read("APO")(run)
+    gaps = {g: r[g.split(" - ")[0]] - r[g.split(" - ")[1]] for g in GAPS}
+    return {q.name: gaps.get(q.name, r.get(q.name)) for q in P0B_GAPS}
+
+
+_reads = runs.readings(functools.partial(_p0b_agent, "APO"), _gaps_read)
+CASES["p0b-APO-gru"] = Case(
+    "p0b-APO-gru", P0B_GAPS, _reads, 15_000, (0.472, 0.298, 0.296, 0.02), slow=True
+)
 
 
 def test_p0b_env_pays_the_cue_at_the_last_step() -> None:

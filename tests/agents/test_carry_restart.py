@@ -43,6 +43,18 @@ AGENTS: dict[str, tuple[dict[str, Any], int]] = {
         },
         32,
     ),
+    "APO": (
+        {
+            "actor_architecture": NET,
+            "critic_architecture": NET,
+            "n_steps": 8,
+            "batch_size": 16,  # one minibatch: the whole rollout
+            "n_epochs": 1,
+            "actor_learning_rate": 0.0,
+            "critic_learning_rate": 0.0,
+        },
+        32,
+    ),
     "SAC": (OFF_POLICY, 32),
     "ASAC": (OFF_POLICY, 32),
     "REDQ": (

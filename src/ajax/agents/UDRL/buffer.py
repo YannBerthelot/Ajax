@@ -134,14 +134,7 @@ def sample_training_batch(
 
     Returns (obs_with_cmd, action), each with leading axis ``batch_size``.
     """
-    T, n_envs = buffer.obs.shape[1], buffer.obs.shape[2]
-    k_env, k_t1, k_t2 = jax.random.split(rng, 3)
-    env = jax.random.randint(k_env, (batch_size,), 0, n_envs)
-    t1 = jax.random.randint(k_t1, (batch_size,), 0, stream.length)
-    span = stream.last[t1, env] - t1 + 1  # >= 1
-    t2 = t1 + 1 + jax.random.randint(k_t2, (batch_size,), 0, span)
-
-    slot, t = stream.order[t1 // T], t1 % T
+    slot, t, env, t1, t2 = _draw_rows(rng, buffer, stream, batch_size)
     reward = buffer.rewards[slot, t, env, 0]
     dr = stream.returns[t2 - 1, env] - stream.returns[t1, env] + reward
     dh = (t2 - t1).astype(jnp.float32)
@@ -153,6 +146,20 @@ def sample_training_batch(
     new_cmd = jnp.stack([dr, dh], axis=-1)
     state = jnp.concatenate([state_no_cmd, new_cmd], axis=-1)
     return state, action
+
+
+def _draw_rows(
+    rng: jax.Array, buffer: SegmentBuffer, stream: EpisodeStream, batch_size: int
+) -> Tuple[jnp.ndarray, ...]:
+    """The (slot, t, env) rows of :func:`sample_training_batch` and their
+    interval's (t1, t2) on the stream."""
+    T, n_envs = buffer.obs.shape[1], buffer.obs.shape[2]
+    k_env, k_t1, k_t2 = jax.random.split(rng, 3)
+    env = jax.random.randint(k_env, (batch_size,), 0, n_envs)
+    t1 = jax.random.randint(k_t1, (batch_size,), 0, stream.length)
+    span = stream.last[t1, env] - t1 + 1  # >= 1
+    t2 = t1 + 1 + jax.random.randint(k_t2, (batch_size,), 0, span)
+    return stream.order[t1 // T], t1 % T, env, t1, t2
 
 
 @struct.dataclass

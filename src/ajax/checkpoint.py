@@ -147,6 +147,16 @@ def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
     return {**state_dict, "collector_state": collector}
 
 
+def _saved_obs_normalised(saved_agent: dict) -> bool:
+    """Whether a saved agent state's environment normalised observations:
+    its state holds their statistics."""
+    env = (saved_agent.get("collector_state") or {}).get("_env_state") or {}
+    stats = env.get("normalization_info") or env.get("info", {}).get(
+        "normalization_info"
+    )
+    return bool(stats) and stats.get("obs") is not None
+
+
 def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
     """Give a checkpoint saved before a field was added the fields its
     skeleton holds empty (None), at any depth: ``Transition.raw_next_obs``
@@ -289,11 +299,7 @@ def _check_raw_replay(skeleton: Any, saved: dict, saved_format: int) -> None:
     collector = getattr(agent, "collector_state", None)
     if collector is None or collector.buffer_state is None:
         return
-    env = (saved_agent.get("collector_state") or {}).get("_env_state") or {}
-    stats = env.get("normalization_info") or env.get("info", {}).get(
-        "normalization_info"
-    )
-    obs_normalised = bool(stats) and stats.get("obs") is not None
+    obs_normalised = _saved_obs_normalised(saved_agent)
     if obs_normalised or reward_statistics(collector.env_state) is not None:
         raise ValueError(
             "This checkpoint was saved before a replay agent kept the"

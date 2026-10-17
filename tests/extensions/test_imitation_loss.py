@@ -75,6 +75,26 @@ def test_agent_without_policy_mean_raises() -> None:
         ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX)
 
 
+PI = jnp.array([[-0.5], [0.0], [0.89], [0.9], [0.91], [1.0]])
+
+
+def test_the_agents_own_expert_is_read_as_the_agent_stored_it() -> None:
+    """Bound to an agent holding the same expert, the term reads the stored
+    actions (SAC's ``a_expert``, from the expert's state); another expert is
+    called."""
+    obs = jnp.zeros((PI.shape[0], 3))
+    batch = {
+        "pi_mean": PI,
+        "raw_observations": obs,
+        "a_expert": jnp.full_like(PI, -0.2),
+    }
+    own = ImitationLoss(expert_policy=EXPERT).bind_to_agent(expert_policy=EXPERT)
+    want = np.mean((np.asarray(PI) + 0.2) ** 2) / 4.0
+    np.testing.assert_allclose(float(own.actor_loss(None, (), batch, CTX)), want)
+    other = ImitationLoss(expert_policy=ConstantExpert(0.9))
+    assert not other.bind_to_agent(expert_policy=EXPERT).reads_stored_expert
+
+
 def _ext_state(state: Any, stack: ExtensionStack) -> Any:
     """What make_train does before training: one ext_state per extension."""
     return stack.fold_init_states(state, KEY)

@@ -346,14 +346,14 @@ def policy_loss_function(
     q_min = jnp.min(q_preds, axis=0)
     loss_actor = alpha * log_probs - q_min
 
-    # 3. The actor-loss extensions' terms, which get the expert action
-    # (OnlineBC's BC target) once phi* exists.
-    needs_bc = (
+    # 3. The actor-loss extensions' terms, which get the expert's action as
+    # collection stored it, from the expert's tracked state (the clone
+    # target of OnlineBC and ImitationLoss).
+    needs_expert = (
         "actor_loss" in extension_stack.implemented_phases()
         and expert_policy is not None
-        and agent_state.expert_critic_params is not None
     )
-    if needs_bc:
+    if needs_expert:
         assert expert_policy is not None
         a_expert = (
             a_expert_precomputed

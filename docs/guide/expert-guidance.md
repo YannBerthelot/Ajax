@@ -87,10 +87,10 @@ Extensions that call an expert themselves, on the observations of a replay
 batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
 expert state exists. A stateful expert is allowed there in one case only:
-when it is SAC's own `expert_policy` (the same object) and the extension is
-one of the last four. They then read the expert's actions SAC stored at
-collection, computed from its tracked state, instead of calling it. Any
-other stateful expert is refused when the agent is built.
+when it is SAC's own `expert_policy` (the same object). They then read the
+expert's actions SAC stored at collection, computed from its tracked state,
+instead of calling it. Any other stateful expert is refused when the agent
+is built.
 
 ## Which agents take an expert
 
@@ -282,8 +282,9 @@ built, or when training starts for those that take context from it:
 The extensions that hold an expert themselves (`CloningPretrain`,
 `MCPretrain`, `PhiRefresh`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `ImitationLoss`) take it as their first argument. Pass the same object you
-give the agent. The target extensions and `PhiRefresh` then read the
-actions SAC stored at collection rather than calling the expert again.
+give the agent. The target extensions, `PhiRefresh` and `ImitationLoss`
+then read the actions SAC stored at collection rather than calling the
+expert again.
 `CloningPretrain` must have it when SAC's observations carry the expert's
 action or state, and `MCPretrain` when they carry its state; they are
 refused otherwise.

@@ -436,3 +436,20 @@ def test_a_checkpoint_of_another_shape_is_refused(sac_run, tmp_path):
     )
     with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params"):
         restore_into(state, path)
+
+
+def test_a_checkpoint_with_a_longer_replay_restores(sac_run, tmp_path):
+    """A replay outgrows its skeleton legitimately (the world models size
+    theirs to the run, which a resumed run's skeleton does not cover yet):
+    only the networks and optimizer states must fit."""
+    state = sac_run.out[0]
+    buffer = state.collector_state.buffer_state
+    rows = {
+        k: np.concatenate([v, v], axis=2) if np.ndim(v) > 2 else v
+        for k, v in buffer.experience.items()
+    }
+    longer = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
+    path = str(tmp_path / "longer.pkl")
+    save_checkpoint(state.replace(collector_state=longer), path)
+    restored = restore_into(state, path).collector_state.buffer_state.experience
+    assert restored["obs"].shape[2] == 2 * buffer.experience["obs"].shape[2]

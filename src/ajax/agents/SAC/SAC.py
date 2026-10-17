@@ -5,7 +5,7 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
-from ajax.agents.recurrent import make_replay_buffer
+from ajax.agents.recurrent import NI_MEMORY_INITS, NI_NETWORK_INIT, make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
@@ -15,7 +15,7 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.networks.memory import MemoryConfig
+from ajax.networks.memory import MemoryConfig, parse_memory_config, with_default_init
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -137,6 +137,8 @@ class SAC(ActorCritic):
         episode_length: Optional[int] = None,
         action_repeat: int = 1,
     ) -> None:
+        # Resolved before run_config, so the logged config holds what runs.
+        memory = with_default_init(parse_memory_config(memory), NI_MEMORY_INITS)
         self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.
@@ -151,11 +153,9 @@ class SAC(ActorCritic):
         # default at tensorflow 2.4.1, its requirements'). Both draw the
         # mean and the log-std from one output layer; here each head
         # takes Glorot's bound for its own width.
-        # Recurrent SAC (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its reference (pomdp-baselines), is audited: at
-        # the feedforward reference's, its memory cells' actors read 25-28/32.
+        # Recurrent SAC starts as Ni et al.'s (NI_NETWORK_INIT).
         reference_init: dict[str, Any] = (
-            {}
+            NI_NETWORK_INIT
             if memory is not None
             else {
                 "encoder_kernel_init": "xavier_uniform",

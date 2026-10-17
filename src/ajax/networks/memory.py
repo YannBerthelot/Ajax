@@ -39,7 +39,7 @@ pre-norm stacks do; the GRU and LSTM outputs are the cells' own.
 
 import functools
 from dataclasses import dataclass
-from math import prod
+from math import prod, sqrt
 from typing import Any, Optional, Union
 
 import flax.linen as nn
@@ -53,6 +53,14 @@ _RNN_CELL_CLASSES = {
     "lstm": nn.OptimizedLSTMCell,
 }
 MEMORY_KINDS = ("gru", "lstm", "transformer", "mamba")
+# The initialisations each kind can start from (MemoryConfig.init).
+MEMORY_INITS = {
+    "gru": ("flax", "stacked_orthogonal"),
+    "lstm": ("flax", "stacked_orthogonal"),
+    "transformer": ("flax", "gpt2", "nanogpt"),
+    "mamba": ("flax", "mamba"),
+}
+_GATES = {"gru": 3, "lstm": 4}
 
 
 @dataclass(frozen=True)
@@ -83,11 +91,21 @@ class MemoryConfig:
     # a checkpoint saved then (ajax.checkpoint names it); to be removed once
     # none remains (CLAUDE.md, refactoring rule 10: expand, then contract).
     final_norm: bool = True
+    # The block's initialisation, one of MEMORY_INITS[kind]; None is "flax",
+    # flax's defaults: lecun_normal kernels, orthogonal recurrent kernels
+    # per gate, zero biases, and mamba's step-size bias -3. The others are
+    # references' (gate_block_orthogonal, _dense_init, _dt_bias_init).
+    init: Optional[str] = None
 
     def __post_init__(self):
         if self.kind not in MEMORY_KINDS:
             raise ValueError(
                 f"Unknown memory kind '{self.kind}', expected one of {MEMORY_KINDS}"
+            )
+        if self.init is not None and self.init not in MEMORY_INITS[self.kind]:
+            raise ValueError(
+                f"init {self.init!r} does not apply to kind {self.kind!r},"
+                f" expected one of {MEMORY_INITS[self.kind]}"
             )
         if self.hidden_size <= 0:
             raise ValueError(f"hidden_size must be positive, got {self.hidden_size}")
@@ -229,6 +247,59 @@ def tree_where_reset(resets: jax.Array, fresh: Any, tree: Any) -> Any:
     return jax.tree.map(select, fresh, tree)
 
 
+def gate_block_orthogonal(n_gates: int) -> nn.initializers.Initializer:
+    """One gate's kernel as torch's ``nn.init.orthogonal_`` leaves it on a
+    GRU's or LSTM's stacked ``(n_gates * H, fan_in)`` weight: a ``(fan_in,
+    H)`` block of a random orthogonal ``(fan_in, n_gates * H)`` matrix, of
+    std 1/sqrt(max(n_gates * H, fan_in)). Ni et al. start every GRU and LSTM
+    weight so, with zero biases (pomdp-baselines @e7c19c3
+    policies/models/recurrent_actor.py:70-74, recurrent_critic.py:64-68;
+    Memory-RL @c9b8b39 policies/seq_models/rnn_vanilla.py:23-31), where
+    flax's per-gate kernels have std 1/sqrt(fan_in) (lecun_normal) and
+    1/sqrt(H) (orthogonal). Each gate draws its own matrix, so the gates
+    are independent, where torch's are jointly orthogonal."""
+    orthogonal = nn.initializers.orthogonal()
+
+    def init(key: jax.Array, shape: Any, dtype: Any = jnp.float32) -> jax.Array:
+        fan_in, features = shape
+        return orthogonal(key, (fan_in, n_gates * features), dtype)[:, :features]
+
+    return init
+
+
+def _dense_init(config: MemoryConfig, residual: bool = False) -> Any:
+    """A transformer Dense layer's kernel init. "gpt2": normal(0.02) on every
+    layer, as Memory-RL's GPT-2 (@c9b8b39
+    policies/seq_models/trajectory_gpt2.py:378-389, transformers'
+    _init_weights). "nanogpt": the same with the ``residual`` projections
+    (attn_out, mlp_down) at 0.02/sqrt(2 num_layers), GPT-2's scaling as
+    in-context-controller @7eb094c has it (transformer_onestep.py:162-166,
+    :189-195). "flax": nn.Dense's default."""
+    if config.init == "nanogpt" and residual:
+        return nn.initializers.normal(0.02 / sqrt(2 * config.num_layers))
+    if config.init in ("gpt2", "nanogpt"):
+        return nn.initializers.normal(0.02)
+    return nn.initializers.lecun_normal()
+
+
+def _dt_bias_init(config: MemoryConfig) -> Any:
+    """Mamba's step-size bias. "mamba": softplus(bias) = dt, log-uniform in
+    [1e-3, 0.1] per channel, as Mamba's mamba_simple.py draws it (copied in
+    decision-mamba @35f9944 gym/models/layers.py:88-92, :148-153; the
+    original is not on disk; its 1e-4 floor never binds at these bounds).
+    Its dt_proj kernel bound, dt_rank^-0.5, is a low-rank projection's,
+    which this dt_proj is not, so the kernel keeps lecun_normal. "flax": a
+    constant -3, softplus 0.049."""
+    if config.init != "mamba":
+        return nn.initializers.constant(-3.0)
+
+    def init(key: jax.Array, shape: Any, dtype: Any = jnp.float32) -> jax.Array:
+        dt = jnp.exp(jax.random.uniform(key, shape, dtype, jnp.log(1e-3), jnp.log(0.1)))
+        return dt + jnp.log(-jnp.expm1(-dt))  # softplus^-1(dt)
+
+    return init
+
+
 def _segment_ids(resets: jax.Array) -> jax.Array:
     """Episode segment ids along time: seg[t] counts the resets at or
     before t, so seg==0 means 'still the episode the carry belongs to'."""
@@ -255,6 +326,10 @@ class _RecurrentCore(nn.Module):
         cell_cls = _RNN_CELL_CLASSES[self.config.kind]
         if self.config.gradient_checkpoint:
             cell_cls = nn.remat(cell_cls)
+        inits = {}
+        if self.config.init == "stacked_orthogonal":
+            block = gate_block_orthogonal(_GATES[self.config.kind])
+            inits = {"kernel_init": block, "recurrent_kernel_init": block}
 
         new_carry = []
         hidden = x
@@ -262,6 +337,7 @@ class _RecurrentCore(nn.Module):
             cell = cell_cls(
                 features=self.config.hidden_size,
                 name=f"{self.config.kind}_{layer}",
+                **inits,
             )
             layer_carry, hidden = cell(carry[layer], hidden)
             new_carry.append(layer_carry)
@@ -309,7 +385,8 @@ class _TransformerCore(nn.Module):
         seg = _segment_ids(resets)  # (T, B)
         seg_bt = jnp.swapaxes(seg, 0, 1)  # (B, T)
 
-        hidden = nn.Dense(H, name="embed")(x)  # (T, B, H)
+        dense = functools.partial(nn.Dense, kernel_init=_dense_init(cfg))
+        hidden = dense(H, name="embed")(x)  # (T, B, H)
 
         # Query position t / key position p masks, key stream = cache ++ chunk.
         t_idx = jnp.arange(T)
@@ -331,9 +408,9 @@ class _TransformerCore(nn.Module):
             stream = jnp.concatenate([cache, h_bt], axis=1)  # (B, C+T, H)
 
             normed = nn.LayerNorm(name=f"ln_attn_{layer}")(stream)
-            q = nn.Dense(H, name=f"q_{layer}")(normed[:, cache_len:])
-            k = nn.Dense(H, name=f"k_{layer}")(normed)
-            v = nn.Dense(H, name=f"v_{layer}")(normed)
+            q = dense(H, name=f"q_{layer}")(normed[:, cache_len:])
+            k = dense(H, name=f"k_{layer}")(normed)
+            v = dense(H, name=f"v_{layer}")(normed)
             q = q.reshape(B, T, n_heads, head_dim)
             k = k.reshape(B, cache_len + T, n_heads, head_dim)
             v = v.reshape(B, cache_len + T, n_heads, head_dim)
@@ -357,11 +434,16 @@ class _TransformerCore(nn.Module):
             # a query always attends at least itself, so no all-masked rows
             attn = jax.nn.softmax(logits, axis=-1)
             out = jnp.einsum("bhqk,bkhd->bqhd", attn, v).reshape(B, T, H)
-            h_bt = h_bt + nn.Dense(H, name=f"attn_out_{layer}")(out)
+            residual = _dense_init(cfg, residual=True)
+            h_bt = h_bt + nn.Dense(H, kernel_init=residual, name=f"attn_out_{layer}")(
+                out
+            )
 
             mlp_in = nn.LayerNorm(name=f"ln_mlp_{layer}")(h_bt)
-            mlp = nn.Dense(2 * H, name=f"mlp_up_{layer}")(mlp_in)
-            mlp = nn.Dense(H, name=f"mlp_down_{layer}")(nn.gelu(mlp))
+            mlp = dense(2 * H, name=f"mlp_up_{layer}")(mlp_in)
+            mlp = nn.Dense(H, kernel_init=residual, name=f"mlp_down_{layer}")(
+                nn.gelu(mlp)
+            )
             h_bt = h_bt + mlp
 
             # New cache: last C entries of the input stream, valid only if
@@ -466,9 +548,9 @@ class _MambaCore(nn.Module):
                 nn.Dense(
                     d_inner,
                     name=f"dt_proj_{layer}",
-                    bias_init=nn.initializers.constant(-3.0),
+                    bias_init=_dt_bias_init(cfg),
                 )(u)
-            )  # (T, B, d_inner); softplus(-3) ≈ 0.049 initial step size
+            )  # (T, B, d_inner)
             B_mat = nn.Dense(d_state, name=f"B_proj_{layer}")(u)  # (T, B, N)
             C_mat = nn.Dense(d_state, name=f"C_proj_{layer}")(u)  # (T, B, N)
 

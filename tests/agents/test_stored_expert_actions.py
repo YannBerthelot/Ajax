@@ -16,6 +16,7 @@ import pytest
 from ajax import SAC
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.AVG.AVG import AVG
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.TD3.TD3 import TD3
 from ajax.extensions.base import Extension
@@ -86,11 +87,15 @@ AGENTS: dict[str, tuple[type, dict]] = {
     "TD3": (TD3, REPLAY),
     "REDQ": (REDQ, REPLAY),
     "ASAC": (ASAC, REPLAY),
+    "AVG": (AVG, {"learning_starts": 16}),
     "APO": (
         APO,
         {"n_steps": 16, "batch_size": 8, "n_epochs": 1, "expose_recent_rollout": True},
     ),
 }
+#: The agents keeping a trajectory to re-run: AVG keeps only the step it
+#: updates on.
+TRAJECTORY_AGENTS = sorted(set(AGENTS) - {"AVG"})
 FIELDS = ("raw_obs", "next_obs", "terminated", "truncated", "a_expert", "next_a_expert")
 
 
@@ -128,7 +133,7 @@ def stored_rows(agent: str, state: Any) -> dict:
     return {k: np.asarray(experience[k])[0][:, : 64 // 2] for k in FIELDS}
 
 
-@pytest.mark.parametrize("agent", sorted(AGENTS))
+@pytest.mark.parametrize("agent", TRAJECTORY_AGENTS)
 def test_stored_expert_actions_are_a_sequential_pid_rerun(agent: str) -> None:
     rows = stored_rows(agent, train(agent, PID()))
     n_written = rows["raw_obs"].shape[1]
@@ -191,11 +196,11 @@ class TargetBatchRecorder(Extension):
         return target
 
 
-@pytest.mark.parametrize("agent", ["SAC", "TD3", "REDQ"])
+@pytest.mark.parametrize("agent", ["SAC", "TD3", "REDQ", "AVG"])
 def test_the_target_reads_the_stored_expert_actions_at_the_next_state(
     agent: str,
 ) -> None:
-    """Each replay target batch holds the raw s' and, there, the integrating
+    """Each target batch (a replay batch; AVG: its step) holds the raw s' and, there, the integrating
     expert's action from its state after the call at s, A(s'); IBRL holding
     the same expert, callable only with its state, reads them instead of
     calling it."""

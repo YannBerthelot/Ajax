@@ -1,8 +1,8 @@
 """The ImitationLoss extension: its term, its Q-filter, its annealed weight,
-and its wiring into six actor losses.
+and its wiring into the actor losses.
 
-TD3, REDQ, ASAC, APO, SAC and PPO put the actor's mean action (``pi_mean``)
-and the raw observations into their actor-loss batch. One actor update per agent,
+TD3, REDQ, ASAC, AVG, APO, SAC and PPO put the actor's mean action
+(``pi_mean``) and the raw observations into their actor-loss batch. One actor update per agent,
 run eagerly on a tiny network, checks that the extension's term changes the
 actor gradient and has no effect at zero weight or when absent.
 """
@@ -23,6 +23,8 @@ from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.AVG import train_AVG
+from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ import train_REDQ
@@ -378,6 +380,25 @@ def _ppo_update(stack: ExtensionStack) -> Any:
     return actor.apply_gradients(grads=grads).params
 
 
+def _avg_update(stack: ExtensionStack) -> Any:
+    agent = AVG("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
+    state = train_AVG.init_AVG(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        agent.alpha_args,
+    )
+    state = _ext_state(state, stack)
+    obs = _obs(agent)
+    raw_actions = jnp.zeros((BATCH, 1))  # the pre-squash sample AVG steps through
+    state, _ = train_AVG.update_policy(
+        state, obs, raw_actions, stack, total_timesteps=1, raw_observations=obs
+    )
+    return state.actor_state.params
+
+
 UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "TD3": _td3_update,
     "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
@@ -385,6 +406,7 @@ UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "APO": _apo_update,
     "SAC": _sac_update,
     "PPO": _ppo_update,
+    "AVG": _avg_update,
 }
 
 

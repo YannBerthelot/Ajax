@@ -693,6 +693,7 @@ def expert_collect_kwargs(
         "action_pipeline",
         "next_expert_fn",
         "store_hidden",
+        "store_raw_next_obs",
     ],
 )
 def collect_experience(
@@ -706,8 +707,11 @@ def collect_experience(
     action_pipeline: Optional[Callable] = None,
     next_expert_fn: Optional[Callable] = None,
     store_hidden: bool = False,
+    store_raw_next_obs: bool = False,
 ) -> tuple[BaseAgentState, Transition]:
-    """Collect one step of experience.
+    """Collect one step of experience. ``store_raw_next_obs`` keeps the
+    env's own next observation on the transition (``raw_next_obs``), for
+    an agent updating on it (AVG) whose extensions read it.
 
     Args:
         action_pipeline: Optional callable that handles agent-specific action
@@ -904,6 +908,9 @@ def collect_experience(
         log_prob=log_probs,
         a_expert=_a_expert_for_buf,
         next_a_expert=_next_a_expert_for_buf,
+        raw_next_obs=(
+            raw_final_obs.astype(jnp.float32) if store_raw_next_obs else None
+        ),
     )
 
     # The Train return sums what the env paid, in its own units (a reward

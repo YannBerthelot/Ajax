@@ -14,6 +14,7 @@ import jax.numpy as jnp
 import pytest
 
 from ajax.networks.memory import (
+    MEMORY_INITS,
     MEMORY_KINDS,
     MemoryCell,
     MemoryConfig,
@@ -58,6 +59,16 @@ def test_config_validates_kind_specific_knobs():
         MemoryConfig(kind="transformer", window=0)
     with pytest.raises(ValueError, match="d_state"):
         MemoryConfig(kind="mamba", d_conv=0)
+
+
+def test_config_refuses_an_init_of_another_kind():
+    for kind, inits in MEMORY_INITS.items():
+        for init in (None, *inits):
+            MemoryConfig(kind=kind, init=init)
+    with pytest.raises(ValueError, match="does not apply"):
+        MemoryConfig(kind="gru", init="gpt2")
+    with pytest.raises(ValueError, match="does not apply"):
+        MemoryConfig(kind="mamba", init="stacked_orthogonal")
 
 
 def test_parse_memory_config_accepts_dict_and_none():
@@ -238,6 +249,60 @@ def test_output_ends_with_a_layer_norm(kind, num_layers):
     assert "ln_f" not in raw_params["params"]["core"]
     _, y_raw = raw.apply(raw_params, carry, 50.0 * x, resets)
     assert not jnp.allclose(y_raw.var(-1), 1.0, atol=0.1)
+
+
+# ---------------------------------------------------------------- init
+
+
+def _core(kind, init, **overrides):
+    _, params, *_ = make_cell(kind, init=init, hidden_size=64, **overrides)
+    return params["params"]["core"]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_init_none_is_flax(kind):
+    flax_init = jax.tree.leaves(_core(kind, "flax"))
+    for a, b in zip(jax.tree.leaves(_core(kind, None)), flax_init, strict=True):
+        assert (a == b).all()
+
+
+@pytest.mark.parametrize("kind, n_gates", [("gru", 3), ("lstm", 4)])
+def test_stacked_orthogonal_gives_each_gate_torchs_block(kind, n_gates):
+    """Ni et al.'s GRU and LSTM: every kernel, input (F=5 wide) and
+    recurrent (H=64), has std 1/sqrt(n_gates H), torch's per-gate share of
+    an orthogonal stacked weight; biases 0. Flax's recurrent kernels are
+    orthogonal per gate, std 1/sqrt(H)."""
+    for init, want in (("stacked_orthogonal", n_gates * 64), ("flax", None)):
+        cell = _core(kind, init)[f"{kind}_0"]
+        for gate, dense in cell.items():
+            if gate.startswith("h") or want:
+                std = 1 / jnp.sqrt(want or 64)
+                assert jnp.std(dense["kernel"]) == pytest.approx(std, rel=0.15)
+            if "bias" in dense:
+                assert (dense["bias"] == 0).all()
+
+
+@pytest.mark.parametrize("init", ["gpt2", "nanogpt"])
+def test_transformer_inits_follow_gpt2(init):
+    """normal(0.02) on every Dense, biases 0; "nanogpt" scales the residual
+    projections to 0.02/sqrt(2 num_layers), here 0.01."""
+    core = _core("transformer", init, num_layers=2)
+    for name, layer in core.items():
+        if "kernel" not in layer:
+            continue
+        residual = name.startswith(("attn_out", "mlp_down"))
+        std = 0.01 if init == "nanogpt" and residual else 0.02
+        assert jnp.std(layer["kernel"]) == pytest.approx(std, rel=0.15), name
+        assert (layer["bias"] == 0).all(), name
+
+
+def test_mamba_init_draws_its_step_sizes_log_uniform():
+    """softplus(dt bias) spans [1e-3, 0.1] log-uniformly over the 128
+    channels; flax's is -3 everywhere."""
+    dt = jax.nn.softplus(_core("mamba", "mamba")["dt_proj_0"]["bias"])
+    assert dt.min() >= 1e-3 * (1 - 1e-5) and dt.max() <= 0.1 * (1 + 1e-5)
+    assert jnp.median(jnp.log10(dt)) == pytest.approx(-2.0, abs=0.25)
+    assert (_core("mamba", None)["dt_proj_0"]["bias"] == -3.0).all()
 
 
 @pytest.mark.parametrize("kind", KINDS)

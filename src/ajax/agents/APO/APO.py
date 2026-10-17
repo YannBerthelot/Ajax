@@ -8,6 +8,7 @@ from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
+from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType, InitializationFunction
 
@@ -29,6 +30,7 @@ class APO(ActorCritic):
     extension_context: frozenset = frozenset(
         "actor_optimizer_args env_args expert_policy".split()
     )
+    supports_memory: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -66,6 +68,10 @@ class APO(ActorCritic):
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # Pluggable memory block, e.g. MemoryConfig("gru", 64): the actor
+        # and the critic replay each env's whole rollout from the carries
+        # it started with, as PPO's.
+        memory: Optional[Union[MemoryConfig, dict]] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
@@ -90,6 +96,7 @@ class APO(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             weight_decay=weight_decay,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,

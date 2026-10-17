@@ -126,7 +126,7 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
     },
-    MEMORY: {"memory": "APO APO/discrete DQN PQN"},
+    MEMORY: {"memory": "DQN PQN"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
     PRIOR: {
         "PriorData": "UDRL UDRL/discrete TDMPC2 DreamerV3 DreamerV3/discrete"

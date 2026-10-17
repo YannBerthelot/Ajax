@@ -29,12 +29,13 @@ from ajax.agents.PPO.core import (
     rollout_actions,
     run_epochs,
 )
+from ajax.agents.PPO.sequences import recurrent_values, sequence_minibatches
 from ajax.agents.PPO.train_PPO import init_PPO
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
-from ajax.environments.interaction import get_pi
+from ajax.environments.interaction import get_pi, get_pi_sequence
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import predict_value, predict_value_sequence
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -55,12 +56,21 @@ def policy_loss_function(
     ent_coef: float,
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
+    resets: Optional[jax.Array] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
     """PPO's clipped surrogate with PPO's entropy bonus (a squashed policy's
     executed action's, sampled with ``entropy_key``); also returns the
     policy mean for extensions (``None`` for a discrete policy, which has no
-    mean action)."""
-    pi, _ = get_pi(actor_state, actor_params, observations)
+    mean action). A recurrent actor replays the sequence from
+    ``initial_hidden``, ``resets`` flagging episode starts."""
+    if initial_hidden is not None:
+        assert resets is not None
+        pi, _ = get_pi_sequence(
+            actor_state, actor_params, observations, resets, initial_hidden
+        )
+    else:
+        pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)
     ratio = jnp.exp(new_log_probs - log_probs)
@@ -94,6 +104,8 @@ def update_policy(
     raw_observations: Optional[jax.Array] = None,
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
+    resets: Optional[jax.Array] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[APOState, PolicyAuxiliaries]:
     """The clipped-surrogate actor step on one minibatch, the extensions'
     terms folded on ``extension_key``."""
@@ -111,6 +123,8 @@ def update_policy(
             ent_coef=ent_coef,
             raw_actions=raw_actions,
             entropy_key=entropy_key,
+            resets=resets,
+            initial_hidden=initial_hidden,
         )
         actor_batch = {
             "observations": observations,
@@ -158,16 +172,25 @@ def value_loss_function(
     value_targets: jax.Array,
     nu: float,
     b: float | jax.Array,
+    resets: Optional[jax.Array] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """The differential value loss ``0.5 (V(s) - (target - nu b))^2``.
 
     APO's official code (``xtma/apo``, ``apo/algos/apg/``) subtracts
     ``nu b`` from the critic's target, so with ``b`` the mean value each fit
     pulls the values back towards zero mean (Ma et al., 2021, the value
-    bias penalty); adding it would push them away and let ``|b|`` grow.
+    bias penalty); adding it would push them away and let ``|b|`` grow. A
+    recurrent critic replays the sequence from ``initial_hidden``.
     """
-    # The single critic still has the ensemble's leading axis.
-    v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
+    if initial_hidden is not None:
+        assert resets is not None
+        v_preds, _ = predict_value_sequence(
+            critic_states, critic_params, observations, resets, initial_hidden
+        )
+    else:
+        v_preds = predict_value(critic_states, critic_params, observations)
+    v_preds = v_preds.squeeze(0)  # the single critic keeps the ensemble axis
     loss = 0.5 * jnp.mean((v_preds - (value_targets - nu * b)) ** 2)
     return loss, ValueAuxiliaries(
         critic_loss=loss,
@@ -185,6 +208,8 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     extension_key: jax.Array,
+    resets: Optional[jax.Array] = None,
+    initial_hidden: Optional[Any] = None,
 ) -> Tuple[APOState, ValueAuxiliaries]:
     """The critic step on one minibatch, the extensions' terms folded on
     ``extension_key``."""
@@ -192,7 +217,14 @@ def update_value_functions(
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
         loss, aux = value_loss_function(
-            params, critic_state, observations, value_targets, nu, b
+            params,
+            critic_state,
+            observations,
+            value_targets,
+            nu,
+            b,
+            resets=resets,
+            initial_hidden=initial_hidden,
         )
         loss_batch = {
             "observations": observations,
@@ -219,6 +251,7 @@ def update_agent(
     agent_config: APOConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    start: Optional[APOState] = None,
 ) -> Tuple[APOState, AuxiliaryLogs]:
     """One APO update on an ``(n_steps, n_envs)`` rollout: the reward-rate
     and value-bias EMAs over every step, differential GAE, then
@@ -233,12 +266,25 @@ def update_agent(
     samples from the loss (``bootstrap_timelimit``), having only the reset
     observation; Ajax keeps the final observation, so a truncated step
     bootstraps on it and is trained on (PPO's convention here).
+
+    With memory (``start``: the state the rollout was collected from), the
+    values come from one critic pass over each env's whole rollout, and the
+    minibatches are whole rollouts replayed from their start carries (PPO's
+    :mod:`~ajax.agents.PPO.sequences`).
     """
-    critic_state = agent_state.critic_state
-    values = predict_value(critic_state, critic_state.params, transition.obs).squeeze(0)
-    next_values = predict_value(
-        critic_state, critic_state.params, transition.next_obs
-    ).squeeze(0)
+    n_steps, n_envs = transition.obs.shape[:2]
+    if start is not None:
+        agent_state, values, next_values, resets, carries = recurrent_values(
+            agent_state, transition, start, n_steps
+        )
+    else:
+        critic_state = agent_state.critic_state
+        values = predict_value(
+            critic_state, critic_state.params, transition.obs
+        ).squeeze(0)
+        next_values = predict_value(
+            critic_state, critic_state.params, transition.next_obs
+        ).squeeze(0)
 
     average_reward = (
         1 - agent_config.alpha
@@ -306,13 +352,21 @@ def update_agent(
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
     num_minibatches = resolve_num_minibatches(agent_config)
+    if start is not None:
+        batch["resets"] = resets
+        # Whole rollouts, in one minibatch when the envs do not split evenly.
+        if n_envs % num_minibatches:
+            num_minibatches = 1
 
     def minibatches(key: jax.Array) -> dict:
         """One epoch's partition of the rollout, each minibatch with a key
         for its entropy sample and one for the extensions' loss terms,
         derived from the epoch's key so the agent's own key stream is drawn
         as before."""
-        parts = get_minibatches_from_batch(batch, key, num_minibatches)
+        if start is not None:
+            parts = sequence_minibatches(batch, carries, key, num_minibatches, n_steps)
+        else:
+            parts = get_minibatches_from_batch(batch, key, num_minibatches)
         keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
         ext_keys = jax.random.split(jax.random.fold_in(key, 2), num_minibatches)
         return parts | {"entropy_key": keys, "extension_key": ext_keys}
@@ -329,6 +383,8 @@ def update_agent(
             extension_stack,
             total_timesteps,
             critic_key,
+            resets=mb.get("resets"),
+            initial_hidden=mb.get("critic_hidden"),
         )
         agent_state, aux_policy = update_policy(
             agent_state,
@@ -344,6 +400,8 @@ def update_agent(
             raw_observations=mb["raw_obs"],
             raw_actions=mb["raw_actions"],
             entropy_key=mb["entropy_key"],
+            resets=mb.get("resets"),
+            initial_hidden=mb.get("actor_hidden"),
         )
         return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
 
@@ -369,6 +427,9 @@ def make_train(
 ):
     """APO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
+    recurrent = network_args.memory is not None
+    if recurrent and extensions:
+        raise NotImplementedError("Recurrent APO does not support extensions yet.")
     agent_context = {
         "env_args": env_args,
         "actor_optimizer_args": actor_optimizer_args,
@@ -394,15 +455,21 @@ def make_train(
             network_args,
         )
 
-    def update(agent_state: APOState, rollout: Transition, _start: APOState) -> Any:
+    def update(agent_state: APOState, rollout: Transition, start: APOState) -> Any:
         return update_agent(
-            agent_state, rollout, agent_config, loop.stack, total_timesteps
+            agent_state,
+            rollout,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            start if recurrent else None,
         )
 
     return loop.on_policy(
         init,
         update,
         agent_config.n_steps,
+        recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
         eval_kwargs={"avg_reward_mode": True, "expert_policy": expert_policy},
     )

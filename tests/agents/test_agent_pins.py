@@ -566,6 +566,17 @@ _GOLDEN |= {
     },
     "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
 }
+# Re-recorded on macOS ARM CPU once feedforward PPO shuffled its rollout flat
+# by default (GAE once, as in the paper): with 2 envs and 2 minibatches this
+# run took brax's time geometry before. Actor +0.52%, critic +0.98%, nudge
+# +6.6%. Every other PPO pin is unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 5.850821495056152,
+        "critic": 5.0791544914245605,
+        "nudge": 0.31162577867507935,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

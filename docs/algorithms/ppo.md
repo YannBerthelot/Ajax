@@ -73,7 +73,7 @@ Defaults are those of the constructor.
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks |
-| `unroll_length` | None | cut each env's rollout into fragments of this length (feedforward only) |
+| `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
 | `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
@@ -91,14 +91,15 @@ Defaults are those of the constructor.
   `batch_size` is the minibatch size.
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as OpenAI Baselines' and CleanRL's PPO do.
-- **Where the advantages are computed.** When the environments split evenly
-  into the minibatches, each minibatch holds whole rollout fragments and its
-  advantages are recomputed with the current critic, as Brax's PPO does.
-  `unroll_length` cuts the rollout into shorter fragments that bootstrap at
-  their ends; PPO refuses at construction a length that does not split the
-  rollout evenly. Otherwise the advantages are computed once on the whole
-  rollout and the samples are shuffled flat; that is the case with the
-  defaults (4 environments, 32 minibatches) and with a single environment.
+- **Where the advantages are computed.** The advantages are computed once on
+  the whole rollout and its `n_steps * n_envs` samples are shuffled flat into
+  the minibatches, as in the PPO paper's Algorithm 1 and OpenAI Baselines'
+  ppo2. `unroll_length` switches to Brax's PPO: the rollout is cut into
+  fragments of that length that bootstrap at their ends, each minibatch holds
+  whole fragments, and its advantages are recomputed with the current critic.
+  `unroll_length=n_steps` keeps each environment's whole rollout as one
+  fragment. PPO refuses at construction a length that does not split the
+  rollout evenly into the minibatches.
 - **Actions.** A continuous PPO samples an unbounded Gaussian by default;
   Ajax clips the sample to `[-1, 1]` and maps that range onto the
   environment's bounds, so on gymnax Pendulum (torque in `[-2, 2]`) one unit

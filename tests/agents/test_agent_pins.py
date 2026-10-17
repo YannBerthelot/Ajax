@@ -219,12 +219,14 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     # Flat shuffle, GAE on the whole rollout: 4 minibatches, 2 envs.
     "PPO-flat": (PPO, {**_PENDULUM, "n_envs": 2, "n_steps": 32, "batch_size": 8}, 256),
-    # The env axis split, GAE per minibatch; brax's knobs.
+    # The env axis split, GAE per minibatch (brax's time geometry, opted
+    # into: unroll_length = n_steps); brax's knobs.
     "PPO-env-split": (
         PPO,
         {
             **_PENDULUM,
             **_SPLIT,
+            "unroll_length": 16,
             "squash": True,
             "log_std_state_independent": True,
             "log_std_init": 0.0,
@@ -275,7 +277,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "PPO-env-split-nudge": (
         PPO,
-        {**_PENDULUM, **_SPLIT, "extensions": (Nudge(),)},
+        {**_PENDULUM, **_SPLIT, "unroll_length": 16, "extensions": (Nudge(),)},
         256,
     ),
     "APO-nudge": (
@@ -563,6 +565,17 @@ _GOLDEN |= {
         "nudge": 0.3099551498889923,
     },
     "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
+}
+# Re-recorded on macOS ARM CPU once feedforward PPO shuffled its rollout flat
+# by default (GAE once, as in the paper): with 2 envs and 2 minibatches this
+# run took brax's time geometry before. Actor +0.52%, critic +0.98%, nudge
+# +6.6%. Every other PPO pin is unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 5.850821495056152,
+        "critic": 5.0791544914245605,
+        "nudge": 0.31162577867507935,
+    },
 }
 
 

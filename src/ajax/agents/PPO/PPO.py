@@ -17,8 +17,8 @@ from ajax.types import EnvType, InitializationFunction
 
 def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -> None:
     """Refuse an ``unroll_length`` the update could not use (it would fall
-    back to whole rollouts); warn when a recurrent rollout's sequences force
-    one minibatch where more were asked for."""
+    back to the flat shuffle); warn when a recurrent rollout's sequences
+    force one minibatch where more were asked for."""
     wanted = resolve_num_minibatches(config)
     geometry = minibatch_geometry(config, config.n_steps, n_envs, recurrent)
     unroll = config.unroll_length

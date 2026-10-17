@@ -47,7 +47,10 @@ def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -
 #: as CleanRL @fe8d8a0 (ppo.py:94) and PureJaxRL @31756b1 (ppo.py:25-42) do;
 #: its output layers (orthogonal 0.01 for the policy, 1.0 for the value) are
 #: the networks' defaults. ppo1, the paper's earlier code, used normc
-#: instead; the owner chose ppo2 (2026-10-17).
+#: instead; the owner chose ppo2 (2026-10-17). Recurrent PPO's references
+#: start the layers before the memory the same way: PureJaxRL @31756b1
+#: (ppo_rnn.py:53-55) and popjaxrl @12e5d42 (ppo_gru.py:45-47), whose GRU
+#: keeps flax's defaults (ppo_rnn.py:35, ppo_gru.py:30), as Ajax's does.
 PPO_HIDDEN_INIT = "orthogonal(np.sqrt(2))"
 
 
@@ -104,9 +107,8 @@ class PPO(ActorCritic):
         reward_normalization_gamma: Optional[float] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
-        # The hidden layers' initialiser; None is PPO's reference's for a
-        # feedforward PPO (PPO_HIDDEN_INIT) and the networks' shared
-        # default with memory.
+        # The hidden layers' initialiser; None is PPO's reference's
+        # (PPO_HIDDEN_INIT), with or without memory.
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         # The Gaussian's log-std: one learned, unclipped parameter per action
         # dimension starting at 0 (std 1), as PPO's reference code has it
@@ -136,9 +138,7 @@ class PPO(ActorCritic):
         action_repeat: int = 1,
     ) -> None:
         # Resolved before run_config, so the logged config holds what runs.
-        # Recurrent PPO keeps the shared default until its own reference's
-        # initialisation is audited, as the recurrent off-policy agents do.
-        if encoder_kernel_init is None and memory is None:
+        if encoder_kernel_init is None:
             encoder_kernel_init = PPO_HIDDEN_INIT
         self.config = run_config(locals(), self.name)
 

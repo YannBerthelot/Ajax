@@ -76,7 +76,7 @@ Defaults are those of the constructor.
 | `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
 | `actor_bias_init`, `critic_bias_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
-| `encoder_kernel_init` | None | the hidden layers' initialiser; None is `"orthogonal(np.sqrt(2))"` (Baselines' ppo2), or the shared default with `memory=` |
+| `encoder_kernel_init` | None | the hidden layers' initialiser; None is `"orthogonal(np.sqrt(2))"` (Baselines' ppo2; PureJaxRL's recurrent PPO, with `memory=`) |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |

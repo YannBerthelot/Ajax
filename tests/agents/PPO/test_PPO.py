@@ -103,14 +103,21 @@ def _gain(kernel) -> float:
     return float(np.sqrt(gain2))
 
 
+@pytest.mark.parametrize("memory", [None, MemoryConfig("gru", 16)], ids=["ff", "gru"])
 @pytest.mark.parametrize(
     "env_id, continuous", [("CartPole-v1", False), ("Pendulum-v1", True)]
 )
-def test_ppo_starts_its_layers_as_baselines_ppo2(env_id, continuous):
+def test_ppo_starts_its_layers_as_baselines_ppo2(env_id, continuous, memory):
     """Baselines' ppo2 @ea25b9e: hidden layers orthogonal with gain sqrt(2)
     (common/models.py:96), the policy's output 0.01 (common/policies.py:49),
-    the value 1 (:63, a2c/utils.py:58), zero biases."""
-    agent = PPO(env_id)
+    the value 1 (:63, a2c/utils.py:58), zero biases; the run config records
+    that init. Recurrent PPO's reference, PureJaxRL @31756b1, starts the
+    layers before its memory the same way (ppo_rnn.py:53-55) and keeps
+    flax's GRU (:35): recurrent kernels orthogonal with gain 1, per gate."""
+    from ajax.agents.PPO.PPO import PPO_HIDDEN_INIT
+
+    agent = PPO(env_id, memory=memory)
+    assert agent.config["encoder_kernel_init"] == PPO_HIDDEN_INIT
     actor_state, critic_state = get_initialized_actor_critic(
         jax.random.PRNGKey(0),
         agent.env_args,
@@ -136,24 +143,7 @@ def test_ppo_starts_its_layers_as_baselines_ppo2(env_id, continuous):
             _gain(layer["kernel"]), gain, rtol=1e-4, err_msg=name
         )
         np.testing.assert_array_equal(layer["bias"], 0.0, err_msg=name)
-
-
-def test_ppo_records_its_hidden_init_and_keeps_the_shared_one_with_memory():
-    """Feedforward PPO logs the init it runs, Baselines' ppo2's; recurrent
-    PPO keeps the networks' shared default (orthogonal(1.0)) until its own
-    reference's initialisation is audited."""
-    from ajax.agents.PPO.PPO import PPO_HIDDEN_INIT
-
-    assert PPO("CartPole-v1").config["encoder_kernel_init"] == PPO_HIDDEN_INIT
-    agent = PPO("CartPole-v1", memory=MemoryConfig("gru", 16))
-    assert agent.config["encoder_kernel_init"] is None
-    actor_state, _ = get_initialized_actor_critic(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        num_critics=1,
-    )
-    hidden = actor_state.params["params"]["encoder"]["network"]["layers_2"]
-    np.testing.assert_allclose(_gain(hidden["kernel"]), 1.0, rtol=1e-4)
+    if memory is not None:
+        gru = actor["memory_cell"]["core"]["gru_0"]
+        for gate in ("hr", "hz", "hn"):
+            np.testing.assert_allclose(_gain(gru[gate]["kernel"]), 1.0, rtol=1e-4)

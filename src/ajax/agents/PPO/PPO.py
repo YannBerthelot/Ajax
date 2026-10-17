@@ -42,6 +42,15 @@ def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -
         )
 
 
+#: The hidden layers of PPO's reference code: OpenAI Baselines' ppo2 @ea25b9e
+#: builds its MLP with ortho_init(sqrt(2)) layers (baselines/common/models.py:96),
+#: as CleanRL @fe8d8a0 (ppo.py:94) and PureJaxRL @31756b1 (ppo.py:25-42) do;
+#: its output layers (orthogonal 0.01 for the policy, 1.0 for the value) are
+#: the networks' defaults. ppo1, the paper's earlier code, used normc
+#: instead; the owner chose ppo2 (2026-10-17).
+PPO_HIDDEN_INIT = "orthogonal(np.sqrt(2))"
+
+
 class PPO(ActorCritic):
     """Proximal Policy Optimization (Schulman et al., 2017) for discrete and
     continuous action spaces."""
@@ -95,6 +104,9 @@ class PPO(ActorCritic):
         reward_normalization_gamma: Optional[float] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        # The hidden layers' initialiser; None is PPO's reference's for a
+        # feedforward PPO (PPO_HIDDEN_INIT) and the networks' shared
+        # default with memory.
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         # The Gaussian's log-std: one learned, unclipped parameter per action
         # dimension starting at 0 (std 1), as PPO's reference code has it
@@ -123,6 +135,11 @@ class PPO(ActorCritic):
         # (ActorCritic).
         action_repeat: int = 1,
     ) -> None:
+        # Resolved before run_config, so the logged config holds what runs.
+        # Recurrent PPO keeps the shared default until its own reference's
+        # initialisation is audited, as the recurrent off-policy agents do.
+        if encoder_kernel_init is None and memory is None:
+            encoder_kernel_init = PPO_HIDDEN_INIT
         self.config = run_config(locals(), self.name)
 
         super().__init__(

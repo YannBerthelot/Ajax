@@ -611,6 +611,29 @@ _GOLDEN |= {
     "UDRL-nudge": {"actor": 21.728490829467773, "nudge": 0.3160724639892578},
 }
 
+# Re-recorded on macOS ARM CPU once PPO's hidden layers became Baselines' ppo2's:
+# orthogonal with gain sqrt(2) (were orthogonal(1.0)); PPO-gru, recurrent,
+# keeps its. Relative shifts (actor, critic): PPO-mcc +99.2%, +58.9%;
+# PPO-flat +99.9%, +66.2%; PPO-env-split +99.3%, +74.2%; PPO-unroll +96.8%,
+# +66.7%; PPO-discrete-nudge +105.4%, +76.8%; PPO-env-split-nudge +103.5%,
+# +71.4%. The nudges are bitwise unchanged.
+_GOLDEN |= {
+    "PPO-mcc": {"actor": 4.02446985244751, "critic": 5.281169891357422},
+    "PPO-flat": {"actor": 6.003925800323486, "critic": 7.437717914581299},
+    "PPO-env-split": {"actor": 6.0180745124816895, "critic": 7.147911071777344},
+    "PPO-unroll": {"actor": 6.1724958419799805, "critic": 7.504622459411621},
+    "PPO-discrete-nudge": {
+        "actor": 7.218266487121582,
+        "critic": 9.050727844238281,
+        "nudge": 0.31162577867507935,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 5.358870983123779,
+        "critic": 7.248394966125488,
+        "nudge": 0.3099551498889923,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

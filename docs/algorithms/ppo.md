@@ -75,7 +75,8 @@ Defaults are those of the constructor.
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks |
 | `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
-| `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `actor_bias_init`, `critic_bias_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `encoder_kernel_init` | None | the hidden layers' initialiser; None is `"orthogonal(np.sqrt(2))"` (Baselines' ppo2), or the shared default with `memory=` |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
@@ -125,7 +126,9 @@ Defaults are those of the constructor.
   `num_evals` reproduce choices of Brax's PPO. They are off by default, as
   is `encoder_layer_norm` (a LayerNorm on the encoder's output).
 - **Separate networks.** The actor and the critic are separate networks with
-  separate optimizers; the value loss is not clipped. An entropy bonus on a
+  separate optimizers; the value loss is not clipped. As in Baselines' ppo2,
+  their hidden layers start orthogonal with gain `sqrt(2)`, the policy's
+  output layer with gain 0.01 and the value layer with gain 1. An entropy bonus on a
   squashed policy is a one-sample estimate of the executed action's entropy,
   as in Brax.
 - **Normalisation.** With `normalize_observations=True` the loss sees the

@@ -48,7 +48,8 @@ class ASAC(ActorCritic):
         learning_starts: int = int(1e4),
         tau: float = 0.005,
         reward_scale: float = 1.0,
-        alpha_init: float = 1.0,
+        alpha_init: float = 0.2,
+        fixed_alpha: bool = True,
         p_0=20,
         target_entropy_per_dim: float = -1.0,
         # Pluggable memory block, e.g. MemoryConfig("lstm", 64) or
@@ -77,7 +78,14 @@ class ASAC(ActorCritic):
         Initialize the ASAC agent.
 
         Args:
-            alpha_init (float): Initial value for the temperature parameter.
+            alpha_init (float): The temperature, or its initial value when
+                ``fixed_alpha`` is False.
+            fixed_alpha (bool): Keep the temperature at ``alpha_init``. The
+                authors' published runs fix it at 1/beta: 0.2, and 0.05 for
+                Humanoid and Swimmer (BobMak/asac @4b68862,
+                hparams/*/asac.yaml, darer/ASAC.py:56-57,
+                experiments/finetuned_runs.py:67-76). False learns it
+                towards the target entropy, as SAC does.
             target_entropy_per_dim (float): Target entropy per action dimension.
         """
         self.config = run_config(locals(), self.name)
@@ -145,4 +153,8 @@ class ASAC(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-        self.train_kwargs = {"buffer": self.buffer, "alpha_args": self.alpha_args}
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "alpha_args": self.alpha_args,
+            "fixed_alpha": fixed_alpha,
+        }

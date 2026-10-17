@@ -35,7 +35,7 @@ from . import readouts as R
 # cells: oracles.py + 2, test_episode_ends + 36, this note + 1; the two
 # families' faults together: faults/ + 4, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 204}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 205}
 CAPS |= {"test_framework.py": 213, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1043, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}

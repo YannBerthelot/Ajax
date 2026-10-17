@@ -52,8 +52,9 @@ Defaults are read from `ASAC.__init__`.
 | `learning_starts` | `10_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target critics, and the rate of the `theta` and penalty averages |
 | `p_0` | `20` | scale of the termination penalty |
-| `alpha_init` | `1.0` | initial entropy weight |
-| `target_entropy_per_dim` | `-1.0` | target entropy, times the action dimension |
+| `alpha_init` | `0.2` | entropy weight (its start when it is learned) |
+| `fixed_alpha` | `True` | keep `alpha` at `alpha_init`; `False` learns it towards the target entropy |
+| `target_entropy_per_dim` | `-1.0` | target entropy, times the action dimension (with `fixed_alpha=False`) |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
@@ -81,8 +82,12 @@ extension, which holds its own ([Expert guidance](../guide/expert-guidance.md)).
   fresh actions `a ~ pi(.|s)`.
 - **One update.** The penalty, then a critic step, an actor step on
   `alpha log pi - min_i Q_i`, a temperature step on fresh samples of the
-  updated policy, the `theta` step and the target update. Each iteration
+  updated policy (skipped with `fixed_alpha`), the `theta` step and the
+  target update. Each iteration
   steps every env once, then makes one update.
+- **Temperature.** As in the authors' published runs, `alpha` is fixed:
+  0.2 by default. Those runs use 0.05 for Humanoid and Swimmer; pass
+  `alpha_init=0.05` for those. `fixed_alpha=False` learns it as SAC does.
 - **Two critics.** ASAC always uses two critics; it has no `num_critics`.
 - **Extensions.** ASAC tells its extensions there is no discount: they
   receive `gamma=None`.

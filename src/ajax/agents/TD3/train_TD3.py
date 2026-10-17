@@ -32,10 +32,8 @@ from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.environments.interaction import (
     ActionPipelineResult,
-    expert_collect_kwargs,
     get_pi,
     init_collector_state,
-    with_expert_state,
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
@@ -140,9 +138,8 @@ def init_TD3(
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
         include_raw_obs=store_expert_data,
         include_is_expert=store_expert_data,
-        include_expert_fields=expert_policy is not None,
+        expert_policy=expert_policy,
     )
-    collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
     return TD3State(
         rng=rng,
         eval_rng=eval_rng,
@@ -400,6 +397,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
     if action_pipeline is None:
         action_pipeline = make_default_action_pipeline(
@@ -434,10 +432,8 @@ def make_train(
         recurrent=recurrent,
         collect_kwargs={
             "buffer": buffer,
+            "action_pipeline": action_pipeline,
             "store_hidden": recurrent and agent_config.stored_state,
-            **expert_collect_kwargs(
-                expert_policy, action_pipeline, recurrent, env_args.n_envs
-            ),
         },
         eval_kwargs={
             "expert_policy": expert_policy,

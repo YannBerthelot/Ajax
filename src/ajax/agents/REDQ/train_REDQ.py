@@ -27,7 +27,6 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
-from ajax.environments.interaction import expert_collect_kwargs, with_expert_state
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
@@ -122,10 +121,9 @@ def init_REDQ(
         collector_extras={
             "include_raw_obs": store_expert_data,
             "include_is_expert": store_expert_data,
-            "include_expert_fields": expert_policy is not None,
+            "expert_policy": expert_policy,
         },
     )
-    collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
     return REDQState(
         rng=rng,
         eval_rng=eval_rng,
@@ -390,6 +388,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> REDQState:
@@ -422,7 +421,6 @@ def make_train(
         collect_kwargs={
             "buffer": buffer,
             "store_hidden": recurrent and agent_config.stored_state,
-            **expert_collect_kwargs(expert_policy, None, recurrent, env_args.n_envs),
         },
         eval_kwargs={
             "expert_policy": expert_policy,

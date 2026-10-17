@@ -31,11 +31,7 @@ from ajax.agents.PPO.core import (
 )
 from ajax.agents.PPO.train_PPO import init_PPO
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
-from ajax.environments.interaction import (
-    expert_collect_kwargs,
-    get_pi,
-    with_expert_state,
-)
+from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
@@ -148,20 +144,16 @@ def init_APO(
     network_args: NetworkConfig,
     expert_policy: Optional[Callable] = None,
 ) -> APOState:
-    """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`),
-    the reward rate and the value bias at 0, and a stateful expert's
-    initial state."""
+    """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`)
+    with ``expert_policy``'s, and the reward rate and the value bias at 0."""
     state = init_PPO(
         key,
         env_args,
         actor_optimizer_args,
         critic_optimizer_args,
         network_args,
+        expert_policy=expert_policy,
     )
-    collector_state = with_expert_state(
-        state.collector_state, expert_policy, env_args.n_envs
-    )
-    state = state.replace(collector_state=collector_state)
     return APOState(**vars(state), average_reward=0.0, b=0.0)
 
 
@@ -403,6 +395,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> APOState:
@@ -430,8 +423,5 @@ def make_train(
         update,
         agent_config.n_steps,
         expose_rollout=agent_config.expose_recent_rollout,
-        collect_kwargs=expert_collect_kwargs(
-            expert_policy, None, False, env_args.n_envs
-        ),
         eval_kwargs={"avg_reward_mode": True, "expert_policy": expert_policy},
     )

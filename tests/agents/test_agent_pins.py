@@ -577,6 +577,26 @@ _GOLDEN |= {
         "nudge": 0.31162577867507935,
     },
 }
+# Re-recorded on macOS ARM CPU once APO seeded its reward rate and value
+# bias with the first rollout's means, as xtma/apo does, instead of an EMA
+# from 0: actor -0.67%, critic +1.64%, nudge unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 3.8270583152770996,
+        "critic": 4.234889984130859,
+        "nudge": 0.33622848987579346,
+    },
+}
+# Re-recorded on macOS ARM CPU once AVG scaled its TD error as the authors'
+# TDErrorScaler does (a 1e-4 floor, scaled from the reward's variance before
+# any return, each return counted once): actor +0.41%, critic +6.4%.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.7092366218566895,
+        "critic": 19.835189819335938,
+        "alpha": 0.07000000029802322,
+    },
+}
 # Re-recorded on macOS ARM CPU once the discrete logits head started at
 # orthogonal(0.01), not 1.0: the head's kernel loses most of its initial
 # squared norm (2.0 at gain 1 for 16 x 2). Relative shifts: PPO-discrete-nudge

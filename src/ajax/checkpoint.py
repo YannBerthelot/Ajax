@@ -33,12 +33,21 @@ def _to_host_numpy(state: Any) -> Any:
     )
 
 
+#: The key under which a checkpoint of a pytree states its format, and the
+#: format written now. 1: a replay keeps the environment's own observations
+#: and rewards. A checkpoint without the key is older (0).
+FORMAT_KEY = "ajax_checkpoint_format"
+FORMAT = 1
+
+
 def save_checkpoint(state: Any, path: str) -> None:
     """Save the pytree data of ``state`` to ``path``. Atomic write."""
     path = os.path.abspath(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     host_state = _to_host_numpy(state)
     state_dict = serialization.to_state_dict(host_state)
+    if isinstance(state_dict, dict):
+        state_dict = {**state_dict, FORMAT_KEY: FORMAT}
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         pickle.dump(state_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -58,6 +67,9 @@ def restore_into(skeleton: Any, path: str) -> Any:
         raise FileNotFoundError(f"No checkpoint file at {path}")
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
+    if isinstance(state_dict, dict):
+        state_dict = dict(state_dict)
+        _check_raw_replay(skeleton, state_dict, state_dict.pop(FORMAT_KEY, 0))
     skeleton_dict = serialization.to_state_dict(skeleton)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
@@ -65,10 +77,40 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
+    _check_leaf_shapes(skeleton, restored)
     return jax.tree.map(
         lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
         restored,
     )
+
+
+def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:
+    """Refuse a checkpoint whose network parameters or optimizer states do
+    not fit the skeleton's, saved by an agent with other networks: flax
+    grafts any array, and the run would fail later, far from the cause, or
+    broadcast silently. Only those leaves, which the agent's configuration
+    fixes, are compared: a replay legitimately outgrows its skeleton (the
+    world models size theirs to the run, a resumed run's skeleton covers no
+    step yet)."""
+
+    def shapes(tree: Any) -> dict[str, tuple]:
+        flat = jax.tree_util.tree_flatten_with_path(tree)[0]
+        return {jax.tree_util.keystr(path): np.shape(leaf) for path, leaf in flat}
+
+    want, got = shapes(skeleton), shapes(restored)
+    bad = [
+        f"{path} is {got[path]} in the checkpoint, {shape} in this agent"
+        for path, shape in want.items()
+        if ("params" in path or "opt_state" in path)
+        and path in got
+        and got[path] != shape
+    ]
+    if bad:
+        raise ValueError(
+            "The checkpoint does not fit this agent's state: "
+            + "; ".join(bad[:5])
+            + (f"; and {len(bad) - 5} more" if len(bad) > 5 else "")
+        )
 
 
 #: Next-observation fields a replay buffer gained, by the field each is
@@ -223,6 +265,44 @@ def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:
     info = {**saved["info"], RAW_OBS_KEY: np.asarray(raw, saved["obs"].dtype)}
     collector = {**state_dict["collector_state"], "_env_state": {**saved, "info": info}}
     return {**state_dict, "collector_state": collector}
+
+
+def _check_raw_replay(skeleton: Any, saved: dict, saved_format: int) -> None:
+    """Refuse a checkpoint of a replay agent written before its replay kept
+    the environment's own observations and rewards (format 0), when its rows
+    were normalised: the rewards when the environment normalises them, the
+    observations when the saved environment state holds their statistics.
+    Each row was normalised with the statistics of its collection, which
+    are gone, so no migration recovers them, and this agent would normalise
+    them again.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete this check
+    once no such checkpoint remains.
+    """
+    from ajax.environments.interaction import reward_statistics
+
+    if saved_format >= 1:
+        return
+    agent, saved_agent = skeleton, saved
+    if isinstance(skeleton, (tuple, list)) and skeleton:
+        agent, saved_agent = skeleton[0], saved.get("0", {})
+    collector = getattr(agent, "collector_state", None)
+    if collector is None or collector.buffer_state is None:
+        return
+    env = (saved_agent.get("collector_state") or {}).get("_env_state") or {}
+    stats = env.get("normalization_info") or env.get("info", {}).get(
+        "normalization_info"
+    )
+    obs_normalised = bool(stats) and stats.get("obs") is not None
+    if obs_normalised or reward_statistics(collector.env_state) is not None:
+        raise ValueError(
+            "This checkpoint was saved before a replay agent kept the"
+            " environment's own observations and rewards in its replay: its"
+            " rows were normalised with the statistics of their collection,"
+            " which are not saved, and this agent would normalise them again."
+            " Resume the run with the Ajax version that wrote it, or start it"
+            " afresh."
+        )
 
 
 def checkpoint_exists(path: str) -> bool:

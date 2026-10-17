@@ -207,7 +207,10 @@ acts. SAC runs them in two places, which each extension names in its
   value-based gate) and `JSRLCurriculum` (the expert starts each episode,
   for a shrinking number of steps).
 - **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
-  wherever its value exceeds a threshold that rises over training.
+  wherever its value exceeds a threshold that rises over training. The
+  step that enters this region ends the agent's episode in the stored
+  transition and pays the expert's value as a reward, in place of the
+  bootstrap, whatever its sign.
 
 `ResidualPolicy` changes what the policy's action means: SAC executes
 `clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection, in the
@@ -271,6 +274,7 @@ built, or when training starts for those that take context from it:
 | --- | --- | --- |
 | `EDGEExploration`, `JSRLCurriculum`, `ValueBox`, `ResidualPolicy` | SAC with an `expert_policy` and without `use_pid_policy` | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
+| `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `PhiRefresh` | SAC, which keeps the raw next observations they read | when built |
 | `BellmanPretrain`, `ExpertValueMetrics` | SAC with an `expert_policy` | when training starts |
 | `CloningPretrain` | SAC, TD3, REDQ or APO; first among the pre-training extensions | when training starts |

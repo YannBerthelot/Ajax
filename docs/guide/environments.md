@@ -206,16 +206,26 @@ The logged returns stay in the environment's units. Evaluation normalises
 observations with the training statistics, frozen, and never normalises
 rewards.
 
-The statistics live in the environment state:
-`state.collector_state.env_state.normalization_info.obs` for gymnax (in
-`info["normalization_info"]` for Brax), with `mean` and `var`. Every copy
-holds the same pooled values. To run the policy on a new observation
-yourself, normalise it as `(obs - mean) / sqrt(var + 1e-8)` first.
+The agents learning from the rollout they just collected (PPO, APO, PQN and
+UDRL) normalise in the environment. Its statistics live in the
+environment state: `state.collector_state.env_state.normalization_info.obs`
+for gymnax (in `info["normalization_info"]` for Brax), with `mean` and
+`var`. Every copy holds the same pooled values. To run the policy on a new
+observation yourself, normalise it as `(obs - mean) / sqrt(var + 1e-8)`
+first.
 
-SAC also offers `normalize_obs_running=True`, which keeps the statistics in
-the agent instead, so they also cover the dimensions SAC appends to the
-observation itself (an expert's action or state). An expert policy always
-reads the raw observation, in the environment's own units: see
+The replay agents (SAC, TD3, REDQ, ASAC, DQN) learn from rows collected long
+before, so their replay keeps the environment's own observations and
+rewards, and a replayed row is normalised with the current statistics, as
+Stable-Baselines3's replay buffer does under `VecNormalize`. The agent
+normalises observations itself: the statistics live in
+`state.collector_state.obs_norm_info` (mirrored on its networks, which apply
+them, so `get_pi` takes raw observations) and cover the dimensions SAC
+appends to the observation (an expert's action or state). A replayed reward
+is divided by the environment normaliser's current statistics. SAC's
+`normalize_obs_running=True`, the switch's old name, warns and will be
+removed: pass `normalize_observations=True`. An expert policy always reads the raw
+observation, in the environment's own units: see
 [Expert guidance](expert-guidance.md).
 
 ### Raw observation columns
@@ -244,7 +254,7 @@ from ajax.environments.pid_terms import PIDTermsWrapper
 env = PIDTermsWrapper(FirstOrderSystem(), current_idx=(0,), target_idx=(1,), dt=1.0)
 agent = SAC(env, n_envs=4, normalize_observations=True, learning_starts=500)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
-stats = state.collector_state.env_state.normalization_info.obs
+stats = state.collector_state.obs_norm_info  # SAC normalises observations itself
 print(stats.mean[0, 0], stats.var[0, 0])  # the three terms are pinned at mean 0, variance 1
 ```
 

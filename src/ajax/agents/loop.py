@@ -41,6 +41,7 @@ not stacked per iteration, which would cost ``seeds x iterations`` memory.
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
@@ -133,7 +134,22 @@ def fresh_state(init: Init, stack: ExtensionStack, total_steps: int, key: Any) -
     extensions' initial states and one-shot pretraining on
     ``extension_key`` (:meth:`ExtensionStack.fold_init`)."""
     init_key, extension_key = jax.random.split(key)
-    return stack.fold_init(init(init_key), extension_key, total_steps)
+    return stack.fold_init(with_obs_norm(init(init_key)), extension_key, total_steps)
+
+
+def with_obs_norm(agent_state: Any) -> Any:
+    """An agent normalising its own observations (the collector's
+    ``obs_norm_info``) with those statistics mirrored on its networks, which
+    apply them; collection refreshes the mirror at every step, and setting
+    it at init keeps the scan carry's structure fixed."""
+    collector = getattr(agent_state, "collector_state", None)
+    stats = None if collector is None else collector.obs_norm_info
+    if stats is None:
+        return agent_state
+    return agent_state.replace(
+        actor_state=agent_state.actor_state.replace(obs_norm_info=stats),
+        critic_state=agent_state.critic_state.replace(obs_norm_info=stats),
+    )
 
 
 def fold_post_update(
@@ -274,10 +290,29 @@ class TrainLoop:
         """The timesteps this call trains for."""
         return self.total_timesteps - self.start_timestep
 
+    def warn_if_partial(self, per_iteration: int, unit: str) -> None:
+        """Warn when the budget is not a whole number of iterations of
+        ``per_iteration`` env steps (``unit`` names them): the iterations
+        stop at a multiple of it, not at the horizon, so the run trains
+        another number of steps than asked and an evaluation due at the
+        horizon never happens (its row stays NaN)."""
+        if self.budget % per_iteration:
+            warnings.warn(
+                f"n_timesteps={self.budget} is not a multiple of the"
+                f" {per_iteration} env steps of one iteration ({unit}): the run"
+                f" stops at a multiple of {per_iteration}, so an evaluation due"
+                f" at timestep {self.total_timesteps} does not happen (NaN)."
+                f" Pass a multiple of {per_iteration}.",
+                UserWarning,
+                stacklevel=2,
+            )
+
     def n_rollouts(self, n_steps: int) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts: the
         budget in whole rollouts, plus one (as PPO always ran)."""
-        return self.budget // (self.env_args.n_envs * n_steps) + 1
+        per_rollout = self.env_args.n_envs * n_steps
+        self.warn_if_partial(per_rollout, "n_envs x n_steps")
+        return self.budget // per_rollout + 1
 
     @property
     def n_evaluations(self) -> int:
@@ -548,6 +583,7 @@ class TrainLoop:
             )
 
         if num_ticks is None:
+            self.warn_if_partial(self.env_args.n_envs, "n_envs")
             num_ticks = self.budget // self.env_args.n_envs
         return self.train(
             init,

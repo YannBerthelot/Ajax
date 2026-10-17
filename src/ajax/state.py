@@ -84,6 +84,11 @@ class EnvironmentConfig(Replaceable):
     # ``ajax.environments.create``). Static: it fixes shapes and schedules
     # (episode length in agent steps), never a traced value.
     action_repeat: int = struct.field(pytree_node=False, default=1)
+    # The agent normalises the observations itself (a replay agent's
+    # ``normalize_observations``): the env passes them raw, the collector
+    # keeps running statistics (CollectorState.obs_norm_info) and the
+    # networks apply the current ones (ajax.environments.obs_norm).
+    normalize_obs_in_agent: bool = struct.field(pytree_node=False, default=False)
 
     @property
     def mode(self) -> str:

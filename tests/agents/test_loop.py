@@ -7,6 +7,7 @@ loop end to end."""
 
 import dataclasses
 import functools
+import warnings
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -142,7 +143,27 @@ def test_the_post_update_runs_after_the_update() -> None:
 
 def test_on_policy_runs_the_budget_in_whole_rollouts_plus_one() -> None:
     loop = dataclasses.replace(_loop(), env_args=SimpleNamespace(n_envs=4))  # type: ignore[arg-type]
-    assert loop.n_rollouts(8) == 100 // 32 + 1
+    with pytest.warns(UserWarning, match="not a multiple"):
+        assert loop.n_rollouts(8) == 100 // 32 + 1
+
+
+def test_a_budget_off_whole_iterations_warns() -> None:
+    """A budget that is not a whole number of iterations warns, naming the
+    iteration: the run stops at a multiple of it, so an evaluation due at
+    the horizon never happens. A whole number stays quiet."""
+    loop = dataclasses.replace(_loop(), env_args=SimpleNamespace(n_envs=4))  # type: ignore[arg-type]
+    with pytest.warns(
+        UserWarning, match=r"not a multiple of the 32 env steps.*n_envs x n_steps"
+    ):
+        loop.n_rollouts(8)
+    with pytest.warns(
+        UserWarning, match=r"of the 3 env steps of one iteration \(n_envs\)"
+    ):
+        loop.warn_if_partial(3, "n_envs")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert loop.n_rollouts(5) == 100 // 20 + 1
+        loop.warn_if_partial(4, "n_envs")
 
 
 def test_gradient_step_applies_the_loss_gradient() -> None:

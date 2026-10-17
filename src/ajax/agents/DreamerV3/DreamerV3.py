@@ -128,6 +128,8 @@ class DreamerV3(ActorCritic):
 
     name: str = "DreamerV3"
     supported_extension_phases: frozenset = LOOP_PHASES
+    # Its row collector steps with the env params as traced values.
+    supports_batched_env_params: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(

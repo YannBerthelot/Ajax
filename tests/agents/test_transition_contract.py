@@ -7,8 +7,11 @@ whose observation [t, c] says which step of which episode a row is:
 (t = LIMIT), not the next episode's first, nor another env's;
 (ii) the flags are those the step raised: ``dones`` (where the target cuts
 the bootstrap) the termination, ``terminated`` and ``truncated`` apart;
-(iii) under reward normalisation the rewards are the normalised channel the
-env produced, not the raw one it keeps in its info (on the rows that did
+(iii) under reward normalisation, an agent learning from its rollout reads
+the normalised channel the env produced, not the raw one it keeps in its
+info; a replay agent reads each replayed row's own reward (on the identity
+task, its executed action) divided by the normaliser's current statistics,
+one divisor per batch, as SB3's replay buffer does (on the rows that did
 not terminate: ASAC penalises a termination's reward).
 """
 
@@ -24,9 +27,17 @@ from ajax.extensions.base import Extension
 from ajax.wrappers import _OnlineNormalization
 from tests.agents.test_agent_contract import CASES, DISCRETE
 from tests.environments.identity_env import IdentityEnv, ends
+from tests.environments.paid_action import HIGH
 
 FLAGS = ("dones", "terminated", "truncated")
-KEYS = ("observations", "next_observations", "rewards", *FLAGS, "reward_scale")
+KEYS = (
+    "observations",
+    "next_observations",
+    "rewards",
+    "actions",
+    *FLAGS,
+    "reward_scale",
+)
 #: Every agent Ajax ships (test_exports: ajax.__all__ names them all) that
 #: folds on_target; one without a row in CASES fails.
 FOLDING = sorted(
@@ -105,6 +116,23 @@ def test_on_target_rows_are_their_episodes_transitions(name, monkeypatch):
     raw, normed = (np.concatenate([np.ravel(p[i]) for p in produced]) for i in (0, 1))
     assert np.abs(normed - raw).max() > 0.1, "the normalisation was the identity"
     scale = np.ravel(BATCHES[0].get("reward_scale", 1.0))[0]
-    rewards = _column("rewards")[~terminated] / scale
-    assert _close_to_any(rewards, normed).all()
-    assert not _close_to_any(rewards, raw).all()
+    if not case.cls.replays_transitions:
+        rewards = _column("rewards")[~terminated] / scale
+        assert _close_to_any(rewards, normed).all()
+        assert not _close_to_any(rewards, raw).all()
+        return
+    paid = 1.0 if case.envs == DISCRETE else HIGH
+    divisors = []
+    for batch in BATCHES:
+        rows = batch["observations"].reshape(-1, 2)
+        going = ~ends(rows)[0]
+        own = paid * batch["actions"].reshape(len(rows), -1)[going, 0]
+        rewards = batch["rewards"].reshape(-1)[going] / scale
+        paying = own != 0  # DQN's action 0 pays 0
+        np.testing.assert_allclose(rewards[~paying], 0.0, atol=1e-6)
+        if paying.any():
+            ratio = rewards[paying] / own[paying]
+            np.testing.assert_allclose(ratio, ratio[0], rtol=1e-4)
+            divisors.append(1.0 / ratio[0])
+    assert divisors and min(divisors) > 0
+    assert np.abs(np.array(divisors) - 1.0).max() > 0.1, "no statistic divided"

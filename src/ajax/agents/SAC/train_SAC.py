@@ -25,7 +25,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import augment_obs
+from ajax.environments.interaction import augment_obs, reward_statistics
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
@@ -87,7 +87,6 @@ def init_SAC(
     augment_obs_with_expert_state: bool = False,
     expert_state_aug_dim: int = 0,
     action_dim_override: Optional[int] = None,
-    normalize_obs_running: bool = False,
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
@@ -129,20 +128,12 @@ def init_SAC(
             "expert_state_aug_dim": (
                 expert_state_aug_dim if augment_obs_with_expert_state else 0
             ),
-            "normalize_obs_running": normalize_obs_running,
             "include_expert_fields": expert_policy is not None,
             "include_raw_next_obs": store_raw_next_obs,
             "include_raw_obs": store_expert_data,
             "include_is_expert": store_expert_data,
         },
     )
-    if collector_state.obs_norm_info is not None:
-        # Seed actor/critic with the initial (zero) stats so get_pi /
-        # predict_value see a consistent obs_norm_info from step 1. The
-        # field is updated each collection step.
-        actor_state = actor_state.replace(obs_norm_info=collector_state.obs_norm_info)
-        critic_state = critic_state.replace(obs_norm_info=collector_state.obs_norm_info)
-
     if (
         expert_policy is not None
         and buffer is not None
@@ -492,8 +483,12 @@ def update_agent(
         expert_frac_in_buffer = jnp.zeros(())
         raw_next_observations = None
     else:
+        collector = agent_state.collector_state
         batch = get_batch_from_buffer(
-            buffer, agent_state.collector_state.buffer_state, sample_key
+            buffer,
+            collector.buffer_state,
+            sample_key,
+            reward_statistics(collector.env_state),
         )
         # No expert, no stored flags: none acted.
         expert_frac_in_buffer = (
@@ -691,7 +686,6 @@ def make_train(
     target_entropy_ramp_frac: float = 0.5,
     augment_obs_with_expert_state: bool = False,
     expert_state_aug_dim: int = 0,
-    normalize_obs_running: bool = False,
     store_policy_action: bool = False,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
@@ -777,22 +771,24 @@ def make_train(
             augment_obs_with_expert_state=augment_obs_with_expert_state,
             expert_state_aug_dim=expert_state_aug_dim,
             action_dim_override=action_dim_override,
-            normalize_obs_running=normalize_obs_running,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
             store_expert_data=holds_expert(expert_policy, stack),
         )
 
-    # An extension with ``build_policy_transform`` (ResidualPolicy) makes
+    # An extension implementing ``transform_action`` (ResidualPolicy) makes
     # the executed action residual: in collection (the action pipeline),
     # the actor loss and TD target ``(actions, raw_obs, a_expert) ->
     # actions``, and evaluation; ``None`` ⇒ pure SAC. Gain mode
     # (``use_pid_policy``, which rejects a residual policy) handles its own
     # eval transform in ``step_environment``.
-    # Found by duck typing: the agent does not name the extension.
     residual: Any = next(
-        (e for e in loop.stack.extensions if hasattr(e, "build_policy_transform")),
+        (
+            e
+            for e in loop.stack.extensions
+            if "transform_action" in e.implemented_phases()
+        ),
         None,
     )
     policy_action_transform = (

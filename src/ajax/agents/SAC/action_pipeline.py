@@ -31,8 +31,8 @@ ACTION_SLOTS = ("pre_warmup", "post_warmup")
 def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -> None:
     """Reject the ``action`` extensions the pipeline never dispatches: one
     without an ``action_slot`` of :data:`ACTION_SLOTS`, or any, or a residual
-    policy (an extension with ``build_policy_transform``), when the pipeline
-    does not dispatch (``dispatched`` False: no expert policy, or the
+    policy (an extension implementing ``transform_action``), when the
+    pipeline does not dispatch (``dispatched`` False: no expert policy, or the
     gain-policy short-circuit). SAC calls it at construction."""
     acting = [e for e in extension_stack if "action" in e.implemented_phases()]
     unslotted = [
@@ -43,7 +43,9 @@ def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -
             f"SAC dispatches the action phase only to extensions declaring an"
             f" action_slot in {ACTION_SLOTS}; {unslotted} declare none."
         )
-    residual = [e for e in extension_stack if hasattr(e, "build_policy_transform")]
+    residual = [
+        e for e in extension_stack if "transform_action" in e.implemented_phases()
+    ]
     if (acting or residual) and not dispatched:
         raise ValueError(
             "SAC dispatches the action phase only with an expert_policy and"
@@ -337,11 +339,18 @@ def make_action_pipeline(
             env_action = post["env_action"]
         in_value_box = post.get("in_value_box", no_box)
         entry_bonus = post.get("entry_bonus", no_box)
+        box_entry = post.get("box_entry")
 
         # --- Expert flag tracking: where an extension handed the expert
-        # the step.
+        # the step. Each substitutes the expert's action where its mask is
+        # set, so in either stack order the expert acted where any is.
         _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
-        for mask in (pre.get("_edge_use_expert"), post.get("in_value_box")):
+        masks = (
+            pre.get("_edge_use_expert"),
+            pre.get("_jsrl_use_expert"),
+            post.get("in_value_box"),
+        )
+        for mask in masks:
             if mask is not None:
                 _post_expert = jnp.maximum(_post_expert, mask.astype(jnp.float32))
         _warmup_expert = jnp.ones_like(
@@ -365,6 +374,7 @@ def make_action_pipeline(
             is_expert_flag=is_expert_flag,
             in_value_box=in_value_box,
             entry_bonus=entry_bonus,
+            box_entry=box_entry,
             rng=rng,
             new_expert_state=new_expert_state,
             buffer_action=_buffer_action_field,

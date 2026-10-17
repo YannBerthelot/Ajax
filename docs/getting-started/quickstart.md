@@ -101,9 +101,10 @@ print(episode_return)
 ```
 
 `get_pi` returns the policy's action distribution. It applies the agent's own
-observation normalisation when the agent keeps one. If you trained with the
-environment-side normaliser (`normalize_observations=True`), normalise the
-observation the same way first: see [Environments](../guide/environments.md).
+observation normalisation when the agent keeps one (a replay agent's
+`normalize_observations=True`). If you trained an agent that normalises in
+the environment (PPO, APO, PQN, UDRL), normalise the observation the
+same way first: see [Environments](../guide/environments.md).
 
 For continuous actions, take `pi.mean()` instead of `pi.mode()`. It is in the
 agent's units, `[-1, 1]`: map it onto the environment's bounds before

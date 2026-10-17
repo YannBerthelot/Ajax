@@ -73,11 +73,15 @@ observations, and no reward normalisation.
 ## Notes
 
 - **TD-error scale.** The critic minimises the squared TD error divided by
-  `sqrt(var(r) + E[G^2] var(gamma))`, where `r` is the entropy-regularised
-  reward, `gamma` the per-step discount (zero at a termination) and `G` the
-  returns of finished episodes. The scale is 1 until two returns have been
-  seen. The statistics are updated after every step, warm-up included, and
-  shared by all envs.
+  `sqrt(max(var(r) + E[G^2] var(gamma), 1e-4))`, where `r` is the
+  entropy-regularised reward, `gamma` the per-step discount (zero at a
+  termination) and `G` the returns of finished episodes, as the authors'
+  `TDErrorScaler` does (`incremental_rl/td_error_scaler.py`). The scale is
+  1 while that variance is at most 0.01 and no episode has finished; on a
+  task without terminations it follows the reward's variance alone. The
+  statistics are updated after every step, warm-up included, and shared by
+  all envs; each finished episode's return counts once, whatever
+  `n_envs`.
 - **Actor gradient.** The actor loss is `alpha log pi(a|s) - Q(s, a)` at the
   action actually executed, reparameterised from its stored pre-squash
   sample, so the gradient flows through that action.

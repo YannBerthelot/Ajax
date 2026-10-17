@@ -84,3 +84,30 @@ def test_UDRL_refuses_n_epochs():
     (Algorithm 3); the ``n_epochs`` it once accepted and ignored is gone."""
     with pytest.raises(TypeError, match="n_epochs"):
         UDRL(env_id="Pendulum-v1", n_epochs=2)
+
+
+def test_UDRL_gamma_discounts_only_its_diagnostic():
+    """As udrl.md says: commands, top-K statistics and training targets sum
+    rewards undiscounted, as in the paper, so gamma leaves training as it
+    is and changes only the logged returns-to-go (Train/mean_rtg)."""
+    from ajax.logging.wandb_logging import LoggingConfig
+
+    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    runs = {}
+    for gamma in (1.0, 0.5):
+        agent = UDRL(
+            env_id="CartPole-v1", n_envs=1, n_steps=8, batch_size=8, gamma=gamma
+        )
+        runs[gamma] = agent.train(seed=0, n_timesteps=32, logging_config=logging)
+    (plain, plain_logs), (discounted, discounted_logs) = runs[1.0], runs[0.5]
+    for a, b in zip(
+        jax.tree.leaves(plain.actor_state.params),
+        jax.tree.leaves(discounted.actor_state.params),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(a, b)
+    rtg = (
+        np.asarray(plain_logs["Train/mean_rtg"]),
+        np.asarray(discounted_logs["Train/mean_rtg"]),
+    )
+    assert np.isfinite(rtg[0]).any() and (rtg[1] < rtg[0])[np.isfinite(rtg[0])].all()

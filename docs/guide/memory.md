@@ -79,7 +79,9 @@ divide `n_steps`); each piece starts from the memory recomputed up to its
 first step, never from zero in the middle of an episode. PPO shuffles whole
 pieces, not single steps, into its minibatches (see [PPO](../algorithms/ppo.md)
 for how many). When the pieces cannot be split into that many minibatches,
-PPO warns and trains on one.
+PPO warns and trains on one. Where a time limit cut an episode, the value it
+bootstraps on is the critic's on the episode's final observation, read with
+the memory that episode built, as sb3-contrib's `RecurrentPPO` does.
 
 ## Off-policy: sequence replay
 

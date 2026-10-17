@@ -473,3 +473,50 @@ def test_collect_experience_steps_every_env_once_per_call(env_id):
             np.swapaxes(getattr(rollout, field), 0, 1),
             err_msg=field,
         )
+
+
+@pytest.mark.parametrize("bonus", [-3.0, 0.0, 2.0])
+def test_a_value_box_entry_ends_the_agents_episode_whatever_its_bonus(bonus):
+    """Entering the value box pays the expert's value as a bonus and ends
+    the agent's episode, the bonus standing in for the bootstrap: on a cost
+    task the expert's value is 0 or negative, and its entry ends the
+    episode as a positive one does. Only the entering env is cut."""
+    distribution, _ = COLLECTORS["Pendulum-v1"]
+    env, params = make_gymnax_env("Pendulum-v1")
+    env_args = EnvironmentConfig(env=env, env_params=params, n_envs=2, continuous=True)
+    key = jax.random.PRNGKey(0)
+    actor = _constant_actor(distribution)
+    state = BaseAgentState(
+        rng=key,
+        eval_rng=key,
+        actor_state=actor,
+        critic_state=actor,
+        collector_state=init_collector_state(key, env_args, "gymnax", None),
+    )
+    entered = jnp.array([[1.0], [0.0]])
+
+    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+        policy = step_module._policy_pipeline(
+            agent_state,
+            raw_obs,
+            rng,
+            uniform,
+            mix_key,
+            action_key,
+            recurrent=False,
+            n_envs=2,
+        )
+        return policy._replace(
+            in_value_box=entered, entry_bonus=bonus * entered, box_entry=entered
+        )
+
+    collect = partial(
+        collect_experience, recurrent=False, mode="gymnax", env_args=env_args
+    )
+    _, plain = collect(state, None)
+    _, boxed = collect(state, None, action_pipeline=pipeline)
+    np.testing.assert_array_equal(plain.terminated[:, 0], [0, 0])
+    np.testing.assert_array_equal(boxed.terminated[:, 0], [1, 0])
+    np.testing.assert_allclose(
+        boxed.reward[:, 0], plain.reward[:, 0] + bonus * entered[:, 0]
+    )

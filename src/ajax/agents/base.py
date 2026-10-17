@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Sequence
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, Union
@@ -8,6 +9,7 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.environments.create import prepare_env
+from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
 from ajax.extensions.base import (
     Extension,
@@ -101,6 +103,11 @@ class ActorCritic:
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
     supports_memory: bool = False
+    # Whether the agent takes per-copy (batched) env params, one system per
+    # env (ajax.environments.system_class). The shared loop's collector
+    # compiles env_args as a static argument, which jax cannot hash with
+    # array leaves.
+    supports_batched_env_params: bool = False
     # Extension phases this agent's training loop folds; an extension that
     # implements any other phase is rejected at construction instead of
     # being silently ignored. Each agent declares the phases it folds (on
@@ -115,6 +122,13 @@ class ActorCritic:
     # state (a_expert, next_a_expert), which extensions may read
     # (check_extension_experts).
     stores_expert_actions: bool = False
+    # Whether the agent replays stored transitions. It then normalises
+    # observations itself (EnvironmentConfig.normalize_obs_in_agent): its
+    # replay keeps the env's own observations, normalised with the current
+    # statistics when read, as SB3's replay buffer does under VecNormalize.
+    # The env's normaliser would leave each row at the statistics of its
+    # collection.
+    replays_transitions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
     #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
@@ -197,7 +211,7 @@ class ActorCritic:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=normalize_observations,
+            normalize_obs=normalize_observations and not self.replays_transitions,
             normalize_reward=normalize_rewards,
             gamma=reward_normalization_gamma,
             n_envs=n_envs,
@@ -206,12 +220,20 @@ class ActorCritic:
             action_repeat=action_repeat,
         )
 
+        if env_params_is_batched(env_params) and not self.supports_batched_env_params:
+            raise ValueError(
+                f"{type(self).__name__} takes one env_params for every copy of"
+                " the environment; these carry one system per copy (a"
+                " SystemClass sample). APG, DreamerV3 and TDMPC2 take"
+                " per-copy systems; APG also samples them, with system_class."
+            )
         self.env_args = EnvironmentConfig(
             env=env,
             env_params=env_params,
             n_envs=n_envs,
             continuous=continuous,
             action_repeat=action_repeat,
+            normalize_obs_in_agent=normalize_observations and self.replays_transitions,
         )
 
         self.network_args = NetworkConfig(
@@ -342,7 +364,10 @@ class ActorCritic:
             seed = [seed]
 
         if logging_config is not None:
-            logging_config.config.update(self.config)
+            # A copy: the caller's config may serve another agent's run.
+            logging_config = dataclasses.replace(
+                logging_config, config={**logging_config.config, **self.config}
+            )
             self.run_ids = [new_run_id() for _ in range(len(seed))]
             for run_id, run_seed in zip(self.run_ids, seed, strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))

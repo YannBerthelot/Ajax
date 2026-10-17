@@ -7,7 +7,8 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import EnvironmentConfig
-from ajax.types import BufferType
+from ajax.types import BufferType, NormalizationInfo
+from ajax.utils import online_normalize
 
 
 def get_buffer(
@@ -140,10 +141,32 @@ class ReplayBatch(NamedTuple):
     raw_next_obs: Optional[jax.Array] = None
 
 
+def normalized_rewards(reward: jax.Array, stats: NormalizationInfo) -> jax.Array:
+    """The env's own ``reward`` divided by a reward normaliser's statistics,
+    which it leaves as they are; while they are empty (no step yet), the
+    reward as it is."""
+    normed = online_normalize(
+        reward, stats.count, stats.mean, stats.mean_2, train=False, shift=False
+    )[0]
+    return jnp.where(jnp.sum(stats.count) > 0, normed, reward)
+
+
 @partial(jax.jit, static_argnames=["buffer"])
-def get_batch_from_buffer(buffer: BufferType, buffer_state, key) -> ReplayBatch:
+def get_batch_from_buffer(
+    buffer: BufferType,
+    buffer_state,
+    key,
+    reward_stats: Optional[NormalizationInfo] = None,
+) -> ReplayBatch:
+    """A replay batch. The replay keeps the env's own rewards; with
+    ``reward_stats``, a reward normaliser's current statistics
+    (:func:`ajax.environments.interaction.reward_statistics`), they come
+    divided by them, as SB3's replay buffer does under VecNormalize."""
     batch = buffer.sample(buffer_state, key).experience
     first = batch.first
+    reward = first["reward"]
+    if reward_stats is not None:
+        reward = normalized_rewards(reward, reward_stats)
     return ReplayBatch(
         obs=first["obs"],
         # Not the next row's obs: after a time limit that is the reset one,
@@ -151,7 +174,7 @@ def get_batch_from_buffer(buffer: BufferType, buffer_state, key) -> ReplayBatch:
         next_obs=first["next_obs"],
         terminated=first["terminated"],
         truncated=first["truncated"],
-        reward=first["reward"],
+        reward=reward,
         action=first["action"],
         raw_obs=first.get("raw_obs"),
         is_expert=first.get("is_expert"),

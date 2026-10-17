@@ -54,7 +54,9 @@ update's `loss`, `matching_loss` (minus the mean closed-loop return),
 `m_rmse` and `timestep`. With a `logging_config`, every `log_frequency` steps
 it also evaluates the controller on `num_episode_test` systems, drawn
 afresh at each evaluation, and sends `Eval/episodic mean reward` and
-`Eval/m_rmse` to the logging backend.
+`Eval/m_rmse` to the logging backend. `aux.evaluations` then holds what each
+update logged, NaN on the updates that did not evaluate, with or without a
+backend.
 
 The in-context controller of Busetto et al., trained in stages on a
 reference-tracking task (`train_curriculum`, the paper's Algorithm 2):

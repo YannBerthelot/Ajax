@@ -180,7 +180,8 @@ def test_a_replayed_window_bootstraps_a_time_limit_on_its_final_observation() ->
     for t in range(16):
         buffer_state = buffer.add(buffer_state, row(t))
     agent_state: Any = SimpleNamespace(
-        collector_state=SimpleNamespace(buffer_state=buffer_state),
+        # No env state: an env without a reward normaliser.
+        collector_state=SimpleNamespace(buffer_state=buffer_state, env_state=None),
         actor_state=_actor("gru"),
         critic_state=_critic("gru"),
     )

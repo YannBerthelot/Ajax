@@ -34,8 +34,9 @@ from ajax.buffers.utils import (
     get_batch_from_buffer,
     get_buffer,
     get_sequence_batch_from_buffer,
+    normalized_rewards,
 )
-from ajax.environments.interaction import get_pi, get_pi_sequence
+from ajax.environments.interaction import get_pi, get_pi_sequence, reward_statistics
 from ajax.networks.memory import (
     MemoryConfig,
     flat_carry_dim,
@@ -137,6 +138,10 @@ def sample_and_burnin_sequences(
         agent_state.collector_state.buffer_state,
         sample_key,
     )
+    # The replay keeps the env's own rewards (get_batch_from_buffer).
+    reward_stats = reward_statistics(agent_state.collector_state.env_state)
+    if reward_stats is not None:
+        seq = {**seq, "reward": normalized_rewards(seq["reward"], reward_stats)}
     obs_seq = seq["obs"]
     act_seq = seq["action"]
     done_seq = jnp.logical_or(seq["terminated"], seq["truncated"]).squeeze(-1)  # (L, B)
@@ -249,7 +254,10 @@ def sample_replay(
         return sample_and_burnin_sequences(
             agent_state, buffer, key, burn_in, burn_target_actor, stored_state
         )
-    b = get_batch_from_buffer(buffer, agent_state.collector_state.buffer_state, key)
+    collector = agent_state.collector_state
+    b = get_batch_from_buffer(
+        buffer, collector.buffer_state, key, reward_statistics(collector.env_state)
+    )
     batch = Transition(
         b.obs, b.action, b.reward, b.terminated, b.truncated, b.next_obs, b.raw_obs
     )

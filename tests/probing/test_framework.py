@@ -40,7 +40,7 @@ CAPS |= {"test_framework.py": 213, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1043, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
-CAPS |= {"test_action_box.py": 200}
+CAPS |= {"test_action_box.py": 201}
 
 
 def _modules() -> list:

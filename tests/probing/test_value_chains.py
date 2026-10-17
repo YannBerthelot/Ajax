@@ -291,15 +291,16 @@ Q9_WRONG = {
         "Q02: Q(lambda) scan runs forward": alias_value(16, forward=True),
     },
 }
-# PPO without gradient clipping: with the default 0.5 the legacy path's
+# PPO without gradient clipping: with the default 0.5 the flat path's
 # critic leaves the fixed point in transient spikes and no budget met the
 # rule (worst over 32 seeds 0.075 to 0.104); unclipped, 0.0002 from 625.
 _PPO9 = {"gae_lambda": L9, "max_grad_norm": None}
+_TIME9 = {"n_envs": 4, "num_minibatches": 2, "unroll_length": 32}  # whole rollouts
 Q9_CELLS: dict[
     str, tuple[str, int, float, dict]
-] = {  # n_envs 1 runs PPO's legacy path, 4 with 2 minibatches the other
+] = {  # n_envs 1 runs PPO's flat path, _TIME9 brax's time geometry
     "PPO": ("PPO", 625, 0.02, _PPO9),
-    "PPO-minibatch": ("PPO", 1250, 0.047, _PPO9 | {"n_envs": 4, "num_minibatches": 2}),
+    "PPO-minibatch": ("PPO", 1250, 0.047, _PPO9 | _TIME9),
     "PQN": ("PQN", 2500, 0.02, {"q_lambda": L9}),
 }
 

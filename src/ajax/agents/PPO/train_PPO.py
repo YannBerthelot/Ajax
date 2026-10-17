@@ -1,15 +1,16 @@
-"""PPO (Schulman et al., 2017) with brax's minibatch geometries.
+"""PPO (Schulman et al., 2017), with brax's minibatch geometry as an option.
 
 Each iteration collects an ``(n_steps, n_envs)`` rollout, then runs
 ``n_epochs`` passes of a critic and an actor step on every minibatch of it
 (the clipped surrogate: :mod:`ajax.agents.PPO.core`). The rollout's
 :class:`Geometry` decides how it is minibatched and where GAE is computed:
 
-* ``time``: fragments of ``length`` steps (whole rollouts per env unless
-  ``unroll_length``) shuffled into minibatches, GAE recomputed in every
-  minibatch with the current critic (brax's ``compute_ppo_loss``);
-* ``flat``: GAE once on the whole rollout, then a flat shuffle of the
-  samples (when the fragments do not split evenly, e.g. one env);
+* ``flat`` (feedforward default): GAE once on the whole rollout, then a flat
+  shuffle of its ``n_steps * n_envs`` samples (the paper's Algorithm 1,
+  OpenAI Baselines' ppo2);
+* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps
+  shuffled into minibatches, GAE recomputed in every minibatch with the
+  current critic (brax's ``compute_ppo_loss``);
 * ``recurrent``: GAE once on the whole rollout, then a shuffle of whole
   sequences of ``length`` steps, each replayed from the carry it started
   from.
@@ -283,7 +284,10 @@ def minibatch_geometry(
 ) -> Geometry:
     """The rollout's :class:`Geometry`.
 
-    ``time`` needs fragments that split evenly into more than one
+    ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
+    whole rollouts per env): with as many minibatches as envs, each
+    minibatch is then one env's trajectory, its advantages normalised
+    within it. It needs fragments that split evenly into more than one
     minibatch: recomputing GAE on a single minibatch, the whole rollout,
     with a critic that just stepped only makes the value targets oscillate
     (the flake of the one-env probing fixture). A recurrent rollout is a
@@ -297,15 +301,13 @@ def minibatch_geometry(
             return Geometry("recurrent", num_minibatches, length)
         return Geometry("recurrent", 1, length)
     unroll = agent_config.unroll_length
-    if num_minibatches > 1:
-        if (
-            unroll is not None
-            and n_steps % unroll == 0
-            and n_steps // unroll * n_envs % num_minibatches == 0
-        ):
-            return Geometry("time", num_minibatches, unroll)
-        if n_envs % num_minibatches == 0:
-            return Geometry("time", num_minibatches, n_steps)
+    if (
+        unroll is not None
+        and num_minibatches > 1
+        and n_steps % unroll == 0
+        and n_steps // unroll * n_envs % num_minibatches == 0
+    ):
+        return Geometry("time", num_minibatches, unroll)
     return Geometry("flat", num_minibatches, n_steps)
 
 

@@ -219,12 +219,14 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     # Flat shuffle, GAE on the whole rollout: 4 minibatches, 2 envs.
     "PPO-flat": (PPO, {**_PENDULUM, "n_envs": 2, "n_steps": 32, "batch_size": 8}, 256),
-    # The env axis split, GAE per minibatch; brax's knobs.
+    # The env axis split, GAE per minibatch (brax's time geometry, opted
+    # into: unroll_length = n_steps); brax's knobs.
     "PPO-env-split": (
         PPO,
         {
             **_PENDULUM,
             **_SPLIT,
+            "unroll_length": 16,
             "squash": True,
             "log_std_state_independent": True,
             "log_std_init": 0.0,
@@ -275,7 +277,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "PPO-env-split-nudge": (
         PPO,
-        {**_PENDULUM, **_SPLIT, "extensions": (Nudge(),)},
+        {**_PENDULUM, **_SPLIT, "unroll_length": 16, "extensions": (Nudge(),)},
         256,
     ),
     "APO-nudge": (
@@ -564,15 +566,27 @@ _GOLDEN |= {
     },
     "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
 }
+# Re-recorded on macOS ARM CPU once feedforward PPO shuffled its rollout flat
+# by default (GAE once, as in the paper): with 2 envs and 2 minibatches this
+# run took brax's time geometry before. Actor +0.52%, critic +0.98%, nudge
+# +6.6%. Every other PPO pin is unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 5.850821495056152,
+        "critic": 5.0791544914245605,
+        "nudge": 0.31162577867507935,
+    },
+}
 # Re-recorded on macOS ARM CPU once the discrete logits head started at
 # orthogonal(0.01), not 1.0: the head's kernel loses most of its initial
 # squared norm (2.0 at gain 1 for 16 x 2). Relative shifts: PPO-discrete-nudge
-# actor -38.6%, critic +0.82%; UDRL-nudge actor -9.3%; both nudges unchanged.
+# (from the flat-geometry pin above) actor -39.9%, critic +0.78%; UDRL-nudge
+# actor -9.3%; both nudges unchanged.
 _GOLDEN |= {
     "PPO-discrete-nudge": {
-        "actor": 3.571978807449341,
-        "critic": 5.070954322814941,
-        "nudge": 0.29222556948661804,
+        "actor": 3.514505386352539,
+        "critic": 5.118714809417725,
+        "nudge": 0.31162577867507935,
     },
     "UDRL-nudge": {"actor": 21.728490829467773, "nudge": 0.3160724639892578},
 }

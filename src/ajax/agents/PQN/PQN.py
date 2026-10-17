@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -9,6 +9,7 @@ from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType
 
@@ -27,6 +28,7 @@ class PQN(ActorCritic):
         "discounted obs_networks off_policy q_critic".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    supports_memory: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -58,6 +60,9 @@ class PQN(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[CNNSpec] = None,
+        # Pluggable memory block (see ajax.networks.memory): the Q-network
+        # replays each env's whole rollout from the carry it started with.
+        memory: Optional[Union[MemoryConfig, dict]] = None,
         extensions: Sequence[Extension] = (),
         # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by
@@ -82,6 +87,7 @@ class PQN(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             weight_decay=weight_decay,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,

@@ -37,7 +37,6 @@ from ajax.agents.DQN.networks import (
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.recurrent import (
-    RecurrentCarries,
     actor_dist,
     sample_replay,
     stored_actor_carry_dim,
@@ -288,19 +287,20 @@ def q_loss_fn(
     actions: jax.Array,
     target_q: jax.Array,
     loss_fn: Callable,
-    carries: Optional[RecurrentCarries] = None,
+    q_values: Optional[Callable[[Any], jax.Array]] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """TD loss between Q(s, a) at the taken action and a pre-computed target.
 
     ``loss_fn(q_taken, target_q) -> scalar`` selects the error norm
     (``mse_td_loss`` by default, ``make_huber_td_loss(...)`` for Huber).
-    With ``carries``, ``observations`` are a replayed sequence the
-    recurrent network reads from its burned-in carry.
+    ``q_values(params)`` reads the Q-values of ``observations`` (a recurrent
+    network's, over a sequence from its carry); by default the network on
+    them.
     """
-    if carries is None:
+    if q_values is None:
         q_all = predict_q(q_state, q_params, observations)
     else:
-        q_all = actor_dist(q_state, q_params, observations, carries).q_values
+        q_all = q_values(q_params)
     # actions is (batch, 1) int32 -> gather one Q-value per row.
     q_taken = jnp.take_along_axis(q_all, actions, axis=-1)
     loss = loss_fn(q_taken, target_q)
@@ -321,7 +321,7 @@ def q_gradient_step(
     extension_stack: ExtensionStack,
     key: Optional[jax.Array],
     total_timesteps: int,
-    carries: Optional[RecurrentCarries] = None,
+    q_values: Optional[Callable[[Any], jax.Array]] = None,
 ) -> Tuple[LoadedTrainState, ValueAuxiliaries]:
     """One step of the Q-network (``agent_state.actor_state``) down the TD
     loss plus the extensions' critic-loss terms, folded on ``key`` (drawn
@@ -331,7 +331,7 @@ def q_gradient_step(
 
     def loss_fn(params: Any) -> Tuple[jax.Array, ValueAuxiliaries]:
         loss, aux = q_loss_fn(
-            params, q_state, observations, actions, targets, td_loss_fn, carries
+            params, q_state, observations, actions, targets, td_loss_fn, q_values
         )
         if extension_stack:
             assert key is not None
@@ -479,7 +479,9 @@ def update_agent(
         extension_stack,
         loss_key,
         total_timesteps,
-        carries,
+        None
+        if carries is None
+        else (lambda p: actor_dist(q_state, p, observations, carries).q_values),
     )
 
     do_target_update = (agent_state.n_updates % target_update_interval) == 0

@@ -11,6 +11,7 @@ from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.networks.networks import CNNSpec
+from ajax.networks.utils import TORCH_LINEAR
 from ajax.types import EnvType
 
 
@@ -90,6 +91,15 @@ class DQN(ActorCritic):
             cnn_image_shape=cnn_image_shape,
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
+            # The initialisation of DQN's reference code: google-deepmind/dqn
+            # @9d9b1d1 builds its network from Torch7 nn layers it never
+            # re-initialises (dqn/convnet.lua:23-61), and Torch7's
+            # nn.Linear draws kernel and bias uniform in +-1/sqrt(fan_in)
+            # (torch/nn @8726825, Linear.lua:21-41): "torch_linear", for the
+            # MLP encoder and the Q head. The CNN encoder keeps its own
+            # (lecun_normal), as its layers are not Mnih et al.'s either.
+            encoder_kernel_init=TORCH_LINEAR,
+            value_kernel_init=TORCH_LINEAR,
             episode_length=episode_length,
             action_repeat=action_repeat,
             extensions=extensions,

@@ -13,19 +13,19 @@ from typing import Optional, Tuple, Union
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.utils import get_state_action_shapes
 from ajax.networks.networks import CNNEncoder, CNNSpec, Encoder, init_network_state
-from ajax.networks.utils import get_adam_tx
+from ajax.networks.utils import dense, get_adam_tx
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import ActivationFunction
+from ajax.types import ActivationFunction, InitializationFunction
 
 
 class GreedyQPolicy:
@@ -88,6 +88,7 @@ def _build_q_encoder(module: nn.Module) -> nn.Module:
     return Encoder(
         input_architecture=module.input_architecture,
         penultimate_normalization=module.penultimate_normalization,
+        kernel_init=module.kernel_init,
         layer_norm=module.encoder_layer_norm,
     )
 
@@ -104,12 +105,15 @@ class QNetwork(nn.Module):
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
+    # The MLP encoder's and the Q head's kernel inits (the network config's
+    # encoder_kernel_init and value_kernel_init); None keeps parse_layer's
+    # default and orthogonal(1.0).
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
-        self.head = nn.Dense(
-            self.n_actions, kernel_init=orthogonal(1.0), bias_init=constant(0.0)
-        )
+        self.head = dense(self.n_actions, self.head_kernel_init, None, orthogonal(1.0))
 
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         features = self.encoder(obs)
@@ -134,9 +138,10 @@ class DuelingQNetwork(QNetwork):
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
-        init = {"kernel_init": orthogonal(1.0), "bias_init": constant(0.0)}
-        self.value_head = nn.Dense(1, **init)
-        self.advantage_head = nn.Dense(self.n_actions, **init)
+        self.value_head = dense(1, self.head_kernel_init, None, orthogonal(1.0))
+        self.advantage_head = dense(
+            self.n_actions, self.head_kernel_init, None, orthogonal(1.0)
+        )
 
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         features = self.encoder(obs)
@@ -189,6 +194,8 @@ def get_initialized_q_network(
         cnn_image_shape=network_config.cnn_image_shape,
         cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
         cnn_spec=network_config.cnn_spec,
+        kernel_init=network_config.encoder_kernel_init,
+        head_kernel_init=network_config.value_kernel_init,
     )
     tx = get_adam_tx(**to_state_dict(optimizer_config))
     observation_shape, _ = get_state_action_shapes(env_config.env)

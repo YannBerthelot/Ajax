@@ -1,4 +1,5 @@
 import dataclasses
+import inspect
 from collections.abc import Sequence
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, Union
@@ -14,8 +15,9 @@ from ajax.environments.utils import ExpertInAgentUnits
 from ajax.extensions.base import (
     Extension,
     ExtensionStack,
-    check_extension_phases,
+    check_extensions,
 )
+from ajax.extensions.capabilities import run_capabilities
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -108,12 +110,23 @@ class ActorCritic:
     # compiles env_args as a static argument, which jax cannot hash with
     # array leaves.
     supports_batched_env_params: bool = False
+    # What the algorithm has (ajax.extensions.capabilities'
+    # ALGORITHM_CAPABILITIES), whatever the state of the code: an extension
+    # needing anything else is refused at construction, naming it.
+    capabilities: frozenset = frozenset()
     # Extension phases this agent's training loop folds; an extension that
     # implements any other phase is rejected at construction instead of
     # being silently ignored. Each agent declares the phases it folds (on
     # the shared loop: ajax.agents.loop.LOOP_PHASES plus its update's); the
     # default accepts none.
     supported_extension_phases: frozenset = frozenset()
+    # The keys of the agent context its make_train binds its extensions to
+    # (Extension.bind_to_agent); an extension needing another is refused.
+    extension_context: frozenset = frozenset()
+    # The ExtensionContext fields its loop fills for its extensions'
+    # pretraining (the shared loop: env_args; off-policy also update, and
+    # buffer with a replay).
+    pretrain_context: frozenset = frozenset({"env_args"})
     # Replay-buffer fields beyond its own this agent stores on an
     # extension's declaration (Extension.buffer_fields); any other is
     # rejected at construction.
@@ -298,16 +311,34 @@ class ActorCritic:
             self._experts_in_agent_units[id(expert)] = (expert, wrapped)
         return self._experts_in_agent_units[id(expert)][1]
 
+    def run_capabilities(self) -> frozenset[str]:
+        """The capabilities of this run
+        (:func:`~ajax.extensions.capabilities.run_capabilities`)."""
+        return run_capabilities(
+            self.capabilities,
+            continuous=self.env_args.continuous,
+            # Set before this initialiser by the agents that take one.
+            has_expert=getattr(self, "expert_policy", None) is not None,
+            num_critics=self.config.get("num_critics"),
+        )
+
     def _check_extension_phases(self) -> None:
-        """Reject extensions implementing phases this agent never folds, or
-        reading buffer fields it does not store."""
-        check_extension_phases(
+        """Reject extensions this agent cannot run
+        (:func:`~ajax.extensions.base.check_extensions`); without extensions
+        there is nothing to check."""
+        if not self.extension_stack:
+            return
+        check_extensions(
             type(self).__name__,
             self.extension_stack,
+            self.run_capabilities(),
             self.supported_extension_phases,
-            self.supported_buffer_fields,
-            # Set before this initialiser by the agents that take one.
+            context=self.extension_context,
+            pretrain_context=self.pretrain_context,
+            buffer_fields=self.supported_buffer_fields,
             agent_expert=getattr(self, "expert_policy", None),
+            takes_expert_policy="expert_policy"
+            in inspect.signature(type(self).__init__).parameters,
             stores_expert_actions=self.stores_expert_actions,
         )
 

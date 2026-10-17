@@ -16,6 +16,7 @@ import pytest
 from ajax.buffers import dataset as ds
 from ajax.environments.interaction import reward_statistics
 from ajax.environments.utils import wrapper_chain
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.pretrain import PriorData
 from tests.agents.test_agent_contract import CASES
 from tests.agents.test_replay_normalisation import REPLAYING
@@ -96,5 +97,5 @@ def test_the_rows_join_the_normalisers_once_each(data) -> None:
 
 @pytest.mark.parametrize("name", ["PPO", "AVG"])
 def test_an_agent_without_a_replay_refuses_it(name, data) -> None:
-    with pytest.raises(ValueError, match="agent replaying transitions"):
+    with pytest.raises(MissingCapability, match=r"replay \(its updates sample"):
         train(name, (PriorData(data[False]),))

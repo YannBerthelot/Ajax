@@ -26,6 +26,7 @@ SAC keeps them when an extension carries an expert) and ``recurrent``.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional, Tuple
 
@@ -181,6 +182,10 @@ class IBRL(Extension):
     expert_policy: Callable
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
+    requires: ClassVar[frozenset[str]] = frozenset({"actor", "discounted", "q_critic"})
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
@@ -229,6 +234,12 @@ class LCBGatedBootstrap(Extension):
     lcb_temperature: float = 1.0
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"actor", "critic_ensemble", "discounted", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
@@ -290,15 +301,20 @@ class CriticBlend(Extension):
     critic_warmup_frac: float = 0.15
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"discounted", "phi_star", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset(
+            {"dones", "next_a_expert", "raw_next_observations", "reward_scale"}
+        )
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
-
-    def reads_phi_star(self) -> bool:
-        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "CriticBlend":
         """Read the expert's stored actions when it is the agent's."""
@@ -350,9 +366,12 @@ class MCVarianceCorrection(Extension):
 
     threshold: float
     name: str = "mc_variance_correction"
-
-    def reads_phi_star(self) -> bool:
-        return True
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"critic_ensemble", "phi_star", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"actions", "q_preds"})
+    }
 
     def on_target(
         self,
@@ -401,10 +420,10 @@ class ValueBox(Extension):
     """
 
     name: str = "value_box"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "phi_star", "q_critic"}
+    )
     action_slot: ClassVar[str] = "post_warmup"
-
-    def reads_phi_star(self) -> bool:
-        return True
 
     def action(
         self,

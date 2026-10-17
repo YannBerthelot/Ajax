@@ -22,15 +22,22 @@ class ASAC(ActorCritic):
     """Average-Reward Soft Actor-Critic (ASAC) from Adamczyk et al. 2025. See https://arxiv.org/abs/2501.09080v2"""
 
     name: str = "ASAC"
+    capabilities: frozenset = frozenset(
+        "actor critic_ensemble obs_networks off_policy q_critic replay".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
     }
+    pretrain_context: frozenset = frozenset("buffer env_args update".split())
     supports_memory: bool = True
     replays_transitions: bool = True
     stores_expert_actions: bool = True
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    extension_context: frozenset = frozenset(
+        "actor_optimizer_args buffer env_args expert_policy".split()
+    )
     make_train = staticmethod(make_train)
 
     def __init__(

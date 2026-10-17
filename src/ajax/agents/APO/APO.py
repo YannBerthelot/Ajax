@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -8,6 +8,7 @@ from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
+from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -68,6 +69,10 @@ class APO(ActorCritic):
         # rollout transition on ``agent_state.last_rollout``. Off by
         # default — see :attr:`BaseAgentState.last_rollout`.
         expose_recent_rollout: bool = False,
+        # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+        cnn_extra_obs_dim: int = 0,
+        cnn_spec: Optional[CNNSpec] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -115,6 +120,9 @@ class APO(ActorCritic):
             mean_kernel_init="lecun_uniform",
             episode_length=episode_length,
             action_repeat=action_repeat,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
             extensions=extensions,
         )
 

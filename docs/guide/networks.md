@@ -113,8 +113,8 @@ and `squash=True`.
 
 ## Image observations
 
-PPO, DQN, PQN and UDRL can read images through a convolutional encoder.
-Ajax flattens image observations, so give the image's shape
+Every agent but the world models (DreamerV3, TDMPC2) can read images through
+a convolutional encoder. Ajax flattens image observations, so give the image's shape
 `(height, width, channels)` as `cnn_image_shape`; the encoder reshapes the
 flat vector back. `cnn_extra_obs_dim` counts extra scalar entries after the
 image, which join the image features after the convolutions. `cnn_spec`
@@ -136,6 +136,12 @@ state, _ = agent.train(seed=0, n_timesteps=2_048)
 `CNNSpec()` with no arguments is the default encoder: two ReLU convolutions
 of 16 and 32 channels (kernels 4 and 3, stride 2), then a 128-wide dense
 layer. The image is read in height, width, channels order.
+
+A critic of the action as well as the observation, Q(s, a) (SAC, TD3,
+REDQ, ASAC, AVG), reads the image through the convolutions and joins the
+action to their features in a head of its `critic_architecture`, as the
+critics of DrQ (Kostrikov et al. 2020) and SAC-AE (Yarats et al. 2021) do.
+Each network has its own encoder.
 
 ## The PID policy
 

@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -14,6 +14,7 @@ from ajax.environments.utils import (
 )
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -81,6 +82,10 @@ class ASAC(ActorCritic):
         # from its state along each trajectory, are stored for the
         # extensions that read them.
         expert_policy: Optional[Callable] = None,
+        # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+        cnn_extra_obs_dim: int = 0,
+        cnn_spec: Optional[CNNSpec] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -115,6 +120,9 @@ class ASAC(ActorCritic):
             squash=True,
             episode_length=episode_length,
             action_repeat=action_repeat,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
             extensions=extensions,
         )
 

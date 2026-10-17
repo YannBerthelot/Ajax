@@ -14,6 +14,7 @@ from ajax.networks.networks import (
     CNNEncoder,
     CNNSpec,
     get_initialized_actor_critic,
+    get_initialized_critic,
 )
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
@@ -74,6 +75,78 @@ def test_actor_and_state_value_critic_read_the_same_layout(
     assert logits.shape == (BATCH, 2) and jnp.all(jnp.isfinite(logits))
     values = critic_state.apply_fn(critic_state.params, obs)
     assert values.shape == (1, BATCH, 1) and jnp.all(jnp.isfinite(values))
+
+
+@pytest.fixture
+def pendulum():
+    """Pendulum's 3 observation dims, read as a tiny image, and its action."""
+    env, env_params = build_env_from_id("Pendulum-v1")
+    return EnvironmentConfig(env=env, env_params=env_params, n_envs=1, continuous=True)
+
+
+def test_an_action_value_critic_reads_the_image_then_the_action(pendulum):
+    """A Q(s, a) critic's convolutions read the image alone; the action joins
+    their features in an MLP head (DrQ's critic), so Q is not linear in it."""
+    _, critic_state = get_initialized_actor_critic(
+        key=jax.random.PRNGKey(0),
+        env_config=pendulum,
+        actor_optimizer_config=OPTIMIZER,
+        critic_optimizer_config=OPTIMIZER,
+        network_config=NetworkConfig(
+            actor_architecture=ARCH,
+            critic_architecture=ARCH,
+            cnn_image_shape=(1, 3, 1),
+            cnn_spec=SPEC,
+        ),
+        num_critics=2,
+        action_value=True,
+    )
+    assert _conv_params(critic_state.params)
+    obs = jax.random.normal(jax.random.PRNGKey(1), (BATCH, 3))
+
+    def q(action: float) -> jax.Array:
+        x = jnp.concatenate([obs, jnp.full((BATCH, 1), action)], axis=-1)
+        return critic_state.apply_fn(critic_state.params, x)
+
+    assert q(0.0).shape == (2, BATCH, 1) and jnp.all(jnp.isfinite(q(0.0)))
+    assert not jnp.allclose(q(1.0) + q(-1.0), 2 * q(0.0), atol=1e-6)
+    features = critic_state.apply_fn(
+        critic_state.params,
+        jnp.concatenate([obs, jnp.ones((BATCH, 1))], axis=-1),
+        method="apply_encoder_ensemble",
+    )
+    assert features.shape == (2, BATCH, SPEC.feature_dim)
+
+
+def test_the_standalone_critic_has_the_online_critics_structure(pendulum):
+    """MCPretrain's frozen expert critic is applied with the online critic's
+    function, so it keeps the online one's CNN and action head."""
+    network_config = NetworkConfig(
+        actor_architecture=ARCH,
+        critic_architecture=ARCH,
+        cnn_image_shape=(1, 3, 1),
+        cnn_spec=SPEC,
+    )
+    _, online = get_initialized_actor_critic(
+        key=jax.random.PRNGKey(0),
+        env_config=pendulum,
+        actor_optimizer_config=OPTIMIZER,
+        critic_optimizer_config=OPTIMIZER,
+        network_config=network_config,
+        num_critics=2,
+        action_value=True,
+    )
+    standalone = get_initialized_critic(
+        key=jax.random.PRNGKey(1),
+        env_config=pendulum,
+        critic_optimizer_config=OPTIMIZER,
+        network_config=network_config,
+        num_critics=2,
+    )
+    shapes = lambda state: jax.tree.map(jnp.shape, state.params)  # noqa: E731
+    assert shapes(standalone) == shapes(online)
+    x = jnp.ones((BATCH, 4))
+    assert online.apply_fn(standalone.params, x).shape == (2, BATCH, 1)
 
 
 def test_cnn_encoder_rejects_a_miscounted_input_width():

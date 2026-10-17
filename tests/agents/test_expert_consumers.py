@@ -37,7 +37,7 @@ EXPERT_AGENTS = sorted(
     if "expert_policy" in inspect.signature(getattr(ajax, n)).parameters
 )
 #: The agents binding CloningPretrain's context (their train_*.py).
-CLONING_AGENTS = {"APO", "REDQ", "SAC", "TD3"}
+CLONING_AGENTS = {"APO", "ASAC", "REDQ", "SAC", "TD3"}
 
 
 def expert_action(t):

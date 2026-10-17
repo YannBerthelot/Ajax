@@ -20,6 +20,7 @@ import dataclasses
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
+import distrax
 import jax
 import jax.numpy as jnp
 from flax.core import FrozenDict
@@ -199,7 +200,11 @@ def policy_loss_function(
 
     total_loss = loss_actor - ent_coef * entropy
     if extra_loss_fn is not None:
-        total_loss = total_loss + extra_loss_fn(actor_params, actor_state)
+        # A discrete policy has no mean action.
+        pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
+        total_loss = total_loss + extra_loss_fn(
+            actor_params, actor_state, observations, pi_mean
+        )
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -247,15 +252,20 @@ def _stack_actor_loss(
     agent_state: PPOState,
     key: jax.Array,
     total_timesteps: int,
+    raw_observations: Optional[jax.Array] = None,
 ) -> Optional[Callable]:
     """The stack's additive actor-loss term on ``key`` as a
     ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
-    actor_state) -> scalar``; ``None`` for an empty stack."""
+    actor_state, observations, pi_mean) -> scalar``, the minibatch's
+    ``raw_observations`` beside them; ``None`` for an empty stack."""
     if not extension_stack:
         return None
 
-    def actor_loss(actor_params, actor_state):
+    def actor_loss(actor_params, actor_state, observations, pi_mean):
         _batch = {
+            "observations": observations,
+            "raw_observations": raw_observations,
+            "pi_mean": pi_mean,
             "actor_params": actor_params,
             "actor_state": actor_state,
         }
@@ -527,6 +537,9 @@ def update_agent(
         "log_probs": log_probs,
         "raw_actions": rollout.raw_action,
     }
+    if extension_stack:
+        # The environment's own observations, which an expert reads.
+        batch["raw_obs"] = rollout.raw_obs
 
     if geometry.kind == "time":
         # GAE in each minibatch, with the critic of that step.
@@ -609,7 +622,7 @@ def update_agent(
             extension_stack, agent_state, critic_key, total_timesteps
         )
         actor_extra = _stack_actor_loss(
-            extension_stack, agent_state, actor_key, total_timesteps
+            extension_stack, agent_state, actor_key, total_timesteps, mb.get("raw_obs")
         )
 
         if geometry.kind == "time":

@@ -603,6 +603,97 @@ def _policy_pipeline(
     )
 
 
+def with_expert_state(collector_state: Any, expert_policy: Any, n_envs: int) -> Any:
+    """``collector_state`` holding a stateful expert's initial state (a PID's
+    integrator), so the scan carry keeps one shape; unchanged for no expert
+    or a stateless one. Collection resets it per env at episode starts."""
+    if expert_policy is None or not hasattr(expert_policy, "init_state"):
+        return collector_state
+    return collector_state.replace(expert_state=expert_policy.init_state(n_envs))
+
+
+def expert_state_at_step(expert_policy: Any, collector_state: Any, n_envs: int) -> Any:
+    """A stateful expert's state for this step: the tracked one, reset to
+    its initial state where the previous step ended an episode (the
+    auto-reset has already advanced the observation)."""
+    initial = expert_policy.init_state(n_envs)
+    last_done = collector_state.last_terminated.astype(
+        jnp.bool_
+    ) | collector_state.last_truncated.astype(jnp.bool_)
+    current = (
+        collector_state.expert_state
+        if collector_state.expert_state is not None
+        else initial
+    )
+    return tree_where_reset(last_done, initial, current)
+
+
+def expert_step(
+    expert_policy: Any, collector_state: Any, raw_obs: jax.Array, n_envs: int
+) -> Tuple[jax.Array, Any]:
+    """The expert's action at ``raw_obs`` and its state after the call: a
+    stateful expert (with ``init_state``) is called from its state for this
+    step (:func:`expert_state_at_step`), a stateless one on the observation
+    alone (its state ``None``). Both held constant."""
+    if hasattr(expert_policy, "init_state"):
+        state = expert_state_at_step(expert_policy, collector_state, n_envs)
+        action, new_state = expert_policy(state, raw_obs)
+        return jax.lax.stop_gradient(action), jax.lax.stop_gradient(new_state)
+    return jax.lax.stop_gradient(expert_policy(raw_obs)), None
+
+
+def make_next_expert_fn(expert_policy: Any) -> Optional[Callable]:
+    """``next_expert_fn(post_step_state, raw_next_obs)``: the expert's action
+    at ``s_{t+1}`` from its state after the call at ``s_t``, the action it
+    would take next (stored as ``next_a_expert``); None without an expert,
+    when collection stores zeros."""
+    if expert_policy is None:
+        return None
+    expert_is_stateful = hasattr(expert_policy, "init_state")
+
+    def next_expert_fn(post_step_expert_state, raw_next_obs):
+        if expert_is_stateful and post_step_expert_state is not None:
+            a_next, _ = expert_policy(post_step_expert_state, raw_next_obs)
+            return a_next
+        return expert_policy(raw_next_obs)
+
+    return next_expert_fn
+
+
+def expert_collect_kwargs(
+    expert_policy: Any,
+    action_pipeline: Optional[Callable],
+    recurrent: bool,
+    n_envs: int,
+) -> dict:
+    """:func:`collect_experience`'s ``action_pipeline`` and ``next_expert_fn``
+    for an agent storing its expert's actions (``a_expert`` at s,
+    ``next_a_expert`` at s'), the expert called from its state tracked
+    along each trajectory (:func:`expert_step`). ``action_pipeline`` (None:
+    the policy's) still chooses the action, with the same draws; one that
+    tracks the expert itself (returns its state or action) is left as is.
+    Without an expert, ``action_pipeline`` alone."""
+    if expert_policy is None:
+        return {"action_pipeline": action_pipeline}
+    inner = action_pipeline or partial(
+        _policy_pipeline, recurrent=recurrent, n_envs=n_envs
+    )
+
+    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+        result = inner(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+        if result.new_expert_state is not None or result.a_expert is not None:
+            return result
+        a_expert, new_state = expert_step(
+            expert_policy, agent_state.collector_state, raw_obs, n_envs
+        )
+        return result._replace(a_expert=a_expert, new_expert_state=new_state)
+
+    return {
+        "action_pipeline": pipeline,
+        "next_expert_fn": make_next_expert_fn(expert_policy),
+    }
+
+
 @partial(
     jax.jit,
     static_argnames=[

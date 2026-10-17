@@ -52,7 +52,9 @@ agent, ``dones`` is where the target cut the bootstrap and ``targets`` the
 target, held constant; the critic (DQN's and PQN's ``q_state``) and the
 actor come at the differentiated parameters. The replay agents'
 ``raw_observations`` is None in a run without an expert, whose replay
-does not keep them.
+does not keep them. ``a_expert`` is the agent's ``expert_policy``'s action
+at each row, stored at collection from the expert's state along the
+trajectory; None without one.
 """
 
 from __future__ import annotations
@@ -119,10 +121,10 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
     },
     "actor_loss": {
         "*": "actor_params",
-        "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state",
-        "SAC TD3 REDQ ASAC AVG APO UDRL": "observations",
-        "SAC TD3 REDQ ASAC APO": "raw_observations pi_mean",
-        "SAC": "a_expert critic_state",
+        "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state observations",
+        "SAC TD3 REDQ ASAC PPO APO": "raw_observations pi_mean",
+        "SAC TD3 REDQ ASAC APO": "a_expert",
+        "SAC": "critic_state",
         "UDRL": "actions",
         "APG": "rollout returns",
     },
@@ -240,9 +242,11 @@ def check_extension_experts(
                     if stored
                     else f" {agent_name} does not store this expert's actions."
                 )
-                + " To keep only the extension's use of the expert, give SAC the"
-                " same expert with expert_buffer_n_steps=0 (no expert prefill)"
-                " and expert_fraction=0.0 (no warm-up mixing); or give the"
+                + " To keep only the extension's use of the expert, give the"
+                " agent the same expert as its expert_policy, on an agent that"
+                " stores its actions (stores_expert_actions; SAC with"
+                " expert_buffer_n_steps=0 (no expert prefill) and"
+                " expert_fraction=0.0 (no warm-up mixing)); or give the"
                 " extension a stateless expert."
             )
 

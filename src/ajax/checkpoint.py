@@ -85,11 +85,13 @@ def restore_into(skeleton: Any, path: str) -> Any:
 
 
 def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:
-    """Refuse a checkpoint whose arrays do not fit the skeleton's, saved by
-    an agent of another size (networks, ``n_envs``, buffer, seeds): flax
+    """Refuse a checkpoint whose network parameters or optimizer states do
+    not fit the skeleton's, saved by an agent with other networks: flax
     grafts any array, and the run would fail later, far from the cause, or
-    broadcast silently. Leaves only one side holds (replay fields an older
-    checkpoint kept, which the buffer then carries) are not compared."""
+    broadcast silently. Only those leaves, which the agent's configuration
+    fixes, are compared: a replay legitimately outgrows its skeleton (the
+    world models size theirs to the run, a resumed run's skeleton covers no
+    step yet)."""
 
     def shapes(tree: Any) -> dict[str, tuple]:
         flat = jax.tree_util.tree_flatten_with_path(tree)[0]
@@ -99,7 +101,9 @@ def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:
     bad = [
         f"{path} is {got[path]} in the checkpoint, {shape} in this agent"
         for path, shape in want.items()
-        if path in got and got[path] != shape
+        if ("params" in path or "opt_state" in path)
+        and path in got
+        and got[path] != shape
     ]
     if bad:
         raise ValueError(

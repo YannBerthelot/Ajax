@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "583bf52bd989"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "a740400f2e06"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -809,7 +809,7 @@ _SAC8 = (0.02, 0.035, 0.044, 0.059, 0.077, 0.02, 0.032)
 P8_CAL = {  # queries, budget, tolerances, note
     "SAC": (P8_SOFT, 10_000, _SAC8, "5000 failed (tanh mu2 0.050)"),
     "REDQ": (P8_SOFT, 2500, (0.087, 0.022, 0.071, 0.087, 0.091, 0.022, 0.029), ""),
-    "AVG": (P8_POLICY, 20_000, (0.066, 0.1, 0.074, 0.077), "10,000 failed: 0.196"),
+    "AVG": (P8_POLICY, 80_000, (0.031, 0.076, 0.085, 0.092), "40,000 failed: 0.132"),
     "TD3": (P8_TD3, 2500, (0.046, 0.051), ""),
 }
 for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():

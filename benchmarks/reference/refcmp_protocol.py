@@ -142,6 +142,13 @@ def _run(*command) -> str:
     ).stdout.strip()
 
 
+def clean_tree() -> bool:
+    """No uncommitted change in the repository, the records aside: each
+    batch appends to them."""
+    records = [f":!{CACHE.relative_to(ROOT)}"] if CACHE.is_relative_to(ROOT) else []
+    return not _run("git", "status", "--porcelain", "--", ".", *records)
+
+
 def train(name: str, side: str, seeds: list) -> dict:
     """Train ``seeds`` of one side on the CPU; the batch's record."""
     spec, lib = COMPARISONS[name], implementation(name, side)
@@ -192,7 +199,7 @@ def train(name: str, side: str, seeds: list) -> dict:
             "runner": f"benchmarks/reference/{runner}",
             "date": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
             "ajax_commit": _run("git", "rev-parse", "HEAD"),
-            "ajax_clean": not _run("git", "status", "--porcelain"),
+            "ajax_clean": clean_tree(),
             "lock_sha256": hashlib.sha256(
                 (project / "uv.lock").read_bytes()
             ).hexdigest(),

@@ -192,3 +192,12 @@ def test_the_verdict_sets_the_interval_against_the_margin(interval, word):
     assert protocol.verdict(relative, interval, -500.0) == (25.0, word)
     none = dataclasses.replace(spec, margin=None)
     assert protocol.verdict(none, interval, 1.0)[1] == "no margin registered"
+
+
+def test_the_records_do_not_count_against_a_clean_tree(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(protocol, "_run", lambda *command: calls.append(command) or "")
+    assert protocol.clean_tree()
+    assert calls[-1][-1] == ":!benchmarks/reference/results/protocol"
+    monkeypatch.setattr(protocol, "CACHE", tmp_path)  # outside the repository
+    assert protocol.clean_tree() and calls[-1][-1] == "."

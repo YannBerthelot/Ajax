@@ -12,7 +12,7 @@ import json
 import sys
 import time
 
-from refcmp_specs import COMPARISONS, N_EVAL_EPISODES
+from refcmp_specs import COMPARISONS
 
 
 def sb3_kwargs(spec) -> dict:
@@ -152,7 +152,7 @@ def run(spec, seeds: list) -> list:
 
         def evaluate(self) -> None:
             mean, _ = evaluate_policy(
-                self.model, self.env, N_EVAL_EPISODES, deterministic=True
+                self.model, self.env, spec.n_eval_episodes, deterministic=True
             )
             self.curve.append(float(mean))
 

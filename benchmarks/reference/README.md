@@ -2,16 +2,19 @@
 
 Does an Ajax agent learn like a well-known implementation of the same
 algorithm? Each comparison (`refcmp_specs.py`) trains one Ajax agent and one
-reference on the same task and budget, then compares their per-seed
-evaluation curves. It runs on demand, not in CI.
+reference on the same JAX environment and budget, then compares their
+per-seed evaluation curves. `envs/<library>/` pins each reference's
+libraries in a uv project with its lockfile. It runs on demand, not in CI.
 
 | Ajax | Reference | Task | Budget |
 |---|---|---|---|
 | PPO | Stable-Baselines3 | CartPole-v1 | 200,704 steps |
+| PPO | Brax's PPO trainer | inverted_pendulum (Brax) | 819,200 steps |
 | DQN | Stable-Baselines3 | CartPole-v1 | 100,000 steps |
 | SAC | Stable-Baselines3 | Pendulum-v1 | 20,000 steps |
 | TD3 | Stable-Baselines3 | Pendulum-v1 | 20,000 steps |
 | PQN | purejaxql, the PQN authors' code (`vendor/`) | CartPole-v1 | 491,520 steps |
+| PQN | purejaxql | Asterix-MinAtar | 1,228,800 steps |
 | APG | Brax's APG trainer, on gymnax Pendulum | Pendulum-v1 | 2,048,000 steps |
 
 ## Two arms

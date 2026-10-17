@@ -41,7 +41,7 @@ def test_matched_arm_copies_every_setting_it_shares_with_the_reference(name):
         for ajax_key in (ajax_keys,) if isinstance(ajax_keys, str) else ajax_keys:
             if ajax_key in spec.matched:
                 pairs.append((key, ajax_key))
-                expected = value * spec.scale.get(key, 1)
+                expected = value * spec.scale[key] if key in spec.scale else value
                 assert spec.matched[ajax_key] == expected, (key, ajax_key)
     renamed = {k for k, _ in pairs} & spec.renames.keys()
     assert renamed == spec.renames.keys(), "every rename names a copied setting"
@@ -93,6 +93,18 @@ def test_ajax_runs_return_one_curve_per_seed():
     assert np.asarray(curve).shape == (1, 1) and np.isfinite(curve).all()
 
 
+@pytest.mark.parametrize(
+    "name",
+    [n for n, s in COMPARISONS.items() if (s.reference, s.agent) == ("brax", "PPO")],
+)
+def test_brax_ppo_trains_the_budget_and_evaluates_on_schedule(name):
+    # Brax rounds each epoch between evaluations up to whole updates.
+    spec, c = COMPARISONS[name], COMPARISONS[name].reference_config
+    update = c["batch_size"] * c["num_minibatches"] * c["unroll_length"]
+    assert spec.eval_every % update == 0 and spec.n_timesteps % spec.eval_every == 0
+    assert update == c["num_envs"] * spec.matched["n_steps"]
+
+
 def test_gymnax_as_brax_keeps_transition_gradients():
     env = refcmp_brax.GymnaxAsBrax("Pendulum-v1")
     state = env.reset(jax.random.PRNGKey(0))
@@ -129,6 +141,26 @@ def test_brax_apg_trains_on_the_gymnax_adapter():
     )
     curve = np.asarray(refcmp_brax.run_brax_apg(tiny, [0]))
     assert curve.shape == (1, 1) and np.isfinite(curve).all()
+
+
+@pytest.mark.slow
+def test_brax_ppo_evaluates_on_schedule():
+    spec = COMPARISONS["PPO-inverted_pendulum"]
+    tiny = dataclasses.replace(
+        spec,
+        n_timesteps=2 * 80,
+        eval_every=80,
+        n_eval_episodes=2,
+        reference_config=dict(
+            spec.reference_config,
+            num_envs=8,
+            batch_size=8,
+            num_minibatches=2,
+            episode_length=20,
+        ),
+    )
+    curve = np.asarray(refcmp_brax.run_brax_ppo(tiny, [0]))
+    assert curve.shape == (1, 2) and np.isfinite(curve).all()
 
 
 def _write(path, rows):

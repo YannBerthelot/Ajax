@@ -16,12 +16,12 @@ import gymnax
 import jax
 import jax.numpy as jnp
 from gymnax.wrappers.purerl import LogWrapper
-from refcmp_specs import COMPARISONS, N_EVAL_EPISODES
+from refcmp_specs import COMPARISONS
 
 VENDOR = pathlib.Path(__file__).parent / "vendor" / "purejaxql"
 
 
-def evaluate_final(policy, env_id: str, key: jax.Array, n: int = N_EVAL_EPISODES):
+def evaluate_final(policy, env_id: str, key: jax.Array, n: int):
     """Returns ``(n,)`` of one deterministic episode each: ``policy(obs)``
     answers in ``[-1, 1]``, mapped onto the env's action bounds. The shared
     evaluator for agents whose own evaluation differs (APG)."""
@@ -94,9 +94,9 @@ def run_purejaxql(spec, seeds):
 
 
 def run_brax(spec, seeds):
-    from refcmp_brax import run_brax_apg
+    from refcmp_brax import RUNNERS
 
-    return run_brax_apg(spec, seeds)
+    return RUNNERS[spec.agent](spec, seeds)
 
 
 RUNNERS = {"purejaxql": run_purejaxql, "brax": run_brax}

@@ -157,6 +157,10 @@ def test_report_verdicts(tmp_path):
         for row in refcmp_report.report(tmp_path).splitlines()[2:]
     }
     assert "| 16 | 16/16 |" in rows[("DQN", "Ajax matched")]
-    assert rows[("DQN", "Ajax matched")].endswith("| match |")
-    assert rows[("DQN", "Ajax defaults")].endswith("| gap |")
-    assert rows[("PQN", "Ajax matched")].endswith("| unclear: run 16 seeds |")
+    assert rows[("DQN", "Ajax matched")].endswith("| match | equal, 16 seeds |")
+    # One interim of 4 seeds a side cannot reject: 2 of its 70 permutations
+    # are as extreme as the data. Two can.
+    assert rows[("DQN", "Ajax defaults")].endswith("| gap | Ajax smaller, 8 seeds |")
+    assert rows[("PQN", "Ajax matched")].endswith(
+        "| unclear: run 16 seeds | Ajax smaller, 8 seeds |"
+    )

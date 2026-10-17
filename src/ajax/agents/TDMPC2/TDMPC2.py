@@ -123,6 +123,8 @@ class TDMPC2(ActorCritic):
 
     name: str = "TDMPC2"
     supported_extension_phases: frozenset = LOOP_PHASES
+    # Its row collector steps with the env params as traced values.
+    supports_batched_env_params: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(

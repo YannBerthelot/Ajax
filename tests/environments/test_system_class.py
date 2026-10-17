@@ -5,6 +5,8 @@ import jax.numpy as jnp
 import pytest
 from gymnax import make as make_gymnax_env
 
+import ajax
+from ajax.agents.base import ActorCritic
 from ajax.environments.interaction import reset, step
 from ajax.environments.system_class import (
     FixedSystem,
@@ -183,3 +185,30 @@ def test_uniform_perturbation_scales_vector_fields_per_system(n):
     assert jnp.allclose(factors, factors[:, :1])  # one factor per system
     assert jnp.all(jnp.abs(factors - 1.0) <= 0.1 + 1e-6)
     assert batched.k.shape == (n,)
+
+
+#: The exported agents built on ActorCritic, by name.
+AGENTS = {
+    name: cls
+    for name, cls in vars(ajax).items()
+    if isinstance(cls, type) and issubclass(cls, ActorCritic)
+}
+
+
+@pytest.mark.parametrize("name", sorted(AGENTS))
+def test_an_agent_takes_per_copy_params_only_if_it_traces_them(name):
+    """A system class's sample carries one system per env copy. APG and the
+    world models step with traced env params and take it; the shared
+    loop's agents compile them as a static argument, which jax cannot
+    hash, so they refuse it when built, naming the alternatives."""
+    cls = AGENTS[name]
+    env_id = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
+    env, params = make_gymnax_env(env_id)
+    batched = broadcast_env_params(params, 2)
+    traced = name in ("APG", "DreamerV3", "TDMPC2")
+    assert cls.supports_batched_env_params == traced
+    if traced:
+        cls(env, env_params=batched, n_envs=2)
+        return
+    with pytest.raises(ValueError, match="one system per copy.*APG"):
+        cls(env, env_params=batched, n_envs=2)

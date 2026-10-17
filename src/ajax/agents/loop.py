@@ -129,12 +129,16 @@ def record(rows: dict, count: jax.Array, metrics: dict) -> tuple[dict, jax.Array
     return rows, count + evaluated
 
 
-def fresh_state(init: Init, stack: ExtensionStack, total_steps: int, key: Any) -> Any:
+def fresh_state(
+    init: Init, stack: ExtensionStack, total_steps: int, key: Any, **context: Any
+) -> Any:
     """A fresh run's state: ``init(init_key)`` on ``split(key)``, then the
     extensions' initial states and one-shot pretraining on
-    ``extension_key`` (:meth:`ExtensionStack.fold_init`)."""
+    ``extension_key`` (:meth:`ExtensionStack.fold_init`; ``context``: the
+    pretraining's static context fields)."""
     init_key, extension_key = jax.random.split(key)
-    return stack.fold_init(with_obs_norm(init(init_key)), extension_key, total_steps)
+    state = with_obs_norm(init(init_key))
+    return stack.fold_init(state, extension_key, total_steps, **context)
 
 
 def with_obs_norm(agent_state: Any) -> Any:
@@ -447,6 +451,8 @@ class TrainLoop:
         num_updates: int,
         last_rollout: Optional[tuple[int, dict]] = None,
         evaluations: Optional[int] = None,
+        update: Optional[Update] = None,
+        buffer: Any = None,
     ) -> Callable:
         """The resumable train function: ``init`` (fresh runs only), then
         ``num_updates`` scan iterations ``iteration(agent_state, index,
@@ -455,12 +461,17 @@ class TrainLoop:
 
         ``last_rollout``, ``(length, collect_kwargs)``, pre-allocates
         ``agent_state.last_rollout`` for an agent exposing its rollouts.
+        The extensions' pretraining gets the env, ``update`` and the replay
+        ``buffer`` (:class:`ajax.extensions.base.ExtensionContext`).
         """
         rows = self.n_evaluations if evaluations is None else evaluations
+        context = {"env_args": self.env_args, "update": update, "buffer": buffer}
 
         def init_fn(key: jax.Array, index: Any) -> Any:
             del index
-            agent_state = fresh_state(init, self.stack, self.total_timesteps, key)
+            agent_state = fresh_state(
+                init, self.stack, self.total_timesteps, key, **context
+            )
             if last_rollout is not None:
                 length, collect_kwargs = last_rollout
                 agent_state = preallocate_last_rollout(
@@ -591,6 +602,8 @@ class TrainLoop:
             num_ticks,
             last_rollout=(1, collect_args) if expose_rollout else None,
             evaluations=None if evaluation is None else evaluation.count(num_ticks),
+            update=update,
+            buffer=collect_args.get("buffer"),
         )
 
     def on_policy(

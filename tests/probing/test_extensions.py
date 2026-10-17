@@ -22,9 +22,10 @@ from probing_environments.gymnax_envs import continuous_actions as continuous
 from scipy import optimize
 
 from ajax import PPO, PQN
+from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.base import PHASES, Extension
 from ajax.extensions.expert import ImitationLoss, OnlineBC
-from ajax.extensions.pretrain import CloningPretrain, MCPretrain
+from ajax.extensions.pretrain import CloningPretrain, MCPretrain, PriorData
 from ajax.extensions.target_mods import IBRL, CriticBlend
 
 from . import agents, envs, oracles, runs
@@ -33,7 +34,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "3575d451ea99"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "7b8b307d61ac"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -700,6 +701,46 @@ for name, shift, queries in (("cloning", 0.0, SIGNED), ("shifted", 2.0, SHIFTED)
             () if shift else tol,
             slow=True,
         )
+
+
+# --- PriorData: the agent's own updates on logged rows, before acting ------
+# SignedActionEnv's rows (one step, reward clip(a) s) logged on a grid of
+# actions holding the best one, a = s; budget 0: TD3 learns from them alone.
+
+
+def signed_rows() -> TransitionDataset:
+    a = np.tile(np.linspace(-1.0, 1.0, 21), 2)[:, None]
+    s = np.repeat([-1.0, 1.0], 21)[:, None]
+    ends, cut = np.ones(42, bool), np.zeros(42, bool)
+    return TransitionDataset(s, a, (a * s)[:, 0], ends, cut, s)
+
+
+def prior_data(updates: int) -> Callable:
+    def read(n: R.Nets) -> dict:
+        actions = {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
+        return actions | {"Q(1, 0.5)": R.critic(n, 1.0, 0.5)}
+
+    rows = PriorData(signed_rows(), offline_updates=updates)
+    return q7_readings("TD3", envs.SignedActionEnv, read, (rows,))
+
+
+_NONE = {"no offline update, the networks at initialisation": 0.0}
+CASES["prior-data-offline-TD3"] = Case(
+    "prior-data-offline-TD3",
+    (
+        Query("a(-1)", -1.0, _NONE | {"the logged actions' mean": 0.0}),
+        Query("a(1)", 1.0, _NONE | {"the logged actions' mean": 0.0}),
+        Query(
+            "Q(1, 0.5)",
+            0.5,
+            _NONE | {"bootstrapped past the termination": 0.5 + GAMMA / (1 - GAMMA)},
+        ),
+    ),
+    prior_data(250),
+    0,
+    (0.038, 0.075, 0.036),
+    note="offline updates (250, 500, 1000, 2000): 250, worst 0.019, 0.037, 0.018; cert 32/32",
+)
 
 
 # --- every judged case --------------------------------------------------------

@@ -25,6 +25,7 @@ import ajax.extensions
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
+from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import ensemble, expert, exploration, instrumentation
 from ajax.extensions import pretrain as pre
 from ajax.extensions import target_mods as tm
@@ -54,6 +55,17 @@ class Expert:
 
 def stateless_expert(obs: jax.Array) -> jax.Array:
     return jnp.clip(-obs[..., :1], -2.0, 2.0)
+
+
+def prior_data() -> Extension:
+    """16 logged rows shaped as Pendulum's, two episodes cut by the time
+    limit, and two offline updates."""
+    obs = np.random.default_rng(0).uniform(-1.0, 1.0, (17, 3))
+    limit, still = np.arange(16) % 8 == 7, np.zeros(16, bool)
+    rows = TransitionDataset(
+        obs[:-1], np.full((16, 1), 0.1), -obs[:-1, 0], still, limit, obs[1:]
+    )
+    return pre.PriorData(rows, offline_updates=2)
 
 
 EXPERT, GRU = Expert(), MemoryConfig(kind="gru", hidden_size=8)
@@ -135,6 +147,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ResidualPolicy": (expert.ResidualPolicy, "SAC"),
     "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC"),
     "BellmanPretrain": (lambda: pre.BellmanPretrain(n_steps=4), "SAC"),
+    "PriorData": (prior_data, "SAC TD3 REDQ ASAC"),
     "ImitationLoss": (lambda: expert.ImitationLoss(stateless_expert), "APO"),
     "KernelRepulsion": (ensemble.KernelRepulsion, "REDQ"),
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),
@@ -170,6 +183,10 @@ EXCLUSIVE = [
     ({"use_pid_policy"}, ACTING | {"augment_obs_with_expert_action"}),
     # Experts act in continuous spaces; ImitationLoss reads a mean action.
     ({"CartPole-v1"}, EXPERTS | {"ImitationLoss"}),
+    # The rows are Pendulum's own observations: the replay's of another env,
+    # one widened by the training fraction, or one keeping the expert's next
+    # action (an expert_policy) cannot take them.
+    ({"PriorData"}, {"fast", "CartPole-v1", "use_train_frac"} | EXPERTS),
 ]
 TABLE = CASES | {"APG": Case(APG, {"horizon": 1, "pid": None}, ())}
 #: The exported agents off TABLE, and the tests that run their options.

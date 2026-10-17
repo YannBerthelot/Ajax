@@ -122,14 +122,17 @@ class OnlineBC(Extension):
     frozen expert critic phi* with its value range
     (``expert_critic_params``, ``expert_v_min``, ``expert_v_max``) and the
     critic phi* is applied with from the agent's state, which
-    :class:`MCPretrain` fits (refused without it). It raises on a batch
-    without ``a_expert`` (an agent other than SAC); while SAC has no expert
-    action (``a_expert`` None), the term is 0.
+    :class:`MCPretrain` fits (refused without it). The expert's action is
+    the agent's ``expert_policy``'s, so an agent without one refuses it
+    (``needs_agent_expert``); it raises on a batch without ``a_expert`` (an
+    agent other than SAC). Until phi* exists SAC passes ``a_expert`` None
+    and the term is 0.
     """
 
     bc_coef: float = 1.0
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
+    needs_agent_expert: ClassVar[bool] = True
 
     def reads_phi_star(self) -> bool:
         return True
@@ -218,7 +221,9 @@ class ResidualPolicy(Extension):
     action pipeline applies :meth:`transform_action` at collection (its
     warmup samples uniformly), and the actor's policy gradient, the
     TD-target bootstrap and evaluation flow through the same transform.
-    Its presence alone turns residual RL on, with SAC's expert policy.
+    Its presence alone turns residual RL on, with SAC's expert policy;
+    ``transform_action`` is a phase only SAC runs, so the other agents
+    refuse it.
     """
 
     scale: float = 1.0

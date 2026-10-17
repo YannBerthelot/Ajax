@@ -35,13 +35,15 @@ class SAC(ActorCritic):
 
     name: str = "SAC"
     supports_memory: bool = True
-    # ``action`` reaches only the action pipeline's slots, with an expert
-    # policy (check_action_extensions).
+    # ``action`` reaches only the action pipeline's slots, and
+    # ``transform_action`` the pipeline, with an expert policy
+    # (check_action_extensions).
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
         "action",
+        "transform_action",
     }
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
     stores_expert_actions: bool = True

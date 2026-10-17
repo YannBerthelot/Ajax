@@ -271,6 +271,7 @@ built, or when training starts for those that take context from it:
 | --- | --- | --- |
 | `EDGEExploration`, `JSRLCurriculum`, `ValueBox`, `ResidualPolicy` | SAC with an `expert_policy` and without `use_pid_policy` | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
+| `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `PhiRefresh` | SAC, which keeps the raw next observations they read | when built |
 | `BellmanPretrain`, `ExpertValueMetrics` | SAC with an `expert_policy` | when training starts |
 | `CloningPretrain` | SAC, TD3, REDQ or APO; first among the pre-training extensions | when training starts |

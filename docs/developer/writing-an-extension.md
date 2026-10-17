@@ -75,12 +75,14 @@ extensions were given.
 | `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
 | `eval_action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` | the last non-`None` wins | no agent yet |
+| `transform_action(actions, a_expert)` | the executed action, from the policy's and the expert's | the first one acts | SAC with an expert policy, in collection, its losses and evaluation |
 | `post_update(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order | every agent, after each update |
 | `eval_metrics(agent_state, ext_state, rng, ctx)` | a dict of metrics | merged | every agent, at each evaluation |
 
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
 (`fold_init` runs `init_state` then `pretrain`), and an agent calls it once
-where the phase applies; SAC's action pipeline dispatches `action` itself.
+where the phase applies; SAC's action pipeline dispatches `action` and
+`transform_action` itself.
 Each agent lists the phases it folds in
 `supported_extension_phases`. An extension implementing any other phase is
 rejected when the agent is built, instead of being silently ignored.

@@ -784,15 +784,18 @@ def make_train(
             store_expert_data=holds_expert(expert_policy, stack),
         )
 
-    # An extension with ``build_policy_transform`` (ResidualPolicy) makes
+    # An extension implementing ``transform_action`` (ResidualPolicy) makes
     # the executed action residual: in collection (the action pipeline),
     # the actor loss and TD target ``(actions, raw_obs, a_expert) ->
     # actions``, and evaluation; ``None`` ⇒ pure SAC. Gain mode
     # (``use_pid_policy``, which rejects a residual policy) handles its own
     # eval transform in ``step_environment``.
-    # Found by duck typing: the agent does not name the extension.
     residual: Any = next(
-        (e for e in loop.stack.extensions if hasattr(e, "build_policy_transform")),
+        (
+            e
+            for e in loop.stack.extensions
+            if "transform_action" in e.implemented_phases()
+        ),
         None,
     )
     policy_action_transform = (

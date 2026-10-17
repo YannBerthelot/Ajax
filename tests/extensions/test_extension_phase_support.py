@@ -68,6 +68,9 @@ class EveryPhase(Extension):
     def eval_action(self, agent_state, ext_state, obs, rng, ctx):
         return None
 
+    def transform_action(self, actions, a_expert):
+        return actions
+
     def post_update(self, agent_state, ext_state, ctx):
         return agent_state, ext_state
 
@@ -94,16 +97,19 @@ def test_unsupported_phases_are_rejected_at_construction():
 
 def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, no agent
-    ``eval_action``, only SAC ``action`` (its pipeline's slots)."""
+    ``eval_action``, only SAC ``action`` (its pipeline's slots) and
+    ``transform_action`` (its residual policy)."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
-    with pytest.raises(ValueError, match=r"\['action', 'eval_action'\]"):
+    unsupported = r"\['action', 'eval_action', 'transform_action'\]"
+    with pytest.raises(ValueError, match=unsupported):
         PPO("CartPole-v1", n_envs=1, extensions=[EveryPhase()])
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
         assert LOOP_PHASES <= phases and "eval_action" not in phases, name
         assert ("action" in phases) == (name == "SAC"), name
+        assert ("transform_action" in phases) == (name == "SAC"), name
 
 
 @dataclass(frozen=True)
@@ -133,10 +139,32 @@ def test_sac_applies_a_residual_policy_only_through_its_pipeline():
     """ResidualPolicy needs the pipeline SAC runs with an expert policy and
     without the gain policy; otherwise it is rejected at construction."""
     residual = ResidualPolicy(scale=0.5)
+    assert residual.implemented_phases() == {"transform_action"}
     for kwargs in ({}, {"expert_policy": _expert, "use_pid_policy": True}):
         with pytest.raises(ValueError, match="'residual_policy'"):
             SAC("Pendulum-v1", extensions=[residual], **kwargs)
     SAC("Pendulum-v1", expert_policy=_expert, extensions=[residual])
+
+
+@pytest.mark.parametrize("name", sorted(set(AGENTS) - {"SAC", "DreamerV3", "TDMPC2"}))
+def test_an_agent_without_a_residual_transform_refuses_a_residual_policy(name):
+    """Only SAC runs ``transform_action``: any other agent would train a
+    plain policy and report it as residual, so it refuses one."""
+    module = importlib.import_module(f"ajax.agents.{name}.{name}")
+    agent = getattr(module, name)
+    env = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
+    with pytest.raises(ValueError, match=r"'residual_policy'.*transform_action"):
+        agent(env, extensions=[ResidualPolicy()])
+
+
+def test_online_bc_needs_the_agents_expert_policy():
+    """OnlineBC clones the actions of the agent's own expert_policy: without
+    one it would add nothing all run, so SAC refuses it at construction,
+    whatever expert MCPretrain holds."""
+    stack = [MCPretrain(expert_policy=_expert), OnlineBC()]
+    with pytest.raises(ValueError, match="^OnlineBC read the actions"):
+        SAC("Pendulum-v1", extensions=stack)
+    SAC("Pendulum-v1", expert_policy=_expert, extensions=stack)
 
 
 def test_the_phase_check_applies_to_any_stack():
@@ -166,10 +194,12 @@ def test_a_reader_of_phi_star_needs_mc_pretrain(name: str) -> None:
     """Refused in a stack without MCPretrain (it would add nothing all run,
     or fail mid-trace), accepted with one."""
     reader, fields = PHI_STAR_READERS[name], frozenset({"raw_next_obs"})
+    sac = ("SAC", frozenset(PHASES), fields, _expert)
     with pytest.raises(ValueError, match=f"^{name} read the frozen expert critic"):
-        check_extension_phases("SAC", [reader], frozenset(PHASES), fields)
-    stack = [MCPretrain(expert_policy=_expert), reader]
-    check_extension_phases("SAC", stack, frozenset(PHASES), fields)
+        check_extension_phases(sac[0], [reader], *sac[1:])
+    check_extension_phases(
+        sac[0], [MCPretrain(expert_policy=_expert), reader], *sac[1:]
+    )
 
 
 def test_an_agent_refuses_a_reader_of_phi_star_without_mc_pretrain() -> None:

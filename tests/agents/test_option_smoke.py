@@ -113,7 +113,12 @@ OPTIONS |= {
     "encoder_kernel_init": {"encoder_kernel_init": "lecun_uniform"},
     "mean_kernel_init": {"mean_kernel_init": "lecun_uniform"},
 }
-CNN = {"Pendulum-v1": (1, 3, 1), "fast": (1, 2, 1), "CartPole-v1": (2, 2, 1)}
+CNN = {
+    "Pendulum-v1": (1, 3, 1),
+    "fast": (1, 2, 1),
+    "CartPole-v1": (2, 2, 1),
+    "paid_action": (1, 3, 1),  # APG's environment
+}
 #: The switches other tests run (tests/...).
 ELSEWHERE = {
     "env_params": "agents/test_agent_contract.py",
@@ -239,13 +244,13 @@ def _build(name: str, row: frozenset[str]) -> Any:
     for option in NEGATED:
         if option in kw:
             kw[option] = not params[option].default
+    if case.cls is APG:
+        env, kw["env_params"] = paid_action.make()
     if "cnn_image_shape" in row:
-        kw["cnn_image_shape"] = CNN[env]
+        kw["cnn_image_shape"] = CNN["paid_action" if case.cls is APG else env]
     if "action_pipeline" in kw:
         kw["action_pipeline"] = make_default_action_pipeline("memory" in kw, 0.1)
     exts = [build() for e, (build, _) in EXTENSIONS.items() if e in row]
-    if case.cls is APG:
-        env, kw["env_params"] = paid_action.make()
     return case.cls(env, extensions=exts, **kw)
 
 

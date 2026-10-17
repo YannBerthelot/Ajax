@@ -63,7 +63,6 @@ FORM = (
     "no form for this agent yet (cross-entropy for discrete actors; a policy's encoder)"
 )
 WORLD = "world models fold no loss phase for extensions and build their own encoders"
-CNN = "the cnn options are not on this agent yet (batch network-reach)"
 MEMORY = "memory is not wired on this agent yet (batch network-reach)"
 DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
@@ -127,7 +126,6 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
     },
-    CNN: {"cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"},
     MEMORY: {"memory": "APO APO/discrete DQN PQN"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
     PRIOR: {
@@ -200,7 +198,7 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
             return "inherent", "obs_networks"
         kwargs: dict[str, Any] = {"memory": MemoryConfig()}
     elif column == "cnn":
-        kwargs = {"cnn_image_shape": (1, 1, 1), "cnn_extra_obs_dim": 0}
+        kwargs = {"cnn_image_shape": (1, 1, 1)}
     else:
         ext = build_extension(extension_classes()[column], env)
         expert = field_values(env)["expert_policy"]

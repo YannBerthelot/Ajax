@@ -281,10 +281,8 @@ class Critic(nn.Module):
     # Opt-in LayerNorm on the encoder's output (see Encoder.layer_norm).
     encoder_layer_norm: bool = False
     # When set, the encoder is a `CNNEncoder` over flat image obs rather
-    # than the MLP `Encoder`. See `NetworkConfig.cnn_image_shape`. Valid
-    # only for state-value critics (obs-only input); an action-value
-    # critic concatenates the action, which the CNN reshape does not
-    # expect, so SAC-style Q(s,a) critics keep the MLP encoder.
+    # than the MLP `Encoder`. See `NetworkConfig.cnn_image_shape`. An
+    # action-value critic passes its action as the query (below).
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
@@ -292,24 +290,26 @@ class Critic(nn.Module):
     # time-major (T, B, features) plus (hidden_state, done) and returns
     # (values, new_hidden_state).
     memory: Optional[MemoryConfig] = None
-    # A recurrent Q-critic's current action: the input's last ``query_dim``
-    # features skip the encoder and the memory, which read the rest (the
-    # observation and the previous action, :func:`action_value_input`), and
-    # join the memory's output at a head of the encoder's architecture. A
-    # queried action never feeds the carry (Ni et al. 2022's recurrent
-    # critic, embedders before the memory, the action at the head after it;
-    # cited from memory, unverified).
+    # A recurrent or convolutional Q-critic's current action: the input's
+    # last ``query_dim`` features skip the encoder and the memory, which read
+    # the rest (the observation, and with memory the previous action,
+    # :func:`action_value_input`), and join their output at a head of the
+    # critic's architecture. A queried action never feeds the carry (Ni et
+    # al. 2022's recurrent critic, embedders before the memory, the action
+    # at the head after it; cited from memory, unverified) nor the
+    # convolutions (DrQ's and SAC-AE's critic: the image's features, then
+    # the action; Kostrikov et al. 2020, Yarats et al. 2021).
     query_dim: int = 0
 
     def setup(self):
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
-            if self.query_dim:
-                self.head = Encoder(
-                    input_architecture=self.input_architecture,
-                    kernel_init=self.encoder_kernel_init,
-                    layer_norm=self.encoder_layer_norm,
-                )
+        if self.query_dim:
+            self.head = Encoder(
+                input_architecture=self.input_architecture,
+                kernel_init=self.encoder_kernel_init,
+                layer_norm=self.encoder_layer_norm,
+            )
         if self.cnn_image_shape is not None:
             self.encoder = CNNEncoder(
                 self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
@@ -328,22 +328,27 @@ class Critic(nn.Module):
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
-        if self.memory is None:
-            return self.model(self.encoder(x))
-        if hidden_state is None or done is None:
-            raise ValueError("Recurrent Critic requires hidden_state and done flags.")
         query = None
         if self.query_dim:
             x, query = x[..., : -self.query_dim], x[..., -self.query_dim :]
-        hidden_state, feat = self.memory_cell(hidden_state, self.encoder(x), done)
+        feat = self.encoder(x)
+        if self.memory is not None:
+            if hidden_state is None or done is None:
+                raise ValueError(
+                    "Recurrent Critic requires hidden_state and done flags."
+                )
+            hidden_state, feat = self.memory_cell(hidden_state, feat, done)
         if query is not None:
             feat = self.head(jnp.concatenate([feat, query], axis=-1))
+        if self.memory is None:
+            return self.model(feat)
         return self.model(feat), hidden_state
 
     def apply_encoder(self, x: jax.Array) -> jax.Array:
-        """The encoder's features alone, without the value head (read by
+        """The encoder's features alone, without the value head or the
+        queried action (read by
         :class:`ajax.extensions.instrumentation.ConditioningMetrics`)."""
-        return self.encoder(x)
+        return self.encoder(x[..., : -self.query_dim] if self.query_dim else x)
 
 
 class MultiCritic(nn.Module):
@@ -452,10 +457,7 @@ def get_initialized_actor_critic(
 
     memory = parse_memory_config(network_config.memory)
 
-    # A CNN critic is only valid for state-value critics; an action-value
-    # critic (SAC's Q(s,a)) keeps the MLP.
     cnn_image_shape = network_config.cnn_image_shape
-    critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec
     # Dims appended to the env's observation at run time: the train
     # fraction and the agent's augmentation (UDRL's command, an expert's
@@ -500,11 +502,19 @@ def get_initialized_actor_critic(
         bias_init=network_config.critic_bias_init,
         encoder_kernel_init=network_config.encoder_kernel_init,
         encoder_layer_norm=network_config.encoder_layer_norm,
-        cnn_image_shape=critic_cnn_image_shape,
-        cnn_extra_obs_dim=cnn_extra_obs_dim,
+        cnn_image_shape=cnn_image_shape,
+        # A recurrent Q-critic's encoder also reads the previous action
+        # (action_value_input), which joins the image's features.
+        cnn_extra_obs_dim=cnn_extra_obs_dim
+        + (action_dim if action_value and memory is not None else 0),
         cnn_spec=cnn_spec,
         memory=memory,
-        query_dim=action_dim if action_value and memory is not None else 0,
+        # The action skips the memory and the convolutions (Critic.query_dim).
+        query_dim=(
+            action_dim
+            if action_value and (memory is not None or cnn_image_shape is not None)
+            else 0
+        ),
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -560,22 +570,27 @@ def get_initialized_critic(
     max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
 ) -> LoadedTrainState:
-    """Initialize a standalone critic network (no actor). Same architecture as
-    the online critic so predict_value can be called on its params directly.
-    Always feedforward: its one reader (MCPretrain's frozen expert critic)
-    only calls predict_value."""
+    """Initialize a standalone Q(s, a) critic network (no actor). Same
+    architecture as the online critic, CNN included, so predict_value can be
+    called on its params directly. Always feedforward: its one reader
+    (MCPretrain's frozen expert critic) only calls predict_value."""
+    observation_shape, action_shape = get_state_action_shapes(env_config.env)
+    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    cnn = network_config.cnn_image_shape
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,
         encoder_layer_norm=network_config.encoder_layer_norm,
         num=num_critics,
+        cnn_image_shape=cnn,
+        cnn_extra_obs_dim=network_config.cnn_extra_obs_dim + obs_extra,
+        cnn_spec=network_config.cnn_spec,
+        # The action skips the convolutions (Critic.query_dim).
+        query_dim=action_shape[-1] if cnn is not None else 0,
     )
 
     critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
 
-    observation_shape, action_shape = get_state_action_shapes(env_config.env)
-
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
     if obs_extra > 0:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += obs_extra

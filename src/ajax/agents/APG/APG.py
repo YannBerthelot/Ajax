@@ -19,7 +19,7 @@ for the paper's staged training.
 """
 
 from collections.abc import Sequence
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -33,6 +33,7 @@ from ajax.environments.system_class import SystemClass
 from ajax.environments.utils import check_env_is_gymnax
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from ajax.state import OptimizerConfig
 from ajax.types import EnvType
 
@@ -76,6 +77,10 @@ class APG(ActorCritic):
         env_params: Optional[EnvParams] = None,
         episode_length: Optional[int] = None,
         controller_factory: Optional[Callable[..., Any]] = None,
+        # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
+        cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+        cnn_extra_obs_dim: int = 0,
+        cnn_spec: Optional[CNNSpec] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per agent step on brax / playground envs
         # (ActorCritic).
@@ -135,6 +140,9 @@ class APG(ActorCritic):
             memory=memory,
             episode_length=episode_length,
             action_repeat=action_repeat,
+            cnn_image_shape=cnn_image_shape,
+            cnn_extra_obs_dim=cnn_extra_obs_dim,
+            cnn_spec=cnn_spec,
             extensions=extensions,
         )
         if not check_env_is_gymnax(self.env_args.env):

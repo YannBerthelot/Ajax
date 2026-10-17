@@ -587,6 +587,18 @@ _GOLDEN |= {
         "nudge": 0.33622848987579346,
     },
 }
+# Re-recorded on macOS ARM CPU once APO's optimiser became its reference
+# code's: one step of both networks on their summed loss, the gradient
+# clipped to norm 10 over both at once (was each network's own Adam step,
+# clipped to 0.5 on its own). Relative shifts (actor, critic): APO-nudge
+# -0.087%, +0.0016%; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.116347312927246,
+        "critic": 7.960748672485352,
+        "nudge": 0.33622848987579346,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

@@ -588,6 +588,18 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once AVG's layers became its reference code's:
+# every kernel orthogonal with gain 1 and every bias zero, the mean (was
+# orthogonal(0.01)) and log-std head (was a zero kernel, bias -1) included.
+# Relative shifts (actor, critic): AVG -2.46%, -1.89%; alpha unchanged.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.546408653259277,
+        "critic": 18.294897079467773,
+        "alpha": 0.07000000029802322,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

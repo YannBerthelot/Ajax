@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -7,9 +7,10 @@ from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DQN.state import DQNConfig
 from ajax.agents.DQN.train_DQN import make_train
 from ajax.agents.loop import LOOP_PHASES
-from ajax.buffers.utils import get_buffer
+from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
 from ajax.types import EnvType
 
@@ -29,6 +30,7 @@ class DQN(ActorCritic):
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     replays_transitions: bool = True
+    supports_memory: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -68,6 +70,14 @@ class DQN(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[CNNSpec] = None,
+        # Pluggable memory block (see ajax.networks.memory): the Q-network
+        # trains on replayed windows of burn_in + sequence_length + 1 steps,
+        # its carry burned in (or stored at collection: stored_state), as
+        # R2D2 (Kapturowski et al. 2019).
+        memory: Optional[Union[MemoryConfig, dict]] = None,
+        burn_in: int = 8,
+        sequence_length: int = 16,
+        stored_state: bool = False,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -89,6 +99,7 @@ class DQN(ActorCritic):
             env_params=env_params,
             max_grad_norm=max_grad_norm,
             weight_decay=weight_decay,
+            memory=memory,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
@@ -110,9 +121,12 @@ class DQN(ActorCritic):
             learning_starts=learning_starts,
             reward_scale=reward_scale,
             n_gradient_steps=n_gradient_steps,
+            burn_in=burn_in,
+            sequence_length=sequence_length,
+            stored_state=stored_state,
         )
-        self.buffer = get_buffer(
-            buffer_size=buffer_size, batch_size=batch_size, n_envs=n_envs
+        self.buffer = make_replay_buffer(
+            self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
         self.train_kwargs = {
             "buffer": self.buffer,

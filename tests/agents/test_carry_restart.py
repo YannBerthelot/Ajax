@@ -55,6 +55,17 @@ AGENTS: dict[str, tuple[dict[str, Any], int]] = {
         },
         32,
     ),
+    "DQN": (
+        {
+            "architecture": NET,
+            "learning_starts": 10_000,
+            "batch_size": 8,
+            "buffer_size": 128,
+            "burn_in": 2,
+            "sequence_length": 4,
+        },
+        32,
+    ),
     "SAC": (OFF_POLICY, 32),
     "ASAC": (OFF_POLICY, 32),
     "REDQ": (
@@ -90,7 +101,7 @@ def _next_action(actor: Any, params: Any, obs: Any, carry: Any) -> Any:
 #: action pipeline with a carry holding flags); the others run in the slow
 #: tier.
 FAST = {("PPO", "gru"), ("SAC", "lstm"), ("ASAC", "mamba"), ("REDQ", "gru")}
-FAST |= {("TD3", "transformer")}
+FAST |= {("TD3", "transformer"), ("DQN", "gru")}
 ROWS = [
     pytest.param(n, k, id=f"{n}-{k}", marks=() if (n, k) in FAST else pytest.mark.slow)
     for n in sorted(AGENTS)
@@ -103,7 +114,7 @@ def test_the_actor_remembers_only_its_current_episode(name: str, kind: str) -> N
     """Read through the next action: a transformer's cache keeps the entries
     a restart masks out, so the carries themselves may differ."""
     options, budget = AGENTS[name]
-    env = IdentityEnv()
+    env = IdentityEnv(discrete=name == "DQN")
     memory = MemoryConfig(kind=kind, hidden_size=8, window=8)
     agent = getattr(ajax, name)(
         env_id=env, env_params=env.default_params, n_envs=2, memory=memory, **options

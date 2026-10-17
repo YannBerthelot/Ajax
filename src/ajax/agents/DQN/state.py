@@ -1,6 +1,7 @@
 from flax import struct
 
-from ajax.state import BaseAgentConfig, BaseAgentState
+from ajax.agents.recurrent import RecurrentReplayConfig
+from ajax.state import BaseAgentState
 
 
 @struct.dataclass(kw_only=True)
@@ -15,7 +16,7 @@ class DQNState(BaseAgentState):
 
 
 @struct.dataclass(kw_only=True)
-class DQNConfig(BaseAgentConfig):
+class DQNConfig(RecurrentReplayConfig):
     """Static DQN hyperparameters carried through the compiled train loop."""
 
     gamma: float

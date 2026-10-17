@@ -117,8 +117,11 @@ def sample_and_burnin_sequences(
     burn_in: int,
     burn_target_actor: bool = False,
     stored_state: bool = False,
+    burn_critic: bool = True,
 ) -> Tuple[Transition, RecurrentCarries]:
     """Sample sequences and burn in all carries; see the module docstring.
+    An agent whose only network is its "actor" (DQN's Q-network) burns no
+    critic carry (``burn_critic=False``: they are None).
 
     ``stored_state=True`` enables R2D2's stored-state strategy for the
     ACTOR carries: instead of burning them in from zero, the carries the
@@ -159,9 +162,10 @@ def sample_and_burnin_sequences(
     actor_template = zeros_carry_like(
         agent_state.actor_state.hidden_state, batch_size, batch_axis=0
     )
-    critic_zero = zeros_carry_like(
-        agent_state.critic_state.hidden_state, batch_size, batch_axis=1
-    )
+    if burn_critic:
+        critic_zero = zeros_carry_like(
+            agent_state.critic_state.hidden_state, batch_size, batch_axis=1
+        )
 
     def burn_actor(params: Any) -> Any:
         if burn_in == 0:
@@ -174,7 +178,7 @@ def sample_and_burnin_sequences(
             actor_template,
         )[1]
 
-    def burn_critic(params: Any) -> Any:
+    def burn_critic_carry(params: Any) -> Any:
         if burn_in == 0:
             return critic_zero
         return predict_value_sequence(
@@ -212,8 +216,16 @@ def sample_and_burnin_sequences(
             resets=resets_seq[rows],
             next_resets=terminated,
             actor_hidden=actor_carry,
-            critic_hidden=burn_critic(agent_state.critic_state.params),
-            target_critic_hidden=burn_critic(agent_state.critic_state.target_params),
+            critic_hidden=(
+                burn_critic_carry(agent_state.critic_state.params)
+                if burn_critic
+                else None
+            ),
+            target_critic_hidden=(
+                burn_critic_carry(agent_state.critic_state.target_params)
+                if burn_critic
+                else None
+            ),
             obs=obs_seq[rows],
             actions=act_seq[rows],
             prev_actions=prev_act_seq[rows],
@@ -242,6 +254,7 @@ def sample_replay(
     burn_in: int = 0,
     stored_state: bool = False,
     burn_target_actor: bool = False,
+    burn_critic: bool = True,
 ) -> Tuple[Transition, Optional[RecurrentCarries]]:
     """One replay batch: transitions, or burned-in sequences when recurrent.
 
@@ -252,7 +265,13 @@ def sample_replay(
     """
     if recurrent:
         return sample_and_burnin_sequences(
-            agent_state, buffer, key, burn_in, burn_target_actor, stored_state
+            agent_state,
+            buffer,
+            key,
+            burn_in,
+            burn_target_actor,
+            stored_state,
+            burn_critic,
         )
     collector = agent_state.collector_state
     b = get_batch_from_buffer(

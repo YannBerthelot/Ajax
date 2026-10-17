@@ -597,6 +597,19 @@ _GOLDEN |= {
         "alpha": 0.07000000029802322,
     },
 }
+# Re-recorded on macOS ARM CPU once the discrete logits head started at
+# orthogonal(0.01), not 1.0: the head's kernel loses most of its initial
+# squared norm (2.0 at gain 1 for 16 x 2). Relative shifts: PPO-discrete-nudge
+# (from the flat-geometry pin above) actor -39.9%, critic +0.78%; UDRL-nudge
+# actor -9.3%; both nudges unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 3.514505386352539,
+        "critic": 5.118714809417725,
+        "nudge": 0.31162577867507935,
+    },
+    "UDRL-nudge": {"actor": 21.728490829467773, "nudge": 0.3160724639892578},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

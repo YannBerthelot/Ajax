@@ -90,6 +90,28 @@ def test_the_agents_expert_is_read_from_the_stored_actions() -> None:
         bound.actor_loss(None, (), {"pi_mean": pi_mean, "a_expert": None}, CTX)
 
 
+def test_the_annealed_term_reaches_zero_at_its_fraction_of_training() -> None:
+    """With ``anneal_frac`` the weight is 1 at the start, half way down at
+    half that fraction, and 0 from it on; it must lie in (0, 1]."""
+    batch: dict[str, Any] = {
+        "pi_mean": jnp.array([[0.1], [-0.3]]),
+        "raw_observations": jnp.zeros((2, 3)),
+    }
+    full = float(ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX))
+    term = ImitationLoss(expert_policy=EXPERT, anneal_frac=0.5)
+
+    def at(step: int) -> float:
+        ctx = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=1_000)
+        return float(term.actor_loss(None, (), batch, ctx))
+
+    np.testing.assert_allclose(at(0), full, rtol=1e-6)
+    np.testing.assert_allclose(at(250), full / 2, rtol=1e-6)
+    assert at(500) == 0.0 and at(1_000) == 0.0
+    for bad in (0.0, 1.5):
+        with pytest.raises(ValueError, match="anneal_frac"):
+            ImitationLoss(expert_policy=EXPERT, anneal_frac=bad)
+
+
 def test_agent_without_policy_mean_raises() -> None:
     """With the observations (test_no_silent_noop's empty batch has none)."""
     batch = {"observations": jnp.zeros((2, 3))}

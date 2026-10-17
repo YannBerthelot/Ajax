@@ -597,6 +597,13 @@ _GOLDEN |= {
     "TD3": {"actor": 15.652060508728027, "critic": 29.05111312866211},
     "TD3-mcc": {"actor": 17.76249885559082, "critic": 28.460254669189453},
 }
+# Re-recorded on macOS ARM CPU once TD3's defaults became its authors' 2019
+# code: the run takes the default learning rate, now 3e-4 (was 1e-3).
+# Relative shifts (actor, critic): TD3 -1.4%, -6.8%; TD3-mcc -1.5%, +0.4%.
+_GOLDEN |= {
+    "TD3": {"actor": 15.433494567871094, "critic": 27.067062377929688},
+    "TD3-mcc": {"actor": 17.501985549926758, "critic": 28.56537628173828},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

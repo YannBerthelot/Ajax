@@ -55,7 +55,7 @@ Defaults are read from `PQN.__init__`.
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `td_loss_fn` | `None` | the loss; `None` is the squared error, `make_huber_td_loss(delta)` the Huber loss |
-| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations |
+| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` for extensions |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
@@ -83,9 +83,13 @@ evenly into `num_minibatches`; PQN raises otherwise.
   loss.
 - **Initialisation.** As the authors' code (`mttga/purejaxql`), which sets
   no initialiser: every Dense layer, the Q head included, starts with
-  Flax's default `lecun_normal` kernel and a zero bias. The image encoder
-  is Ajax's shared CNN (lecun_normal, no LayerNorm), not their Atari
-  network's.
+  Flax's default `lecun_normal` kernel and a zero bias.
+- **Images.** With `cnn_image_shape` and no `cnn_spec`, PQN builds the
+  authors' image network: Mnih et al.'s (`MNIH_CNN`) for images of at
+  least 36 pixels a side, MinAtar's (`MINATAR_CNN`) for smaller ones, each
+  layer `he_normal` and followed by a LayerNorm. The image features go
+  straight to the Q head; `architecture` is not used. Their Atari network
+  also divides pixels by 255; Ajax leaves that scaling to the environment.
 - **Shared code.** PQN reuses DQN's Q-network wrapper, loss and
   epsilon-greedy collection, and PPO's minibatch shuffler; its own code is
   the LayerNorm network, the Q(lambda) returns and the on-policy loop.

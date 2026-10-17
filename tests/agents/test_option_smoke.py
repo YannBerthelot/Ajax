@@ -25,6 +25,7 @@ import ajax.extensions
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.DQN.DQN import DQN
+from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
 from ajax.extensions import ensemble, expert, exploration, instrumentation
 from ajax.extensions import pretrain as pre
@@ -227,7 +228,7 @@ def _build(name: str, row: frozenset[str]) -> Any:
             kw[option] = not params[option].default
     if "cnn_image_shape" in row:
         kw["cnn_image_shape"] = CNN[env]
-        if case.cls is DQN:  # its reference networks need 3 pixels a side
+        if case.cls in (DQN, PQN):  # their reference networks need 3 pixels a side
             kw["cnn_spec"] = CNNSpec((2,), (1,), (1,), 8)
     if "action_pipeline" in kw:
         kw["action_pipeline"] = make_default_action_pipeline("memory" in kw, 0.1)

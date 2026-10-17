@@ -141,7 +141,9 @@ def train(name: str, side: str, seeds: list) -> dict:
     spec, lib = COMPARISONS[name], implementation(name, side)
     project, runner, per_seed, _ = IMPLEMENTATIONS[lib]
     groups = [[s] for s in seeds] if per_seed else [seeds]
-    env = os.environ | {"JAX_PLATFORMS": "cpu"}
+    # Each project's own environment, not the caller's.
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    env |= {"JAX_PLATFORMS": "cpu"}
     before, start = resource.getrusage(resource.RUSAGE_CHILDREN), time.perf_counter()
     command = ["uv", "run", "--locked", "--project", str(project), "python"]
     processes = [
@@ -195,23 +197,31 @@ def train(name: str, side: str, seeds: list) -> dict:
 
 def records(name: str) -> list:
     path = CACHE / f"{name}.jsonl"
-    return (
-        [json.loads(line) for line in path.read_text().splitlines()]
-        if path.exists()
-        else []
-    )
+    lines = path.read_text().splitlines() if path.exists() else []
+    return [json.loads(line) for line in lines]
+
+
+def current(name: str, side: str) -> list:
+    """The side's records whose fingerprint matches the code and settings now."""
+    key = fingerprint(name, side)
+    return [r for r in records(name) if (r["side"], r["fingerprint"]) == (side, key)]
+
+
+def curves(name: str, side: str) -> dict:
+    """Seed -> evaluation curve, from the current records (the first run of a
+    seed counts)."""
+    by_seed: dict = {}
+    for r in current(name, side):
+        for seed, curve in zip(r["seeds"], r["curve"], strict=True):
+            by_seed.setdefault(seed, curve)
+    return by_seed
 
 
 def final_scores(name: str, side: str, seeds: list, train_missing: bool) -> np.ndarray:
     """Each seed's last evaluation, from the cache, training the missing seeds
     (or, with ``train_missing`` False, refusing them)."""
-    key = fingerprint(name, side)
-    curves: dict = {}
-    for r in records(name):
-        if (r["side"], r["fingerprint"]) == (side, key):
-            for seed, curve in zip(r["seeds"], r["curve"], strict=True):
-                curves.setdefault(seed, curve)
-    missing = [s for s in seeds if s not in curves]
+    recorded = curves(name, side)
+    missing = [s for s in seeds if s not in recorded]
     if missing and not train_missing:
         raise LookupError(f"{name} {side}: no runs of seeds {missing}")
     if missing:
@@ -219,8 +229,8 @@ def final_scores(name: str, side: str, seeds: list, train_missing: bool) -> np.n
         CACHE.mkdir(parents=True, exist_ok=True)
         with open(CACHE / f"{name}.jsonl", "a") as f:
             f.write(json.dumps(record) + "\n")
-        curves.update(zip(missing, record["curve"], strict=True))
-    return np.array([curves[s][-1] for s in seeds])
+        recorded.update(zip(missing, record["curve"], strict=True))
+    return np.array([recorded[s][-1] for s in seeds])
 
 
 def decide(name: str, arms=("matched",), train_missing: bool = True):
@@ -245,18 +255,15 @@ def decide(name: str, arms=("matched",), train_missing: bool = True):
 
 
 def speed(name: str, side: str) -> dict:
-    """Medians over the side's batches of its current fingerprint."""
-    spec, key = COMPARISONS[name], fingerprint(name, side)
-    batches = [r for r in records(name) if (r["side"], r["fingerprint"]) == (side, key)]
-    per_million = [
-        1e6 * b["speed"]["cpu_s"] / len(b["seeds"]) / spec.n_timesteps for b in batches
-    ]
+    """Medians over the side's current batches."""
+    steps = COMPARISONS[name].n_timesteps
+    batches = current(name, side)
+    per_million = [1e6 * b["speed"]["cpu_s"] / len(b["seeds"]) / steps for b in batches]
+    median = lambda key: float(np.median([b["speed"][key] for b in batches]))  # noqa: E731
     return {
-        "env_steps_per_s": float(
-            np.median([b["speed"]["env_steps_per_s"] for b in batches])
-        ),
+        "env_steps_per_s": median("env_steps_per_s"),
         "cpu_s_per_1m_steps": float(np.median(per_million)),
-        "compile_s": float(np.median([b["speed"]["compile_s"] for b in batches])),
+        "compile_s": median("compile_s"),
     }
 
 

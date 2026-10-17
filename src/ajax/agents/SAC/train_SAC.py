@@ -136,13 +136,6 @@ def init_SAC(
             "include_is_expert": store_expert_data,
         },
     )
-    if collector_state.obs_norm_info is not None:
-        # Seed actor/critic with the initial (zero) stats so get_pi /
-        # predict_value see a consistent obs_norm_info from step 1. The
-        # field is updated each collection step.
-        actor_state = actor_state.replace(obs_norm_info=collector_state.obs_norm_info)
-        critic_state = critic_state.replace(obs_norm_info=collector_state.obs_norm_info)
-
     if (
         expert_policy is not None
         and buffer is not None

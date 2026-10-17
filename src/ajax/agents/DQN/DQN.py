@@ -24,6 +24,7 @@ class DQN(ActorCritic):
 
     name: str = "DQN"
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    replays_transitions: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(

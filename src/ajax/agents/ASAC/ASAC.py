@@ -28,6 +28,7 @@ class ASAC(ActorCritic):
         "actor_loss",
     }
     supports_memory: bool = True
+    replays_transitions: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(

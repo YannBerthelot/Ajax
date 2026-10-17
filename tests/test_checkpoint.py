@@ -394,20 +394,20 @@ def test_a_checkpoint_missing_a_data_field_still_fails(sac_run, tmp_path):
 def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
     """A brax env state saved before the observation normaliser kept the raw
     observation in its info restores with it, un-normalised from the saved
-    observation and statistics."""
+    observation and statistics. PPO normalises through the env (a replay
+    agent normalises observations itself)."""
     import pickle
 
-    from ajax.agents.SAC.SAC import SAC
+    from ajax.agents.PPO.PPO import PPO
 
     net = ("8", "relu")
-    agent = SAC(
+    agent = PPO(
         env_id="fast",
         n_envs=2,
         actor_architecture=net,
         critic_architecture=net,
-        learning_starts=100,
-        batch_size=4,
-        buffer_size=40,
+        n_steps=8,
+        batch_size=8,
         normalize_observations=True,
     )
     state, _ = agent.train(seed=0, n_timesteps=16)

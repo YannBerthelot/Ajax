@@ -35,6 +35,7 @@ class SAC(ActorCritic):
 
     name: str = "SAC"
     supports_memory: bool = True
+    replays_transitions: bool = True
     # ``action`` reaches only the action pipeline's slots, with an expert
     # policy (check_action_extensions).
     supported_extension_phases: frozenset = LOOP_PHASES | {

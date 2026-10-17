@@ -1078,7 +1078,7 @@ def init_collector_state(
         else None
     )
     obs_norm_info = None
-    if normalize_obs_running:
+    if normalize_obs_running or env_args.normalize_obs_in_agent:
         obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
 
     return CollectorState(

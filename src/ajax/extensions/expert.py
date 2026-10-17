@@ -297,8 +297,10 @@ class ImitationLoss(Extension):
         pi_mean = batch.get("pi_mean")
         if pi_mean is None:
             raise ValueError(
-                "ImitationLoss needs the actor's mean action ('pi_mean') in the"
-                " actor-loss batch; this agent does not provide it."
+                "ImitationLoss pulls the actor's mean action ('pi_mean') towards"
+                " the expert's, and this actor-loss batch has none: a discrete"
+                " policy has no mean action (the term has no cross-entropy form"
+                " yet)."
             )
         obs = batch.get("raw_observations")
         if obs is None:

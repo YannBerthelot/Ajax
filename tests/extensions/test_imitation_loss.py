@@ -462,3 +462,31 @@ def test_apg_trains_with_the_term_along_its_rollout() -> None:
         return agent.train(seed=0, n_timesteps=steps)[0].actor_state.params
 
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+
+
+def test_udrl_trains_with_the_term_and_refuses_it_on_normalised_observations() -> None:
+    """Continuous UDRL's actor batch carries the env's part of each
+    observation and the policy's mean action: the term moves the actor. Its
+    segment buffer keeps normalised observations, so an expert, which reads
+    the env's own, is refused under normalize_observations."""
+    from ajax import UDRL
+
+    kw: dict[str, Any] = {
+        "n_envs": 2,
+        "n_steps": 8,
+        "batch_size": 8,
+        "n_updates_per_iter": 2,
+    }
+
+    def actor(*extensions: Any) -> Any:
+        agent = UDRL("Pendulum-v1", actor_architecture=NET, extensions=extensions, **kw)
+        return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+    with pytest.raises(ValueError, match="normalize_observations"):
+        UDRL(
+            "Pendulum-v1",
+            normalize_observations=True,
+            extensions=(ImitationLoss(EXPERT),),
+            **kw,
+        )

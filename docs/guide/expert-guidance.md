@@ -88,7 +88,7 @@ batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
 expert state exists. A stateful expert is allowed there in one case only:
 when it is the agent's own `expert_policy` (the same object), on an agent
-that stores that expert's actions (SAC, TD3, REDQ, ASAC, APO). The extensions
+that stores that expert's actions (SAC, TD3, REDQ, ASAC, AVG, APO). The extensions
 then read the actions the agent stored at collection, computed from the
 expert's tracked state, instead of calling it. Any other stateful expert is
 refused when the agent is built.
@@ -98,13 +98,14 @@ refused when the agent is built.
 | Agent | `expert_policy=` | Expert extensions |
 | --- | --- | --- |
 | [SAC](../algorithms/sac.md) | replay prefill, warm-up actions, collection extensions, the expert's evaluation return | all |
-| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss` |
-| [AVG](../algorithms/avg.md) | the expert's evaluation return | none |
+| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss`; `IBRL`, `LCBGatedBootstrap` on TD3, REDQ and AVG; `ExpertValueMetrics` on TD3, REDQ and ASAC |
 
 The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
-expert: `CloningPretrain` raises on them when training starts. PPO with
-continuous actions takes `ImitationLoss` with a stateless expert; on the
-others it finds no `pi_mean` in their actor batch, or no actor phase.
+expert: `CloningPretrain` raises on them when training starts. PPO, APG and
+UDRL with continuous actions take `ImitationLoss` with a stateless expert
+(UDRL without `normalize_observations`). A discrete policy has no mean
+action for it, DQN and PQN have no actor, and the world models fold no
+actor phase.
 
 With an expert, evaluations also log `Eval/episodic mean expert reward`, the
 expert's return on the same episodes as the agent's, and `Eval/expert
@@ -276,7 +277,7 @@ replay batch its filter keeps (`imitation/q_filter_frac`).
 | --- | --- |
 | Start the replay with good experience | `expert_buffer_n_steps` (on by default) |
 | Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, APO) |
-| Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, APO) |
+| Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, PPO) |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC) |
 | Let the expert act while the agent is poor | `EDGEExploration`, `JSRLCurriculum`, `ValueBox` |
 | Learn a correction to the expert | `ResidualPolicy` |

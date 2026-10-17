@@ -16,10 +16,12 @@ import pytest
 from ajax import SAC
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.AVG.AVG import AVG
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.TD3.TD3 import TD3
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ImitationLoss
+from ajax.extensions.target_mods import IBRL
 from tests.extensions.test_expert_observations import (
     CounterEnv,
     IntegratingExpert,
@@ -85,11 +87,15 @@ AGENTS: dict[str, tuple[type, dict]] = {
     "TD3": (TD3, REPLAY),
     "REDQ": (REDQ, REPLAY),
     "ASAC": (ASAC, REPLAY),
+    "AVG": (AVG, {"learning_starts": 16}),
     "APO": (
         APO,
         {"n_steps": 16, "batch_size": 8, "n_epochs": 1, "expose_recent_rollout": True},
     ),
 }
+#: The agents keeping a trajectory to re-run: AVG keeps only the step it
+#: updates on.
+TRAJECTORY_AGENTS = sorted(set(AGENTS) - {"AVG"})
 FIELDS = ("raw_obs", "next_obs", "terminated", "truncated", "a_expert", "next_a_expert")
 
 
@@ -127,7 +133,7 @@ def stored_rows(agent: str, state: Any) -> dict:
     return {k: np.asarray(experience[k])[0][:, : 64 // 2] for k in FIELDS}
 
 
-@pytest.mark.parametrize("agent", sorted(AGENTS))
+@pytest.mark.parametrize("agent", TRAJECTORY_AGENTS)
 def test_stored_expert_actions_are_a_sequential_pid_rerun(agent: str) -> None:
     rows = stored_rows(agent, train(agent, PID()))
     n_written = rows["raw_obs"].shape[1]
@@ -173,3 +179,42 @@ def test_the_actor_loss_reads_the_stored_expert_actions(agent: str) -> None:
     np.testing.assert_allclose(
         a_expert[..., 0], integrated_action(raw[..., 0]), atol=1e-6
     )
+
+
+class TargetBatchRecorder(Extension):
+    """Records the raw next observations and the expert's actions there of
+    every target batch it is given; leaves the target as it is."""
+
+    name = "target_batch_recorder"
+
+    def __init__(self) -> None:
+        self.seen: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def on_target(self, agent_state, ext_state, batch, target, ctx):
+        keep = lambda o, a: self.seen.append((np.asarray(o), np.asarray(a)))  # noqa: E731
+        jax.debug.callback(keep, batch["raw_next_observations"], batch["next_a_expert"])
+        return target
+
+
+@pytest.mark.parametrize("agent", ["SAC", "TD3", "REDQ", "AVG"])
+def test_the_target_reads_the_stored_expert_actions_at_the_next_state(
+    agent: str,
+) -> None:
+    """Each target batch (a replay batch; AVG: its step) holds the raw s' and, there, the integrating
+    expert's action from its state after the call at s, A(s'); IBRL holding
+    the same expert, callable only with its state, reads them instead of
+    calling it."""
+    expert, recorder = IntegratingExpert(), TargetBatchRecorder()
+    train(agent, expert, (recorder, IBRL(expert_policy=expert)))
+    raw_next, a_next = (np.concatenate(x) for x in zip(*recorder.seen, strict=True))
+    assert len(raw_next) >= 8 and len(np.unique(raw_next[..., 0])) > 2
+    np.testing.assert_allclose(
+        a_next[..., 0], integrated_action(raw_next[..., 0]), atol=1e-6
+    )
+
+
+def test_ibrl_is_refused_on_an_average_reward_target() -> None:
+    """IBRL's bonus is discounted; ASAC's target is average-reward."""
+    expert = IntegratingExpert()
+    with pytest.raises(ValueError, match="average-reward"):
+        train("ASAC", expert, (IBRL(expert_policy=expert),))

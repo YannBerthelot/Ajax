@@ -48,6 +48,8 @@ class Rollout:
     at step ``t`` (True at ``t=0`` and after a done). ``info`` is the env's
     per-step info dict with every leaf stacked over time (e.g. a tracking
     wrapper's desired output), for metrics that need more than the reward.
+    ``policy_action[t]`` is the policy's own action, before an
+    ``action_map`` mapped it onto the env (None without one).
     """
 
     obs: jax.Array
@@ -57,6 +59,7 @@ class Rollout:
     next_obs: jax.Array
     resets: jax.Array
     info: Any = None
+    policy_action: Any = None
 
 
 def with_transition_gradients(env: Any) -> Any:
@@ -91,6 +94,7 @@ def closed_loop_rollout(
     env_params: Any,
     horizon: int,
     n_envs: Optional[int] = None,
+    action_map: Optional[Callable[[jax.Array], jax.Array]] = None,
 ) -> Tuple[Rollout, Any]:
     """Run ``horizon`` closed-loop steps with gradients flowing end to end.
 
@@ -109,6 +113,9 @@ def closed_loop_rollout(
             SystemClass` (one system per env, ``B`` inferred from them).
         n_envs: number of parallel envs; required when ``env_params`` is
             unbatched, inferred (and must match) otherwise.
+        action_map: maps the policy's action onto what the env receives
+            (differentiable), e.g. agent units onto the env's bounds; the
+            rollout then keeps both (``action``, ``policy_action``).
 
     Returns:
         ``(rollout, final_carry)``; ``rollout`` leaves are ``(horizon, B, ...)``.
@@ -133,7 +140,8 @@ def closed_loop_rollout(
 
     def body(carry, key):
         obs, env_state, policy_carry, resets = carry
-        action, policy_carry = policy_step(policy_carry, obs, resets)
+        policy_action, policy_carry = policy_step(policy_carry, obs, resets)
+        action = policy_action if action_map is None else action_map(policy_action)
         next_obs, env_state, reward, terminated, truncated, info = step(
             jax.random.split(key, batch), env_state, action, env, "gymnax", env_params
         )
@@ -146,6 +154,7 @@ def closed_loop_rollout(
             next_obs=next_obs,
             resets=resets,
             info=info,
+            policy_action=None if action_map is None else policy_action,
         )
         return (next_obs, env_state, policy_carry, done), out
 

@@ -704,6 +704,7 @@ def expert_collect_kwargs(
         "action_pipeline",
         "next_expert_fn",
         "store_hidden",
+        "store_raw_next_obs",
     ],
 )
 def collect_experience(
@@ -717,8 +718,11 @@ def collect_experience(
     action_pipeline: Optional[Callable] = None,
     next_expert_fn: Optional[Callable] = None,
     store_hidden: bool = False,
+    store_raw_next_obs: bool = False,
 ) -> tuple[BaseAgentState, Transition]:
-    """Collect one step of experience.
+    """Collect one step of experience. ``store_raw_next_obs`` keeps the
+    env's own next observation on the transition (``raw_next_obs``), for
+    an agent updating on it (AVG) whose extensions read it.
 
     Args:
         action_pipeline: Optional callable that handles agent-specific action
@@ -915,6 +919,9 @@ def collect_experience(
         log_prob=log_probs,
         a_expert=_a_expert_for_buf,
         next_a_expert=_next_a_expert_for_buf,
+        raw_next_obs=(
+            raw_final_obs.astype(jnp.float32) if store_raw_next_obs else None
+        ),
     )
 
     # The Train return sums what the env paid, in its own units (a reward
@@ -1135,12 +1142,17 @@ def init_collector_state(
     include_raw_next_obs: bool = False,
     include_raw_obs: bool = False,
     include_is_expert: bool = False,
+    expert_policy: Any = None,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
     flattened expert state. Initial values are zero (matches the
     expert's `init_state`, which returns a zero pytree on this codebase
-    for the PID expert)."""
+    for the PID expert). With the agent's ``expert_policy`` the replay
+    keeps the expert's actions (``a_expert``, ``next_a_expert``) and the
+    collector holds a stateful expert's initial state
+    (:func:`with_expert_state`)."""
+    include_expert_fields = include_expert_fields or expert_policy is not None
     last_done = jnp.zeros(env_args.n_envs)
 
     reset_key, rng = jax.random.split(rng)
@@ -1203,7 +1215,7 @@ def init_collector_state(
     if env_args.normalize_obs_in_agent:
         obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
 
-    return CollectorState(
+    collector_state = CollectorState(
         rng=rng,
         _env_state=env_state,
         last_obs=last_obs,
@@ -1217,6 +1229,7 @@ def init_collector_state(
         last_in_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
         obs_norm_info=obs_norm_info,
     )
+    return with_expert_state(collector_state, expert_policy, env_args.n_envs)
 
 
 def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> jax.Array:

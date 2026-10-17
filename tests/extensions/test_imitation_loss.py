@@ -1,8 +1,8 @@
 """The ImitationLoss extension: its term, its Q-filter, its annealed weight,
-and its wiring into six actor losses.
+and its wiring into the actor losses.
 
-TD3, REDQ, ASAC, APO, SAC and PPO put the actor's mean action (``pi_mean``)
-and the raw observations into their actor-loss batch. One actor update per agent,
+TD3, REDQ, ASAC, AVG, APO, SAC and PPO put the actor's mean action
+(``pi_mean``) and the raw observations into their actor-loss batch. One actor update per agent,
 run eagerly on a tiny network, checks that the extension's term changes the
 actor gradient and has no effect at zero weight or when absent.
 """
@@ -23,6 +23,8 @@ from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.AVG import train_AVG
+from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ import train_REDQ
@@ -378,6 +380,25 @@ def _ppo_update(stack: ExtensionStack) -> Any:
     return actor.apply_gradients(grads=grads).params
 
 
+def _avg_update(stack: ExtensionStack) -> Any:
+    agent = AVG("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
+    state = train_AVG.init_AVG(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        agent.alpha_args,
+    )
+    state = _ext_state(state, stack)
+    obs = _obs(agent)
+    raw_actions = jnp.zeros((BATCH, 1))  # the pre-squash sample AVG steps through
+    state, _ = train_AVG.update_policy(
+        state, obs, raw_actions, stack, total_timesteps=1, raw_observations=obs
+    )
+    return state.actor_state.params
+
+
 UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "TD3": _td3_update,
     "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
@@ -385,6 +406,7 @@ UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "APO": _apo_update,
     "SAC": _sac_update,
     "PPO": _ppo_update,
+    "AVG": _avg_update,
 }
 
 
@@ -424,3 +446,47 @@ def test_ppo_trains_with_the_term_in_its_minibatches(geometry: dict) -> None:
         return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
 
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+
+
+def test_apg_trains_with_the_term_along_its_rollout() -> None:
+    """APG's actor batch is its rollout: the observations its controller saw
+    and the controller's own actions, before their map onto each system's
+    bounds; the term moves the controller."""
+    from tests.agents.APG.test_APG import make_agent, tracking_class, tracking_env
+
+    env, params = tracking_env()
+
+    def actor(*extensions: Any) -> Any:
+        agent = make_agent(env, tracking_class(params), extensions=extensions)
+        steps = agent.env_args.n_envs * agent.agent_config.horizon
+        return agent.train(seed=0, n_timesteps=steps)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+
+
+def test_udrl_trains_with_the_term_and_refuses_it_on_normalised_observations() -> None:
+    """Continuous UDRL's actor batch carries the env's part of each
+    observation and the policy's mean action: the term moves the actor. Its
+    segment buffer keeps normalised observations, so an expert, which reads
+    the env's own, is refused under normalize_observations."""
+    from ajax import UDRL
+
+    kw: dict[str, Any] = {
+        "n_envs": 2,
+        "n_steps": 8,
+        "batch_size": 8,
+        "n_updates_per_iter": 2,
+    }
+
+    def actor(*extensions: Any) -> Any:
+        agent = UDRL("Pendulum-v1", actor_architecture=NET, extensions=extensions, **kw)
+        return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+    with pytest.raises(ValueError, match="normalize_observations"):
+        UDRL(
+            "Pendulum-v1",
+            normalize_observations=True,
+            extensions=(ImitationLoss(EXPERT),),
+            **kw,
+        )

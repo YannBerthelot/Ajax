@@ -27,7 +27,6 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
-from ajax.environments.interaction import expert_collect_kwargs, with_expert_state
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
@@ -106,6 +105,7 @@ def init_REDQ(
     stored_state: bool = False,
     store_expert_data: bool = False,
     expert_policy: Optional[Callable] = None,
+    store_raw_next_obs: bool = False,
 ) -> REDQState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -121,11 +121,11 @@ def init_REDQ(
         stored_state=stored_state,
         collector_extras={
             "include_raw_obs": store_expert_data,
+            "include_raw_next_obs": store_raw_next_obs,
             "include_is_expert": store_expert_data,
-            "include_expert_fields": expert_policy is not None,
+            "expert_policy": expert_policy,
         },
     )
-    collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
     return REDQState(
         rng=rng,
         eval_rng=eval_rng,
@@ -373,6 +373,7 @@ def make_train(
         "env_args": env_args,
         "actor_optimizer_args": actor_optimizer_args,
         "expert_policy": expert_policy,
+        "buffer": buffer,
     }
     extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     recurrent = network_args.memory is not None
@@ -390,6 +391,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> REDQState:
@@ -405,6 +407,7 @@ def make_train(
             stored_state=agent_config.stored_state,
             store_expert_data=holds_expert(expert_policy, loop.stack),
             expert_policy=expert_policy,
+            store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
         )
 
     def update(agent_state: REDQState, _transition: Transition) -> Any:
@@ -422,7 +425,6 @@ def make_train(
         collect_kwargs={
             "buffer": buffer,
             "store_hidden": recurrent and agent_config.stored_state,
-            **expert_collect_kwargs(expert_policy, None, recurrent, env_args.n_envs),
         },
         eval_kwargs={
             "expert_policy": expert_policy,

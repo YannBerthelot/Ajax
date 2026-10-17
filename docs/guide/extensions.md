@@ -152,9 +152,9 @@ always passes are listed, per phase, in
 
 | Phase | Every agent folding it | Some agents add |
 | --- | --- | --- |
-| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale` (SAC, TD3, REDQ, ASAC, AVG, DQN, PQN); `terminated`, `truncated` (PQN, PPO, APO); `gae`, `values` (PPO, APO) |
+| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale` (SAC, TD3, REDQ, ASAC, AVG, DQN, PQN); `raw_next_observations`, `next_a_expert` (SAC, TD3, REDQ, ASAC, AVG; None where nothing stores them); `terminated`, `truncated` (PQN, PPO, APO); `gae`, `values` (PPO, APO) |
 | `critic_loss` | `observations`, `targets` | `critic_params`, `critic_state` (SAC, TD3, REDQ, ASAC, AVG, PPO, APO); `actions` (SAC, TD3, REDQ, ASAC, AVG, DQN, PQN); `q_state` (DQN, PQN) |
-| `actor_loss` | `actor_params` | `actor_state` (all but APG); `observations` (all but PPO and APG); `raw_observations`, `pi_mean` (SAC, TD3, REDQ, ASAC, APO); `a_expert`, `critic_state` (SAC); `actions` (UDRL); `rollout`, `returns` (APG) |
+| `actor_loss` | `actor_params`, `actor_state`, `observations` | `raw_observations`, `pi_mean` (SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL; `pi_mean` None for a discrete policy; UDRL only with extensions); `a_expert` (SAC, TD3, REDQ, ASAC, AVG, APO; None without an `expert_policy`); `critic_state` (SAC); `actions` (UDRL); `rollout`, `returns` (APG) |
 
 `gamma` is `None` for an average-reward agent. `dones` marks where the
 target cut the bootstrap. `targets` is the target, held constant. The critic
@@ -232,10 +232,10 @@ says where each extension does its job. "SAC with an expert" means
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
 | `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state, fading to zero over the first `critic_warmup_frac` of training. | `actor_loss` | SAC with an expert and `MCPretrain` |
-| `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed expert it holds. When that expert is the agent's `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. With `anneal_frac`, its weight falls linearly to 0 at that fraction of training (kickstarting). With `q_filter=True` a row counts only where the critic rates the expert's action above the policy's (Q-filtered BC), and evaluations log the share of a replay batch it keeps (`imitation/q_filter_frac`). | `actor_loss`, `eval_metrics` | SAC, TD3, REDQ, ASAC, APO, PPO (continuous actions; a stateless expert on PPO, which takes none); the other actor batches lack `pi_mean` and raise. `q_filter=True`: SAC without `ResidualPolicy`; the other actor batches lack `critic_state` and raise |
+| `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed expert it holds. When that expert is the agent's `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. With `anneal_frac`, its weight falls linearly to 0 at that fraction of training (kickstarting). With `q_filter=True` a row counts only where the critic rates the expert's action above the policy's (Q-filtered BC), and evaluations log the share of a replay batch it keeps (`imitation/q_filter_frac`). | `actor_loss`, `eval_metrics` | SAC, TD3, REDQ, ASAC, AVG, APO, and PPO, APG and UDRL with a stateless expert (they take none; UDRL without `normalize_observations`); a discrete policy has no mean action and raises (no cross-entropy form yet). `q_filter=True`: SAC without `ResidualPolicy`; the other actor batches lack `critic_state` and raise |
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | `transform_action` | SAC with an expert, without `use_pid_policy` |
 | `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. | `action` | SAC with an expert |
-| `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC with an expert |
+| `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC, TD3, REDQ, ASAC with an expert |
 
 **Exploration** (`ajax.extensions.exploration`)
 
@@ -247,8 +247,8 @@ says where each extension does its job. "SAC with an expert" means
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better. | `on_target` | SAC |
-| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. | `on_target` | SAC |
+| `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO), which has no discount for the bonus |
+| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO) |
 | `CriticBlend` | Blends the target with a one-step target on `φ*`, `(1 − α) y + α y_E`, with `α` falling from 1 to 0 over `critic_warmup_frac`. | `on_target` | SAC with `MCPretrain` |
 | `MCVarianceCorrection` | Where the critics disagree by more than `threshold` (variance), uses `φ*`'s value as the target. | `on_target` | SAC with `MCPretrain` |
 | `ValueBox` | Lets the expert act where its value under `φ*` exceeds a threshold that rises from the lowest to the highest expert value over training. | `action` | SAC with an expert and `MCPretrain` |

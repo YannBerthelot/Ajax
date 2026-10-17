@@ -110,6 +110,7 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
     "on_target": {
         "*": "observations next_observations rewards gamma",
         "SAC TD3 REDQ ASAC AVG DQN PQN": "actions dones reward_scale",
+        "SAC TD3 REDQ ASAC AVG": "raw_next_observations next_a_expert",
         "PQN PPO APO": "terminated truncated",
         "PPO APO": "gae values",
     },
@@ -121,9 +122,9 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
     },
     "actor_loss": {
         "*": "actor_params",
-        "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state observations",
-        "SAC TD3 REDQ ASAC PPO APO": "raw_observations pi_mean",
-        "SAC TD3 REDQ ASAC APO": "a_expert",
+        "SAC TD3 REDQ ASAC AVG PPO APO UDRL APG": "actor_state observations",
+        "SAC TD3 REDQ ASAC AVG PPO APO APG UDRL": "raw_observations pi_mean",
+        "SAC TD3 REDQ ASAC AVG APO": "a_expert",
         "SAC": "critic_state",
         "UDRL": "actions",
         "APG": "rollout returns",

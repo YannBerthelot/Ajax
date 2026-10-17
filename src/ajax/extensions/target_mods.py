@@ -127,11 +127,25 @@ def box_action_override(
     return jnp.where(in_box, expert_action, action)
 
 
+def discounted(name: str, gamma: Any) -> Any:
+    """The target's discount ``gamma``, which a bootstrap bonus scales;
+    refused on an average-reward agent (ASAC, APO: ``gamma`` None), whose
+    target has no discount and for which the bonus has no form."""
+    if gamma is None:
+        raise ValueError(
+            f"{name} adds a discounted bonus, gamma (1 - d) x [...], to a"
+            " discounted Bellman target; this agent's target is"
+            " average-reward (no gamma), for which the bonus has no form."
+        )
+    return gamma
+
+
 def _next_target_q(
-    ext: Any, agent_state: Any, batch: dict
+    ext: Any, agent_state: Any, batch: dict, rng: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
     """The target critics' ensemble at ``s'`` for the expert's action and
-    for a policy sample: ``(Q_target(s', a_E), Q_target(s', a'))``."""
+    for a policy sample on ``rng``: ``(Q_target(s', a_E), Q_target(s',
+    a'))``."""
     next_observations = batch["next_observations"]
     critic_state = agent_state.critic_state
 
@@ -149,7 +163,7 @@ def _next_target_q(
         done=batch["dones"],
         recurrent=batch.get("recurrent", False),
     )
-    key, _ = jax.random.split(batch["rng_key"])
+    key, _ = jax.random.split(rng)
     next_actions, _ = next_pi.sample_and_log_prob(seed=key)
     return q(next_expert_actions), q(next_actions)
 
@@ -187,9 +201,11 @@ class IBRL(Extension):
         target: jax.Array,
         ctx: ExtensionContext,
     ) -> jax.Array:
-        del ext_state, ctx
-        dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self, agent_state, batch)
+        del ext_state
+        dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
+        # SAC's target hands its own key; the shared critic step, none.
+        rng = batch.get("rng_key", ctx.rng)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
         min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
         min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
         gap = jax.lax.stop_gradient(
@@ -235,8 +251,9 @@ class LCBGatedBootstrap(Extension):
     ) -> jax.Array:
         del ext_state
         # beta anneals as the EDGE gate's, on the collector's timestep.
-        dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self, agent_state, batch)
+        dones, gamma = batch["dones"], discounted("LCBGatedBootstrap", batch["gamma"])
+        rng = batch.get("rng_key", ctx.rng)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
         beta = lcb_beta(
             agent_state.collector_state.timestep,
             ctx.total_steps,

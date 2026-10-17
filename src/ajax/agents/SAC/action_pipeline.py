@@ -339,9 +339,15 @@ def make_action_pipeline(
         entry_bonus = post.get("entry_bonus", no_box)
 
         # --- Expert flag tracking: where an extension handed the expert
-        # the step.
+        # the step. Each substitutes the expert's action where its mask is
+        # set, so in either stack order the expert acted where any is.
         _post_expert = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
-        for mask in (pre.get("_edge_use_expert"), post.get("in_value_box")):
+        masks = (
+            pre.get("_edge_use_expert"),
+            pre.get("_jsrl_use_expert"),
+            post.get("in_value_box"),
+        )
+        for mask in masks:
             if mask is not None:
                 _post_expert = jnp.maximum(_post_expert, mask.astype(jnp.float32))
         _warmup_expert = jnp.ones_like(

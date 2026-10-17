@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Sequence
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, Union
@@ -355,7 +356,10 @@ class ActorCritic:
             seed = [seed]
 
         if logging_config is not None:
-            logging_config.config.update(self.config)
+            # A copy: the caller's config may serve another agent's run.
+            logging_config = dataclasses.replace(
+                logging_config, config={**logging_config.config, **self.config}
+            )
             self.run_ids = [new_run_id() for _ in range(len(seed))]
             for run_id, run_seed in zip(self.run_ids, seed, strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))

@@ -421,3 +421,18 @@ def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
         pickle.dump(saved, fh)
     got = restore_into(state, path).collector_state.env_state.info["raw_obs"]
     np.testing.assert_allclose(got, want, rtol=1e-6)
+
+
+def test_a_checkpoint_of_another_shape_is_refused(sac_run, tmp_path):
+    """A checkpoint saved by an agent of another size (here wider critic
+    layers) is refused, naming the leaf, instead of grafted onto the
+    skeleton."""
+    state = sac_run.out[0]
+    path = str(tmp_path / "wider.pkl")
+    params = state.critic_state.params
+    wider = jax.tree.map(lambda x: np.zeros(x.shape[:-1] + (x.shape[-1] + 1,)), params)
+    save_checkpoint(
+        state.replace(critic_state=state.critic_state.replace(params=wider)), path
+    )
+    with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params"):
+        restore_into(state, path)

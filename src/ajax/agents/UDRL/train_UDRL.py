@@ -527,6 +527,7 @@ def make_train(
         start_timestep=start_timestep,
     )
     per_iter = env_args.n_envs * agent_config.n_steps
+    loop.warn_if_partial(per_iter, "n_envs x n_steps")
     num_iterations = max(loop.budget // per_iter, 1)
     evaluation = Evaluation(
         metrics=train_metrics,

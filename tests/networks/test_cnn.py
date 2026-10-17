@@ -119,3 +119,51 @@ def test_udrl_trains_a_cnn_policy_on_image_and_command():
     command_obs = jnp.ones((BATCH, 4 + 2))  # the image, then (d_r, d_h)
     logits = state.actor_state.apply_fn(params, command_obs).logits
     assert logits.shape == (BATCH, 2) and jnp.all(jnp.isfinite(logits))
+
+
+def _encoder_params(spec: CNNSpec, image_shape: tuple) -> dict:
+    x = jnp.zeros((1, image_shape[0] * image_shape[1] * image_shape[2]))
+    return CNNEncoder(image_shape, spec=spec).init(jax.random.PRNGKey(0), x)["params"]
+
+
+def test_the_default_spec_is_flax_s_plain_conv_and_dense():
+    """CNNSpec() builds what flax's nn.Conv and nn.Dense do at their own
+    defaults (lecun_normal, zero biases, SAME padding), bitwise."""
+    import flax.linen as nn
+
+    class Plain(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            img = x.reshape(-1, 10, 10, 4)
+            for c, k in ((16, 4), (32, 3)):
+                img = nn.relu(nn.Conv(c, (k, k), strides=(2, 2))(img))
+            return nn.relu(nn.Dense(128)(img.reshape(img.shape[0], -1)))
+
+    x = jnp.zeros((1, 400))
+    want = Plain().init(jax.random.PRNGKey(0), x)["params"]
+    got = _encoder_params(CNNSpec(), (10, 10, 4))
+    assert jax.tree.structure(got) == jax.tree.structure(want)
+    assert all(jax.tree.leaves(jax.tree.map(lambda a, b: (a == b).all(), got, want)))
+
+
+def test_valid_padding_and_layer_norm_build_mnih_s_stack_with_norms():
+    """VALID padding on 84x84x4 leaves Mnih et al.'s 7x7x64 = 3136 features
+    for the 512 projection; layer_norm adds one LayerNorm per layer."""
+    spec = CNNSpec((32, 64, 64), (8, 4, 3), (4, 2, 1), 512, "VALID", True)
+    params = _encoder_params(spec, (84, 84, 4))
+    assert params["Dense_0"]["kernel"].shape == (3136, 512)
+    assert sorted(k for k in params if k.startswith("LayerNorm")) == [
+        f"LayerNorm_{i}" for i in range(4)
+    ]
+
+
+def test_torch_linear_draws_every_kernel_and_bias_within_one_over_root_fan_in():
+    """Torch7's and torch's default: uniform in +-1/sqrt(fan_in), the fan-in
+    of a convolution its kernel area times its input channels."""
+    spec = CNNSpec((16,), (3,), (1,), 128, "VALID", kernel_init="torch_linear")
+    params = _encoder_params(spec, (10, 10, 4))
+    for name, fan_in in (("Conv_0", 3 * 3 * 4), ("TorchLinear_0", 8 * 8 * 16)):
+        bound = 1 / fan_in**0.5
+        for leaf in ("kernel", "bias"):
+            x = params[name][leaf]
+            assert 0.5 * bound < jnp.abs(x).max() <= bound, (name, leaf)

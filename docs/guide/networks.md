@@ -140,8 +140,12 @@ state, _ = agent.train(seed=0, n_timesteps=2_048)
 ```
 
 `CNNSpec()` with no arguments is the default encoder: two ReLU convolutions
-of 16 and 32 channels (kernels 4 and 3, stride 2), then a 128-wide dense
-layer. The image is read in height, width, channels order.
+of 16 and 32 channels (kernels 4 and 3, stride 2, `"SAME"` padding), then a
+128-wide dense layer, all at flax's default initialisation. The image is
+read in height, width, channels order. `padding` takes flax's padding
+(`"VALID"` for none), `layer_norm=True` puts a LayerNorm after every layer,
+before its ReLU, and `kernel_init` names the initialiser of every layer, as
+the network's other `*_kernel_init` settings do.
 
 ## The PID policy
 

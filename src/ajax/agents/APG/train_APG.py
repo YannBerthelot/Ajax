@@ -16,6 +16,7 @@ training draws, and reports the deterministic closed-loop return and
 M-RMSE, i.e. the paper's validation metric, at the logging frequency.
 """
 
+import dataclasses
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -57,6 +58,10 @@ class APGAuxiliaries:
     matching_loss: jax.Array  # -mean_i sum_k r_k, the closed-loop cost
     m_rmse: jax.Array  # sqrt(matching_loss / horizon)
     timestep: Union[int, jax.Array]
+    # With a logging config, what the update evaluated and logged (NaN on
+    # the updates that do not evaluate), returned whatever the backend;
+    # None without one.
+    evaluations: Optional[dict] = None
 
 
 # A controller factory builds the policy network from the agent's context.
@@ -318,8 +323,10 @@ def training_iteration(
         m_rmse=jnp.sqrt(jnp.maximum(matching_loss, 0.0) / horizon),
         timestep=new_timestep,
     )
-    agent_state, _ = loop.evaluate_every(agent_state, aux, index, iteration, evaluation)
-    return agent_state, aux
+    agent_state, evaluations = loop.evaluate_every(
+        agent_state, aux, index, iteration, evaluation
+    )
+    return agent_state, dataclasses.replace(aux, evaluations=evaluations)
 
 
 def make_train(

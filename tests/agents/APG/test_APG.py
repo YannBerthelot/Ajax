@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from gymnax import make as make_gymnax_env
 
@@ -439,3 +440,22 @@ def test_the_controller_output_is_mapped_onto_the_torque_bounds(env_id):
         grad_own,
     )
     assert jax.tree.all(close)
+
+
+def test_apg_returns_its_evaluations_without_a_logging_backend():
+    """A logging config without a backend still evaluates, and the
+    evaluations come back on ``aux`` rather than being dropped: NaN on the
+    updates that do not evaluate. Without a logging config there are none."""
+    from ajax.logging.wandb_logging import LoggingConfig
+
+    agent = APG("Pendulum-v1", n_envs=2, horizon=4, actor_architecture=("8", "relu"))
+    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    _, aux = agent.train(
+        seed=0, n_timesteps=64, num_episode_test=1, logging_config=logging
+    )
+    reward = np.asarray(aux.evaluations["Eval/episodic mean reward"])
+    assert reward.shape == aux.loss.shape == (1, 8)
+    evaluated = np.isfinite(reward[0])
+    np.testing.assert_array_equal(evaluated, [False, True] * 4)
+    _, plain = agent.train(seed=0, n_timesteps=64)
+    assert plain.evaluations is None

@@ -213,6 +213,32 @@ def test_wrapper_resamples_task_when_plant_episode_ends(tracking_pendulum):
     assert not jnp.array_equal(s.reference, ref0)
 
 
+def test_episode_end_scores_and_reports_the_final_observation(tracking_pendulum):
+    """On the step the plant's episode ends, the reward and ``y`` score the
+    plant's pre-reset output, not the reset one, and the final observation
+    is the controller's view of it, as wide as the observation."""
+    env, params = tracking_pendulum
+    params = params.replace(max_steps_in_episode=2)
+    key = jax.random.PRNGKey(0)
+    obs, s = env.reset(key, params)
+    action = jnp.array([0.7])
+    for i in range(2):
+        prev, step_key = s, jax.random.fold_in(key, i)
+        obs, s, reward, _, trunc, info = env.step(step_key, s, action, params)
+    assert bool(trunc)
+    k_env, _ = jax.random.split(step_key)
+    plant_obs, *_, plant_info = env._env.step(k_env, prev.env_state, action, params)
+    final = plant_info["final_observation"]
+    assert not jnp.allclose(final, plant_obs)  # the plant did reset
+    y = angle(final)
+    assert jnp.allclose(info["y"], y)
+    assert jnp.allclose(reward, -((info["y_desired"] - y) ** 2).sum())
+    t_next = prev.t + 1
+    expected = jnp.array([prev.reference[t_next, 0] - y, 0.7])
+    assert info["final_observation"].shape == obs.shape
+    assert jnp.allclose(info["final_observation"], expected)
+
+
 def test_wrapper_holds_last_reference_past_horizon(tracking_pendulum):
     env, params = tracking_pendulum
     key = jax.random.PRNGKey(0)

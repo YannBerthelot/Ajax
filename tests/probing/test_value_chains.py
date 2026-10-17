@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ac59dfb098df"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "46f5b05ac530"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -531,7 +531,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "APO-discrete": ("APO", "discrete", 4096, _ON | {"n_steps": 64, "batch_size": 64}),
     "AVG": ("AVG", "continuous", 10_000, {"gamma": G, "n_envs": 1}),  # its defaults
     "SAC": ("SAC", "continuous", 5000, _ON),
-    "TD3": ("TD3", "continuous", 5000, _ON),
+    "TD3": ("TD3", "continuous", 2500, _ON),
     "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
     "ASAC": ("ASAC", "asymmetric", 10_000, _ON),
     "SAC-running": ("SAC", "continuous", 5000, {"normalize_obs_running": True}),
@@ -623,7 +623,7 @@ _MEASURED = {"(a) raw next obs (planted, measured)": -0.9, "untrained": 1.15}
 ASAC_GAP = Query("Q(s0,-0.5) - Q(s1,0.5) - oracle", 0.0, _MEASURED)
 P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "SAC": ("SAC", (EVAL_C, Q_SOFT), (0.036, 0.073)),
-    "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.051)),
+    "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.048)),
     "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.051, 0.085)),
     "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.037, 0.075)),
     "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.056)),
@@ -810,7 +810,7 @@ P8_CAL = {  # queries, budget, tolerances, note
     "SAC": (P8_SOFT, 10_000, _SAC8, "5000 failed (tanh mu2 0.050)"),
     "REDQ": (P8_SOFT, 2500, (0.087, 0.022, 0.071, 0.087, 0.091, 0.022, 0.029), ""),
     "AVG": (P8_POLICY, 20_000, (0.066, 0.1, 0.074, 0.077), "10,000 failed: 0.196"),
-    "TD3": (P8_TD3, 2500, (0.046, 0.051), ""),
+    "TD3": (P8_TD3, 2500, (0.03, 0.051), ""),
 }
 for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
     reads, slow = _p8_readings(name), name != "SAC"

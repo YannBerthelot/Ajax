@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from ajax.extensions.exploration import (
@@ -17,6 +18,7 @@ from ajax.extensions.target_mods import (
     box_action_override,
     box_compute_state,
     box_compute_threshold,
+    box_entered,
 )
 
 # ---------------------------------------------------------------------------
@@ -181,3 +183,21 @@ def test_edge_eval_metrics_report_the_live_expert_fraction():
     )
     metrics = ext.eval_metrics(state, (), jax.random.PRNGKey(0), None)
     assert metrics == {"edge/live_expert_frac": 0.25}
+
+
+def test_box_entry_is_flagged_whatever_the_sign_of_the_expert_value(critic_stub):
+    """A cost task's expert value is negative: entering the box is still an
+    entry, flagged apart from the (negative) bonus it pays."""
+    critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), -5.0))
+    in_box, entry_bonus, v_box = box_compute_state(
+        obs=jnp.zeros((2, 4)),
+        a_exp=jnp.zeros((2, 2)),
+        critic_state=critic_state,
+        expert_critic_params={"e": 1.0},
+        threshold=jnp.asarray(-10.0),
+        last_in_box=jnp.array([[0.0], [1.0]]),
+    )
+    entered = box_entered(in_box, jnp.array([[0.0], [1.0]]))
+    np.testing.assert_array_equal(entered[:, 0], [True, False])
+    np.testing.assert_allclose(entry_bonus[:, 0], [-5.0, 0.0])
+    assert bool(jnp.all(box_entered(in_box, None)))

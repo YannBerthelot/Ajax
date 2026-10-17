@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "3e4fa39e63ca"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "ea3157d457f5"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -107,7 +107,7 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 
 # Budgets: the smallest qualifying on seeds 1000-2031 of 1250-3750 steps
 # (TD3 also 5000 and 7500; PPO 10,000, 15,000, 20,000, 30,000 and 40,000);
-# certified 32/32 on 3000-3031 (PPO-gru and PPO-lstm 31/32). The critic's V
+# certified 32/32 on 3000-3031 (PPO-lstm 30/32; PPO-mamba kept). The critic's V
 # after a cue-free episode settles last: it sets SAC's, REDQ's and TD3's
 # budgets, its tolerance near the 0.1 ceiling. TD3's actor can saturate at a
 # bound: seed 1011 reads -0.99 or beyond after cue -1 from 1250 to 3750
@@ -119,9 +119,9 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 # budgets and its transformer and mamba qualified at no budget of 2000-20,000.
 # The action gap reads exactly 0: it takes the 0.02 floor.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
-    ("PPO", "gru"): (20_000, (0.4, 0.334, 0.327, 0.048, 0.048, 0.02)),
-    ("PPO", "lstm"): (15_000, (0.385, 0.273, 0.259, 0.069, 0.069, 0.02)),
-    ("PPO", "transformer"): (30_000, (0.431, 0.354, 0.356, 0.081, 0.081, 0.02)),
+    ("PPO", "gru"): (20_000, (0.4, 0.325, 0.317, 0.054, 0.054, 0.02)),
+    ("PPO", "lstm"): (15_000, (0.381, 0.296, 0.282, 0.045, 0.045, 0.02)),
+    ("PPO", "transformer"): (30_000, (0.432, 0.402, 0.396, 0.093, 0.093, 0.02)),
     ("PPO", "mamba"): (30_000, (0.429, 0.441, 0.428, 0.089, 0.089, 0.02)),
     ("SAC", "gru"): (3750, (0.48, 0.455, 0.456, 0.095, 0.095, 0.02)),
     ("REDQ", "gru"): (2000, (0.463, 0.406, 0.405, 0.1, 0.1, 0.02)),

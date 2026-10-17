@@ -1,0 +1,20 @@
+# Stable-Baselines3, pinned for the reference comparisons (../../README.md).
+# SB3 trains on the same gymnax environments as Ajax, through
+# refcmp_sb3.gymnax_vec_env; jax and gymnax are at the versions of Ajax's
+# uv.lock, so both sides step the same code.
+[project]
+name = "refcmp-sb3"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "stable-baselines3==2.9.0",
+    "torch==2.13.0",
+    "jax==0.7.2",
+    "gymnax",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+gymnax = { git = "https://github.com/YannBerthelot/gymnax.git", rev = "61ff068971a6f639d33ff01c96df6d3b4600439e" }

@@ -9,7 +9,8 @@
 Each extension carries only frozen config on ``self``; the maths are the
 functions below. The expert is SAC's ``expert_policy``: OnlineBC,
 ResidualPolicy and JSRLCurriculum read the expert action SAC computes.
-ImitationLoss, for agents without an expert of their own, holds its own.
+ImitationLoss holds its own expert, and reads the actions the agent stored
+when that expert is the agent's.
 """
 
 from __future__ import annotations
@@ -125,8 +126,7 @@ class OnlineBC(Extension):
     :class:`MCPretrain` fits (refused without it). The expert's action is
     the agent's ``expert_policy``'s, so an agent without one refuses it
     (``needs_agent_expert``); it raises on a batch without ``a_expert`` (an
-    agent other than SAC). Until phi* exists SAC passes ``a_expert`` None
-    and the term is 0.
+    agent other than SAC). Until phi* exists the term is 0.
     """
 
     bc_coef: float = 1.0
@@ -151,7 +151,8 @@ class OnlineBC(Extension):
                 " actor-loss batch; only SAC provides it."
             )
         a_expert = batch["a_expert"]
-        if a_expert is None or self.critic_warmup_frac <= 0:
+        no_phi_star = agent_state.expert_critic_params is None
+        if a_expert is None or no_phi_star or self.critic_warmup_frac <= 0:
             return 0.0
         return compute_online_bc_loss(
             batch["pi_mean"],
@@ -174,23 +175,33 @@ class ImitationLoss(Extension):
     Same form as the actor-side BC term of TD3+BC (Fujimoto & Gu, 2021),
     with a frozen expert's action as the target: ``μ(s)`` is the actor's mean action
     (``pi.mean()``, which is TD3's deterministic action), ``a_E(s)`` the
-    expert's action on the raw observation, held constant. The mean runs
-    over batch and action dims; ``/ 4`` maps the squared distance of two
-    actions in ``[-1, 1]`` to ``[0, 1]``. Unlike :class:`OnlineBC` the term
-    is unweighted and needs no pre-trained expert critic.
+    expert's action, held constant. The mean runs over batch and action
+    dims; ``/ 4`` maps the squared distance of two actions in ``[-1, 1]``
+    to ``[0, 1]``. Unlike :class:`OnlineBC` the term is unweighted and
+    needs no pre-trained expert critic.
 
-    TD3, REDQ, ASAC, APO and SAC put ``pi_mean`` and ``raw_observations``
-    in their actor-loss batch; an agent whose batch has no ``pi_mean`` (a
-    discrete-action policy) raises at trace time.
+    ``a_E(s)`` is the expert's call on the raw observation; when the
+    expert is the agent's ``expert_policy``, it is the action the agent
+    stored at collection (the batch's ``a_expert``), so a stateful expert
+    (a PID with its integral) is read from its state along the
+    trajectory. SAC, TD3, REDQ and ASAC store it. An agent whose batch has
+    no ``pi_mean`` (a discrete-action policy) raises at trace time.
     """
 
     expert_policy: Callable
     coef: float = 1.0
+    reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "imitation_loss"
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+    reads_agent_expert_actions: ClassVar[bool] = True
 
     def experts(self) -> tuple:
-        return (self.expert_policy,)  # called on each batch, without a state
+        return (self.expert_policy,)
+
+    def bind_to_agent(self, **agent_context: Any) -> "ImitationLoss":
+        """Read the expert's stored actions when it is the agent's."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        return dataclasses.replace(self, reads_stored_expert=stored)
 
     def actor_loss(
         self,
@@ -206,10 +217,20 @@ class ImitationLoss(Extension):
                 "ImitationLoss needs the actor's mean action ('pi_mean') in the"
                 " actor-loss batch; this agent does not provide it."
             )
-        obs = batch.get("raw_observations")
-        if obs is None:
-            obs = batch["observations"]
-        a_expert = jax.lax.stop_gradient(self.expert_policy(obs))
+        if self.reads_stored_expert:
+            a_expert = batch.get("a_expert")
+            if a_expert is None:
+                raise ValueError(
+                    "ImitationLoss holds the agent's expert_policy and reads the"
+                    " actions the agent stored for it ('a_expert'); this agent's"
+                    " actor-loss batch has none."
+                )
+        else:
+            obs = batch.get("raw_observations")
+            if obs is None:
+                obs = batch["observations"]
+            a_expert = self.expert_policy(obs)
+        a_expert = jax.lax.stop_gradient(a_expert)
         return self.coef * jnp.mean(jnp.square(pi_mean - a_expert)) / 4.0
 
 

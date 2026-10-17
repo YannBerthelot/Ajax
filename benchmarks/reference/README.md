@@ -35,7 +35,7 @@ returns, the recorded seeds fed four per interim.
 ## Running it
 
 `refcmp_protocol.py` runs a comparison as the [reproduction
-protocol](../../docs/reproduction/index.md) sets it: AdaStop, fed one interim
+protocol](../../docs/reproduction/protocol.md) sets it: AdaStop, fed one interim
 at a time, decides how many seeds each side trains. From the repository
 root:
 

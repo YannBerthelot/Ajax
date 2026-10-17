@@ -5,6 +5,7 @@ stub runner stands in for the libraries."""
 
 import dataclasses
 import json
+import re
 import sys
 
 import numpy as np
@@ -12,7 +13,7 @@ import pytest
 import refcmp_protocol as protocol
 import refcmp_publish
 import refcmp_worker
-from refcmp_specs import COMPARISONS
+from refcmp_specs import COMPARISONS, spec_sha256
 
 from ajax import reproduction
 
@@ -146,3 +147,26 @@ def test_the_dataset_loads_back_and_the_docs_draw_from_it(cache, monkeypatch, tm
         in (tmp_path / "results.md").read_text()
     )
     assert (tmp_path / "PQN.svg").read_text().startswith("<?xml")
+
+
+def test_recorded_results_ran_the_current_spec_from_a_clean_tree():
+    # A spec edited after its results must become a new version instead.
+    for path in protocol.CACHE.glob("*.jsonl"):
+        spec = COMPARISONS[path.stem]
+        for record in protocol.records(path.stem):
+            manifest = record["manifest"]
+            assert manifest["ajax_clean"], (path.stem, record["seeds"])
+            if record["spec_version"] == spec.version:
+                assert manifest["spec_sha256"] == spec_sha256(spec), (
+                    f"{path.stem} version {spec.version} changed after its"
+                    f" results: make it version {spec.version + 1}"
+                )
+
+
+def test_the_docs_state_the_protocol_version_and_the_current_specs():
+    docs = protocol.ROOT / "docs" / "reproduction"
+    version = re.search(r"^Version (\d+),", (docs / "protocol.md").read_text(), re.M)
+    assert int(version.group(1)) == protocol.PROTOCOL_VERSION
+    assert (docs / "specs.md").read_text() == refcmp_publish.specs_page(), (
+        "run benchmarks/reference/refcmp_publish.py specs"
+    )

@@ -1,9 +1,13 @@
 """The reproduction protocol: AdaStop decides, interim by interim, whether an
-Ajax arm learns like its reference (docs/reproduction/index.md).
+Ajax arm learns like its reference (docs/reproduction/protocol.md).
 
 usage, from the repository root:
     uv run python benchmarks/reference/refcmp_protocol.py run NAME [ARM ...]
     uv run python benchmarks/reference/refcmp_protocol.py report [NAME ...]
+
+``--cache DIR`` keeps the records in DIR instead of ``results/protocol``:
+``run NAME --cache DIR`` with an empty DIR reproduces a comparison from
+scratch.
 
 ``run`` replays AdaStop over the runs already recorded and trains only the
 seeds it lacks: ``n`` per side and interim (the spec's ``adastop``), the
@@ -30,10 +34,12 @@ import sys
 import time
 
 import numpy as np
-from refcmp_specs import COMPARISONS
+from refcmp_specs import COMPARISONS, spec_sha256
 
 from ajax.compare import AdaStop, difference, resolution
 
+# docs/reproduction/protocol.md's version, recorded with every batch.
+PROTOCOL_VERSION = 1
 HERE = pathlib.Path(__file__).parent
 ROOT = HERE.parents[1]
 CACHE = HERE / "results" / "protocol"
@@ -166,6 +172,7 @@ def train(name: str, side: str, seeds: list) -> dict:
     cpu = after.ru_utime + after.ru_stime - before.ru_utime - before.ru_stime
     return {
         "comparison": name,
+        "spec_version": spec.version,
         "side": side,
         "implementation": lib,
         "fingerprint": fingerprint(name, side),
@@ -180,6 +187,9 @@ def train(name: str, side: str, seeds: list) -> dict:
             "processes": len(groups),
         },
         "manifest": {
+            "protocol_version": PROTOCOL_VERSION,
+            "spec_sha256": spec_sha256(spec),
+            "runner": f"benchmarks/reference/{runner}",
             "date": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
             "ajax_commit": _run("git", "rev-parse", "HEAD"),
             "ajax_clean": not _run("git", "status", "--porcelain"),
@@ -299,6 +309,10 @@ def summary(name: str, arms=("matched",), reps: int = 200) -> list:
 
 if __name__ == "__main__":
     command, *names = sys.argv[1:]
+    if "--cache" in names:  # another record directory: a fresh reproduction
+        i = names.index("--cache")
+        CACHE = pathlib.Path(names.pop(i + 1)).resolve()
+        names.pop(i)
     if command == "run":
         test, scores = decide(names[0], tuple(names[1:]) or ("matched",))
         print(test.decisions, {side: len(x) for side, x in scores.items()})

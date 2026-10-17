@@ -324,10 +324,14 @@ def _recurrent_values(
     actor's are recomputed sequence by sequence with the current params (one
     more pass, skipped for whole-rollout sequences, whose start carry is
     exact): a sequence never starts from a zero carry mid-episode, the
-    variant that makes truncated BPTT worse than none. ``V(s_{t+1})`` is the
-    shifted sequence plus one step on the collector's last observation: at a
-    truncation, the reset observation (the usual recurrent-PPO
-    approximation; GAE masks terminal steps).
+    variant that makes truncated BPTT worse than none. The pass runs step by
+    step (the memories' acting path, equal to the sequence one), and after
+    each step reads ``V(s_{t+1})`` from the carry that consumed ``obs[t]``,
+    on ``next_obs[t]``: the next observation, or the episode's final one
+    where it ended. A time limit thus bootstraps on its own episode, as
+    sb3-contrib's RecurrentPPO does (its pre-reset LSTM state on the
+    terminal observation), not on the reset observation with a fresh
+    carry; GAE masks terminal steps.
 
     Returns the state (critic carry advanced), the values, the next values,
     the reset flags (``resets[t]``: ``obs[t]`` starts an episode) and the
@@ -343,31 +347,35 @@ def _recurrent_values(
         [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
     )  # (T, B)
     obs_seqs = rollout.obs.reshape(n_sequences, length, *rollout.obs.shape[1:])
+    next_obs_seqs = rollout.next_obs.reshape(obs_seqs.shape)
     resets_seqs = resets.reshape(n_sequences, length, n_envs)
     critic, actor = agent_state.critic_state, agent_state.actor_state
+    going_on = jnp.zeros((1, n_envs), bool)
+
+    def critic_step(carry: Any, step: tuple) -> tuple[Any, tuple]:
+        obs, next_obs, step_resets = step
+        value, carry = predict_value_sequence(
+            critic, critic.params, obs[None], step_resets[None], carry
+        )
+        next_value, _ = predict_value_sequence(
+            critic, critic.params, next_obs[None], going_on, carry
+        )
+        # (num = 1, T = 1, B, 1) -> (B, 1)
+        return carry, (value.squeeze((0, 1)), next_value.squeeze((0, 1)))
 
     def critic_chunk(carry: Any, seq: tuple) -> tuple[Any, tuple]:
-        obs, seq_resets = seq
-        values, carry_next = predict_value_sequence(
-            critic_state=critic,
-            critic_params=critic.params,
-            x=obs,
-            resets=seq_resets,
-            initial_hidden=carry,
-        )
+        carry_next, values = jax.lax.scan(critic_step, carry, seq)
         return carry_next, (values, carry)
 
     assert start.critic_state.hidden_state is not None
-    critic_end, (seq_values, critic_starts) = jax.lax.scan(
+    critic_end, ((seq_values, seq_next_values), critic_starts) = jax.lax.scan(
         critic_chunk,
         jax.lax.stop_gradient(start.critic_state.hidden_state),
-        (obs_seqs, resets_seqs),
+        (obs_seqs, next_obs_seqs, resets_seqs),
     )
-    # (S, num, L, B, 1) -> (num, T, B, 1) -> (T, B, 1)
-    values = jnp.moveaxis(seq_values, 0, 1).reshape(
-        seq_values.shape[1], n_steps, *seq_values.shape[3:]
-    )
-    values = values.squeeze(0)
+    # (S, L, B, 1) -> (T, B, 1)
+    values = seq_values.reshape(n_steps, *seq_values.shape[2:])
+    next_values = seq_next_values.reshape(values.shape)
 
     initial_actor_hidden = jax.lax.stop_gradient(start.actor_state.hidden_state)
     if n_sequences > 1:
@@ -383,14 +391,6 @@ def _recurrent_values(
     else:
         actor_starts = jax.tree.map(lambda x: x[None], initial_actor_hidden)
 
-    v_last, _ = predict_value_sequence(
-        critic_state=critic,
-        critic_params=critic.params,
-        x=agent_state.collector_state.last_obs[None],
-        resets=dones_seq[-1:].astype(bool),
-        initial_hidden=critic_end,
-    )
-    next_values = jnp.concatenate([values[1:], v_last.squeeze(0)], axis=0)
     agent_state = agent_state.replace(
         critic_state=critic.replace(hidden_state=jax.lax.stop_gradient(critic_end))
     )

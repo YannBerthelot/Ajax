@@ -30,10 +30,13 @@ from ajax.agents.DQN.train_DQN import (
     q_gradient_step,
 )
 from ajax.agents.loop import TrainLoop
-from ajax.agents.PPO.utils import get_minibatches_from_batch
+from ajax.agents.PPO.sequences import split_carries
+from ajax.agents.PPO.utils import get_minibatches_from_batch, split_fragments
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
+from ajax.agents.recurrent import unsupported_recurrent_options
+from ajax.environments.interaction import get_pi_sequence
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
@@ -53,16 +56,25 @@ def update_agent(
     td_loss_fn: Callable,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    start: Optional[PQNState] = None,
 ) -> Tuple[PQNState, AuxiliaryLogs]:
     """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
     targets bootstrapped on the current network (no target network), then
-    ``n_epochs`` epochs of TD steps, the rollout reshuffled each epoch."""
-    next_q = predict_q(
-        agent_state.actor_state,
-        agent_state.actor_state.params,
-        rollout.next_obs,
-    )
-    next_q_max = jnp.max(next_q, axis=-1, keepdims=True)
+    ``n_epochs`` epochs of TD steps, the rollout reshuffled each epoch.
+
+    With memory (``start``: the state the rollout was collected from), the
+    Q-network reads each env's whole rollout from its start carry: the
+    targets from one pass, the TD steps on minibatches of whole rollouts
+    (split over the envs, one minibatch when they do not split evenly)."""
+    if start is None:
+        next_q = predict_q(
+            agent_state.actor_state,
+            agent_state.actor_state.params,
+            rollout.next_obs,
+        )
+        next_q_max = jnp.max(next_q, axis=-1, keepdims=True)
+    else:
+        resets, next_q_max = _recurrent_next_q(agent_state, rollout, start)
     targets = compute_q_lambda_targets(
         rollout.reward * agent_config.reward_scale,
         next_q_max,
@@ -103,20 +115,51 @@ def update_agent(
             total_timesteps,
         )
     targets = jax.lax.stop_gradient(targets)
-    batch = (rollout.obs, rollout.action, targets)
 
     rng, epoch_rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
     epoch_keys = jax.random.split(epoch_rng, agent_config.n_epochs)
+    n_steps, n_envs = rollout.obs.shape[:2]
+    k = agent_config.num_minibatches
+    if start is None:
+        batch: Any = (rollout.obs, rollout.action, targets)
+    else:
+        batch = {
+            "obs": rollout.obs,
+            "action": rollout.action,
+            "targets": targets,
+            "resets": resets,
+        }
+        k = k if n_envs % k == 0 else 1
+        carry = jax.lax.stop_gradient(start.actor_state.hidden_state)
+
+    def minibatches(key: jax.Array) -> Any:
+        if start is None:
+            return get_minibatches_from_batch(batch, key, k)
+        perm = jax.random.permutation(key, n_envs)
+        return split_fragments(batch, perm, k, n_steps) | {
+            "carry": jax.tree.map(lambda x: split_carries(x[None], perm, k), carry)
+        }
 
     def epoch_body(agent_state: PQNState, keys: tuple) -> Tuple[Any, Any]:
         epoch_key, epoch_loss_keys = keys
-        minibatches = get_minibatches_from_batch(
-            batch, epoch_key, agent_config.num_minibatches
-        )
+        parts = minibatches(epoch_key)
 
         def mb_body(agent_state: PQNState, xs: tuple) -> Tuple[Any, Any]:
-            (observations, actions, targets), loss_key = xs
+            mb, loss_key = xs
+            q_values = None
+            if start is None:
+                observations, actions, targets = mb
+            else:
+                observations, actions, targets = mb["obs"], mb["action"], mb["targets"]
+                q_state = agent_state.actor_state
+
+                def q_values(params: Any) -> jax.Array:
+                    pi, _ = get_pi_sequence(
+                        q_state, params, observations, mb["resets"], mb["carry"]
+                    )
+                    return pi.q_values
+
             q_state, value_aux = q_gradient_step(
                 agent_state,
                 observations,
@@ -126,10 +169,11 @@ def update_agent(
                 extension_stack,
                 loss_key,
                 total_timesteps,
+                q_values,
             )
             return agent_state.replace(actor_state=q_state), value_aux
 
-        return jax.lax.scan(mb_body, agent_state, (minibatches, epoch_loss_keys))
+        return jax.lax.scan(mb_body, agent_state, (parts, epoch_loss_keys))
 
     agent_state, value_aux = jax.lax.scan(
         epoch_body, agent_state, (epoch_keys, loss_keys)
@@ -138,6 +182,35 @@ def update_agent(
     value_aux = jax.tree.map(lambda x: x.mean().reshape((1,)), value_aux)
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
     return agent_state, AuxiliaryLogs(value=value_aux)
+
+
+def _recurrent_next_q(
+    agent_state: PQNState, rollout: Transition, start: PQNState
+) -> tuple[jax.Array, jax.Array]:
+    """A recurrent Q-network's reset flags and ``max_a Q(s')`` over the
+    rollout, step by step from the start carry: after each step it reads
+    ``s'`` (the episode's final observation where it ended) from the carry
+    that consumed ``s``, as PPO's recurrent values do."""
+    q_state = agent_state.actor_state
+    initial_done = jnp.logical_or(
+        start.collector_state.last_terminated, start.collector_state.last_truncated
+    ).astype(bool)
+    dones = jnp.logical_or(rollout.terminated, rollout.truncated).squeeze(-1)
+    resets = jnp.concatenate([initial_done[None], dones[:-1].astype(bool)], axis=0)
+    going_on = jnp.zeros((1, resets.shape[1]), bool)
+
+    def step(carry: Any, x: tuple) -> tuple[Any, jax.Array]:
+        obs, next_obs, reset = x
+        params = q_state.params
+        _, carry = get_pi_sequence(q_state, params, obs[None], reset[None], carry)
+        pi, _ = get_pi_sequence(q_state, params, next_obs[None], going_on, carry)
+        return carry, pi.q_values[0].max(-1, keepdims=True)
+
+    start_carry = jax.lax.stop_gradient(start.actor_state.hidden_state)
+    _, next_q_max = jax.lax.scan(
+        step, start_carry, (rollout.obs, rollout.next_obs, resets)
+    )
+    return resets, jax.lax.stop_gradient(next_q_max)
 
 
 def make_train(
@@ -160,6 +233,9 @@ def make_train(
 ):
     """PQN's train function: an ``n_steps`` epsilon-greedy rollout per env,
     then one update, per iteration."""
+    recurrent = network_args.memory is not None
+    if recurrent:
+        unsupported_recurrent_options("PQN", extensions=(tuple(extensions) or None))
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -184,10 +260,16 @@ def make_train(
         )
 
     def update(
-        agent_state: PQNState, rollout: Transition, _start: PQNState
+        agent_state: PQNState, rollout: Transition, start: PQNState
     ) -> Tuple[PQNState, AuxiliaryLogs]:
         return update_agent(
-            agent_state, rollout, agent_config, td_loss_fn, loop.stack, total_timesteps
+            agent_state,
+            rollout,
+            agent_config,
+            td_loss_fn,
+            loop.stack,
+            total_timesteps,
+            start if recurrent else None,
         )
 
     action_pipeline = make_epsilon_greedy_pipeline(
@@ -196,11 +278,13 @@ def make_train(
         epsilon_end=epsilon_end,
         epsilon_decay_frac=epsilon_decay_frac,
         total_timesteps=total_timesteps,
+        recurrent=recurrent,
     )
     return loop.on_policy(
         init,
         update,
         agent_config.n_steps,
+        recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
         collect_kwargs={"action_pipeline": action_pipeline},
         eval_kwargs={

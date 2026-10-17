@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "44f73a1e62eb"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "17803c68a5c8"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -80,6 +80,7 @@ P0B = (
 
 
 ON_POLICY = ("PPO", "APO")  # their state-value critics read the observations
+REPLAY = ("SAC", "REDQ", "TD3", "DQN")
 
 
 def _q_input(obs: jax.Array, a: jax.Array, starts: jax.Array) -> jax.Array:
@@ -100,7 +101,7 @@ def _p0b_read(agent: str) -> Callable:
 
 def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) -> Any:
     """32 units; replay batches of 4 windows of 25 steps (64 trained positions)."""
-    kw = ({} if agent in ON_POLICY else {"batch_size": 4}) | kw
+    kw = ({"batch_size": 4} if agent in REPLAY else {}) | kw
     if agent == "SAC":  # actor and temperature updates start with the critic's
         kw |= {"policy_update_start": 100, "alpha_update_start": 100}
     if agent == "REDQ":
@@ -184,6 +185,16 @@ CASES["p0b-DQN-gru"] = Case(
     runs.readings(functools.partial(_p0b_agent, "DQN", Q_CUE), _q_read),
     1250,
     (0.5, 0.499, 0.499, 0.02, 0.02),
+    slow=True,
+)
+# PQN, without a target network, settles V(none) under the cap last: ladder
+# 2000-32,000 (32,000), certified 32/32.
+CASES["p0b-PQN-gru"] = Case(
+    "p0b-PQN-gru",
+    P0B[:5],
+    runs.readings(functools.partial(_p0b_agent, "PQN", Q_CUE), _q_read),
+    32_000,
+    (0.5, 0.475, 0.461, 0.086, 0.086),
     slow=True,
 )
 _reads = runs.readings(functools.partial(_p0b_agent, "APO"), _gaps_read)

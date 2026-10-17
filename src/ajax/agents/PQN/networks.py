@@ -9,13 +9,14 @@ unchanged.
 """
 
 from collections.abc import Sequence
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
 from flax.linen.initializers import constant, orthogonal
 
 from ajax.agents.DQN.networks import GreedyQPolicy
+from ajax.networks.memory import MemoryCell, MemoryConfig
 from ajax.networks.networks import CNNEncoder, CNNSpec
 from ajax.networks.utils import parse_activation
 from ajax.types import ActivationFunction
@@ -45,9 +46,13 @@ class PQNNetwork(nn.Module):
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
+    # Optional memory block after the LayerNorm MLP, as DQN's QNetwork:
+    # __call__ then takes time-major (T, B, obs) with (hidden_state, done)
+    # and returns (policy, new_hidden_state).
+    memory: Optional[MemoryConfig] = None
 
     @nn.compact
-    def __call__(self, obs: jax.Array) -> GreedyQPolicy:
+    def __call__(self, obs: jax.Array, hidden_state: Any = None, done: Any = None):
         if self.cnn_image_shape is not None:
             x = CNNEncoder(self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec)(
                 obs
@@ -64,6 +69,10 @@ class PQNNetwork(nn.Module):
                 x = nn.LayerNorm()(x)
             else:
                 x = parse_activation(layer)(x)
+        if self.memory is not None:
+            if hidden_state is None or done is None:
+                raise ValueError("A recurrent Q-network needs hidden_state and done.")
+            hidden_state, x = MemoryCell(self.memory)(hidden_state, x, done)
         # Penultimate (post-activation) features, exposed for
         # plasticity/conditioning probes. `sow` is a no-op unless the
         # caller marks "intermediates" mutable -- zero training cost.
@@ -71,4 +80,5 @@ class PQNNetwork(nn.Module):
         q_values = nn.Dense(
             self.n_actions, kernel_init=orthogonal(1.0), bias_init=constant(0.0)
         )(x)
-        return GreedyQPolicy(q_values)
+        policy = GreedyQPolicy(q_values)
+        return policy if self.memory is None else (policy, hidden_state)

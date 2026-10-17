@@ -61,7 +61,6 @@ FORM = (
     "no form for this agent yet (cross-entropy for discrete actors; a policy's encoder)"
 )
 WORLD = "world models fold no loss phase for extensions and build their own encoders"
-MEMORY = "memory is not wired on this agent yet (batch network-reach)"
 DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
 
@@ -118,7 +117,6 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
     },
-    MEMORY: {"memory": "PQN"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
     PRIOR: {
         "PriorData": "UDRL UDRL/discrete TDMPC2 DreamerV3 DreamerV3/discrete"

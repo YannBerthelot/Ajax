@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import inspect
+import math
 from typing import Any, Callable
 
 import jax
@@ -18,21 +19,22 @@ import numpy as np
 import probing_environments.gymnax_envs as discrete
 import pytest
 from probing_environments.gymnax_envs import continuous_actions as continuous
+from scipy import optimize
 
 from ajax import PPO, PQN
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.base import PHASES, Extension
-from ajax.extensions.expert import OnlineBC
+from ajax.extensions.expert import ImitationLoss, OnlineBC
 from ajax.extensions.pretrain import CloningPretrain, MCPretrain, PriorData
 from ajax.extensions.target_mods import IBRL, CriticBlend
 
-from . import agents, envs, runs
+from . import agents, envs, oracles, runs
 from . import readouts as R
 from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a3fe18415ece"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "7b8b307d61ac"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -612,6 +614,60 @@ CASES["q7-online_bc-SAC"] = Case(
     slow=True,
     note="weight ((phi* - v_min) / (v_max - v_min))^2, 1 at obs 1, 0 at obs 0; cert 32/32",
 )
+
+# ImitationLoss on the action chain, critic slope 1 in a at both steps, at a
+# fixed alpha: the actor settles where E[a] + alpha H - coef (tanh(mu) -
+# a_E)^2 / 4 peaks (_held). Q-filtered (Nair et al. 2018, eq. 8), it clones
+# a_E = 0.8 only below it and settles at the max-entropy optimum (0.94 at
+# alpha 0.1); an expert above that (1.0 at alpha 0.3) it keeps cloning.
+COEF = 100.0
+
+
+def _held(alpha: float, a_e: float) -> float:
+    x, w = np.polynomial.hermite_e.hermegauss(64)
+
+    def loss(p: np.ndarray) -> float:
+        gain = w @ np.tanh(p[0] + math.exp(p[1]) * x) / w.sum()
+        gain += alpha * oracles.tanh_gaussian_entropy(math.exp(p[1]), p[0])
+        return COEF * (np.tanh(p[0]) - a_e) ** 2 / 4 - gain
+
+    opts = {"xatol": 1e-8, "fatol": 1e-10, "maxiter": 4000}
+    res = optimize.minimize(loss, np.zeros(2), method="Nelder-Mead", options=opts)
+    return float(np.tanh(res.x[0]))
+
+
+def imitation(alpha: float, a_e: float, q_filter: bool) -> Any:
+    """SAC's own stateful expert (its stored actions are the clone target)."""
+    expert = AgentExpert(ConstantExpert(a_e))
+    clone = ImitationLoss(expert, coef=COEF, q_filter=q_filter)
+    kw: dict[str, Any] = {"fixed_alpha": True, "alpha_init": alpha}
+    kw |= {"policy_update_start": 200}
+    kw |= {"expert_policy": expert, "expert_buffer_n_steps": 0}
+    read = lambda n: {f"a({x})": R.action(n, float(x)) for x in (0, 1)}  # noqa: E731
+    return q7_readings("SAC", ActionChainEnv, read, (clone,), **kw)
+
+
+# id: alpha, a_E, q_filter, budget, tolerance (budgets 625, 1250, 2500).
+IMITATION = {
+    "q7-imitation-SAC": (0.1, A_E, False, 625, 0.02),
+    "q7-q_filter-SAC": (0.1, A_E, True, 2500, 0.02),
+    "q7-q_filter-kept-SAC": (0.3, 1.0, True, 625, 0.061),
+}
+for cid, (alpha, a_e, q_filter, budget, width) in IMITATION.items():
+    free, held = oracles.maxent_mean_action(1.0, alpha), _held(alpha, a_e)
+    if q_filter and a_e < free:  # every row dropped once the actor passes a_E
+        truth, wrong = free, {"BC on every row (no filter, or inverted)": held}
+    else:
+        truth, wrong = held, {"no row kept" if q_filter else "no imitation": free}
+    CASES[cid] = Case(
+        cid,
+        tuple(Query(f"a({x})", truth, wrong) for x in (0, 1)),
+        imitation(alpha, a_e, q_filter),
+        budget,
+        (width, width),
+        slow=True,
+        note="cert 32/32",
+    )
 
 
 def cloning(agent: str, shift: float) -> Any:

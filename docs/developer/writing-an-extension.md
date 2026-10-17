@@ -122,7 +122,7 @@ agent against that list:
 | | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, UDRL | `actor_state` |
 | | SAC, TD3, REDQ, ASAC, AVG, APO, UDRL | `observations` |
 | | SAC, TD3, REDQ, ASAC, APO | `raw_observations`, `pi_mean` |
-| | SAC | `a_expert` |
+| | SAC | `a_expert`, `critic_state` |
 | | UDRL | `actions` |
 | | APG | `rollout`, `returns` |
 

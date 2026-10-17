@@ -33,10 +33,11 @@ from . import readouts as R
 # faults/ 170 + 30 (the catalogue proves each probe's power); the action-box
 # family: envs.py + 22, oracles.py + 20, test_framework + 5; family 2's
 # cells: oracles.py + 2, test_episode_ends + 36, this note + 1; the two
-# families' faults together: faults/ + 4, this note + 1.
+# families' faults together: faults/ + 4, this note + 1; PriorData's cell:
+# faults/ + 2, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 204}
-CAPS |= {"test_framework.py": 213, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 206}
+CAPS |= {"test_framework.py": 214, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1044, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}

@@ -537,3 +537,44 @@ def test_an_agent_clips_its_gradients_as_its_paper_does(name: str) -> None:
         agent = cls(env_id=CASES[name].envs[0])
         for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
             assert args.max_grad_norm == default
+
+
+class _Stop(Exception):
+    """Raised where a test has seen what it needs, before any compilation."""
+
+
+def _stop(*args: Any, **kwargs: Any) -> Any:
+    raise _Stop
+
+
+def test_train_logs_its_run_config_without_touching_the_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One LoggingConfig reused across agents: each run logs the caller's
+    keys and its own, and the caller's dict stays as it was, so PPO's run
+    does not inherit SAC's keys."""
+    from tests.agents.test_agent_pins import _multitask
+
+    # The module, which its class's name shadows on the package.
+    multitask_module = importlib.import_module("ajax.agents.TDMPC2.TDMPC2MultiTask")
+
+    seen: list[dict] = []
+
+    def record(run_id: str, config: LoggingConfig, run_seed: int) -> None:
+        seen.append(config.config)
+
+    monkeypatch.setattr(base, "init_logging", record)
+    monkeypatch.setattr(multitask_module, "init_logging", record)
+    logging = LoggingConfig(config={"user": 1}, use_wandb=False)
+    for agent in (SAC(env_id="Pendulum-v1"), PPO(env_id="Pendulum-v1")):
+        monkeypatch.setattr(agent, "get_make_train", lambda: _stop)
+        with pytest.raises(_Stop):
+            agent.train(seed=0, n_timesteps=8, logging_config=logging)
+    multitask = _multitask()
+    monkeypatch.setattr(multitask, "_init", _stop)
+    with pytest.raises(_Stop):
+        multitask.train(seed=0, n_timesteps=8, logging_config=logging)
+    assert logging.config == {"user": 1}
+    assert [c["algo_name"] for c in seen] == ["SAC", "PPO", "TDMPC2MultiTask"]
+    assert all(c["user"] == 1 for c in seen)
+    assert "buffer_size" in seen[0] and "buffer_size" not in seen[1]

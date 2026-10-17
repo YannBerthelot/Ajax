@@ -19,7 +19,7 @@ logging = LoggingConfig(
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `config` | (required) | a dictionary stored with each run; `train` adds the agent's run configuration to it (below) |
+| `config` | (required) | a dictionary stored with each run, with the agent's run configuration added (below) |
 | `log_frequency` | 1000 | environment steps between evaluations |
 | `use_wandb` | `True` | log to Weights & Biases |
 | `use_tensorboard` | `False` | write TensorBoard event files |
@@ -33,10 +33,11 @@ in memory: the quickest way to get learning curves.
 
 ### The run configuration
 
-`train` merges the agent's `agent.config` into `config`: every argument of
-the agent's constructor, by name, with the value it was given or its default
-(`TDMPC2MultiTask` leaves out its dataset and evaluation environments), and
-`algo_name`, the agent's name. DreamerV3 and TD-MPC2 add the values they
+Each run stores `config` merged with the agent's `agent.config`: every
+argument of the agent's constructor, by name, with the value it was given or
+its default (`TDMPC2MultiTask` leaves out its dataset and evaluation
+environments), and `algo_name`, the agent's name. `train` merges them into a
+copy, so one `LoggingConfig` can serve several agents' runs. DreamerV3 and TD-MPC2 add the values they
 resolve from those arguments (their discount, replay size and so on). W&B
 stores the result as the run's configuration; TensorBoard stores it as text
 and, in each run directory, as `config.json` with the `seed` and the
@@ -107,7 +108,7 @@ state, evaluations = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config
 print(sorted(evaluations))  # every logged name
 print(evaluations["timestep"][0])  # [ 4096  8192 12288 16384]
 print(evaluations["value/critic_loss"].shape)  # (2, 4)
-print(logging.config["algo_name"], logging.config["n_steps"])  # PPO 128
+print(agent.config["algo_name"], agent.config["n_steps"])  # PPO 128
 ```
 
 A call that evaluates fewer times than its maximum pads the remaining

@@ -324,7 +324,10 @@ class ActorCritic:
 
     def _check_extension_phases(self) -> None:
         """Reject extensions this agent cannot run
-        (:func:`~ajax.extensions.base.check_extensions`)."""
+        (:func:`~ajax.extensions.base.check_extensions`); without extensions
+        there is nothing to check."""
+        if not self.extension_stack:
+            return
         check_extensions(
             type(self).__name__,
             self.extension_stack,

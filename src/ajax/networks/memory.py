@@ -37,7 +37,9 @@ The transformer and mamba outputs end with a LayerNorm, as their references'
 pre-norm stacks do; the GRU and LSTM outputs are the cells' own.
 """
 
+import dataclasses
 import functools
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import prod, sqrt
 from typing import Any, Optional, Union
@@ -143,6 +145,17 @@ def parse_memory_config(
     raise TypeError(
         f"memory must be None, a MemoryConfig or a dict, got {type(memory)}"
     )
+
+
+def with_default_init(
+    memory: Optional[MemoryConfig], inits: Mapping[str, str]
+) -> Optional[MemoryConfig]:
+    """``memory`` with ``init`` set to ``inits[memory.kind]`` when unset: an
+    agent's reference initialisation, which an explicit ``init`` overrides.
+    A kind ``inits`` does not name keeps flax's."""
+    if memory is None or memory.init is not None or memory.kind not in inits:
+        return memory
+    return dataclasses.replace(memory, init=inits[memory.kind])
 
 
 def init_carry(config: MemoryConfig, rng: jax.Array, batch_size: int) -> Carry:

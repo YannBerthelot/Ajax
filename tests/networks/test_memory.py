@@ -23,6 +23,7 @@ from ajax.networks.memory import (
     init_carry,
     parse_memory_config,
     unflatten_carry,
+    with_default_init,
     zeros_carry_like,
 )
 
@@ -69,6 +70,15 @@ def test_config_refuses_an_init_of_another_kind():
         MemoryConfig(kind="gru", init="gpt2")
     with pytest.raises(ValueError, match="does not apply"):
         MemoryConfig(kind="mamba", init="stacked_orthogonal")
+
+
+def test_with_default_init_fills_only_an_unset_init_of_a_named_kind():
+    inits = {"gru": "stacked_orthogonal"}
+    assert with_default_init(None, inits) is None
+    gru = with_default_init(MemoryConfig("gru"), inits)
+    assert gru == MemoryConfig("gru", init="stacked_orthogonal")
+    assert with_default_init(MemoryConfig("gru", init="flax"), inits).init == "flax"
+    assert with_default_init(MemoryConfig("lstm"), inits).init is None
 
 
 def test_parse_memory_config_accepts_dict_and_none():

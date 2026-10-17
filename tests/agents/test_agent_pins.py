@@ -597,6 +597,20 @@ _GOLDEN |= {
     "PQN-nudge": {"actor": 33.91205596923828, "nudge": 0.33566388487815857},
 }
 
+# Re-recorded on macOS ARM CPU once DQN's layers became its reference code's:
+# Torch7's nn.Linear default, kernel and bias uniform in +-1/sqrt(fan_in)
+# (were orthogonal(1.0), zero biases), the dueling heads too. Relative shifts
+# (actor, target): DQN +27.3%, +28.2%; DQN-dueling-nudge +29.4%, +29.2%; its
+# nudge is bitwise unchanged.
+_GOLDEN |= {
+    "DQN": {"actor": 12.04747200012207, "target": 11.927078247070312},
+    "DQN-dueling-nudge": {
+        "actor": 13.111983299255371,
+        "target": 12.902071952819824,
+        "nudge": 0.22634370625019073,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

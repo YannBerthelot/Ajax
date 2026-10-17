@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "f80cd6b36d5b"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "bddfa250a741"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -697,8 +697,8 @@ P9_CELLS |= {
     "APO": (
         ("apo", 4096, 0.5),
         {"A": (0.0, 1.0), "B": (1.758, 2.507), "C": (1.698, 2.777)} | D0,
-        240_000,  # 160,000 failed: 0.169
-        (0.09, 0.095),
+        240_000,  # 160,000 failed: 0.144
+        (0.073, 0.08),
         P9_CELLS["PPO"][4] | {"normalize_observations": True},
     ),
 }
@@ -946,15 +946,15 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
 # GAE now drops V(s') at a termination and cuts the lambda-carry at every
 # end (xtma/apo's generalized_advantage_estimation): rho 1/2, V(B) = 1/2 -
 # nu b, V(A) = -(2 - lambda) nu b, b = 1/2 / (2 + nu (3 - lambda)) (nu 0.1,
-# lambda 0.95). Seeds 0-7 read medians b 0.2268, V(A) -0.0238, V(B) 0.4773;
-# the constant cycle |b|, |V(1)| <= 0.0062.
+# lambda 0.95). Seeds 0-7 read medians b 0.2268, V(A) -0.0238, V(B) 0.4773
+# (before APO's reference hidden layers; unchanged at 10,000 on 1000-1031).
 GROWS = {"centring sign reversed: grows without bound": math.inf}
 CASES["q1-APO-constant"] = Case(
     "q1-APO-constant",
     (Query("b", 0.0, GROWS), Query("V(1)", 0.0, GROWS)),
     _q1_apo(APO_CONST, {"V(1)": 1.0}),
-    10_000,
-    (0.1, 0.1),
+    10_000,  # 5000: twice the worst errors 0.211, 0.197; cert 32/32
+    (0.055, 0.049),
 )
 FIXED = "reset obs inside a rollout, final obs at its end (the old GAE), sign fixed"
 RESET_OBS = "the reset observation bootstrapped at every end, sign fixed"
@@ -1022,8 +1022,8 @@ CASES["q1-APO-truncation"] = Case(
     ),
     _q1_apo(APO_TRUNC, {"V(A)": -1.0, "V(B)": 1.0}),
     5000,
-    (0.02, 0.044, 0.029),
-    note="7500 and 10,000 drift 0.01 further (b to 3.18); cert 32/32",
+    (0.04, 0.046, 0.03),
+    note="7500 and 10,000 drift further (twice b's worst error 0.052, 0.054); cert 32/32",
 )
 
 

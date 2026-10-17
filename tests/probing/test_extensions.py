@@ -31,7 +31,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "4f430d6dd6fe"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "37f6979b9018"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -615,8 +615,10 @@ CASES["q7-online_bc-SAC"] = Case(
 
 def cloning(agent: str, shift: float) -> Any:
     """1000 expert steps, 10 epochs, budget 0: APO still takes one update
-    (TrainLoop.on_policy), kept to one step; SAC's expert prefill off (E11)."""
-    kw = {"SAC": {"expert_buffer_n_steps": 0}, "APO": {"n_epochs": 1}}.get(agent, {})
+    (TrainLoop.on_policy), kept to one step at its own actor learning rate,
+    3e-4; SAC's expert prefill off (E11)."""
+    apo: dict[str, Any] = {"n_epochs": 1, "actor_learning_rate": 3e-4}
+    kw = {"SAC": {"expert_buffer_n_steps": 0}, "APO": apo}.get(agent, {})
     env_cls = ShiftedSignedEnv if shift else envs.SignedActionEnv
 
     def read(n: R.Nets) -> dict:
@@ -632,8 +634,10 @@ _RAW = {"trained on standardised, queried on raw observations": 0.5}
 SIGNED = (Query("a(-1)", -0.5, _SKIP), Query("a(1)", 0.5, _SKIP))
 SHIFTED = (Query("a(1)", -0.5, _RAW | _SKIP), Query("a(3)", 0.5, _SKIP))
 # Epochs (10, 20): 10, the default, qualifies; cert 32/32. APO's update moves
-# its action outwards (at 4 steps per iteration no rung qualified).
-CLONED = {"SAC": (0.02, 0.02), "REDQ": (0.02, 0.02), "APO": (0.053, 0.051), "TD3": ()}
+# its action outwards (at 4 steps per iteration no rung qualified; at the
+# preset's actor rate 1e-3, twice the worst errors 0.161 and 0.143). At 1e-4
+# the cloning, which steps at that rate too, falls short (0.434 and 0.314).
+CLONED = {"SAC": (0.02, 0.02), "REDQ": (0.02, 0.02), "APO": (0.052, 0.047), "TD3": ()}
 for name, shift, queries in (("cloning", 0.0, SIGNED), ("shifted", 2.0, SHIFTED)):
     for agent, tol in CLONED.items():
         CASES[f"q7-{name}-{agent}"] = Case(

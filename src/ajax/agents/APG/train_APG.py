@@ -386,6 +386,7 @@ def make_train(
         extensions,
         start_timestep=start_timestep,
     )
+    loop.warn_if_partial(per_update, "n_envs x horizon")
     evaluation = Evaluation(
         metrics=_train_metrics,
         every=loop.log_frequency and max(loop.log_frequency // per_update, 1),

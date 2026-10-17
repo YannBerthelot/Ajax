@@ -112,7 +112,11 @@ print(agent.config["algo_name"], agent.config["n_steps"])  # PPO 128
 ```
 
 A call that evaluates fewer times than its maximum pads the remaining
-columns with -1 (`timestep`) and NaN (the rest).
+columns with -1 (`timestep`) and NaN (the rest). Pass an `n_timesteps` that
+is a whole number of the agent's iterations (`n_envs` steps for the replay
+agents, `n_envs × n_steps` for PPO, APO, PQN and UDRL, `n_envs × horizon`
+for APG): the iterations stop at a multiple of one, so otherwise an
+evaluation due at the end of the run does not happen, and `train` warns.
 
 ## Weights & Biases and TensorBoard
 

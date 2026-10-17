@@ -151,6 +151,8 @@ _AJAX_INITIALIZERS: dict[str, Callable[..., InitializationFunction]] = {
     # flax's ``zeros`` is an initializer, not a factory (``zeros_init`` is).
     "zeros": lambda: flax_initializers.zeros,
     "trunc_normal_fan_in": trunc_normal_fan_in,
+    # U(-bound, bound); flax's ``uniform(scale)`` draws from [0, scale).
+    "symmetric_uniform": lambda bound: uniform_init(bound),
 }
 
 

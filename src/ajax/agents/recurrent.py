@@ -47,8 +47,39 @@ from ajax.networks.networks import (
     predict_value,
     predict_value_sequence,
 )
+from ajax.networks.utils import TORCH_LINEAR
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
+
+# The initialisation of Ni et al.'s recurrent actor-critics, the recurrent
+# reference of SAC and TD3 and, with none of their own, of REDQ and ASAC.
+# The memory: pomdp-baselines @e7c19c3 and Memory-RL @c9b8b39 orthogonalise
+# every GRU and LSTM weight, zero their biases (recurrent_actor.py:70-74,
+# rnn_vanilla.py:23-31) and start their GPT-2 at normal(0.02)
+# (trajectory_gpt2.py:378-389); no reference has mamba, which starts as
+# Mamba does. The layers: the embedders before the memory are torch
+# nn.Linear layers at torch's default (utils/helpers.py:213-218), as is
+# the critic's head here; the reference's head MLP draws its weights
+# within 1/sqrt(fan_out) and sets its biases to 0.1 (torchkit/networks.py:
+# 53-57, pytorch_utils.py:39-48), the same weight bound on its square
+# layers. Each policy output layer draws kernel and bias in +-1e-3, the
+# log-std's included, so the std starts near 1 (policies/models/
+# actor.py:22, :118-121; TD3's DeterministicPolicy too, :61-77), and each
+# Q output in +-3e-3 (torchkit/networks.py:29, :66-68); the output biases
+# here are 0.
+NI_MEMORY_INITS = {
+    "gru": "stacked_orthogonal",
+    "lstm": "stacked_orthogonal",
+    "transformer": "gpt2",
+    "mamba": "mamba",
+}
+NI_NETWORK_INIT: dict[str, Any] = {
+    "encoder_kernel_init": TORCH_LINEAR,
+    "mean_kernel_init": "symmetric_uniform(1e-3)",
+    "log_std_kernel_init": "symmetric_uniform(1e-3)",
+    "log_std_init": 0.0,
+    "value_kernel_init": "symmetric_uniform(3e-3)",
+}
 
 
 @struct.dataclass(kw_only=True)

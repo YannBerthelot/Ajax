@@ -5,7 +5,7 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
-from ajax.agents.recurrent import make_replay_buffer
+from ajax.agents.recurrent import NI_MEMORY_INITS, NI_NETWORK_INIT, make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
 from ajax.environments.utils import (
@@ -13,7 +13,7 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
-from ajax.networks.memory import MemoryConfig
+from ajax.networks.memory import MemoryConfig, parse_memory_config, with_default_init
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -126,6 +126,7 @@ class REDQ(ActorCritic):
                 entropy (:data:`MBPO_TARGET_ENTROPY`), the default of REDQ's
                 official code; an env id outside that table raises.
         """
+        memory = with_default_init(parse_memory_config(memory), NI_MEMORY_INITS)
         self.config = run_config(locals(), self.name)
 
         # Read by the extension check in the base initialiser.
@@ -135,11 +136,9 @@ class REDQ(ActorCritic):
         # xavier_uniform with gain 1, bias 0) to every Linear layer of
         # its policy and Q networks, the mean and log-std layers
         # included (:96-98, :194-198), whatever their comments say.
-        # Recurrent REDQ (memory set) keeps Ajax's previous initialisation
-        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
-        # audited: at REDQ's, its memory cells' actors read 24-29/32.
+        # Recurrent REDQ starts as Ni et al.'s (NI_NETWORK_INIT).
         reference_init: dict[str, Any] = (
-            {}
+            NI_NETWORK_INIT
             if memory is not None
             else {
                 "encoder_kernel_init": "xavier_uniform",

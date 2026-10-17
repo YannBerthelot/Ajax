@@ -564,6 +564,16 @@ _GOLDEN |= {
     },
     "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
 }
+# Re-recorded on macOS ARM CPU once APO seeded its reward rate and value
+# bias with the first rollout's means, as xtma/apo does, instead of an EMA
+# from 0: actor -0.67%, critic +1.64%, nudge unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 3.8270583152770996,
+        "critic": 4.234889984130859,
+        "nudge": 0.33622848987579346,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

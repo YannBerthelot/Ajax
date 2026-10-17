@@ -1,7 +1,8 @@
-"""TD3 deterministic actor and Deterministic distribution wrapper.
+"""TD3 deterministic actor.
 
 Matches the original TD3 architecture (Fujimoto et al., 2018, Table 1):
-state -> Dense -> ReLU -> Dense -> ReLU -> Dense(action_dim) -> tanh.
+state -> Dense -> ReLU -> Dense -> ReLU -> Dense(action_dim) -> tanh, the
+tanh :class:`~ajax.networks.networks.Squashed`'s.
 
 No LayerNorm, no log_std head. Final layer uses uniform(-3e-3, 3e-3) init
 per the paper / original DDPG init recipe.
@@ -12,12 +13,11 @@ from typing import Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
-from flax import struct
 from flax.linen.initializers import constant
 
 from ajax.environments.utils import get_action_dim
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
+from ajax.networks.distributions import Deterministic
 from ajax.networks.memory import MemoryCell, MemoryConfig
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.networks.utils import (
@@ -33,49 +33,9 @@ from ajax.state import (
 from ajax.types import ActivationFunction
 
 
-@struct.dataclass
-class Deterministic:
-    """Tiny distrax-compatible wrapper for deterministic policies.
-
-    Exposes `.mean()` so existing code (the policy loss, the target action
-    computation, the ImitationLoss extension) keeps working without branches.
-    A pytree of its action, as distrax distributions are of their
-    parameters (a replayed bootstrap gathers its steps, recurrent.actor_dist).
-    """
-
-    _action: jax.Array
-
-    def mean(self) -> jax.Array:
-        return self._action
-
-    def sample(self, seed=None, sample_shape=()) -> jax.Array:
-        del seed, sample_shape
-        return self._action
-
-    def sample_and_log_prob(self, seed=None) -> Tuple[jax.Array, jax.Array]:
-        del seed
-        return self._action, jnp.zeros(self._action.shape[:-1] + (1,))
-
-    def entropy(self) -> jax.Array:
-        return jnp.zeros(self._action.shape[:-1])
-
-    def mode(self) -> jax.Array:
-        return self._action
-
-    def stddev(self) -> jax.Array:
-        return jnp.zeros_like(self._action)
-
-    def log_prob(self, x: jax.Array) -> jax.Array:
-        """For BC pretraining: a delta distribution's log-density is +∞ at
-        x=action, -∞ elsewhere. We use the negative-MSE proxy so that
-        maximizing log_prob is equivalent to MSE-minimizing the actor toward
-        the target action. Shape: (..., action_dim) -> (..., action_dim)
-        (per-dim, summed by caller)."""
-        return -((x - self._action) ** 2)
-
-
 class DeterministicActor(nn.Module):
-    """TD3 deterministic actor: hidden_arch + Dense(action_dim) + tanh.
+    """TD3 deterministic actor: hidden_arch + Dense(action_dim), squashed
+    by :func:`get_initialized_td3_actor_critic`.
 
     With ``memory`` set, a memory block sits between the hidden stack and
     the head (see ajax.networks.memory); the call then takes time-major
@@ -107,14 +67,13 @@ class DeterministicActor(nn.Module):
                     "Recurrent DeterministicActor requires hidden_state and done flags."
                 )
             hidden_state, h = self.memory_cell(hidden_state, h, done)
-            return Deterministic(jnp.tanh(self.head(h))), hidden_state
-        return Deterministic(jnp.tanh(self.head(h)))
+            return Deterministic(self.head(h)), hidden_state
+        return Deterministic(self.head(h))
 
 
 class DeterministicPIDActor(nn.Module):
-    """TD3's actor as a PID: ``tanh`` of the PID output, as
-    :class:`DeterministicActor` squashes its head (see
-    :mod:`ajax.modules.pid_actor`)."""
+    """TD3's actor as a PID: the PID output, squashed as
+    :class:`DeterministicActor`'s head is (see :mod:`ajax.modules.pid_actor`)."""
 
     policy: PIDPolicy
     action_dim: int
@@ -126,7 +85,7 @@ class DeterministicPIDActor(nn.Module):
         return self.pid.gains(obs)
 
     def __call__(self, obs: jax.Array) -> Deterministic:
-        return Deterministic(jnp.tanh(self.pid(obs)))
+        return Deterministic(self.pid(obs))
 
 
 def get_initialized_td3_actor_critic(
@@ -141,8 +100,9 @@ def get_initialized_td3_actor_critic(
     (a plain MLP, as Fujimoto's critic -- sfujim/TD3, TD3.py, Critic: Linear
     -> ReLU -> Linear -> ReLU -> Linear -- unless ``network_config`` opts
     into the encoder's LayerNorm). A :class:`PIDPolicy` architecture makes
-    the actor a :class:`DeterministicPIDActor`. The critic and both
-    initialisations are :func:`get_initialized_actor_critic`'s.
+    the actor a :class:`DeterministicPIDActor`. The critic, the ``tanh``
+    on the actor and both initialisations are
+    :func:`get_initialized_actor_critic`'s.
     """
     action_dim = get_action_dim(env_config.env, env_config.env_params)
     actor: nn.Module
@@ -163,6 +123,7 @@ def get_initialized_td3_actor_critic(
         network_config,
         continuous=True,
         action_value=True,
+        squash=True,
         num_critics=num_critics,
         actor=actor,
     )

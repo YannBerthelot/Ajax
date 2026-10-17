@@ -1,14 +1,58 @@
 """Policy distributions shared by the agents.
 
-:class:`Squash` bounds any continuous policy to ``(-1, 1)`` with ``tanh``.
-The functions below it read any policy, squashed or not, so callers need
-not check which they hold.
+:class:`Squash` bounds any continuous policy to ``(-1, 1)`` with ``tanh``
+(:func:`squash` also takes a :class:`Deterministic` one). The functions
+below it read any policy, squashed or not, so callers need not check which
+they hold.
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import distrax
 import jax
+import jax.numpy as jnp
+from flax import struct
+
+
+@struct.dataclass
+class Deterministic:
+    """Tiny distrax-compatible wrapper for deterministic policies (TD3's).
+
+    Exposes `.mean()` so existing code (the policy loss, the target action
+    computation, the ImitationLoss extension) keeps working without branches.
+    A pytree of its action, as distrax distributions are of their
+    parameters (a replayed bootstrap gathers its steps, recurrent.actor_dist).
+    """
+
+    _action: jax.Array
+
+    def mean(self) -> jax.Array:
+        return self._action
+
+    def sample(self, seed=None, sample_shape=()) -> jax.Array:
+        del seed, sample_shape
+        return self._action
+
+    def sample_and_log_prob(self, seed=None) -> Tuple[jax.Array, jax.Array]:
+        del seed
+        return self._action, jnp.zeros(self._action.shape[:-1] + (1,))
+
+    def entropy(self) -> jax.Array:
+        return jnp.zeros(self._action.shape[:-1])
+
+    def mode(self) -> jax.Array:
+        return self._action
+
+    def stddev(self) -> jax.Array:
+        return jnp.zeros_like(self._action)
+
+    def log_prob(self, x: jax.Array) -> jax.Array:
+        """For BC pretraining: a delta distribution's log-density is +∞ at
+        x=action, -∞ elsewhere. We use the negative-MSE proxy so that
+        maximizing log_prob is equivalent to MSE-minimizing the actor toward
+        the target action. Shape: (..., action_dim) -> (..., action_dim)
+        (per-dim, summed by caller)."""
+        return -((x - self._action) ** 2)
 
 
 class Squash(distrax.Transformed):
@@ -60,6 +104,15 @@ class Squash(distrax.Transformed):
             )
         raw = self.distribution.sample(seed=seed)
         return self.distribution.entropy() + self.bijector.forward_log_det_jacobian(raw)
+
+
+def squash(pi: Any) -> Any:
+    """``pi`` bounded by ``tanh``: :class:`Squash` of it, or, for a
+    :class:`Deterministic` one, ``tanh`` of its action (a point mass has no
+    density to correct)."""
+    if isinstance(pi, Deterministic):
+        return Deterministic(jnp.tanh(pi.mean()))
+    return Squash(pi)
 
 
 def latent(pi: Any) -> Any:

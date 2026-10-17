@@ -11,13 +11,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.TD3.networks import DeterministicActor
 from ajax.networks.distributions import (
+    Deterministic,
     Squash,
     entropy,
     latent,
     log_prob_from_raw,
     sample_with_raw,
 )
+from ajax.networks.networks import Actor, Squashed
 
 NORMAL = distrax.Normal(jnp.zeros(7), jnp.full(7, 1.5))
 PI = Squash(NORMAL)
@@ -88,3 +91,21 @@ def test_the_helpers_read_any_policy():
     np.testing.assert_array_equal(
         sample_with_raw(PI, KEY)[2], PI.sample_with_raw(KEY)[2]
     )
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [Actor(("8", "relu"), 2, continuous=True), DeterministicActor(("8", "relu"), 2)],
+)
+def test_squashed_bounds_any_actor_with_its_parameters(actor):
+    """One shared scope: the wrapped actor's parameters are the actor's
+    own, and its policy is the actor's through tanh (a point mass's action
+    through tanh)."""
+    obs = jnp.ones((3, 4))
+    params = actor.init(KEY, obs)
+    wrapped = Squashed(actor).init(KEY, obs)
+    assert jax.tree.structure(wrapped) == jax.tree.structure(params)
+    jax.tree.map(np.testing.assert_array_equal, wrapped, params)
+    pi, inner = Squashed(actor).apply(params, obs), actor.apply(params, obs)
+    np.testing.assert_array_equal(pi.mean(), jnp.tanh(inner.mean()))
+    assert isinstance(pi, Deterministic if isinstance(inner, Deterministic) else Squash)

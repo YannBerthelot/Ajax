@@ -9,7 +9,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import augment_obs
 from ajax.modules.pid_actor import GAIN_NAMES
-from ajax.networks.distributions import Squash, latent
+from ajax.networks.distributions import Deterministic, Squash, latent
 from ajax.state import Transition
 
 
@@ -126,8 +126,6 @@ def pre_train(
 
     def actor_loss_fn(params, batch_obs, batch_actions):
         pi = bc_actor_state.apply_fn(params, batch_obs)
-        from ajax.agents.TD3.networks import Deterministic
-
         if isinstance(pi, Deterministic):
             # A deterministic actor (TD3's) has no distribution to fit, nor
             # a pre-tanh mean: either loss regresses its action on the

@@ -446,3 +446,19 @@ def test_ppo_trains_with_the_term_in_its_minibatches(geometry: dict) -> None:
         return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
 
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+
+
+def test_apg_trains_with_the_term_along_its_rollout() -> None:
+    """APG's actor batch is its rollout: the observations its controller saw
+    and the controller's own actions, before their map onto each system's
+    bounds; the term moves the controller."""
+    from tests.agents.APG.test_APG import make_agent, tracking_class, tracking_env
+
+    env, params = tracking_env()
+
+    def actor(*extensions: Any) -> Any:
+        agent = make_agent(env, tracking_class(params), extensions=extensions)
+        steps = agent.env_args.n_envs * agent.agent_config.horizon
+        return agent.train(seed=0, n_timesteps=steps)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())

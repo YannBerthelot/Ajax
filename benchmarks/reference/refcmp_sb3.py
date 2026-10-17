@@ -1,18 +1,11 @@
 """The Stable-Baselines3 references (PPO, DQN, SAC, TD3).
 
-usage: uv run --project envs/sb3 python refcmp_sb3.py AGENT FIRST_SEED N_SEEDS
-           >> results/sb3.jsonl
+usage: python refcmp_sb3.py NAME reference FIRST_SEED N_SEEDS (refcmp_worker)
 
 Imports nothing from Ajax. SB3 trains and evaluates on the gymnax
 environment Ajax trains on, through :func:`gymnax_vec_env`. One torch thread
 per process; run several processes for several seed blocks.
 """
-
-import json
-import sys
-import time
-
-from refcmp_specs import COMPARISONS
 
 
 def sb3_kwargs(spec) -> dict:
@@ -188,28 +181,20 @@ def run(spec, seeds: list) -> list:
     return curve
 
 
-if __name__ == "__main__":
-    import stable_baselines3
-    import torch
+def config(spec) -> dict:
+    """The SB3 constructor's resolved keywords and the harness's settings."""
+    import stable_baselines3 as sb3
+    from refcmp_worker import resolved
 
-    spec = COMPARISONS[sys.argv[1]]
-    seeds = list(range(int(sys.argv[2]), int(sys.argv[2]) + int(sys.argv[3])))
-    t0 = time.perf_counter()
-    curve = run(spec, seeds)
-    print(
-        json.dumps(
-            {
-                "lib": "sb3",
-                "agent": spec.agent,
-                "arm": "reference",
-                "seeds": seeds,
-                "eval_every": spec.eval_every,
-                "versions": {
-                    "sb3": stable_baselines3.__version__,
-                    "torch": torch.__version__,
-                },
-                "wall_s": round(time.perf_counter() - t0, 1),
-                "curve": [[round(x, 2) for x in row] for row in curve],
-            }
-        )
+    kwargs = sb3_kwargs(spec)
+    return resolved(getattr(sb3, spec.agent).__init__, kwargs)
+
+
+if __name__ == "__main__":
+    from refcmp_worker import main
+
+    main(
+        lambda spec, _, seeds: run(spec, seeds),
+        lambda spec, _: config(spec),
+        ("stable-baselines3", "torch", "gymnasium", "jax", "jaxlib", "gymnax"),
     )

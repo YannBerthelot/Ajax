@@ -42,6 +42,27 @@ on the paper's shared permutations, which are an approximation there: over
 20,000 simulated comparisons of equal agents at `alpha = 0.05`, two agents
 gave 0.044 and three or four gave 0.054 to 0.056.
 
+## What a verdict leaves open
+
+Two numbers say how much a verdict tells, and belong next to it:
+
+```python
+from ajax.compare import difference, resolution
+
+a, b = result.scores["SAC"], result.scores["TD3"]
+gap, (low, high) = difference(a, b)  # mean(a) - mean(b), 95% bootstrap interval
+smallest = resolution(a, b, n=5, K=5)  # the gap detected 80% of the time
+```
+
+`difference` estimates the gap between the means. `resolution` is the
+smallest gap that AdaStop, with the same `n`, `K` and `alpha`, detects with
+probability `power` (0.8 by default) for scores spread like these. It
+simulates, as the paper's power study does, but resamples the observed
+scores instead of assuming a distribution. An "equal" rules out gaps much
+larger than the resolution; it says nothing about smaller ones. On normal
+scores with 32 runs each (`n = 8`, `K = 4`) the resolution is about 0.75
+standard deviations.
+
 ## The score
 
 The test compares one number per run, and the choice of that number changes

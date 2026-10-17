@@ -11,7 +11,9 @@ most ``alpha``. A comparison still undecided after ``K`` interims is "equal":
 not shown to differ, which does not prove the agents equal.
 
 docs/guide/comparing-agents.md lists the differences from the paper and from
-the authors' ``adastop`` package.
+the authors' ``adastop`` package. :func:`difference` and :func:`resolution`
+say what a verdict leaves open: the gap's size, and the smallest gap the
+runs could detect.
 
 :func:`estimate` measures one agent instead: it trains seeds until a
 confidence sequence pins down each chosen metric.
@@ -235,6 +237,74 @@ def compare(
     return Comparison(
         dict(test.decisions), seeds, {a: np.asarray(s) for a, s in scores.items()}
     )
+
+
+def difference(
+    a: Sequence[float],
+    b: Sequence[float],
+    confidence: float = 0.95,
+    B: int = 10_000,
+    seed: int = 0,
+) -> tuple[float, tuple[float, float]]:
+    """``mean(a) - mean(b)`` and its percentile bootstrap interval: ``B``
+    resamples of each sample, with replacement."""
+    rng = np.random.default_rng(seed)
+    x, y = np.asarray(a, float), np.asarray(b, float)
+    boot = rng.choice(x, (B, x.size)).mean(1) - rng.choice(y, (B, y.size)).mean(1)
+    low, high = np.quantile(boot, [(1 - confidence) / 2, (1 + confidence) / 2])
+    return float(x.mean() - y.mean()), (float(low), float(high))
+
+
+def resolution(
+    a: Sequence[float],
+    b: Sequence[float],
+    n: int,
+    K: int,
+    alpha: float = 0.05,
+    power: float = 0.8,
+    reps: int = 200,
+    B: int = 10_000,
+    seed: int = 0,
+) -> float:
+    """The smallest gap between two means that AdaStop, run with ``n``,
+    ``K`` and ``alpha``, detects with probability ``power``, for scores
+    spread as ``a`` and ``b``: what an "equal" can miss.
+
+    A simulation, as the power study of the AdaStop paper (Section 5), from
+    the observed spread rather than a known distribution: each of ``reps``
+    replicates draws ``n * K`` scores with replacement from each sample,
+    centred on its mean, and adds the gap to ``b``'s. The same draws serve
+    every gap, which a bisection narrows to 1/1000 of the samples' spread.
+    """
+    rng = np.random.default_rng(seed)
+    x, y = np.asarray(a, float), np.asarray(b, float)
+    draws = [
+        (rng.choice(x - x.mean(), (K, n)), rng.choice(y - y.mean(), (K, n)), s)
+        for s in rng.integers(2**31, size=reps)
+    ]
+
+    def detected(gap: float) -> float:
+        hits = 0
+        for da, db, s in draws:
+            test = AdaStop(["a", "b"], n=n, K=K, alpha=alpha, B=B, seed=int(s))
+            while not test.finished:
+                test.update({"a": da[test.k], "b": db[test.k] + gap})
+            hits += test.decisions[("a", "b")] != "equal"
+        return hits / reps
+
+    spread = float(np.sqrt((x.var() + y.var()) / 2)) or 1.0
+    low, high = 0.0, spread
+    while detected(high) < power:
+        if high > 2**20 * spread:
+            raise ValueError(f"n={n} and K={K} never reach power {power}")
+        low, high = high, 2 * high
+    while high - low > spread / 1000:
+        middle = (low + high) / 2
+        if detected(middle) >= power:
+            high = middle
+        else:
+            low = middle
+    return high
 
 
 def half_width(width: float) -> Callable[[float, float], bool]:

@@ -1,5 +1,6 @@
 import warnings
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -24,6 +25,18 @@ def test_the_gain_policy_refuses_the_experts_action_in_the_observation():
     SAC(env_id="Pendulum-v1", augment_obs_with_expert_state=True, **kw)
     with pytest.raises(ValueError, match="augment_obs_with_expert_action"):
         SAC(env_id="Pendulum-v1", augment_obs_with_expert_action=True, **kw)
+
+
+def test_sac_trains_with_rlpd_layernorm_critics():
+    """With a LayerNorm after each critic hidden layer (RLPD's critic), SAC
+    updates the norms' scales and keeps every parameter finite."""
+    arch = ("64", "layernorm", "relu", "64", "layernorm", "relu")
+    agent = SAC(env_id="Pendulum-v1", critic_architecture=arch, learning_starts=100)
+    state, _ = agent.train(seed=0, n_timesteps=400)
+    params = state.critic_state.params
+    assert all(jnp.isfinite(leaf).all() for leaf in jax.tree.leaves(params))
+    scale = params["params"]["ensemble"]["encoder"]["network"]["layers_1"]["scale"]
+    assert not jnp.allclose(scale, 1.0)  # gradients reach the LayerNorm
 
 
 def test_fixed_alpha_keeps_temperature_at_alpha_init():

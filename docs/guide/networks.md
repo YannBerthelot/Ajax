@@ -26,7 +26,9 @@ state, _ = agent.train(seed=0, n_timesteps=2_048)
 ```
 
 The activations are `relu`, `tanh`, `leaky_relu`, `swish`, `silu` and `mish`;
-a callable works too. The agent adds its output heads after the hidden
+a callable works too. `"layernorm"` adds a LayerNorm where it stands, so
+`("256", "layernorm", "relu", "256", "layernorm", "relu")` is RLPD's critic
+(Ball et al., 2023). The agent adds its output heads after the hidden
 layers: the policy's mean and standard deviation, the value, the Q-values.
 DQN and PQN take a single `architecture` for their Q-network.
 

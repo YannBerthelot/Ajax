@@ -11,6 +11,7 @@ from ajax.networks.utils import (
     parse_activation,
     parse_function_string,
     parse_initialization,
+    parse_layer,
     trunc_normal_fan_in,
 )
 from ajax.state import OptimizerConfig
@@ -211,3 +212,8 @@ def test_parse_activation_passes_callables_through():
 def test_parse_activation_rejects_unknown(activation):
     with pytest.raises(ValueError, match="'mish', 'relu'"):  # it lists the names
         parse_activation(activation)
+
+
+def test_parse_layer_lists_the_layernorm_token_on_unknown_names():
+    with pytest.raises(ValueError, match="'layernorm' or an activation"):
+        parse_layer("layer_norm")

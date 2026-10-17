@@ -102,10 +102,9 @@ refused when the agent is built.
 
 The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
 expert: `CloningPretrain` raises on them when training starts. PPO, APG and
-UDRL with continuous actions take `ImitationLoss` with a stateless expert
-(UDRL without `normalize_observations`). A discrete policy has no mean
-action for it, DQN and PQN have no actor, and the world models fold no
-actor phase.
+UDRL with continuous actions take `ImitationLoss` with a stateless expert.
+A discrete policy has no mean action for it, DQN and PQN have no actor, and
+the world models fold no actor phase.
 
 With an expert, evaluations also log `Eval/episodic mean expert reward`, the
 expert's return on the same episodes as the agent's, and `Eval/expert

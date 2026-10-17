@@ -9,6 +9,7 @@ from ajax.agents.UDRL.buffer import (
     add_segment,
     episode_stream,
     init_buffer,
+    sample_raw_observations,
     sample_training_batch,
     topk_command_stats,
 )
@@ -87,3 +88,23 @@ def test_the_sampler_draws_intervals_inside_episodes_across_segments(
         for b in range(a + 1, last + 2)
     }
     assert drawn == allowed
+
+
+def test_the_raw_observations_are_drawn_at_the_batch_rows():
+    """A buffer keeping the env's own observations (here minus the stored
+    ones, over two envs and five segments into three slots) returns, given
+    the batch's key, those of the rows the training batch reads."""
+    buffer = init_buffer(3, T, n_envs=2, obs_dim=3, action_dim=1, keep_raw_obs=True)
+    for first in range(0, 5 * T, T):
+        g = jnp.arange(first, first + T, dtype=jnp.float32)[:, None, None]
+        g = g + jnp.asarray([0.0, 0.5])[None, :, None]  # (T, 2 envs, 1)
+        obs = jnp.concatenate([g, jnp.zeros((T, 2, 2))], axis=-1)
+        buffer = add_segment(buffer, obs, g, jnp.ones_like(g), 0 * g, raw_obs=-g)
+    stream, key = episode_stream(buffer), jax.random.PRNGKey(0)
+    obs, _ = sample_training_batch(key, buffer, stream, 64)
+    raw = sample_raw_observations(key, buffer, stream, 64)
+    np.testing.assert_array_equal(raw, -obs[:, :1])
+    with pytest.raises(ValueError, match="keep_raw_obs"):
+        add_segment(buffer, obs[:T, None], obs[:T, None, :1], 0 * g, 0 * g)
+    with pytest.raises(ValueError, match="keep_raw_obs"):
+        sample_raw_observations(key, _buffer(3, 1, ()), stream, 4)

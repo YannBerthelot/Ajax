@@ -217,7 +217,8 @@ When training starts, an extension that takes context from the agent
 (below) raises if the agent does not give it what it needs: `MCPretrain`
 or `BellmanPretrain` outside SAC, `BellmanPretrain` or `ExpertValueMetrics`
 without an `expert_policy`, `CloningPretrain` on an agent that does not bind
-it, or placed after another pre-training extension. While the program is
+it, or placed after another pre-training extension, `PriorData` on an agent
+without a replay or on a replay whose rows it cannot fill. While the program is
 built, an extension raises on a batch without the keys it needs (above).
 
 ## Catalogue
@@ -260,6 +261,7 @@ says where each extension does its job. "SAC with an expert" means
 | `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. | `pretrain` | SAC (other agents raise when training starts) |
 | `BellmanPretrain` | Runs `n_steps` ordinary critic updates on the replay buffer, which holds the expert's prefill, before training. Its values bootstrap from an untrained critic; kept for ablations. | `pretrain` | SAC with an expert |
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
+| `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, DQN (other agents raise when training starts) |
 
 **Critic ensembles** (`ajax.extensions.ensemble`)
 

@@ -12,6 +12,9 @@ not shown to differ, which does not prove the agents equal.
 
 docs/guide/comparing-agents.md lists the differences from the paper and from
 the authors' ``adastop`` package.
+
+:func:`estimate` measures one agent instead: it trains seeds until a
+confidence sequence pins down each chosen metric.
 """
 
 import dataclasses
@@ -232,3 +235,112 @@ def compare(
     return Comparison(
         dict(test.decisions), seeds, {a: np.asarray(s) for a, s in scores.items()}
     )
+
+
+def half_width(width: float) -> Callable[[float, float], bool]:
+    """A rule for :func:`estimate`: the interval is at most ``2 * width`` wide."""
+    return lambda lower, upper: (upper - lower) / 2 <= width
+
+
+def threshold(value: float) -> Callable[[float, float], bool]:
+    """A rule for :func:`estimate`: the interval lies above or below ``value``,
+    so the mean is decided against it."""
+    return lambda lower, upper: lower > value or upper < value
+
+
+@dataclasses.dataclass(frozen=True)
+class Estimate:
+    """What :func:`estimate` measured, and on which runs.
+
+    Per metric: ``mean`` is the scores' sample mean; ``interval`` the
+    ``(lower, upper)`` confidence interval when it stopped (adastop's "est"
+    is its midpoint, not the mean); ``met`` whether its rule held then;
+    ``scores`` one per seed, in training order. ``seeds`` are the runs.
+    """
+
+    mean: dict
+    interval: dict
+    met: dict
+    scores: dict
+    seeds: list
+
+
+def estimate(
+    agent: Callable[[], Any],
+    n_timesteps: int,
+    eval_every: int,
+    metrics: Mapping[str, tuple[Callable, tuple[float, float], Callable]],
+    *,
+    delta: float = 0.05,
+    n: int = 8,
+    max_seeds: int = 64,
+    num_episode_test: int = 10,
+    seed: int = 0,
+) -> Estimate:
+    """Train one agent ``n`` seeds per ``train`` call until every metric's
+    rule holds or ``max_seeds`` have trained.
+
+    Each metric's mean gets the hedged betting confidence sequence of
+    Waudby-Smith and Ramdas ("Estimating means of bounded random variables
+    by betting", JRSS-B, Section 4.4): ``adastop``'s ``Bounded_Confseq``,
+    from the ``compare`` extra. It holds at every seed count at once, so
+    stopping on what the scores show keeps its level. The metrics split
+    ``delta`` evenly (a union bound), so all intervals hold together with
+    probability at least ``1 - delta``. ``n_timesteps``, ``eval_every`` and
+    ``num_episode_test`` are as in :func:`compare`.
+
+    Args:
+        agent: builds the agent to train.
+        metrics: per name, ``(score, (low, high), rule)``. ``score`` maps
+            ``train``'s evaluations, each ``(seeds, evaluations)``, to one
+            value per seed, which ``low`` and ``high`` must bound for every
+            possible run, not only those seen. ``rule`` is :func:`half_width`,
+            :func:`threshold` or another test of ``(lower, upper)``.
+        delta: the chance that any interval misses its mean.
+        seed: the first run seed; the runs are ``seed, seed + 1, ...``.
+    """
+    from adastop.confidence_sequences import Bounded_Confseq
+
+    logging = LoggingConfig(config={}, log_frequency=eval_every, use_wandb=False)
+    sequences = {
+        name: Bounded_Confseq(delta=delta / len(metrics), bounds=bounds)
+        for name, (_, bounds, _) in metrics.items()
+    }
+    seeds: list = []
+    scores: dict = {name: [] for name in metrics}
+    met = dict.fromkeys(metrics, False)
+    while not all(met.values()) and len(seeds) < max_seeds:
+        first = seed + len(seeds)
+        run_seeds = list(range(first, first + min(n, max_seeds - len(seeds))))
+        _, evals = agent().train(
+            seed=run_seeds,
+            n_timesteps=n_timesteps,
+            num_episode_test=num_episode_test,
+            logging_config=logging,
+        )
+        evals = {key: np.asarray(value) for key, value in evals.items()}
+        for name, (score, (low, high), rule) in metrics.items():
+            new = np.asarray(score(evals), float)
+            # observe() does not check: a score out of bounds would void the
+            # level silently.
+            inside = (low <= new) & (new <= high)
+            if new.shape != (len(run_seeds),) or not inside.all():
+                raise ValueError(
+                    f"{name} needs one score per seed in [{low}, {high}]: {new}"
+                )
+            for x in new:
+                sequences[name].observe(x)
+            scores[name] += new.tolist()
+            met[name] = rule(*_interval(sequences[name]))
+        seeds += run_seeds
+    return Estimate(
+        {name: float(np.mean(s)) for name, s in scores.items()},
+        {name: _interval(cs) for name, cs in sequences.items()},
+        met,
+        {name: np.asarray(s) for name, s in scores.items()},
+        seeds,
+    )
+
+
+def _interval(sequence: Any) -> tuple[float, float]:
+    return float(sequence.stats["lb"][-1]), float(sequence.stats["ub"][-1])

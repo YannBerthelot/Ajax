@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
@@ -74,11 +74,19 @@ class ExtensionContext:
 
     ``step`` and ``rng`` are traced; ``total_steps`` is static so it can
     drive Python-level decisions (e.g. schedule lengths) at trace time.
+    The ``pretrain`` phase of a run on ``ajax.agents.loop.TrainLoop`` also
+    gets its static ``env_args`` and, off-policy, its ``update(agent_state,
+    experience) -> (agent_state, aux)`` and replay ``buffer``, so an
+    extension can run the agent's own update; each is None where the run
+    has none.
     """
 
     step: jax.Array  # current global timestep (traced)
     rng: jax.Array  # a PRNG key for this phase call (traced)
     total_steps: int = struct.field(pytree_node=False, default=0)
+    env_args: Any = struct.field(pytree_node=False, default=None)
+    update: Optional[Callable] = struct.field(pytree_node=False, default=None)
+    buffer: Any = struct.field(pytree_node=False, default=None)
 
 
 # Phase methods an Extension may override. Used for the construction-time
@@ -453,16 +461,19 @@ class ExtensionStack:
     # its input unchanged without building a context, so an agent without
     # extensions traces nothing extra and never needs to guard a fold.
 
-    def fold_init(self, agent_state: Any, rng: jax.Array, total_steps: int) -> Any:
+    def fold_init(
+        self, agent_state: Any, rng: jax.Array, total_steps: int, **context: Any
+    ) -> Any:
         """A fresh run's extension setup: every extension's initial state,
         then its one-shot ``pretrain`` at step 0 (``rng`` split between the
-        two). Skipped on resume, where the state already carries both."""
+        two; ``context``: :meth:`fold_pretrain`'s). Skipped on resume, where
+        the state already carries both."""
         if not self.extensions:
             return agent_state
         init_key, pretrain_key = jax.random.split(rng)
         agent_state = self.fold_init_states(agent_state, init_key)
         return self.fold_pretrain(
-            agent_state, jnp.asarray(0), pretrain_key, total_steps
+            agent_state, jnp.asarray(0), pretrain_key, total_steps, **context
         )
 
     def fold_init_states(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -484,11 +495,14 @@ class ExtensionStack:
         step: Any,
         rng: jax.Array,
         total_steps: int,
+        **context: Any,
     ) -> Any:
-        """One-shot pretrain fold; returns the updated ``agent_state``."""
+        """One-shot pretrain fold; returns the updated ``agent_state``.
+        ``context``: the run's static :class:`ExtensionContext` fields
+        (``env_args``, ``update``, ``buffer``)."""
         if not self.extensions:
             return agent_state
-        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps, **context)
         ext_states = list(agent_state.ext_state)
         for i, ext in enumerate(self.extensions):
             agent_state, ext_states[i] = ext.pretrain(agent_state, ext_states[i], ctx)

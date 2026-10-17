@@ -31,6 +31,9 @@ dependencies = [
 # CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
 # `ajax[cuda]`. Without it JAX runs on the CPU.
 cuda = ["jax[cuda]>=0.6.2; sys_platform == 'linux'"]
+# ajax.compare.estimate's confidence sequence: `uv sync --extra compare`, or
+# depend on `ajax[compare]`. From the commit in [tool.uv.sources].
+compare = ["adastop"]
 
 [project.urls]
 Homepage = "https://github.com/YannBerthelot/Ajax"
@@ -52,6 +55,8 @@ dev = [
     "ruff>=0.11.6,<0.12",
     # From the branch in [tool.uv.sources].
     "probing-environments",
+    # The compare extra, for its tests; from the commit in [tool.uv.sources].
+    "adastop",
 ]
 wandb = ["wandb>=0.19.9,<0.20"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
@@ -84,6 +89,10 @@ gymnax = { git = "https://github.com/YannBerthelot/gymnax.git", branch = "chore/
 # 0.5.1 still requires `gymnax ^0.0.9`, which makes the whole graph
 # unresolvable. Restore the PyPI pin once a migrated release is cut.
 probing-environments = { git = "https://github.com/YannBerthelot/ProbingEnvironments.git", branch = "feature/gymnax-1.0-compat" }
+# TEMPORARY: this should be adastop from PyPI. Bounded_Confseq, the
+# confidence sequence behind ajax.compare.estimate, is only in upstream main
+# (added 2026-07-16); 0.1.3 predates it. Pin the first release that has it.
+adastop = { git = "https://github.com/TimotheeMathieu/adastop.git", rev = "07e7159643f11467c154266b5ef3b1be6ca8ddd8" }
 
 [tool.uv.build-backend]
 # The distribution is "Ajax"; the import name is lower case.

@@ -13,6 +13,8 @@ refreshes MCPretrain's critic during training.
   on the expert buffer.
 * :class:`PhiRefresh`          — periodic self-consistent refresh of the
   frozen expert critic during training (the ``post_update`` phase).
+* :class:`PriorData`           — a transition dataset in the replay, and the
+  agent's own updates on it before acting.
 """
 
 from __future__ import annotations
@@ -24,23 +26,30 @@ from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import pre_train
+from ajax.agents.loop import with_obs_norm
+from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.buffers.utils import get_batch_from_buffer
+from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     augment_from_batch,
     augment_obs,
     collect_experience_from_expert_policy,
     reward_statistics,
+    with_reward_statistics,
 )
+from ajax.environments.obs_norm import update_obs_norm
 from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
 from ajax.types import BufferType, NormalizationInfo
+from ajax.utils import online_normalize
 
 
 @struct.dataclass
@@ -902,4 +911,91 @@ class PhiRefresh(Extension):
         return new_state, ext_state
 
 
-__all__ = ["BellmanPretrain", "CloningPretrain", "MCPretrain", "PhiRefresh"]
+@dataclass(frozen=True)
+class PriorData(Extension):
+    """Prior data in the replay, and the agent's own updates on it before
+    acting (offline-to-online RL).
+
+    Adds ``dataset``'s rows to the agent's replay, where they stay
+    (:func:`ajax.buffers.dataset.fill_replay`), and to its observation and
+    reward normalisers, each row counted once as collection counts its own;
+    then runs ``offline_updates`` of the agent's update on that replay: its
+    critic, actor and target steps and its extensions' loss terms, but no
+    ``post_update`` between them. ``offline_updates=0`` is RLPD's prior
+    data in the replay (Ball et al. 2023) without its symmetric sampling.
+    Ajax's warm-up acts uniformly: pair it with ``learning_starts=0``.
+
+    Needs the replay and update an off-policy loop hands the ``pretrain``
+    phase: on any agent but SAC, TD3, REDQ, ASAC and DQN, raises
+    ``ValueError`` when training starts.
+    """
+
+    dataset: TransitionDataset
+    offline_updates: int = 0
+    name: str = "prior_data"
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+    ) -> tuple[Any, Any]:
+        agent_update = ctx.update
+        if ctx.buffer is None or agent_update is None:
+            raise ValueError(
+                "PriorData adds its rows to the agent's replay: give it to an"
+                " agent replaying transitions (SAC, TD3, REDQ, ASAC, DQN)."
+            )
+        collector = agent_state.collector_state
+        replay = fill_replay(ctx.buffer, collector.buffer_state, self.dataset)
+        collector = collector.replace(buffer_state=replay)
+        agent_state = self.with_statistics(
+            agent_state.replace(collector_state=collector), ctx
+        )
+
+        def update(agent_state: Any, _: None) -> tuple[Any, None]:
+            return agent_update(agent_state, None)[0], None
+
+        agent_state, _ = jax.lax.scan(
+            update, agent_state, None, length=self.offline_updates
+        )
+        return agent_state, ext_state
+
+    def with_statistics(self, agent_state: Any, ctx: ExtensionContext) -> Any:
+        """``agent_state`` with the dataset in the normalisers it has: its
+        own observation statistics, mirrored on its networks, and the env's
+        reward statistics, of the reward or, with the normaliser's
+        ``gamma``, of the discounted return of the episode so far (its
+        running return left as it is)."""
+        data, collector = self.dataset, agent_state.collector_state
+        env = ctx.env_args.env
+        _, obs_stats = update_obs_norm(
+            jnp.asarray(data.obs), collector.obs_norm_info, raw_obs_columns(env)
+        )
+        collector = collector.replace(obs_norm_info=obs_stats)
+        stats = reward_statistics(collector.env_state)
+        if stats is not None:
+            gamma = strip_ajax_wrappers(env)[1].get("gamma") or 0.0
+            returns, g = np.zeros_like(data.reward), 0.0
+            for t, end in enumerate(data.terminated | data.truncated):
+                g = data.reward[t] + gamma * g
+                returns[t], g = g, 0.0 if end else g
+            returns = jnp.asarray(returns)[:, None]
+            _, count, mean, mean_2, var = online_normalize(
+                returns,
+                stats.count,
+                stats.mean,
+                stats.mean_2,
+                shift=False,
+                returns=returns,
+            )
+            stats = NormalizationInfo(var, count, mean, mean_2, stats.returns)
+            env_state = with_reward_statistics(collector.env_state, stats)
+            collector = collector.replace(_env_state=env_state)
+        return with_obs_norm(agent_state.replace(collector_state=collector))
+
+
+__all__ = [
+    "BellmanPretrain",
+    "CloningPretrain",
+    "MCPretrain",
+    "PhiRefresh",
+    "PriorData",
+]

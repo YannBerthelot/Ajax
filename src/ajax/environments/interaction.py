@@ -137,6 +137,17 @@ def reward_statistics(env_state: Any) -> Optional[NormalizationInfo]:
     return None if stats is None else stats.reward
 
 
+def with_reward_statistics(env_state: Any, stats: NormalizationInfo) -> Any:
+    """``env_state`` with its reward normaliser's statistics ``stats``,
+    where :func:`reward_statistics` reads them."""
+    info = getattr(env_state, "info", None)
+    if isinstance(info, dict):
+        norm = info["normalization_info"].replace(reward=stats)
+        return env_state.replace(info={**info, "normalization_info": norm})
+    norm = env_state.normalization_info.replace(reward=stats)
+    return env_state.replace(normalization_info=norm)
+
+
 def get_raw_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
     """:func:`get_final_obs` in the env's own units: an observation
     normaliser normalises the final observation and keeps the raw one."""

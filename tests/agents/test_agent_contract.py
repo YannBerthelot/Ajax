@@ -301,8 +301,8 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
 
     seen, fresh_state = [], loop.fresh_state
 
-    def recording(*args: Any) -> Any:
-        state = fresh_state(*args)
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        state = fresh_state(*args, **kwargs)
         record = lambda *keys: seen.append([np.asarray(k) for k in keys])  # noqa: E731
         jax.debug.callback(record, state.rng, state.eval_rng)
         return state

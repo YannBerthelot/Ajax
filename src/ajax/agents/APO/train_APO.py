@@ -245,6 +245,12 @@ def update_agent(
     ) * agent_state.average_reward + agent_config.alpha * jnp.mean(transition.reward)
 
     b = (1 - agent_config.alpha) * agent_state.b + agent_config.alpha * jnp.mean(values)
+    # The first update sets both to the rollout's means, as xtma/apo does
+    # (apo/algos/apg/base.py:43-50, eta and value_bias start as None): an
+    # EMA from 0 would leave rho a fraction 0.9^k too small after k updates.
+    first = agent_state.n_updates == 0
+    average_reward = jnp.where(first, jnp.mean(transition.reward), average_reward)
+    b = jnp.where(first, jnp.mean(values), b)
     agent_state = agent_state.replace(average_reward=average_reward, b=b)
 
     gae, value_targets = _compute_gae(

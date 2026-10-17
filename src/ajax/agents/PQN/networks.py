@@ -40,8 +40,9 @@ class PQNNetwork(nn.Module):
     penultimate_normalization: bool = False
     encoder_layer_norm: bool = False
     # Optional CNN front-end for image obs (see `NetworkConfig.cnn_image_shape`).
-    # When set, a `CNNEncoder` maps the flat image obs to features, and the
-    # LayerNorm-MLP stack below runs on those features.
+    # When set, a `CNNEncoder` maps the flat image obs to the head's
+    # features, in place of the LayerNorm-MLP stack, as purejaxql's image
+    # networks do (pqn_minatar.py:67-68, pqn_atari.py:87-88) and DQN's.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
@@ -58,15 +59,15 @@ class PQNNetwork(nn.Module):
             )
         else:
             x = obs
-        # Every Dense starts as in PQN's reference code, flax's Dense default:
-        # mttga/purejaxql @47af6d7 (purejaxql/pqn_gymnax.py:52, :56) sets no
-        # initializer, so kernels are lecun_normal and biases zero.
-        for layer in self.input_architecture:
-            if str(layer).isnumeric():
-                x = dense(int(layer), self.kernel_init, None, lecun_normal())(x)
-                x = nn.LayerNorm()(x)
-            else:
-                x = parse_activation(layer)(x)
+            # Every Dense starts as in PQN's reference code, flax's Dense
+            # default: mttga/purejaxql @47af6d7 (purejaxql/pqn_gymnax.py:52,
+            # :56) sets no initializer, so kernels are lecun_normal, biases 0.
+            for layer in self.input_architecture:
+                if str(layer).isnumeric():
+                    x = dense(int(layer), self.kernel_init, None, lecun_normal())(x)
+                    x = nn.LayerNorm()(x)
+                else:
+                    x = parse_activation(layer)(x)
         # Penultimate (post-activation) features, exposed for
         # plasticity/conditioning probes. `sow` is a no-op unless the
         # caller marks "intermediates" mutable -- zero training cost.

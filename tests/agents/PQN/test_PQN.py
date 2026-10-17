@@ -6,6 +6,7 @@ import pytest
 from ajax.agents.DQN.train_DQN import make_huber_td_loss
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.PQN import PQN
+from ajax.networks.networks import MINATAR_CNN, MNIH_CNN
 
 
 def test_PQN_rejects_indivisible_minibatches():
@@ -41,3 +42,20 @@ def test_pqn_starts_every_dense_as_flax_default():
         np.testing.assert_allclose(kernel.std(), std, rtol=0.2, err_msg=name)
         assert np.abs(kernel).max() <= 2 * std / 0.87962566, name
         np.testing.assert_array_equal(params[name]["bias"], 0.0, err_msg=name)
+
+
+def test_pqn_images_build_purejaxql_s_network_and_train_on_minatar():
+    """purejaxql's image networks: Mnih et al.'s from 36 px a side, MinAtar's
+    below, he_normal with a LayerNorm after every layer, straight into the
+    Q head (no MLP stack after them)."""
+    want = {(84, 84, 4): MNIH_CNN, (10, 10, 4): MINATAR_CNN}
+    for shape, spec in want.items():
+        agent = PQN(env_id="CartPole-v1", cnn_image_shape=shape)
+        ref = spec._replace(kernel_init="he_normal", layer_norm=True)
+        assert agent.network_args.cnn_spec == ref
+    net = PQNNetwork(("8", "relu"), 3, cnn_image_shape=(10, 10, 4), cnn_spec=ref)
+    params = net.init(jax.random.PRNGKey(0), jnp.zeros((1, 400)))["params"]
+    assert sorted(params) == ["CNNEncoder_0", "Dense_0"]
+    assert params["Dense_0"]["kernel"].shape == (128, 3)
+    agent = PQN(env_id="Breakout-MinAtar", cnn_image_shape=(10, 10, 4), n_envs=2)
+    agent.train(seed=0, n_timesteps=2 * agent.agent_config.n_steps)

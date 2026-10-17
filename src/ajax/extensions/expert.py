@@ -191,8 +191,9 @@ class ImitationLoss(Extension):
     expert is the agent's ``expert_policy``, it is the action the agent
     stored at collection (the batch's ``a_expert``), so a stateful expert
     (a PID with its integral) is read from its state along the
-    trajectory. SAC, TD3, REDQ, ASAC and APO store it. An agent whose batch has
-    no ``pi_mean`` (a discrete-action policy) raises at trace time.
+    trajectory. SAC, TD3, REDQ, ASAC and APO store it; PPO, which takes no
+    expert, reads a stateless one's call. An agent whose batch has no
+    ``pi_mean`` (a discrete-action policy) raises at trace time.
 
     With ``anneal_frac`` the term is multiplied by a weight falling
     linearly from 1 to 0 at that fraction of training (:func:`anneal_weight`),

@@ -102,8 +102,9 @@ refused when the agent is built.
 | [AVG](../algorithms/avg.md) | the expert's evaluation return | none |
 
 The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
-expert: `CloningPretrain` raises on them when training starts, and
-`ImitationLoss` finds no `pi_mean` in their actor batch, or no actor phase.
+expert: `CloningPretrain` raises on them when training starts. PPO with
+continuous actions takes `ImitationLoss` with a stateless expert; on the
+others it finds no `pi_mean` in their actor batch, or no actor phase.
 
 With an expert, evaluations also log `Eval/episodic mean expert reward`, the
 expert's return on the same episodes as the agent's, and `Eval/expert

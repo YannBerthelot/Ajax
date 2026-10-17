@@ -1,7 +1,7 @@
-"""The ImitationLoss extension: its term and its wiring into five actor losses.
+"""The ImitationLoss extension: its term and its wiring into six actor losses.
 
-TD3, REDQ, ASAC, APO and SAC put the actor's mean action (``pi_mean``) and
-the raw observations into their actor-loss batch. One actor update per agent,
+TD3, REDQ, ASAC, APO, SAC and PPO put the actor's mean action (``pi_mean``)
+and the raw observations into their actor-loss batch. One actor update per agent,
 run eagerly on a tiny network, checks that the extension's term changes the
 actor gradient and has no effect at zero weight or when absent.
 """
@@ -20,6 +20,8 @@ from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.PPO import train_PPO
+from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC import train_SAC
@@ -232,12 +234,48 @@ def _apo_update(stack: ExtensionStack) -> Any:
     return state.actor_state.params
 
 
+def _ppo_update(stack: ExtensionStack) -> Any:
+    agent = PPO(
+        "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
+    )
+    state = train_PPO.init_PPO(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+    )
+    state = _ext_state(state, stack)
+    obs, actor = _obs(agent), state.actor_state
+    extra = train_PPO._stack_actor_loss(stack, state, KEY, 1, raw_observations=obs)
+
+    def loss(params: Any) -> Any:
+        return train_PPO.policy_loss_function(
+            params,
+            actor,
+            obs,
+            actions=jnp.zeros((BATCH, 1)),
+            log_probs=jnp.zeros((BATCH, 1)),
+            gae=jnp.ones((BATCH, 1)),
+            recurrent=False,
+            clip_coef=0.2,
+            ent_coef=0.0,
+            advantage_normalization=False,
+            extra_loss_fn=extra,
+            entropy_rng=KEY,
+        )
+
+    grads, _ = jax.grad(loss, has_aux=True)(actor.params)
+    return actor.apply_gradients(grads=grads).params
+
+
 UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "TD3": _td3_update,
     "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
     "ASAC": _sac_family_update(ASAC, train_ASAC, _init_asac),
     "APO": _apo_update,
     "SAC": _sac_update,
+    "PPO": _ppo_update,
 }
 
 
@@ -256,3 +294,24 @@ def test_imitation_term_steers_the_actor_update(agent: str) -> None:
     absent = update(ExtensionStack())
     assert _same(update(_stack(0.0)), absent), "zero weight must change nothing"
     assert not _same(update(_stack(100.0)), absent), "the term must reach the actor"
+
+
+@pytest.mark.parametrize("geometry", [{}, {"unroll_length": 8, "num_minibatches": 2}])
+def test_ppo_trains_with_the_term_in_its_minibatches(geometry: dict) -> None:
+    """PPO's minibatches carry the raw observations the term's expert reads,
+    flat and time-preserving (``unroll_length``) alike: the term moves the
+    actor."""
+
+    def actor(*extensions: Any) -> Any:
+        agent = PPO(
+            "Pendulum-v1",
+            n_envs=2,
+            n_steps=16,
+            actor_architecture=NET,
+            critic_architecture=NET,
+            extensions=extensions,
+            **geometry,
+        )
+        return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())

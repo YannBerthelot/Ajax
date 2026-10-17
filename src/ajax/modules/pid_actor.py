@@ -166,7 +166,7 @@ def pid_gains(actor_params) -> dict[str, jax.Array]:
     if "kp" not in law:
         raise ValueError(
             "These PID gains are predicted from the observation: read them"
-            ' with actor.apply(params, obs, method="gains").'
+            ' with PIDActor(policy, action_dim).apply(params, obs, method="gains").'
         )
     return {name: law[name] for name in GAIN_NAMES}
 

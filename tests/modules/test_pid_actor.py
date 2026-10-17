@@ -128,6 +128,13 @@ def test_the_factories_build_pid_actors():
     actor, _ = _build()
     assert isinstance(actor.apply_fn.__self__.actor, PIDActor)
     assert isinstance(actor.apply_fn(actor.params, obs), Squash)
+    # The squashed actor's parameters are the PID actor's: its gains read off them.
+    assert PIDActor(PIDPolicy(), 1).apply(actor.params, obs, method="gains").shape == (
+        3,
+        3,
+        1,
+        1,
+    )
     actor, _ = _build(td3=True)
     assert isinstance(actor.apply_fn.__self__.actor, DeterministicPIDActor)
     params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.2) for g in GAINS})

@@ -1,7 +1,7 @@
 # Networks and modules
 
-The actor and critic networks, the tanh-squashed Gaussian the squashing
-actors sample from, the pluggable memory block, the PID policy and the blocks
+The actor and critic networks, `Squash`, the `tanh` wrapper over any
+policy distribution, the pluggable memory block, the PID policy and the blocks
 the world models share. See [Networks](../guide/networks.md) and
 [Memory](../guide/memory.md).
 

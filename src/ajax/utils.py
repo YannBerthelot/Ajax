@@ -24,12 +24,12 @@ def online_normalize(
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
     """Welford-style running mean / var update.
 
-    ``nan_safe`` (static): when True (default), reductions skip NaN
-    entries via ``jnp.nanmean``. This is load-bearing for AVG, which
-    feeds NaN-sentinel values for non-terminal transitions in
-    ``G_return`` (:func:`ajax.agents.AVG.utils.compute_td_error_scaling`).
-    Set to False at call sites that pass guaranteed-clean data (e.g. the
-    agent-side obs normalizer) to drop the per-reduction mask cost.
+    ``nan_safe`` (static): when True (default), the means skip NaN
+    entries via ``jnp.nanmean``; the count still counts every row, so NaN
+    is no way to leave a row out (AVG's TD-error scale counts its own,
+    :func:`ajax.agents.AVG.utils.compute_td_error_scaling`). Set to False
+    at call sites that pass guaranteed-clean data (e.g. the agent-side obs
+    normalizer) to drop the per-reduction mask cost.
 
     ``raw_columns`` (static): the leading feature columns an env declares
     raw (:func:`ajax.environments.utils.raw_obs_columns`) come out

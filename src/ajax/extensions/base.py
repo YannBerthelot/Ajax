@@ -234,9 +234,11 @@ def check_extension_experts(
                     if stored
                     else f" {agent_name} does not store this expert's actions."
                 )
-                + " To keep only the extension's use of the expert, give SAC the"
-                " same expert with expert_buffer_n_steps=0 (no expert prefill)"
-                " and expert_fraction=0.0 (no warm-up mixing); or give the"
+                + " To keep only the extension's use of the expert, give the"
+                " agent the same expert as its expert_policy, on an agent that"
+                " stores its actions (stores_expert_actions; SAC with"
+                " expert_buffer_n_steps=0 (no expert prefill) and"
+                " expert_fraction=0.0 (no warm-up mixing)); or give the"
                 " extension a stateless expert."
             )
 

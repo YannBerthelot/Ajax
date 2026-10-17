@@ -87,10 +87,11 @@ Extensions that call an expert themselves, on the observations of a replay
 batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
 expert state exists. A stateful expert is allowed there in one case only:
-when it is SAC's own `expert_policy` (the same object) and the extension is
-one of the last four. They then read the expert's actions SAC stored at
-collection, computed from its tracked state, instead of calling it. Any
-other stateful expert is refused when the agent is built.
+when it is the agent's own `expert_policy` (the same object), on an agent
+that stores that expert's actions (SAC, TD3, REDQ, ASAC). The extensions
+then read the actions the agent stored at collection, computed from the
+expert's tracked state, instead of calling it. Any other stateful expert is
+refused when the agent is built.
 
 ## Which agents take an expert
 
@@ -294,8 +295,10 @@ These agents take `ImitationLoss`, the behaviour-cloning term of TD3+BC
 `coef · mean((μ(s) − a_E(s))²) / 4`, where `μ(s)` is the actor's mean
 action and `a_E(s)` the expert's, both in agent units. Dividing by 4 maps
 the squared distance of two actions in `[-1, 1]` to `[0, 1]`. Unlike
-`OnlineBC`, it is unweighted and needs no expert critic. TD3, REDQ and APO
-can also start from a clone of the expert:
+`OnlineBC`, it is unweighted and needs no expert critic. Give the agent the
+same expert as its `expert_policy` to use a stateful one: the term then
+reads the actions the agent stored along each trajectory. These agents can
+also start from a clone of the expert:
 
 ```python
 import jax.numpy as jnp

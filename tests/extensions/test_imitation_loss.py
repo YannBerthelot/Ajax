@@ -68,6 +68,28 @@ def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
     np.testing.assert_allclose(float(again), expected, rtol=1e-6)
 
 
+def test_the_agents_expert_is_read_from_the_stored_actions() -> None:
+    """Bound to an agent holding the same expert, the term reads the batch's
+    ``a_expert`` (the actions the agent stored) and never calls the expert;
+    it raises on a batch without them."""
+
+    def never_called(obs: jax.Array) -> jax.Array:
+        raise AssertionError("the expert's stored actions are read instead")
+
+    term = ImitationLoss(expert_policy=never_called, coef=2.0)
+    assert not term.bind_to_agent(expert_policy=EXPERT).reads_stored_expert
+    bound = term.bind_to_agent(expert_policy=never_called)
+    assert bound.reads_stored_expert
+    pi_mean = jnp.array([[0.1], [-0.3]])
+    batch: dict[str, Any] = {"pi_mean": pi_mean, "a_expert": jnp.full((2, 1), 0.9)}
+    expected = 2.0 * np.mean((np.array([0.1, -0.3]) - 0.9) ** 2) / 4.0
+    np.testing.assert_allclose(
+        float(bound.actor_loss(None, (), batch, CTX)), expected, rtol=1e-6
+    )
+    with pytest.raises(ValueError, match="a_expert"):
+        bound.actor_loss(None, (), {"pi_mean": pi_mean, "a_expert": None}, CTX)
+
+
 def test_agent_without_policy_mean_raises() -> None:
     """With the observations (test_no_silent_noop's empty batch has none)."""
     batch = {"observations": jnp.zeros((2, 3))}

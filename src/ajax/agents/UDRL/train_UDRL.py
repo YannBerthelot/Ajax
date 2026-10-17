@@ -27,7 +27,7 @@ from flax import struct
 from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
-from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update
+from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update, with_obs_norm
 from ajax.agents.UDRL.buffer import (
     add_segment,
     episode_stream,
@@ -45,10 +45,12 @@ from ajax.environments.interaction import (
     step,
     update_episodic_return,
 )
+from ajax.environments.obs_norm import update_obs_norm
 from ajax.environments.utils import (
     agent_action_to_env,
     check_if_environment_has_continuous_actions,
     env_keys,
+    raw_obs_columns,
 )
 from ajax.evaluate import evaluate
 from ajax.extensions.base import ExtensionStack, holds_expert
@@ -108,25 +110,21 @@ def init_UDRL(
         num_critics=1,
         extra_obs_dim=2,  # the (d_r, d_h) command is appended to obs
     )
-    mode = env_args.mode
+    # Under normalize_observations the collector's statistics cover the
+    # env's columns: the command appended to them stays raw, then scaled.
     collector_state = init_collector_state(
-        collector_key,
-        env_args=env_args,
-        mode=mode,
-        expert_state_aug_dim=2,  # reserves 2 trailing slots in last_obs for command
+        collector_key, env_args=env_args, mode=env_args.mode
     )
 
     n_envs = env_args.n_envs
     init_cmd = jnp.tile(
         jnp.array(
             [agent_config.command_return_init, agent_config.command_horizon_init],
-            dtype=collector_state.last_obs.dtype,
+            dtype=jnp.float32,
         ),
         (n_envs, 1),
     )
-    new_last_obs = jnp.concatenate(
-        [collector_state.last_obs[:, :-2], init_cmd], axis=-1
-    )
+    new_last_obs = jnp.concatenate([collector_state.last_obs, init_cmd], axis=-1)
     collector_state = collector_state.replace(last_obs=new_last_obs)
 
     obs_dim = collector_state.last_obs.shape[-1]
@@ -186,8 +184,16 @@ def _udrl_collect_step(
     rng_step = env_keys(step_key, mode, env_args.n_envs)
 
     last_obs = cs.last_obs  # (n_envs, raw_obs_dim + 2)
-    # The env's own observation, which an expert reads (last_obs holds it
-    # normalised under normalize_observations), for a buffer that keeps it.
+    # The observation statistics take each observation once, when it is
+    # collected and before the actor reads it (as collect_experience).
+    if cs.obs_norm_info is not None:
+        _, stats = update_obs_norm(
+            last_obs[:, :-2], cs.obs_norm_info, raw_obs_columns(env_args.env)
+        )
+        cs = cs.replace(obs_norm_info=stats)
+        agent_state = with_obs_norm(agent_state.replace(collector_state=cs))
+    # The env's own observation, which an expert reads, for a buffer that
+    # keeps it.
     raw_obs = None
     if agent_state.buffer is not None and agent_state.buffer.raw_obs is not None:
         raw_obs = get_raw_obs(cs.env_state, env_args.env, mode).astype(jnp.float32)
@@ -394,10 +400,9 @@ def training_iteration(
             }
             if extension_stack:
                 # For the extensions: the env's own observations at the
-                # batch's rows (the buffer keeps them only for a run with an
-                # expert: None without one, never the observations passed
-                # off as raw), and the policy's mean action (None for a
-                # discrete policy, which has none).
+                # batch's rows (the buffer keeps them apart only for a run
+                # with an expert: None without one), and the policy's mean
+                # action (None for a discrete policy, which has none).
                 pi, _ = get_pi(a_state.actor_state, params, obs_b)
                 discrete = isinstance(pi, distrax.Categorical)
                 _al_batch["raw_observations"] = (

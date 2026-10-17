@@ -32,7 +32,20 @@ REPLAYING = sorted(
 
 
 def test_the_replaying_agents_are_the_replay_buffer_ones() -> None:
-    assert REPLAYING == ["ASAC", "DQN", "REDQ", "SAC", "TD3"]
+    assert REPLAYING == ["ASAC", "DQN", "REDQ", "SAC", "TD3", "UDRL"]
+
+
+def _replayed_rows(state: Any) -> np.ndarray:
+    """The observations a replay holds, one row each: UDRL's segments (with
+    its command appended), the others' flashbax replay."""
+    segments = getattr(state, "buffer", None)
+    if segments is not None:
+        held = np.asarray(segments.obs)[: int(segments.fill_count)]
+        return held.reshape(-1, held.shape[-1])
+    assert state.collector_state.buffer_state is not None
+    written = int(state.collector_state.timestep) // 2
+    rows = np.asarray(state.collector_state.buffer_state.experience["obs"])
+    return rows[:, :written].reshape(-1, rows.shape[-1])
 
 
 @pytest.mark.parametrize("name", REPLAYING)
@@ -47,10 +60,8 @@ def test_a_replay_agent_keeps_the_envs_own_observations(name: str) -> None:
     assert not strip_ajax_wrappers(agent.env_args.env)[1].get("normalize_obs", False)
     state, _ = agent.train(seed=0, n_timesteps=24)
     state = jax.tree.map(lambda x: x[0], state)  # the one seed
-    assert state.collector_state.buffer_state is not None
-    rows = state.collector_state.buffer_state.experience
-    written = int(state.collector_state.timestep) // 2
-    t = np.asarray(rows["obs"])[:, :written, 0]
+    rows = _replayed_rows(state)
+    t = rows[:, 0]
     np.testing.assert_array_equal(t, np.round(t))
     assert t.min() == 0 and t.max() <= LIMIT - 1
     stats = state.collector_state.obs_norm_info
@@ -63,11 +74,13 @@ def test_a_replay_agent_keeps_the_envs_own_observations(name: str) -> None:
             jax.tree.leaves(network.obs_norm_info), jax.tree.leaves(stats), strict=True
         ):
             np.testing.assert_array_equal(mine, theirs)
-    # The policy reads a replayed raw row normalised with today's statistics.
-    raw = jnp.asarray(rows["obs"])[:, :written].reshape(-1, 2)
+    # The policy reads a replayed raw row normalised with today's statistics
+    # (the env's columns: UDRL's command stays raw).
+    raw, own = jnp.asarray(rows), stats.mean.shape[-1]
     actor = state.actor_state
     pi, _ = get_pi(actor, actor.params, raw)
-    normed = (raw - stats.mean) / np.sqrt(stats.var + 1e-8)
+    normed = (raw[:, :own] - stats.mean) / np.sqrt(stats.var + 1e-8)
+    normed = jnp.concatenate([normed, raw[:, own:]], axis=-1)
     direct = actor.apply_fn(actor.params, normed)
     if hasattr(pi, "q_values"):  # DQN's greedy policy: its Q-values
         pi, direct = pi.q_values, direct.q_values
@@ -83,7 +96,9 @@ def test_an_on_policy_agent_keeps_the_envs_normaliser() -> None:
     assert strip_ajax_wrappers(agent.env_args.env)[1]["normalize_obs"]
 
 
-@pytest.mark.parametrize("name", REPLAYING)
+# UDRL's segments still keep the rewards the env normalised: its commands and
+# their targets are sums of them (docs/guide/environments.md).
+@pytest.mark.parametrize("name", [n for n in REPLAYING if n != "UDRL"])
 def test_a_replay_agent_stores_the_envs_own_rewards(name: str) -> None:
     """The replay stores the env's own reward (on the identity task the
     executed action: twice the agent's on Box(-2, 2), itself on

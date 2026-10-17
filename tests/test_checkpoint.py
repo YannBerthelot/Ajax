@@ -542,21 +542,31 @@ def test_a_udrl_buffer_saved_before_it_kept_raw_observations_restores(tmp_path, 
         assert want is None and got is None
 
 
-def test_a_normalised_udrl_buffer_restores_into_an_expert_run_only_with_its_raw_obs(
-    tmp_path,
-):
-    """A UDRL buffer of normalised observations saved without an expert holds
-    none of the env's own, which an expert reads: refused, saying why, by a
-    run with one."""
-    from ajax.extensions.expert import ImitationLoss
+def _resaved(path: str, change) -> dict:
+    """The checkpoint at ``path`` as ``change`` leaves its pickled dict."""
+    import pickle
 
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    change(saved)
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    return saved
+
+
+def test_a_udrl_buffer_the_env_normalised_is_refused(tmp_path):
+    """A UDRL checkpoint saved while the env normalised its observations (its
+    env state holds their statistics) keeps each row at the statistics of
+    its collection: refused, saying why, since UDRL now normalises the raw
+    rows it reads."""
     state, _ = _udrl(normalize_observations=True).train(seed=0, n_timesteps=16)
-    path = str(tmp_path / "plain.pkl")
+    path = str(tmp_path / "old.pkl")
     save_checkpoint(state, path)
-    with_expert = _udrl(
-        normalize_observations=True,
-        extensions=(ImitationLoss(lambda obs: obs[..., :1]),),
-    )
-    skeleton, _ = with_expert.train(seed=0, n_timesteps=0)
-    with pytest.raises(ValueError, match="normalised observations"):
-        restore_into(skeleton, path)
+    stats = {"count": 1.0, "mean": 0.0, "mean_2": 1.0}
+
+    def env_normalised(saved: dict) -> None:
+        saved["collector_state"]["_env_state"]["normalization_info"] = {"obs": stats}
+
+    _resaved(path, env_normalised)
+    with pytest.raises(ValueError, match="environment normalised"):
+        restore_into(state, path)

@@ -128,5 +128,5 @@ the steps the whole run does.
     - a UDRL segment buffer without the environment's own observations
       (`raw_obs`, kept for a run with an expert), saved before it kept them
       or by a run without an expert, restored into a run with one: they are
-      rebuilt from the stored observations. A buffer of normalised
-      observations has lost them and is refused.
+      rebuilt from the stored observations. A UDRL buffer of observations
+      the environment normalised is refused: UDRL now keeps them raw.

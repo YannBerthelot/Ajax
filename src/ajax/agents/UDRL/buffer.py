@@ -23,7 +23,9 @@ from ajax.types import Replaceable
 
 @struct.dataclass
 class SegmentBuffer(Replaceable):
-    obs: jnp.ndarray  # (B, T, n_envs, obs_dim_with_cmd)
+    # (B, T, n_envs, obs_dim_with_cmd) the env's own observations, with the
+    # command: the agent normalises them when it reads them.
+    obs: jnp.ndarray
     actions: jnp.ndarray  # (B, T, n_envs, action_dim)
     rewards: jnp.ndarray  # (B, T, n_envs, 1)
     dones: jnp.ndarray  # (B, T, n_envs, 1)  float in {0., 1.}
@@ -38,8 +40,8 @@ class SegmentBuffer(Replaceable):
     write_idx: jnp.ndarray  # scalar int32
     fill_count: jnp.ndarray  # scalar int32 (capped at B)
     # (B, T, n_envs, env_obs_dim) the env's own observations, which an
-    # expert reads, kept only for a run with one (holds_expert): ``obs``
-    # holds them normalised under normalize_observations. None otherwise.
+    # expert reads, kept only for a run with one (holds_expert). None
+    # otherwise.
     raw_obs: Optional[jnp.ndarray] = None
 
 

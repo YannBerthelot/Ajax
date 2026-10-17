@@ -34,6 +34,7 @@ from ajax.environments.interaction import (
     ActionPipelineResult,
     get_pi,
     init_collector_state,
+    with_expert_state,
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
@@ -139,12 +140,7 @@ def init_TD3(
         include_raw_obs=store_expert_data,
         include_is_expert=store_expert_data,
     )
-    # A stateful expert (PID integrator, CPG phase) threads its state
-    # through collection; seed it so the scan carry keeps one shape.
-    if expert_policy is not None and hasattr(expert_policy, "init_state"):
-        collector_state = collector_state.replace(
-            expert_state=expert_policy.init_state(env_args.n_envs)
-        )
+    collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
     return TD3State(
         rng=rng,
         eval_rng=eval_rng,

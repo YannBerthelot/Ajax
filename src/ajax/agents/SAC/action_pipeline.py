@@ -1,5 +1,4 @@
-"""SAC's action pipeline (collection-time action selection) and its
-``next_expert_fn``.
+"""SAC's action pipeline (collection-time action selection).
 
 The pipeline owns SAC's collection bookkeeping (``is_expert_flag``,
 ``buffer_action``, expert-state threading), the gain-policy
@@ -17,10 +16,11 @@ import jax.numpy as jnp
 from ajax.environments.interaction import (
     ActionPipelineResult,
     augment_obs,
+    expert_state_at_step,
+    expert_step,
     get_action_and_log_probs,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
-from ajax.networks.memory import tree_where_reset
 from ajax.networks.networks import phi_star_critic_state
 
 #: The pipeline's slots for an ``action`` extension: before the warmup
@@ -54,25 +54,6 @@ def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -
         )
 
 
-def _resolve_expert_state(expert_policy, collector_state, n_envs):
-    """Return the stateful expert's per-step input state.
-
-    Resets entries whose previous step was a terminal/truncation to the
-    zero-initialised state (autoreset has already advanced obs at this
-    point).
-    """
-    expert_zero_batched = expert_policy.init_state(n_envs)
-    last_done = collector_state.last_terminated.astype(
-        jnp.bool_
-    ) | collector_state.last_truncated.astype(jnp.bool_)
-    current_expert_state = (
-        collector_state.expert_state
-        if collector_state.expert_state is not None
-        else expert_zero_batched
-    )
-    return tree_where_reset(last_done, expert_zero_batched, current_expert_state)
-
-
 def _gain_policy_step(
     *,
     agent_state,
@@ -96,7 +77,7 @@ def _gain_policy_step(
     only path that returns early from ``pipeline``.
     """
     collector_state = agent_state.collector_state
-    expert_state_in = _resolve_expert_state(
+    expert_state_in = expert_state_at_step(
         expert_policy, collector_state, env_args.n_envs
     )
     _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
@@ -215,20 +196,11 @@ def make_action_pipeline(
                 gain_log_scale=_gain_log_scale,
             )
 
-        # --- Stateful expert call (PID integrator / derivative carry) ---
+        # --- The expert's call, from its tracked state when stateful ---
         _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
-        if expert_is_stateful:
-            expert_state_in = _resolve_expert_state(
-                expert_policy, collector_state, env_args.n_envs
-            )
-            expert_action, new_expert_state = expert_policy(
-                expert_state_in, _raw_for_expert
-            )
-            expert_action = jax.lax.stop_gradient(expert_action)
-            new_expert_state = jax.lax.stop_gradient(new_expert_state)
-        else:
-            expert_action = jax.lax.stop_gradient(expert_policy(_raw_for_expert))
-            new_expert_state = None
+        expert_action, new_expert_state = expert_step(
+            expert_policy, collector_state, _raw_for_expert, env_args.n_envs
+        )
 
         # --- Obs augmentation (interaction.augment_obs's layout) ---
         if augment_obs_with_expert_action:
@@ -387,27 +359,3 @@ def make_action_pipeline(
         )
 
     return pipeline
-
-
-def make_next_expert_fn(expert_policy):
-    """Build a callable that returns ``a_expert(s_{t+1}, expert_state_{t+1})``.
-
-    The action pipeline already produced the post-step expert state
-    while consuming s_t; we feed it back together with raw s_{t+1} to
-    get the expert action that *would have been taken at the next
-    step*. Stored in the buffer so the residual-RL TD target evaluates
-    the bootstrap Q on the same residual-transformed action
-    distribution the critic was trained on. Returns None when the
-    expert is not provided (so collect_experience writes zeros).
-    """
-    if expert_policy is None:
-        return None
-    expert_is_stateful = hasattr(expert_policy, "init_state")
-
-    def next_expert_fn(post_step_expert_state, raw_next_obs):
-        if expert_is_stateful and post_step_expert_state is not None:
-            a_next, _ = expert_policy(post_step_expert_state, raw_next_obs)
-            return a_next
-        return expert_policy(raw_next_obs)
-
-    return next_expert_fn

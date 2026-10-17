@@ -113,3 +113,68 @@ def test_bptt_length_guards():
         )
     with pytest.raises(ValueError, match="requires a memory config"):
         PPO(env_id="CartPole-v1", n_steps=32, bptt_length=8)
+
+
+def test_a_time_limit_bootstraps_on_its_own_episode():
+    """At a time limit the next value is the critic on the episode's final
+    observation from the carry that consumed the episode (sb3-contrib's
+    RecurrentPPO), not on the reset observation from a fresh carry;
+    elsewhere it is the next step's value, and the step-by-step pass gives
+    the values the sequence pass does."""
+    import numpy as np
+
+    from ajax.agents.PPO import train_PPO
+    from ajax.networks.networks import predict_value_sequence
+    from ajax.state import Transition
+
+    agent = PPO(
+        "Pendulum-v1",
+        n_envs=2,
+        n_steps=8,
+        batch_size=8,
+        memory=MemoryConfig(kind="gru", hidden_size=8),
+    )
+    state = train_PPO.init_PPO(
+        jax.random.PRNGKey(0),
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+    )
+    T, B, cut = 8, 2, 4  # env 1's episode hits its time limit at step 4
+    keys = jax.random.split(jax.random.PRNGKey(1), 3)
+    obs = jax.random.normal(keys[0], (T, B, 3))
+    next_obs = jnp.concatenate([obs[1:], jax.random.normal(keys[1], (1, B, 3))])
+    next_obs = next_obs.at[cut, 1].set(jax.random.normal(keys[2], (3,)))
+    zeros = jnp.zeros((T, B, 1))
+    rollout = Transition(
+        obs=obs,
+        action=zeros,
+        reward=zeros,
+        terminated=zeros,
+        truncated=zeros.at[cut, 1].set(1.0),
+        next_obs=next_obs,
+        raw_obs=obs,
+        log_prob=zeros,
+        raw_action=zeros,
+    )
+    _, values, next_values, resets, _ = train_PPO._recurrent_values(
+        state, rollout, state, length=4
+    )
+    critic, carry = state.critic_state, state.critic_state.hidden_state
+    whole, _ = predict_value_sequence(critic, critic.params, obs, resets, carry)
+    np.testing.assert_allclose(values, whole[0], atol=1e-6)
+    _, seen = predict_value_sequence(
+        critic, critic.params, obs[: cut + 1], resets[: cut + 1], carry
+    )
+    no_reset = jnp.zeros((1, B), bool)
+    own, _ = predict_value_sequence(
+        critic, critic.params, next_obs[cut][None], no_reset, seen
+    )
+    np.testing.assert_allclose(next_values[cut, 1], own[0, 0, 1], atol=1e-6)
+    assert abs(float(next_values[cut, 1, 0] - values[cut + 1, 1, 0])) > 1e-3
+    following = np.ones((T - 1, B), bool)
+    following[cut, 1] = False
+    np.testing.assert_allclose(
+        next_values[:-1][following], values[1:][following], atol=1e-6
+    )
